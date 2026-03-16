@@ -1,0 +1,22 @@
+[package]
+name = "rusty-viewer"
+version = "0.1.0"
+edition = "2021"
+description = "A modular multi-format data viewer and editor"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
+
+[dependencies]
+eframe = { version = "0.31", features = ["default"] }
+egui = "0.31"
+egui_extras = { version = "0.31", features = ["default"] }
+parquet = { version = "54", features = ["default"] }
+arrow = { version = "54", features = ["default"] }
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
+anyhow = "1"
