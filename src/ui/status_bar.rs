@@ -80,14 +80,17 @@ pub fn draw_status_bar(
             }
 
             // Edit indicator
-            if table.has_edits() {
+            if table.is_modified() {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(format!("({} edits)", table.edits.len()))
-                            .size(11.0)
-                            .color(colors.warning),
-                    );
+                    let edit_count = table.edits.len();
+                    if edit_count > 0 {
+                        ui.label(
+                            RichText::new(format!("({} edits)", edit_count))
+                                .size(11.0)
+                                .color(colors.warning),
+                        );
+                    }
                     ui.label(
                         RichText::new("Modified")
                             .size(11.0)

@@ -68,6 +68,7 @@ impl FormatReader for ParquetReader {
             edits: std::collections::HashMap::new(),
             source_path: Some(path.to_string_lossy().to_string()),
             format_name: Some("Parquet".to_string()),
+            structural_changes: false,
         })
     }
 }
