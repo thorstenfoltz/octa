@@ -41,7 +41,6 @@ clean: ## Clean cache of uv and delete virtual environment
 	@rm -rf .venv
 
 lint: ## Lints the code
-	@sh ./.linters/check_git_branch_name.sh
 	@docker build --pull -q -t megalinter-rust-custom .github/megalinter-rust/
 	@docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:rw -v $(CURDIR):/tmp/lint:rw megalinter-rust-custom
 

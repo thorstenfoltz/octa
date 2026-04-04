@@ -8,7 +8,8 @@ accept = ["200", "429"]
 
 exclude = [
     "https://megalinter.io/configuration/",
-    "file:///tmp/lint/dwh/models/logo.png"
+    "file:///tmp/lint/dwh/models/logo.png",
+    "file://.linters/mega-linter-plugin-*"
     ]
 
 exclude_path = [

@@ -1,0 +1,21 @@
+descriptor_id: REPOSITORY
+descriptor_type: other
+linters:
+  - linter_name: validate-branch-name
+    name: REPOSITORY_BRANCH_NAME
+    descriptor_flavors:
+      - all_flavors
+    linter_url: https://github.com/thorstenfoltz/octo
+    linter_text: "Validates git branch names follow the convention: master, main, or prefix/name (feature, fix, hotfix, chore, refactor, test, docs)"
+    cli_lint_mode: project
+    lint_all_files: true
+    cli_executable: bash
+    cli_lint_extra_args:
+      - ".linters/validate_branch_name.sh"
+    cli_help_arg_name: "--help"
+    cli_version_arg_name: "--version"
+    examples:
+      - "bash .linters/validate_branch_name.sh"
+    install:
+      dockerfile:
+        - "RUN true"
