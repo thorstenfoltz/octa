@@ -17,3 +17,852 @@ To receive reports as email, please set variable EMAIL_REPORTER_EMAIL
 
 MegaLinter now collects the files to analyse
 Listing updated files in [/tmp/lint] using git diff.
+Modified files:
+.github/aur/PKGBUILD
+.linters/.bandit.yml
+.linters/.checkov.yml
+.linters/.ls-lint.yml
+.linters/.markdown-link-check.json
+.linters/.markdownlint.json
+.linters/.proselintrc
+.linters/.yamllint.yml
+.linters/check_git_branch_name.sh
+.linters/lychee.toml
+.mega-linter.yml
+Cargo.lock
+Cargo.toml
+Makefile
+README.md
+megalinter-reports/megalinter.log
+src/data/mod.rs
+src/formats/arrow_ipc_reader.rs
+src/formats/avro_reader.rs
+src/formats/csv_reader.rs
+src/formats/excel_reader.rs
+src/formats/json_reader.rs
+src/formats/mod.rs
+src/formats/parquet_reader.rs
+src/formats/pdf_reader.rs
+src/formats/toml_reader.rs
+src/formats/xml_reader.rs
+src/formats/yaml_reader.rs
+src/main.rs
+src/ui/table_view.rs
+src/ui/theme.rs
+- File extensions: , .bash, .dash, .htm, .html, .json, .json5, .jsonc, .ksh, .markdown, .md, .mdx, .rs, .rst, .sh, .txt, .yaml, .yml
+- Excluding regex: none
+⚠️ More than 300 .gitignored files have been detected (54709). To improve MegaLinter performances, consider adding more excluded directories using the ADDITIONAL_EXCLUDED_DIRECTORIES variable. See https://megalinter.io/9.4.0/config-filtering/
+- Excluding .gitignored files [54709]: .claude/settings.local.json, CLAUDE.md, target/.rustc_info.json, target/CACHEDIR.TAG, target/debug/.cargo-lock, target/debug/.fingerprint/ab_glyph-2d8d935b29bb58e2/dep-lib-ab_glyph, target/debug/.fingerprint/ab_glyph-2d8d935b29bb58e2/invoked.timestamp, target/debug/.fingerprint/ab_glyph-2d8d935b29bb58e2/lib-ab_glyph, target/debug/.fingerprint/ab_glyph-2d8d935b29bb58e2/lib-ab_glyph.json, target/debug/.fingerprint/ab_glyph-507eefd509d081b1/dep-lib-ab_glyph,…(full list in DEBUG)
+Kept [26] files on [30] found files
+
++----MATCHING LINTERS-------------------+------------------------------------------------------------------------+----------------+------------+
+| Descriptor | Linter                   | Criteria                                                               | Matching files | Format/Fix |
++------------+--------------------------+------------------------------------------------------------------------+----------------+------------+
+| BASH       | bash-exec                | |.sh|.bash|.dash|.ksh                                                  | 1              | no         |
+| BASH       | shellcheck               | |.sh|.bash|.dash|.ksh                                                  | 1              | no         |
+| BASH       | shfmt                    | |.sh|.bash|.dash|.ksh                                                  | 1              | yes        |
+| JSON       | jsonlint                 | .json                                                                  | 2              | no         |
+| JSON       | v8r                      | .json                                                                  | 2              | no         |
+| JSON       | prettier                 | .json                                                                  | 2              | yes        |
+| MARKDOWN   | markdownlint             | .md                                                                    | 1              | yes        |
+| MARKDOWN   | markdown-table-formatter | .md                                                                    | 1              | yes        |
+| REPOSITORY | checkov                  |                                                                        | project        | no         |
+| REPOSITORY | gitleaks                 |                                                                        | project        | no         |
+| REPOSITORY | ls-lint                  |                                                                        | project        | no         |
+| REPOSITORY | secretlint               |                                                                        | project        | no         |
+| REPOSITORY | semgrep                  |                                                                        | project        | no         |
+| REPOSITORY | trivy                    |                                                                        | project        | no         |
+| REPOSITORY | trufflehog               |                                                                        | project        | no         |
+| RUST       | clippy                   | .rs                                                                    | project        | no         |
+| SPELL      | proselint                | .md|.txt                                                               | 1              | no         |
+| SPELL      | lychee                   | .md|.mdx|.markdown|.html|.htm|.rst|.txt|.json|.jsonc|.json5|.yaml|.yml | 7              | no         |
+| YAML       | prettier                 | .yml|.yaml                                                             | 4              | yes        |
+| YAML       | yamllint                 | .yml|.yaml                                                             | 4              | no         |
+| YAML       | v8r                      | .yml|.yaml                                                             | 4              | no         |
++------------+--------------------------+------------------------------------------------------------------------+----------------+------------+
+
+Processing linters on [16] parallel cores… (can be decreased with variable PARALLEL_PROCESS_NUMBER in case of performance issues)
+[32m✅ Linted [BASH] files with [bash-exec] successfully - (0.17s)[0m
+- Using [bash-exec v5.3.3] https://megalinter.io/9.4.0/descriptors/bash_bash_exec
+- MegaLinter key: [BASH_EXEC]
+- Rules config: identified by [bash-exec]
+- Number of files analyzed: [1]
+- CWD: [/tmp/lint]
+- Command: [bash-exec .linters/check_git_branch_name.sh]
+
+[32m✅ Linted [BASH] files with [shellcheck] successfully - (0.02s)[0m
+- Using [shellcheck v0.11.0] https://megalinter.io/9.4.0/descriptors/bash_shellcheck
+- MegaLinter key: [BASH_SHELLCHECK]
+- Rules config: identified by [shellcheck]
+- Number of files analyzed: [1]
+- CWD: [/tmp/lint]
+- Command: [shellcheck --color=auto --external-sources -e SC2162 .linters/check_git_branch_name.sh]
+
+[32m✅ Linted [BASH] files with [shfmt] successfully - (0.02s)[0m
+- Using [shfmt v3.12.0] https://megalinter.io/9.4.0/descriptors/bash_shfmt
+- MegaLinter key: [BASH_SHFMT]
+- Rules config: identified by [shfmt]
+- Number of files analyzed: [1]
+- CWD: [/tmp/lint]
+- Command: [shfmt -w .linters/check_git_branch_name.sh]
+
+[32m✅ Linted [JSON] files with [jsonlint] successfully - (0.23s)[0m
+- Using [jsonlint v17.0.1] https://megalinter.io/9.4.0/descriptors/json_jsonlint
+- MegaLinter key: [JSON_JSONLINT]
+- Rules config: identified by [jsonlint]
+- Number of files analyzed: [2]
+- CWD: [/tmp/lint]
+- Command: [jsonlint --quiet .linters/.markdown-link-check.json .linters/.markdownlint.json]
+
+[32m✅ Linted [REPOSITORY] files with [ls-lint] successfully - (0.22s)[0m
+- Using [ls-lint v2.3.1] https://megalinter.io/9.4.0/descriptors/repository_ls_lint
+- MegaLinter key: [REPOSITORY_LS_LINT]
+- Rules config: [/.linters/.ls-lint.yml]
+- CWD: [/tmp/lint]
+- Command: [ls-lint --config /tmp/lint/.linters/.ls-lint.yml]
+
+[32m✅ Linted [REPOSITORY] files with [gitleaks] successfully - (0.41s)[0m
+- Using [gitleaks v8.30.0] https://megalinter.io/9.4.0/descriptors/repository_gitleaks
+- MegaLinter key: [REPOSITORY_GITLEAKS]
+- Rules config: [.gitleaks.toml]
+- CWD: [/tmp/lint]
+- Command: [gitleaks detect --redact -c /action/lib/.automation/.gitleaks.toml --verbose --source .]
+
+[32m✅ Linted [YAML] files with [prettier] successfully - (0.26s)[0m
+- Using [prettier v3.8.1] https://megalinter.io/9.4.0/descriptors/yaml_prettier
+- MegaLinter key: [YAML_PRETTIER]
+- Rules config: identified by [prettier]
+- Number of files analyzed: [4]
+- CWD: [/tmp/lint]
+- Command: [prettier --write .linters/.checkov.yml .linters/.ls-lint.yml .linters/.yamllint.yml .mega-linter.yml]
+
+[32m✅ Linted [MARKDOWN] files with [markdownlint] successfully - (0.35s)[0m
+- Using [markdownlint v0.47.0] https://megalinter.io/9.4.0/descriptors/markdown_markdownlint
+- MegaLinter key: [MARKDOWN_MARKDOWNLINT]
+- Rules config: [/.linters/.markdownlint.json]
+- Number of files analyzed: [1]
+- CWD: [/tmp/lint]
+- Command: [markdownlint --fix -c /tmp/lint/.linters/.markdownlint.json README.md]
+
+[32m✅ Linted [YAML] files with [yamllint] successfully - (0.21s)[0m
+- Using [yamllint v1.38.0] https://megalinter.io/9.4.0/descriptors/yaml_yamllint
+- MegaLinter key: [YAML_YAMLLINT]
+- Rules config: [/.linters/.yamllint.yml]
+- Number of files analyzed: [4]
+- CWD: [/tmp/lint]
+- Command: [yamllint --format standard -c /tmp/lint/.linters/.yamllint.yml .linters/.checkov.yml .linters/.ls-lint.yml .linters/.yamllint.yml .mega-linter.yml]
+
+[32m✅ Linted [MARKDOWN] files with [markdown-table-formatter] successfully - (0.12s)[0m
+- Using [markdown-table-formatter v1.7.0] https://megalinter.io/9.4.0/descriptors/markdown_markdown_table_formatter
+- MegaLinter key: [MARKDOWN_MARKDOWN_TABLE_FORMATTER]
+- Rules config: identified by [markdown-table-formatter]
+- Number of files analyzed: [1]
+- CWD: [/tmp/lint]
+- Command: [markdown-table-formatter README.md]
+
+[32m✅ Linted [SPELL] files with [lychee] successfully - (1.07s)[0m
+- Using [lychee v0.18.0] https://megalinter.io/9.4.0/descriptors/spell_lychee
+- MegaLinter key: [SPELL_LYCHEE]
+- Rules config: [/.linters/lychee.toml]
+- Number of files analyzed: [7]
+- CWD: [/tmp/lint]
+- Command: [lychee --format detailed --no-progress --config /tmp/lint/.linters/lychee.toml .linters/.checkov.yml .linters/.ls-lint.yml .linters/.markdown-link-check.json .linters/.markdownlint.json .linters/.yamllint.yml .mega-linter.yml README.md]
+
+[32m✅ Linted [REPOSITORY] files with [secretlint] successfully - (1.13s)[0m
+- Using [secretlint v11.3.1] https://megalinter.io/9.4.0/descriptors/repository_secretlint
+- MegaLinter key: [REPOSITORY_SECRETLINT]
+- Rules config: [.secretlintrc.json]
+- CWD: [/tmp/lint]
+- Command: [secretlint --secretlintrc /action/lib/.automation/.secretlintrc.json --secretlintignore .gitignore **/*]
+
+[32m✅ Linted [JSON] files with [v8r] successfully - (1.89s)[0m
+- Using [v8r v6.0.0] https://megalinter.io/9.4.0/descriptors/json_v8r
+- MegaLinter key: [JSON_V8R]
+- Rules config: identified by [v8r]
+- Number of files analyzed: [2]
+- CWD: [/tmp/lint]
+- Command: [v8r --ignore-errors .linters/.markdown-link-check.json .linters/.markdownlint.json]
+
+[32m✅ Linted [JSON] files with [prettier] successfully - (0.17s)[0m
+- Using [prettier v3.8.1] https://megalinter.io/9.4.0/descriptors/json_prettier
+- MegaLinter key: [JSON_PRETTIER]
+- Rules config: identified by [prettier]
+- Number of files analyzed: [2]
+- CWD: [/tmp/lint]
+- Command: [prettier --write .linters/.markdown-link-check.json .linters/.markdownlint.json]
+
+[32m✅ Linted [YAML] files with [v8r] successfully - (2.55s)[0m
+- Using [v8r v6.0.0] https://megalinter.io/9.4.0/descriptors/yaml_v8r
+- MegaLinter key: [YAML_V8R]
+- Rules config: identified by [v8r]
+- Number of files analyzed: [4]
+- CWD: [/tmp/lint]
+- Command: [v8r --ignore-errors .linters/.checkov.yml .linters/.ls-lint.yml .linters/.yamllint.yml .mega-linter.yml]
+
+[32m✅ Linted [SPELL] files with [proselint] successfully - (5.39s)[0m
+- Using [proselint v0.14.0] https://megalinter.io/9.4.0/descriptors/spell_proselint
+- MegaLinter key: [SPELL_PROSELINT]
+- Rules config: [/.linters/.proselintrc]
+- Number of files analyzed: [1]
+- CWD: [/tmp/lint]
+- Command: [proselint --config /tmp/lint/.linters/.proselintrc README.md]
+
+[32m✅ Linted [REPOSITORY] files with [trivy] successfully - (7.86s)[0m
+- Using [trivy v0.69.1] https://megalinter.io/9.4.0/descriptors/repository_trivy
+- MegaLinter key: [REPOSITORY_TRIVY]
+- Rules config: identified by [trivy]
+- CWD: [/tmp/lint]
+- Command: [trivy fs --scanners vuln,misconfig --exit-code 1 .]
+
+[32m✅ Linted [REPOSITORY] files with [semgrep] successfully - (7.88s)[0m
+- Using [semgrep v1.153.1] https://megalinter.io/9.4.0/descriptors/repository_semgrep
+- MegaLinter key: [REPOSITORY_SEMGREP]
+- Rules config: identified by [semgrep]
+- CWD: [/tmp/lint]
+- Command: [semgrep --error --config p/comment --config p/cwe-top-25 --config p/docker-compose --config p/dockerfile --config p/owasp-top-ten --config p/python --config p/r2c-security-audit --config p/secure-defaults /tmp/lint]
+
+[31m❌ Linted [RUST] files with [clippy]: Found 1 error(s) and 0 warning(s) - (13.74s)[0m
+- Using [clippy v0.1.93] https://megalinter.io/9.4.0/descriptors/rust_clippy
+- MegaLinter key: [RUST_CLIPPY]
+- Rules config: identified by [clippy]
+- CWD: [/tmp/lint]
+- Command: [cargo-clippy]
+--Error detail:
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded adler2 v2.0.1
+  Downloaded accesskit_unix v0.13.1
+  Downloaded adler32 v1.2.0
+  Downloaded accesskit_winit v0.23.1
+  Downloaded csv-core v0.1.13
+  Downloaded dlib v0.5.3
+  Downloaded dirs v6.0.0
+  Downloaded displaydoc v0.2.5
+  Downloaded crossbeam-utils v0.8.21
+  Downloaded core2 v0.4.0
+  Downloaded crunchy v0.2.4
+  Downloaded itoa v1.0.17
+  Downloaded enum-map-derive v0.17.0
+  Downloaded linked-hash-map v0.5.6
+  Downloaded libloading v0.8.9
+  Downloaded lock_api v0.4.14
+  Downloaded gpu-descriptor-types v0.2.0
+  Downloaded endi v1.1.1
+  Downloaded base64 v0.22.1
+  Downloaded async-process v2.5.0
+  Downloaded lexical-write-integer v1.0.6
+  Downloaded itertools v0.13.0
+  Downloaded libm v0.2.16
+  Downloaded proc-macro-crate v3.5.0
+  Downloaded postscript v0.14.1
+  Downloaded rand_chacha v0.3.1
+  Downloaded rangemap v1.7.1
+  Downloaded quick-error v2.0.1
+  Downloaded rgb v0.8.53
+  Downloaded miniz_oxide v0.8.9
+  Downloaded lexical-util v1.0.7
+  Downloaded renderdoc-sys v1.1.0
+  Downloaded phf_shared v0.11.3
+  Downloaded generic-array v0.14.7
+  Downloaded roxmltree v0.20.0
+  Downloaded serde_spanned v0.6.9
+  Downloaded siphasher v1.0.2
+  Downloaded simd-adler32 v0.3.8
+  Downloaded strict-num v0.1.1
+  Downloaded unicode-bidi-mirroring v0.4.0
+  Downloaded libc v0.2.183
+  Downloaded urlencoding v2.1.3
+  Downloaded wayland-cursor v0.31.13
+  Downloaded utf8_iter v1.0.4
+  Downloaded wayland-protocols-misc v0.3.11
+  Downloaded serde_json v1.0.149
+  Downloaded zerofrom v0.1.6
+  Downloaded yeslogic-fontconfig-sys v6.0.0
+  Downloaded zbus_xml v4.0.0
+  Downloaded weezl v0.1.12
+  Downloaded zbus_names v4.3.1
+  Downloaded zvariant_derive v4.2.0
+  Downloaded xml-rs v0.8.28
+  Downloaded zvariant_utils v2.1.0
+  Downloaded zvariant_derive v5.10.0
+  Downloaded rand_core v0.6.4
+  Downloaded zerofrom-derive v0.1.6
+  Downloaded xkbcommon-dl v0.4.2
+  Downloaded xdg-home v1.3.0
+  Downloaded yoke v0.8.1
+  Downloaded zstd v0.13.3
+  Downloaded zune-core v0.5.1
+  Downloaded zopfli v0.8.3
+  Downloaded zvariant_utils v3.3.0
+  Downloaded time v0.3.47
+  Downloaded zbus_names v3.0.0
+  Downloaded usvg v0.47.0
+  Downloaded zvariant v5.10.0
+  Downloaded zvariant v4.2.0
+  Downloaded wgpu v24.0.5
+  Downloaded zbus_macros v5.14.0
+  Downloaded zbus v5.14.0
+  Downloaded wayland-client v0.31.13
+  Downloaded url v2.5.8
+  Downloaded x11-dl v2.21.0
+  Downloaded zerotrie v0.2.3
+  Downloaded wgpu-core v24.0.5
+  Downloaded zerocopy v0.8.42
+  Downloaded idna v1.1.0
+  Downloaded xkeysym v0.2.1
+  Downloaded zerovec v0.11.5
+  Downloaded smithay-client-toolkit v0.20.0
+  Downloaded icu_properties_data v2.1.2
+  Downloaded wgpu-hal v24.0.4
+  Downloaded smithay-client-toolkit v0.19.2
+  Downloaded x11rb v0.13.2
+  Downloaded pom v3.4.0
+  Downloaded rustybuzz v0.20.1
+  Downloaded image v0.25.10
+  Downloaded pxfm v0.1.28
+  Downloaded winit v0.30.13
+  Downloaded egui v0.31.1
+  Downloaded regex-syntax v0.8.10
+  Downloaded hashbrown v0.15.5
+  Downloaded rustix v1.1.4
+  Downloaded rustix v0.38.44
+  Downloaded hashbrown v0.16.1
+  Downloaded tracing v0.1.44
+  Downloaded futures-util v0.3.32
+  Downloaded unicode-width v0.1.14
+  Downloaded regex-automata v0.4.14
+  Downloaded wayland-backend v0.3.14
+  Downloaded x11rb-protocol v0.13.2
+  Downloaded uuid v1.22.0
+  Downloaded typenum v1.19.0
+  Downloaded toml_edit v0.22.27
+  Downloaded serde v1.0.228
+  Downloaded memchr v2.8.0
+  Downloaded euclid v0.22.14
+  Downloaded toml_edit v0.25.4+spec-1.1.0
+  Downloaded naga v24.0.0
+  Downloaded glow v0.16.0
+  Downloaded fontdb v0.23.0
+  Downloaded epaint_default_fonts v0.31.1
+  Downloaded epaint v0.31.1
+  Downloaded eframe v0.31.1
+  Downloaded zstd-sys v2.0.16+zstd.1.5.7
+  Downloaded zbus v4.4.0
+  Downloaded winnow v0.7.15
+  Downloaded parquet v54.3.1
+  Downloaded zune-jpeg v0.5.13
+  Downloaded zerocopy-derive v0.8.42
+  Downloaded unicode-script v0.5.8
+  Downloaded syn v2.0.117
+  Downloaded slotmap v1.1.1
+  Downloaded icu_collections v2.1.1
+  Downloaded zstd-safe v7.2.4
+  Downloaded zip v2.4.2
+  Downloaded wayland-protocols-experimental v20250721.0.1
+  Downloaded wayland-protocols v0.32.11
+  Downloaded icu_normalizer_data v2.1.1
+  Downloaded icu_locale_core v2.1.1
+  Downloaded flate2 v1.1.9
+  Downloaded tiny-skia v0.12.0
+  Downloaded serde_derive v1.0.228
+  Downloaded serde_core v1.0.228
+  Downloaded linux-raw-sys v0.4.15
+  Downloaded ryu v1.0.23
+  Downloaded proc-macro2 v1.0.106
+  Downloaded writeable v0.6.2
+  Downloaded unicase v2.9.0
+  Downloaded typed-builder v0.19.1
+  Downloaded twox-hash v2.1.2
+  Downloaded toml_parser v1.0.9+spec-1.1.0
+  Downloaded toml_datetime v1.0.0+spec-1.1.0
+  Downloaded encoding_rs v0.8.35
+  Downloaded snap v1.1.1
+  Downloaded smallvec v1.15.1
+  Downloaded roxmltree v0.21.1
+  Downloaded image-webp v0.2.4
+  Downloaded wgpu-types v24.0.0
+  Downloaded wayland-protocols-plasma v0.3.11
+  Downloaded walkdir v2.5.0
+  Downloaded ttf-parser v0.25.1
+  Downloaded tiny-skia v0.11.4
+  Downloaded icu_normalizer v2.1.1
+  Downloaded fontconfig-parser v0.5.8
+  Downloaded zbus_macros v4.4.0
+  Downloaded zmij v1.0.21
+  Downloaded zerovec-derive v0.11.2
+  Downloaded webbrowser v1.2.0
+  Downloaded ttf-parser v0.19.2
+  Downloaded typed-builder-macro v0.19.1
+  Downloaded zbus-lockstep-macros v0.4.4
+  Downloaded xcursor v0.3.10
+  Downloaded wayland-protocols-wlr v0.3.11
+  Downloaded euclid v0.20.14
+  Downloaded xmlwriter v0.1.0
+  Downloaded unicode-normalization v0.1.25
+  Downloaded event-listener v5.4.1
+  Downloaded zbus-lockstep v0.4.4
+  Downloaded yoke-derive v0.8.1
+  Downloaded web-time v1.1.0
+  Downloaded wayland-sys v0.31.10
+  Downloaded wayland-scanner v0.31.9
+  Downloaded tiff v0.11.3
+  Downloaded smithay-clipboard v0.7.3
+  Downloaded slab v0.4.12
+  Downloaded lz4_flex v0.11.6
+  Downloaded icu_provider v2.1.1
+  Downloaded getrandom v0.3.4
+  Downloaded unsafe-libyaml v0.2.11
+  Downloaded rustversion v1.0.22
+  Downloaded quick-xml v0.39.2
+  Downloaded nix v0.29.0
+  Downloaded wayland-csd-frame v0.3.0
+  Downloaded version_check v0.9.5
+  Downloaded unicode-properties v0.1.4
+  Downloaded unicode-ident v1.0.24
+  Downloaded unicode-bidi v0.3.18
+  Downloaded twox-hash v1.6.3
+  Downloaded tracing-core v0.1.36
+  Downloaded printpdf v0.7.0
+  Downloaded tracing-attributes v0.1.31
+  Downloaded toml v0.8.23
+  Downloaded tinyvec v1.11.0
+  Downloaded tiny-skia-path v0.12.0
+  Downloaded linux-raw-sys v0.12.1
+  Downloaded tiny-skia-path v0.11.4
+  Downloaded tiny-keccak v2.0.2
+  Downloaded thrift v0.17.0
+  Downloaded thiserror-impl v2.0.18
+  Downloaded thiserror v1.0.69
+  Downloaded synstructure v0.13.2
+  Downloaded svgtypes v0.16.1
+  Downloaded strum_macros v0.26.4
+  Downloaded static_assertions v1.1.0
+  Downloaded spirv v0.3.0+sdk-1.3.268.0
+  Downloaded regex v1.12.3
+  Downloaded pulldown-cmark v0.12.2
+  Downloaded phf_macros v0.11.3
+  Downloaded icu_properties v2.1.2
+  Downloaded gif v0.14.1
+  Downloaded find-msvc-tools v0.1.9
+  Downloaded either v1.15.0
+  Downloaded egui_commonmark v0.20.0
+  Downloaded unicode-xid v0.2.6
+  Downloaded unicode-vo v0.1.0
+  Downloaded unicode-ccc v0.4.0
+  Downloaded type1-encoding-parser v0.1.0
+  Downloaded type-map v0.5.1
+  Downloaded toml_write v0.1.2
+  Downloaded toml_datetime v0.6.11
+  Downloaded tinystr v0.8.2
+  Downloaded time-macros v0.2.27
+  Downloaded thiserror-impl v1.0.69
+  Downloaded thiserror v2.0.18
+  Downloaded termcolor v1.4.1
+  Downloaded strum v0.26.3
+  Downloaded smol_str v0.2.2
+  Downloaded same-file v1.0.6
+  Downloaded memmap2 v0.9.10
+  Downloaded litemap v0.8.1
+  Downloaded libflate v2.2.1
+  Downloaded iana-time-zone v0.1.65
+  Downloaded gpu-alloc v0.6.0
+  Downloaded egui_extras v0.31.1
+  Downloaded brotli v7.0.0
+  Downloaded tinyvec_macros v0.1.1
+  Downloaded time-core v0.1.8
+  Downloaded serde_yaml v0.9.34+deprecated
+  Downloaded stable_deref_trait v1.2.1
+  Downloaded simplecss v0.2.2
+  Downloaded simdutf8 v0.1.5
+  Downloaded serde_bytes v0.11.19
+  Downloaded rustc-hash v1.1.0
+  Downloaded resvg v0.47.0
+  Downloaded signal-hook-registry v1.4.8
+  Downloaded regex-lite v0.1.9
+  Downloaded quick-xml v0.37.5
+  Downloaded moxcms v0.8.1
+  Downloaded futures-macro v0.3.32
+  Downloaded flatbuffers v24.12.23
+  Downloaded egui-wgpu v0.31.1
+  Downloaded shlex v1.3.0
+  Downloaded sha1 v0.10.6
+  Downloaded serde_repr v0.1.20
+  Downloaded rand v0.8.5
+  Downloaded quick-xml v0.31.0
+  Downloaded quick-xml v0.30.0
+  Downloaded pom v1.1.0
+  Downloaded png v0.18.1
+  Downloaded nom v7.1.3
+  Downloaded half v2.7.1
+  Downloaded font-kit v0.14.3
+  Downloaded seq-macro v0.3.6
+  Downloaded semver v1.0.27
+  Downloaded sctk-adwaita v0.10.1
+  Downloaded scopeguard v1.2.0
+  Downloaded scoped-tls v1.0.1
+  Downloaded rust_xlsxwriter v0.82.0
+  Downloaded rustc_version v0.4.1
+  Downloaded rustc-hash v2.1.1
+  Downloaded rand v0.9.2
+  Downloaded pdf-extract v0.7.12
+  Downloaded owned_ttf_parser v0.19.0
+  Downloaded num-bigint v0.4.6
+  Downloaded minimal-lexical v0.2.1
+  Downloaded md-5 v0.10.6
+  Downloaded lexical-write-float v1.0.6
+  Downloaded khronos_api v3.1.0
+  Downloaded glutin_glx_sys v0.6.1
+  Downloaded glutin-winit v0.5.0
+  Downloaded glutin v0.32.3
+  Downloaded getrandom v0.2.17
+  Downloaded foldhash v0.2.0
+  Downloaded rle-decode-fast v1.0.3
+  Downloaded rfd v0.15.4
+  Downloaded glob v0.3.3
+  Downloaded foldhash v0.1.5
+  Downloaded futures-io v0.3.32
+  Downloaded freetype-sys v0.20.1
+  Downloaded fdeflate v0.3.7
+  Downloaded raw-window-handle v0.6.2
+  Downloaded quote v1.0.45
+  Downloaded md5 v0.7.0
+  Downloaded errno v0.3.14
+  Downloaded rand_core v0.9.5
+  Downloaded rand_chacha v0.9.0
+  Downloaded profiling v1.0.17
+  Downloaded potential_utf v0.1.4
+  Downloaded polling v3.11.0
+  Downloaded futures-core v0.3.32
+  Downloaded ppv-lite86 v0.2.21
+  Downloaded pin-project-lite v0.2.17
+  Downloaded phf v0.11.3
+  Downloaded num-traits v0.2.19
+  Downloaded log v0.4.29
+  Downloaded heck v0.5.0
+  Downloaded gpu-descriptor v0.3.2
+  Downloaded gpu-alloc-types v0.3.0
+  Downloaded fax v0.2.6
+  Downloaded event-listener-strategy v0.5.4
+  Downloaded ecolor v0.31.1
+  Downloaded dpi v0.1.2
+  Downloaded pkg-config v0.3.32
+  Downloaded piper v0.2.5
+  Downloaded phf_generator v0.11.3
+  Downloaded pathfinder_simd v0.5.5
+  Downloaded pathfinder_geometry v0.5.1
+  Downloaded paste v1.0.15
+  Downloaded parking_lot_core v0.9.12
+  Downloaded parking_lot v0.12.5
+  Downloaded ordered-stream v0.2.0
+  Downloaded ordered-float v4.6.0
+  Downloaded ordered-float v2.10.1
+  Downloaded option-ext v0.2.0
+  Downloaded once_cell v1.21.4
+  Downloaded num-iter v0.1.45
+  Downloaded num-integer v0.1.46
+  Downloaded num-conv v0.2.0
+  Downloaded num-complex v0.4.6
+  Downloaded num v0.4.3
+  Downloaded nohash-hasher v0.2.0
+  Downloaded mime_guess2 v2.3.1
+  Downloaded mime v0.3.17
+  Downloaded memoffset v0.9.1
+  Downloaded libflate_lz77 v2.2.0
+  Downloaded lexical-core v1.0.6
+  Downloaded khronos-egl v6.0.0
+  Downloaded hex v0.4.3
+  Downloaded glutin_egl_sys v0.7.1
+  Downloaded equivalent v1.0.2
+  Downloaded egui_commonmark_backend v0.20.0
+  Downloaded egui-winit v0.31.1
+  Downloaded downcast-rs v1.2.1
+  Downloaded csv v1.4.0
+  Downloaded bindgen v0.72.1
+  Downloaded powerfmt v0.2.0
+  Downloaded pollster v0.4.0
+  Downloaded pico-args v0.5.0
+  Downloaded percent-encoding v2.3.2
+  Downloaded parking v2.2.1
+  Downloaded owned_ttf_parser v0.25.1
+  Downloaded num-rational v0.4.2
+  Downloaded jobserver v0.1.34
+  Downloaded idna_adapter v1.2.1
+  Downloaded futures-task v0.3.32
+  Downloaded float-ord v0.3.2
+  Downloaded float-cmp v0.9.0
+  Downloaded enumflags2_derive v0.7.12
+  Downloaded enum-map v2.7.3
+  Downloaded emath v0.31.1
+  Downloaded document-features v0.2.12
+  Downloaded bstr v1.12.1
+  Downloaded ash v0.38.0+1.3.281
+  Downloaded lexical-parse-float v1.0.6
+  Downloaded kurbo v0.13.0
+  Downloaded immutable-chunkmap v2.1.2
+  Downloaded fax_derive v0.2.0
+  Downloaded fastrand v2.3.0
+  Downloaded egui_glow v0.31.1
+  Downloaded chrono v0.4.44
+  Downloaded brotli-decompressor v4.0.3
+  Downloaded indexmap v2.13.0
+  Downloaded imagesize v0.14.0
+  Downloaded hexf-parse v0.2.1
+  Downloaded gethostname v1.1.0
+  Downloaded futures-sink v0.3.32
+  Downloaded futures-channel v0.3.32
+  Downloaded enumflags2 v0.7.12
+  Downloaded data-url v0.3.2
+  Downloaded arrow v54.3.1
+  Downloaded gl_generator v0.14.0
+  Downloaded crc32fast v1.5.0
+  Downloaded calamine v0.26.1
+  Downloaded ashpd v0.11.1
+  Downloaded arrow-json v54.3.1
+  Downloaded arrow-string v54.3.1
+  Downloaded arrow-ipc v54.3.1
+  Downloaded arrow-data v54.3.1
+  Downloaded apache-avro v0.17.0
+  Downloaded litrs v1.0.0
+  Downloaded lexical-parse-integer v1.0.6
+  Downloaded futures-lite v2.6.1
+  Downloaded arrow-row v54.3.1
+  Downloaded arrow-cast v54.3.1
+  Downloaded cpufeatures v0.2.17
+  Downloaded lopdf v0.31.0
+  Downloaded bytemuck v1.25.0
+  Downloaded blocking v1.6.2
+  Downloaded async-recursion v1.1.1
+  Downloaded arrow-select v54.3.1
+  Downloaded arrow-arith v54.3.1
+  Downloaded anyhow v1.0.102
+  Downloaded lazy_static v1.5.0
+  Downloaded integer-encoding v3.0.4
+  Downloaded clang-sys v1.8.1
+  Downloaded bytes v1.11.1
+  Downloaded bytemuck_derive v1.10.2
+  Downloaded block-buffer v0.10.4
+  Downloaded crypto-common v0.1.7
+  Downloaded codepage v0.1.2
+  Downloaded cfg-if v1.0.4
+  Downloaded byteorder v1.5.0
+  Downloaded bitflags v2.11.0
+  Downloaded bigdecimal v0.4.10
+  Downloaded autocfg v1.5.0
+  Downloaded atspi-proxies v0.6.0
+  Downloaded lopdf v0.34.0
+  Downloaded form_urlencoded v1.2.2
+  Downloaded deranged v0.5.8
+  Downloaded cc v1.2.57
+  Downloaded atspi v0.22.0
+  Downloaded async-lock v3.4.2
+  Downloaded alloc-no-stdlib v2.0.4
+  Downloaded adobe-cmap-parser v0.4.1
+  Downloaded calloop v0.14.4
+  Downloaded calloop v0.13.0
+  Downloaded bit-set v0.8.0
+  Downloaded async-channel v2.5.0
+  Downloaded arrow-schema v54.3.1
+  Downloaded arrow-csv v54.3.1
+  Downloaded arrow-array v54.3.1
+  Downloaded arrayref v0.3.9
+  Downloaded const-random v0.1.18
+  Downloaded cexpr v0.6.0
+  Downloaded calloop-wayland-source v0.3.0
+  Downloaded byteorder-lite v0.1.0
+  Downloaded bumpalo v3.20.2
+  Downloaded bit-vec v0.8.0
+  Downloaded atspi-connection v0.6.0
+  Downloaded atspi-common v0.6.0
+  Downloaded atoi v2.0.0
+  Downloaded async-task v4.7.1
+  Downloaded arrow-ord v54.3.1
+  Downloaded arrow-buffer v54.3.1
+  Downloaded arrayvec v0.7.6
+  Downloaded allocator-api2 v0.2.21
+  Downloaded core_maths v0.1.1
+  Downloaded concurrent-queue v2.5.0
+  Downloaded bitflags v1.3.2
+  Downloaded async-trait v0.1.89
+  Downloaded async-net v2.0.0
+  Downloaded async-fs v2.2.0
+  Downloaded arboard v3.6.1
+  Downloaded dirs-sys v0.5.0
+  Downloaded digest v0.10.7
+  Downloaded dary_heap v0.3.8
+  Downloaded cursor-icon v1.2.0
+  Downloaded color_quant v1.1.0
+  Downloaded cfg_aliases v0.2.1
+  Downloaded calloop-wayland-source v0.4.1
+  Downloaded async-io v2.6.0
+  Downloaded aho-corasick v1.1.4
+  Downloaded const-random-macro v0.1.16
+  Downloaded codespan-reporting v0.11.1
+  Downloaded async-executor v1.14.0
+  Downloaded async-broadcast v0.7.2
+  Downloaded as-raw-xcb-connection v1.0.1
+  Downloaded ahash v0.8.12
+  Downloaded atomic-waker v1.1.2
+  Downloaded alloc-stdlib v0.2.2
+  Downloaded async-signal v0.2.13
+  Downloaded accesskit v0.17.1
+  Downloaded accesskit_atspi_common v0.10.1
+  Downloaded ab_glyph v0.2.32
+  Downloaded mupdf v0.6.0
+  Downloaded accesskit_consumer v0.26.0
+  Downloaded ab_glyph_rasterizer v0.1.10
+  Downloaded mupdf-sys v0.6.0
+    Checking arrow-data v54.3.1
+   Compiling zbus-lockstep-macros v0.4.4
+   Compiling yeslogic-fontconfig-sys v6.0.0
+   Compiling freetype-sys v0.20.1
+    Checking zvariant v5.10.0
+    Checking bumpalo v3.20.2
+    Checking lazy_static v1.5.0
+   Compiling rustversion v1.0.22
+    Checking roxmltree v0.20.0
+    Checking alloc-no-stdlib v2.0.4
+    Checking serde_json v1.0.149
+    Checking smithay-client-toolkit v0.20.0
+    Checking mime_guess2 v2.3.1
+   Compiling zstd-safe v7.2.4
+   Compiling pulldown-cmark v0.12.2
+   Compiling zip v2.4.2
+error: failed to run custom build command for `yeslogic-fontconfig-sys v6.0.0`
+
+Caused by:
+  process didn't exit successfully: `/tmp/lint/target/debug/build/yeslogic-fontconfig-sys-0ad5c2c4a0dfaf80/build-script-build` (exit status: 101)
+  --- stdout
+  cargo:rerun-if-env-changed=RUST_FONTCONFIG_DLOPEN
+  cargo:rerun-if-env-changed=FONTCONFIG_NO_PKG_CONFIG
+  cargo:rerun-if-env-changed=PKG_CONFIG_x86_64-unknown-linux-musl
+  cargo:rerun-if-env-changed=PKG_CONFIG_x86_64_unknown_linux_musl
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG
+  cargo:rerun-if-env-changed=PKG_CONFIG
+  cargo:rerun-if-env-changed=FONTCONFIG_STATIC
+  cargo:rerun-if-env-changed=FONTCONFIG_DYNAMIC
+  cargo:rerun-if-env-changed=PKG_CONFIG_ALL_STATIC
+  cargo:rerun-if-env-changed=PKG_CONFIG_ALL_DYNAMIC
+  cargo:rerun-if-env-changed=PKG_CONFIG_PATH_x86_64-unknown-linux-musl
+  cargo:rerun-if-env-changed=PKG_CONFIG_PATH_x86_64_unknown_linux_musl
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG_PATH
+  cargo:rerun-if-env-changed=PKG_CONFIG_PATH
+  cargo:rerun-if-env-changed=PKG_CONFIG_LIBDIR_x86_64-unknown-linux-musl
+  cargo:rerun-if-env-changed=PKG_CONFIG_LIBDIR_x86_64_unknown_linux_musl
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG_LIBDIR
+  cargo:rerun-if-env-changed=PKG_CONFIG_LIBDIR
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR_x86_64-unknown-linux-musl
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR_x86_64_unknown_linux_musl
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG_SYSROOT_DIR
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR
+
+  --- stderr
+
+  thread 'main' (3067) panicked at /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/yeslogic-fontconfig-sys-6.0.0/build.rs:8:48:
+  called `Result::unwrap()` on an `Err` value: "\npkg-config exited with status code 1\n> PKG_CONFIG_ALLOW_SYSTEM_LIBS=1 PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1 pkg-config --libs --cflags fontconfig\n\nThe system library `fontconfig` required by crate `yeslogic-fontconfig-sys` was not found.\nThe file `fontconfig.pc` needs to be installed and the PKG_CONFIG_PATH environment variable must contain its parent directory.\nThe PKG_CONFIG_PATH environment variable is not set.\n\nHINT: if you have installed the library, try setting PKG_CONFIG_PATH to the directory containing `fontconfig.pc`.\n"
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+warning: build failed, waiting for other jobs to finish...
+warning: freetype-sys@0.20.1: Compiler family detection failed due to error: ToolNotFound: failed to find tool "c++": No such file or directory (os error 2)
+error: failed to run custom build command for `freetype-sys v0.20.1`
+
+Caused by:
+  process didn't exit successfully: `/tmp/lint/target/debug/build/freetype-sys-a7e5339d16994145/build-script-build` (exit status: 1)
+  --- stdout
+  cargo:rerun-if-env-changed=FREETYPE2_NO_PKG_CONFIG
+  cargo:rerun-if-env-changed=PKG_CONFIG_x86_64-unknown-linux-musl
+  cargo:rerun-if-env-changed=PKG_CONFIG_x86_64_unknown_linux_musl
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG
+  cargo:rerun-if-env-changed=PKG_CONFIG
+  cargo:rerun-if-env-changed=FREETYPE2_STATIC
+  cargo:rerun-if-env-changed=FREETYPE2_DYNAMIC
+  cargo:rerun-if-env-changed=PKG_CONFIG_ALL_STATIC
+  cargo:rerun-if-env-changed=PKG_CONFIG_ALL_DYNAMIC
+  cargo:rerun-if-env-changed=PKG_CONFIG_PATH_x86_64-unknown-linux-musl
+  cargo:rerun-if-env-changed=PKG_CONFIG_PATH_x86_64_unknown_linux_musl
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG_PATH
+  cargo:rerun-if-env-changed=PKG_CONFIG_PATH
+  cargo:rerun-if-env-changed=PKG_CONFIG_LIBDIR_x86_64-unknown-linux-musl
+  cargo:rerun-if-env-changed=PKG_CONFIG_LIBDIR_x86_64_unknown_linux_musl
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG_LIBDIR
+  cargo:rerun-if-env-changed=PKG_CONFIG_LIBDIR
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR_x86_64-unknown-linux-musl
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR_x86_64_unknown_linux_musl
+  cargo:rerun-if-env-changed=HOST_PKG_CONFIG_SYSROOT_DIR
+  cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR
+  cargo:rerun-if-env-changed=CC_FORCE_DISABLE
+  CC_FORCE_DISABLE = None
+  cargo:rerun-if-env-changed=CXX_x86_64-unknown-linux-musl
+  CXX_x86_64-unknown-linux-musl = None
+  cargo:rerun-if-env-changed=CXX_x86_64_unknown_linux_musl
+  CXX_x86_64_unknown_linux_musl = None
+  cargo:rerun-if-env-changed=HOST_CXX
+  HOST_CXX = None
+  cargo:rerun-if-env-changed=CXX
+  CXX = None
+  cargo:rerun-if-env-changed=CC_ENABLE_DEBUG_OUTPUT
+  cargo:warning=Compiler family detection failed due to error: ToolNotFound: failed to find tool "c++": No such file or directory (os error 2)
+  cargo:rerun-if-env-changed=CRATE_CC_NO_DEFAULTS
+  CRATE_CC_NO_DEFAULTS = None
+  cargo:rerun-if-env-changed=CXXFLAGS
+  CXXFLAGS = None
+  cargo:rerun-if-env-changed=HOST_CXXFLAGS
+  HOST_CXXFLAGS = None
+  cargo:rerun-if-env-changed=CXXFLAGS_x86_64_unknown_linux_musl
+  CXXFLAGS_x86_64_unknown_linux_musl = None
+  cargo:rerun-if-env-changed=CXXFLAGS_x86_64-unknown-linux-musl
+  CXXFLAGS_x86_64-unknown-linux-musl = None
+
+  --- stderr
+
+
+  error occurred in cc-rs: failed to find tool "c++": No such file or directory (os error 2)
+
+
+
+
+[32m✅ Linted [REPOSITORY] files with [checkov] successfully - (62.35s)[0m
+- Using [checkov v3.2.506] https://megalinter.io/9.4.0/descriptors/repository_checkov
+- MegaLinter key: [REPOSITORY_CHECKOV]
+- Rules config: [/.linters/.checkov.yml]
+- CWD: [/tmp/lint]
+- Command: [checkov --directory . --config-file /tmp/lint/.linters/.checkov.yml]
+
+[32m✅ Linted [REPOSITORY] files with [trufflehog] successfully - (216.21s)[0m
+- Using [trufflehog v3.93.6] https://megalinter.io/9.4.0/descriptors/repository_trufflehog
+- MegaLinter key: [REPOSITORY_TRUFFLEHOG]
+- Rules config: identified by [trufflehog]
+- CWD: [/tmp/lint]
+- Command: [trufflehog filesystem . --fail --only-verified --no-update --exclude-paths=/action/lib/.automation/.trufflehogignore]
+
+
++----SUMMARY----+--------------------------+---------------+-------+-------+--------+----------+--------------+
+| Descriptor    | Linter                   | Mode          | Files | Fixed | Errors | Warnings | Elapsed time |
++---------------+--------------------------+---------------+-------+-------+--------+----------+--------------+
+| ✅ BASH       | bash-exec                | file          |     1 |       |      0 |        0 | 0.17s        |
+| ✅ BASH       | shellcheck               | list_of_files |     1 |       |      0 |        0 | 0.02s        |
+| ✅ BASH       | shfmt                    | list_of_files |     1 |     0 |      0 |        0 | 0.02s        |
+| ✅ JSON       | jsonlint                 | list_of_files |     2 |       |      0 |        0 | 0.23s        |
+| ✅ JSON       | prettier                 | list_of_files |     2 |     0 |      0 |        0 | 0.17s        |
+| ✅ JSON       | v8r                      | list_of_files |     2 |       |      0 |        0 | 1.89s        |
+| ✅ MARKDOWN   | markdownlint             | list_of_files |     1 |     1 |      0 |        0 | 0.35s        |
+| ✅ MARKDOWN   | markdown-table-formatter | list_of_files |     1 |     1 |      0 |        0 | 0.12s        |
+| ✅ REPOSITORY | checkov                  | project       |   n/a |       |      0 |        0 | 62.35s       |
+| ✅ REPOSITORY | gitleaks                 | project       |   n/a |       |      0 |        0 | 0.41s        |
+| ✅ REPOSITORY | ls-lint                  | project       |   n/a |       |      0 |        0 | 0.22s        |
+| ✅ REPOSITORY | secretlint               | project       |   n/a |       |      0 |        0 | 1.13s        |
+| ✅ REPOSITORY | semgrep                  | project       |   n/a |       |      0 |        0 | 7.88s        |
+| ✅ REPOSITORY | trivy                    | project       |   n/a |       |      0 |        0 | 7.86s        |
+| ✅ REPOSITORY | trufflehog               | project       |   n/a |       |      0 |        0 | 216.21s      |
+| ❌ RUST       | clippy                   | project       |   n/a |       |      1 |        0 | 13.74s       |
+| ✅ SPELL      | lychee                   | list_of_files |     7 |       |      0 |        0 | 1.07s        |
+| ✅ SPELL      | proselint                | list_of_files |     1 |       |      0 |        0 | 5.39s        |
+| ✅ YAML       | prettier                 | list_of_files |     4 |     2 |      0 |        0 | 0.26s        |
+| ✅ YAML       | v8r                      | list_of_files |     4 |       |      0 |        0 | 2.55s        |
+| ✅ YAML       | yamllint                 | list_of_files |     4 |       |      0 |        0 | 0.21s        |
++---------------+--------------------------+---------------+-------+-------+--------+----------+--------------+
+
+[Updated Sources Reporter] Unable to copy .linters/.bandit.yml to /tmp/lint/megalinter-reports/updated_sources/.linters/.bandit.yml ([Errno 2] No such file or directory: '.linters/.bandit.yml')
+[Updated Sources Reporter] copied 7 fixed source files in folder /tmp/lint/megalinter-reports/updated_sources.
+[33m⚠️ [Updated Sources Reporter] Failed to retrieve git source branch[0m
+[31m❌ Error(s) have been found during linting[0m
+To disable linters or customize their checks, you can use a .mega-linter.yml file at the root of your repository
+More info at https://megalinter.io/9.4.0/configuration/

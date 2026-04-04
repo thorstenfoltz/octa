@@ -1,4 +1,0 @@
-# FILE: bandit.yml
-exclude_dirs: ["venv", "megalinter-reports", "tests"]
-#tests: ['B201', 'B301']
-skips: ["B404", "B603", "B607", "B608"]

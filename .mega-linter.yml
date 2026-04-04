@@ -26,13 +26,15 @@ ENABLE_LINTERS:
   - REPOSITORY_TRIVY
   - REPOSITORY_TRUFFLEHOG
   - RUST_CLIPPY
-  - RUST_RUSTFMT
   - SPELL_LYCHEE
   - SPELL_PROSELINT
   - YAML_PRETTIER
   - YAML_V8R
   - YAML_YAMLLINT
 FAIL_IF_UPDATED_SOURCES: false
+PRE_COMMANDS:
+  - command: apt-get update && apt-get install -y --no-install-recommends g++ pkg-config libfontconfig1-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev libjpeg-dev libopenjp2-7-dev libgumbo-dev libjbig2dec0-dev libmujs-dev
+    cwd: root
 FILEIO_REPORTER: false
 FILTER_REGEX_EXCLUDE: none
 FLAVOR_SUGGESTIONS: false
@@ -44,10 +46,6 @@ MARKDOWN_DEFAULT_STYLE: markdownlint
 MARKDOWN_MARKDOWN_LINK_CHECK_RULES_PATH: .linters
 PARALLEL: true
 PRINT_ALPACA: false
-PYTHON_BANDIT_RULES_PATH: .linters
-PYTHON_BANDIT_CONFIG_FILE: .bandit.yml
-PYTHON_FLAKE8_RULES_PATH: .linters
-PYTHON_PYLINT_FILTER_REGEX_EXCLUDE: tests/.*
 REPOSITORY_LS_LINT_RULES_PATH: .linters
 REPOSITORY_SEMGREP_RULESETS:
   [

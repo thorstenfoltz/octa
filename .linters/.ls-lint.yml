@@ -10,5 +10,6 @@ ls:
 
 ignore:
   - .git
-  - .venv
-  - src/git_cai_cli.egg-info
+  - target
+  - Cargo.toml
+  - Cargo.lock

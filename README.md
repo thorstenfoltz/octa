@@ -8,20 +8,20 @@ A native desktop application for viewing and editing data files.
 
 ## Supported Formats
 
-| Format | Read | Write |
-|--------|------|-------|
-| Parquet | Yes | Yes |
-| CSV / TSV | Yes | Yes |
-| JSON / JSON Lines | Yes | Yes |
-| Excel (.xlsx, .xls) | Yes | Yes |
-| Arrow IPC / Feather | Yes | Yes |
-| Avro | Yes | Yes |
-| XML | Yes | Yes |
-| TOML | Yes | Yes |
-| YAML | Yes | Yes |
-| PDF | Yes | Yes |
-| Markdown | Yes | Yes |
-| Plain Text | Yes | Yes |
+| Format              | Read | Write |
+|---------------------|------|-------|
+| Parquet             | Yes  | Yes   |
+| CSV / TSV           | Yes  | Yes   |
+| JSON / JSON Lines   | Yes  | Yes   |
+| Excel (.xlsx, .xls) | Yes  | Yes   |
+| Arrow IPC / Feather | Yes  | Yes   |
+| Avro                | Yes  | Yes   |
+| XML                 | Yes  | Yes   |
+| TOML                | Yes  | Yes   |
+| YAML                | Yes  | Yes   |
+| PDF                 | Yes  | Yes   |
+| Markdown            | Yes  | Yes   |
+| Plain Text          | Yes  | Yes   |
 
 Unknown file extensions are opened as plain text.
 
@@ -55,10 +55,6 @@ cargo build --release
 
 # Run directly
 cargo run
-
-# Open a file
-cargo run -- path/to/file.parquet
-```
 
 ## Installation
 
