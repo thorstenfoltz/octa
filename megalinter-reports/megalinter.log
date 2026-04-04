@@ -1,0 +1,19 @@
+----------------------------------------------------------------------------------------------------
+------------------------------------ MegaLinter, by OX Security ------------------------------------
+----------------------------------------------------------------------------------------------------
+ - Image Creation Date: 2026-02-28T10:10:12Z
+ - Image Revision: 8fbdead70d1409964ab3d5afa885e18ee85388bb
+ - Image Version: v9.4.0
+----------------------------------------------------------------------------------------------------
+The MegaLinter documentation can be found at:
+ - https://megalinter.io/9.4.0
+----------------------------------------------------------------------------------------------------
+MegaLinter initialization
+MegaLinter will analyze workspace [/tmp/lint]
+
+Skipped linters: ACTION_ACTIONLINT, ANSIBLE_ANSIBLE_LINT, API_SPECTRAL, COPYPASTE_JSCPD, CSS_STYLELINT, DOCKERFILE_HADOLINT, EDITORCONFIG_EDITORCONFIG_CHECKER, ENV_DOTENV_LINTER, GRAPHQL_GRAPHQL_SCHEMA_LINTER, GROOVY_NPM_GROOVY_LINT, HTML_DJLINT, HTML_HTMLHINT, KOTLIN_DETEKT, KOTLIN_KTLINT, KUBERNETES_HELM, KUBERNETES_KUBECONFORM, KUBERNETES_KUBESCAPE, MARKDOWN_RUMDL, PROTOBUF_PROTOLINT, REPOSITORY_GIT_DIFF, REPOSITORY_GRYPE, REPOSITORY_SYFT, REPOSITORY_TRIVY_SBOM, SNAKEMAKE_LINT, SNAKEMAKE_SNAKEFMT, SPELL_CODESPELL, SPELL_CSPELL, SPELL_VALE, SQL_SQLFLUFF, TEKTON_TEKTON_LINT, XML_XMLLINT
+To receive reports as email, please set variable EMAIL_REPORTER_EMAIL
+[ApiReporter] Not enabled as API_REPORTER is not defined to true
+
+MegaLinter now collects the files to analyse
+Listing updated files in [/tmp/lint] using git diff.

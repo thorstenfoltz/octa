@@ -46,6 +46,3 @@ lint:
 
 lint-fix: ## Lints the code using sqlfluff and fixes the issues
 	@npx mega-linter-runner --flavor rust--fix
-
-test: ## Runs tests
-	@$(UV) run pytest
