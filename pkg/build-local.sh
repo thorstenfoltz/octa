@@ -15,11 +15,11 @@ TYPE="${1:-}"
 VERSION="${2:-0.0.1}"
 
 if [[ "$TYPE" != "source" && "$TYPE" != "binary" ]]; then
-    echo "Usage: $0 <source|binary> [version]"
-    echo ""
-    echo "  source  — compiles from source during install (mirrors AUR)"
-    echo "  binary  — pre-compiled binary, fast install"
-    exit 1
+	echo "Usage: $0 <source|binary> [version]"
+	echo ""
+	echo "  source  — compiles from source during install (mirrors AUR)"
+	echo "  binary  — pre-compiled binary, fast install"
+	exit 1
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -31,18 +31,18 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
 if [[ "$TYPE" == "source" ]]; then
-    # -------------------------------------------------------------------
-    # Source package — compiles during install
-    # -------------------------------------------------------------------
-    echo "==> Creating source tarball for version $VERSION..."
-    tar czf "$BUILD_DIR/octo-$VERSION.tar.gz" \
-        --transform "s,^,octo-$VERSION/," \
-        --exclude='.git' \
-        --exclude='target' \
-        --exclude='pkg/build' \
-        -C "$REPO_DIR" .
+	# -------------------------------------------------------------------
+	# Source package — compiles during install
+	# -------------------------------------------------------------------
+	echo "==> Creating source tarball for version $VERSION..."
+	tar czf "$BUILD_DIR/octo-$VERSION.tar.gz" \
+		--transform "s,^,octo-$VERSION/," \
+		--exclude='.git' \
+		--exclude='target' \
+		--exclude='pkg/build' \
+		-C "$REPO_DIR" .
 
-    cat > "$BUILD_DIR/PKGBUILD" << 'PKGBUILD_EOF'
+	cat >"$BUILD_DIR/PKGBUILD" <<'PKGBUILD_EOF'
 # Local test build (source) — not for AUR
 pkgname=octo
 pkgver=VERSION_PLACEHOLDER
@@ -84,28 +84,28 @@ package() {
 }
 PKGBUILD_EOF
 
-    sed -i "s/VERSION_PLACEHOLDER/$VERSION/" "$BUILD_DIR/PKGBUILD"
+	sed -i "s/VERSION_PLACEHOLDER/$VERSION/" "$BUILD_DIR/PKGBUILD"
 
-    echo ""
-    echo "Done! Source package prepared. Build and install with:"
-    echo "  cd $BUILD_DIR && paru -Ui"
+	echo ""
+	echo "Done! Source package prepared. Build and install with:"
+	echo "  cd $BUILD_DIR && paru -Ui"
 
 else
-    # -------------------------------------------------------------------
-    # Binary package — pre-compiled, just installs files
-    # -------------------------------------------------------------------
-    echo "==> Building release binary..."
-    cd "$REPO_DIR"
-    sed -i "s/^version = .*/version = \"$VERSION\"/" Cargo.toml
-    cargo build --release 2>&1
-    sed -i 's/^version = .*/version = "0.0.0-dev"/' Cargo.toml
+	# -------------------------------------------------------------------
+	# Binary package — pre-compiled, just installs files
+	# -------------------------------------------------------------------
+	echo "==> Building release binary..."
+	cd "$REPO_DIR"
+	sed -i "s/^version = .*/version = \"$VERSION\"/" Cargo.toml
+	cargo build --release 2>&1
+	sed -i 's/^version = .*/version = "0.0.0-dev"/' Cargo.toml
 
-    cp "$REPO_DIR/target/release/octo" "$BUILD_DIR/octo"
-    cp "$REPO_DIR/assets/octo.svg" "$BUILD_DIR/octo.svg"
-    cp "$REPO_DIR/octo.desktop" "$BUILD_DIR/octo.desktop"
-    cp "$REPO_DIR/LICENSE" "$BUILD_DIR/LICENSE"
+	cp "$REPO_DIR/target/release/octo" "$BUILD_DIR/octo"
+	cp "$REPO_DIR/assets/octo.svg" "$BUILD_DIR/octo.svg"
+	cp "$REPO_DIR/octo.desktop" "$BUILD_DIR/octo.desktop"
+	cp "$REPO_DIR/LICENSE" "$BUILD_DIR/LICENSE"
 
-    cat > "$BUILD_DIR/PKGBUILD" << 'PKGBUILD_EOF'
+	cat >"$BUILD_DIR/PKGBUILD" <<'PKGBUILD_EOF'
 # Local test build (binary) — not for AUR
 pkgname=octo-bin
 pkgver=VERSION_PLACEHOLDER
@@ -128,16 +128,16 @@ package() {
 }
 PKGBUILD_EOF
 
-    sed -i "s/VERSION_PLACEHOLDER/$VERSION/" "$BUILD_DIR/PKGBUILD"
+	sed -i "s/VERSION_PLACEHOLDER/$VERSION/" "$BUILD_DIR/PKGBUILD"
 
-    echo "==> Packaging binary..."
-    cd "$BUILD_DIR"
-    makepkg -sf
+	echo "==> Packaging binary..."
+	cd "$BUILD_DIR"
+	makepkg -sf
 
-    PKG="$BUILD_DIR/octo-bin-${VERSION}-1-${ARCH}.pkg.tar.zst"
-    echo ""
-    echo "Done! Install with:"
-    echo "  paru -U $PKG"
+	PKG="$BUILD_DIR/octo-bin-${VERSION}-1-${ARCH}.pkg.tar.zst"
+	echo ""
+	echo "Done! Install with:"
+	echo "  paru -U $PKG"
 fi
 
 PKGNAME="octo"
