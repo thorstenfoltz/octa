@@ -22,6 +22,8 @@ pub struct ToolbarAction {
     pub sort_rows_desc_by: Option<usize>,
     pub discard_edits: bool,
     pub view_mode_changed: Option<ViewMode>,
+    pub show_about: bool,
+    pub check_for_updates: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -229,6 +231,20 @@ pub fn draw_toolbar(
                 action.search_changed = true;
             }
         }
+
+        // --- Help menu (always visible) ---
+        ui.menu_button(RichText::new("Help").color(colors.text_primary), |ui| {
+            ui.set_min_width(160.0);
+            if ui.button("About").clicked() {
+                action.show_about = true;
+                ui.close_menu();
+            }
+            ui.separator();
+            if ui.button("Check for Updates...").clicked() {
+                action.check_for_updates = true;
+                ui.close_menu();
+            }
+        });
 
         // Right-aligned: theme toggle
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {

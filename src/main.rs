@@ -32,7 +32,38 @@ fn render_icon() -> egui::IconData {
     }
 }
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
+const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
+
 fn main() -> eframe::Result<()> {
+    // Handle CLI flags before launching GUI
+    if let Some(arg) = std::env::args().nth(1) {
+        match arg.as_str() {
+            "--version" | "-V" => {
+                println!("octo {}", VERSION);
+                std::process::exit(0);
+            }
+            "--help" | "-h" => {
+                println!("octo {} - A modular multi-format data viewer and editor", VERSION);
+                println!();
+                println!("Usage: octo [OPTIONS] [FILE]");
+                println!();
+                println!("Arguments:");
+                println!("  [FILE]  File to open on startup");
+                println!();
+                println!("Options:");
+                println!("  -V, --version  Print version");
+                println!("  -h, --help     Print help");
+                println!();
+                println!("Author:  {}", AUTHORS);
+                println!("Repo:    {}", REPOSITORY);
+                std::process::exit(0);
+            }
+            _ => {}
+        }
+    }
+
     // Parse CLI arguments: octo [file_path]
     let initial_file = std::env::args()
         .nth(1)
@@ -68,6 +99,24 @@ fn main() -> eframe::Result<()> {
             Ok(Box::new(OctoApp::new(initial_file)))
         }),
     )
+}
+
+#[derive(Clone)]
+enum UpdateState {
+    /// No check in progress
+    Idle,
+    /// Checking GitHub for latest version
+    Checking,
+    /// A newer version is available
+    Available(String),
+    /// Already on the latest version
+    UpToDate,
+    /// Currently downloading and installing
+    Updating,
+    /// Update completed successfully
+    Updated(String),
+    /// An error occurred
+    Error(String),
 }
 
 struct OctoApp {
@@ -127,6 +176,12 @@ struct OctoApp {
     show_open_confirm: bool,
     /// Cache for commonmark rendering
     commonmark_cache: egui_commonmark::CommonMarkCache,
+    /// Show the About dialog
+    show_about_dialog: bool,
+    /// Show the Update dialog
+    show_update_dialog: bool,
+    /// Update check state shared with background thread
+    update_state: Arc<Mutex<UpdateState>>,
 }
 
 /// Detect delimiter from a file by reading only the first few KB.
@@ -319,6 +374,9 @@ impl OctoApp {
             pending_open_file: false,
             show_open_confirm: false,
             commonmark_cache: egui_commonmark::CommonMarkCache::default(),
+            show_about_dialog: false,
+            show_update_dialog: false,
+            update_state: Arc::new(Mutex::new(UpdateState::Idle)),
         }
     }
 
@@ -681,6 +739,140 @@ impl OctoApp {
         }
     }
 
+    fn check_for_updates(&self, ctx: &egui::Context) {
+        let state = Arc::clone(&self.update_state);
+        let ctx = ctx.clone();
+        *state.lock().unwrap() = UpdateState::Checking;
+        std::thread::spawn(move || {
+            let result = (|| -> Result<String, String> {
+                let body = ureq::get(
+                    "https://api.github.com/repos/thorstenfoltz/octo/releases/latest",
+                )
+                .header("User-Agent", &format!("octo/{}", VERSION))
+                .header("Accept", "application/vnd.github.v3+json")
+                .call()
+                .map_err(|e| format!("Request failed: {}", e))?
+                .body_mut()
+                .read_to_string()
+                .map_err(|e| format!("Read failed: {}", e))?;
+
+                let resp: serde_json::Value = serde_json::from_str(&body)
+                    .map_err(|e| format!("Invalid JSON: {}", e))?;
+
+                resp["tag_name"]
+                    .as_str()
+                    .map(|s: &str| s.trim_start_matches('v').to_string())
+                    .ok_or_else(|| "No tag_name in response".to_string())
+            })();
+
+            let mut s = state.lock().unwrap();
+            match result {
+                Ok(latest) if latest != VERSION => *s = UpdateState::Available(latest),
+                Ok(_) => *s = UpdateState::UpToDate,
+                Err(e) => *s = UpdateState::Error(e),
+            }
+            ctx.request_repaint();
+        });
+    }
+
+    fn perform_update(&self, new_version: &str, ctx: &egui::Context) {
+        let state = Arc::clone(&self.update_state);
+        let ctx = ctx.clone();
+        let version = new_version.to_string();
+        *state.lock().unwrap() = UpdateState::Updating;
+
+        std::thread::spawn(move || {
+            let result = Self::download_and_replace(&version);
+            let mut s = state.lock().unwrap();
+            match result {
+                Ok(()) => *s = UpdateState::Updated(version),
+                Err(e) => *s = UpdateState::Error(e),
+            }
+            ctx.request_repaint();
+        });
+    }
+
+    fn download_and_replace(new_version: &str) -> Result<(), String> {
+        let current_exe =
+            std::env::current_exe().map_err(|e| format!("Cannot find current exe: {}", e))?;
+
+        #[cfg(target_os = "linux")]
+        {
+            let url = format!(
+                "https://github.com/thorstenfoltz/octo/releases/download/{}/octo-v{}-linux-x86_64.tar.gz",
+                new_version, new_version
+            );
+
+            let bytes = ureq::get(&url)
+                .header("User-Agent", &format!("octo/{}", VERSION))
+                .call()
+                .map_err(|e| format!("Download failed: {}", e))?
+                .body_mut()
+                .read_to_vec()
+                .map_err(|e| format!("Read failed: {}", e))?;
+
+            // Extract the binary from the tar.gz
+            let decoder = flate2::read::GzDecoder::new(std::io::Cursor::new(bytes));
+            let mut archive = tar::Archive::new(decoder);
+            let binary_name = format!("octo-v{}-linux-x86_64/octo", new_version);
+
+            let mut found = false;
+            for entry in archive.entries().map_err(|e| format!("Tar error: {}", e))? {
+                let mut entry = entry.map_err(|e| format!("Tar entry error: {}", e))?;
+                let path = entry
+                    .path()
+                    .map_err(|e| format!("Path error: {}", e))?
+                    .to_path_buf();
+                if path.to_string_lossy() == binary_name {
+                    // Write to a temp file next to the current exe
+                    let tmp_path = current_exe.with_extension("update");
+                    let mut tmp_file = std::fs::File::create(&tmp_path)
+                        .map_err(|e| format!("Cannot create temp file: {}", e))?;
+                    std::io::copy(&mut entry, &mut tmp_file)
+                        .map_err(|e| format!("Extract failed: {}", e))?;
+
+                    // Set executable permission
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        std::fs::set_permissions(
+                            &tmp_path,
+                            std::fs::Permissions::from_mode(0o755),
+                        )
+                        .map_err(|e| format!("chmod failed: {}", e))?;
+                    }
+
+                    // Replace: rename current → .old, new → current
+                    let old_path = current_exe.with_extension("old");
+                    let _ = std::fs::remove_file(&old_path);
+                    std::fs::rename(&current_exe, &old_path)
+                        .map_err(|e| format!("Backup rename failed: {}", e))?;
+                    std::fs::rename(&tmp_path, &current_exe)
+                        .map_err(|e| format!("Install rename failed: {}", e))?;
+                    let _ = std::fs::remove_file(&old_path);
+
+                    found = true;
+                    break;
+                }
+            }
+
+            if !found {
+                return Err(format!("Binary '{}' not found in archive", binary_name));
+            }
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = current_exe;
+            let _ = new_version;
+            return Err(
+                "Auto-update is only supported on Linux. Please download the latest release from the repository.".to_string(),
+            );
+        }
+
+        Ok(())
+    }
+
     fn recompute_filter(&mut self) {
         if self.search_text.is_empty() {
             self.filtered_rows = (0..self.table.row_count()).collect();
@@ -919,6 +1111,15 @@ impl eframe::App for OctoApp {
                 // --- View mode change ---
                 if let Some(new_mode) = action.view_mode_changed {
                     self.view_mode = new_mode;
+                }
+
+                // --- Help actions ---
+                if action.show_about {
+                    self.show_about_dialog = true;
+                }
+                if action.check_for_updates {
+                    self.show_update_dialog = true;
+                    self.check_for_updates(ctx);
                 }
 
                 // --- Row operations ---
@@ -1236,6 +1437,104 @@ impl eframe::App for OctoApp {
                 });
         }
 
+        // --- About dialog ---
+        if self.show_about_dialog {
+            egui::Window::new("About Octo")
+                .resizable(false)
+                .collapsible(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(8.0);
+                        ui.label(RichText::new("Octo").strong().size(20.0));
+                        ui.add_space(4.0);
+                        ui.label(format!("Version {}", VERSION));
+                        ui.add_space(8.0);
+                        ui.label(format!("Author: {}", AUTHORS));
+                        ui.add_space(4.0);
+                        if ui.hyperlink_to("GitHub Repository", REPOSITORY).clicked() {
+                            // egui opens the link automatically
+                        }
+                        ui.add_space(12.0);
+                        if ui.button("Close").clicked() {
+                            self.show_about_dialog = false;
+                        }
+                    });
+                });
+        }
+
+        // --- Update dialog ---
+        if self.show_update_dialog {
+            egui::Window::new("Check for Updates")
+                .resizable(false)
+                .collapsible(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(ctx, |ui| {
+                    let state = self.update_state.lock().unwrap().clone();
+                    match state {
+                        UpdateState::Idle | UpdateState::Checking => {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label("Checking for updates...");
+                            });
+                        }
+                        UpdateState::UpToDate => {
+                            ui.label(format!(
+                                "You are running the latest version ({}).",
+                                VERSION
+                            ));
+                            ui.add_space(8.0);
+                            if ui.button("Close").clicked() {
+                                self.show_update_dialog = false;
+                                *self.update_state.lock().unwrap() = UpdateState::Idle;
+                            }
+                        }
+                        UpdateState::Available(ref new_version) => {
+                            ui.label(format!(
+                                "A new version is available: {} (current: {})",
+                                new_version, VERSION
+                            ));
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui| {
+                                let version = new_version.clone();
+                                if ui.button("Update Now").clicked() {
+                                    self.perform_update(&version, ctx);
+                                }
+                                if ui.button("Cancel").clicked() {
+                                    self.show_update_dialog = false;
+                                    *self.update_state.lock().unwrap() = UpdateState::Idle;
+                                }
+                            });
+                        }
+                        UpdateState::Updating => {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label("Downloading and installing update...");
+                            });
+                        }
+                        UpdateState::Updated(ref version) => {
+                            ui.label(format!(
+                                "Updated to version {}. Please restart Octo to use the new version.",
+                                version
+                            ));
+                            ui.add_space(8.0);
+                            if ui.button("Close").clicked() {
+                                self.show_update_dialog = false;
+                                *self.update_state.lock().unwrap() = UpdateState::Idle;
+                            }
+                        }
+                        UpdateState::Error(ref msg) => {
+                            ui.label(format!("Update check failed: {}", msg));
+                            ui.add_space(8.0);
+                            if ui.button("Close").clicked() {
+                                self.show_update_dialog = false;
+                                *self.update_state.lock().unwrap() = UpdateState::Idle;
+                            }
+                        }
+                    }
+                });
+        }
+
         // Bottom status bar
         egui::TopBottomPanel::bottom("status_bar")
             .exact_height(28.0)
@@ -1424,6 +1723,18 @@ impl eframe::App for OctoApp {
                         .join("\n");
                     let line_num_width = line_count.to_string().len() as f32 * 8.0 + 16.0;
 
+                    let mono_font = egui::FontId::new(13.0, egui::FontFamily::Monospace);
+                    let nowrap_layouter = |ui: &egui::Ui, text: &str, _wrap_width: f32| {
+                        let mut job = egui::text::LayoutJob::simple(
+                            text.to_owned(),
+                            egui::FontId::new(13.0, egui::FontFamily::Monospace),
+                            ui.visuals().text_color(),
+                            f32::INFINITY,
+                        );
+                        job.wrap.max_width = f32::INFINITY;
+                        ui.fonts(|f| f.layout_job(job))
+                    };
+
                     egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
@@ -1432,11 +1743,12 @@ impl eframe::App for OctoApp {
                                 ui.add_sized(
                                     [line_num_width, ui.available_height()],
                                     egui::TextEdit::multiline(&mut line_num_text.clone())
-                                        .font(egui::FontId::new(13.0, egui::FontFamily::Monospace))
+                                        .font(mono_font.clone())
                                         .interactive(false)
                                         .desired_width(line_num_width)
                                         .text_color(colors.text_muted)
-                                        .frame(false),
+                                        .frame(false)
+                                        .layouter(&mut nowrap_layouter.clone()),
                                 );
                                 // Separator line
                                 ui.add_space(2.0);
@@ -1446,12 +1758,13 @@ impl eframe::App for OctoApp {
                                 );
                                 ui.painter().rect_filled(sep_rect, 0.0, colors.border);
                                 ui.add_space(4.0);
-                                // Text editor
+                                // Text editor (no wrapping — scroll horizontally)
                                 let response = ui.add(
                                     egui::TextEdit::multiline(content)
-                                        .font(egui::FontId::new(13.0, egui::FontFamily::Monospace))
+                                        .font(mono_font)
                                         .desired_width(f32::INFINITY)
-                                        .text_color(colors.text_primary),
+                                        .text_color(colors.text_primary)
+                                        .layouter(&mut nowrap_layouter.clone()),
                                 );
                                 if response.changed() {
                                     self.raw_content_modified = true;

@@ -6,7 +6,7 @@ authors = ["Thorsten Foltz <thorsten.foltz@live.com>"]
 description = "A modular multi-format data viewer and editor"
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/tfoltz/octo"
+repository = "https://github.com/thorstenfoltz/octo"
 keywords = ["data-viewer", "parquet", "csv", "gui", "egui"]
 categories = ["visualization", "gui"]
 
@@ -47,6 +47,9 @@ serde_yaml = "0.9"
 mupdf = "0.6"
 resvg = "0.47"
 egui_commonmark = "0.20"
+ureq = "3"
+flate2 = "1"
+tar = "0.4"
 
 [build-dependencies]
 winresource = "0.1"
