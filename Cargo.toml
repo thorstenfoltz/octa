@@ -1,7 +1,8 @@
 [package]
 name = "octo"
 version = "0.0.0-dev"
-edition = "2021"
+edition = "2024"
+authors = ["Thorsten Foltz <thorsten.foltz@live.com>"]
 description = "A modular multi-format data viewer and editor"
 license = "MIT"
 readme = "README.md"
