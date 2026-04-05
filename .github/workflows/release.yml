@@ -22,9 +22,11 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Set version
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          echo "VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
-          sed -i "s/^version = .*/version = \"${{ inputs.version }}\"/" Cargo.toml
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          sed -i "s/^version = .*/version = \"$VERSION\"/" Cargo.toml
 
       - name: Install system dependencies
         run: |
@@ -66,10 +68,12 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Set version
+        env:
+          VERSION: ${{ inputs.version }}
         shell: pwsh
         run: |
-          echo "VERSION=${{ inputs.version }}" >> $env:GITHUB_ENV
-          (Get-Content Cargo.toml) -replace '^version = .*', "version = `"${{ inputs.version }}`"" | Set-Content Cargo.toml
+          echo "VERSION=$env:VERSION" >> $env:GITHUB_ENV
+          (Get-Content Cargo.toml) -replace '^version = .*', "version = `"$env:VERSION`"" | Set-Content Cargo.toml
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -112,10 +116,11 @@ jobs:
       - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
         run: |
-          gh release create "v${{ inputs.version }}" \
+          gh release create "v$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Octo v${{ inputs.version }}" \
+            --title "Octo v$VERSION" \
             --generate-notes \
             --draft \
             artifacts/linux-release/*.tar.gz \
