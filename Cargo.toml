@@ -9,6 +9,10 @@ repository = "https://github.com/tfoltz/octo"
 keywords = ["data-viewer", "parquet", "csv", "gui", "egui"]
 categories = ["visualization", "gui"]
 
+[lib]
+name = "octo"
+path = "src/lib.rs"
+
 [[bin]]
 name = "octo"
 path = "src/main.rs"

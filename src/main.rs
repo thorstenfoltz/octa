@@ -1,9 +1,6 @@
-mod data;
-mod formats;
-mod ui;
-
-use data::{DataTable, ViewMode};
-use formats::FormatRegistry;
+use octo::data::{self, DataTable, ViewMode};
+use octo::formats::{self, FormatRegistry};
+use octo::ui;
 use ui::table_view::TableViewState;
 use ui::theme::ThemeMode;
 
@@ -156,16 +153,18 @@ fn detect_delimiter_from_content(content: &str) -> u8 {
     let mut best: Option<(u8, usize)> = None;
     for &delim in candidates {
         let delim_char = delim as char;
-        let counts: Vec<usize> = lines.iter().map(|l| l.matches(delim_char).count()).collect();
+        let counts: Vec<usize> = lines
+            .iter()
+            .map(|l| l.matches(delim_char).count())
+            .collect();
         if counts[0] == 0 {
             continue;
         }
         let header_count = counts[0];
         let consistent = counts.iter().all(|&c| c == header_count || c == 0);
-        if consistent
-            && (best.is_none() || header_count > best.unwrap().1) {
-                best = Some((delim, header_count));
-            }
+        if consistent && (best.is_none() || header_count > best.unwrap().1) {
+            best = Some((delim, header_count));
+        }
     }
     best.map(|(d, _)| d).unwrap_or(b',')
 }
@@ -281,7 +280,6 @@ const COLUMN_TYPES: &[&str] = &[
     "Date32",
     "Timestamp(Microsecond, None)",
 ];
-
 
 impl OctoApp {
     fn new(initial_file: Option<std::path::PathBuf>) -> Self {
@@ -521,10 +519,9 @@ impl OctoApp {
                     }
 
                     // Load raw content for text-based formats (skip for large files)
-                    let file_size = std::fs::metadata(&path)
-                        .map(|m| m.len())
-                        .unwrap_or(0);
-                    if file_size <= 500_000_000 { // 500 MB
+                    let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                    if file_size <= 500_000_000 {
+                        // 500 MB
                         self.raw_content = std::fs::read_to_string(&path).ok();
                     } else {
                         self.raw_content = None;
@@ -773,23 +770,28 @@ impl eframe::App for OctoApp {
                 self.save_file_as();
             }
         }
-        if ctrl_held && ctx.input(|i| i.key_pressed(egui::Key::A))
-            && self.table.col_count() > 0 && self.table.row_count() > 0 {
-                self.table_state.selected_rows.clear();
-                self.table_state.selected_cols.clear();
-                for r in 0..self.table.row_count() {
-                    self.table_state.selected_rows.insert(r);
-                }
+        if ctrl_held
+            && ctx.input(|i| i.key_pressed(egui::Key::A))
+            && self.table.col_count() > 0
+            && self.table.row_count() > 0
+        {
+            self.table_state.selected_rows.clear();
+            self.table_state.selected_cols.clear();
+            for r in 0..self.table.row_count() {
+                self.table_state.selected_rows.insert(r);
             }
+        }
 
         // --- Handle close request ---
         if ctx.input(|i| i.viewport().close_requested())
-            && (self.table.is_modified() || self.raw_content_modified) && !self.confirmed_close {
-                // Block the close and show our dialog
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                self.show_close_confirm = true;
-            }
-            // If confirmed_close is true, we just let it close
+            && (self.table.is_modified() || self.raw_content_modified)
+            && !self.confirmed_close
+        {
+            // Block the close and show our dialog
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.show_close_confirm = true;
+        }
+        // If confirmed_close is true, we just let it close
 
         // Drain background-loaded rows into the table
         if let Some(ref buffer) = self.bg_row_buffer {
@@ -820,19 +822,13 @@ impl eframe::App for OctoApp {
                         self.bg_can_load_more = false;
                     } else if loading_done {
                         self.status_message = Some((
-                            format!(
-                                "Loaded {} rows (scroll down to load more)",
-                                total_fmt
-                            ),
+                            format!("Loaded {} rows (scroll down to load more)", total_fmt),
                             std::time::Instant::now(),
                         ));
                         self.bg_can_load_more = true;
                     } else {
                         self.status_message = Some((
-                            format!(
-                                "Loading... {} rows so far",
-                                total_fmt
-                            ),
+                            format!("Loading... {} rows so far", total_fmt),
                             std::time::Instant::now(),
                         ));
                     }
@@ -872,7 +868,11 @@ impl eframe::App for OctoApp {
                         let size = tree.size();
                         let (w, h) = (size.width() as u32, size.height() as u32);
                         if let Some(mut pixmap) = resvg::tiny_skia::Pixmap::new(w, h) {
-                            resvg::render(&tree, resvg::tiny_skia::Transform::default(), &mut pixmap.as_mut());
+                            resvg::render(
+                                &tree,
+                                resvg::tiny_skia::Transform::default(),
+                                &mut pixmap.as_mut(),
+                            );
                             let image = egui::ColorImage::from_rgba_unmultiplied(
                                 [w as usize, h as usize],
                                 pixmap.data(),
@@ -977,10 +977,9 @@ impl eframe::App for OctoApp {
                     // Insert after selected column, or at end
                     self.insert_col_at = self.table_state.selected_cell.map(|(_, c)| c + 1);
                 }
-                if action.delete_column
-                    && self.table.col_count() > 0 {
-                        self.open_delete_columns_dialog();
-                    }
+                if action.delete_column && self.table.col_count() > 0 {
+                    self.open_delete_columns_dialog();
+                }
                 if action.move_col_left {
                     if let Some((row, col)) = self.table_state.selected_cell {
                         if col > 0 {
@@ -1345,8 +1344,11 @@ impl eframe::App for OctoApp {
                                 ui.add_space(16.0);
                                 ui.vertical(|ui| {
                                     ui.set_max_width(900.0);
-                                    egui_commonmark::CommonMarkViewer::new()
-                                        .show(ui, &mut self.commonmark_cache, &md_content);
+                                    egui_commonmark::CommonMarkViewer::new().show(
+                                        ui,
+                                        &mut self.commonmark_cache,
+                                        &md_content,
+                                    );
                                 });
                             });
                         });
@@ -1375,11 +1377,12 @@ impl eframe::App for OctoApp {
                             if ui
                                 .checkbox(&mut self.raw_view_formatted, "Align Columns")
                                 .changed()
-                                && self.raw_view_formatted {
-                                    let delim = self.csv_delimiter as char;
-                                    *content = format_delimited_text(content, delim);
-                                    self.raw_content_modified = true;
-                                }
+                                && self.raw_view_formatted
+                            {
+                                let delim = self.csv_delimiter as char;
+                                *content = format_delimited_text(content, delim);
+                                self.raw_content_modified = true;
+                            }
                             ui.add_space(16.0);
                             if is_csv {
                                 ui.label("Delimiter:");
@@ -1423,8 +1426,7 @@ impl eframe::App for OctoApp {
                         .map(|n| format!("{:>width$}", n, width = line_count.to_string().len()))
                         .collect::<Vec<_>>()
                         .join("\n");
-                    let line_num_width =
-                        line_count.to_string().len() as f32 * 8.0 + 16.0;
+                    let line_num_width = line_count.to_string().len() as f32 * 8.0 + 16.0;
 
                     egui::ScrollArea::both()
                         .auto_shrink([false, false])
@@ -1434,10 +1436,7 @@ impl eframe::App for OctoApp {
                                 ui.add_sized(
                                     [line_num_width, ui.available_height()],
                                     egui::TextEdit::multiline(&mut line_num_text.clone())
-                                        .font(egui::FontId::new(
-                                            13.0,
-                                            egui::FontFamily::Monospace,
-                                        ))
+                                        .font(egui::FontId::new(13.0, egui::FontFamily::Monospace))
                                         .interactive(false)
                                         .desired_width(line_num_width)
                                         .text_color(colors.text_muted)
@@ -1449,19 +1448,12 @@ impl eframe::App for OctoApp {
                                     ui.cursor().left_top(),
                                     egui::vec2(1.0, ui.available_height()),
                                 );
-                                ui.painter().rect_filled(
-                                    sep_rect,
-                                    0.0,
-                                    colors.border,
-                                );
+                                ui.painter().rect_filled(sep_rect, 0.0, colors.border);
                                 ui.add_space(4.0);
                                 // Text editor
                                 let response = ui.add(
                                     egui::TextEdit::multiline(content)
-                                        .font(egui::FontId::new(
-                                            13.0,
-                                            egui::FontFamily::Monospace,
-                                        ))
+                                        .font(egui::FontId::new(13.0, egui::FontFamily::Monospace))
                                         .desired_width(f32::INFINITY)
                                         .text_color(colors.text_primary),
                                 );
@@ -1610,10 +1602,9 @@ impl eframe::App for OctoApp {
                 self.new_col_type = "String".to_string();
                 self.insert_col_at = self.table_state.selected_cell.map(|(_, c)| c + 1);
             }
-            if interaction.ctx_delete_column
-                && self.table.col_count() > 0 {
-                    self.open_delete_columns_dialog();
-                }
+            if interaction.ctx_delete_column && self.table.col_count() > 0 {
+                self.open_delete_columns_dialog();
+            }
             if interaction.ctx_move_col_left {
                 if let Some((row, col)) = self.table_state.selected_cell {
                     if col > 0 {

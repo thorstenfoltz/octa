@@ -89,11 +89,8 @@ impl FormatReader for AvroReader {
                 let schema = data_type_to_avro_schema(&col.data_type);
                 // Wrap in Union with Null to allow nulls
                 let nullable = apache_avro::Schema::Union(
-                    apache_avro::schema::UnionSchema::new(vec![
-                        apache_avro::Schema::Null,
-                        schema,
-                    ])
-                    .unwrap(),
+                    apache_avro::schema::UnionSchema::new(vec![apache_avro::Schema::Null, schema])
+                        .unwrap(),
                 );
                 apache_avro::schema::RecordField {
                     name: col.name.clone(),
@@ -132,7 +129,10 @@ impl FormatReader for AvroReader {
         for row_idx in 0..table.row_count() {
             let mut record_fields: Vec<(String, AvroValue)> = Vec::new();
             for (col_idx, col) in table.columns.iter().enumerate() {
-                let cell = table.get(row_idx, col_idx).cloned().unwrap_or(CellValue::Null);
+                let cell = table
+                    .get(row_idx, col_idx)
+                    .cloned()
+                    .unwrap_or(CellValue::Null);
                 let avro_val = cell_to_avro(&cell);
                 // Wrap in Union (index 0 = Null, index 1 = value)
                 let union_val = match avro_val {

@@ -54,12 +54,20 @@ pub fn draw_status_bar(
             let row_text = if table.total_rows.is_some() {
                 let loaded = table.row_offset + table.row_count();
                 if search_active {
-                    format!("{} / {}+ rows (partial)", format_number(filtered_count), format_number(loaded))
+                    format!(
+                        "{} / {}+ rows (partial)",
+                        format_number(filtered_count),
+                        format_number(loaded)
+                    )
                 } else {
                     format!("{}+ rows (scroll to load more)", format_number(loaded))
                 }
             } else if search_active {
-                format!("{} / {} rows", format_number(filtered_count), format_number(table.row_count()))
+                format!(
+                    "{} / {} rows",
+                    format_number(filtered_count),
+                    format_number(table.row_count())
+                )
             } else {
                 format!("{} rows", format_number(table.row_count()))
             };

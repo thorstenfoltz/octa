@@ -1,0 +1,14 @@
+[[items]]
+id = 1
+name = "Alice"
+active = true
+
+[[items]]
+id = 2
+name = "Bob"
+active = false
+
+[[items]]
+id = 3
+name = "Charlie"
+active = true

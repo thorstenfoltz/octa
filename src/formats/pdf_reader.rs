@@ -108,8 +108,7 @@ impl FormatReader for PdfReader {
     fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {
         use printpdf::*;
 
-        let (doc, page1, layer1) =
-            PdfDocument::new("Octo Export", Mm(210.0), Mm(297.0), "Layer 1");
+        let (doc, page1, layer1) = PdfDocument::new("Octo Export", Mm(210.0), Mm(297.0), "Layer 1");
 
         let font = doc.add_builtin_font(BuiltinFont::Helvetica)?;
 
@@ -129,8 +128,7 @@ impl FormatReader for PdfReader {
         for row_idx in 0..table.row_count() {
             if y_pos < margin_bottom {
                 // New page
-                let (new_page, new_layer) =
-                    doc.add_page(Mm(210.0), Mm(297.0), "Layer 1");
+                let (new_page, new_layer) = doc.add_page(Mm(210.0), Mm(297.0), "Layer 1");
                 current_page = new_page;
                 current_layer = new_layer;
                 y_pos = 280.0;

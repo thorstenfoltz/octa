@@ -1,12 +1,9 @@
 name: Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Release version (e.g. v0.1.0)"
-        required: true
-        type: string
+  push:
+    tags:
+      - "*"
 
 permissions:
   contents: write
@@ -18,13 +15,12 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Set version in Cargo.toml
-        env:
-          VERSION_INPUT: ${{ inputs.version }}
+      - name: Set version from tag
         run: |
-          VERSION="${VERSION_INPUT#v}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           sed -i "s/^version = .*/version = \"$VERSION\"/" Cargo.toml
 
       - name: Install system dependencies
@@ -36,73 +32,72 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build release binary
-        run: cargo build --release
-
       - name: Run tests
         run: cargo test
 
+      - name: Build release binary
+        run: cargo build --release
+
       - name: Package Linux release
-        env:
-          VERSION_INPUT: ${{ inputs.version }}
         run: |
-          mkdir -p "octo-${VERSION_INPUT}-linux-x86_64"
-          cp target/release/octo "octo-${VERSION_INPUT}-linux-x86_64/"
-          cp install.sh "octo-${VERSION_INPUT}-linux-x86_64/"
-          cp octo.desktop "octo-${VERSION_INPUT}-linux-x86_64/"
-          cp -r assets "octo-${VERSION_INPUT}-linux-x86_64/"
-          cp README.md "octo-${VERSION_INPUT}-linux-x86_64/"
-          cp LICENSE "octo-${VERSION_INPUT}-linux-x86_64/" 2>/dev/null || true
-          tar czf "octo-${VERSION_INPUT}-linux-x86_64.tar.gz" "octo-${VERSION_INPUT}-linux-x86_64/"
+          DIR="octo-v${VERSION}-linux-x86_64"
+          mkdir -p "$DIR/assets"
+          cp target/release/octo "$DIR/"
+          cp install.sh "$DIR/"
+          cp uninstall.sh "$DIR/"
+          cp octo.desktop "$DIR/"
+          cp assets/octo.svg "$DIR/assets/"
+          cp assets/octo.png "$DIR/assets/"
+          cp README.md "$DIR/"
+          cp LICENSE "$DIR/" 2>/dev/null || true
+          tar czf "${DIR}.tar.gz" "$DIR/"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-release
-          path: octo-${{ inputs.version }}-linux-x86_64.tar.gz
+          path: octo-v${{ env.VERSION }}-linux-x86_64.tar.gz
 
   build-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Set version in Cargo.toml
+      - name: Set version from tag
         shell: pwsh
-        env:
-          VERSION_INPUT: ${{ inputs.version }}
         run: |
-          $version = "$env:VERSION_INPUT" -replace '^v', ''
+          $version = "$env:GITHUB_REF_NAME" -replace '^v', ''
+          echo "VERSION=$version" >> $env:GITHUB_ENV
           (Get-Content Cargo.toml) -replace '^version = .*', "version = `"$version`"" | Set-Content Cargo.toml
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build release binary
-        run: cargo build --release
-
       - name: Run tests
         run: cargo test
 
+      - name: Build release binary
+        run: cargo build --release
+
       - name: Package Windows release
         shell: pwsh
-        env:
-          VERSION_INPUT: ${{ inputs.version }}
         run: |
-          $dir = "octo-${env:VERSION_INPUT}-windows-x86_64"
-          New-Item -ItemType Directory -Path $dir -Force
+          $dir = "octo-v$env:VERSION-windows-x86_64"
+          New-Item -ItemType Directory -Path "$dir\assets" -Force
           Copy-Item "target\release\octo.exe" "$dir\"
           Copy-Item "install.bat" "$dir\"
-          Copy-Item -Recurse "assets" "$dir\"
+          Copy-Item "assets\octo.svg" "$dir\assets\"
+          Copy-Item "assets\octo.png" "$dir\assets\"
           Copy-Item "README.md" "$dir\"
           if (Test-Path "LICENSE") { Copy-Item "LICENSE" "$dir\" }
-          Compress-Archive -Path "$dir\*" -DestinationPath "octo-${env:VERSION_INPUT}-windows-x86_64.zip"
+          Compress-Archive -Path "$dir\*" -DestinationPath "octo-v$env:VERSION-windows-x86_64.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-release
-          path: octo-${{ inputs.version }}-windows-x86_64.zip
+          path: octo-v${{ env.VERSION }}-windows-x86_64.zip
 
   publish:
     needs: [build-linux, build-windows]
@@ -115,8 +110,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.version }}
-          name: Octo ${{ inputs.version }}
+          tag_name: ${{ github.ref_name }}
+          name: Octo ${{ github.ref_name }}
           generate_release_notes: true
           files: |
             artifacts/linux-release/*.tar.gz

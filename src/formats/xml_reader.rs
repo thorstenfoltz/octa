@@ -55,7 +55,10 @@ impl FormatReader for XmlFormatReader {
                 out.push_str(">\n");
                 for (name, val) in &child_elements {
                     let escaped_name = quick_xml::escape::escape(name);
-                    out.push_str(&format!("    <{}>{}</{}>\n", escaped_name, val, escaped_name));
+                    out.push_str(&format!(
+                        "    <{}>{}</{}>\n",
+                        escaped_name, val, escaped_name
+                    ));
                 }
                 out.push_str("  </row>\n");
             }

@@ -10,7 +10,14 @@ CHECK_MARK="${GREEN}✔${NC}"
 CROSS_MARK="${RED}✖${NC}"
 
 # Get the current branch name
-BRANCH_NAME=${1:-$(git rev-parse --abbrev-ref HEAD)}
+# Priority: explicit argument > GITHUB_HEAD_REF (CI PRs) > git
+if [[ -n "${1:-}" ]]; then
+	BRANCH_NAME="$1"
+elif [[ -n "${GITHUB_HEAD_REF:-}" ]]; then
+	BRANCH_NAME="$GITHUB_HEAD_REF"
+else
+	BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+fi
 
 # Define the branch name pattern
 BRANCH_NAME_REGEX="^(master|(feature|fix|hotfix|chore|refactor|test|docs)/[a-z0-9._-]+)$"

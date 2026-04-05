@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data>
+  <row>
+    <id>1</id>
+    <name>Alice</name>
+    <active>true</active>
+  </row>
+  <row>
+    <id>2</id>
+    <name>Bob</name>
+    <active>false</active>
+  </row>
+  <row>
+    <id>3</id>
+    <name>Charlie</name>
+    <active>true</active>
+  </row>
+</data>

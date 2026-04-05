@@ -24,7 +24,6 @@ pub struct ToolbarAction {
     pub view_mode_changed: Option<ViewMode>,
 }
 
-
 #[allow(clippy::too_many_arguments)]
 pub fn draw_toolbar(
     ui: &mut Ui,
@@ -71,11 +70,10 @@ pub fn draw_toolbar(
             }
             if has_data {
                 ui.separator();
-                if has_source_path
-                    && ui.button("Save").clicked() {
-                        action.save_file = true;
-                        ui.close_menu();
-                    }
+                if has_source_path && ui.button("Save").clicked() {
+                    action.save_file = true;
+                    ui.close_menu();
+                }
                 if ui.button("Save As...").clicked() {
                     action.save_file_as = true;
                     ui.close_menu();

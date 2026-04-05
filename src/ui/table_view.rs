@@ -119,7 +119,6 @@ pub struct TableInteraction {
     pub clear_mark: Option<MarkKey>,
 }
 
-
 /// Draw the data table with true row virtualization.
 pub fn draw_table(
     ui: &mut Ui,
@@ -758,10 +757,11 @@ fn draw_header_direct(
                     ui.close_menu();
                 }
                 if (state.clipboard.is_some() || state.os_clipboard_has_text)
-                    && ui.button("Paste").clicked() {
-                        interaction.ctx_paste = true;
-                        ui.close_menu();
-                    }
+                    && ui.button("Paste").clicked()
+                {
+                    interaction.ctx_paste = true;
+                    ui.close_menu();
+                }
                 ui.separator();
                 mark_submenu(ui, MarkKey::Column(col_idx), table, interaction);
                 ui.separator();
@@ -800,9 +800,12 @@ fn draw_header_direct(
                         } else {
                             t.to_string()
                         };
-                        let btn = ui.add_enabled(!is_current && can_convert, egui::Button::new(label));
+                        let btn =
+                            ui.add_enabled(!is_current && can_convert, egui::Button::new(label));
                         let btn = if !can_convert && !is_current {
-                            btn.on_disabled_hover_text("Not all values can be converted to this type")
+                            btn.on_disabled_hover_text(
+                                "Not all values can be converted to this type",
+                            )
                         } else {
                             btn
                         };
@@ -813,24 +816,22 @@ fn draw_header_direct(
                     }
                 });
                 ui.separator();
-                if col_idx > 0
-                    && ui.button("Move Left").clicked() {
-                        state.selected_cell = state
-                            .selected_cell
-                            .map(|(r, _)| (r, col_idx))
-                            .or(Some((0, col_idx)));
-                        interaction.ctx_move_col_left = true;
-                        ui.close_menu();
-                    }
-                if col_idx + 1 < table.col_count()
-                    && ui.button("Move Right").clicked() {
-                        state.selected_cell = state
-                            .selected_cell
-                            .map(|(r, _)| (r, col_idx))
-                            .or(Some((0, col_idx)));
-                        interaction.ctx_move_col_right = true;
-                        ui.close_menu();
-                    }
+                if col_idx > 0 && ui.button("Move Left").clicked() {
+                    state.selected_cell = state
+                        .selected_cell
+                        .map(|(r, _)| (r, col_idx))
+                        .or(Some((0, col_idx)));
+                    interaction.ctx_move_col_left = true;
+                    ui.close_menu();
+                }
+                if col_idx + 1 < table.col_count() && ui.button("Move Right").clicked() {
+                    state.selected_cell = state
+                        .selected_cell
+                        .map(|(r, _)| (r, col_idx))
+                        .or(Some((0, col_idx)));
+                    interaction.ctx_move_col_right = true;
+                    ui.close_menu();
+                }
             });
 
             // Drag start
@@ -1122,10 +1123,11 @@ fn draw_data_row_direct(
                         ui.close_menu();
                     }
                     if (state.clipboard.is_some() || state.os_clipboard_has_text)
-                        && ui.button("Paste").clicked() {
-                            interaction.ctx_paste = true;
-                            ui.close_menu();
-                        }
+                        && ui.button("Paste").clicked()
+                    {
+                        interaction.ctx_paste = true;
+                        ui.close_menu();
+                    }
                     ui.separator();
 
                     // --- Mark ---
@@ -1141,21 +1143,20 @@ fn draw_data_row_direct(
                         interaction.ctx_delete_row = true;
                         ui.close_menu();
                     }
-                    if actual_row > 0
-                        && ui.button("Move Row Up").clicked() {
-                            interaction.ctx_move_row_up = true;
-                            ui.close_menu();
-                        }
-                    if actual_row + 1 < row_count
-                        && ui.button("Move Row Down").clicked() {
-                            interaction.ctx_move_row_down = true;
-                            ui.close_menu();
-                        }
+                    if actual_row > 0 && ui.button("Move Row Up").clicked() {
+                        interaction.ctx_move_row_up = true;
+                        ui.close_menu();
+                    }
+                    if actual_row + 1 < row_count && ui.button("Move Row Down").clicked() {
+                        interaction.ctx_move_row_down = true;
+                        ui.close_menu();
+                    }
 
                     ui.separator();
                     ui.label(RichText::new("Column").strong().size(11.0));
                     if ui.button("Rename Column").clicked() {
-                        state.editing_col_name = Some((col_idx, table.columns[col_idx].name.clone()));
+                        state.editing_col_name =
+                            Some((col_idx, table.columns[col_idx].name.clone()));
                         state.edit_col_needs_focus = true;
                         ui.close_menu();
                     }
@@ -1168,16 +1169,14 @@ fn draw_data_row_direct(
                         interaction.ctx_delete_column = true;
                         ui.close_menu();
                     }
-                    if col_idx > 0
-                        && ui.button("Move Column Left").clicked() {
-                            interaction.ctx_move_col_left = true;
-                            ui.close_menu();
-                        }
-                    if col_idx + 1 < col_count
-                        && ui.button("Move Column Right").clicked() {
-                            interaction.ctx_move_col_right = true;
-                            ui.close_menu();
-                        }
+                    if col_idx > 0 && ui.button("Move Column Left").clicked() {
+                        interaction.ctx_move_col_left = true;
+                        ui.close_menu();
+                    }
+                    if col_idx + 1 < col_count && ui.button("Move Column Right").clicked() {
+                        interaction.ctx_move_col_right = true;
+                        ui.close_menu();
+                    }
 
                     ui.separator();
                     ui.label(RichText::new("Sort").strong().size(11.0));
@@ -1269,10 +1268,11 @@ fn draw_data_row_direct(
                 ui.close_menu();
             }
             if (state.clipboard.is_some() || state.os_clipboard_has_text)
-                && ui.button("Paste").clicked() {
-                    interaction.ctx_paste = true;
-                    ui.close_menu();
-                }
+                && ui.button("Paste").clicked()
+            {
+                interaction.ctx_paste = true;
+                ui.close_menu();
+            }
             ui.separator();
 
             mark_submenu(ui, MarkKey::Row(actual_row), table, interaction);
@@ -1287,26 +1287,19 @@ fn draw_data_row_direct(
                 interaction.ctx_delete_row = true;
                 ui.close_menu();
             }
-            if actual_row > 0
-                && ui.button("Move Row Up").clicked() {
-                    interaction.ctx_move_row_up = true;
-                    ui.close_menu();
-                }
-            if actual_row + 1 < row_count
-                && ui.button("Move Row Down").clicked() {
-                    interaction.ctx_move_row_down = true;
-                    ui.close_menu();
-                }
+            if actual_row > 0 && ui.button("Move Row Up").clicked() {
+                interaction.ctx_move_row_up = true;
+                ui.close_menu();
+            }
+            if actual_row + 1 < row_count && ui.button("Move Row Down").clicked() {
+                interaction.ctx_move_row_down = true;
+                ui.close_menu();
+            }
         });
     }
 }
 
-fn mark_submenu(
-    ui: &mut Ui,
-    key: MarkKey,
-    table: &DataTable,
-    interaction: &mut TableInteraction,
-) {
+fn mark_submenu(ui: &mut Ui, key: MarkKey, table: &DataTable, interaction: &mut TableInteraction) {
     let current_mark = table.marks.get(&key).copied();
     ui.menu_button("Mark", |ui| {
         for &color in MarkColor::ALL {
