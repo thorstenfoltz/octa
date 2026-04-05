@@ -1,7 +1,7 @@
 use octo::data::{CellValue, ColumnInfo, DataTable};
 use octo::formats::FormatRegistry;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Once;
 
 static INIT: Once = Once::new();

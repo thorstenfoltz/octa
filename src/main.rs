@@ -61,7 +61,7 @@ fn main() -> eframe::Result<()> {
     };
 
     eframe::run_native(
-        "Octo",
+        "octo",
         options,
         Box::new(move |cc| {
             ui::theme::apply_theme(&cc.egui_ctx, ThemeMode::Light);

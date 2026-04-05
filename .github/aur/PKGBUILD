@@ -1,6 +1,6 @@
 # Maintainer: Thorsten Foltz <thorsten.foltz@live.com>
 pkgname=octo
-pkgver=0.1.0
+pkgver=X.X.X
 pkgrel=1
 pkgdesc="A modular multi-format data viewer and editor"
 arch=('x86_64')
@@ -8,9 +8,10 @@ url="https://github.com/thorstenfoltz/octo"
 license=('MIT')
 depends=('gtk3' 'libxcb' 'libxkbcommon' 'openssl' 'fontconfig' 'freetype2' 'harfbuzz' 'fribidi' 'libjpeg-turbo' 'openjpeg2' 'gumbo-parser' 'jbig2dec' 'mujs')
 makedepends=('rust' 'cargo' 'clang' 'cmake' 'nasm' 'pkgconf')
+conflicts=('octo-bin')
 options=(!lto)
 source=("$pkgname-$pkgver.tar.gz::$url/archive/$pkgver.tar.gz")
-sha256sums=('3b22bb1c45e110cc6111362d219c881a0dc44657ef469ba23d38d4b815f0f237')
+sha256sums=('SKIP')
 
 prepare() {
     cd "$pkgname-$pkgver"
@@ -33,7 +34,7 @@ check() {
     cd "$pkgname-$pkgver"
     export RUSTUP_TOOLCHAIN=stable
     export CARGO_TARGET_DIR=target
-    cargo test --frozen --release
+    cargo test --frozen
 }
 
 package() {

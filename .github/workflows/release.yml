@@ -4,12 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (e.g. 0.2.0)"
+        description: "Release version"
         required: true
         type: string
 
 permissions:
   contents: write
+  # TODO: Uncomment when enabling SignPath code signing
+  # actions: read
+  # id-token: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -64,6 +67,9 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    # TODO: Uncomment when enabling SignPath code signing
+    # outputs:
+    #   unsigned-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v5
 
@@ -74,6 +80,16 @@ jobs:
         run: |
           echo "VERSION=$env:VERSION" >> $env:GITHUB_ENV
           (Get-Content Cargo.toml) -replace '^version = .*', "version = `"$env:VERSION`"" | Set-Content Cargo.toml
+
+      - name: Generate ICO from PNG
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $png = [System.Drawing.Bitmap]::new("assets/octo.png")
+          $ico = [System.IO.FileStream]::new("assets/octo.ico", [System.IO.FileMode]::Create)
+          $png.Save($ico, [System.Drawing.Imaging.ImageFormat]::Icon)
+          $ico.Close()
+          $png.Dispose()
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -93,6 +109,7 @@ jobs:
           Copy-Item "install.bat" "$dir\"
           Copy-Item "assets\octo.svg" "$dir\assets\"
           Copy-Item "assets\octo.png" "$dir\assets\"
+          if (Test-Path "assets\octo.ico") { Copy-Item "assets\octo.ico" "$dir\assets\" }
           Copy-Item "README.md" "$dir\"
           if (Test-Path "LICENSE") { Copy-Item "LICENSE" "$dir\" }
           Compress-Archive -Path "$dir\*" -DestinationPath "octo-v$env:VERSION-windows-x86_64.zip"
@@ -102,6 +119,66 @@ jobs:
         with:
           name: windows-release
           path: octo-v${{ env.VERSION }}-windows-x86_64.zip
+
+      # TODO: Enable SignPath code signing once certificate is available
+      # - name: Upload unsigned exe for signing
+      #   id: upload-unsigned
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: windows-unsigned-exe
+      #     path: target/release/octo.exe
+      #
+      # - name: Upload packaging files
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: windows-packaging
+      #     path: |
+      #       octo-v${{ env.VERSION }}-windows-x86_64/
+      #       !octo-v${{ env.VERSION }}-windows-x86_64/octo.exe
+
+  # TODO: Enable SignPath code signing once certificate is available
+  # sign-windows:
+  #   needs: build-windows
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Download unsigned exe
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: windows-unsigned-exe
+  #         path: unsigned
+  #
+  #     - name: Sign with SignPath
+  #       uses: signpath/github-action-submit-signing-request@v1
+  #       with:
+  #         api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+  #         organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+  #         project-slug: octo
+  #         signing-policy-slug: release-signing
+  #         artifact-configuration-slug: windows-exe
+  #         github-artifact-id: ${{ needs.build-windows.outputs.unsigned-artifact-id }}
+  #         wait-for-completion: true
+  #         output-artifact-directory: signed
+  #
+  #     - name: Download packaging files
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: windows-packaging
+  #         path: package
+  #
+  #     - name: Repackage with signed exe
+  #       env:
+  #         VERSION: ${{ inputs.version }}
+  #       shell: bash
+  #       run: |
+  #         DIR=$(ls package/)
+  #         cp signed/octo.exe "package/$DIR/octo.exe"
+  #         cd package && zip -r "../octo-v${VERSION}-windows-x86_64.zip" "$DIR/"
+  #
+  #     - name: Upload signed release
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: windows-release
+  #         path: octo-v${{ inputs.version }}-windows-x86_64.zip
 
   publish:
     needs: [build-linux, build-windows]
@@ -118,9 +195,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version }}
         run: |
-          gh release create "v$VERSION" \
+          gh release create "$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Octo v$VERSION" \
+            --title "Octo $VERSION" \
             --generate-notes \
             --draft \
             artifacts/linux-release/*.tar.gz \

@@ -6,3 +6,4 @@
 CLAUDE.md
 .claude/
 megalinter-reports/
+pkg/build/

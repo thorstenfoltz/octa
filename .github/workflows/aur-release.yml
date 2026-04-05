@@ -1,0 +1,84 @@
+name: AUR Release
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  aur-publish:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Get version from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 --json tagName --jq '.[0].tagName')
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Publishing AUR packages for version $VERSION"
+
+      - name: Download tarballs and compute sha256
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Source tarball (GitHub auto-generated archive)
+          curl -sL "https://github.com/$GITHUB_REPOSITORY/archive/$VERSION.tar.gz" -o source.tar.gz
+          SOURCE_SHA256=$(sha256sum source.tar.gz | cut -d' ' -f1)
+          echo "SOURCE_SHA256=$SOURCE_SHA256" >> "$GITHUB_ENV"
+          echo "Source sha256: $SOURCE_SHA256"
+
+          # Binary tarball (release artifact)
+          gh release download "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "octo-v${VERSION}-linux-x86_64.tar.gz" \
+            --output binary.tar.gz
+          BINARY_SHA256=$(sha256sum binary.tar.gz | cut -d' ' -f1)
+          echo "BINARY_SHA256=$BINARY_SHA256" >> "$GITHUB_ENV"
+          echo "Binary sha256: $BINARY_SHA256"
+
+      - name: Prepare PKGBUILDs
+        run: |
+          # octo (source)
+          sed -i "s/X\.X\.X/$VERSION/g" .github/aur/PKGBUILD .github/aur/.SRCINFO
+          sed -i "s/sha256sums=('SKIP')/sha256sums=('$SOURCE_SHA256')/" .github/aur/PKGBUILD
+          sed -i "s/sha256sums = SKIP/sha256sums = $SOURCE_SHA256/" .github/aur/.SRCINFO
+
+          # octo-bin (binary)
+          sed -i "s/X\.X\.X/$VERSION/g" .github/aur-bin/PKGBUILD .github/aur-bin/.SRCINFO
+          sed -i "s/sha256sums=('SKIP')/sha256sums=('$BINARY_SHA256')/" .github/aur-bin/PKGBUILD
+          sed -i "s/sha256sums = SKIP/sha256sums = $BINARY_SHA256/" .github/aur-bin/.SRCINFO
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          echo -e "Host aur.archlinux.org\n  IdentityFile ~/.ssh/aur\n  User aur\n  StrictHostKeyChecking accept-new" > ~/.ssh/config
+
+      - name: Push octo to AUR
+        run: |
+          git clone ssh://aur@aur.archlinux.org/octo.git /tmp/aur-octo
+          cp .github/aur/PKGBUILD .github/aur/.SRCINFO /tmp/aur-octo/
+          cd /tmp/aur-octo
+          git config user.name "Thorsten Foltz"
+          git config user.email "thorsten.foltz@live.com"
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to $VERSION"
+          git push
+
+      - name: Push octo-bin to AUR
+        run: |
+          git clone ssh://aur@aur.archlinux.org/octo-bin.git /tmp/aur-octo-bin
+          cp .github/aur-bin/PKGBUILD .github/aur-bin/.SRCINFO /tmp/aur-octo-bin/
+          cd /tmp/aur-octo-bin
+          git config user.name "Thorsten Foltz"
+          git config user.email "thorsten.foltz@live.com"
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to $VERSION"
+          git push
