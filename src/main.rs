@@ -861,12 +861,62 @@ impl OctoApp {
             }
         }
 
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "windows")]
+        {
+            let url = format!(
+                "https://github.com/thorstenfoltz/octo/releases/download/{0}/octo-{0}-windows-x86_64.zip",
+                new_version
+            );
+
+            let bytes = ureq::get(&url)
+                .header("User-Agent", &format!("octo/{}", VERSION))
+                .call()
+                .map_err(|e| format!("Download failed: {}", e))?
+                .body_mut()
+                .read_to_vec()
+                .map_err(|e| format!("Read failed: {}", e))?;
+
+            let cursor = std::io::Cursor::new(bytes);
+            let mut archive =
+                zip::ZipArchive::new(cursor).map_err(|e| format!("Zip error: {}", e))?;
+
+            let binary_name = "octo.exe";
+            let mut found = false;
+            for i in 0..archive.len() {
+                let mut file = archive
+                    .by_index(i)
+                    .map_err(|e| format!("Zip entry error: {}", e))?;
+                if file.name().ends_with(binary_name) && !file.name().ends_with('/') {
+                    let tmp_path = current_exe.with_extension("update.exe");
+                    let mut tmp_file = std::fs::File::create(&tmp_path)
+                        .map_err(|e| format!("Cannot create temp file: {}", e))?;
+                    std::io::copy(&mut file, &mut tmp_file)
+                        .map_err(|e| format!("Extract failed: {}", e))?;
+
+                    // On Windows the running exe can be renamed but not deleted
+                    let old_path = current_exe.with_extension("old.exe");
+                    let _ = std::fs::remove_file(&old_path);
+                    std::fs::rename(&current_exe, &old_path)
+                        .map_err(|e| format!("Backup rename failed: {}", e))?;
+                    std::fs::rename(&tmp_path, &current_exe)
+                        .map_err(|e| format!("Install rename failed: {}", e))?;
+
+                    found = true;
+                    break;
+                }
+            }
+
+            if !found {
+                return Err(format!("'{}' not found in archive", binary_name));
+            }
+        }
+
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         {
             let _ = current_exe;
             let _ = new_version;
             return Err(
-                "Auto-update is only supported on Linux. Please download the latest release from the repository.".to_string(),
+                "Auto-update is not supported on this platform. Please download the latest release from the repository.".to_string(),
             );
         }
 

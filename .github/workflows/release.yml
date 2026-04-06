@@ -7,10 +7,6 @@ on:
         description: "Release version"
         required: true
         type: string
-      release_notes:
-        description: "Release notes (optional, auto-generated if empty)"
-        required: false
-        type: string
 
 permissions:
   contents: write
@@ -64,7 +60,7 @@ jobs:
           tar czf "${DIR}.tar.gz" "$DIR/"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linux-release
           path: octo-${{ env.VERSION }}-linux-x86_64.tar.gz
@@ -120,13 +116,13 @@ jobs:
       # TODO: Enable SignPath code signing once certificate is available
       # - name: Upload unsigned exe for signing
       #   id: upload-unsigned
-      #   uses: actions/upload-artifact@v4
+      #   uses: actions/upload-artifact@v5
       #   with:
       #     name: windows-unsigned-exe
       #     path: target/release/octo.exe
       #
       # - name: Upload packaging files
-      #   uses: actions/upload-artifact@v4
+      #   uses: actions/upload-artifact@v5
       #   with:
       #     name: windows-packaging
       #     path: |
@@ -139,7 +135,7 @@ jobs:
   #   runs-on: ubuntu-latest
   #   steps:
   #     - name: Download unsigned exe
-  #       uses: actions/download-artifact@v4
+  #       uses: actions/download-artifact@v5
   #       with:
   #         name: windows-unsigned-exe
   #         path: unsigned
@@ -157,7 +153,7 @@ jobs:
   #         output-artifact-directory: signed
   #
   #     - name: Download packaging files
-  #       uses: actions/download-artifact@v4
+  #       uses: actions/download-artifact@v5
   #       with:
   #         name: windows-packaging
   #         path: package
@@ -172,7 +168,7 @@ jobs:
   #         cd package && zip -r "../octo-${VERSION}-windows-x86_64.zip" "$DIR/"
   #
   #     - name: Upload signed release
-  #       uses: actions/upload-artifact@v4
+  #       uses: actions/upload-artifact@v5
   #       with:
   #         name: windows-release
   #         path: octo-${{ inputs.version }}-windows-x86_64.zip
@@ -191,16 +187,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version }}
-          RELEASE_NOTES: ${{ inputs.release_notes }}
         run: |
-          NOTES_FLAG="--generate-notes"
-          if [ -n "$RELEASE_NOTES" ]; then
-            NOTES_FLAG="--notes"
+          NOTES_ARGS="--generate-notes"
+          if [ -s release_notes.md ]; then
+            NOTES_ARGS="--notes-file release_notes.md"
           fi
           gh release create "$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Octo $VERSION" \
-            $NOTES_FLAG ${RELEASE_NOTES:+"$RELEASE_NOTES"} \
+            $NOTES_ARGS \
             artifacts/linux-release/*.tar.gz \
             artifacts/windows-release/*.zip
 
