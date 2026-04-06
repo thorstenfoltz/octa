@@ -98,46 +98,47 @@ jobs:
       #  run: |
       #    git -c init.defaultBranch=master clone \
       #      ssh://aur@aur.archlinux.org/octo.git /tmp/aur-octo
+
 #
-      #    cp .github/aur/PKGBUILD .github/aur/.SRCINFO /tmp/aur-octo/
-      #    cd /tmp/aur-octo
+#    cp .github/aur/PKGBUILD .github/aur/.SRCINFO /tmp/aur-octo/
+#    cd /tmp/aur-octo
 #
-      #    echo "--- PKGBUILD ---"
-      #    cat PKGBUILD
-      #    echo "--- .SRCINFO ---"
-      #    cat .SRCINFO
+#    echo "--- PKGBUILD ---"
+#    cat PKGBUILD
+#    echo "--- .SRCINFO ---"
+#    cat .SRCINFO
 #
-      #    STATUS="$(git status --porcelain)"
-      #    echo "$STATUS" | grep -q 'PKGBUILD'
-      #    echo "$STATUS" | grep -q '.SRCINFO'
+#    STATUS="$(git status --porcelain)"
+#    echo "$STATUS" | grep -q 'PKGBUILD'
+#    echo "$STATUS" | grep -q '.SRCINFO'
 #
-      #    git config user.name "GitHub Actions"
-      #    git config user.email "actions@github.com"
-      #    git add PKGBUILD .SRCINFO
-      #    git commit -m "release $VERSION"
-      #    git push
+#    git config user.name "GitHub Actions"
+#    git config user.email "actions@github.com"
+#    git add PKGBUILD .SRCINFO
+#    git commit -m "release $VERSION"
+#    git push
 #
-      #- name: Push octo-bin to AUR
-      #  env:
-      #    VERSION: ${{ steps.version.outputs.version }}
-      #  run: |
-      #    git -c init.defaultBranch=master clone \
-      #      ssh://aur@aur.archlinux.org/octo-bin.git /tmp/aur-octo-bin
+#- name: Push octo-bin to AUR
+#  env:
+#    VERSION: ${{ steps.version.outputs.version }}
+#  run: |
+#    git -c init.defaultBranch=master clone \
+#      ssh://aur@aur.archlinux.org/octo-bin.git /tmp/aur-octo-bin
 #
-      #    cp .github/aur-bin/PKGBUILD .github/aur-bin/.SRCINFO /tmp/aur-octo-bin/
-      #    cd /tmp/aur-octo-bin
+#    cp .github/aur-bin/PKGBUILD .github/aur-bin/.SRCINFO /tmp/aur-octo-bin/
+#    cd /tmp/aur-octo-bin
 #
-      #    echo "--- PKGBUILD ---"
-      #    cat PKGBUILD
-      #    echo "--- .SRCINFO ---"
-      #    cat .SRCINFO
+#    echo "--- PKGBUILD ---"
+#    cat PKGBUILD
+#    echo "--- .SRCINFO ---"
+#    cat .SRCINFO
 #
-      #    STATUS="$(git status --porcelain)"
-      #    echo "$STATUS" | grep -q 'PKGBUILD'
-      #    echo "$STATUS" | grep -q '.SRCINFO'
+#    STATUS="$(git status --porcelain)"
+#    echo "$STATUS" | grep -q 'PKGBUILD'
+#    echo "$STATUS" | grep -q '.SRCINFO'
 #
-      #    git config user.name "GitHub Actions"
-      #    git config user.email "actions@github.com"
-      #    git add PKGBUILD .SRCINFO
-      #    git commit -m "release $VERSION"
-      #    git push
+#    git config user.name "GitHub Actions"
+#    git config user.email "actions@github.com"
+#    git add PKGBUILD .SRCINFO
+#    git commit -m "release $VERSION"
+#    git push
