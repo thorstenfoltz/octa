@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (e.g. 0.1.0)"
+        description: "Release version"
         required: true
 
 permissions:
@@ -92,52 +92,52 @@ jobs:
 
           ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
 
-      - name: Push octo to AUR
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          git -c init.defaultBranch=master clone \
-            ssh://aur@aur.archlinux.org/octo.git /tmp/aur-octo
-
-          cp .github/aur/PKGBUILD .github/aur/.SRCINFO /tmp/aur-octo/
-          cd /tmp/aur-octo
-
-          echo "--- PKGBUILD ---"
-          cat PKGBUILD
-          echo "--- .SRCINFO ---"
-          cat .SRCINFO
-
-          STATUS="$(git status --porcelain)"
-          echo "$STATUS" | grep -q 'PKGBUILD'
-          echo "$STATUS" | grep -q '.SRCINFO'
-
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add PKGBUILD .SRCINFO
-          git commit -m "release $VERSION"
-          git push
-
-      - name: Push octo-bin to AUR
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          git -c init.defaultBranch=master clone \
-            ssh://aur@aur.archlinux.org/octo-bin.git /tmp/aur-octo-bin
-
-          cp .github/aur-bin/PKGBUILD .github/aur-bin/.SRCINFO /tmp/aur-octo-bin/
-          cd /tmp/aur-octo-bin
-
-          echo "--- PKGBUILD ---"
-          cat PKGBUILD
-          echo "--- .SRCINFO ---"
-          cat .SRCINFO
-
-          STATUS="$(git status --porcelain)"
-          echo "$STATUS" | grep -q 'PKGBUILD'
-          echo "$STATUS" | grep -q '.SRCINFO'
-
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add PKGBUILD .SRCINFO
-          git commit -m "release $VERSION"
-          git push
+      #- name: Push octo to AUR
+      #  env:
+      #    VERSION: ${{ steps.version.outputs.version }}
+      #  run: |
+      #    git -c init.defaultBranch=master clone \
+      #      ssh://aur@aur.archlinux.org/octo.git /tmp/aur-octo
+#
+      #    cp .github/aur/PKGBUILD .github/aur/.SRCINFO /tmp/aur-octo/
+      #    cd /tmp/aur-octo
+#
+      #    echo "--- PKGBUILD ---"
+      #    cat PKGBUILD
+      #    echo "--- .SRCINFO ---"
+      #    cat .SRCINFO
+#
+      #    STATUS="$(git status --porcelain)"
+      #    echo "$STATUS" | grep -q 'PKGBUILD'
+      #    echo "$STATUS" | grep -q '.SRCINFO'
+#
+      #    git config user.name "GitHub Actions"
+      #    git config user.email "actions@github.com"
+      #    git add PKGBUILD .SRCINFO
+      #    git commit -m "release $VERSION"
+      #    git push
+#
+      #- name: Push octo-bin to AUR
+      #  env:
+      #    VERSION: ${{ steps.version.outputs.version }}
+      #  run: |
+      #    git -c init.defaultBranch=master clone \
+      #      ssh://aur@aur.archlinux.org/octo-bin.git /tmp/aur-octo-bin
+#
+      #    cp .github/aur-bin/PKGBUILD .github/aur-bin/.SRCINFO /tmp/aur-octo-bin/
+      #    cd /tmp/aur-octo-bin
+#
+      #    echo "--- PKGBUILD ---"
+      #    cat PKGBUILD
+      #    echo "--- .SRCINFO ---"
+      #    cat .SRCINFO
+#
+      #    STATUS="$(git status --porcelain)"
+      #    echo "$STATUS" | grep -q 'PKGBUILD'
+      #    echo "$STATUS" | grep -q '.SRCINFO'
+#
+      #    git config user.name "GitHub Actions"
+      #    git config user.email "actions@github.com"
+      #    git add PKGBUILD .SRCINFO
+      #    git commit -m "release $VERSION"
+      #    git push
