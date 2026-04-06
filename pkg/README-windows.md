@@ -7,6 +7,7 @@ A multi-format data viewer and editor for Parquet, CSV, JSON, Excel, and more.
 Run `install.bat` as Administrator (right-click, "Run as administrator").
 
 This will:
+
 - Copy `octo.exe` to `C:\Program Files\Octo`
 - Add it to your user PATH
 - Create a Start Menu shortcut
@@ -17,7 +18,7 @@ You may need to restart your terminal for PATH changes to take effect.
 
 Double-click `octo.exe` or run from the command line:
 
-```
+```bash
 octo.exe [file]
 ```
 

@@ -17,6 +17,7 @@ To install to a custom prefix (e.g. `~/.local` for user-local, no sudo needed):
 ```
 
 This installs:
+
 - Binary to `<prefix>/bin/octo`
 - Icon to `<prefix>/share/icons/hicolor/scalable/apps/octo.svg`
 - Desktop entry to `<prefix>/share/applications/octo.desktop`
