@@ -7,6 +7,10 @@ on:
         description: "Release version"
         required: true
         type: string
+      release_notes:
+        description: "Release notes (optional, auto-generated if empty)"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -55,7 +59,7 @@ jobs:
           cp octo.desktop "$DIR/"
           cp assets/octo.svg "$DIR/assets/"
           cp assets/octo.png "$DIR/assets/"
-          cp README.md "$DIR/"
+          cp pkg/README-linux.md "$DIR/README.md"
           cp LICENSE "$DIR/" 2>/dev/null || true
           tar czf "${DIR}.tar.gz" "$DIR/"
 
@@ -103,12 +107,12 @@ jobs:
           Copy-Item "assets\octo.svg" "$dir\assets\"
           Copy-Item "assets\octo.png" "$dir\assets\"
           if (Test-Path "assets\octo.ico") { Copy-Item "assets\octo.ico" "$dir\assets\" }
-          Copy-Item "README.md" "$dir\"
+          Copy-Item "pkg\README-windows.md" "$dir\README.md"
           if (Test-Path "LICENSE") { Copy-Item "LICENSE" "$dir\" }
           Compress-Archive -Path "$dir\*" -DestinationPath "octo-$env:VERSION-windows-x86_64.zip"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: windows-release
           path: octo-${{ env.VERSION }}-windows-x86_64.zip
@@ -179,19 +183,134 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: artifacts
 
-      - name: Create draft release
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: |
+          NOTES_FLAG="--generate-notes"
+          if [ -n "$RELEASE_NOTES" ]; then
+            NOTES_FLAG="--notes"
+          fi
+          gh release create "$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Octo $VERSION" \
+            $NOTES_FLAG ${RELEASE_NOTES:+"$RELEASE_NOTES"} \
+            artifacts/linux-release/*.tar.gz \
+            artifacts/windows-release/*.zip
+
+  aur-publish:
+    needs: [publish]
+    runs-on: ubuntu-latest
+    environment:
+      name: aur
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Download tarballs and compute sha256
+        id: sha
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.version }}
         run: |
-          gh release create "$VERSION" \
+          # Source tarball (GitHub auto-generated archive)
+          curl -fL -o source.tar.gz \
+            "https://github.com/$GITHUB_REPOSITORY/archive/${VERSION}.tar.gz"
+          SOURCE_SHA256=$(sha256sum source.tar.gz | awk '{print $1}')
+          echo "source=$SOURCE_SHA256" >> "$GITHUB_OUTPUT"
+          echo "Source sha256: $SOURCE_SHA256"
+
+          # Binary tarball (release artifact)
+          gh release download "$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Octo $VERSION" \
-            --generate-notes \
-            --draft \
-            artifacts/linux-release/*.tar.gz \
-            artifacts/windows-release/*.zip
+            --pattern "octo-${VERSION}-linux-x86_64.tar.gz" \
+            --output binary.tar.gz
+          BINARY_SHA256=$(sha256sum binary.tar.gz | awk '{print $1}')
+          echo "binary=$BINARY_SHA256" >> "$GITHUB_OUTPUT"
+          echo "Binary sha256: $BINARY_SHA256"
+
+      - name: Prepare PKGBUILDs
+        env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_SHA256: ${{ steps.sha.outputs.source }}
+          BINARY_SHA256: ${{ steps.sha.outputs.binary }}
+        run: |
+          # octo (source)
+          sed -i "s/X\.X\.X/$VERSION/g" .github/aur/PKGBUILD .github/aur/.SRCINFO
+          sed -i "s/sha256sums=('SKIP')/sha256sums=('$SOURCE_SHA256')/" .github/aur/PKGBUILD
+          sed -i "s/sha256sums = SKIP/sha256sums = $SOURCE_SHA256/" .github/aur/.SRCINFO
+
+          # octo-bin (binary)
+          sed -i "s/X\.X\.X/$VERSION/g" .github/aur-bin/PKGBUILD .github/aur-bin/.SRCINFO
+          sed -i "s/sha256sums=('SKIP')/sha256sums=('$BINARY_SHA256')/" .github/aur-bin/PKGBUILD
+          sed -i "s/sha256sums = SKIP/sha256sums = $BINARY_SHA256/" .github/aur-bin/.SRCINFO
+
+      - name: Configure SSH for AUR
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+
+          cat >> ~/.ssh/config <<'EOF'
+          Host aur.archlinux.org
+            IdentityFile ~/.ssh/aur
+            User aur
+          EOF
+
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+#      - name: Push octo to AUR
+#        env:
+#          VERSION: ${{ inputs.version }}
+#        run: |
+#          git -c init.defaultBranch=master clone \
+#            ssh://aur@aur.archlinux.org/octo.git /tmp/aur-octo
+#
+#          cp .github/aur/PKGBUILD .github/aur/.SRCINFO /tmp/aur-octo/
+#          cd /tmp/aur-octo
+#
+#          echo "--- PKGBUILD ---"
+#          cat PKGBUILD
+#          echo "--- .SRCINFO ---"
+#          cat .SRCINFO
+#
+#          STATUS="$(git status --porcelain)"
+#          echo "$STATUS" | grep -q 'PKGBUILD'
+#          echo "$STATUS" | grep -q '.SRCINFO'
+#
+#          git config user.name "GitHub Actions"
+#          git config user.email "actions@github.com"
+#          git add PKGBUILD .SRCINFO
+#          git commit -m "release $VERSION"
+#          git push
+#
+#      - name: Push octo-bin to AUR
+#        env:
+#          VERSION: ${{ inputs.version }}
+#        run: |
+#          git -c init.defaultBranch=master clone \
+#            ssh://aur@aur.archlinux.org/octo-bin.git /tmp/aur-octo-bin
+#
+#          cp .github/aur-bin/PKGBUILD .github/aur-bin/.SRCINFO /tmp/aur-octo-bin/
+#          cd /tmp/aur-octo-bin
+#
+#          echo "--- PKGBUILD ---"
+#          cat PKGBUILD
+#          echo "--- .SRCINFO ---"
+#          cat .SRCINFO
+#
+#          STATUS="$(git status --porcelain)"
+#          echo "$STATUS" | grep -q 'PKGBUILD'
+#          echo "$STATUS" | grep -q '.SRCINFO'
+#
+#          git config user.name "GitHub Actions"
+#          git config user.email "actions@github.com"
+#          git add PKGBUILD .SRCINFO
+#          git commit -m "release $VERSION"
+#          git push
