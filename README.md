@@ -28,6 +28,7 @@ Unknown file extensions are opened as plain text.
 ## Features
 
 ### Table View
+
 - Virtual table rendering with smooth scrolling for large datasets
 - Lazy row loading for Parquet files (handles millions of rows)
 - Inline cell editing with type-aware parsing
@@ -37,12 +38,14 @@ Unknown file extensions are opened as plain text.
 - Search and filter across all columns in real time
 
 ### Multiple View Modes
+
 - **Table View** -- structured spreadsheet display (default)
 - **Raw Text View** -- source text with line numbers and optional column alignment
 - **Markdown View** -- rendered CommonMark preview
 - **PDF View** -- page-by-page rendered output
 
 ### Editing
+
 - Full undo/redo support (Ctrl+Z / Ctrl+Y)
 - Insert, delete, and move rows and columns
 - Color marking for cells, rows, and columns with six color choices
@@ -50,12 +53,14 @@ Unknown file extensions are opened as plain text.
 - Save in the original format or export to a different one via Save As
 
 ### Settings
+
 - Configurable font size
 - Light and dark theme with the option to set a default
 - Customizable icon color (Rose, Amber, Blue, Cyan, Emerald, Indigo, Lime, Orange, Purple, Red, Slate, Teal)
 - Settings persist across sessions
 
 ### Other
+
 - CSV delimiter auto-detection (comma, semicolon, pipe, tab) and manual selection
 - Auto-update check from GitHub releases
 - Cross-platform: Linux and Windows
@@ -128,16 +133,17 @@ cargo test <test_name>
 ## Configuration
 
 Settings are stored in:
+
 - **Linux:** `$XDG_CONFIG_HOME/octa/settings.toml` (defaults to `~/.config/octa/settings.toml`)
 - **Windows:** `%APPDATA%\Octa\settings.toml`
 
 Available settings:
 
-| Setting         | Default | Description                          |
-|-----------------|---------|--------------------------------------|
-| `font_size`     | `13.0`  | Base font size in points (8 -- 32)   |
-| `default_theme` | `Light` | Startup theme (`Light` or `Dark`)    |
-| `icon_variant`  | `Rose`  | Icon color variant                   |
+| Setting         | Default | Description                        |
+|-----------------|---------|------------------------------------|
+| `font_size`     | `13.0`  | Base font size in points (8 -- 32) |
+| `default_theme` | `Light` | Startup theme (`Light` or `Dark`)  |
+| `icon_variant`  | `Rose`  | Icon color variant                 |
 
 Settings can also be changed from **Help > Settings** inside the application.
 
