@@ -13,7 +13,7 @@ An application for viewing data files. Octa opens files in a spreadsheet-like ta
 | Parquet             | yes  | yes   |
 | CSV / TSV           | yes  | yes   |
 | JSON / JSON Lines   | yes  | yes   |
-| Excel        | yes  | yes   |
+| Excel               | yes  | yes   |
 | Arrow IPC / Feather | yes  | yes   |
 | Avro                | yes  | yes   |
 | XML                 | yes  | yes   |
@@ -80,11 +80,11 @@ Available on the AUR as `octa` (build from source) and `octa-bin` (prebuilt bina
 paru -S octa
 ```
 
-or 
+or
 
 ```bash
 paru -S octa-bin
-``` 
+```
 
 ### Other Linux Distros
 
