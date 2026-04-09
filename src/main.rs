@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use octa::data::{self, DataTable, ViewMode};
+use octa::data::{self, DataTable, SearchMode, ViewMode};
 use octa::formats::{self, FormatRegistry};
 use octa::ui;
 use ui::settings::{AppSettings, SettingsDialog};
@@ -11,6 +11,61 @@ use eframe::egui;
 use egui::RichText;
 
 use std::sync::{Arc, Mutex};
+
+/// Precompiled matcher for the current search query and mode.
+enum RowMatcher {
+    Plain(String),
+    Regex(regex::Regex),
+    Invalid,
+}
+
+impl RowMatcher {
+    fn new(query: &str, mode: SearchMode) -> Self {
+        match mode {
+            SearchMode::Plain => RowMatcher::Plain(query.to_lowercase()),
+            SearchMode::Wildcard => {
+                let pattern = data::wildcard_to_regex(query);
+                match regex::Regex::new(&pattern) {
+                    Ok(re) => RowMatcher::Regex(re),
+                    Err(_) => RowMatcher::Invalid,
+                }
+            }
+            SearchMode::Regex => match regex::Regex::new(query) {
+                Ok(re) => RowMatcher::Regex(re),
+                Err(_) => RowMatcher::Invalid,
+            },
+        }
+    }
+
+    fn matches(&self, text: &str) -> bool {
+        match self {
+            RowMatcher::Plain(q) => text.to_lowercase().contains(q),
+            RowMatcher::Regex(re) => re.is_match(text),
+            RowMatcher::Invalid => false,
+        }
+    }
+
+    /// Replace matching portion(s) in `text` with `replacement`.
+    fn replace(&self, text: &str, replacement: &str) -> String {
+        match self {
+            RowMatcher::Plain(q) => {
+                // Case-insensitive replacement: find the match position and replace preserving structure
+                let lower = text.to_lowercase();
+                if let Some(pos) = lower.find(q.as_str()) {
+                    let mut result = String::with_capacity(text.len());
+                    result.push_str(&text[..pos]);
+                    result.push_str(replacement);
+                    result.push_str(&text[pos + q.len()..]);
+                    result
+                } else {
+                    text.to_string()
+                }
+            }
+            RowMatcher::Regex(re) => re.replace(text, replacement).to_string(),
+            RowMatcher::Invalid => text.to_string(),
+        }
+    }
+}
 
 fn render_icon(svg_source: &str) -> egui::IconData {
     let opt = resvg::usvg::Options::default();
@@ -46,7 +101,10 @@ fn main() -> eframe::Result<()> {
                 std::process::exit(0);
             }
             "--help" | "-h" => {
-                println!("octa {} - A modular multi-format data viewer and editor", VERSION);
+                println!(
+                    "octa {} - A modular multi-format data viewer and editor",
+                    VERSION
+                );
                 println!();
                 println!("Usage: octa [OPTIONS] [FILE]");
                 println!();
@@ -132,6 +190,13 @@ struct OctaApp {
     settings_dialog: SettingsDialog,
     table_state: TableViewState,
     search_text: String,
+    search_mode: data::SearchMode,
+    /// Whether the search text field should be focused next frame.
+    search_focus_requested: bool,
+    /// Whether the search & replace bar is visible.
+    show_replace_bar: bool,
+    /// Replacement text for search & replace.
+    replace_text: String,
     filtered_rows: Vec<usize>,
     filter_dirty: bool,
     status_message: Option<(String, std::time::Instant)>,
@@ -139,6 +204,8 @@ struct OctaApp {
     show_add_column_dialog: bool,
     new_col_name: String,
     new_col_type: String,
+    /// Formula for populating a new column (e.g. "=A1+B1")
+    new_col_formula: String,
     /// Column index to insert at (None = append at end)
     insert_col_at: Option<usize>,
     /// "Delete Columns" dialog state
@@ -185,6 +252,8 @@ struct OctaApp {
     commonmark_cache: egui_commonmark::CommonMarkCache,
     /// Show the About dialog
     show_about_dialog: bool,
+    /// Show the Documentation dialog
+    show_documentation_dialog: bool,
     /// Show the Update dialog
     show_update_dialog: bool,
     /// Update check state shared with background thread
@@ -192,6 +261,51 @@ struct OctaApp {
 }
 
 /// Detect delimiter from a file by reading only the first few KB.
+/// Shift cell references in a formula to target a specific row.
+/// The formula is written as a template using row 1 (e.g. "A1+B1").
+/// For `target_row=4` (0-indexed), references are shifted so row 1 -> row 5 (1-indexed).
+/// References that already use a different row number are shifted by the same offset.
+fn shift_formula_row(formula: &str, target_row: usize) -> String {
+    let chars: Vec<char> = formula.chars().collect();
+    let mut result = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i].is_ascii_alphabetic() {
+            // Collect the column letters
+            let col_start = i;
+            while i < chars.len() && chars[i].is_ascii_alphabetic() {
+                i += 1;
+            }
+            // Check if followed by digits (a cell reference)
+            if i < chars.len() && chars[i].is_ascii_digit() {
+                let col_part: String = chars[col_start..i].iter().collect();
+                let num_start = i;
+                while i < chars.len() && chars[i].is_ascii_digit() {
+                    i += 1;
+                }
+                let num_str: String = chars[num_start..i].iter().collect();
+                if let Ok(orig_row) = num_str.parse::<usize>() {
+                    // Compute offset from row 1 template, apply to target
+                    let new_row = target_row + orig_row; // orig_row is 1-based, target_row is 0-based
+                    result.push_str(&col_part);
+                    result.push_str(&new_row.to_string());
+                } else {
+                    result.push_str(&col_part);
+                    result.push_str(&num_str);
+                }
+            } else {
+                // Not a cell ref, just letters
+                let part: String = chars[col_start..i].iter().collect();
+                result.push_str(&part);
+            }
+        } else {
+            result.push(chars[i]);
+            i += 1;
+        }
+    }
+    result
+}
+
 fn detect_delimiter_from_file(path: &std::path::Path) -> u8 {
     use std::io::Read;
     let mut buf = vec![0u8; 1_048_576]; // 1 MB
@@ -346,6 +460,7 @@ const COLUMN_TYPES: &[&str] = &[
 impl OctaApp {
     fn new(initial_file: Option<std::path::PathBuf>, settings: AppSettings) -> Self {
         let theme_mode = settings.default_theme;
+        let search_mode = settings.default_search_mode;
         Self {
             table: DataTable::empty(),
             registry: FormatRegistry::new(),
@@ -354,12 +469,17 @@ impl OctaApp {
             settings_dialog: SettingsDialog::default(),
             table_state: TableViewState::default(),
             search_text: String::new(),
+            search_mode,
+            search_focus_requested: false,
+            show_replace_bar: false,
+            replace_text: String::new(),
             filtered_rows: Vec::new(),
             filter_dirty: true,
             status_message: None,
             show_add_column_dialog: false,
             new_col_name: String::new(),
             new_col_type: "String".to_string(),
+            new_col_formula: String::new(),
             insert_col_at: None,
             show_delete_columns_dialog: false,
             delete_col_selection: Vec::new(),
@@ -385,6 +505,7 @@ impl OctaApp {
             show_open_confirm: false,
             commonmark_cache: egui_commonmark::CommonMarkCache::default(),
             show_about_dialog: false,
+            show_documentation_dialog: false,
             show_update_dialog: false,
             update_state: Arc::new(Mutex::new(UpdateState::Idle)),
         }
@@ -755,19 +876,18 @@ impl OctaApp {
         *state.lock().unwrap() = UpdateState::Checking;
         std::thread::spawn(move || {
             let result = (|| -> Result<String, String> {
-                let body = ureq::get(
-                    "https://api.github.com/repos/thorstenfoltz/octa/releases/latest",
-                )
-                .header("User-Agent", &format!("octa/{}", VERSION))
-                .header("Accept", "application/vnd.github.v3+json")
-                .call()
-                .map_err(|e| format!("Request failed: {}", e))?
-                .body_mut()
-                .read_to_string()
-                .map_err(|e| format!("Read failed: {}", e))?;
+                let body =
+                    ureq::get("https://api.github.com/repos/thorstenfoltz/octa/releases/latest")
+                        .header("User-Agent", &format!("octa/{}", VERSION))
+                        .header("Accept", "application/vnd.github.v3+json")
+                        .call()
+                        .map_err(|e| format!("Request failed: {}", e))?
+                        .body_mut()
+                        .read_to_string()
+                        .map_err(|e| format!("Read failed: {}", e))?;
 
-                let resp: serde_json::Value = serde_json::from_str(&body)
-                    .map_err(|e| format!("Invalid JSON: {}", e))?;
+                let resp: serde_json::Value =
+                    serde_json::from_str(&body).map_err(|e| format!("Invalid JSON: {}", e))?;
 
                 resp["tag_name"]
                     .as_str()
@@ -845,11 +965,8 @@ impl OctaApp {
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::PermissionsExt;
-                        std::fs::set_permissions(
-                            &tmp_path,
-                            std::fs::Permissions::from_mode(0o755),
-                        )
-                        .map_err(|e| format!("chmod failed: {}", e))?;
+                        std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))
+                            .map_err(|e| format!("chmod failed: {}", e))?;
                     }
 
                     // Replace: rename current → .old, new → current
@@ -937,19 +1054,104 @@ impl OctaApp {
         if self.search_text.is_empty() {
             self.filtered_rows = (0..self.table.row_count()).collect();
         } else {
-            let query = self.search_text.to_lowercase();
+            let matcher = RowMatcher::new(&self.search_text, self.search_mode);
             self.filtered_rows = (0..self.table.row_count())
                 .filter(|&row_idx| {
                     (0..self.table.col_count()).any(|col_idx| {
                         self.table
                             .get(row_idx, col_idx)
-                            .map(|v| v.to_string().to_lowercase().contains(&query))
+                            .map(|v| matcher.matches(&v.to_string()))
                             .unwrap_or(false)
                     })
                 })
                 .collect();
         }
         self.filter_dirty = false;
+    }
+
+    /// Replace the next matching cell value (starting after the current selection).
+    fn replace_next_match(&mut self) {
+        if self.search_text.is_empty() {
+            return;
+        }
+        let matcher = RowMatcher::new(&self.search_text, self.search_mode);
+        let row_count = self.table.row_count();
+        let col_count = self.table.col_count();
+        if row_count == 0 || col_count == 0 {
+            return;
+        }
+
+        // Start searching from the cell after the current selection
+        let (start_row, start_col) = match self.table_state.selected_cell {
+            Some((r, c)) => {
+                if c + 1 < col_count {
+                    (r, c + 1)
+                } else if r + 1 < row_count {
+                    (r + 1, 0)
+                } else {
+                    (0, 0) // wrap around
+                }
+            }
+            None => (0, 0),
+        };
+
+        // Scan all cells starting from (start_row, start_col), wrapping around
+        let total_cells = row_count * col_count;
+        let start_idx = start_row * col_count + start_col;
+        for offset in 0..total_cells {
+            let idx = (start_idx + offset) % total_cells;
+            let row = idx / col_count;
+            let col = idx % col_count;
+            if let Some(val) = self.table.get(row, col) {
+                let text = val.to_string();
+                if matcher.matches(&text) {
+                    let new_text = matcher.replace(&text, &self.replace_text);
+                    let new_val = data::CellValue::parse_like(val, &new_text);
+                    if new_val != *val {
+                        self.table.set(row, col, new_val);
+                    }
+                    self.table_state.selected_cell = Some((row, col));
+                    self.table_state.selected_rows.clear();
+                    self.table_state.selected_cols.clear();
+                    self.filter_dirty = true;
+                    self.status_message = Some((
+                        format!("Replaced at row {}, col {}", row + 1, col + 1),
+                        std::time::Instant::now(),
+                    ));
+                    return;
+                }
+            }
+        }
+        self.status_message = Some(("No match found".to_string(), std::time::Instant::now()));
+    }
+
+    /// Replace all matching cell values.
+    fn replace_all_matches(&mut self) {
+        if self.search_text.is_empty() {
+            return;
+        }
+        let matcher = RowMatcher::new(&self.search_text, self.search_mode);
+        let mut count = 0usize;
+        for row in 0..self.table.row_count() {
+            for col in 0..self.table.col_count() {
+                if let Some(val) = self.table.get(row, col).cloned() {
+                    let text = val.to_string();
+                    if matcher.matches(&text) {
+                        let new_text = matcher.replace(&text, &self.replace_text);
+                        let new_val = data::CellValue::parse_like(&val, &new_text);
+                        if new_val != val {
+                            self.table.set(row, col, new_val);
+                            count += 1;
+                        }
+                    }
+                }
+            }
+        }
+        self.filter_dirty = true;
+        self.status_message = Some((
+            format!("Replaced {} cell(s)", count),
+            std::time::Instant::now(),
+        ));
     }
 
     /// Open the "Delete Columns" dialog, initializing checkboxes.
@@ -1011,12 +1213,25 @@ impl eframe::App for OctaApp {
 
         // --- Global keyboard shortcuts ---
         let ctrl_held = ctx.input(|i| i.modifiers.command);
+        if ctrl_held && ctx.input(|i| i.key_pressed(egui::Key::O)) {
+            self.open_file();
+        }
         if ctrl_held && ctx.input(|i| i.key_pressed(egui::Key::S)) {
             if self.table.source_path.is_some() {
                 self.save_file();
             } else if self.table.col_count() > 0 {
                 self.save_file_as();
             }
+        }
+        if ctrl_held && ctx.input(|i| i.key_pressed(egui::Key::F)) {
+            self.search_focus_requested = true;
+        }
+        if ctrl_held && ctx.input(|i| i.key_pressed(egui::Key::H)) {
+            self.show_replace_bar = !self.show_replace_bar;
+            self.search_focus_requested = true;
+        }
+        if self.show_replace_bar && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.show_replace_bar = false;
         }
         if ctrl_held
             && ctx.input(|i| i.key_pressed(egui::Key::A))
@@ -1139,6 +1354,10 @@ impl eframe::App for OctaApp {
                     ui,
                     self.theme_mode,
                     &mut self.search_text,
+                    &mut self.search_mode,
+                    self.search_focus_requested,
+                    self.show_replace_bar,
+                    &mut self.replace_text,
                     self.table.col_count() > 0,
                     self.table.is_modified(),
                     self.table.source_path.is_some(),
@@ -1151,6 +1370,8 @@ impl eframe::App for OctaApp {
                     self.table.format_name.as_deref() == Some("Markdown"),
                     self.logo_texture.as_ref(),
                 );
+                // Clear focus request after this frame
+                self.search_focus_requested = false;
 
                 if action.open_file {
                     self.open_file();
@@ -1168,13 +1389,30 @@ impl eframe::App for OctaApp {
                 if action.search_changed {
                     self.filter_dirty = true;
                 }
+                if action.toggle_replace_bar {
+                    self.show_replace_bar = !self.show_replace_bar;
+                }
+                if action.replace_next {
+                    self.replace_next_match();
+                }
+                if action.replace_all {
+                    self.replace_all_matches();
+                }
 
                 // --- View mode change ---
                 if let Some(new_mode) = action.view_mode_changed {
                     self.view_mode = new_mode;
                 }
 
+                // --- Search actions ---
+                if action.search_focus {
+                    self.search_focus_requested = true;
+                }
+
                 // --- Help actions ---
+                if action.show_documentation {
+                    self.show_documentation_dialog = true;
+                }
                 if action.show_settings {
                     self.settings_dialog.open(&self.settings);
                 }
@@ -1235,6 +1473,7 @@ impl eframe::App for OctaApp {
                     self.show_add_column_dialog = true;
                     self.new_col_name.clear();
                     self.new_col_type = "String".to_string();
+                    self.new_col_formula.clear();
                     // Insert after selected column, or at end
                     self.insert_col_at = self.table_state.selected_cell.map(|(_, c)| c + 1);
                 }
@@ -1311,10 +1550,20 @@ impl eframe::App for OctaApp {
                         }
                         ui.label(format!("/ {}", col_count + 1));
                     });
+                    ui.horizontal(|ui| {
+                        ui.label("Formula:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.new_col_formula)
+                                .hint_text("e.g. =A1+B1 or =A1*2"),
+                        );
+                    });
                     ui.label(
-                        RichText::new("Tip: click a column header to set insert position")
-                            .size(10.0)
-                            .color(ui.visuals().weak_text_color()),
+                        RichText::new(
+                            "Tip: click a column header to set insert position. \
+                             Formula uses Excel-style references (A1, B2, ...) with +, -, *, /.",
+                        )
+                        .size(10.0)
+                        .color(ui.visuals().weak_text_color()),
                     );
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
@@ -1328,8 +1577,31 @@ impl eframe::App for OctaApp {
                 });
             if should_add {
                 let idx = self.insert_col_at.unwrap_or(self.table.col_count());
+                let formula_text = self.new_col_formula.trim().to_string();
                 self.table
                     .insert_column(idx, self.new_col_name.clone(), self.new_col_type.clone());
+                // If a formula was provided, evaluate it for every row
+                if formula_text.starts_with('=') {
+                    let formula_body = &formula_text[1..];
+                    let row_count = self.table.row_count();
+                    for row in 0..row_count {
+                        // Rewrite the formula for this row: replace row numbers
+                        // The formula uses row 1 as template — shift references for each row
+                        let shifted = shift_formula_row(formula_body, row);
+                        if let Some(result) =
+                            data::evaluate_formula(&shifted, &self.table)
+                        {
+                            let val = if result.fract() == 0.0
+                                && result.abs() < i64::MAX as f64
+                            {
+                                data::CellValue::Int(result as i64)
+                            } else {
+                                data::CellValue::Float(result)
+                            };
+                            self.table.set(row, idx, val);
+                        }
+                    }
+                }
                 // Select the new column
                 if let Some((row, _)) = self.table_state.selected_cell {
                     self.table_state.selected_cell = Some((row, idx));
@@ -1543,7 +1815,211 @@ impl eframe::App for OctaApp {
                 // Update the window icon
                 let icon = render_icon(svg_src);
                 ctx.send_viewport_cmd(egui::ViewportCommand::Icon(Some(Arc::new(icon))));
+
+                // Update desktop icon on Linux
+                #[cfg(target_os = "linux")]
+                {
+                    let home = std::env::var("HOME").ok().map(std::path::PathBuf::from);
+
+                    // Always write to user-local icon path (create dirs if needed)
+                    if let Some(ref h) = home {
+                        let local_icon_path =
+                            h.join(".local/share/icons/hicolor/scalable/apps/octa.svg");
+                        if let Some(parent) = local_icon_path.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        let _ = std::fs::write(&local_icon_path, svg_src);
+                    }
+
+                    // Also try system paths if they already exist
+                    for path in &[
+                        "/usr/share/icons/hicolor/scalable/apps/octa.svg",
+                        "/usr/local/share/icons/hicolor/scalable/apps/octa.svg",
+                    ] {
+                        let p = std::path::Path::new(path);
+                        if p.exists() {
+                            let _ = std::fs::write(p, svg_src);
+                        }
+                    }
+
+                    // Refresh icon caches (GTK, XDG, KDE)
+                    if let Some(ref h) = home {
+                        let local_hicolor = h.join(".local/share/icons/hicolor");
+                        let _ = std::process::Command::new("gtk-update-icon-cache")
+                            .args(["-f", "-t"])
+                            .arg(&local_hicolor)
+                            .spawn();
+                    }
+                    let _ = std::process::Command::new("xdg-icon-resource")
+                        .arg("forceupdate")
+                        .spawn();
+                    if let Some(ref h) = home {
+                        let local_apps = h.join(".local/share/applications");
+                        if local_apps.exists() {
+                            let _ = std::process::Command::new("update-desktop-database")
+                                .arg(&local_apps)
+                                .spawn();
+                        }
+                    }
+                    // KDE Plasma: rebuild sycoca cache so taskbar picks up the new icon
+                    for cmd in &["kbuildsycoca6", "kbuildsycoca5"] {
+                        if std::process::Command::new(cmd)
+                            .arg("--noincremental")
+                            .spawn()
+                            .is_ok()
+                        {
+                            break;
+                        }
+                    }
+                }
             }
+        }
+
+        // --- Documentation dialog ---
+        if self.show_documentation_dialog {
+            let mut open = self.show_documentation_dialog;
+            egui::Window::new("Documentation")
+                .open(&mut open)
+                .resizable(true)
+                .collapsible(true)
+                .default_size([800.0, 600.0])
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        let docs = r#"# Octa Documentation
+
+## Getting Started
+
+Open a file using **File > Open** (or **Ctrl+O**), or pass a file path as a command-line argument:
+
+```
+octa path/to/file.parquet
+```
+
+**Supported formats:** Parquet, CSV, TSV, JSON, JSONL, Excel (.xlsx), Avro, Arrow IPC, XML, TOML, YAML, PDF, Markdown, Plain Text.
+
+All formats support both reading and writing. When saving, the original format and settings (e.g. CSV delimiter) are preserved.
+
+## Navigation
+
+- **Arrow keys** move the selected cell up, down, left, or right
+- **Scroll wheel** scrolls the table vertically
+- **Shift + Scroll wheel** scrolls horizontally
+- Click a **row number** to select the entire row (Ctrl+click to add to selection, Shift+click for range)
+- Click a **column header** to select the entire column
+- **Ctrl+A** selects all rows
+
+## Editing
+
+- **Double-click** a cell to start editing — the current text is selected so you can type to replace it, or click to position the cursor
+- Click outside the cell or press **Tab** to confirm the edit
+- **Escape** cancels the current edit
+- **Ctrl+Z** to undo, **Ctrl+Y** to redo — works for cell edits, row/column operations, and color marks
+- **Edit > Insert Row** adds a new empty row below the selected cell
+- **Edit > Insert Column** opens a dialog to add a column (choose name and type)
+- **Edit > Delete Row / Delete Column** removes the selected row or column
+- **Edit > Move Row Up/Down** and **Move Column Left/Right** reorder data
+- **Edit > Discard All Edits** reverts all unsaved changes
+- **Drag a column header** to reorder columns via drag-and-drop
+- **Double-click a column header** to rename it inline
+- **Right-click a column header** to change the column data type
+
+## Formulas
+
+Cells support simple Excel-like formulas starting with **=**. Supported features:
+
+- **Cell references**: A1, B2, AA1, etc. (column letter + row number, 1-based)
+- **Operators**: `+`, `-`, `*`, `/`
+- **Parentheses**: `(A1 + B1) * 2`
+- **Numeric literals**: `=A1 * 1.5`
+
+Examples: `=A1+B1`, `=C1*2`, `=(A1+B1)/C1`
+
+When inserting a new column via **Edit > Insert Column**, you can specify a formula in the **Formula** field. The formula acts as a template using row 1 references — it is automatically applied to every row (e.g. `=A1+B1` fills row 3 with `=A3+B3`).
+
+Division by zero returns no result (the cell stays empty).
+
+## Search & Filter
+
+Use the search box in the toolbar to filter rows in real-time. Only rows containing a match are displayed.
+
+Three search modes are available (selectable via the dropdown next to the search box):
+
+- **Plain**: case-insensitive substring match
+- **Wildcard**: `*` matches any sequence of characters, `?` matches one character
+- **Regex**: full regular expression syntax
+
+Use **Ctrl+F** to focus the search box from anywhere.
+
+## Find & Replace
+
+Open the replace bar with **Ctrl+H** or via **Search > Find & Replace**.
+
+Type a search term and a replacement value, then:
+
+- **Next** replaces the first matching cell value found in the table
+- **All** replaces every matching cell value across all visible rows
+
+Press **Escape** to close the replace bar.
+
+## Color Marking
+
+Right-click a **cell**, **row number**, or **column header** to open the context menu, then use the **Mark** submenu. Available colors: Red, Orange, Yellow, Green, Blue, Purple.
+
+Mark precedence: cell marks take priority over row marks, which take priority over column marks.
+
+To clear a mark, right-click and select **Clear Mark** from the context menu.
+
+## View Modes
+
+Switch between views using the **View** menu:
+
+- **Table View** (default): structured tabular display with sorting, filtering, and editing
+- **Raw Text**: shows the raw file content as plain text (available for text-based formats)
+- **PDF View**: rendered page view (available for PDF files)
+- **Markdown View**: rendered markdown (available for .md files)
+
+## Saving
+
+- **File > Save** writes changes back to the original file (preserves format and settings)
+- **File > Save As** lets you save to a new file, optionally in a different format
+- If you have unsaved changes and try to open a new file or close the application, a confirmation dialog appears
+
+## Settings
+
+Open **Help > Settings** to configure:
+
+- **Font size**: adjusts text size across the entire application including table content
+- **Default theme**: Light or Dark mode
+- **Icon color**: choose from 12 color variants for the application icon
+- **Default search mode**: which search mode is active by default (Plain, Wildcard, or Regex)
+- **Show row numbers**: toggle the row number column on the left
+- **Alternating row colors**: toggle zebra-stripe row backgrounds for easier reading
+- **Negative numbers in red**: display negative numeric values in red
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| Ctrl+O | Open file |
+| Ctrl+S | Save file |
+| Ctrl+F | Focus search box |
+| Ctrl+H | Toggle Find & Replace bar |
+| Ctrl+Z | Undo |
+| Ctrl+Y | Redo |
+| Ctrl+C | Copy selection |
+| Ctrl+V | Paste |
+| Ctrl+A | Select all rows |
+| Arrow keys | Navigate between cells |
+| Escape | Close replace bar or cancel cell edit |
+| Double-click cell | Edit cell value |
+| Double-click column header | Rename column |
+| Right-click | Open context menu |
+"#;
+                        egui_commonmark::CommonMarkViewer::new()
+                            .show(ui, &mut self.commonmark_cache, docs);
+                    });
+                });
+            self.show_documentation_dialog = open;
         }
 
         // --- About dialog ---
@@ -1902,6 +2378,10 @@ impl eframe::App for OctaApp {
                 self.theme_mode,
                 &filtered,
                 os_has_clip,
+                self.settings.show_row_numbers,
+                self.settings.alternating_row_colors,
+                self.settings.negative_numbers_red,
+                self.settings.font_size,
             );
 
             // Handle column header click: update insert position for "Add Column" dialog
@@ -2018,6 +2498,7 @@ impl eframe::App for OctaApp {
                 self.show_add_column_dialog = true;
                 self.new_col_name.clear();
                 self.new_col_type = "String".to_string();
+                self.new_col_formula.clear();
                 self.insert_col_at = self.table_state.selected_cell.map(|(_, c)| c + 1);
             }
             if interaction.ctx_delete_column && self.table.col_count() > 0 {

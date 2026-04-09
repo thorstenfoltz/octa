@@ -1,7 +1,7 @@
 use egui::{Align, Layout, RichText, Ui};
 
 use super::theme::{ThemeColors, ThemeMode};
-use crate::data::ViewMode;
+use crate::data::{SearchMode, ViewMode};
 
 #[derive(Default)]
 pub struct ToolbarAction {
@@ -25,6 +25,11 @@ pub struct ToolbarAction {
     pub show_settings: bool,
     pub show_about: bool,
     pub check_for_updates: bool,
+    pub replace_next: bool,
+    pub replace_all: bool,
+    pub toggle_replace_bar: bool,
+    pub search_focus: bool,
+    pub show_documentation: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -32,6 +37,10 @@ pub fn draw_toolbar(
     ui: &mut Ui,
     theme_mode: ThemeMode,
     search_text: &mut String,
+    search_mode: &mut SearchMode,
+    search_focus_requested: bool,
+    show_replace_bar: bool,
+    replace_text: &mut String,
     has_data: bool,
     has_edits: bool,
     has_source_path: bool,
@@ -217,25 +226,28 @@ pub fn draw_toolbar(
                 }
             });
 
-            ui.add_space(4.0);
-            ui.separator();
-            ui.add_space(4.0);
-
-            // Search box
-            ui.label(RichText::new("Search:").color(colors.text_secondary));
-            let response = ui.add(
-                egui::TextEdit::singleline(search_text)
-                    .desired_width(200.0)
-                    .hint_text("Filter rows..."),
-            );
-            if response.changed() {
-                action.search_changed = true;
-            }
+            // --- Search menu ---
+            ui.menu_button(RichText::new("Search").color(colors.text_primary), |ui| {
+                ui.set_min_width(180.0);
+                if ui.button("Find  Ctrl+F").clicked() {
+                    action.search_focus = true;
+                    ui.close_menu();
+                }
+                if ui.button("Find & Replace  Ctrl+H").clicked() {
+                    action.toggle_replace_bar = true;
+                    ui.close_menu();
+                }
+            });
         }
 
-        // --- Help menu (always visible) ---
+        // --- Help menu (always visible, next to Search) ---
         ui.menu_button(RichText::new("Help").color(colors.text_primary), |ui| {
-            ui.set_min_width(160.0);
+            ui.set_min_width(180.0);
+            if ui.button("Documentation...").clicked() {
+                action.show_documentation = true;
+                ui.close_menu();
+            }
+            ui.separator();
             if ui.button("Settings...").clicked() {
                 action.show_settings = true;
                 ui.close_menu();
@@ -251,6 +263,70 @@ pub fn draw_toolbar(
                 ui.close_menu();
             }
         });
+
+        if has_data {
+            ui.add_space(4.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            // Search box with mode selector
+            ui.label(RichText::new("Search:").color(colors.text_secondary));
+            let old_mode = *search_mode;
+            egui::ComboBox::from_id_salt("search_mode")
+                .width(75.0)
+                .selected_text(search_mode.label())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(search_mode, SearchMode::Plain, "Plain");
+                    ui.selectable_value(search_mode, SearchMode::Wildcard, "Wildcard");
+                    ui.selectable_value(search_mode, SearchMode::Regex, "Regex");
+                });
+            if *search_mode != old_mode {
+                action.search_changed = true;
+            }
+            let hint = match *search_mode {
+                SearchMode::Plain => "Filter rows...",
+                SearchMode::Wildcard => "e.g. foo*bar, item?",
+                SearchMode::Regex => "e.g. ^\\d{3}-",
+            };
+            let search_id = ui.id().with("toolbar_search");
+            let response = ui.add(
+                egui::TextEdit::singleline(search_text)
+                    .id(search_id)
+                    .desired_width(200.0)
+                    .hint_text(hint),
+            );
+            if response.changed() {
+                action.search_changed = true;
+            }
+            if search_focus_requested {
+                response.request_focus();
+            }
+
+            if show_replace_bar {
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+                ui.label(RichText::new("Replace:").color(colors.text_secondary));
+                ui.add(
+                    egui::TextEdit::singleline(replace_text)
+                        .desired_width(160.0)
+                        .hint_text("Replace with..."),
+                );
+                let has_search = !search_text.is_empty();
+                if ui
+                    .add_enabled(has_search, egui::Button::new("Next"))
+                    .clicked()
+                {
+                    action.replace_next = true;
+                }
+                if ui
+                    .add_enabled(has_search, egui::Button::new("All"))
+                    .clicked()
+                {
+                    action.replace_all = true;
+                }
+            }
+        }
 
         // Right-aligned: theme toggle
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {

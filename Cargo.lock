@@ -3453,6 +3453,8 @@ dependencies = [
  "pdf-extract",
  "printpdf",
  "quick-xml 0.37.5",
+ "regex",
+ "regex-syntax",
  "resvg",
  "rfd",
  "rust_xlsxwriter",

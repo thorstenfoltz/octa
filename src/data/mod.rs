@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// How to display the loaded file content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewMode {
@@ -12,6 +14,59 @@ pub enum ViewMode {
     Pdf,
     /// Rendered Markdown view.
     Markdown,
+}
+
+/// Search/filter mode for the table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SearchMode {
+    /// Plain case-insensitive substring match.
+    Plain,
+    /// Wildcard: `*` = any chars, `?` = single char. Escape with `\*` and `\?`.
+    Wildcard,
+    /// Full regular expression (regex crate syntax).
+    Regex,
+}
+
+impl SearchMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Plain => "Plain",
+            Self::Wildcard => "Wildcard",
+            Self::Regex => "Regex",
+        }
+    }
+}
+
+impl Default for SearchMode {
+    fn default() -> Self {
+        Self::Plain
+    }
+}
+
+/// Convert a wildcard pattern to a regex string.
+/// `*` matches any sequence of characters, `?` matches a single character.
+/// Use `\*` for a literal `*` and `\?` for a literal `?`.
+pub fn wildcard_to_regex(pattern: &str) -> String {
+    let mut regex = String::from("(?i)");
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '\\' && i + 1 < chars.len() && (chars[i + 1] == '*' || chars[i + 1] == '?') {
+            // Escaped wildcard → literal
+            regex.push_str(&regex_syntax::escape(&chars[i + 1].to_string()));
+            i += 2;
+        } else if chars[i] == '*' {
+            regex.push_str(".*");
+            i += 1;
+        } else if chars[i] == '?' {
+            regex.push('.');
+            i += 1;
+        } else {
+            regex.push_str(&regex_syntax::escape(&chars[i].to_string()));
+            i += 1;
+        }
+    }
+    regex
 }
 
 /// Represents a single cell value in the data table.
@@ -73,6 +128,8 @@ impl CellValue {
                 .parse::<f64>()
                 .map(CellValue::Float)
                 .unwrap_or_else(|_| CellValue::String(text.to_string())),
+            CellValue::Date(_) => CellValue::Date(text.to_string()),
+            CellValue::DateTime(_) => CellValue::DateTime(text.to_string()),
             _ => CellValue::String(text.to_string()),
         }
     }
@@ -89,6 +146,207 @@ impl CellValue {
             CellValue::Binary(_) => "binary",
             CellValue::Nested(_) => "nested",
         }
+    }
+}
+
+/// Evaluate a simple Excel-like formula.
+/// Supports cell references (e.g. A1, B2), numeric literals, and operators +, -, *, /.
+/// Column letters: A=0, B=1, ..., Z=25, AA=26, etc. Row numbers are 1-based.
+/// Returns the computed f64 result, or None if the formula is invalid.
+pub fn evaluate_formula(formula: &str, table: &DataTable) -> Option<f64> {
+    let expr = formula.trim();
+    if expr.is_empty() {
+        return None;
+    }
+    let tokens = tokenize_formula(expr)?;
+    eval_expression(&tokens, 0, table).map(|(val, _)| val)
+}
+
+/// Resolve a cell reference like "A1", "BC42" to (row, col) zero-indexed.
+fn parse_cell_ref(s: &str) -> Option<(usize, usize)> {
+    let s = s.trim();
+    let col_end = s.bytes().position(|b| b.is_ascii_digit())?;
+    if col_end == 0 {
+        return None;
+    }
+    let col_str = &s[..col_end];
+    let row_str = &s[col_end..];
+    if row_str.is_empty() {
+        return None;
+    }
+    // Column: A=0, B=1, ..., Z=25, AA=26
+    let mut col: usize = 0;
+    for ch in col_str.chars() {
+        if !ch.is_ascii_alphabetic() {
+            return None;
+        }
+        col = col * 26 + (ch.to_ascii_uppercase() as usize - b'A' as usize + 1);
+    }
+    col -= 1; // zero-indexed
+    let row: usize = row_str.parse::<usize>().ok()?;
+    if row == 0 {
+        return None;
+    }
+    Some((row - 1, col))
+}
+
+/// Get numeric value from a cell, parsing strings as f64 if needed.
+fn cell_as_f64(table: &DataTable, row: usize, col: usize) -> Option<f64> {
+    match table.get(row, col)? {
+        CellValue::Int(n) => Some(*n as f64),
+        CellValue::Float(f) => Some(*f),
+        CellValue::String(s) => s.trim().parse::<f64>().ok(),
+        CellValue::Null => Some(0.0),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone)]
+enum FormulaToken {
+    Number(f64),
+    CellRef(usize, usize), // (row, col)
+    Op(char),               // +, -, *, /
+    LParen,
+    RParen,
+}
+
+fn tokenize_formula(expr: &str) -> Option<Vec<FormulaToken>> {
+    let mut tokens = Vec::new();
+    let chars: Vec<char> = expr.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            ' ' => {
+                i += 1;
+            }
+            '+' | '-' | '*' | '/' => {
+                // Unary minus: treat as part of number if at start or after operator/lparen
+                if chars[i] == '-' {
+                    let is_unary = tokens.is_empty()
+                        || matches!(
+                            tokens.last(),
+                            Some(FormulaToken::Op(_)) | Some(FormulaToken::LParen)
+                        );
+                    if is_unary {
+                        // Collect the number after the minus
+                        i += 1;
+                        let start = i;
+                        while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                            i += 1;
+                        }
+                        if i == start {
+                            return None;
+                        }
+                        let num_str: String = chars[start..i].iter().collect();
+                        let val: f64 = num_str.parse().ok()?;
+                        tokens.push(FormulaToken::Number(-val));
+                        continue;
+                    }
+                }
+                tokens.push(FormulaToken::Op(chars[i]));
+                i += 1;
+            }
+            '(' => {
+                tokens.push(FormulaToken::LParen);
+                i += 1;
+            }
+            ')' => {
+                tokens.push(FormulaToken::RParen);
+                i += 1;
+            }
+            c if c.is_ascii_digit() || c == '.' => {
+                let start = i;
+                while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                    i += 1;
+                }
+                let num_str: String = chars[start..i].iter().collect();
+                let val: f64 = num_str.parse().ok()?;
+                tokens.push(FormulaToken::Number(val));
+            }
+            c if c.is_ascii_alphabetic() => {
+                let start = i;
+                while i < chars.len() && (chars[i].is_ascii_alphanumeric()) {
+                    i += 1;
+                }
+                let word: String = chars[start..i].iter().collect();
+                let (row, col) = parse_cell_ref(&word)?;
+                tokens.push(FormulaToken::CellRef(row, col));
+            }
+            _ => return None,
+        }
+    }
+    Some(tokens)
+}
+
+/// Recursive descent parser: expression = term (('+' | '-') term)*
+fn eval_expression(
+    tokens: &[FormulaToken],
+    pos: usize,
+    table: &DataTable,
+) -> Option<(f64, usize)> {
+    let (mut left, mut p) = eval_term(tokens, pos, table)?;
+    while p < tokens.len() {
+        match &tokens[p] {
+            FormulaToken::Op('+') => {
+                let (right, np) = eval_term(tokens, p + 1, table)?;
+                left += right;
+                p = np;
+            }
+            FormulaToken::Op('-') => {
+                let (right, np) = eval_term(tokens, p + 1, table)?;
+                left -= right;
+                p = np;
+            }
+            _ => break,
+        }
+    }
+    Some((left, p))
+}
+
+/// term = factor (('*' | '/') factor)*
+fn eval_term(tokens: &[FormulaToken], pos: usize, table: &DataTable) -> Option<(f64, usize)> {
+    let (mut left, mut p) = eval_factor(tokens, pos, table)?;
+    while p < tokens.len() {
+        match &tokens[p] {
+            FormulaToken::Op('*') => {
+                let (right, np) = eval_factor(tokens, p + 1, table)?;
+                left *= right;
+                p = np;
+            }
+            FormulaToken::Op('/') => {
+                let (right, np) = eval_factor(tokens, p + 1, table)?;
+                if right == 0.0 {
+                    return None; // division by zero
+                }
+                left /= right;
+                p = np;
+            }
+            _ => break,
+        }
+    }
+    Some((left, p))
+}
+
+/// factor = Number | CellRef | '(' expression ')'
+fn eval_factor(tokens: &[FormulaToken], pos: usize, table: &DataTable) -> Option<(f64, usize)> {
+    if pos >= tokens.len() {
+        return None;
+    }
+    match &tokens[pos] {
+        FormulaToken::Number(n) => Some((*n, pos + 1)),
+        FormulaToken::CellRef(row, col) => {
+            let val = cell_as_f64(table, *row, *col).unwrap_or(0.0);
+            Some((val, pos + 1))
+        }
+        FormulaToken::LParen => {
+            let (val, p) = eval_expression(tokens, pos + 1, table)?;
+            if p < tokens.len() && matches!(tokens[p], FormulaToken::RParen) {
+                Some((val, p + 1))
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }
 

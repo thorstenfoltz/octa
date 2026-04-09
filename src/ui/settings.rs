@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use super::theme::ThemeMode;
+use crate::data::SearchMode;
 
 /// Available icon color variants (matching assets/octa-*.svg files).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,6 +102,22 @@ pub struct AppSettings {
     pub default_theme: ThemeMode,
     /// Icon color variant.
     pub icon_variant: IconVariant,
+    /// Default search mode for the filter bar.
+    #[serde(default)]
+    pub default_search_mode: SearchMode,
+    /// Whether to show row numbers in the table view.
+    #[serde(default = "default_true")]
+    pub show_row_numbers: bool,
+    /// Whether to use alternating row background colors.
+    #[serde(default = "default_true")]
+    pub alternating_row_colors: bool,
+    /// Whether negative numbers are displayed in red.
+    #[serde(default)]
+    pub negative_numbers_red: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AppSettings {
@@ -109,6 +126,10 @@ impl Default for AppSettings {
             font_size: 13.0,
             default_theme: ThemeMode::Light,
             icon_variant: IconVariant::Rose,
+            default_search_mode: SearchMode::Plain,
+            show_row_numbers: true,
+            alternating_row_colors: true,
+            negative_numbers_red: false,
         }
     }
 }
@@ -271,6 +292,44 @@ impl SettingsDialog {
                         if self.draft.icon_variant != old_icon {
                             self.icon_changed = true;
                         }
+                        ui.end_row();
+
+                        // --- Default search mode ---
+                        ui.label("Default search:");
+                        egui::ComboBox::from_id_salt("search_mode_combo")
+                            .selected_text(self.draft.default_search_mode.label())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.draft.default_search_mode,
+                                    SearchMode::Plain,
+                                    "Plain",
+                                );
+                                ui.selectable_value(
+                                    &mut self.draft.default_search_mode,
+                                    SearchMode::Wildcard,
+                                    "Wildcard",
+                                );
+                                ui.selectable_value(
+                                    &mut self.draft.default_search_mode,
+                                    SearchMode::Regex,
+                                    "Regex",
+                                );
+                            });
+                        ui.end_row();
+
+                        // --- Show row numbers ---
+                        ui.label("Show row numbers:");
+                        ui.checkbox(&mut self.draft.show_row_numbers, "");
+                        ui.end_row();
+
+                        // --- Alternating row colors ---
+                        ui.label("Alternating row colors:");
+                        ui.checkbox(&mut self.draft.alternating_row_colors, "");
+                        ui.end_row();
+
+                        // --- Negative numbers in red ---
+                        ui.label("Negative numbers in red:");
+                        ui.checkbox(&mut self.draft.negative_numbers_red, "");
                         ui.end_row();
                     });
 
