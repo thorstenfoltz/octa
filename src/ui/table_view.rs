@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use egui::{Align2, Color32, CursorIcon, RichText, Sense, Ui, Vec2};
 
+use super::status_bar::format_number;
 use super::theme::{ThemeColors, ThemeMode};
 use crate::data::{DataTable, MarkColor, MarkKey};
 
@@ -39,13 +40,15 @@ pub struct TableViewState {
     pub editing_col_name: Option<(usize, String)>,
     /// Whether the column name edit widget needs initial focus.
     pub edit_col_needs_focus: bool,
+    /// Dynamic row number column width (computed from total row count).
+    pub row_number_width: f32,
 }
 
-const ROW_HEIGHT: f32 = 26.0;
+const DEFAULT_ROW_HEIGHT: f32 = 26.0;
 const MIN_COL_WIDTH: f32 = 60.0;
 const MAX_COL_WIDTH: f32 = 800.0;
 const DEFAULT_COL_WIDTH: f32 = 120.0;
-const ROW_NUMBER_WIDTH: f32 = 60.0;
+const MIN_ROW_NUMBER_WIDTH: f32 = 60.0;
 const HEADER_HEIGHT: f32 = 44.0; // taller to fit column index number
 const RESIZE_HANDLE_WIDTH: f32 = 6.0;
 const SORT_ARROW_SIZE: f32 = 14.0;
@@ -120,6 +123,7 @@ pub struct TableInteraction {
 }
 
 /// Draw the data table with true row virtualization.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_table(
     ui: &mut Ui,
     table: &mut DataTable,
@@ -127,10 +131,24 @@ pub fn draw_table(
     theme_mode: ThemeMode,
     filtered_rows: &[usize],
     os_clipboard_has_content: bool,
+    show_row_numbers: bool,
+    alternating_row_colors: bool,
+    negative_numbers_red: bool,
+    font_size: f32,
 ) -> TableInteraction {
     let colors = ThemeColors::for_mode(theme_mode);
+    let row_height = (font_size * 2.0).max(DEFAULT_ROW_HEIGHT);
     state.ensure_widths(table);
     state.os_clipboard_has_text = os_clipboard_has_content;
+
+    // Compute row number column width based on the largest row number
+    if show_row_numbers {
+        let max_row_num = table.row_offset + filtered_rows.len();
+        let formatted_len = format_number(max_row_num).len() as f32;
+        state.row_number_width = (formatted_len * 8.0 + 16.0).max(MIN_ROW_NUMBER_WIDTH);
+    } else {
+        state.row_number_width = 0.0;
+    }
 
     let mut interaction = TableInteraction::default();
 
@@ -145,9 +163,9 @@ pub fn draw_table(
         return interaction;
     }
 
-    let total_col_width: f32 = ROW_NUMBER_WIDTH + state.col_widths.iter().sum::<f32>();
+    let total_col_width: f32 = state.row_number_width + state.col_widths.iter().sum::<f32>();
     let row_count = filtered_rows.len();
-    let total_data_height = row_count as f32 * ROW_HEIGHT;
+    let total_data_height = row_count as f32 * row_height;
     let total_content_height = HEADER_HEIGHT + 1.0 + total_data_height + 8.0;
 
     let available_rect = ui.available_rect_before_wrap();
@@ -207,8 +225,8 @@ pub fn draw_table(
             state.selected_cols.clear();
 
             // Auto-scroll vertically to keep the selected row visible
-            let row_top = new_display as f32 * ROW_HEIGHT;
-            let row_bottom = row_top + ROW_HEIGHT;
+            let row_top = new_display as f32 * row_height;
+            let row_bottom = row_top + row_height;
             if row_top < state.scroll_y {
                 state.scroll_y = row_top;
             } else if row_bottom > state.scroll_y + data_area_height {
@@ -226,8 +244,8 @@ pub fn draw_table(
                     .unwrap_or(DEFAULT_COL_WIDTH);
             if col_left < state.scroll_x {
                 state.scroll_x = col_left;
-            } else if col_right > state.scroll_x + (view_width - ROW_NUMBER_WIDTH) {
-                state.scroll_x = col_right - (view_width - ROW_NUMBER_WIDTH);
+            } else if col_right > state.scroll_x + (view_width - state.row_number_width) {
+                state.scroll_x = col_right - (view_width - state.row_number_width);
             }
             state.scroll_x = state.scroll_x.clamp(0.0, max_scroll_x);
         }
@@ -284,6 +302,7 @@ pub fn draw_table(
         header_y,
         panel_rect,
         &mut interaction,
+        font_size,
     );
 
     // Header bottom border
@@ -304,16 +323,16 @@ pub fn draw_table(
         egui::Rect::from_min_max(egui::pos2(panel_rect.left(), data_area_top), panel_rect.max);
     let data_painter = painter.with_clip_rect(data_clip_rect);
 
-    let first_visible = (state.scroll_y / ROW_HEIGHT).floor() as usize;
-    let visible_count = (data_area_height / ROW_HEIGHT).ceil() as usize + 2;
+    let first_visible = (state.scroll_y / row_height).floor() as usize;
+    let visible_count = (data_area_height / row_height).ceil() as usize + 2;
     let last_visible = (first_visible + visible_count).min(row_count);
 
     #[allow(clippy::needless_range_loop)]
     for display_idx in first_visible..last_visible {
         let actual_row = filtered_rows[display_idx];
-        let row_y = data_area_top + (display_idx as f32 * ROW_HEIGHT) - state.scroll_y;
+        let row_y = data_area_top + (display_idx as f32 * row_height) - state.scroll_y;
 
-        if row_y + ROW_HEIGHT < data_area_top || row_y > panel_rect.bottom() {
+        if row_y + row_height < data_area_top || row_y > panel_rect.bottom() {
             continue;
         }
 
@@ -329,6 +348,11 @@ pub fn draw_table(
             row_y,
             panel_rect,
             &mut interaction,
+            show_row_numbers,
+            alternating_row_colors,
+            negative_numbers_red,
+            font_size,
+            row_height,
         );
     }
 
@@ -436,7 +460,7 @@ pub fn draw_table(
 
     // Signal that more rows should be loaded when scrolled near the bottom
     if table.total_rows.is_some()
-        && state.scroll_y + view_height >= total_content_height - ROW_HEIGHT * 100.0
+        && state.scroll_y + view_height >= total_content_height - row_height * 100.0
     {
         interaction.needs_more_rows = true;
     }
@@ -455,19 +479,20 @@ fn draw_header_direct(
     top_y: f32,
     panel_rect: egui::Rect,
     interaction: &mut TableInteraction,
+    font_size: f32,
 ) {
     let rn_rect = egui::Rect::from_min_size(
         egui::pos2(left_x, top_y),
-        Vec2::new(ROW_NUMBER_WIDTH, HEADER_HEIGHT),
+        Vec2::new(state.row_number_width, HEADER_HEIGHT),
     );
     let header_clip = egui::Rect::from_min_max(
         egui::pos2(panel_rect.left(), top_y),
         egui::pos2(panel_rect.right(), top_y + HEADER_HEIGHT),
     );
 
-    let mut x = left_x + ROW_NUMBER_WIDTH - state.scroll_x;
+    let mut x = left_x + state.row_number_width - state.scroll_x;
     let col_clip = egui::Rect::from_min_max(
-        egui::pos2(left_x + ROW_NUMBER_WIDTH, top_y),
+        egui::pos2(left_x + state.row_number_width, top_y),
         egui::pos2(panel_rect.right(), top_y + HEADER_HEIGHT),
     );
     let col_painter = painter.with_clip_rect(col_clip);
@@ -508,7 +533,7 @@ fn draw_header_direct(
         let index_text = format!("{}", col_idx + 1);
         let index_galley = painter.layout_no_wrap(
             index_text,
-            egui::FontId::new(9.0, egui::FontFamily::Monospace),
+            egui::FontId::new((font_size * 0.7).round(), egui::FontFamily::Monospace),
             colors.text_muted,
         );
         let index_clip = egui::Rect::from_min_max(
@@ -554,7 +579,7 @@ fn draw_header_direct(
                 if let Some((_, ref mut buf)) = state.editing_col_name {
                     let edit = egui::TextEdit::singleline(buf)
                         .id(edit_id)
-                        .font(egui::FontId::new(12.0, egui::FontFamily::Proportional))
+                        .font(egui::FontId::new(font_size, egui::FontFamily::Proportional))
                         .frame(false)
                         .desired_width(name_edit_rect.width());
                     let edit_response = ui.put(name_edit_rect, edit);
@@ -571,7 +596,7 @@ fn draw_header_direct(
         } else {
             let name_galley = painter.layout_no_wrap(
                 col.name.clone(),
-                egui::FontId::new(12.0, egui::FontFamily::Proportional),
+                egui::FontId::new(font_size, egui::FontFamily::Proportional),
                 colors.text_header,
             );
             painter.with_clip_rect(cell_clip).galley(
@@ -584,7 +609,7 @@ fn draw_header_direct(
         // Data type subtitle
         let type_galley = painter.layout_no_wrap(
             col.data_type.clone(),
-            egui::FontId::new(9.0, egui::FontFamily::Monospace),
+            egui::FontId::new((font_size * 0.7).round(), egui::FontFamily::Monospace),
             colors.text_muted,
         );
         painter.with_clip_rect(cell_clip).galley(
@@ -844,7 +869,8 @@ fn draw_header_direct(
             if header_response.dragged() {
                 ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
                 if let Some(pointer_pos) = header_response.interact_pointer_pos() {
-                    let pointer_x = pointer_pos.x + state.scroll_x - (left_x + ROW_NUMBER_WIDTH);
+                    let pointer_x =
+                        pointer_pos.x + state.scroll_x - (left_x + state.row_number_width);
                     let mut acc = 0.0f32;
                     let mut target = table.col_count().saturating_sub(1);
                     for (i, &cw) in state.col_widths.iter().enumerate() {
@@ -917,7 +943,8 @@ fn draw_header_direct(
             } else {
                 target_x
             };
-            let indicator_x = indicator_x.clamp(left_x + ROW_NUMBER_WIDTH, panel_rect.right());
+            let indicator_x =
+                indicator_x.clamp(left_x + state.row_number_width, panel_rect.right());
             col_painter.line_segment(
                 [
                     egui::pos2(indicator_x, top_y),
@@ -936,7 +963,7 @@ fn draw_header_direct(
         rn_rect.center(),
         Align2::CENTER_CENTER,
         "#",
-        egui::FontId::new(12.0, egui::FontFamily::Monospace),
+        egui::FontId::new(font_size, egui::FontFamily::Monospace),
         colors.text_muted,
     );
 }
@@ -954,12 +981,17 @@ fn draw_data_row_direct(
     row_y: f32,
     panel_rect: egui::Rect,
     interaction: &mut TableInteraction,
+    show_row_numbers: bool,
+    alternating_row_colors: bool,
+    negative_numbers_red: bool,
+    font_size: f32,
+    row_height: f32,
 ) {
     let is_multi_selected_row = state.selected_rows.contains(&actual_row);
 
     let row_bg = if is_multi_selected_row {
         colors.bg_selected
-    } else if display_idx.is_multiple_of(2) {
+    } else if alternating_row_colors && display_idx.is_multiple_of(2) {
         colors.row_even
     } else {
         colors.row_odd
@@ -967,10 +999,10 @@ fn draw_data_row_direct(
 
     let rn_rect = egui::Rect::from_min_size(
         egui::pos2(left_x, row_y),
-        Vec2::new(ROW_NUMBER_WIDTH, ROW_HEIGHT),
+        Vec2::new(state.row_number_width, row_height),
     );
 
-    let data_area_left = left_x + ROW_NUMBER_WIDTH;
+    let data_area_left = left_x + state.row_number_width;
     let col_clip = egui::Rect::from_min_max(
         egui::pos2(data_area_left, panel_rect.top() + HEADER_HEIGHT + 1.0),
         panel_rect.max,
@@ -988,7 +1020,7 @@ fn draw_data_row_direct(
             .copied()
             .unwrap_or(DEFAULT_COL_WIDTH);
 
-        let rect = egui::Rect::from_min_size(egui::pos2(x, row_y), Vec2::new(w, ROW_HEIGHT));
+        let rect = egui::Rect::from_min_size(egui::pos2(x, row_y), Vec2::new(w, row_height));
 
         if rect.right() >= data_area_left && rect.left() <= panel_rect.right() {
             let is_editing = state
@@ -1004,7 +1036,9 @@ fn draw_data_row_direct(
             let is_col_selected = state.selected_cols.contains(&col_idx);
 
             let mark_color = table.get_mark_color(actual_row, col_idx);
-            let cell_bg = if is_selected || is_multi_selected_row || is_col_selected {
+            let cell_bg = if is_editing {
+                colors.bg_primary
+            } else if is_selected || is_multi_selected_row || is_col_selected {
                 colors.bg_selected
             } else if let Some(mc) = mark_color {
                 colors.mark_color(mc)
@@ -1028,13 +1062,24 @@ fn draw_data_row_direct(
                         let edit_id = ui.id().with(("cell_edit", actual_row, col_idx));
                         let edit = egui::TextEdit::singleline(buf)
                             .id(edit_id)
-                            .font(egui::FontId::new(12.0, egui::FontFamily::Monospace))
+                            .font(egui::FontId::new(font_size, egui::FontFamily::Monospace))
                             .frame(false)
                             .desired_width(text_rect.width());
                         let edit_response = ui.put(text_rect.intersect(panel_rect), edit);
 
                         if state.edit_needs_focus {
                             edit_response.request_focus();
+                            // Select all text so user can immediately type to replace
+                            if let Some(mut te_state) =
+                                egui::TextEdit::load_state(ui.ctx(), edit_id)
+                            {
+                                let ccursor_range = egui::text::CCursorRange::two(
+                                    egui::text::CCursor::new(0),
+                                    egui::text::CCursor::new(buf.len()),
+                                );
+                                te_state.cursor.set_char_range(Some(ccursor_range));
+                                te_state.store(ui.ctx(), edit_id);
+                            }
                             state.edit_needs_focus = false;
                         }
 
@@ -1045,18 +1090,49 @@ fn draw_data_row_direct(
                 }
                 if let Some(new_text) = commit_text {
                     if let Some(old_val) = table.get(actual_row, col_idx) {
-                        let new_val = crate::data::CellValue::parse_like(old_val, &new_text);
-                        table.set(actual_row, col_idx, new_val);
+                        let new_val = if new_text.starts_with('=') {
+                            // Formula: evaluate and store result
+                            match crate::data::evaluate_formula(&new_text[1..], table) {
+                                Some(result) => {
+                                    // Keep result as Int if it's a whole number, otherwise Float
+                                    if result.fract() == 0.0
+                                        && result.abs() < i64::MAX as f64
+                                    {
+                                        crate::data::CellValue::Int(result as i64)
+                                    } else {
+                                        crate::data::CellValue::Float(result)
+                                    }
+                                }
+                                None => {
+                                    // Invalid formula — store as string
+                                    crate::data::CellValue::String(new_text)
+                                }
+                            }
+                        } else {
+                            crate::data::CellValue::parse_like(old_val, &new_text)
+                        };
+                        if new_val != *old_val {
+                            table.set(actual_row, col_idx, new_val);
+                        }
                     }
                     state.editing_cell = None;
                 }
             } else {
                 if let Some(value) = table.get(actual_row, col_idx) {
                     let display_text = value.to_string();
+                    let is_negative = match value {
+                        crate::data::CellValue::Int(n) => *n < 0,
+                        crate::data::CellValue::Float(f) => *f < 0.0,
+                        _ => false,
+                    };
                     let text_color = match value {
                         crate::data::CellValue::Null => colors.text_muted,
                         crate::data::CellValue::Int(_) | crate::data::CellValue::Float(_) => {
-                            colors.accent
+                            if negative_numbers_red && is_negative {
+                                Color32::from_rgb(0xef, 0x44, 0x44)
+                            } else {
+                                colors.accent
+                            }
                         }
                         crate::data::CellValue::Bool(_) => colors.warning,
                         crate::data::CellValue::Nested(_) => colors.text_secondary,
@@ -1072,7 +1148,7 @@ fn draw_data_row_direct(
 
                     let galley = painter.layout_no_wrap(
                         display_text,
-                        egui::FontId::new(12.0, egui::FontFamily::Monospace),
+                        egui::FontId::new(font_size, egui::FontFamily::Monospace),
                         text_color,
                     );
                     painter.with_clip_rect(cell_clip).galley(
@@ -1196,6 +1272,9 @@ fn draw_data_row_direct(
     }
 
     // Row number (pinned) - clickable for row selection
+    if !show_row_numbers {
+        return;
+    }
     let rn_bg = if is_multi_selected_row {
         colors.bg_selected
     } else {
@@ -1205,8 +1284,8 @@ fn draw_data_row_direct(
     painter.text(
         rn_rect.center(),
         Align2::CENTER_CENTER,
-        format!("{}", actual_row + 1 + table.row_offset),
-        egui::FontId::new(11.0, egui::FontFamily::Monospace),
+        format_number(actual_row + 1 + table.row_offset),
+        egui::FontId::new((font_size * 0.85).round(), egui::FontFamily::Monospace),
         colors.row_number_text,
     );
 

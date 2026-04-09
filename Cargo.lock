@@ -3434,7 +3434,7 @@ dependencies = [
 
 [[package]]
 name = "octa"
-version = "0.0.0-dev"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "apache-avro",
@@ -3453,6 +3453,8 @@ dependencies = [
  "pdf-extract",
  "printpdf",
  "quick-xml 0.37.5",
+ "regex",
+ "regex-syntax",
  "resvg",
  "rfd",
  "rust_xlsxwriter",

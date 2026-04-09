@@ -75,12 +75,12 @@ impl ThemeColors {
     /// Get the background color for a mark highlight.
     pub fn mark_color(&self, mark: MarkColor) -> Color32 {
         match mark {
-            MarkColor::Red => Color32::from_rgba_unmultiplied(239, 68, 68, 50),
-            MarkColor::Orange => Color32::from_rgba_unmultiplied(249, 115, 22, 50),
-            MarkColor::Yellow => Color32::from_rgba_unmultiplied(234, 179, 8, 50),
-            MarkColor::Green => Color32::from_rgba_unmultiplied(34, 197, 94, 50),
-            MarkColor::Blue => Color32::from_rgba_unmultiplied(59, 130, 246, 50),
-            MarkColor::Purple => Color32::from_rgba_unmultiplied(168, 85, 247, 50),
+            MarkColor::Red => Color32::from_rgba_unmultiplied(239, 68, 68, 80),
+            MarkColor::Orange => Color32::from_rgba_unmultiplied(255, 140, 0, 80),
+            MarkColor::Yellow => Color32::from_rgba_unmultiplied(234, 179, 8, 80),
+            MarkColor::Green => Color32::from_rgba_unmultiplied(34, 197, 94, 80),
+            MarkColor::Blue => Color32::from_rgba_unmultiplied(59, 130, 246, 80),
+            MarkColor::Purple => Color32::from_rgba_unmultiplied(168, 85, 247, 80),
         }
     }
 
@@ -128,7 +128,7 @@ impl ThemeColors {
             error: Color32::from_rgb(239, 68, 68),
 
             row_even: Color32::from_rgb(24, 24, 27),
-            row_odd: Color32::from_rgb(30, 30, 34),
+            row_odd: Color32::from_rgb(36, 36, 42),
             row_number_bg: Color32::from_rgb(32, 32, 36),
             row_number_text: Color32::from_rgb(113, 113, 122),
 
@@ -163,7 +163,7 @@ impl ThemeColors {
             error: Color32::from_rgb(220, 38, 38),
 
             row_even: Color32::from_rgb(255, 255, 255),
-            row_odd: Color32::from_rgb(249, 250, 251),
+            row_odd: Color32::from_rgb(240, 242, 245),
             row_number_bg: Color32::from_rgb(243, 244, 246),
             row_number_text: Color32::from_rgb(156, 163, 175),
 

@@ -662,3 +662,148 @@ fn test_empty_string_converts_to_anything() {
     assert!(can_convert_value(&CellValue::String("".into()), "Boolean"));
     assert!(can_convert_value(&CellValue::String("".into()), "Date32"));
 }
+
+// --- Cell edit no-op detection ---
+
+#[test]
+fn test_parse_like_roundtrip_preserves_string() {
+    let original = CellValue::String("hello".into());
+    let text = original.to_string();
+    let parsed = CellValue::parse_like(&original, &text);
+    assert_eq!(parsed, original);
+}
+
+#[test]
+fn test_parse_like_roundtrip_preserves_int() {
+    let original = CellValue::Int(42);
+    let text = original.to_string();
+    let parsed = CellValue::parse_like(&original, &text);
+    assert_eq!(parsed, original);
+}
+
+#[test]
+fn test_parse_like_roundtrip_preserves_float() {
+    let original = CellValue::Float(3.14);
+    let text = original.to_string();
+    let parsed = CellValue::parse_like(&original, &text);
+    assert_eq!(parsed, original);
+}
+
+#[test]
+fn test_parse_like_roundtrip_preserves_bool() {
+    let original = CellValue::Bool(true);
+    let text = original.to_string();
+    let parsed = CellValue::parse_like(&original, &text);
+    assert_eq!(parsed, original);
+}
+
+#[test]
+fn test_noop_edit_does_not_mark_as_edited() {
+    let mut table = sample_table();
+    let original = table.get(0, 0).cloned().unwrap();
+    let text = original.to_string();
+    let new_val = CellValue::parse_like(&original, &text);
+    // Simulate the fixed logic: only set if different
+    if new_val != original {
+        table.set(0, 0, new_val);
+    }
+    assert!(!table.is_edited(0, 0));
+}
+
+#[test]
+fn test_actual_edit_marks_as_edited() {
+    let mut table = sample_table();
+    let original = table.get(0, 1).cloned().unwrap(); // "Alice"
+    let new_val = CellValue::parse_like(&original, "Alicia");
+    if new_val != original {
+        table.set(0, 1, new_val);
+    }
+    assert!(table.is_edited(0, 1));
+}
+
+// --- format_number (thousand separator) ---
+
+#[test]
+fn test_format_number_small() {
+    assert_eq!(octa::ui::status_bar::format_number(0), "0");
+    assert_eq!(octa::ui::status_bar::format_number(1), "1");
+    assert_eq!(octa::ui::status_bar::format_number(999), "999");
+}
+
+#[test]
+fn test_format_number_thousands() {
+    assert_eq!(octa::ui::status_bar::format_number(1_000), "1,000");
+    assert_eq!(octa::ui::status_bar::format_number(12_345), "12,345");
+    assert_eq!(octa::ui::status_bar::format_number(999_999), "999,999");
+}
+
+#[test]
+fn test_format_number_millions() {
+    assert_eq!(octa::ui::status_bar::format_number(1_000_000), "1,000,000");
+    assert_eq!(
+        octa::ui::status_bar::format_number(123_456_789),
+        "123,456,789"
+    );
+}
+
+// --- Replace logic (data-level) ---
+
+#[test]
+fn test_replace_in_string_cell() {
+    let mut table = sample_table();
+    // Replace "Alice" with "Alicia"
+    let val = table.get(0, 1).cloned().unwrap();
+    let new_val = CellValue::parse_like(&val, "Alicia");
+    assert_ne!(new_val, val);
+    table.set(0, 1, new_val);
+    assert_eq!(
+        table.get(0, 1).unwrap(),
+        &CellValue::String("Alicia".into())
+    );
+}
+
+#[test]
+fn test_replace_preserves_type_for_int() {
+    let mut table = sample_table();
+    let val = table.get(0, 0).cloned().unwrap(); // Int(1)
+    let new_val = CellValue::parse_like(&val, "99");
+    assert_eq!(new_val, CellValue::Int(99));
+    table.set(0, 0, new_val);
+    assert_eq!(table.get(0, 0).unwrap(), &CellValue::Int(99));
+}
+
+#[test]
+fn test_replace_all_matching_cells() {
+    let mut table = sample_table();
+    // Replace all scores > 0 (all of them) with new value
+    let count = (0..table.row_count())
+        .filter(|&row| {
+            let val = table.get(row, 2).cloned().unwrap();
+            let text = val.to_string();
+            if text.contains('.') {
+                let new_val = CellValue::parse_like(&val, "0.0");
+                if new_val != val {
+                    table.set(row, 2, new_val);
+                    return true;
+                }
+            }
+            false
+        })
+        .count();
+    assert_eq!(count, 3); // all 3 rows had floats
+    for row in 0..3 {
+        assert_eq!(table.get(row, 2).unwrap(), &CellValue::Float(0.0));
+    }
+}
+
+// --- Settings serialization ---
+
+#[test]
+fn test_settings_defaults() {
+    let settings = octa::ui::settings::AppSettings::default();
+    assert_eq!(settings.font_size, 13.0);
+    assert!(settings.show_row_numbers);
+    assert!(settings.alternating_row_colors);
+    assert!(!settings.negative_numbers_red);
+    assert_eq!(settings.default_search_mode, SearchMode::Plain);
+}
