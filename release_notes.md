@@ -1,15 +1,7 @@
 ## Features
 
-- Add Jupyter Notebook support with rendered notebook view (code cells, markdown cells, outputs)
-- Add search and replace (Find & Replace)
-- Add formula-driven table editing
-- Add configurable app settings (font size, default theme, icon color)
-- Add in-app update checker
-- Add Windows auto-update support
-- Add AUR packages (`octa`, `octa-bin`)
-- Add Notebook View mode alongside Table, Raw, Markdown, and PDF views
-
-## Fixes
-
-- Require elevated install and hide console window on Windows
-- Fix release artifact naming and version handling
+- Add selectable text extraction for PDF pages (copy text from rendered PDFs)
+- Add page headers with page numbers in PDF view
+- Add copy support for notebook cells and whole-notebook text
+- Add line number gutter in notebook code cells
+- Improve notebook view layout and styling (horizontal scroll, cell backgrounds)

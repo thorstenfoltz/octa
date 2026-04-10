@@ -200,7 +200,11 @@ pub fn draw_toolbar(
                 let is_raw = current_view_mode == ViewMode::Raw;
                 let is_pdf = current_view_mode == ViewMode::Pdf;
 
-                if ui.radio(is_table, "Table View").clicked() {
+                // Disable table view for notebook files (notebook view is the primary view)
+                let table_enabled = !has_notebook;
+                let table_btn =
+                    ui.add_enabled(table_enabled, egui::RadioButton::new(is_table, "Table View"));
+                if table_btn.clicked() {
                     action.view_mode_changed = Some(ViewMode::Table);
                     ui.close_menu();
                 }

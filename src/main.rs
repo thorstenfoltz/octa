@@ -228,6 +228,8 @@ struct OctaApp {
     pdf_page_images: Vec<egui::ColorImage>,
     /// Texture handles for rendered PDF pages
     pdf_textures: Vec<egui::TextureHandle>,
+    /// Extracted text per PDF page (for copy support)
+    pdf_page_texts: Vec<String>,
     /// Logo texture for toolbar
     logo_texture: Option<egui::TextureHandle>,
     /// Whether raw view shows aligned/formatted columns
@@ -493,6 +495,7 @@ impl OctaApp {
             raw_content_modified: false,
             pdf_page_images: Vec::new(),
             pdf_textures: Vec::new(),
+            pdf_page_texts: Vec::new(),
             logo_texture: None,
             raw_view_formatted: false,
             csv_delimiter: b',',
@@ -720,10 +723,12 @@ impl OctaApp {
                     // For PDFs, render pages visually and default to Pdf view
                     self.pdf_page_images.clear();
                     self.pdf_textures.clear();
+                    self.pdf_page_texts.clear();
                     if self.table.format_name.as_deref() == Some("PDF") {
                         match formats::pdf_reader::render_pdf_pages(&path, 2.0) {
-                            Ok(images) => {
+                            Ok((images, texts)) => {
                                 self.pdf_page_images = images;
+                                self.pdf_page_texts = texts;
                                 self.view_mode = ViewMode::Pdf;
                             }
                             Err(_) => {
@@ -2191,9 +2196,24 @@ Open **Help > Settings** to configure:
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.vertical_centered(|ui| {
-                                for texture in &self.pdf_textures {
+                                for (page_idx, texture) in self.pdf_textures.iter().enumerate() {
                                     let size = texture.size_vec2();
-                                    // Add a subtle border/shadow around each page
+                                    let page_text = self.pdf_page_texts
+                                        .get(page_idx)
+                                        .cloned()
+                                        .unwrap_or_default();
+                                    // Page header
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "Page {} of {}",
+                                            page_idx + 1,
+                                            self.pdf_textures.len()
+                                        ))
+                                        .size(11.0)
+                                        .color(colors.text_muted),
+                                    );
+                                    ui.add_space(4.0);
+                                    // Rendered page image
                                     egui::Frame::new()
                                         .fill(egui::Color32::WHITE)
                                         .shadow(egui::epaint::Shadow {
@@ -2208,7 +2228,31 @@ Open **Help > Settings** to configure:
                                                 size,
                                             ));
                                         });
-                                    ui.add_space(12.0);
+                                    // Selectable text below the page image
+                                    if !page_text.is_empty() {
+                                        ui.add_space(4.0);
+                                        egui::Frame::new()
+                                            .fill(colors.bg_secondary)
+                                            .stroke(Stroke::new(1.0, colors.border_subtle))
+                                            .corner_radius(4.0)
+                                            .inner_margin(8.0)
+                                            .show(ui, |ui| {
+                                                ui.add(
+                                                    egui::Label::new(
+                                                        RichText::new(&page_text)
+                                                            .font(egui::FontId::new(
+                                                                12.0,
+                                                                egui::FontFamily::Monospace,
+                                                            ))
+                                                            .color(colors.text_primary),
+                                                    )
+                                                    .selectable(true),
+                                                );
+                                            });
+                                    }
+                                    ui.add_space(16.0);
+                                    ui.separator();
+                                    ui.add_space(8.0);
                                 }
                             });
                         });
@@ -2230,15 +2274,38 @@ Open **Help > Settings** to configure:
                         );
                     });
                 } else {
-                    egui::ScrollArea::vertical()
+                    // Helper: build a LayoutJob for line number gutter (non-selectable)
+                    let build_line_numbers =
+                        |line_count: usize, line_num_color: Color32| {
+                            let mono = egui::FontId::new(13.0, egui::FontFamily::Monospace);
+                            let gutter_width = line_count.max(1).to_string().len();
+                            let mut job = egui::text::LayoutJob::default();
+                            for i in 0..line_count.max(1) {
+                                let num_str = format!("{:>width$}", i + 1, width = gutter_width);
+                                let suffix = if i + 1 < line_count.max(1) { "\n" } else { "" };
+                                job.append(
+                                    &format!("{}{}", num_str, suffix),
+                                    0.0,
+                                    egui::text::TextFormat {
+                                        font_id: mono.clone(),
+                                        color: line_num_color,
+                                        ..Default::default()
+                                    },
+                                );
+                            }
+                            job
+                        };
+
+                    // Collect all cell text for Ctrl+C on the whole notebook
+                    let mut all_notebook_text = String::new();
+
+                    egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.add_space(8.0);
                             ui.horizontal(|ui| {
                                 ui.add_space(16.0);
                                 ui.vertical(|ui| {
-                                    ui.set_max_width(960.0);
-
                                     for row_idx in 0..self.table.row_count() {
                                         let cell_num = match self.table.get(row_idx, 0) {
                                             Some(data::CellValue::Int(n)) => Some(n),
@@ -2259,6 +2326,16 @@ Open **Help > Settings** to configure:
                                             None => String::new(),
                                         };
 
+                                        // Accumulate for whole-notebook copy
+                                        if !all_notebook_text.is_empty() {
+                                            all_notebook_text.push_str("\n\n");
+                                        }
+                                        all_notebook_text.push_str(&source);
+                                        if !output.is_empty() {
+                                            all_notebook_text.push('\n');
+                                            all_notebook_text.push_str(&output);
+                                        }
+
                                         let is_code = cell_type == "code";
                                         let is_markdown = cell_type == "markdown";
 
@@ -2269,8 +2346,10 @@ Open **Help > Settings** to configure:
                                             } else {
                                                 Color32::from_rgb(248, 249, 250)
                                             }
+                                        } else if is_dark {
+                                            Color32::from_rgb(35, 38, 45)
                                         } else {
-                                            colors.bg_primary
+                                            Color32::from_rgb(252, 252, 254)
                                         };
 
                                         let border_color = if is_code {
@@ -2282,6 +2361,20 @@ Open **Help > Settings** to configure:
                                         } else {
                                             colors.border_subtle
                                         };
+
+                                        let line_num_color = if is_dark {
+                                            Color32::from_rgb(100, 110, 130)
+                                        } else {
+                                            Color32::from_rgb(150, 160, 175)
+                                        };
+
+                                        let text_color = if is_markdown {
+                                            colors.text_secondary
+                                        } else {
+                                            colors.text_primary
+                                        };
+
+                                        let line_count = source.lines().count();
 
                                         // Cell label (e.g. "In [1]:" or nothing for markdown)
                                         ui.horizontal(|ui| {
@@ -2309,81 +2402,100 @@ Open **Help > Settings** to configure:
                                                 },
                                             );
 
-                                            // Cell content area
-                                            ui.vertical(|ui| {
-                                                if is_markdown {
-                                                    // Render markdown content
-                                                    egui_commonmark::CommonMarkViewer::new()
-                                                        .show(
-                                                            ui,
-                                                            &mut self.commonmark_cache,
-                                                            &source,
+                                            // Cell content area with separate gutter + source
+                                            let frame_response = egui::Frame::new()
+                                                .fill(cell_bg)
+                                                .stroke(Stroke::new(1.0, border_color))
+                                                .corner_radius(4.0)
+                                                .inner_margin(8.0)
+                                                .show(ui, |ui| {
+                                                    ui.horizontal_top(|ui| {
+                                                        // Line number gutter (not selectable)
+                                                        let gutter_job = build_line_numbers(
+                                                            line_count,
+                                                            line_num_color,
                                                         );
-                                                } else {
-                                                    // Code cell with background
-                                                    egui::Frame::new()
-                                                        .fill(cell_bg)
-                                                        .stroke(Stroke::new(1.0, border_color))
-                                                        .corner_radius(4.0)
-                                                        .inner_margin(8.0)
-                                                        .show(ui, |ui| {
-                                                            ui.label(
+                                                        ui.add(
+                                                            egui::Label::new(gutter_job)
+                                                                .selectable(false),
+                                                        );
+                                                        ui.add_space(8.0);
+                                                        // Source text (selectable — no line numbers)
+                                                        ui.add(
+                                                            egui::Label::new(
                                                                 RichText::new(&source)
                                                                     .font(egui::FontId::new(
                                                                         13.0,
                                                                         egui::FontFamily::Monospace,
                                                                     ))
-                                                                    .color(colors.text_primary),
-                                                            );
-                                                        });
-
-                                                    // Output area
-                                                    if !output.is_empty() {
-                                                        let out_bg = if is_dark {
-                                                            Color32::from_rgb(25, 28, 35)
-                                                        } else {
-                                                            Color32::from_rgb(255, 255, 255)
-                                                        };
-                                                        egui::Frame::new()
-                                                            .fill(out_bg)
-                                                            .stroke(Stroke::new(
-                                                                1.0,
-                                                                border_color,
-                                                            ))
-                                                            .corner_radius(4.0)
-                                                            .inner_margin(8.0)
-                                                            .show(ui, |ui| {
-                                                                // Output label
-                                                                let out_label =
-                                                                    if let Some(n) = cell_num {
-                                                                        format!("Out[{}]:", n)
-                                                                    } else {
-                                                                        "Out[ ]:".to_string()
-                                                                    };
-                                                                ui.horizontal(|ui| {
-                                                                    ui.label(
-                                                                        RichText::new(out_label)
-                                                                            .font(egui::FontId::new(
-                                                                                12.0,
-                                                                                egui::FontFamily::Monospace,
-                                                                            ))
-                                                                            .color(colors.error),
-                                                                    );
-                                                                });
-                                                                ui.label(
-                                                                    RichText::new(&output)
-                                                                        .font(egui::FontId::new(
-                                                                            13.0,
-                                                                            egui::FontFamily::Monospace,
-                                                                        ))
-                                                                        .color(
-                                                                            colors.text_secondary,
-                                                                        ),
-                                                                );
-                                                            });
-                                                    }
+                                                                    .color(text_color),
+                                                            )
+                                                            .selectable(true),
+                                                        );
+                                                    });
+                                                });
+                                            let copy_source = source.clone();
+                                            let all_text = all_notebook_text.clone();
+                                            frame_response.response.context_menu(|ui| {
+                                                if ui.button("Copy cell").clicked() {
+                                                    ui.ctx().copy_text(copy_source.clone());
+                                                    ui.close_menu();
+                                                }
+                                                if ui.button("Copy all cells").clicked() {
+                                                    ui.ctx().copy_text(all_text.clone());
+                                                    ui.close_menu();
                                                 }
                                             });
+
+                                            // Output area (code cells only)
+                                            if is_code && !output.is_empty() {
+                                                let out_bg = if is_dark {
+                                                    Color32::from_rgb(25, 28, 35)
+                                                } else {
+                                                    Color32::from_rgb(255, 255, 255)
+                                                };
+                                                let out_frame = egui::Frame::new()
+                                                    .fill(out_bg)
+                                                    .stroke(Stroke::new(1.0, border_color))
+                                                    .corner_radius(4.0)
+                                                    .inner_margin(8.0)
+                                                    .show(ui, |ui| {
+                                                        let out_label =
+                                                            if let Some(n) = cell_num {
+                                                                format!("Out[{}]:", n)
+                                                            } else {
+                                                                "Out[ ]:".to_string()
+                                                            };
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(
+                                                                RichText::new(out_label)
+                                                                    .font(egui::FontId::new(
+                                                                        12.0,
+                                                                        egui::FontFamily::Monospace,
+                                                                    ))
+                                                                    .color(colors.error),
+                                                            );
+                                                        });
+                                                        ui.add(
+                                                            egui::Label::new(
+                                                                RichText::new(&output)
+                                                                    .font(egui::FontId::new(
+                                                                        13.0,
+                                                                        egui::FontFamily::Monospace,
+                                                                    ))
+                                                                    .color(colors.text_secondary),
+                                                            )
+                                                            .selectable(true),
+                                                        );
+                                                    });
+                                                let copy_output = output.clone();
+                                                out_frame.response.context_menu(|ui| {
+                                                    if ui.button("Copy output").clicked() {
+                                                        ui.ctx().copy_text(copy_output.clone());
+                                                        ui.close_menu();
+                                                    }
+                                                });
+                                            }
                                         });
 
                                         // Separator between cells
@@ -2394,6 +2506,13 @@ Open **Help > Settings** to configure:
                                 });
                             });
                         });
+
+                    // Ctrl+X: cut (copy all notebook content — notebook view is read-only)
+                    if ui.input(|i| {
+                        i.modifiers.command && i.key_pressed(egui::Key::X)
+                    }) {
+                        ctx.copy_text(all_notebook_text);
+                    }
                 }
                 return;
             }

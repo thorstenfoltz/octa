@@ -64,13 +64,21 @@ Unknown file extensions are opened as plain text.
 - Auto-update check from GitHub releases
 - Cross-platform: Linux and Windows
 
-## Screenshots
-
-<p align="left">
-  <img src="assets/octa-rose.png" alt="Octa Icon" width="128" height="128">
-</p>
-
 ## Installation
+
+### Linux
+
+Clone the repository and execute the installation script.
+
+```bash
+# System-wide (installs to /usr/local)
+sudo ./install.sh
+
+# User-local (no sudo needed)
+./install.sh ~/.local
+```
+
+This compiles the binary, add SVG icon, and desktop entry so Octa appears in your application launcher with file associations for all supported formats.
 
 ### Arch Linux
 
@@ -85,20 +93,6 @@ or
 ```bash
 paru -S octa-bin
 ```
-
-### Other Linux Distros
-
-Clone the repository and execute the installation script.
-
-```bash
-# System-wide (installs to /usr/local)
-sudo ./install.sh
-
-# User-local (no sudo needed)
-./install.sh ~/.local
-```
-
-This installs the binary, SVG icon, and desktop entry so Octa appears in your application launcher with file associations for all supported formats.
 
 ### Windows
 
