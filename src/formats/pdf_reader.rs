@@ -4,7 +4,8 @@ use anyhow::Result;
 use std::path::Path;
 
 /// Render all pages of a PDF to RGBA images for visual display.
-pub fn render_pdf_pages(path: &Path, scale: f32) -> Result<Vec<egui::ColorImage>> {
+/// Also returns the extracted text per page for copy support.
+pub fn render_pdf_pages(path: &Path, scale: f32) -> Result<(Vec<egui::ColorImage>, Vec<String>)> {
     let path_str = path
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("Invalid path encoding"))?;
@@ -15,6 +16,7 @@ pub fn render_pdf_pages(path: &Path, scale: f32) -> Result<Vec<egui::ColorImage>
         .map_err(|e| anyhow::anyhow!("Failed to get page count: {}", e))?;
 
     let mut images = Vec::with_capacity(page_count as usize);
+    let mut texts = Vec::with_capacity(page_count as usize);
     let matrix = mupdf::Matrix::new_scale(scale, scale);
 
     for i in 0..page_count {
@@ -41,9 +43,16 @@ pub fn render_pdf_pages(path: &Path, scale: f32) -> Result<Vec<egui::ColorImage>
 
         let image = egui::ColorImage::from_rgba_unmultiplied([width, height], &rgba);
         images.push(image);
+
+        // Extract text from page for copy support
+        let page_text = page
+            .to_text_page(mupdf::TextPageFlags::empty())
+            .and_then(|tp| tp.to_text())
+            .unwrap_or_default();
+        texts.push(page_text);
     }
 
-    Ok(images)
+    Ok((images, texts))
 }
 
 pub struct PdfReader;
