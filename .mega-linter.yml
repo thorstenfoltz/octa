@@ -57,6 +57,8 @@ REPOSITORY_SEMGREP_RULESETS:
     "p/r2c-security-audit",
     "p/secure-defaults",
   ]
+REPOSITORY_TRIVY_CONFIG_FILE: trivy.yml
+REPOSITORY_TRIVY_RULES_PATH: .linters
 SHOW_ELAPSED_TIME: true
 SHOW_SKIPPED_LINTERS: true
 SPELL_PROSELINT_RULES_PATH: .linters
