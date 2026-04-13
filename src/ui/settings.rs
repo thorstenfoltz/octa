@@ -5,6 +5,25 @@ use serde::{Deserialize, Serialize};
 use super::theme::ThemeMode;
 use crate::data::SearchMode;
 
+/// Layout for Jupyter notebook output cells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum NotebookOutputLayout {
+    /// Output shown beside the source cell (side by side).
+    #[default]
+    Beside,
+    /// Output shown beneath the source cell (like Jupyter).
+    Beneath,
+}
+
+impl NotebookOutputLayout {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Beside => "Beside",
+            Self::Beneath => "Beneath",
+        }
+    }
+}
+
 /// Available icon color variants (matching assets/octa-*.svg files).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IconVariant {
@@ -117,6 +136,12 @@ pub struct AppSettings {
     /// Whether edited cells are highlighted with a background color.
     #[serde(default)]
     pub highlight_edits: bool,
+    /// Whether to color columns differently in aligned raw CSV/TSV view.
+    #[serde(default = "default_true")]
+    pub color_aligned_columns: bool,
+    /// Layout for Jupyter notebook output cells.
+    #[serde(default)]
+    pub notebook_output_layout: NotebookOutputLayout,
 }
 
 fn default_true() -> bool {
@@ -134,6 +159,8 @@ impl Default for AppSettings {
             alternating_row_colors: true,
             negative_numbers_red: false,
             highlight_edits: false,
+            color_aligned_columns: true,
+            notebook_output_layout: NotebookOutputLayout::default(),
         }
     }
 }
@@ -339,6 +366,29 @@ impl SettingsDialog {
                         // --- Highlight edited cells ---
                         ui.label("Highlight edited cells:");
                         ui.checkbox(&mut self.draft.highlight_edits, "");
+                        ui.end_row();
+
+                        // --- Color aligned columns ---
+                        ui.label("Color aligned columns:");
+                        ui.checkbox(&mut self.draft.color_aligned_columns, "");
+                        ui.end_row();
+
+                        // --- Notebook output layout ---
+                        ui.label("Notebook output:");
+                        egui::ComboBox::from_id_salt("notebook_layout_combo")
+                            .selected_text(self.draft.notebook_output_layout.label())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.draft.notebook_output_layout,
+                                    NotebookOutputLayout::Beside,
+                                    "Beside",
+                                );
+                                ui.selectable_value(
+                                    &mut self.draft.notebook_output_layout,
+                                    NotebookOutputLayout::Beneath,
+                                    "Beneath",
+                                );
+                            });
                         ui.end_row();
                     });
 

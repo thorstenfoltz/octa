@@ -154,6 +154,10 @@ struct TabState {
     commonmark_cache: egui_commonmark::CommonMarkCache,
     json_tree_expanded: std::collections::HashSet<String>,
     json_value: Option<serde_json::Value>,
+    json_expand_depth: usize,
+    json_expand_depth_str: String,
+    json_edit_path: Option<String>,
+    json_edit_buffer: String,
     show_add_column_dialog: bool,
     new_col_name: String,
     new_col_type: String,
@@ -189,6 +193,10 @@ impl TabState {
             commonmark_cache: egui_commonmark::CommonMarkCache::default(),
             json_tree_expanded: std::collections::HashSet::new(),
             json_value: None,
+            json_expand_depth: 1,
+            json_expand_depth_str: "1".to_string(),
+            json_edit_path: None,
+            json_edit_buffer: String::new(),
             show_add_column_dialog: false,
             new_col_name: String::new(),
             new_col_type: "String".to_string(),
@@ -706,6 +714,13 @@ impl OctaApp {
                             tab.json_value = serde_json::from_str(content).ok();
                         }
                     }
+                    // Set expand depth to file's max depth
+                    tab.json_expand_depth = tab
+                        .json_value
+                        .as_ref()
+                        .map(octa::data::json_util::max_json_depth)
+                        .unwrap_or(0);
+                    tab.json_expand_depth_str = tab.json_expand_depth.to_string();
                 }
                 Err(e) => {
                     self.status_message = Some((
@@ -1650,16 +1665,30 @@ impl eframe::App for OctaApp {
                                         tab_to_activate = Some(idx);
                                     }
                                     // Close button
-                                    let close_text = egui::RichText::new("  \u{00D7}")
-                                        .size(14.0)
-                                        .color(colors.text_muted);
-                                    if ui
-                                        .add(
-                                            egui::Label::new(close_text)
-                                                .sense(egui::Sense::click()),
+                                    let close_resp = ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new("  \u{00D7}")
+                                                .size(14.0)
+                                                .color(colors.text_muted),
                                         )
-                                        .clicked()
-                                    {
+                                        .sense(egui::Sense::click() | egui::Sense::hover()),
+                                    );
+                                    if close_resp.hovered() {
+                                        let r = close_resp.rect.shrink2(egui::vec2(2.0, 1.0));
+                                        ui.painter().rect_filled(
+                                            r,
+                                            3.0,
+                                            colors.accent.gamma_multiply(0.25),
+                                        );
+                                        ui.painter().text(
+                                            r.center(),
+                                            egui::Align2::CENTER_CENTER,
+                                            "\u{00D7}",
+                                            egui::FontId::proportional(14.0),
+                                            colors.error,
+                                        );
+                                    }
+                                    if close_resp.clicked() {
                                         tab_to_close = Some(idx);
                                     }
                                 });
@@ -2397,6 +2426,7 @@ Open **Help > Settings** to configure:
                     ui,
                     &self.tabs[self.active_tab],
                     self.theme_mode,
+                    self.settings.notebook_output_layout,
                 );
                 return;
             }
@@ -2409,7 +2439,7 @@ Open **Help > Settings** to configure:
 
             // --- Raw text view ---
             if self.tabs[self.active_tab].view_mode == ViewMode::Raw {
-                view_modes::render_raw_view(ui, &mut self.tabs[self.active_tab], self.theme_mode);
+                view_modes::render_raw_view(ui, &mut self.tabs[self.active_tab], self.theme_mode, self.settings.color_aligned_columns);
                 return;
             }
 

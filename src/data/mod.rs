@@ -1,3 +1,4 @@
+pub mod json_util;
 pub mod search;
 
 use std::collections::HashMap;

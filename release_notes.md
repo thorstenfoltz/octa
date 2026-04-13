@@ -1,22 +1,20 @@
 ## Features
 
-- Add multi-tab support: open multiple files in separate tabs, close with Ctrl+W, switch with Ctrl+Tab / Ctrl+Shift+Tab
-- Add column type conversion: right-click a column header to convert between String, Int64, Float64, Boolean, Date32, and Timestamp types with full undo/redo support
-- Add Ctrl+Arrow keyboard shortcuts to jump to first/last row (Ctrl+Up/Down) and first/last column (Ctrl+Left/Right)
-- Add selectable text extraction for PDF pages (copy text from rendered PDFs)
-- Add page headers with page numbers in PDF view
-- Add copy support for notebook cells and whole-notebook text
-- Add line number gutter in notebook code cells
-- Add JSON Tree view: collapsible tree viewer for JSON/JSONL files (Firefox-style), available via View menu
-- Add Exit button to File menu
-- Improve notebook view layout and styling (horizontal scroll, cell backgrounds)
+- Add JSON Tree view: collapsible Firefox-style tree viewer for JSON/JSONL files with expand/collapse all, depth control, and inline value editing
+- Add depth input field in JSON tree toolbar that accepts Enter key to apply (in addition to the Apply button)
+- Add column coloring in aligned raw CSV/TSV view: adjacent columns get distinct colors for readability (6-color cycling palette, theme-aware), enabled by default and configurable in Settings
+- Add notebook output layout setting: choose between "Beside" (side by side) and "Beneath" (like Jupyter) in Settings
+- Add tab close button hover highlight: × button shows accent background and red color on hover
+- Auto-set JSON tree expand depth to file's max depth on open
 
 ## Bug Fixes
 
-- Fix Unicode search and replace: correctly handle umlauts (ä, ö, ü, ß) and other non-ASCII characters without byte-offset misalignment
+- Fix Align Columns checkbox in raw CSV/TSV view not responding to clicks (interaction rect overlapped the toolbar)
+- Fix Align Columns toggle not reverting: unchecking now restores original file content from disk
 
 ## Internal
 
-- Extract view mode rendering (PDF, Notebook, Markdown, Raw) from main.rs into view_modes.rs (~556 lines)
-- Extract RowMatcher search logic from main.rs into data/search.rs for testability
-- Add Unicode/Umlaut test coverage for search and replace operations
+- Split monolithic view_modes.rs (~836 lines) into separate modules: json_tree.rs, markdown.rs, notebook.rs, pdf.rs, raw_text.rs
+- Add data/json_util.rs: path collection, depth calculation, path-based value get/set, and JSON edit parsing utilities
+- Add json_tree_tests.rs with test coverage for JSON utility functions
+- Add `color_aligned_columns` and `notebook_output_layout` to AppSettings with TOML persistence
