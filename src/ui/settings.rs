@@ -145,6 +145,9 @@ pub struct AppSettings {
     /// Maximum number of recently opened files shown in the File menu.
     #[serde(default = "default_max_recent")]
     pub max_recent_files: usize,
+    /// Number of spaces inserted when pressing Tab in the text editor.
+    #[serde(default = "default_tab_size")]
+    pub tab_size: usize,
 }
 
 fn default_true() -> bool {
@@ -153,6 +156,10 @@ fn default_true() -> bool {
 
 fn default_max_recent() -> usize {
     5
+}
+
+fn default_tab_size() -> usize {
+    4
 }
 
 impl Default for AppSettings {
@@ -169,6 +176,7 @@ impl Default for AppSettings {
             color_aligned_columns: true,
             notebook_output_layout: NotebookOutputLayout::default(),
             max_recent_files: 5,
+            tab_size: 4,
         }
     }
 }
@@ -405,6 +413,33 @@ impl SettingsDialog {
                                         SearchMode::Regex,
                                         "Regex",
                                     );
+                                });
+                            ui.end_row();
+                        });
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    // ── Editor ──
+                    ui.label(egui::RichText::new("Editor").strong().size(13.0));
+                    ui.add_space(4.0);
+                    egui::Grid::new("settings_editor")
+                        .num_columns(2)
+                        .spacing([16.0, 8.0])
+                        .show(ui, |ui| {
+                            ui.label("Tab size:");
+                            egui::ComboBox::from_id_salt("tab_size_combo")
+                                .selected_text(self.draft.tab_size.to_string())
+                                .width(40.0)
+                                .show_ui(ui, |ui| {
+                                    for n in 1..=16 {
+                                        ui.selectable_value(
+                                            &mut self.draft.tab_size,
+                                            n,
+                                            n.to_string(),
+                                        );
+                                    }
                                 });
                             ui.end_row();
                         });

@@ -806,6 +806,48 @@ fn test_settings_defaults() {
     assert!(settings.alternating_row_colors);
     assert!(!settings.negative_numbers_red);
     assert_eq!(settings.default_search_mode, SearchMode::Plain);
+    assert_eq!(settings.tab_size, 4);
+    assert_eq!(settings.max_recent_files, 5);
+}
+
+#[test]
+fn test_settings_tab_size_default() {
+    let settings = octa::ui::settings::AppSettings::default();
+    assert_eq!(settings.tab_size, 4);
+}
+
+#[test]
+fn test_settings_tab_size_deserialization_missing() {
+    // When tab_size is missing from TOML, it should default to 4
+    let toml_str = r#"
+font_size = 14.0
+default_theme = "Dark"
+icon_variant = "Rose"
+"#;
+    let settings: octa::ui::settings::AppSettings = toml::from_str(toml_str).unwrap();
+    assert_eq!(settings.tab_size, 4);
+}
+
+#[test]
+fn test_settings_tab_size_deserialization_present() {
+    let toml_str = r#"
+font_size = 14.0
+default_theme = "Dark"
+icon_variant = "Rose"
+tab_size = 2
+"#;
+    let settings: octa::ui::settings::AppSettings = toml::from_str(toml_str).unwrap();
+    assert_eq!(settings.tab_size, 2);
+}
+
+#[test]
+fn test_settings_serialization_roundtrip() {
+    let settings = octa::ui::settings::AppSettings::default();
+    let toml_str = toml::to_string_pretty(&settings).unwrap();
+    let deserialized: octa::ui::settings::AppSettings = toml::from_str(&toml_str).unwrap();
+    assert_eq!(deserialized.tab_size, settings.tab_size);
+    assert_eq!(deserialized.max_recent_files, settings.max_recent_files);
+    assert_eq!(deserialized.font_size, settings.font_size);
 }
 
 // --- Number alignment tests ---

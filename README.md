@@ -16,6 +16,8 @@ An application for viewing data files. Octa opens files in a spreadsheet-like ta
 | Excel               | yes  | yes   |
 | Arrow IPC / Feather | yes  | yes   |
 | Avro                | yes  | yes   |
+| ORC                 | yes  | yes   |
+| HDF5                | yes  | no    |
 | XML                 | yes  | yes   |
 | TOML                | yes  | yes   |
 | YAML                | yes  | yes   |

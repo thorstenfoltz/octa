@@ -1770,10 +1770,12 @@ impl eframe::App for OctaApp {
                                     } else {
                                         egui::RichText::new(&label).color(colors.text_secondary)
                                     };
-                                    if ui
-                                        .add(egui::Label::new(text).sense(egui::Sense::click()))
-                                        .clicked()
-                                    {
+                                    let tab_label_resp = ui
+                                        .add(egui::Label::new(text).sense(egui::Sense::click()));
+                                    if tab_label_resp.hovered() {
+                                        ctx.set_cursor_icon(egui::CursorIcon::Default);
+                                    }
+                                    if tab_label_resp.clicked() {
                                         tab_to_activate = Some(idx);
                                     }
                                     // Close button
@@ -1786,6 +1788,7 @@ impl eframe::App for OctaApp {
                                         .sense(egui::Sense::click() | egui::Sense::hover()),
                                     );
                                     if close_resp.hovered() {
+                                        ctx.set_cursor_icon(egui::CursorIcon::Default);
                                         let r = close_resp.rect.shrink2(egui::vec2(2.0, 1.0));
                                         ui.painter().rect_filled(
                                             r,
@@ -1807,15 +1810,17 @@ impl eframe::App for OctaApp {
                             });
                         }
 
-                        // "+" button to add new empty tab
+                        // "+" button to add new empty tab (opens editor)
                         if ui
                             .add(egui::Button::new(
                                 egui::RichText::new("+").size(14.0).color(colors.text_muted),
                             ))
                             .clicked()
                         {
-                            self.tabs
-                                .push(TabState::new(self.settings.default_search_mode));
+                            let mut new_tab = TabState::new(self.settings.default_search_mode);
+                            new_tab.view_mode = ViewMode::Raw;
+                            new_tab.raw_content = Some(String::new());
+                            self.tabs.push(new_tab);
                             tab_to_activate = Some(self.tabs.len() - 1);
                         }
 
@@ -2555,7 +2560,7 @@ Open **Help > Settings** to configure:
 
             // --- Raw text view ---
             if self.tabs[self.active_tab].view_mode == ViewMode::Raw {
-                view_modes::render_raw_view(ui, &mut self.tabs[self.active_tab], self.theme_mode, self.settings.color_aligned_columns);
+                view_modes::render_raw_view(ui, &mut self.tabs[self.active_tab], self.theme_mode, self.settings.color_aligned_columns, self.settings.tab_size);
                 return;
             }
 

@@ -37,6 +37,7 @@ pub fn render_raw_view(
     tab: &mut TabState,
     theme_mode: ThemeMode,
     color_aligned_columns: bool,
+    tab_size: usize,
 ) {
     if let Some(ref mut content) = tab.raw_content {
         let colors = ui::theme::ThemeColors::for_mode(theme_mode);
@@ -177,23 +178,50 @@ pub fn render_raw_view(
                     ui.painter().rect_filled(sep_rect, 0.0, colors.border);
                     ui.add_space(4.0);
                     // Text editor (no wrapping — scroll horizontally)
-                    let response = if use_col_colors {
-                        ui.add(
-                            egui::TextEdit::multiline(content)
-                                .font(mono_font)
-                                .desired_width(f32::INFINITY)
-                                .layouter(&mut colored_layouter.clone()),
-                        )
+                    // lock_focus(true) prevents Tab from navigating to other widgets
+                    let mut output = if use_col_colors {
+                        egui::TextEdit::multiline(content)
+                            .font(mono_font)
+                            .desired_width(f32::INFINITY)
+                            .lock_focus(true)
+                            .layouter(&mut colored_layouter.clone())
+                            .show(ui)
                     } else {
-                        ui.add(
-                            egui::TextEdit::multiline(content)
-                                .font(mono_font)
-                                .desired_width(f32::INFINITY)
-                                .text_color(colors.text_primary)
-                                .layouter(&mut nowrap_layouter.clone()),
-                        )
+                        egui::TextEdit::multiline(content)
+                            .font(mono_font)
+                            .desired_width(f32::INFINITY)
+                            .lock_focus(true)
+                            .text_color(colors.text_primary)
+                            .layouter(&mut nowrap_layouter.clone())
+                            .show(ui)
                     };
-                    if response.changed() {
+
+                    // Replace any literal \t egui may have inserted with spaces,
+                    // then manually insert spaces at the cursor for our Tab handling.
+                    // We must do the \t replacement first so we can adjust the cursor
+                    // position to account for any expansion.
+                    let had_tabs = content.contains('\t');
+                    if had_tabs {
+                        // Track cursor so we can restore it after replacement
+                        let cursor_idx = output.cursor_range
+                            .map(|r| r.primary.ccursor.index)
+                            .unwrap_or(0);
+                        // Count \t chars before cursor to compute offset shift
+                        let tabs_before = content[..cursor_idx.min(content.len())]
+                            .chars()
+                            .filter(|&c| c == '\t')
+                            .count();
+                        let spaces = " ".repeat(tab_size);
+                        *content = content.replace('\t', &spaces);
+                        // Adjust cursor for expanded tabs
+                        let new_idx = cursor_idx + tabs_before * (tab_size - 1);
+                        let new_cursor = egui::text::CCursor::new(new_idx);
+                        let new_range = egui::text::CCursorRange::one(new_cursor);
+                        output.state.cursor.set_char_range(Some(new_range));
+                        output.state.store(ui.ctx(), output.response.id);
+                        tab.raw_content_modified = true;
+                    }
+                    if output.response.changed() && !had_tabs {
                         tab.raw_content_modified = true;
                     }
                 });
