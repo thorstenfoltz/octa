@@ -33,6 +33,9 @@ pub struct ToolbarAction {
     pub search_focus: bool,
     pub show_documentation: bool,
     pub exit: bool,
+    pub zoom_in: bool,
+    pub zoom_out: bool,
+    pub zoom_reset: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -56,6 +59,7 @@ pub fn draw_toolbar(
     has_markdown: bool,
     has_notebook: bool,
     has_json: bool,
+    zoom_percent: u32,
     logo_texture: Option<&egui::TextureHandle>,
     recent_files: &[String],
 ) -> ToolbarAction {
@@ -278,6 +282,27 @@ pub fn draw_toolbar(
                         action.view_mode_changed = Some(ViewMode::JsonTree);
                         ui.close_menu();
                     }
+                }
+
+                ui.separator();
+                ui.label(
+                    RichText::new("Zoom")
+                        .strong()
+                        .size(11.0)
+                        .color(colors.text_muted),
+                );
+                ui.horizontal(|ui| {
+                    if ui.button("-").clicked() {
+                        action.zoom_out = true;
+                    }
+                    ui.label(format!("{}%", zoom_percent));
+                    if ui.button("+").clicked() {
+                        action.zoom_in = true;
+                    }
+                });
+                if zoom_percent != 100 && ui.button("Reset (100%)").clicked() {
+                    action.zoom_reset = true;
+                    ui.close_menu();
                 }
             });
 

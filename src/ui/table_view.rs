@@ -4,7 +4,7 @@ use egui::{Align2, Color32, CursorIcon, RichText, Sense, Ui, Vec2};
 
 use super::status_bar::format_number;
 use super::theme::{ThemeColors, ThemeMode};
-use crate::data::{CellValue, DataTable, MarkColor, MarkKey};
+use crate::data::{BinaryDisplayMode, CellValue, DataTable, MarkColor, MarkKey};
 
 /// Whether a cell value should be right-aligned (numbers only).
 pub fn is_right_aligned(value: &CellValue) -> bool {
@@ -51,7 +51,6 @@ pub struct TableViewState {
 
 const DEFAULT_ROW_HEIGHT: f32 = 26.0;
 const MIN_COL_WIDTH: f32 = 60.0;
-const MAX_COL_WIDTH: f32 = 800.0;
 const DEFAULT_COL_WIDTH: f32 = 120.0;
 const MIN_ROW_NUMBER_WIDTH: f32 = 60.0;
 const HEADER_HEIGHT: f32 = 44.0; // taller to fit column index number
@@ -92,10 +91,20 @@ impl TableViewState {
                     }
                 }
 
-                self.col_widths[i] = max_width.clamp(MIN_COL_WIDTH, MAX_COL_WIDTH);
+                self.col_widths[i] = max_width.max(MIN_COL_WIDTH);
             }
             self.widths_initialized = true;
         }
+    }
+
+    /// Set the vertical scroll offset (used for navigation).
+    pub fn set_scroll_y(&mut self, y: f32) {
+        self.scroll_y = y;
+    }
+
+    /// Set the horizontal scroll offset (used for navigation).
+    pub fn set_scroll_x(&mut self, x: f32) {
+        self.scroll_x = x;
     }
 }
 
@@ -155,6 +164,8 @@ pub fn draw_table(
     negative_numbers_red: bool,
     highlight_edits: bool,
     font_size: f32,
+    cell_line_breaks: bool,
+    binary_display_mode: BinaryDisplayMode,
     welcome_logo_texture: Option<&egui::TextureHandle>,
 ) -> TableInteraction {
     let colors = ThemeColors::for_mode(theme_mode);
@@ -371,34 +382,52 @@ pub fn draw_table(
     let visible_count = (data_area_height / row_height).ceil() as usize + 2;
     let last_visible = (first_visible + visible_count).min(row_count);
 
+    // When cell_line_breaks is on, compute actual row heights and accumulate positions
+    let mut current_y = data_area_top + (first_visible as f32 * row_height) - state.scroll_y;
+
     #[allow(clippy::needless_range_loop)]
     for display_idx in first_visible..last_visible {
         let actual_row = filtered_rows[display_idx];
-        let row_y = data_area_top + (display_idx as f32 * row_height) - state.scroll_y;
 
-        if row_y + row_height < data_area_top || row_y > panel_rect.bottom() {
-            continue;
+        let actual_row_height = if cell_line_breaks {
+            compute_row_height(
+                ui,
+                table,
+                actual_row,
+                state,
+                font_size,
+                row_height,
+                binary_display_mode,
+            )
+        } else {
+            row_height
+        };
+
+        if current_y + actual_row_height >= data_area_top && current_y <= panel_rect.bottom() {
+            draw_data_row_direct(
+                ui,
+                &data_painter,
+                table,
+                state,
+                &colors,
+                actual_row,
+                display_idx,
+                panel_rect.left(),
+                current_y,
+                panel_rect,
+                &mut interaction,
+                show_row_numbers,
+                alternating_row_colors,
+                negative_numbers_red,
+                highlight_edits,
+                font_size,
+                cell_line_breaks,
+                binary_display_mode,
+                actual_row_height,
+            );
         }
 
-        draw_data_row_direct(
-            ui,
-            &data_painter,
-            table,
-            state,
-            &colors,
-            actual_row,
-            display_idx,
-            panel_rect.left(),
-            row_y,
-            panel_rect,
-            &mut interaction,
-            show_row_numbers,
-            alternating_row_colors,
-            negative_numbers_red,
-            highlight_edits,
-            font_size,
-            row_height,
-        );
+        current_y += actual_row_height;
     }
 
     // --- Vertical scrollbar ---
@@ -961,7 +990,7 @@ fn draw_header_direct(
                 if resizing == col_idx && resize_response.dragged() {
                     let delta = resize_response.drag_delta().x;
                     if let Some(width) = state.col_widths.get_mut(col_idx) {
-                        *width = (*width + delta).clamp(MIN_COL_WIDTH, MAX_COL_WIDTH);
+                        *width = (*width + delta).max(MIN_COL_WIDTH);
                     }
                 }
             }
@@ -1031,6 +1060,8 @@ fn draw_data_row_direct(
     negative_numbers_red: bool,
     highlight_edits: bool,
     font_size: f32,
+    cell_line_breaks: bool,
+    binary_display_mode: BinaryDisplayMode,
     row_height: f32,
 ) {
     let is_multi_selected_row = state.selected_rows.contains(&actual_row);
@@ -1152,8 +1183,10 @@ fn draw_data_row_direct(
                                     crate::data::CellValue::String(new_text)
                                 }
                             }
+                        } else if matches!(old_val, CellValue::Binary(_)) {
+                            CellValue::parse_binary(&new_text, binary_display_mode)
                         } else {
-                            crate::data::CellValue::parse_like(old_val, &new_text)
+                            CellValue::parse_like(old_val, &new_text)
                         };
                         if new_val != *old_val {
                             table.set(actual_row, col_idx, new_val);
@@ -1163,7 +1196,7 @@ fn draw_data_row_direct(
                 }
             } else {
                 if let Some(value) = table.get(actual_row, col_idx) {
-                    let display_text = value.to_string();
+                    let display_text = value.display_with_binary_mode(binary_display_mode);
                     let is_negative = match value {
                         crate::data::CellValue::Int(n) => *n < 0,
                         crate::data::CellValue::Float(f) => *f < 0.0,
@@ -1190,11 +1223,20 @@ fn draw_data_row_direct(
                     )
                     .intersect(col_clip);
 
-                    let galley = painter.layout_no_wrap(
-                        display_text,
-                        egui::FontId::new(font_size, egui::FontFamily::Monospace),
-                        text_color,
-                    );
+                    let galley = if cell_line_breaks {
+                        painter.layout(
+                            display_text,
+                            egui::FontId::new(font_size, egui::FontFamily::Monospace),
+                            text_color,
+                            text_rect.width(),
+                        )
+                    } else {
+                        painter.layout_no_wrap(
+                            display_text,
+                            egui::FontId::new(font_size, egui::FontFamily::Monospace),
+                            text_color,
+                        )
+                    };
                     let x = if is_right_aligned(value) {
                         text_rect.right() - galley.size().x
                     } else {
@@ -1228,7 +1270,7 @@ fn draw_data_row_direct(
                     state.selected_cell = Some((actual_row, col_idx));
                     let current_text = table
                         .get(actual_row, col_idx)
-                        .map(|v| v.to_string())
+                        .map(|v| v.display_with_binary_mode(binary_display_mode))
                         .unwrap_or_default();
                     state.editing_cell = Some((actual_row, col_idx, current_text));
                     state.edit_needs_focus = true;
@@ -1422,6 +1464,37 @@ fn draw_data_row_direct(
             }
         });
     }
+}
+
+/// Compute the height of a row by measuring wrapped text in each cell.
+fn compute_row_height(
+    ui: &Ui,
+    table: &DataTable,
+    actual_row: usize,
+    state: &TableViewState,
+    font_size: f32,
+    base_row_height: f32,
+    binary_display_mode: BinaryDisplayMode,
+) -> f32 {
+    let mut max_height = base_row_height;
+    let font_id = egui::FontId::new(font_size, egui::FontFamily::Monospace);
+    for col_idx in 0..table.col_count() {
+        if let Some(value) = table.get(actual_row, col_idx) {
+            let text = value.display_with_binary_mode(binary_display_mode);
+            let col_width = state
+                .col_widths
+                .get(col_idx)
+                .copied()
+                .unwrap_or(DEFAULT_COL_WIDTH);
+            let wrap_width = (col_width - 12.0).max(20.0); // account for cell padding
+            let galley = ui.fonts(|f| {
+                f.layout(text, font_id.clone(), egui::Color32::WHITE, wrap_width)
+            });
+            let text_height = galley.size().y + 4.0; // small vertical padding
+            max_height = max_height.max(text_height);
+        }
+    }
+    max_height
 }
 
 fn mark_submenu(ui: &mut Ui, key: MarkKey, table: &DataTable, interaction: &mut TableInteraction) {

@@ -77,8 +77,117 @@ fn test_cell_value_display_string() {
 }
 
 #[test]
-fn test_cell_value_display_binary() {
-    assert_eq!(CellValue::Binary(vec![1, 2, 3]).to_string(), "<3 bytes>");
+fn test_cell_value_display_binary_default() {
+    // Default Display uses hex with spaces
+    assert_eq!(CellValue::Binary(vec![1, 2, 3]).to_string(), "01 02 03");
+    assert_eq!(
+        CellValue::Binary(vec![0x41, 0x42]).to_string(),
+        "41 42"
+    );
+    assert_eq!(CellValue::Binary(vec![]).to_string(), "");
+}
+
+#[test]
+fn test_binary_display_mode_binary() {
+    let val = CellValue::Binary(vec![0x41, 0x42, 0xff]);
+    assert_eq!(
+        val.display_with_binary_mode(BinaryDisplayMode::Binary),
+        "01000001 01000010 11111111"
+    );
+}
+
+#[test]
+fn test_binary_display_mode_hex() {
+    let val = CellValue::Binary(vec![0x41, 0x42, 0xff]);
+    assert_eq!(
+        val.display_with_binary_mode(BinaryDisplayMode::Hex),
+        "41 42 ff"
+    );
+}
+
+#[test]
+fn test_binary_display_mode_text_valid_utf8() {
+    let val = CellValue::Binary(b"hello".to_vec());
+    assert_eq!(
+        val.display_with_binary_mode(BinaryDisplayMode::Text),
+        "hello"
+    );
+}
+
+#[test]
+fn test_binary_display_mode_text_invalid_utf8() {
+    // Non-printable bytes fall back to hex
+    let val = CellValue::Binary(vec![0x00, 0x01, 0x02]);
+    assert_eq!(
+        val.display_with_binary_mode(BinaryDisplayMode::Text),
+        "00 01 02"
+    );
+}
+
+#[test]
+fn test_binary_display_mode_non_binary_passthrough() {
+    // Non-binary values pass through unchanged regardless of mode
+    let val = CellValue::Int(42);
+    assert_eq!(
+        val.display_with_binary_mode(BinaryDisplayMode::Binary),
+        "42"
+    );
+}
+
+#[test]
+fn test_parse_binary_hex() {
+    assert_eq!(
+        CellValue::parse_binary("41 42 ff", BinaryDisplayMode::Hex),
+        CellValue::Binary(vec![0x41, 0x42, 0xff])
+    );
+}
+
+#[test]
+fn test_parse_binary_binary_mode() {
+    assert_eq!(
+        CellValue::parse_binary("01000001 01000010", BinaryDisplayMode::Binary),
+        CellValue::Binary(vec![0x41, 0x42])
+    );
+}
+
+#[test]
+fn test_parse_binary_text() {
+    assert_eq!(
+        CellValue::parse_binary("hello", BinaryDisplayMode::Text),
+        CellValue::Binary(b"hello".to_vec())
+    );
+}
+
+#[test]
+fn test_parse_binary_empty() {
+    assert_eq!(
+        CellValue::parse_binary("", BinaryDisplayMode::Hex),
+        CellValue::Null
+    );
+}
+
+#[test]
+fn test_binary_roundtrip_hex() {
+    let original = CellValue::Binary(vec![0xde, 0xad, 0xbe, 0xef]);
+    let displayed = original.display_with_binary_mode(BinaryDisplayMode::Hex);
+    let parsed = CellValue::parse_binary(&displayed, BinaryDisplayMode::Hex);
+    assert_eq!(parsed, original);
+}
+
+#[test]
+fn test_binary_roundtrip_binary_mode() {
+    let original = CellValue::Binary(vec![0x41, 0x00, 0xff]);
+    let displayed = original.display_with_binary_mode(BinaryDisplayMode::Binary);
+    let parsed = CellValue::parse_binary(&displayed, BinaryDisplayMode::Binary);
+    assert_eq!(parsed, original);
+}
+
+#[test]
+fn test_binary_roundtrip_text() {
+    let original = CellValue::Binary(b"hello world".to_vec());
+    let displayed = original.display_with_binary_mode(BinaryDisplayMode::Text);
+    let parsed = CellValue::parse_binary(&displayed, BinaryDisplayMode::Text);
+    assert_eq!(parsed, original);
 }
 
 // --- CellValue::parse_like ---

@@ -50,6 +50,28 @@ impl Default for SearchMode {
     }
 }
 
+/// How to display binary (`Vec<u8>`) cell values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum BinaryDisplayMode {
+    /// Raw binary digits grouped per byte (e.g., `01000001 01000010`).
+    #[default]
+    Binary,
+    /// Hexadecimal (e.g., `41 42`).
+    Hex,
+    /// Decode as UTF-8 text; fall back to hex for invalid sequences.
+    Text,
+}
+
+impl BinaryDisplayMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Binary => "Binary",
+            Self::Hex => "Hex",
+            Self::Text => "Text (UTF-8)",
+        }
+    }
+}
+
 /// Convert a wildcard pattern to a regex string.
 /// `*` matches any sequence of characters, `?` matches a single character.
 /// Use `\*` for a literal `*` and `\?` for a literal `?`.
@@ -108,13 +130,89 @@ impl fmt::Display for CellValue {
             CellValue::String(s) => write!(f, "{}", s),
             CellValue::Date(s) => write!(f, "{}", s),
             CellValue::DateTime(s) => write!(f, "{}", s),
-            CellValue::Binary(b) => write!(f, "<{} bytes>", b.len()),
+            CellValue::Binary(b) => {
+                // Default Display uses hex; for mode-aware display use display_binary()
+                for (i, byte) in b.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{:02x}", byte)?;
+                }
+                Ok(())
+            }
             CellValue::Nested(s) => write!(f, "{}", s),
         }
     }
 }
 
 impl CellValue {
+    /// Format this value for display, using `mode` when the value is Binary.
+    /// Non-binary values use their normal `Display` representation.
+    pub fn display_with_binary_mode(&self, mode: BinaryDisplayMode) -> String {
+        match self {
+            CellValue::Binary(b) => match mode {
+                BinaryDisplayMode::Binary => b
+                    .iter()
+                    .map(|byte| format!("{:08b}", byte))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                BinaryDisplayMode::Hex => b
+                    .iter()
+                    .map(|byte| format!("{:02x}", byte))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                BinaryDisplayMode::Text => {
+                    if let Ok(s) = std::str::from_utf8(b) {
+                        if !s.is_empty()
+                            && s.chars().all(|c| {
+                                !c.is_control() || c == '\n' || c == '\r' || c == '\t'
+                            })
+                        {
+                            return s.to_string();
+                        }
+                    }
+                    // Fall back to hex for non-printable / invalid UTF-8
+                    b.iter()
+                        .map(|byte| format!("{:02x}", byte))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                }
+            },
+            other => other.to_string(),
+        }
+    }
+
+    /// Parse a display string back into a Binary CellValue, respecting the display mode
+    /// that was used to show it.
+    pub fn parse_binary(text: &str, mode: BinaryDisplayMode) -> CellValue {
+        if text.is_empty() {
+            return CellValue::Null;
+        }
+        match mode {
+            BinaryDisplayMode::Binary => {
+                let bytes: Result<Vec<u8>, _> = text
+                    .split_whitespace()
+                    .map(|chunk| u8::from_str_radix(chunk, 2))
+                    .collect();
+                match bytes {
+                    Ok(b) => CellValue::Binary(b),
+                    Err(_) => CellValue::Binary(text.as_bytes().to_vec()),
+                }
+            }
+            BinaryDisplayMode::Hex => {
+                let bytes: Result<Vec<u8>, _> = text
+                    .split_whitespace()
+                    .map(|chunk| u8::from_str_radix(chunk, 16))
+                    .collect();
+                match bytes {
+                    Ok(b) => CellValue::Binary(b),
+                    Err(_) => CellValue::Binary(text.as_bytes().to_vec()),
+                }
+            }
+            BinaryDisplayMode::Text => CellValue::Binary(text.as_bytes().to_vec()),
+        }
+    }
+
     /// Try to parse a display string back into a CellValue, keeping the same variant
     /// as the `hint` when possible.
     pub fn parse_like(hint: &CellValue, text: &str) -> CellValue {
@@ -137,6 +235,7 @@ impl CellValue {
                 .unwrap_or_else(|_| CellValue::String(text.to_string())),
             CellValue::Date(_) => CellValue::Date(text.to_string()),
             CellValue::DateTime(_) => CellValue::DateTime(text.to_string()),
+            CellValue::Binary(_) => Self::parse_binary(text, BinaryDisplayMode::Hex),
             _ => CellValue::String(text.to_string()),
         }
     }
