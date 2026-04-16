@@ -266,6 +266,10 @@ struct OctaApp {
     status_message: Option<(String, std::time::Instant)>,
     /// Recently opened file paths (most recent first).
     recent_files: Vec<String>,
+    /// Zoom level in percent (100 = default, steps of 5).
+    zoom_percent: u32,
+    /// Status bar navigation input buffer.
+    nav_input: String,
 }
 
 /// Detect delimiter from a file by reading only the first few KB.
@@ -460,6 +464,8 @@ impl OctaApp {
             update_state: Arc::new(Mutex::new(UpdateState::Idle)),
             status_message: None,
             recent_files,
+            zoom_percent: 100,
+            nav_input: String::new(),
         }
     }
 
@@ -644,6 +650,12 @@ impl OctaApp {
             }
         }
         false
+    }
+
+    fn apply_zoom(&self, ctx: &egui::Context) {
+        let base_font_size = self.settings.font_size;
+        let effective_font_size = base_font_size * self.zoom_percent as f32 / 100.0;
+        ui::theme::apply_theme(ctx, self.theme_mode, effective_font_size);
     }
 
     fn open_file(&mut self) {
@@ -1390,6 +1402,20 @@ impl eframe::App for OctaApp {
             }
         }
 
+        // Ctrl+Plus: zoom in, Ctrl+Minus: zoom out, Ctrl+0: reset zoom
+        if ctrl_held && ctx.input(|i| i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals)) {
+            self.zoom_percent = (self.zoom_percent + 5).min(500);
+            self.apply_zoom(ctx);
+        }
+        if ctrl_held && ctx.input(|i| i.key_pressed(egui::Key::Minus)) {
+            self.zoom_percent = self.zoom_percent.saturating_sub(5).max(25);
+            self.apply_zoom(ctx);
+        }
+        if ctrl_held && ctx.input(|i| i.key_pressed(egui::Key::Num0)) {
+            self.zoom_percent = 100;
+            self.apply_zoom(ctx);
+        }
+
         // --- Handle close request ---
         if ctx.input(|i| i.viewport().close_requested())
             && self.tabs[self.active_tab].is_modified()
@@ -1545,6 +1571,7 @@ impl eframe::App for OctaApp {
                     tab.table.format_name.as_deref() == Some("Markdown"),
                     tab.table.format_name.as_deref() == Some("Jupyter Notebook"),
                     tab.json_value.is_some(),
+                    self.zoom_percent,
                     self.logo_texture.as_ref(),
                     &self.recent_files,
                 );
@@ -1589,7 +1616,19 @@ impl eframe::App for OctaApp {
                 }
                 if action.toggle_theme {
                     self.theme_mode = self.theme_mode.toggle();
-                    ui::theme::apply_theme(ctx, self.theme_mode, self.settings.font_size);
+                    self.apply_zoom(ctx);
+                }
+                if action.zoom_in {
+                    self.zoom_percent = (self.zoom_percent + 5).min(500);
+                    self.apply_zoom(ctx);
+                }
+                if action.zoom_out {
+                    self.zoom_percent = self.zoom_percent.saturating_sub(5).max(25);
+                    self.apply_zoom(ctx);
+                }
+                if action.zoom_reset {
+                    self.zoom_percent = 100;
+                    self.apply_zoom(ctx);
                 }
                 if action.search_changed {
                     self.tabs[self.active_tab].filter_dirty = true;
@@ -2152,7 +2191,7 @@ impl eframe::App for OctaApp {
                 self.theme_mode = self.settings.default_theme;
             }
             if font_changed || theme_changed {
-                ui::theme::apply_theme(ctx, self.theme_mode, self.settings.font_size);
+                self.apply_zoom(ctx);
             }
             if icon_changed {
                 // Refresh the toolbar logo texture
@@ -2492,7 +2531,7 @@ Open **Help > Settings** to configure:
         }
 
         // Bottom status bar
-        egui::TopBottomPanel::bottom("status_bar")
+        let status_action = egui::TopBottomPanel::bottom("status_bar")
             .exact_height(28.0)
             .show(ctx, |ui| {
                 ui::status_bar::draw_status_bar(
@@ -2502,8 +2541,25 @@ Open **Help > Settings** to configure:
                     self.theme_mode,
                     filtered_count,
                     search_active,
-                );
-            });
+                    &mut self.nav_input,
+                    self.zoom_percent,
+                )
+            })
+            .inner;
+
+        // Handle navigation from status bar
+        if let Some((row, col)) = status_action.navigate_to {
+            let tab = &mut self.tabs[self.active_tab];
+            tab.table_state.selected_cell = Some((row, col));
+            tab.table_state.selected_rows.clear();
+            tab.table_state.selected_cols.clear();
+            // Auto-scroll to the target cell
+            let row_height =
+                (self.settings.font_size * self.zoom_percent as f32 / 100.0 * 2.0).max(26.0);
+            tab.table_state.set_scroll_y(row as f32 * row_height);
+            let col_left: f32 = tab.table_state.col_widths[..col].iter().sum();
+            tab.table_state.set_scroll_x(col_left);
+        }
 
         // Central panel: table view or raw text view
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -2590,7 +2646,9 @@ Open **Help > Settings** to configure:
                 self.settings.alternating_row_colors,
                 self.settings.negative_numbers_red,
                 self.settings.highlight_edits,
-                self.settings.font_size,
+                self.settings.font_size * self.zoom_percent as f32 / 100.0,
+                self.settings.cell_line_breaks,
+                self.settings.binary_display_mode,
                 self.welcome_logo_texture.as_ref(),
             );
 

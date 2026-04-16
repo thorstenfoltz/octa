@@ -17,6 +17,14 @@ pub fn format_number(n: usize) -> String {
     result
 }
 
+/// Result of the status bar: an optional navigation target.
+#[derive(Default)]
+pub struct StatusBarAction {
+    /// Navigate to this cell (row, col) — 0-indexed.
+    pub navigate_to: Option<(usize, usize)>,
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn draw_status_bar(
     ui: &mut Ui,
     table: &DataTable,
@@ -24,7 +32,10 @@ pub fn draw_status_bar(
     theme_mode: ThemeMode,
     filtered_count: usize,
     search_active: bool,
-) {
+    nav_input: &mut String,
+    zoom_percent: u32,
+) -> StatusBarAction {
+    let mut action = StatusBarAction::default();
     let colors = ThemeColors::for_mode(theme_mode);
 
     ui.horizontal(|ui| {
@@ -83,7 +94,7 @@ pub fn draw_status_bar(
                     .color(colors.text_secondary),
             );
 
-            // Selected cell info
+            // Selected cell info + navigation input
             if let Some((row, col)) = state.selected_cell {
                 ui.separator();
                 let col_name = table
@@ -112,10 +123,39 @@ pub fn draw_status_bar(
                 }
             }
 
-            // Edit indicator
-            if table.is_modified() {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.add_space(8.0);
+            ui.separator();
+            let nav_response = ui.add(
+                egui::TextEdit::singleline(nav_input)
+                    .desired_width(120.0)
+                    .hint_text("Go to R:C or col name")
+                    .font(egui::FontId::new(11.0, egui::FontFamily::Monospace)),
+            );
+            if nav_response.lost_focus()
+                && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                && !nav_input.is_empty()
+            {
+                if let Some(target) = parse_nav_input(nav_input, table) {
+                    action.navigate_to = Some(target);
+                }
+                nav_input.clear();
+            }
+
+            // Right-aligned: zoom + edit indicator
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.add_space(8.0);
+
+                // Zoom indicator
+                if zoom_percent != 100 {
+                    ui.label(
+                        RichText::new(format!("{}%", zoom_percent))
+                            .size(11.0)
+                            .color(colors.text_muted),
+                    );
+                    ui.separator();
+                }
+
+                // Edit indicator
+                if table.is_modified() {
                     let edit_count = table.edits.len();
                     if edit_count > 0 {
                         ui.label(
@@ -130,8 +170,8 @@ pub fn draw_status_bar(
                             .strong()
                             .color(colors.warning),
                     );
-                });
-            }
+                }
+            });
         } else {
             ui.label(
                 RichText::new("No file loaded")
@@ -140,4 +180,96 @@ pub fn draw_status_bar(
             );
         }
     });
+
+    action
+}
+
+/// Parse navigation input into a (row, col) target.
+/// Supports:
+/// - "R5:C3" or "5:3" — row:col (1-indexed)
+/// - "R5" or "5" — row only (keeps current col or 0)
+/// - "C3" — column only (keeps current row or 0)
+/// - "colname" — jump to column by name (keeps current row or 0)
+pub fn parse_nav_input(input: &str, table: &DataTable) -> Option<(usize, usize)> {
+    let input = input.trim();
+    if input.is_empty() {
+        return None;
+    }
+
+    // Try R<n>:C<n> or <n>:<n>
+    if let Some((left, right)) = input.split_once(':') {
+        let row = parse_row_part(left, table)?;
+        let col = parse_col_part(right, table)?;
+        return Some((row, col));
+    }
+
+    // Try C<n> — column only
+    if let Some(stripped) = input.strip_prefix('C').or_else(|| input.strip_prefix('c')) {
+        if let Ok(n) = stripped.parse::<usize>() {
+            if n >= 1 && n <= table.col_count() {
+                return Some((0, n - 1));
+            }
+        }
+    }
+
+    // Try R<n> — row only
+    if let Some(stripped) = input.strip_prefix('R').or_else(|| input.strip_prefix('r')) {
+        if let Ok(n) = stripped.parse::<usize>() {
+            if n >= 1 && n <= table.row_count() {
+                return Some((n - 1, 0));
+            }
+        }
+    }
+
+    // Try pure number — row
+    if let Ok(n) = input.parse::<usize>() {
+        if n >= 1 && n <= table.row_count() {
+            return Some((n - 1, 0));
+        }
+    }
+
+    // Try column name (case-insensitive)
+    let lower = input.to_lowercase();
+    for (i, col) in table.columns.iter().enumerate() {
+        if col.name.to_lowercase() == lower {
+            return Some((0, i));
+        }
+    }
+
+    None
+}
+
+fn parse_row_part(s: &str, table: &DataTable) -> Option<usize> {
+    let s = s.trim();
+    let num_str = s
+        .strip_prefix('R')
+        .or_else(|| s.strip_prefix('r'))
+        .unwrap_or(s);
+    let n = num_str.parse::<usize>().ok()?;
+    if n >= 1 && n <= table.row_count() {
+        Some(n - 1)
+    } else {
+        None
+    }
+}
+
+fn parse_col_part(s: &str, table: &DataTable) -> Option<usize> {
+    let s = s.trim();
+    let num_str = s
+        .strip_prefix('C')
+        .or_else(|| s.strip_prefix('c'))
+        .unwrap_or(s);
+    if let Ok(n) = num_str.parse::<usize>() {
+        if n >= 1 && n <= table.col_count() {
+            return Some(n - 1);
+        }
+    }
+    // Try column name
+    let lower = s.to_lowercase();
+    for (i, col) in table.columns.iter().enumerate() {
+        if col.name.to_lowercase() == lower {
+            return Some(i);
+        }
+    }
+    None
 }

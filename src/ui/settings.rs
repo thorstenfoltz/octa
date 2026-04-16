@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use super::theme::ThemeMode;
-use crate::data::SearchMode;
+use crate::data::{BinaryDisplayMode, SearchMode};
 
 /// Layout for Jupyter notebook output cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -145,6 +145,12 @@ pub struct AppSettings {
     /// Maximum number of recently opened files shown in the File menu.
     #[serde(default = "default_max_recent")]
     pub max_recent_files: usize,
+    /// Whether to allow line breaks in table cells (wraps long text).
+    #[serde(default)]
+    pub cell_line_breaks: bool,
+    /// How to display binary data columns (Binary, Hex, or Text).
+    #[serde(default)]
+    pub binary_display_mode: BinaryDisplayMode,
     /// Number of spaces inserted when pressing Tab in the text editor.
     #[serde(default = "default_tab_size")]
     pub tab_size: usize,
@@ -173,6 +179,8 @@ impl Default for AppSettings {
             alternating_row_colors: true,
             negative_numbers_red: false,
             highlight_edits: false,
+            cell_line_breaks: false,
+            binary_display_mode: BinaryDisplayMode::default(),
             color_aligned_columns: true,
             notebook_output_layout: NotebookOutputLayout::default(),
             max_recent_files: 5,
@@ -379,6 +387,40 @@ impl SettingsDialog {
                             ui.label("Highlight edited cells:")
                                 .on_hover_text("Show background color on modified cells");
                             ui.checkbox(&mut self.draft.highlight_edits, "");
+                            ui.end_row();
+
+                            ui.label("Cell line breaks:").on_hover_text(
+                                "Allow long text to wrap onto multiple lines\n\
+                                 within a table cell instead of clipping",
+                            );
+                            ui.checkbox(&mut self.draft.cell_line_breaks, "");
+                            ui.end_row();
+
+                            ui.label("Binary display:").on_hover_text(
+                                "How to show binary data columns\n\
+                                 Binary: raw bits (01000001)\n\
+                                 Hex: hexadecimal (41)\n\
+                                 Text: decode as UTF-8 when possible",
+                            );
+                            egui::ComboBox::from_id_salt("binary_display_combo")
+                                .selected_text(self.draft.binary_display_mode.label())
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut self.draft.binary_display_mode,
+                                        BinaryDisplayMode::Binary,
+                                        BinaryDisplayMode::Binary.label(),
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.draft.binary_display_mode,
+                                        BinaryDisplayMode::Hex,
+                                        BinaryDisplayMode::Hex.label(),
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.draft.binary_display_mode,
+                                        BinaryDisplayMode::Text,
+                                        BinaryDisplayMode::Text.label(),
+                                    );
+                                });
                             ui.end_row();
                         });
 
