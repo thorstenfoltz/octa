@@ -53,7 +53,10 @@ Unknown file extensions are opened as plain text.
 
 ### Databases (SQLite / DuckDB)
 
-Open a `.sqlite`, `.sqlite3`, `.db`, `.duckdb`, or `.ddb` file. If the database has multiple user tables, a picker dialog lets you choose one with a column-schema preview. Edits are saved back as **append/update/delete** in a single transaction — Octa never overwrites the file. Schema changes (renaming, adding, or dropping columns) are intentionally rejected on save; do those operations in another tool. Single-table databases auto-load.
+Open a `.sqlite`, `.sqlite3`, `.db`, `.duckdb`, or `.ddb` file. If the database has multiple user tables, a picker
+dialog lets you choose one with a column-schema preview. Edits are saved back as **append/update/delete**
+in a single transaction — Octa never overwrites the file. Schema changes (renaming, adding, or dropping columns)
+are intentionally rejected on save; do those operations in another tool. Single-table databases auto-load.
 
 ### Editing
 
