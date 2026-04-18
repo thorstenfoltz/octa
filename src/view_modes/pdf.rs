@@ -1,5 +1,5 @@
-use crate::ui;
 use crate::TabState;
+use crate::ui;
 
 use eframe::egui;
 use egui::{Color32, RichText, Stroke};

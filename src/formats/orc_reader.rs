@@ -64,6 +64,7 @@ impl FormatReader for OrcReader {
             marks: std::collections::HashMap::new(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            db_meta: None,
         })
     }
 
@@ -343,9 +344,11 @@ fn build_record_batch(
                 let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
                 let values: Vec<Option<i32>> = (0..table.row_count())
                     .map(|row| match table.get(row, col_idx) {
-                        Some(CellValue::Date(s)) => chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
-                            .ok()
-                            .map(|d| d.signed_duration_since(epoch).num_days() as i32),
+                        Some(CellValue::Date(s)) => {
+                            chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                                .ok()
+                                .map(|d| d.signed_duration_since(epoch).num_days() as i32)
+                        }
                         Some(CellValue::Null) | None => None,
                         _ => None,
                     })
@@ -359,8 +362,10 @@ fn build_record_batch(
                         Some(v) => Some(v.to_string()),
                     })
                     .collect();
-                let refs: Vec<Option<&str>> =
-                    values.iter().map(|v: &Option<String>| v.as_deref()).collect();
+                let refs: Vec<Option<&str>> = values
+                    .iter()
+                    .map(|v: &Option<String>| v.as_deref())
+                    .collect();
                 std::sync::Arc::new(StringArray::from(refs))
             }
         };

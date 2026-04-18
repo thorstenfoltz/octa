@@ -37,10 +37,7 @@ impl FormatReader for Hdf5Reader {
     }
 }
 
-fn read_first_dataset(
-    path: &Path,
-    datasets: &[hdf5_reader::Dataset<'_>],
-) -> Result<DataTable> {
+fn read_first_dataset(path: &Path, datasets: &[hdf5_reader::Dataset<'_>]) -> Result<DataTable> {
     use hdf5_reader::messages::datatype::Datatype;
 
     let dataset = &datasets[0];
@@ -58,13 +55,8 @@ fn read_first_dataset(
         Datatype::FixedPoint { size, signed, .. } => {
             read_numeric_dataset(path, dataset, shape, *size, *signed)
         }
-        Datatype::FloatingPoint { size, .. } => {
-            read_float_dataset(path, dataset, shape, *size)
-        }
-        _ => anyhow::bail!(
-            "Unsupported HDF5 dataset type: {:?}",
-            dtype
-        ),
+        Datatype::FloatingPoint { size, .. } => read_float_dataset(path, dataset, shape, *size),
+        _ => anyhow::bail!("Unsupported HDF5 dataset type: {:?}", dtype),
     }
 }
 
@@ -112,6 +104,7 @@ fn read_compound_dataset(
         marks: std::collections::HashMap::new(),
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
+        db_meta: None,
     })
 }
 
@@ -179,6 +172,7 @@ fn read_string_dataset(
         marks: std::collections::HashMap::new(),
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
+        db_meta: None,
     })
 }
 
@@ -315,6 +309,7 @@ fn read_numeric_dataset(
         marks: std::collections::HashMap::new(),
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
+        db_meta: None,
     })
 }
 
@@ -391,6 +386,7 @@ fn read_float_dataset(
         marks: std::collections::HashMap::new(),
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
+        db_meta: None,
     })
 }
 

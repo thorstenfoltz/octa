@@ -1,33 +1,97 @@
 use crate::data::MarkColor;
-use egui::{Color32, CornerRadius, FontFamily, FontId, Stroke, Style, TextStyle, Visuals};
+use egui::{
+    Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, Style, TextStyle,
+    Visuals,
+};
+use std::sync::Arc;
 
+/// Theme presets. Each preset provides a complete color palette and is
+/// classified as light or dark for purposes of egui's base visuals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ThemeMode {
     Light,
     Dark,
+    Nord,
+    Dracula,
+    GruvboxDark,
+    HighContrast,
 }
 
 impl ThemeMode {
-    pub fn toggle(&self) -> Self {
+    pub const ALL: &[ThemeMode] = &[
+        Self::Light,
+        Self::Dark,
+        Self::Nord,
+        Self::Dracula,
+        Self::GruvboxDark,
+        Self::HighContrast,
+    ];
+
+    /// Whether the preset has a dark background. Drives base egui visuals
+    /// and any view-mode logic that wants to swap text colors per brightness.
+    pub fn is_dark(self) -> bool {
         match self {
-            ThemeMode::Light => ThemeMode::Dark,
-            ThemeMode::Dark => ThemeMode::Light,
+            Self::Light => false,
+            Self::Dark | Self::Nord | Self::Dracula | Self::GruvboxDark | Self::HighContrast => {
+                true
+            }
+        }
+    }
+
+    /// Convenience toggle between the basic Light and Dark presets used by
+    /// the toolbar quick-toggle button. Custom presets toggle to their
+    /// brightness opposite (basic Light or Dark).
+    pub fn toggle(&self) -> Self {
+        if self.is_dark() {
+            Self::Light
+        } else {
+            Self::Dark
         }
     }
 
     pub fn label(&self) -> &str {
         match self {
-            ThemeMode::Light => "Light",
-            ThemeMode::Dark => "Dark",
+            Self::Light => "Light",
+            Self::Dark => "Dark",
+            Self::Nord => "Nord",
+            Self::Dracula => "Dracula",
+            Self::GruvboxDark => "Gruvbox Dark",
+            Self::HighContrast => "High Contrast",
         }
     }
 
     pub fn icon(&self) -> &str {
+        if self.is_dark() { "☀" } else { "🌙" }
+    }
+}
+
+/// Body font choice. `Default` uses egui's built-in proportional font;
+/// `Monospace` swaps body, button and heading text to a monospace face.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+pub enum BodyFont {
+    #[default]
+    Proportional,
+    Monospace,
+}
+
+impl BodyFont {
+    pub const ALL: &[BodyFont] = &[Self::Proportional, Self::Monospace];
+
+    pub fn label(self) -> &'static str {
         match self {
-            ThemeMode::Light => "🌙",
-            ThemeMode::Dark => "☀",
+            Self::Proportional => "Proportional",
+            Self::Monospace => "Monospace",
         }
     }
+}
+
+/// Bundle of font-related parameters for `apply_theme`.
+pub struct FontSettings<'a> {
+    pub size: f32,
+    pub body: BodyFont,
+    /// Optional path to a user-supplied .ttf/.otf file. When set and
+    /// readable, this font is used as the primary proportional face.
+    pub custom_path: Option<&'a str>,
 }
 
 /// Color palette for the application
@@ -100,28 +164,32 @@ impl ThemeColors {
         match mode {
             ThemeMode::Dark => Self::dark(),
             ThemeMode::Light => Self::light(),
+            ThemeMode::Nord => Self::nord(),
+            ThemeMode::Dracula => Self::dracula(),
+            ThemeMode::GruvboxDark => Self::gruvbox_dark(),
+            ThemeMode::HighContrast => Self::high_contrast(),
         }
     }
 
     fn dark() -> Self {
         Self {
-            bg_primary: Color32::from_rgb(24, 24, 27),   // zinc-900
-            bg_secondary: Color32::from_rgb(39, 39, 42), // zinc-800
-            bg_tertiary: Color32::from_rgb(52, 52, 56),  // zinc-700
-            bg_header: Color32::from_rgb(30, 30, 35),
-            bg_selected: Color32::from_rgba_unmultiplied(99, 102, 241, 100), // indigo-500
+            bg_primary: Color32::from_rgb(24, 24, 27),
+            bg_secondary: Color32::from_rgb(39, 39, 42),
+            bg_tertiary: Color32::from_rgb(52, 52, 56),
+            bg_header: Color32::from_rgb(33, 33, 40),
+            bg_selected: Color32::from_rgba_unmultiplied(99, 102, 241, 100),
             bg_hover: Color32::from_rgb(45, 45, 50),
             bg_edited: Color32::from_rgb(50, 40, 20),
 
-            text_primary: Color32::from_rgb(244, 244, 245), // zinc-100
-            text_secondary: Color32::from_rgb(161, 161, 170), // zinc-400
-            text_muted: Color32::from_rgb(113, 113, 122),   // zinc-500
-            text_header: Color32::from_rgb(228, 228, 231),  // zinc-200
+            text_primary: Color32::from_rgb(244, 244, 245),
+            text_secondary: Color32::from_rgb(161, 161, 170),
+            text_muted: Color32::from_rgb(113, 113, 122),
+            text_header: Color32::from_rgb(228, 228, 231),
 
-            accent: Color32::from_rgb(99, 102, 241), // indigo-500
-            accent_hover: Color32::from_rgb(129, 140, 248), // indigo-400
-            border: Color32::from_rgb(63, 63, 70),   // zinc-700
-            border_subtle: Color32::from_rgb(39, 39, 42), // zinc-800
+            accent: Color32::from_rgb(99, 102, 241),
+            accent_hover: Color32::from_rgb(129, 140, 248),
+            border: Color32::from_rgb(63, 63, 70),
+            border_subtle: Color32::from_rgb(39, 39, 42),
 
             success: Color32::from_rgb(34, 197, 94),
             warning: Color32::from_rgb(234, 179, 8),
@@ -141,22 +209,22 @@ impl ThemeColors {
     fn light() -> Self {
         Self {
             bg_primary: Color32::from_rgb(255, 255, 255),
-            bg_secondary: Color32::from_rgb(249, 250, 251), // gray-50
-            bg_tertiary: Color32::from_rgb(243, 244, 246),  // gray-100
-            bg_header: Color32::from_rgb(248, 248, 252),
-            bg_selected: Color32::from_rgb(191, 219, 254), // blue-200
+            bg_secondary: Color32::from_rgb(249, 250, 251),
+            bg_tertiary: Color32::from_rgb(243, 244, 246),
+            bg_header: Color32::from_rgb(238, 240, 248),
+            bg_selected: Color32::from_rgb(191, 219, 254),
             bg_hover: Color32::from_rgb(243, 244, 246),
             bg_edited: Color32::from_rgb(255, 249, 219),
 
-            text_primary: Color32::from_rgb(17, 24, 39), // gray-900
-            text_secondary: Color32::from_rgb(107, 114, 128), // gray-500
-            text_muted: Color32::from_rgb(156, 163, 175), // gray-400
-            text_header: Color32::from_rgb(31, 41, 55),  // gray-800
+            text_primary: Color32::from_rgb(17, 24, 39),
+            text_secondary: Color32::from_rgb(107, 114, 128),
+            text_muted: Color32::from_rgb(156, 163, 175),
+            text_header: Color32::from_rgb(31, 41, 55),
 
-            accent: Color32::from_rgb(79, 70, 229), // indigo-600
-            accent_hover: Color32::from_rgb(99, 102, 241), // indigo-500
-            border: Color32::from_rgb(229, 231, 235), // gray-200
-            border_subtle: Color32::from_rgb(243, 244, 246), // gray-100
+            accent: Color32::from_rgb(79, 70, 229),
+            accent_hover: Color32::from_rgb(99, 102, 241),
+            border: Color32::from_rgb(229, 231, 235),
+            border_subtle: Color32::from_rgb(243, 244, 246),
 
             success: Color32::from_rgb(22, 163, 74),
             warning: Color32::from_rgb(202, 138, 4),
@@ -172,34 +240,176 @@ impl ThemeColors {
             scrollbar_thumb_hover: Color32::from_rgb(140, 140, 155),
         }
     }
+
+    fn nord() -> Self {
+        // Arctic / north-bluish.
+        Self {
+            bg_primary: Color32::from_rgb(0x2e, 0x34, 0x40),
+            bg_secondary: Color32::from_rgb(0x3b, 0x42, 0x52),
+            bg_tertiary: Color32::from_rgb(0x43, 0x4c, 0x5e),
+            bg_header: Color32::from_rgb(0x36, 0x3d, 0x4c),
+            bg_selected: Color32::from_rgba_unmultiplied(0x88, 0xc0, 0xd0, 100),
+            bg_hover: Color32::from_rgb(0x4c, 0x56, 0x6a),
+            bg_edited: Color32::from_rgb(0x4c, 0x40, 0x28),
+
+            text_primary: Color32::from_rgb(0xec, 0xef, 0xf4),
+            text_secondary: Color32::from_rgb(0xd8, 0xde, 0xe9),
+            text_muted: Color32::from_rgb(0x81, 0x8e, 0xa3),
+            text_header: Color32::from_rgb(0xec, 0xef, 0xf4),
+
+            accent: Color32::from_rgb(0x88, 0xc0, 0xd0),
+            accent_hover: Color32::from_rgb(0x8f, 0xbc, 0xbb),
+            border: Color32::from_rgb(0x43, 0x4c, 0x5e),
+            border_subtle: Color32::from_rgb(0x3b, 0x42, 0x52),
+
+            success: Color32::from_rgb(0xa3, 0xbe, 0x8c),
+            warning: Color32::from_rgb(0xeb, 0xcb, 0x8b),
+            error: Color32::from_rgb(0xbf, 0x61, 0x6a),
+
+            row_even: Color32::from_rgb(0x2e, 0x34, 0x40),
+            row_odd: Color32::from_rgb(0x36, 0x3d, 0x4a),
+            row_number_bg: Color32::from_rgb(0x36, 0x3d, 0x4c),
+            row_number_text: Color32::from_rgb(0x81, 0x8e, 0xa3),
+
+            scrollbar_track: Color32::from_rgb(0x3b, 0x42, 0x52),
+            scrollbar_thumb: Color32::from_rgb(0x4c, 0x56, 0x6a),
+            scrollbar_thumb_hover: Color32::from_rgb(0x81, 0x8e, 0xa3),
+        }
+    }
+
+    fn dracula() -> Self {
+        Self {
+            bg_primary: Color32::from_rgb(0x28, 0x2a, 0x36),
+            bg_secondary: Color32::from_rgb(0x32, 0x34, 0x42),
+            bg_tertiary: Color32::from_rgb(0x44, 0x47, 0x5a),
+            bg_header: Color32::from_rgb(0x36, 0x39, 0x48),
+            bg_selected: Color32::from_rgba_unmultiplied(0xbd, 0x93, 0xf9, 90),
+            bg_hover: Color32::from_rgb(0x44, 0x47, 0x5a),
+            bg_edited: Color32::from_rgb(0x4a, 0x44, 0x1c),
+
+            text_primary: Color32::from_rgb(0xf8, 0xf8, 0xf2),
+            text_secondary: Color32::from_rgb(0xbd, 0xc1, 0xd1),
+            text_muted: Color32::from_rgb(0x6c, 0x70, 0x88),
+            text_header: Color32::from_rgb(0xf8, 0xf8, 0xf2),
+
+            accent: Color32::from_rgb(0xbd, 0x93, 0xf9),
+            accent_hover: Color32::from_rgb(0xff, 0x79, 0xc6),
+            border: Color32::from_rgb(0x44, 0x47, 0x5a),
+            border_subtle: Color32::from_rgb(0x32, 0x34, 0x42),
+
+            success: Color32::from_rgb(0x50, 0xfa, 0x7b),
+            warning: Color32::from_rgb(0xf1, 0xfa, 0x8c),
+            error: Color32::from_rgb(0xff, 0x55, 0x55),
+
+            row_even: Color32::from_rgb(0x28, 0x2a, 0x36),
+            row_odd: Color32::from_rgb(0x30, 0x32, 0x40),
+            row_number_bg: Color32::from_rgb(0x32, 0x34, 0x42),
+            row_number_text: Color32::from_rgb(0x6c, 0x70, 0x88),
+
+            scrollbar_track: Color32::from_rgb(0x32, 0x34, 0x42),
+            scrollbar_thumb: Color32::from_rgb(0x44, 0x47, 0x5a),
+            scrollbar_thumb_hover: Color32::from_rgb(0x6c, 0x70, 0x88),
+        }
+    }
+
+    fn gruvbox_dark() -> Self {
+        Self {
+            bg_primary: Color32::from_rgb(0x28, 0x28, 0x28),
+            bg_secondary: Color32::from_rgb(0x32, 0x30, 0x2f),
+            bg_tertiary: Color32::from_rgb(0x3c, 0x38, 0x36),
+            bg_header: Color32::from_rgb(0x32, 0x30, 0x2f),
+            bg_selected: Color32::from_rgba_unmultiplied(0xfa, 0xbd, 0x2f, 90),
+            bg_hover: Color32::from_rgb(0x50, 0x49, 0x45),
+            bg_edited: Color32::from_rgb(0x4a, 0x40, 0x14),
+
+            text_primary: Color32::from_rgb(0xeb, 0xdb, 0xb2),
+            text_secondary: Color32::from_rgb(0xd5, 0xc4, 0xa1),
+            text_muted: Color32::from_rgb(0x92, 0x83, 0x74),
+            text_header: Color32::from_rgb(0xfb, 0xf1, 0xc7),
+
+            accent: Color32::from_rgb(0xfa, 0xbd, 0x2f),
+            accent_hover: Color32::from_rgb(0xfe, 0x80, 0x19),
+            border: Color32::from_rgb(0x50, 0x49, 0x45),
+            border_subtle: Color32::from_rgb(0x3c, 0x38, 0x36),
+
+            success: Color32::from_rgb(0xb8, 0xbb, 0x26),
+            warning: Color32::from_rgb(0xfa, 0xbd, 0x2f),
+            error: Color32::from_rgb(0xfb, 0x49, 0x34),
+
+            row_even: Color32::from_rgb(0x28, 0x28, 0x28),
+            row_odd: Color32::from_rgb(0x32, 0x2e, 0x2c),
+            row_number_bg: Color32::from_rgb(0x32, 0x30, 0x2f),
+            row_number_text: Color32::from_rgb(0x92, 0x83, 0x74),
+
+            scrollbar_track: Color32::from_rgb(0x32, 0x30, 0x2f),
+            scrollbar_thumb: Color32::from_rgb(0x50, 0x49, 0x45),
+            scrollbar_thumb_hover: Color32::from_rgb(0x92, 0x83, 0x74),
+        }
+    }
+
+    fn high_contrast() -> Self {
+        Self {
+            bg_primary: Color32::from_rgb(0x00, 0x00, 0x00),
+            bg_secondary: Color32::from_rgb(0x10, 0x10, 0x10),
+            bg_tertiary: Color32::from_rgb(0x1c, 0x1c, 0x1c),
+            bg_header: Color32::from_rgb(0x18, 0x18, 0x18),
+            bg_selected: Color32::from_rgba_unmultiplied(0xff, 0xd7, 0x00, 130),
+            bg_hover: Color32::from_rgb(0x2a, 0x2a, 0x2a),
+            bg_edited: Color32::from_rgb(0x55, 0x44, 0x00),
+
+            text_primary: Color32::from_rgb(0xff, 0xff, 0xff),
+            text_secondary: Color32::from_rgb(0xe0, 0xe0, 0xe0),
+            text_muted: Color32::from_rgb(0xb0, 0xb0, 0xb0),
+            text_header: Color32::from_rgb(0xff, 0xd7, 0x00),
+
+            accent: Color32::from_rgb(0xff, 0xd7, 0x00),
+            accent_hover: Color32::from_rgb(0xff, 0xff, 0x40),
+            border: Color32::from_rgb(0x80, 0x80, 0x80),
+            border_subtle: Color32::from_rgb(0x40, 0x40, 0x40),
+
+            success: Color32::from_rgb(0x00, 0xff, 0x80),
+            warning: Color32::from_rgb(0xff, 0xd7, 0x00),
+            error: Color32::from_rgb(0xff, 0x40, 0x40),
+
+            row_even: Color32::from_rgb(0x00, 0x00, 0x00),
+            row_odd: Color32::from_rgb(0x16, 0x16, 0x16),
+            row_number_bg: Color32::from_rgb(0x10, 0x10, 0x10),
+            row_number_text: Color32::from_rgb(0xb0, 0xb0, 0xb0),
+
+            scrollbar_track: Color32::from_rgb(0x18, 0x18, 0x18),
+            scrollbar_thumb: Color32::from_rgb(0x60, 0x60, 0x60),
+            scrollbar_thumb_hover: Color32::from_rgb(0xa0, 0xa0, 0xa0),
+        }
+    }
 }
 
-/// Apply the theme to an egui context
-pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font_size: f32) {
+/// Apply the theme to an egui context.
+pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font: FontSettings) {
     let colors = ThemeColors::for_mode(mode);
+    let is_dark = mode.is_dark();
 
     let mut style = Style::default();
 
-    // Set visuals based on mode
-    let mut visuals = match mode {
-        ThemeMode::Dark => Visuals::dark(),
-        ThemeMode::Light => Visuals::light(),
+    let mut visuals = if is_dark {
+        Visuals::dark()
+    } else {
+        Visuals::light()
     };
 
-    // Override specific colors
     visuals.window_fill = colors.bg_primary;
     visuals.panel_fill = colors.bg_primary;
-    visuals.extreme_bg_color = match mode {
-        ThemeMode::Dark => colors.bg_secondary,
-        ThemeMode::Light => Color32::from_rgb(230, 233, 240),
+    visuals.extreme_bg_color = if is_dark {
+        colors.bg_secondary
+    } else {
+        Color32::from_rgb(230, 233, 240)
     };
-    visuals.faint_bg_color = match mode {
-        ThemeMode::Dark => colors.bg_tertiary,
-        ThemeMode::Light => Color32::from_rgb(237, 240, 245),
+    visuals.faint_bg_color = if is_dark {
+        colors.bg_tertiary
+    } else {
+        Color32::from_rgb(237, 240, 245)
     };
     visuals.window_stroke = Stroke::new(1.0, colors.border);
 
-    // Widget visuals
     visuals.widgets.noninteractive.bg_fill = colors.bg_secondary;
     visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, colors.text_primary);
     visuals.widgets.noninteractive.bg_stroke = Stroke::new(0.5, colors.border);
@@ -218,9 +428,10 @@ pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font_size: f32) {
     visuals.widgets.active.bg_fill = colors.accent;
     visuals.widgets.active.fg_stroke = Stroke::new(
         1.0,
-        match mode {
-            ThemeMode::Dark => Color32::WHITE,
-            ThemeMode::Light => colors.text_primary,
+        if is_dark {
+            Color32::WHITE
+        } else {
+            colors.text_primary
         },
     );
     visuals.widgets.active.bg_stroke = Stroke::new(1.0, colors.accent);
@@ -229,48 +440,70 @@ pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font_size: f32) {
     visuals.selection.bg_fill = colors.bg_selected;
     visuals.selection.stroke = Stroke::new(1.0, colors.accent);
 
-    // Ensure strong text, hyperlinks, and code have good contrast in both modes
     visuals.hyperlink_color = colors.accent;
     visuals.warn_fg_color = colors.warning;
     visuals.error_fg_color = colors.error;
-    visuals.code_bg_color = match mode {
-        ThemeMode::Dark => Color32::from_rgb(40, 40, 48),
-        ThemeMode::Light => Color32::from_rgb(230, 233, 240),
+    visuals.code_bg_color = if is_dark {
+        Color32::from_rgb(40, 40, 48)
+    } else {
+        Color32::from_rgb(230, 233, 240)
     };
     visuals.override_text_color = None;
 
     style.visuals = visuals;
 
-    // Font sizes — scaled from the user-configured base size
-    let small = (font_size * 0.85).round();
-    let heading = (font_size * 1.38).round();
+    apply_fonts(ctx, &font);
+
+    let proportional = primary_family(&font);
+    let small = (font.size * 0.85).round();
+    let heading = (font.size * 1.38).round();
     style.text_styles = [
-        (
-            TextStyle::Small,
-            FontId::new(small, FontFamily::Proportional),
-        ),
+        (TextStyle::Small, FontId::new(small, proportional.clone())),
         (
             TextStyle::Body,
-            FontId::new(font_size, FontFamily::Proportional),
+            FontId::new(font.size, proportional.clone()),
         ),
         (
             TextStyle::Monospace,
-            FontId::new(font_size, FontFamily::Monospace),
+            FontId::new(font.size, FontFamily::Monospace),
         ),
         (
             TextStyle::Button,
-            FontId::new(font_size, FontFamily::Proportional),
+            FontId::new(font.size, proportional.clone()),
         ),
-        (
-            TextStyle::Heading,
-            FontId::new(heading, FontFamily::Proportional),
-        ),
+        (TextStyle::Heading, FontId::new(heading, proportional)),
     ]
     .into();
 
-    // Spacing
     style.spacing.item_spacing = egui::vec2(8.0, 4.0);
     style.spacing.button_padding = egui::vec2(8.0, 4.0);
 
     ctx.set_style(style);
+}
+
+/// Resolve which font family proportional/body text should use.
+fn primary_family(font: &FontSettings) -> FontFamily {
+    if font.custom_path.is_some_and(|p| !p.is_empty()) {
+        FontFamily::Name(Arc::from("custom"))
+    } else if font.body == BodyFont::Monospace {
+        FontFamily::Monospace
+    } else {
+        FontFamily::Proportional
+    }
+}
+
+/// Register fonts. Called every time `apply_theme` runs (settings/zoom
+/// changes), but egui caches by content hash so repeats are cheap.
+fn apply_fonts(ctx: &egui::Context, font: &FontSettings) {
+    let mut defs = FontDefinitions::default();
+    if let Some(path) = font.custom_path.filter(|p| !p.is_empty()) {
+        if let Ok(bytes) = std::fs::read(path) {
+            defs.font_data
+                .insert("custom".into(), Arc::new(FontData::from_owned(bytes)));
+            // Custom font becomes a named family that style maps to Body.
+            defs.families
+                .insert(FontFamily::Name(Arc::from("custom")), vec!["custom".into()]);
+        }
+    }
+    ctx.set_fonts(defs);
 }

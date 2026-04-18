@@ -1,5 +1,5 @@
-use crate::ui;
 use crate::TabState;
+use crate::ui;
 
 use eframe::egui;
 use egui::RichText;
@@ -25,9 +25,10 @@ const COL_COLORS_LIGHT: [egui::Color32; 6] = [
 
 /// Column colors that cycle for adjacent-column contrast.
 fn column_colors(theme_mode: ThemeMode) -> &'static [egui::Color32] {
-    match theme_mode {
-        ThemeMode::Dark => &COL_COLORS_DARK,
-        ThemeMode::Light => &COL_COLORS_LIGHT,
+    if theme_mode.is_dark() {
+        &COL_COLORS_DARK
+    } else {
+        &COL_COLORS_LIGHT
     }
 }
 
@@ -128,17 +129,29 @@ pub fn render_raw_view(
             let mut first_line = true;
             for line in text.split('\n') {
                 if !first_line {
-                    job.append("\n", 0.0, egui::text::TextFormat::simple(font.clone(), default_color));
+                    job.append(
+                        "\n",
+                        0.0,
+                        egui::text::TextFormat::simple(font.clone(), default_color),
+                    );
                 }
                 first_line = false;
 
                 for (col_idx, segment) in line.split(delimiter).enumerate() {
                     if col_idx > 0 {
                         let delim_str = &format!("{delimiter}");
-                        job.append(delim_str, 0.0, egui::text::TextFormat::simple(font.clone(), default_color));
+                        job.append(
+                            delim_str,
+                            0.0,
+                            egui::text::TextFormat::simple(font.clone(), default_color),
+                        );
                     }
                     let color = col_colors[col_idx % col_colors.len()];
-                    job.append(segment, 0.0, egui::text::TextFormat::simple(font.clone(), color));
+                    job.append(
+                        segment,
+                        0.0,
+                        egui::text::TextFormat::simple(font.clone(), color),
+                    );
                 }
             }
             ui.fonts(|f| f.layout_job(job))
@@ -203,7 +216,8 @@ pub fn render_raw_view(
                     let had_tabs = content.contains('\t');
                     if had_tabs {
                         // Track cursor so we can restore it after replacement
-                        let cursor_idx = output.cursor_range
+                        let cursor_idx = output
+                            .cursor_range
                             .map(|r| r.primary.ccursor.index)
                             .unwrap_or(0);
                         // Count \t chars before cursor to compute offset shift

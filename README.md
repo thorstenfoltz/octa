@@ -18,6 +18,8 @@ An application for viewing data files. Octa opens files in a spreadsheet-like ta
 | Avro                | yes  | yes   |
 | ORC                 | yes  | yes   |
 | HDF5                | yes  | no    |
+| SQLite              | yes  | yes   |
+| DuckDB              | yes  | yes   |
 | XML                 | yes  | yes   |
 | TOML                | yes  | yes   |
 | YAML                | yes  | yes   |
@@ -47,6 +49,14 @@ Unknown file extensions are opened as plain text.
 - **Markdown View** -- rendered CommonMark preview
 - **Notebook View** -- rendered Jupyter notebook with code cells, markdown cells, and outputs
 - **PDF View** -- page-by-page rendered output
+- **SQL Query View** -- write a query against the current table (exposed as `data`) and see results beneath; powered by an in-memory DuckDB engine, so any opened file becomes queryable
+
+### Databases (SQLite / DuckDB)
+
+Open a `.sqlite`, `.sqlite3`, `.db`, `.duckdb`, or `.ddb` file. If the database has multiple user tables, a picker
+dialog lets you choose one with a column-schema preview. Edits are saved back as **append/update/delete**
+in a single transaction — Octa never overwrites the file. Schema changes (renaming, adding, or dropping columns)
+are intentionally rejected on save; do those operations in another tool. Single-table databases auto-load.
 
 ### Editing
 

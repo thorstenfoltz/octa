@@ -107,6 +107,7 @@ impl FormatReader for PdfReader {
             marks: std::collections::HashMap::new(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            db_meta: None,
         })
     }
 

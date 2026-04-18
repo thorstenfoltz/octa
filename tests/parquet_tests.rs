@@ -190,6 +190,7 @@ fn test_parquet_round_trip() {
         marks: HashMap::new(),
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
+        db_meta: None,
     };
 
     let f = tempfile::NamedTempFile::with_suffix(".parquet").unwrap();

@@ -1,6 +1,7 @@
 pub mod arrow_ipc_reader;
 pub mod avro_reader;
 pub mod csv_reader;
+pub mod duckdb_reader;
 pub mod excel_reader;
 pub mod hdf5_reader;
 pub mod json_reader;
@@ -9,14 +10,23 @@ pub mod markdown_reader;
 pub mod orc_reader;
 pub mod parquet_reader;
 pub mod pdf_reader;
+pub mod sqlite_reader;
 pub mod text_reader;
 pub mod toml_reader;
 pub mod xml_reader;
 pub mod yaml_reader;
 
-use crate::data::DataTable;
+use crate::data::{ColumnInfo, DataTable};
 use anyhow::Result;
 use std::path::Path;
+
+/// Schema description of a single table inside a multi-table source (DB file).
+#[derive(Debug, Clone)]
+pub struct TableInfo {
+    pub name: String,
+    pub columns: Vec<ColumnInfo>,
+    pub row_count: Option<usize>,
+}
 
 /// Trait that every format reader must implement.
 /// To add a new format, create a struct that implements this trait
@@ -40,6 +50,20 @@ pub trait FormatReader: Send + Sync {
     /// Whether this reader supports writing.
     fn supports_write(&self) -> bool {
         false
+    }
+
+    /// For container formats (DBs) that hold multiple tables, list the
+    /// available tables with their schemas. Returns `Ok(None)` when the
+    /// format is single-table (the default), so callers can decide whether
+    /// to show a picker dialog.
+    fn list_tables(&self, _path: &Path) -> Result<Option<Vec<TableInfo>>> {
+        Ok(None)
+    }
+
+    /// Read a specific named table from a multi-table source. Default
+    /// implementation falls back to `read_file` and ignores the table name.
+    fn read_table(&self, path: &Path, _table: &str) -> Result<DataTable> {
+        self.read_file(path)
     }
 }
 
@@ -72,6 +96,8 @@ impl FormatRegistry {
         registry.register(Box::new(orc_reader::OrcReader));
         registry.register(Box::new(hdf5_reader::Hdf5Reader));
         registry.register(Box::new(markdown_reader::MarkdownReader));
+        registry.register(Box::new(sqlite_reader::SqliteReader));
+        registry.register(Box::new(duckdb_reader::DuckDbReader));
         registry.register(Box::new(text_reader::TextReader));
         registry
     }

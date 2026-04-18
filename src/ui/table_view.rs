@@ -196,11 +196,7 @@ pub fn draw_table(
                 )));
             }
             ui.add_space(16.0);
-            ui.label(
-                RichText::new("Octa")
-                    .size(28.0)
-                    .color(colors.text_muted),
-            );
+            ui.label(RichText::new("Octa").size(28.0).color(colors.text_muted));
         });
         return interaction;
     }
@@ -1487,9 +1483,8 @@ fn compute_row_height(
                 .copied()
                 .unwrap_or(DEFAULT_COL_WIDTH);
             let wrap_width = (col_width - 12.0).max(20.0); // account for cell padding
-            let galley = ui.fonts(|f| {
-                f.layout(text, font_id.clone(), egui::Color32::WHITE, wrap_width)
-            });
+            let galley =
+                ui.fonts(|f| f.layout(text, font_id.clone(), egui::Color32::WHITE, wrap_width));
             let text_height = galley.size().y + 4.0; // small vertical padding
             max_height = max_height.max(text_height);
         }

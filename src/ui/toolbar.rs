@@ -36,6 +36,7 @@ pub struct ToolbarAction {
     pub zoom_in: bool,
     pub zoom_out: bool,
     pub zoom_reset: bool,
+    pub toggle_sql_panel: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -59,6 +60,7 @@ pub fn draw_toolbar(
     has_markdown: bool,
     has_notebook: bool,
     has_json: bool,
+    sql_panel_open: bool,
     zoom_percent: u32,
     logo_texture: Option<&egui::TextureHandle>,
     recent_files: &[String],
@@ -318,6 +320,23 @@ pub fn draw_toolbar(
                     ui.close_menu();
                 }
             });
+
+            // --- SQL panel toggle (only for tabular data) ---
+            // Styled like the menu buttons. Highlights with the accent color
+            // while the panel is open.
+            if current_view_mode == ViewMode::Table {
+                let label_color = if sql_panel_open {
+                    colors.accent
+                } else {
+                    colors.text_primary
+                };
+                let sql_btn = ui
+                    .button(RichText::new("SQL").color(label_color))
+                    .on_hover_text("Toggle SQL editor panel");
+                if sql_btn.clicked() {
+                    action.toggle_sql_panel = true;
+                }
+            }
         }
 
         // --- Help menu (always visible, next to Search) ---

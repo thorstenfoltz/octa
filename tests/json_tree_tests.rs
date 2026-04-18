@@ -27,9 +27,9 @@ fn collect_paths_nested_object_all() {
 fn collect_paths_array_all() {
     let v = json!([1, [2, 3], {"x": 4}]);
     let paths = collect_json_paths(&v, None);
-    assert!(paths.contains(""));     // root array
-    assert!(paths.contains("[1]"));  // nested array
-    assert!(paths.contains("[2]"));  // nested object
+    assert!(paths.contains("")); // root array
+    assert!(paths.contains("[1]")); // nested array
+    assert!(paths.contains("[2]")); // nested object
     assert_eq!(paths.len(), 3);
 }
 

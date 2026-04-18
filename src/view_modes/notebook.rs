@@ -1,5 +1,5 @@
-use crate::ui;
 use crate::TabState;
+use crate::ui;
 use octa::data;
 
 use eframe::egui;
@@ -16,7 +16,7 @@ pub fn render_notebook_view(
     output_layout: NotebookOutputLayout,
 ) {
     let colors = ui::theme::ThemeColors::for_mode(theme_mode);
-    let is_dark = theme_mode == ThemeMode::Dark;
+    let is_dark = theme_mode.is_dark();
 
     if tab.table.row_count() == 0 {
         ui.centered_and_justified(|ui| {
@@ -252,17 +252,13 @@ pub fn render_notebook_view(
                             });
 
                             // Output beside source (Beside layout)
-                            if has_output
-                                && output_layout == NotebookOutputLayout::Beside
-                            {
+                            if has_output && output_layout == NotebookOutputLayout::Beside {
                                 render_output(ui, cell_num.copied(), &output, border_color);
                             }
                         });
 
                         // Output beneath source (Beneath layout)
-                        if has_output
-                            && output_layout == NotebookOutputLayout::Beneath
-                        {
+                        if has_output && output_layout == NotebookOutputLayout::Beneath {
                             ui.horizontal(|ui| {
                                 // Indent to align under the source frame
                                 ui.add_space(label_width + 8.0);

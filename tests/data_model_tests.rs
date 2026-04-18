@@ -43,6 +43,7 @@ fn sample_table() -> DataTable {
         marks: HashMap::new(),
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
+        db_meta: None,
     }
 }
 
@@ -80,10 +81,7 @@ fn test_cell_value_display_string() {
 fn test_cell_value_display_binary_default() {
     // Default Display uses hex with spaces
     assert_eq!(CellValue::Binary(vec![1, 2, 3]).to_string(), "01 02 03");
-    assert_eq!(
-        CellValue::Binary(vec![0x41, 0x42]).to_string(),
-        "41 42"
-    );
+    assert_eq!(CellValue::Binary(vec![0x41, 0x42]).to_string(), "41 42");
     assert_eq!(CellValue::Binary(vec![]).to_string(), "");
 }
 

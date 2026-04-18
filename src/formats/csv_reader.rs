@@ -222,6 +222,7 @@ fn read_delimited(path: &Path, delimiter: u8, format_name: &str) -> Result<DataT
         marks: std::collections::HashMap::new(),
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
+        db_meta: None,
     })
 }
 

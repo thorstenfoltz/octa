@@ -164,9 +164,8 @@ impl CellValue {
                 BinaryDisplayMode::Text => {
                     if let Ok(s) = std::str::from_utf8(b) {
                         if !s.is_empty()
-                            && s.chars().all(|c| {
-                                !c.is_control() || c == '\n' || c == '\r' || c == '\t'
-                            })
+                            && s.chars()
+                                .all(|c| !c.is_control() || c == '\n' || c == '\r' || c == '\t')
                         {
                             return s.to_string();
                         }
@@ -507,6 +506,10 @@ pub enum UndoAction {
     DeleteRow {
         index: usize,
         data: Vec<CellValue>,
+        /// Source-row identity if this row came from a DB-backed table.
+        /// Restored alongside the row data on undo so subsequent saves don't
+        /// mistake the resurrected row for a fresh INSERT.
+        db_tag: Option<i64>,
     },
     InsertColumn {
         index: usize,
@@ -549,6 +552,25 @@ pub enum MarkKey {
     Column(usize),
 }
 
+/// Metadata associating rows of a `DataTable` with rows in a source database
+/// table. Set by the SQLite / DuckDB readers and consumed by their writers to
+/// produce INSERT / UPDATE / DELETE statements rather than overwriting.
+#[derive(Debug, Clone)]
+pub struct DbRowMeta {
+    /// Name of the source table.
+    pub table_name: String,
+    /// Per-row source identity, parallel to `DataTable.rows`.
+    /// `None` = inserted by the user since load (becomes an INSERT on save).
+    /// `Some(tag)` = original row from the DB (rowid for SQLite, sequential for DuckDB).
+    pub row_tags: Vec<Option<i64>>,
+    /// Snapshot of original row values keyed by tag, used to detect cell-level
+    /// changes for UPDATE statements.
+    pub original: HashMap<i64, Vec<CellValue>>,
+    /// Original column names at load time. Save fails if columns no longer
+    /// match — schema-altering edits aren't supported on DB-backed tables.
+    pub original_columns: Vec<String>,
+}
+
 /// The core data model: an unbounded table of cells.
 /// Rows and columns are stored as a flat Vec-of-Vecs (row-major).
 /// Edits are tracked separately so the original data is preserved.
@@ -574,6 +596,9 @@ pub struct DataTable {
     pub undo_stack: Vec<UndoAction>,
     /// Redo stack (cleared on new action)
     pub redo_stack: Vec<UndoAction>,
+    /// Per-row identity for tables loaded from a database.
+    /// Kept aligned with `rows` by structural row operations.
+    pub db_meta: Option<DbRowMeta>,
 }
 
 impl DataTable {
@@ -590,6 +615,7 @@ impl DataTable {
             marks: HashMap::new(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            db_meta: None,
         }
     }
 
@@ -643,6 +669,9 @@ impl DataTable {
         self.undo_stack.push(UndoAction::InsertRow { index: idx });
         self.redo_stack.clear();
         self.rows.insert(idx, row);
+        if let Some(meta) = self.db_meta.as_mut() {
+            meta.row_tags.insert(idx, None);
+        }
         // Shift edits at or after the insertion point down by 1
         let mut new_edits = HashMap::new();
         for (&(r, c), v) in &self.edits {
@@ -676,12 +705,23 @@ impl DataTable {
             let row_data: Vec<CellValue> = (0..self.columns.len())
                 .map(|c| self.get(index, c).cloned().unwrap_or(CellValue::Null))
                 .collect();
+            let db_tag = self
+                .db_meta
+                .as_ref()
+                .and_then(|m| m.row_tags.get(index).copied())
+                .flatten();
             self.undo_stack.push(UndoAction::DeleteRow {
                 index,
                 data: row_data,
+                db_tag,
             });
             self.redo_stack.clear();
             self.rows.remove(index);
+            if let Some(meta) = self.db_meta.as_mut() {
+                if index < meta.row_tags.len() {
+                    meta.row_tags.remove(index);
+                }
+            }
             // Clean up edits referencing this row or higher
             let mut new_edits = HashMap::new();
             for (&(r, c), v) in &self.edits {
@@ -818,6 +858,12 @@ impl DataTable {
         self.redo_stack.clear();
         let row = self.rows.remove(from);
         self.rows.insert(to, row);
+        if let Some(meta) = self.db_meta.as_mut() {
+            if from < meta.row_tags.len() {
+                let tag = meta.row_tags.remove(from);
+                meta.row_tags.insert(to.min(meta.row_tags.len()), tag);
+            }
+        }
         // Remap edits
         let mut new_edits = HashMap::new();
         for (&(r, c), v) in &self.edits {
@@ -1091,6 +1137,11 @@ impl DataTable {
                 UndoAction::InsertRow { index } => {
                     if index < self.rows.len() {
                         self.rows.remove(index);
+                        if let Some(meta) = self.db_meta.as_mut() {
+                            if index < meta.row_tags.len() {
+                                meta.row_tags.remove(index);
+                            }
+                        }
                         // Shift edits back
                         let mut new_edits = HashMap::new();
                         for (&(r, c), v) in &self.edits {
@@ -1103,8 +1154,16 @@ impl DataTable {
                         self.edits = new_edits;
                     }
                 }
-                UndoAction::DeleteRow { index, data } => {
+                UndoAction::DeleteRow {
+                    index,
+                    data,
+                    db_tag,
+                } => {
                     self.rows.insert(index, data);
+                    if let Some(meta) = self.db_meta.as_mut() {
+                        let ins = index.min(meta.row_tags.len());
+                        meta.row_tags.insert(ins, db_tag);
+                    }
                     // Shift edits forward
                     let mut new_edits = HashMap::new();
                     for (&(r, c), v) in &self.edits {
@@ -1238,6 +1297,9 @@ impl DataTable {
                     let row = vec![CellValue::Null; self.columns.len()];
                     let idx = index.min(self.rows.len());
                     self.rows.insert(idx, row);
+                    if let Some(meta) = self.db_meta.as_mut() {
+                        meta.row_tags.insert(idx.min(meta.row_tags.len()), None);
+                    }
                     let mut new_edits = HashMap::new();
                     for (&(r, c), v) in &self.edits {
                         if r < idx {
@@ -1251,6 +1313,11 @@ impl DataTable {
                 UndoAction::DeleteRow { index, .. } => {
                     if index < self.rows.len() {
                         self.rows.remove(index);
+                        if let Some(meta) = self.db_meta.as_mut() {
+                            if index < meta.row_tags.len() {
+                                meta.row_tags.remove(index);
+                            }
+                        }
                         let mut new_edits = HashMap::new();
                         for (&(r, c), v) in &self.edits {
                             if r < index {

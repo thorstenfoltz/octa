@@ -73,6 +73,7 @@ fn nav_table() -> DataTable {
         marks: HashMap::new(),
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
+        db_meta: None,
     }
 }
 

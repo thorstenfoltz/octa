@@ -107,7 +107,15 @@ fn main() -> eframe::Result<()> {
         "octa",
         options,
         Box::new(move |cc| {
-            ui::theme::apply_theme(&cc.egui_ctx, default_theme, settings.font_size);
+            ui::theme::apply_theme(
+                &cc.egui_ctx,
+                default_theme,
+                ui::theme::FontSettings {
+                    size: settings.font_size,
+                    body: settings.body_font,
+                    custom_path: Some(settings.custom_font_path.as_str()),
+                },
+            );
             Ok(Box::new(OctaApp::new(initial_file, settings)))
         }),
     )
@@ -166,6 +174,11 @@ struct TabState {
     insert_col_at: Option<usize>,
     show_delete_columns_dialog: bool,
     delete_col_selection: Vec<bool>,
+    sql_query: String,
+    sql_result: Option<DataTable>,
+    sql_error: Option<String>,
+    /// Whether the SQL panel is currently visible alongside the table view.
+    sql_panel_open: bool,
 }
 
 impl TabState {
@@ -205,6 +218,10 @@ impl TabState {
             insert_col_at: None,
             show_delete_columns_dialog: false,
             delete_col_selection: Vec::new(),
+            sql_query: String::from("SELECT * FROM data LIMIT 100"),
+            sql_result: None,
+            sql_error: None,
+            sql_panel_open: false,
         }
     }
 
@@ -270,6 +287,8 @@ struct OctaApp {
     zoom_percent: u32,
     /// Status bar navigation input buffer.
     nav_input: String,
+    /// Pending modal table picker (DB sources containing multiple tables).
+    pending_table_picker: Option<ui::table_picker::TablePickerState>,
 }
 
 /// Detect delimiter from a file by reading only the first few KB.
@@ -466,6 +485,7 @@ impl OctaApp {
             recent_files,
             zoom_percent: 100,
             nav_input: String::new(),
+            pending_table_picker: None,
         }
     }
 
@@ -655,7 +675,15 @@ impl OctaApp {
     fn apply_zoom(&self, ctx: &egui::Context) {
         let base_font_size = self.settings.font_size;
         let effective_font_size = base_font_size * self.zoom_percent as f32 / 100.0;
-        ui::theme::apply_theme(ctx, self.theme_mode, effective_font_size);
+        ui::theme::apply_theme(
+            ctx,
+            self.theme_mode,
+            ui::theme::FontSettings {
+                size: effective_font_size,
+                body: self.settings.body_font,
+                custom_path: Some(self.settings.custom_font_path.as_str()),
+            },
+        );
     }
 
     fn open_file(&mut self) {
@@ -682,121 +710,8 @@ impl OctaApp {
     }
 
     fn load_file(&mut self, path: std::path::PathBuf) {
-        // Decide whether to load into current tab or create a new one
-        let current_empty = self.tabs[self.active_tab].table.col_count() == 0
-            && !self.tabs[self.active_tab].is_modified();
-        if !current_empty {
-            let new_tab = TabState::new(self.settings.default_search_mode);
-            self.tabs.push(new_tab);
-            self.active_tab = self.tabs.len() - 1;
-        }
-
-        match self.registry.reader_for_path(&path) {
-            Some(reader) => match reader.read_file(&path) {
-                Ok(table) => {
-                    let tab = &mut self.tabs[self.active_tab];
-                    tab.table = table;
-                    tab.table_state = TableViewState::default();
-                    tab.search_text.clear();
-                    tab.filter_dirty = true;
-                    // Set up on-demand loading state for truncated files
-                    if tab.table.total_rows.is_some() {
-                        let loaded = tab.table.row_count();
-                        self.status_message = Some((
-                            format!(
-                                "Loaded {} rows (scroll down to load more)",
-                                ui::status_bar::format_number(loaded)
-                            ),
-                            std::time::Instant::now(),
-                        ));
-                        tab.bg_can_load_more = true;
-                        tab.bg_row_buffer = None;
-                        tab.bg_loading_done
-                            .store(true, std::sync::atomic::Ordering::Relaxed);
-                        tab.bg_file_exhausted
-                            .store(false, std::sync::atomic::Ordering::Relaxed);
-                    } else {
-                        self.status_message = None;
-                        tab.bg_row_buffer = None;
-                        tab.bg_loading_done
-                            .store(true, std::sync::atomic::Ordering::Relaxed);
-                        tab.bg_can_load_more = false;
-                        tab.bg_file_exhausted
-                            .store(false, std::sync::atomic::Ordering::Relaxed);
-                    }
-                    tab.raw_view_formatted = false;
-
-                    // Detect and store CSV delimiter (read only first few KB)
-                    if tab.table.format_name.as_deref() == Some("CSV") {
-                        tab.csv_delimiter = detect_delimiter_from_file(&path);
-                    } else if tab.table.format_name.as_deref() == Some("TSV") {
-                        tab.csv_delimiter = b'\t';
-                    }
-
-                    // Load raw content for text-based formats (skip for large files)
-                    let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                    if file_size <= 500_000_000 {
-                        // 500 MB
-                        tab.raw_content = std::fs::read_to_string(&path).ok();
-                    } else {
-                        tab.raw_content = None;
-                    }
-                    tab.raw_content_modified = false;
-
-                    // For PDFs, render pages visually and default to Pdf view
-                    tab.pdf_page_images.clear();
-                    tab.pdf_textures.clear();
-                    tab.pdf_page_texts.clear();
-                    if tab.table.format_name.as_deref() == Some("PDF") {
-                        match formats::pdf_reader::render_pdf_pages(&path, 2.0) {
-                            Ok((images, texts)) => {
-                                tab.pdf_page_images = images;
-                                tab.pdf_page_texts = texts;
-                                tab.view_mode = ViewMode::Pdf;
-                            }
-                            Err(_) => {
-                                tab.view_mode = ViewMode::Table;
-                            }
-                        }
-                    } else if tab.table.format_name.as_deref() == Some("Markdown") {
-                        tab.view_mode = ViewMode::Markdown;
-                    } else if tab.table.format_name.as_deref() == Some("Jupyter Notebook") {
-                        tab.view_mode = ViewMode::Notebook;
-                    } else if tab.table.format_name.as_deref() == Some("Text") {
-                        tab.view_mode = ViewMode::Raw;
-                    } else {
-                        tab.view_mode = ViewMode::Table;
-                    }
-
-                    // Parse JSON for tree view (JSON and JSONL formats)
-                    tab.json_value = None;
-                    tab.json_tree_expanded.clear();
-                    if matches!(
-                        tab.table.format_name.as_deref(),
-                        Some("JSON") | Some("JSONL")
-                    ) {
-                        if let Some(ref content) = tab.raw_content {
-                            tab.json_value = serde_json::from_str(content).ok();
-                        }
-                    }
-                    // Set expand depth to file's max depth
-                    tab.json_expand_depth = tab
-                        .json_value
-                        .as_ref()
-                        .map(octa::data::json_util::max_json_depth)
-                        .unwrap_or(0);
-                    tab.json_expand_depth_str = tab.json_expand_depth.to_string();
-
-                    // Track in recent files
-                    self.add_recent_file(&path.to_string_lossy());
-                }
-                Err(e) => {
-                    self.status_message = Some((
-                        format!("Error reading file: {}", e),
-                        std::time::Instant::now(),
-                    ));
-                }
-            },
+        let reader = match self.registry.reader_for_path(&path) {
+            Some(r) => r,
             None => {
                 self.status_message = Some((
                     format!(
@@ -807,7 +722,194 @@ impl OctaApp {
                     ),
                     std::time::Instant::now(),
                 ));
+                return;
             }
+        };
+
+        // Multi-table sources (DuckDB / SQLite): show picker if >1 table.
+        match reader.list_tables(&path) {
+            Ok(Some(tables)) if tables.len() > 1 => {
+                self.pending_table_picker = Some(ui::table_picker::TablePickerState {
+                    path,
+                    format_name: reader.name().to_string(),
+                    tables,
+                    selected: 0,
+                });
+                return;
+            }
+            Ok(Some(tables)) if tables.len() == 1 => {
+                let name = tables[0].name.clone();
+                match reader.read_table(&path, &name) {
+                    Ok(table) => self.apply_loaded_table(path, table),
+                    Err(e) => {
+                        self.status_message = Some((
+                            format!("Error reading table: {e}"),
+                            std::time::Instant::now(),
+                        ));
+                    }
+                }
+                return;
+            }
+            Ok(Some(_)) => {
+                // Empty list — fall through to read_file which will yield a clear error.
+            }
+            Ok(None) => {}
+            Err(e) => {
+                self.status_message = Some((
+                    format!("Error inspecting file: {e}"),
+                    std::time::Instant::now(),
+                ));
+                return;
+            }
+        }
+
+        match reader.read_file(&path) {
+            Ok(table) => self.apply_loaded_table(path, table),
+            Err(e) => {
+                self.status_message = Some((
+                    format!("Error reading file: {}", e),
+                    std::time::Instant::now(),
+                ));
+            }
+        }
+    }
+
+    /// Load a specific named table from a DB-style multi-table source.
+    fn load_table(&mut self, path: std::path::PathBuf, table_name: String) {
+        let reader = match self.registry.reader_for_path(&path) {
+            Some(r) => r,
+            None => return,
+        };
+        match reader.read_table(&path, &table_name) {
+            Ok(table) => self.apply_loaded_table(path, table),
+            Err(e) => {
+                self.status_message = Some((
+                    format!("Error reading table '{table_name}': {e}"),
+                    std::time::Instant::now(),
+                ));
+            }
+        }
+    }
+
+    /// Wire a freshly-loaded `DataTable` into a tab and run all the post-load
+    /// setup (raw-content load, view-mode pick, recent-files update, etc.).
+    fn apply_loaded_table(&mut self, path: std::path::PathBuf, table: DataTable) {
+        // Decide whether to load into current tab or create a new one
+        let current_empty = self.tabs[self.active_tab].table.col_count() == 0
+            && !self.tabs[self.active_tab].is_modified();
+        if !current_empty {
+            let new_tab = TabState::new(self.settings.default_search_mode);
+            self.tabs.push(new_tab);
+            self.active_tab = self.tabs.len() - 1;
+        }
+
+        {
+            let tab = &mut self.tabs[self.active_tab];
+            tab.table = table;
+            tab.table_state = TableViewState::default();
+            tab.search_text.clear();
+            tab.filter_dirty = true;
+            // Set up on-demand loading state for truncated files
+            if tab.table.total_rows.is_some() {
+                let loaded = tab.table.row_count();
+                self.status_message = Some((
+                    format!(
+                        "Loaded {} rows (scroll down to load more)",
+                        ui::status_bar::format_number(loaded)
+                    ),
+                    std::time::Instant::now(),
+                ));
+                tab.bg_can_load_more = true;
+                tab.bg_row_buffer = None;
+                tab.bg_loading_done
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                tab.bg_file_exhausted
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+            } else {
+                self.status_message = None;
+                tab.bg_row_buffer = None;
+                tab.bg_loading_done
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                tab.bg_can_load_more = false;
+                tab.bg_file_exhausted
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
+            }
+            tab.raw_view_formatted = false;
+
+            // Detect and store CSV delimiter (read only first few KB)
+            if tab.table.format_name.as_deref() == Some("CSV") {
+                tab.csv_delimiter = detect_delimiter_from_file(&path);
+            } else if tab.table.format_name.as_deref() == Some("TSV") {
+                tab.csv_delimiter = b'\t';
+            }
+
+            // Load raw content for text-based formats (skip for large files)
+            let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            if file_size <= 500_000_000 {
+                // 500 MB
+                tab.raw_content = std::fs::read_to_string(&path).ok();
+            } else {
+                tab.raw_content = None;
+            }
+            tab.raw_content_modified = false;
+
+            // For PDFs, render pages visually and default to Pdf view
+            tab.pdf_page_images.clear();
+            tab.pdf_textures.clear();
+            tab.pdf_page_texts.clear();
+            if tab.table.format_name.as_deref() == Some("PDF") {
+                match formats::pdf_reader::render_pdf_pages(&path, 2.0) {
+                    Ok((images, texts)) => {
+                        tab.pdf_page_images = images;
+                        tab.pdf_page_texts = texts;
+                        tab.view_mode = ViewMode::Pdf;
+                    }
+                    Err(_) => {
+                        tab.view_mode = ViewMode::Table;
+                    }
+                }
+            } else if tab.table.format_name.as_deref() == Some("Markdown") {
+                tab.view_mode = ViewMode::Markdown;
+            } else if tab.table.format_name.as_deref() == Some("Jupyter Notebook") {
+                tab.view_mode = ViewMode::Notebook;
+            } else if tab.table.format_name.as_deref() == Some("Text") {
+                tab.view_mode = ViewMode::Raw;
+            } else {
+                tab.view_mode = ViewMode::Table;
+            }
+
+            // Default SQL panel open + populate placeholder query with the
+            // user's preferred row limit. Panel is only meaningful in Table view.
+            tab.sql_query = format!(
+                "SELECT * FROM data LIMIT {}",
+                self.settings.sql_default_row_limit
+            );
+            tab.sql_result = None;
+            tab.sql_error = None;
+            tab.sql_panel_open =
+                self.settings.sql_panel_default_open && tab.view_mode == ViewMode::Table;
+
+            // Parse JSON for tree view (JSON and JSONL formats)
+            tab.json_value = None;
+            tab.json_tree_expanded.clear();
+            if matches!(
+                tab.table.format_name.as_deref(),
+                Some("JSON") | Some("JSONL")
+            ) {
+                if let Some(ref content) = tab.raw_content {
+                    tab.json_value = serde_json::from_str(content).ok();
+                }
+            }
+            // Set expand depth to file's max depth
+            tab.json_expand_depth = tab
+                .json_value
+                .as_ref()
+                .map(octa::data::json_util::max_json_depth)
+                .unwrap_or(0);
+            tab.json_expand_depth_str = tab.json_expand_depth.to_string();
+
+            // Track in recent files
+            self.add_recent_file(&path.to_string_lossy());
         }
     }
 
@@ -1403,7 +1505,9 @@ impl eframe::App for OctaApp {
         }
 
         // Ctrl+Plus: zoom in, Ctrl+Minus: zoom out, Ctrl+0: reset zoom
-        if ctrl_held && ctx.input(|i| i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals)) {
+        if ctrl_held
+            && ctx.input(|i| i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals))
+        {
             self.zoom_percent = (self.zoom_percent + 5).min(500);
             self.apply_zoom(ctx);
         }
@@ -1494,9 +1598,15 @@ impl eframe::App for OctaApp {
         let search_active = !self.tabs[self.active_tab].search_text.is_empty();
         let filtered_count = self.tabs[self.active_tab].filtered_rows.len();
 
-        // Top toolbar
+        // Top toolbar — framed in bg_header to avoid the flat egui grey.
+        let header_colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
+        let toolbar_frame = egui::Frame::new()
+            .fill(header_colors.bg_header)
+            .inner_margin(egui::Margin::symmetric(4, 4))
+            .stroke(egui::Stroke::new(1.0, header_colors.border_subtle));
         egui::TopBottomPanel::top("toolbar")
             .exact_height(40.0)
+            .frame(toolbar_frame)
             .show(ctx, |ui| {
                 // Lazily create logo texture
                 if self.logo_texture.is_none() || self.welcome_logo_texture.is_none() {
@@ -1571,6 +1681,7 @@ impl eframe::App for OctaApp {
                     tab.table.format_name.as_deref() == Some("Markdown"),
                     tab.table.format_name.as_deref() == Some("Jupyter Notebook"),
                     tab.json_value.is_some(),
+                    tab.sql_panel_open,
                     self.zoom_percent,
                     self.logo_texture.as_ref(),
                     &self.recent_files,
@@ -1595,10 +1706,8 @@ impl eframe::App for OctaApp {
                     } else {
                         self.recent_files.retain(|p| p != path);
                         self.save_recent_files();
-                        self.status_message = Some((
-                            format!("File not found: {path}"),
-                            std::time::Instant::now(),
-                        ));
+                        self.status_message =
+                            Some((format!("File not found: {path}"), std::time::Instant::now()));
                     }
                 }
                 if action.save_file {
@@ -1647,6 +1756,12 @@ impl eframe::App for OctaApp {
                 // --- View mode change ---
                 if let Some(new_mode) = action.view_mode_changed {
                     self.tabs[self.active_tab].view_mode = new_mode;
+                }
+
+                // --- SQL panel toggle ---
+                if action.toggle_sql_panel {
+                    let tab = &mut self.tabs[self.active_tab];
+                    tab.sql_panel_open = !tab.sql_panel_open;
                 }
 
                 // --- Search actions ---
@@ -1777,8 +1892,13 @@ impl eframe::App for OctaApp {
         // --- Tab bar ---
         if self.tabs.len() > 1 {
             let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
+            let tab_frame = egui::Frame::new()
+                .fill(colors.bg_secondary)
+                .inner_margin(egui::Margin::symmetric(4, 2))
+                .stroke(egui::Stroke::new(1.0, colors.border_subtle));
             egui::TopBottomPanel::top("tab_bar")
                 .exact_height(28.0)
+                .frame(tab_frame)
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
@@ -1809,8 +1929,8 @@ impl eframe::App for OctaApp {
                                     } else {
                                         egui::RichText::new(&label).color(colors.text_secondary)
                                     };
-                                    let tab_label_resp = ui
-                                        .add(egui::Label::new(text).sense(egui::Sense::click()));
+                                    let tab_label_resp =
+                                        ui.add(egui::Label::new(text).sense(egui::Sense::click()));
                                     if tab_label_resp.hovered() {
                                         ctx.set_cursor_icon(egui::CursorIcon::Default);
                                     }
@@ -2178,6 +2298,21 @@ impl eframe::App for OctaApp {
                 });
         }
 
+        // --- Table picker (multi-table DB sources) ---
+        if let Some(state) = self.pending_table_picker.as_mut() {
+            let action = ui::table_picker::render_table_picker(ctx, state);
+            match action {
+                ui::table_picker::TablePickerAction::None => {}
+                ui::table_picker::TablePickerAction::Cancel => {
+                    self.pending_table_picker = None;
+                }
+                ui::table_picker::TablePickerAction::Open(path, table_name) => {
+                    self.pending_table_picker = None;
+                    self.load_table(path, table_name);
+                }
+            }
+        }
+
         // --- Settings dialog ---
         if let Some(new_settings) = self.settings_dialog.show(ctx) {
             let icon_changed = self.settings_dialog.icon_changed;
@@ -2530,9 +2665,15 @@ Open **Help > Settings** to configure:
                 });
         }
 
-        // Bottom status bar
+        // Bottom status bar — share the toolbar's framed look.
+        let status_colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
+        let status_frame = egui::Frame::new()
+            .fill(status_colors.bg_header)
+            .inner_margin(egui::Margin::symmetric(4, 2))
+            .stroke(egui::Stroke::new(1.0, status_colors.border_subtle));
         let status_action = egui::TopBottomPanel::bottom("status_bar")
             .exact_height(28.0)
+            .frame(status_frame)
             .show(ctx, |ui| {
                 ui::status_bar::draw_status_bar(
                     ui,
@@ -2559,6 +2700,60 @@ Open **Help > Settings** to configure:
             tab.table_state.set_scroll_y(row as f32 * row_height);
             let col_left: f32 = tab.table_state.col_widths[..col].iter().sum();
             tab.table_state.set_scroll_x(col_left);
+        }
+
+        // SQL editor + result panel (rendered before CentralPanel so the
+        // table fills the remaining space). Only meaningful while viewing
+        // the table itself — collapse for non-tabular view modes.
+        let sql_panel_visible = {
+            let tab = &self.tabs[self.active_tab];
+            tab.sql_panel_open && tab.table.col_count() > 0 && tab.view_mode == ViewMode::Table
+        };
+        if sql_panel_visible {
+            let position = self.settings.sql_panel_position;
+            let mut sql_action = view_modes::SqlAction::default();
+            match position {
+                ui::settings::SqlPanelPosition::Bottom => {
+                    egui::TopBottomPanel::bottom("sql_panel")
+                        .resizable(true)
+                        .default_height(280.0)
+                        .min_height(140.0)
+                        .show(ctx, |ui| {
+                            sql_action =
+                                view_modes::render_sql_view(ui, &mut self.tabs[self.active_tab]);
+                        });
+                }
+                ui::settings::SqlPanelPosition::Right => {
+                    egui::SidePanel::right("sql_panel")
+                        .resizable(true)
+                        .default_width(440.0)
+                        .min_width(280.0)
+                        .show(ctx, |ui| {
+                            sql_action =
+                                view_modes::render_sql_view(ui, &mut self.tabs[self.active_tab]);
+                        });
+                }
+            }
+            if sql_action.clear {
+                let tab = &mut self.tabs[self.active_tab];
+                tab.sql_result = None;
+                tab.sql_error = None;
+            }
+            if sql_action.run {
+                let tab = &mut self.tabs[self.active_tab];
+                let query = tab.sql_query.clone();
+                let mut snapshot = tab.table.clone();
+                snapshot.apply_edits();
+                match octa::sql::run_query(&snapshot, &query) {
+                    Ok(result) => {
+                        tab.sql_result = Some(result);
+                        tab.sql_error = None;
+                    }
+                    Err(e) => {
+                        tab.sql_error = Some(e.to_string());
+                    }
+                }
+            }
         }
 
         // Central panel: table view or raw text view
@@ -2616,7 +2811,13 @@ Open **Help > Settings** to configure:
 
             // --- Raw text view ---
             if self.tabs[self.active_tab].view_mode == ViewMode::Raw {
-                view_modes::render_raw_view(ui, &mut self.tabs[self.active_tab], self.theme_mode, self.settings.color_aligned_columns, self.settings.tab_size);
+                view_modes::render_raw_view(
+                    ui,
+                    &mut self.tabs[self.active_tab],
+                    self.theme_mode,
+                    self.settings.color_aligned_columns,
+                    self.settings.tab_size,
+                );
                 return;
             }
 

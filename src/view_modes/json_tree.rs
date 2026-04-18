@@ -1,5 +1,5 @@
-use crate::ui;
 use crate::TabState;
+use crate::ui;
 use octa::data::json_util;
 
 use eframe::egui;
@@ -55,8 +55,7 @@ pub fn render_json_tree_view(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: 
             tab.json_expand_depth_str = tab.json_expand_depth.to_string();
         }
         ui.label(format!("/ {file_max_depth}"));
-        let enter_pressed =
-            response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let enter_pressed = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         if ui.button("Apply").clicked() || enter_pressed {
             tab.json_tree_expanded =
                 json_util::collect_json_paths(&value, Some(tab.json_expand_depth));
@@ -111,8 +110,7 @@ pub fn render_json_tree_view(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: 
             let new_value = json_util::parse_json_edit(&tab.json_edit_buffer);
             if let Some(ref mut root) = tab.json_value {
                 if json_util::set_json_value_at_path(root, edit_path, new_value).is_ok() {
-                    tab.raw_content =
-                        Some(serde_json::to_string_pretty(root).unwrap_or_default());
+                    tab.raw_content = Some(serde_json::to_string_pretty(root).unwrap_or_default());
                     tab.raw_content_modified = true;
                 }
             }
@@ -379,11 +377,9 @@ fn render_json_node(
                     };
                     let color = json_value_color(value, colors);
                     let response = ui.add(
-                        egui::Label::new(
-                            RichText::new(display).font(mono.clone()).color(color),
-                        )
-                        .selectable(true)
-                        .sense(egui::Sense::click()),
+                        egui::Label::new(RichText::new(display).font(mono.clone()).color(color))
+                            .selectable(true)
+                            .sense(egui::Sense::click()),
                     );
                     if response.double_clicked() {
                         *edit_path = Some(path.to_string());

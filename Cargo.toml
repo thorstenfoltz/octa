@@ -56,6 +56,8 @@ regex-syntax = "0.8"
 orc-rust = { version = "0.8.0", default-features = false }
 arrow58 = { package = "arrow", version = "58", default-features = false, features = ["prettyprint"] }
 hdf5-reader = "0.2.0"
+rusqlite = { version = "0.32", features = ["bundled"] }
+duckdb = { version = "1", features = ["bundled"] }
 
 [build-dependencies]
 winresource = "0.1"

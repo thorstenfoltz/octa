@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::theme::ThemeMode;
+use super::theme::{BodyFont, ThemeMode};
 use crate::data::{BinaryDisplayMode, SearchMode};
 
 /// Layout for Jupyter notebook output cells.
@@ -20,6 +20,27 @@ impl NotebookOutputLayout {
         match self {
             Self::Beside => "Beside",
             Self::Beneath => "Beneath",
+        }
+    }
+}
+
+/// Where to dock the SQL editor/result panel relative to the table view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SqlPanelPosition {
+    /// Below the table (full width).
+    #[default]
+    Bottom,
+    /// To the right of the table (full height).
+    Right,
+}
+
+impl SqlPanelPosition {
+    pub const ALL: &[SqlPanelPosition] = &[Self::Bottom, Self::Right];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Bottom => "Bottom",
+            Self::Right => "Right",
         }
     }
 }
@@ -154,6 +175,23 @@ pub struct AppSettings {
     /// Number of spaces inserted when pressing Tab in the text editor.
     #[serde(default = "default_tab_size")]
     pub tab_size: usize,
+    /// Body / heading font choice (egui built-in proportional vs monospace).
+    #[serde(default)]
+    pub body_font: BodyFont,
+    /// Optional path to a user-provided .ttf/.otf font. Overrides `body_font`
+    /// for proportional text when set and readable.
+    #[serde(default)]
+    pub custom_font_path: String,
+    /// Whether the SQL panel should be open by default when a tabular file is
+    /// loaded.
+    #[serde(default)]
+    pub sql_panel_default_open: bool,
+    /// Where to dock the SQL panel (Bottom or Right of the table view).
+    #[serde(default)]
+    pub sql_panel_position: SqlPanelPosition,
+    /// Default LIMIT used in the placeholder query for new tabs.
+    #[serde(default = "default_sql_row_limit")]
+    pub sql_default_row_limit: usize,
 }
 
 fn default_true() -> bool {
@@ -166,6 +204,10 @@ fn default_max_recent() -> usize {
 
 fn default_tab_size() -> usize {
     4
+}
+
+fn default_sql_row_limit() -> usize {
+    100
 }
 
 impl Default for AppSettings {
@@ -185,6 +227,11 @@ impl Default for AppSettings {
             notebook_output_layout: NotebookOutputLayout::default(),
             max_recent_files: 5,
             tab_size: 4,
+            body_font: BodyFont::Proportional,
+            custom_font_path: String::new(),
+            sql_panel_default_open: false,
+            sql_panel_position: SqlPanelPosition::default(),
+            sql_default_row_limit: 100,
         }
     }
 }
@@ -262,6 +309,9 @@ pub struct SettingsDialog {
     pub font_changed: bool,
     /// Whether theme changed.
     pub theme_changed: bool,
+    /// Buffer backing the SQL row-limit text input. Parsed into the draft
+    /// on Apply so the user can type freely without drag widgets fighting them.
+    sql_row_limit_buf: String,
 }
 
 impl SettingsDialog {
@@ -271,6 +321,7 @@ impl SettingsDialog {
         self.icon_changed = false;
         self.font_changed = false;
         self.theme_changed = false;
+        self.sql_row_limit_buf = current.sql_default_row_limit.to_string();
         self.open = true;
     }
 
@@ -283,290 +334,389 @@ impl SettingsDialog {
         let mut applied: Option<AppSettings> = None;
 
         egui::Window::new("Settings")
-            .resizable(false)
+            .resizable(true)
             .collapsible(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .min_width(420.0)
+            .min_width(460.0)
+            .default_width(480.0)
+            .default_height(560.0)
+            .min_height(360.0)
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    // ── Appearance ──
-                    ui.label(egui::RichText::new("Appearance").strong().size(13.0));
-                    ui.add_space(4.0);
-                    egui::Grid::new("settings_appearance")
-                        .num_columns(2)
-                        .spacing([16.0, 8.0])
-                        .show(ui, |ui| {
-                            ui.label("Font size:").on_hover_text(
-                                "Base font size for all text in the application",
-                            );
-                            let old_size = self.draft.font_size;
-                            ui.add(
-                                egui::DragValue::new(&mut self.draft.font_size)
-                                    .range(8.0..=32.0)
-                                    .speed(0.25)
-                                    .suffix(" pt"),
-                            );
-                            if self.draft.font_size != old_size {
-                                self.font_changed = true;
-                            }
-                            ui.end_row();
-
-                            ui.label("Default theme:").on_hover_text(
-                                "Theme applied when the application starts",
-                            );
-                            let old_theme = self.draft.default_theme;
-                            egui::ComboBox::from_id_salt("theme_combo")
-                                .selected_text(self.draft.default_theme.label())
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(
-                                        &mut self.draft.default_theme,
-                                        ThemeMode::Light,
-                                        "Light",
-                                    );
-                                    ui.selectable_value(
-                                        &mut self.draft.default_theme,
-                                        ThemeMode::Dark,
-                                        "Dark",
-                                    );
-                                });
-                            if self.draft.default_theme != old_theme {
-                                self.theme_changed = true;
-                            }
-                            ui.end_row();
-
-                            ui.label("Icon color:")
-                                .on_hover_text("Color variant for the application icon");
-                            let old_icon = self.draft.icon_variant;
-                            egui::ComboBox::from_id_salt("icon_combo")
-                                .selected_text(self.draft.icon_variant.label())
-                                .show_ui(ui, |ui| {
-                                    for &variant in IconVariant::ALL {
-                                        let color = variant.preview_color();
-                                        let text =
-                                            egui::RichText::new(variant.label()).color(color);
-                                        ui.selectable_value(
-                                            &mut self.draft.icon_variant,
-                                            variant,
-                                            text,
-                                        );
+                // Pin Apply/Cancel to the bottom so they're always reachable
+                // regardless of how much content the scroll area holds.
+                egui::TopBottomPanel::bottom("settings_buttons")
+                    .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
+                    .show_inside(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if ui.button("Apply").clicked() {
+                                if let Ok(n) = self.sql_row_limit_buf.trim().parse::<usize>() {
+                                    if n >= 1 {
+                                        self.draft.sql_default_row_limit = n;
                                     }
-                                });
-                            if self.draft.icon_variant != old_icon {
-                                self.icon_changed = true;
+                                }
+                                applied = Some(self.draft.clone());
+                                self.open = false;
                             }
-                            ui.end_row();
+                            if ui.button("Cancel").clicked() {
+                                self.open = false;
+                            }
                         });
+                    });
 
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    // ── Table View ──
-                    ui.label(egui::RichText::new("Table View").strong().size(13.0));
-                    ui.add_space(4.0);
-                    egui::Grid::new("settings_table")
-                        .num_columns(2)
-                        .spacing([16.0, 8.0])
-                        .show(ui, |ui| {
-                            ui.label("Show row numbers:")
-                                .on_hover_text("Display row numbers in the leftmost column");
-                            ui.checkbox(&mut self.draft.show_row_numbers, "");
-                            ui.end_row();
-
-                            ui.label("Alternating row colors:").on_hover_text(
-                                "Alternate row background colors for readability",
-                            );
-                            ui.checkbox(&mut self.draft.alternating_row_colors, "");
-                            ui.end_row();
-
-                            ui.label("Negative numbers in red:")
-                                .on_hover_text("Highlight negative numeric values with red text");
-                            ui.checkbox(&mut self.draft.negative_numbers_red, "");
-                            ui.end_row();
-
-                            ui.label("Highlight edited cells:")
-                                .on_hover_text("Show background color on modified cells");
-                            ui.checkbox(&mut self.draft.highlight_edits, "");
-                            ui.end_row();
-
-                            ui.label("Cell line breaks:").on_hover_text(
-                                "Allow long text to wrap onto multiple lines\n\
-                                 within a table cell instead of clipping",
-                            );
-                            ui.checkbox(&mut self.draft.cell_line_breaks, "");
-                            ui.end_row();
-
-                            ui.label("Binary display:").on_hover_text(
-                                "How to show binary data columns\n\
-                                 Binary: raw bits (01000001)\n\
-                                 Hex: hexadecimal (41)\n\
-                                 Text: decode as UTF-8 when possible",
-                            );
-                            egui::ComboBox::from_id_salt("binary_display_combo")
-                                .selected_text(self.draft.binary_display_mode.label())
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(
-                                        &mut self.draft.binary_display_mode,
-                                        BinaryDisplayMode::Binary,
-                                        BinaryDisplayMode::Binary.label(),
-                                    );
-                                    ui.selectable_value(
-                                        &mut self.draft.binary_display_mode,
-                                        BinaryDisplayMode::Hex,
-                                        BinaryDisplayMode::Hex.label(),
-                                    );
-                                    ui.selectable_value(
-                                        &mut self.draft.binary_display_mode,
-                                        BinaryDisplayMode::Text,
-                                        BinaryDisplayMode::Text.label(),
-                                    );
-                                });
-                            ui.end_row();
-                        });
-
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    // ── Search ──
-                    ui.label(egui::RichText::new("Search").strong().size(13.0));
-                    ui.add_space(4.0);
-                    egui::Grid::new("settings_search")
-                        .num_columns(2)
-                        .spacing([16.0, 8.0])
-                        .show(ui, |ui| {
-                            ui.label("Default search mode:")
-                                .on_hover_text("Default search/filter mode for new tabs");
-                            egui::ComboBox::from_id_salt("search_mode_combo")
-                                .selected_text(self.draft.default_search_mode.label())
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(
-                                        &mut self.draft.default_search_mode,
-                                        SearchMode::Plain,
-                                        "Plain",
-                                    );
-                                    ui.selectable_value(
-                                        &mut self.draft.default_search_mode,
-                                        SearchMode::Wildcard,
-                                        "Wildcard",
-                                    );
-                                    ui.selectable_value(
-                                        &mut self.draft.default_search_mode,
-                                        SearchMode::Regex,
-                                        "Regex",
-                                    );
-                                });
-                            ui.end_row();
-                        });
-
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    // ── Editor ──
-                    ui.label(egui::RichText::new("Editor").strong().size(13.0));
-                    ui.add_space(4.0);
-                    egui::Grid::new("settings_editor")
-                        .num_columns(2)
-                        .spacing([16.0, 8.0])
-                        .show(ui, |ui| {
-                            ui.label("Tab size:");
-                            egui::ComboBox::from_id_salt("tab_size_combo")
-                                .selected_text(self.draft.tab_size.to_string())
-                                .width(40.0)
-                                .show_ui(ui, |ui| {
-                                    for n in 1..=16 {
-                                        ui.selectable_value(
-                                            &mut self.draft.tab_size,
-                                            n,
-                                            n.to_string(),
-                                        );
-                                    }
-                                });
-                            ui.end_row();
-                        });
-
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    // ── Format-Specific ──
-                    ui.label(egui::RichText::new("Format-Specific").strong().size(13.0));
-                    ui.add_space(4.0);
-                    egui::Grid::new("settings_format")
-                        .num_columns(2)
-                        .spacing([16.0, 8.0])
-                        .show(ui, |ui| {
-                            ui.label("Color aligned columns:").on_hover_text(
-                                "Color columns in CSV/TSV Raw Text view\n\
-                                 (only applies when 'Align Columns' is enabled)",
-                            );
-                            ui.checkbox(&mut self.draft.color_aligned_columns, "");
-                            ui.end_row();
-
-                            ui.label("Notebook output:").on_hover_text(
-                                "Code output position in Jupyter Notebook view\n\
-                                 (only applies to .ipynb files in Notebook view mode)",
-                            );
-                            egui::ComboBox::from_id_salt("notebook_layout_combo")
-                                .selected_text(self.draft.notebook_output_layout.label())
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(
-                                        &mut self.draft.notebook_output_layout,
-                                        NotebookOutputLayout::Beside,
-                                        "Beside",
-                                    );
-                                    ui.selectable_value(
-                                        &mut self.draft.notebook_output_layout,
-                                        NotebookOutputLayout::Beneath,
-                                        "Beneath",
-                                    );
-                                });
-                            ui.end_row();
-                        });
-
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    // ── Files ──
-                    ui.label(egui::RichText::new("Files").strong().size(13.0));
-                    ui.add_space(4.0);
-                    egui::Grid::new("settings_files")
-                        .num_columns(2)
-                        .spacing([16.0, 8.0])
-                        .show(ui, |ui| {
-                            ui.label("Max recent files:").on_hover_text(
-                                "Number of recently opened files shown in the File menu",
-                            );
-                            egui::ComboBox::from_id_salt("max_recent_combo")
-                                .selected_text(self.draft.max_recent_files.to_string())
-                                .width(50.0)
-                                .show_ui(ui, |ui| {
-                                    for n in 1..=30 {
-                                        ui.selectable_value(
-                                            &mut self.draft.max_recent_files,
-                                            n,
-                                            n.to_string(),
-                                        );
-                                    }
-                                });
-                            ui.end_row();
-                        });
-                });
-
-                ui.add_space(12.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Apply").clicked() {
-                        applied = Some(self.draft.clone());
-                        self.open = false;
-                    }
-                    if ui.button("Cancel").clicked() {
-                        self.open = false;
-                    }
-                });
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::default())
+                    .show_inside(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false; 2])
+                            .show(ui, |ui| {
+                                self.draw_sections(ui);
+                            });
+                    });
             });
 
         applied
+    }
+
+    /// Render the collapsible setting groups inside the scroll area.
+    fn draw_sections(&mut self, ui: &mut egui::Ui) {
+        // ── Appearance (open by default) ──
+        egui::CollapsingHeader::new(egui::RichText::new("Appearance").strong().size(13.0))
+            .id_salt("settings_section_appearance")
+            .default_open(true)
+            .show(ui, |ui| {
+                egui::Grid::new("settings_appearance")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label("Font size:")
+                            .on_hover_text("Base font size for all text in the application");
+                        let old_size = self.draft.font_size;
+                        ui.add(
+                            egui::DragValue::new(&mut self.draft.font_size)
+                                .range(8.0..=32.0)
+                                .speed(0.25)
+                                .suffix(" pt"),
+                        );
+                        if self.draft.font_size != old_size {
+                            self.font_changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label("Default theme:")
+                            .on_hover_text("Theme applied when the application starts");
+                        let old_theme = self.draft.default_theme;
+                        egui::ComboBox::from_id_salt("theme_combo")
+                            .selected_text(self.draft.default_theme.label())
+                            .show_ui(ui, |ui| {
+                                for &preset in ThemeMode::ALL {
+                                    ui.selectable_value(
+                                        &mut self.draft.default_theme,
+                                        preset,
+                                        preset.label(),
+                                    );
+                                }
+                            });
+                        if self.draft.default_theme != old_theme {
+                            self.theme_changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label("Body font:").on_hover_text(
+                            "Font family used for body, button and heading text.\n\
+                                 Monospace gives every character the same width.",
+                        );
+                        let old_body_font = self.draft.body_font;
+                        egui::ComboBox::from_id_salt("body_font_combo")
+                            .selected_text(self.draft.body_font.label())
+                            .show_ui(ui, |ui| {
+                                for &choice in BodyFont::ALL {
+                                    ui.selectable_value(
+                                        &mut self.draft.body_font,
+                                        choice,
+                                        choice.label(),
+                                    );
+                                }
+                            });
+                        if self.draft.body_font != old_body_font {
+                            self.font_changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label("Custom font (.ttf, .otf, .ttc):").on_hover_text(
+                            "Optional path to a TrueType (.ttf), OpenType (.otf),\n\
+                                 or TrueType Collection (.ttc) font file. When set and\n\
+                                 readable, overrides the body font choice for proportional text.\n\
+                                 WOFF/WOFF2 are not supported.",
+                        );
+                        let old_path = self.draft.custom_font_path.clone();
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.draft.custom_font_path)
+                                    .hint_text("(none — .ttf, .otf, or .ttc)")
+                                    .desired_width(220.0),
+                            );
+                            if ui.button("Browse...").clicked() {
+                                if let Some(p) = rfd::FileDialog::new()
+                                    .add_filter("Font (.ttf, .otf, .ttc)", &["ttf", "otf", "ttc"])
+                                    .pick_file()
+                                {
+                                    self.draft.custom_font_path = p.to_string_lossy().into_owned();
+                                }
+                            }
+                            if !self.draft.custom_font_path.is_empty()
+                                && ui.button("Clear").clicked()
+                            {
+                                self.draft.custom_font_path.clear();
+                            }
+                        });
+                        if self.draft.custom_font_path != old_path {
+                            self.font_changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label("Icon color:")
+                            .on_hover_text("Color variant for the application icon");
+                        let old_icon = self.draft.icon_variant;
+                        egui::ComboBox::from_id_salt("icon_combo")
+                            .selected_text(self.draft.icon_variant.label())
+                            .show_ui(ui, |ui| {
+                                for &variant in IconVariant::ALL {
+                                    let color = variant.preview_color();
+                                    let text = egui::RichText::new(variant.label()).color(color);
+                                    ui.selectable_value(
+                                        &mut self.draft.icon_variant,
+                                        variant,
+                                        text,
+                                    );
+                                }
+                            });
+                        if self.draft.icon_variant != old_icon {
+                            self.icon_changed = true;
+                        }
+                        ui.end_row();
+                    });
+            });
+
+        // ── Table View ──
+        egui::CollapsingHeader::new(egui::RichText::new("Table View").strong().size(13.0))
+            .id_salt("settings_section_table")
+            .default_open(true)
+            .show(ui, |ui| {
+                egui::Grid::new("settings_table")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label("Show row numbers:")
+                            .on_hover_text("Display row numbers in the leftmost column");
+                        ui.checkbox(&mut self.draft.show_row_numbers, "");
+                        ui.end_row();
+
+                        ui.label("Alternating row colors:")
+                            .on_hover_text("Alternate row background colors for readability");
+                        ui.checkbox(&mut self.draft.alternating_row_colors, "");
+                        ui.end_row();
+
+                        ui.label("Negative numbers in red:")
+                            .on_hover_text("Highlight negative numeric values with red text");
+                        ui.checkbox(&mut self.draft.negative_numbers_red, "");
+                        ui.end_row();
+
+                        ui.label("Highlight edited cells:")
+                            .on_hover_text("Show background color on modified cells");
+                        ui.checkbox(&mut self.draft.highlight_edits, "");
+                        ui.end_row();
+
+                        ui.label("Cell line breaks:").on_hover_text(
+                            "Allow long text to wrap onto multiple lines\n\
+                             within a table cell instead of clipping",
+                        );
+                        ui.checkbox(&mut self.draft.cell_line_breaks, "");
+                        ui.end_row();
+
+                        ui.label("Binary display:").on_hover_text(
+                            "How to show binary data columns\n\
+                             Binary: raw bits (01000001)\n\
+                             Hex: hexadecimal (41)\n\
+                             Text: decode as UTF-8 when possible",
+                        );
+                        egui::ComboBox::from_id_salt("binary_display_combo")
+                            .selected_text(self.draft.binary_display_mode.label())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.draft.binary_display_mode,
+                                    BinaryDisplayMode::Binary,
+                                    BinaryDisplayMode::Binary.label(),
+                                );
+                                ui.selectable_value(
+                                    &mut self.draft.binary_display_mode,
+                                    BinaryDisplayMode::Hex,
+                                    BinaryDisplayMode::Hex.label(),
+                                );
+                                ui.selectable_value(
+                                    &mut self.draft.binary_display_mode,
+                                    BinaryDisplayMode::Text,
+                                    BinaryDisplayMode::Text.label(),
+                                );
+                            });
+                        ui.end_row();
+                    });
+            });
+
+        // ── Search & Editor ──
+        egui::CollapsingHeader::new(egui::RichText::new("Search & Editor").strong().size(13.0))
+            .id_salt("settings_section_search_editor")
+            .default_open(false)
+            .show(ui, |ui| {
+                egui::Grid::new("settings_search_editor")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label("Default search mode:")
+                            .on_hover_text("Default search/filter mode for new tabs");
+                        egui::ComboBox::from_id_salt("search_mode_combo")
+                            .selected_text(self.draft.default_search_mode.label())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.draft.default_search_mode,
+                                    SearchMode::Plain,
+                                    "Plain",
+                                );
+                                ui.selectable_value(
+                                    &mut self.draft.default_search_mode,
+                                    SearchMode::Wildcard,
+                                    "Wildcard",
+                                );
+                                ui.selectable_value(
+                                    &mut self.draft.default_search_mode,
+                                    SearchMode::Regex,
+                                    "Regex",
+                                );
+                            });
+                        ui.end_row();
+
+                        ui.label("Tab size:")
+                            .on_hover_text("Spaces inserted when pressing Tab in the text editor");
+                        egui::ComboBox::from_id_salt("tab_size_combo")
+                            .selected_text(self.draft.tab_size.to_string())
+                            .width(40.0)
+                            .show_ui(ui, |ui| {
+                                for n in 1..=16 {
+                                    ui.selectable_value(&mut self.draft.tab_size, n, n.to_string());
+                                }
+                            });
+                        ui.end_row();
+                    });
+            });
+
+        // ── File-Specific ──
+        egui::CollapsingHeader::new(egui::RichText::new("File-Specific").strong().size(13.0))
+            .id_salt("settings_section_format")
+            .default_open(false)
+            .show(ui, |ui| {
+                egui::Grid::new("settings_format")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label("Color aligned columns:").on_hover_text(
+                            "Color columns in CSV/TSV Raw Text view\n\
+                             (only applies when 'Align Columns' is enabled)",
+                        );
+                        ui.checkbox(&mut self.draft.color_aligned_columns, "");
+                        ui.end_row();
+
+                        ui.label("Notebook output:").on_hover_text(
+                            "Code output position in Jupyter Notebook view\n\
+                             (only applies to .ipynb files in Notebook view mode)",
+                        );
+                        egui::ComboBox::from_id_salt("notebook_layout_combo")
+                            .selected_text(self.draft.notebook_output_layout.label())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.draft.notebook_output_layout,
+                                    NotebookOutputLayout::Beside,
+                                    "Beside",
+                                );
+                                ui.selectable_value(
+                                    &mut self.draft.notebook_output_layout,
+                                    NotebookOutputLayout::Beneath,
+                                    "Beneath",
+                                );
+                            });
+                        ui.end_row();
+                    });
+            });
+
+        // ── SQL ──
+        egui::CollapsingHeader::new(egui::RichText::new("SQL").strong().size(13.0))
+            .id_salt("settings_section_sql")
+            .default_open(false)
+            .show(ui, |ui| {
+                egui::Grid::new("settings_sql")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label("Open SQL panel by default:").on_hover_text(
+                            "When opening a tabular file, automatically show the\n\
+                             SQL editor alongside the table view.",
+                        );
+                        ui.checkbox(&mut self.draft.sql_panel_default_open, "");
+                        ui.end_row();
+
+                        ui.label("SQL panel position:")
+                            .on_hover_text("Where the SQL editor docks relative to the table");
+                        egui::ComboBox::from_id_salt("sql_panel_position_combo")
+                            .selected_text(self.draft.sql_panel_position.label())
+                            .show_ui(ui, |ui| {
+                                for &pos in SqlPanelPosition::ALL {
+                                    ui.selectable_value(
+                                        &mut self.draft.sql_panel_position,
+                                        pos,
+                                        pos.label(),
+                                    );
+                                }
+                            });
+                        ui.end_row();
+
+                        ui.label("Default row limit:").on_hover_text(
+                            "LIMIT used in the placeholder query when a tab is opened\n\
+                             (e.g. 100 → SELECT * FROM data LIMIT 100).\n\
+                             Type a number — applied on Apply.",
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.sql_row_limit_buf)
+                                .desired_width(80.0)
+                                .hint_text("100"),
+                        );
+                        ui.end_row();
+                    });
+            });
+
+        // ── Files ──
+        egui::CollapsingHeader::new(egui::RichText::new("Files").strong().size(13.0))
+            .id_salt("settings_section_files")
+            .default_open(false)
+            .show(ui, |ui| {
+                egui::Grid::new("settings_files")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label("Max recent files:").on_hover_text(
+                            "Number of recently opened files shown in the File menu",
+                        );
+                        egui::ComboBox::from_id_salt("max_recent_combo")
+                            .selected_text(self.draft.max_recent_files.to_string())
+                            .width(50.0)
+                            .show_ui(ui, |ui| {
+                                for n in 1..=30 {
+                                    ui.selectable_value(
+                                        &mut self.draft.max_recent_files,
+                                        n,
+                                        n.to_string(),
+                                    );
+                                }
+                            });
+                        ui.end_row();
+                    });
+            });
     }
 }
