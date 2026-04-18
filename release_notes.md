@@ -1,9 +1,13 @@
 ## Features
 
-- Add SQLite reader/writer (`.sqlite`, `.sqlite3`, `.db`) with diff-based transactional saves that preserve row identity via `rowid`
-- Add DuckDB reader/writer (`.duckdb`, `.ddb`) using a synthetic `__octa_row_id` column for stable row tracking across saves
-- Add multi-table picker dialog: databases with multiple user tables prompt for selection (with row counts and schema preview); single-table databases auto-open
-- Add SQL Query view: run DuckDB SQL against the active table (exposed as `data`) with Ctrl+Enter; results render in a split pane below the editor
-- Database saves are diff-based and transactional — only changed rows are UPDATEd, new rows INSERTed, removed rows DELETEd; schema changes are rejected to protect downstream consumers
-- Expand settings and theming: SQL panel preferences, body/custom font options, additional theme presets, and refreshed toolbar/status framing
-- Document SQLite, DuckDB, and SQL query support in the README
+- Add customizable keyboard shortcuts: all app actions are bound to user-editable `KeyCombo`s persisted in `settings.toml`; a new Settings panel lets you record, clear, and reset bindings
+- Expand keyboard-driven editing with go-to-cell focus, direct cell edit, row insert/duplicate/delete, case transforms, and view-mode cycling
+- Treat SQL query results as editable table updates rather than display-only output — metadata is preserved where possible, and results can be exported through the normal save pipeline
+- Add confirmation dialogs before destructive reloads (reloading a modified file, disabling raw CSV alignment) to prevent accidental data loss
+- Refresh the Settings UI with a branded header and clearer hover states
+
+## Docs & Install
+
+- README now documents running pre-built binaries directly (no install step); `install.sh` / `install.bat` are reserved for launcher integration or source builds
+- Clarify Windows SmartScreen first-launch warning and `install.bat` behavior (Program Files + Start Menu shortcut, no PATH changes)
+- Safer installer messaging on both platforms
