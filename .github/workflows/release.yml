@@ -42,7 +42,7 @@ jobs:
 
       - name: Build and test
         run: |
-          cargo test --release
+          cargo test
           cargo build --release
 
       - name: Package Linux release
