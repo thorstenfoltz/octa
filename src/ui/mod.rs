@@ -1,3 +1,4 @@
+pub mod directory_tree;
 pub mod settings;
 pub mod shortcuts;
 pub mod status_bar;

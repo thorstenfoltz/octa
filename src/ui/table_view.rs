@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use egui::{Align2, Color32, CursorIcon, RichText, Sense, Ui, Vec2};
 
+use super::shortcuts::{ShortcutAction, Shortcuts};
 use super::status_bar::format_number;
 use super::theme::{ThemeColors, ThemeMode};
 use crate::data::{BinaryDisplayMode, CellValue, DataTable, MarkColor, MarkKey};
@@ -50,6 +51,13 @@ pub struct TableViewState {
     pub edit_col_needs_focus: bool,
     /// Dynamic row number column width (computed from total row count).
     pub row_number_width: f32,
+    /// Cached prefix sums of row heights when cell_line_breaks is on.
+    /// `[i]` = Y offset of display row i; `[row_count]` = total data height.
+    row_y_offsets: Vec<f32>,
+    /// Generation counter — bumped on any change that could affect row heights.
+    row_heights_generation: u64,
+    /// Generation at which the cache was last built.
+    row_heights_cached_generation: u64,
 }
 
 const DEFAULT_ROW_HEIGHT: f32 = 26.0;
@@ -58,6 +66,108 @@ const DEFAULT_COL_WIDTH: f32 = 120.0;
 const MIN_ROW_NUMBER_WIDTH: f32 = 60.0;
 const HEADER_HEIGHT: f32 = 44.0; // taller to fit column index number
 const RESIZE_HANDLE_WIDTH: f32 = 6.0;
+
+/// Scroll vertically so the given display-row index stays visible.
+fn scroll_row_into_view(
+    state: &mut TableViewState,
+    display_idx: usize,
+    row_height: f32,
+    data_area_height: f32,
+    max_scroll_y: f32,
+) {
+    let (row_top, row_bottom) = if state.row_y_offsets.len() > display_idx {
+        let top = state.row_y_offsets[display_idx];
+        let bottom = if display_idx + 1 < state.row_y_offsets.len() {
+            state.row_y_offsets[display_idx + 1]
+        } else {
+            top + row_height
+        };
+        (top, bottom)
+    } else {
+        let top = display_idx as f32 * row_height;
+        (top, top + row_height)
+    };
+    if row_top < state.scroll_y {
+        state.scroll_y = row_top;
+    } else if row_bottom > state.scroll_y + data_area_height {
+        state.scroll_y = row_bottom - data_area_height;
+    }
+    state.scroll_y = state.scroll_y.clamp(0.0, max_scroll_y);
+}
+
+/// Scroll horizontally so the given column index stays visible.
+fn scroll_col_into_view(
+    state: &mut TableViewState,
+    col_idx: usize,
+    view_width: f32,
+    max_scroll_x: f32,
+) {
+    let col_left: f32 = state.col_widths[..col_idx].iter().sum();
+    let col_right = col_left
+        + state
+            .col_widths
+            .get(col_idx)
+            .copied()
+            .unwrap_or(DEFAULT_COL_WIDTH);
+    if col_left < state.scroll_x {
+        state.scroll_x = col_left;
+    } else if col_right > state.scroll_x + (view_width - state.row_number_width) {
+        state.scroll_x = col_right - (view_width - state.row_number_width);
+    }
+    state.scroll_x = state.scroll_x.clamp(0.0, max_scroll_x);
+}
+
+/// Binary search in prefix-sum array to find the row containing a given scroll offset.
+fn row_at_offset(offsets: &[f32], scroll_y: f32) -> usize {
+    let mut lo = 0usize;
+    let mut hi = offsets.len().saturating_sub(2);
+    while lo < hi {
+        let mid = lo + (hi - lo + 1) / 2;
+        if offsets[mid] <= scroll_y {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    lo
+}
+
+/// Rebuild the prefix-sum of row heights if the cache is stale.
+fn ensure_row_y_offsets(
+    ui: &Ui,
+    state: &mut TableViewState,
+    table: &DataTable,
+    filtered_rows: &[usize],
+    font_size: f32,
+    base_row_height: f32,
+    binary_display_mode: BinaryDisplayMode,
+) {
+    if state.row_heights_cached_generation == state.row_heights_generation
+        && state.row_y_offsets.len() == filtered_rows.len() + 1
+    {
+        return;
+    }
+    let col_widths = state.col_widths.clone();
+    let mut offsets = Vec::with_capacity(filtered_rows.len() + 1);
+    offsets.push(0.0);
+    let mut cumulative = 0.0f32;
+    for &actual_row in filtered_rows {
+        let h = compute_row_height(
+            ui,
+            table,
+            actual_row,
+            &col_widths,
+            font_size,
+            base_row_height,
+            binary_display_mode,
+        );
+        cumulative += h;
+        offsets.push(cumulative);
+    }
+    state.row_y_offsets = offsets;
+    state.row_heights_cached_generation = state.row_heights_generation;
+}
+
 const SORT_ARROW_SIZE: f32 = 14.0;
 const COL_INDEX_HEIGHT: f32 = 12.0; // space for the column index letter at top
 
@@ -97,7 +207,15 @@ impl TableViewState {
                 self.col_widths[i] = max_width.max(MIN_COL_WIDTH);
             }
             self.widths_initialized = true;
+            self.invalidate_row_heights();
         }
+    }
+
+    /// Mark the row-height cache as stale. Call after any change that could
+    /// affect row heights: cell edits, column resize, data load, sort, filter,
+    /// zoom, undo/redo, row insert/delete.
+    pub fn invalidate_row_heights(&mut self) {
+        self.row_heights_generation = self.row_heights_generation.wrapping_add(1);
     }
 
     /// Set the vertical scroll offset (used for navigation).
@@ -177,6 +295,7 @@ pub fn draw_table(
     cell_line_breaks: bool,
     binary_display_mode: BinaryDisplayMode,
     welcome_logo_texture: Option<&egui::TextureHandle>,
+    shortcuts: &Shortcuts,
 ) -> TableInteraction {
     let colors = ThemeColors::for_mode(theme_mode);
     let row_height = (font_size * 2.0).max(DEFAULT_ROW_HEIGHT);
@@ -211,133 +330,231 @@ pub fn draw_table(
         return interaction;
     }
 
-    let total_col_width: f32 = state.row_number_width + state.col_widths.iter().sum::<f32>();
+    let total_col_width: f32 =
+        state.row_number_width + state.col_widths.iter().sum::<f32>() + RESIZE_HANDLE_WIDTH;
     let row_count = filtered_rows.len();
-    let total_data_height = row_count as f32 * row_height;
-    let total_content_height = HEADER_HEIGHT + 1.0 + total_data_height + 8.0;
 
     let available_rect = ui.available_rect_before_wrap();
     let view_width = available_rect.width();
     let view_height = available_rect.height();
+
+    let total_data_height = if cell_line_breaks {
+        ensure_row_y_offsets(
+            ui, state, table, filtered_rows, font_size, row_height, binary_display_mode,
+        );
+        state.row_y_offsets[row_count]
+    } else {
+        state.row_y_offsets.clear();
+        row_count as f32 * row_height
+    };
+
+    // When the vertical scrollbar is visible it sits at the right edge of the
+    // panel and occludes the last ~12 px of column data. Account for its width
+    // so that the user can scroll far enough right to reveal the last column.
+    let vscroll_visible = total_data_height + HEADER_HEIGHT + 1.0 > view_height;
+    let vscroll_width = if vscroll_visible { 12.0 } else { 0.0 };
+
+    // When the horizontal scrollbar is visible it sits at the bottom of the
+    // panel and would otherwise paint over the last data row. Reserve its
+    // footprint here so the data area shrinks accordingly and `max_scroll_y`
+    // lands the last row exactly above the scrollbar — no slack, no clipping.
+    let horizontal_scrollbar_visible = total_col_width > view_width - vscroll_width;
+    let horizontal_scrollbar_height = if horizontal_scrollbar_visible { 11.0 } else { 0.0 };
+    let total_content_height =
+        HEADER_HEIGHT + 1.0 + total_data_height + horizontal_scrollbar_height;
 
     // Handle scroll input and keyboard shortcuts
     ui.input(|input| {
         let scroll_delta = input.smooth_scroll_delta;
         state.scroll_y = (state.scroll_y - scroll_delta.y)
             .clamp(0.0, (total_content_height - view_height).max(0.0));
-        state.scroll_x =
-            (state.scroll_x - scroll_delta.x).clamp(0.0, (total_col_width - view_width).max(0.0));
+        state.scroll_x = (state.scroll_x - scroll_delta.x)
+            .clamp(0.0, (total_col_width + vscroll_width - view_width).max(0.0));
     });
 
-    // Arrow key navigation: move selected cell and auto-scroll into view
-    if state.editing_cell.is_none() {
+    // Arrow key navigation: move selected cell and auto-scroll into view.
+    //
+    // Key layout (defaults; all remappable via Settings → Shortcuts):
+    //   Arrow           — move the selection by one cell
+    //   Shift+Arrow     — extend the row range from the anchor
+    //   Ctrl+Shift+↑/↓  — jump to first/last row
+    //   Ctrl+Shift+←/→  — jump to first/last column
+    //   Ctrl+↑/↓        — when whole row(s) are selected, grow the row
+    //                     selection by one above/below
+    //   Ctrl+←/→        — when whole column(s) are selected, grow the column
+    //                     selection by one to the left/right
+    let any_text_edit_focused = ui
+        .ctx()
+        .memory(|m| m.focused())
+        .and_then(|id| egui::TextEdit::load_state(ui.ctx(), id).map(|_| ()))
+        .is_some();
+    if state.editing_cell.is_none() && !any_text_edit_focused {
         let max_scroll_y = (total_content_height - view_height).max(0.0);
-        let max_scroll_x = (total_col_width - view_width).max(0.0);
-        let data_area_height = view_height - HEADER_HEIGHT - 1.0;
+        let max_scroll_x = (total_col_width + vscroll_width - view_width).max(0.0);
+        let data_area_height =
+            (view_height - HEADER_HEIGHT - 1.0 - horizontal_scrollbar_height).max(0.0);
 
-        let ctrl = ui.input(|i| i.modifiers.ctrl || i.modifiers.mac_cmd);
-        let shift = ui.input(|i| i.modifiers.shift);
-        let arrow_up = ui.input(|i| i.key_pressed(egui::Key::ArrowUp));
-        let arrow_down = ui.input(|i| i.key_pressed(egui::Key::ArrowDown));
-        let arrow_left = ui.input(|i| i.key_pressed(egui::Key::ArrowLeft));
-        let arrow_right = ui.input(|i| i.key_pressed(egui::Key::ArrowRight));
+        let triggered = |a: ShortcutAction| ui.input(|i| shortcuts.triggered(a, i));
+        let jump_first_row = triggered(ShortcutAction::JumpFirstRow);
+        let jump_last_row = triggered(ShortcutAction::JumpLastRow);
+        let jump_first_col = triggered(ShortcutAction::JumpFirstCol);
+        let jump_last_col = triggered(ShortcutAction::JumpLastCol);
+        let ext_up = triggered(ShortcutAction::ExtendSelectionUp);
+        let ext_down = triggered(ShortcutAction::ExtendSelectionDown);
+        let ext_left = triggered(ShortcutAction::ExtendSelectionLeft);
+        let ext_right = triggered(ShortcutAction::ExtendSelectionRight);
 
-        // Ctrl+Arrow: jump to first/last row or column (like Excel/Sheets).
-        // Ctrl wins over Shift — Ctrl+Shift+Arrow still jumps, no range select.
-        let jump_first_row = ctrl && arrow_up;
-        let jump_last_row = ctrl && arrow_down;
-        let jump_first_col = ctrl && arrow_left;
-        let jump_last_col = ctrl && arrow_right;
+        // Handle "extend row/column selection by one" first: this only applies
+        // when whole rows or whole columns are already selected. Returns true
+        // if consumed so the plain-arrow handler below doesn't also fire.
+        let row_block_selected = !state.selected_rows.is_empty() && state.selected_cols.is_empty();
+        let col_block_selected = !state.selected_cols.is_empty() && state.selected_rows.is_empty();
 
-        if arrow_up || arrow_down || arrow_left || arrow_right {
-            let row_count = filtered_rows.len();
-            let col_count = table.col_count();
-            let (cur_row, cur_col) = state.selected_cell.unwrap_or((0, 0));
+        let mut handled = false;
 
-            // Find display index for current row
-            let cur_display = filtered_rows
+        if row_block_selected && (ext_up || ext_down) {
+            let displays: Vec<usize> = filtered_rows
                 .iter()
-                .position(|&r| r == cur_row)
-                .unwrap_or(0);
-
-            let mut new_display = cur_display;
-            let mut new_col = cur_col;
-
-            if jump_first_row {
-                new_display = 0;
-            } else if jump_last_row {
-                new_display = row_count.saturating_sub(1);
-            } else if arrow_up && cur_display > 0 {
-                new_display = cur_display - 1;
-            } else if arrow_down && cur_display + 1 < row_count {
-                new_display = cur_display + 1;
-            }
-            if jump_first_col {
-                new_col = 0;
-            } else if jump_last_col {
-                new_col = col_count.saturating_sub(1);
-            } else if arrow_left && cur_col > 0 {
-                new_col = cur_col - 1;
-            } else if arrow_right && cur_col + 1 < col_count {
-                new_col = cur_col + 1;
-            }
-
-            let new_row = filtered_rows[new_display];
-            state.selected_cell = Some((new_row, new_col));
-
-            // Shift + vertical arrow extends row selection from the anchor.
-            // Ctrl overrides this (Ctrl+Arrow is jump-to-edge).
-            let extending_rows = shift && !ctrl && (arrow_up || arrow_down);
-            if extending_rows {
-                let anchor = *state.selection_anchor_display.get_or_insert(cur_display);
-                let (lo, hi) = if anchor <= new_display {
-                    (anchor, new_display)
-                } else {
-                    (new_display, anchor)
-                };
-                state.selected_rows.clear();
-                for d in lo..=hi {
-                    if let Some(&r) = filtered_rows.get(d) {
-                        state.selected_rows.insert(r);
+                .enumerate()
+                .filter_map(|(d, r)| {
+                    if state.selected_rows.contains(r) {
+                        Some(d)
+                    } else {
+                        None
                     }
+                })
+                .collect();
+            if !displays.is_empty() {
+                let new_display = if ext_up {
+                    displays.iter().copied().min().unwrap().saturating_sub(1)
+                } else {
+                    (displays.iter().copied().max().unwrap() + 1).min(filtered_rows.len() - 1)
+                };
+                if let Some(&new_row) = filtered_rows.get(new_display) {
+                    state.selected_rows.insert(new_row);
+                    let col = state.selected_cell.map(|(_, c)| c).unwrap_or(0);
+                    state.selected_cell = Some((new_row, col));
+                    scroll_row_into_view(
+                        state,
+                        new_display,
+                        row_height,
+                        data_area_height,
+                        max_scroll_y,
+                    );
                 }
-                state.selected_cols.clear();
-            } else {
-                state.selection_anchor_display = None;
-                state.selected_rows.clear();
-                state.selected_cols.clear();
+                handled = true;
             }
+        }
 
-            // Auto-scroll vertically to keep the selected row visible
-            let row_top = new_display as f32 * row_height;
-            let row_bottom = row_top + row_height;
-            if row_top < state.scroll_y {
-                state.scroll_y = row_top;
-            } else if row_bottom > state.scroll_y + data_area_height {
-                state.scroll_y = row_bottom - data_area_height;
+        if col_block_selected && (ext_left || ext_right) {
+            let cols: Vec<usize> = state.selected_cols.iter().copied().collect();
+            if !cols.is_empty() {
+                let col_count = table.col_count();
+                let new_col = if ext_left {
+                    cols.iter().copied().min().unwrap().saturating_sub(1)
+                } else {
+                    (cols.iter().copied().max().unwrap() + 1).min(col_count.saturating_sub(1))
+                };
+                state.selected_cols.insert(new_col);
+                let row = state.selected_cell.map(|(r, _)| r).unwrap_or(0);
+                state.selected_cell = Some((row, new_col));
+                scroll_col_into_view(state, new_col, view_width, max_scroll_x);
+                handled = true;
             }
-            state.scroll_y = state.scroll_y.clamp(0.0, max_scroll_y);
+        }
 
-            // Auto-scroll horizontally to keep the selected column visible
-            let col_left: f32 = state.col_widths[..new_col].iter().sum();
-            let col_right = col_left
-                + state
-                    .col_widths
-                    .get(new_col)
-                    .copied()
-                    .unwrap_or(DEFAULT_COL_WIDTH);
-            if col_left < state.scroll_x {
-                state.scroll_x = col_left;
-            } else if col_right > state.scroll_x + (view_width - state.row_number_width) {
-                state.scroll_x = col_right - (view_width - state.row_number_width);
+        if !handled {
+            let shift = ui.input(|i| i.modifiers.shift);
+            // Raw arrow keys (no modifiers, or Shift for row-range extension).
+            // Guard against Ctrl — Ctrl+Arrow is handled via the extend-row /
+            // extend-column shortcuts above; plain arrows must not also fire
+            // when Ctrl is held, otherwise we'd both grow and move the cell.
+            let no_ctrl = ui.input(|i| !(i.modifiers.ctrl || i.modifiers.mac_cmd));
+            let arrow_up = no_ctrl && ui.input(|i| i.key_pressed(egui::Key::ArrowUp));
+            let arrow_down = no_ctrl && ui.input(|i| i.key_pressed(egui::Key::ArrowDown));
+            let arrow_left = no_ctrl && ui.input(|i| i.key_pressed(egui::Key::ArrowLeft));
+            let arrow_right = no_ctrl && ui.input(|i| i.key_pressed(egui::Key::ArrowRight));
+
+            if arrow_up
+                || arrow_down
+                || arrow_left
+                || arrow_right
+                || jump_first_row
+                || jump_last_row
+                || jump_first_col
+                || jump_last_col
+            {
+                let row_count = filtered_rows.len();
+                let col_count = table.col_count();
+                let (cur_row, cur_col) = state.selected_cell.unwrap_or((0, 0));
+
+                let cur_display = filtered_rows
+                    .iter()
+                    .position(|&r| r == cur_row)
+                    .unwrap_or(0);
+
+                let mut new_display = cur_display;
+                let mut new_col = cur_col;
+
+                if jump_first_row {
+                    new_display = 0;
+                } else if jump_last_row {
+                    new_display = row_count.saturating_sub(1);
+                } else if arrow_up && cur_display > 0 {
+                    new_display = cur_display - 1;
+                } else if arrow_down && cur_display + 1 < row_count {
+                    new_display = cur_display + 1;
+                }
+                if jump_first_col {
+                    new_col = 0;
+                } else if jump_last_col {
+                    new_col = col_count.saturating_sub(1);
+                } else if arrow_left && cur_col > 0 {
+                    new_col = cur_col - 1;
+                } else if arrow_right && cur_col + 1 < col_count {
+                    new_col = cur_col + 1;
+                }
+
+                if let Some(&new_row) = filtered_rows.get(new_display) {
+                    state.selected_cell = Some((new_row, new_col));
+
+                    let extending_rows = shift && (arrow_up || arrow_down);
+                    if extending_rows {
+                        let anchor = *state.selection_anchor_display.get_or_insert(cur_display);
+                        let (lo, hi) = if anchor <= new_display {
+                            (anchor, new_display)
+                        } else {
+                            (new_display, anchor)
+                        };
+                        state.selected_rows.clear();
+                        for d in lo..=hi {
+                            if let Some(&r) = filtered_rows.get(d) {
+                                state.selected_rows.insert(r);
+                            }
+                        }
+                        state.selected_cols.clear();
+                    } else {
+                        state.selection_anchor_display = None;
+                        state.selected_rows.clear();
+                        state.selected_cols.clear();
+                    }
+
+                    scroll_row_into_view(
+                        state,
+                        new_display,
+                        row_height,
+                        data_area_height,
+                        max_scroll_y,
+                    );
+                    scroll_col_into_view(state, new_col, view_width, max_scroll_x);
+                }
             }
-            state.scroll_x = state.scroll_x.clamp(0.0, max_scroll_x);
         }
     }
 
     // Ctrl+C / Ctrl+V / Ctrl+Z / Ctrl+Y
     // Use consume_key to prevent egui from handling these shortcuts itself
-    if state.editing_cell.is_none() {
+    if state.editing_cell.is_none() && !any_text_edit_focused {
         let cmd = egui::Modifiers::COMMAND;
         if ui.input_mut(|i| i.consume_key(cmd, egui::Key::C)) {
             interaction.ctx_copy = true;
@@ -401,38 +618,39 @@ pub fn draw_table(
 
     // --- Visible row range ---
     let data_area_top = header_bottom + 1.0;
-    let data_area_height = panel_rect.bottom() - data_area_top;
+    let data_area_height = (panel_rect.bottom() - data_area_top - horizontal_scrollbar_height)
+        .max(0.0);
+    let data_area_bottom = data_area_top + data_area_height;
 
-    let data_clip_rect =
-        egui::Rect::from_min_max(egui::pos2(panel_rect.left(), data_area_top), panel_rect.max);
+    let data_clip_rect = egui::Rect::from_min_max(
+        egui::pos2(panel_rect.left(), data_area_top),
+        egui::pos2(panel_rect.right(), data_area_bottom),
+    );
     let data_painter = painter.with_clip_rect(data_clip_rect);
 
-    let first_visible = (state.scroll_y / row_height).floor() as usize;
+    let (first_visible, first_visible_offset) = if cell_line_breaks && !state.row_y_offsets.is_empty() {
+        let idx = row_at_offset(&state.row_y_offsets, state.scroll_y);
+        (idx, state.row_y_offsets[idx])
+    } else {
+        let idx = (state.scroll_y / row_height).floor() as usize;
+        (idx, idx as f32 * row_height)
+    };
     let visible_count = (data_area_height / row_height).ceil() as usize + 2;
     let last_visible = (first_visible + visible_count).min(row_count);
 
-    // When cell_line_breaks is on, compute actual row heights and accumulate positions
-    let mut current_y = data_area_top + (first_visible as f32 * row_height) - state.scroll_y;
+    let mut current_y = data_area_top + first_visible_offset - state.scroll_y;
 
     #[allow(clippy::needless_range_loop)]
     for display_idx in first_visible..last_visible {
         let actual_row = filtered_rows[display_idx];
 
-        let actual_row_height = if cell_line_breaks {
-            compute_row_height(
-                ui,
-                table,
-                actual_row,
-                state,
-                font_size,
-                row_height,
-                binary_display_mode,
-            )
+        let actual_row_height = if cell_line_breaks && display_idx + 1 < state.row_y_offsets.len() {
+            state.row_y_offsets[display_idx + 1] - state.row_y_offsets[display_idx]
         } else {
             row_height
         };
 
-        if current_y + actual_row_height >= data_area_top && current_y <= panel_rect.bottom() {
+        if current_y + actual_row_height >= data_area_top && current_y <= data_area_bottom {
             draw_data_row_direct(
                 ui,
                 &data_painter,
@@ -511,7 +729,7 @@ pub fn draw_table(
     }
 
     // --- Horizontal scrollbar ---
-    if total_col_width > view_width {
+    if horizontal_scrollbar_visible {
         let scrollbar_height = 10.0;
         let scrollbar_y = panel_rect.bottom() - scrollbar_height - 1.0;
         let scrollbar_track_left = panel_rect.left();
@@ -523,9 +741,10 @@ pub fn draw_table(
         );
         painter.rect_filled(track_rect, scrollbar_height / 2.0, colors.scrollbar_track);
 
-        let thumb_fraction = view_width / total_col_width;
+        let effective_width = view_width - vscroll_width;
+        let thumb_fraction = effective_width / total_col_width;
         let thumb_width = (thumb_fraction * scrollbar_track_width).max(24.0);
-        let max_scroll = total_col_width - view_width;
+        let max_scroll = (total_col_width + vscroll_width - view_width).max(0.0);
         let thumb_offset = if max_scroll > 0.0 {
             (state.scroll_x / max_scroll) * (scrollbar_track_width - thumb_width)
         } else {
@@ -1026,6 +1245,7 @@ fn draw_header_direct(
 
             if resize_response.drag_stopped() {
                 state.resizing_col = None;
+                state.invalidate_row_heights();
             }
         }
 
@@ -1219,6 +1439,7 @@ fn draw_data_row_direct(
                         };
                         if new_val != *old_val {
                             table.set(actual_row, col_idx, new_val);
+                            state.invalidate_row_heights();
                         }
                     }
                     state.editing_cell = None;
@@ -1501,7 +1722,7 @@ fn compute_row_height(
     ui: &Ui,
     table: &DataTable,
     actual_row: usize,
-    state: &TableViewState,
+    col_widths: &[f32],
     font_size: f32,
     base_row_height: f32,
     binary_display_mode: BinaryDisplayMode,
@@ -1511,8 +1732,7 @@ fn compute_row_height(
     for col_idx in 0..table.col_count() {
         if let Some(value) = table.get(actual_row, col_idx) {
             let text = value.display_with_binary_mode(binary_display_mode);
-            let col_width = state
-                .col_widths
+            let col_width = col_widths
                 .get(col_idx)
                 .copied()
                 .unwrap_or(DEFAULT_COL_WIDTH);

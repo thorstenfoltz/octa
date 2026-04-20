@@ -209,8 +209,10 @@ pub fn render_raw_view(
                     ui.add_space(4.0);
                     // Text editor (no wrapping — scroll horizontally)
                     // lock_focus(true) prevents Tab from navigating to other widgets
+                    let editor_id = egui::Id::new("raw_text_editor");
                     let mut output = if use_col_colors {
                         egui::TextEdit::multiline(content)
+                            .id(editor_id)
                             .font(mono_font)
                             .desired_width(f32::INFINITY)
                             .lock_focus(true)
@@ -218,6 +220,7 @@ pub fn render_raw_view(
                             .show(ui)
                     } else {
                         egui::TextEdit::multiline(content)
+                            .id(editor_id)
                             .font(mono_font)
                             .desired_width(f32::INFINITY)
                             .lock_focus(true)

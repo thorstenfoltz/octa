@@ -1,4 +1,4 @@
-use egui::{Align, Layout, RichText, Ui};
+use egui::{RichText, Ui};
 
 use super::theme::{ThemeColors, ThemeMode};
 use crate::data::{SearchMode, ViewMode};
@@ -7,6 +7,8 @@ use crate::data::{SearchMode, ViewMode};
 pub struct ToolbarAction {
     pub new_file: bool,
     pub open_file: bool,
+    pub open_directory: bool,
+    pub close_directory: bool,
     pub open_recent: Option<String>,
     pub save_file: bool,
     pub save_file_as: bool,
@@ -64,6 +66,7 @@ pub fn draw_toolbar(
     zoom_percent: u32,
     logo_texture: Option<&egui::TextureHandle>,
     recent_files: &[String],
+    directory_tree_open: bool,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::default();
     let colors = ThemeColors::for_mode(theme_mode);
@@ -94,6 +97,14 @@ pub fn draw_toolbar(
             }
             if ui.button("Open...").clicked() {
                 action.open_file = true;
+                ui.close_menu();
+            }
+            if ui.button("Open Directory...").clicked() {
+                action.open_directory = true;
+                ui.close_menu();
+            }
+            if directory_tree_open && ui.button("Close Directory").clicked() {
+                action.close_directory = true;
                 ui.close_menu();
             }
             if has_data {
@@ -426,22 +437,6 @@ pub fn draw_toolbar(
                 }
             }
         }
-
-        // Right-aligned: theme toggle
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.add_space(4.0);
-            let toggle_text = format!(
-                "{} {}",
-                theme_mode.toggle().icon(),
-                theme_mode.toggle().label()
-            );
-            if ui
-                .button(RichText::new(toggle_text).color(colors.text_secondary))
-                .clicked()
-            {
-                action.toggle_theme = true;
-            }
-        });
     });
 
     action

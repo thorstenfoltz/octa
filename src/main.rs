@@ -95,7 +95,7 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([3840.0, 2160.0])
+            .with_inner_size(settings.window_size.dimensions())
             .with_min_inner_size([800.0, 600.0])
             .with_maximized(true)
             .with_title(&title)
@@ -179,6 +179,12 @@ struct TabState {
     sql_error: Option<String>,
     /// Whether the SQL panel is currently visible alongside the table view.
     sql_panel_open: bool,
+    /// Autocomplete popup: currently highlighted suggestion index (clamped
+    /// to the live suggestion list each frame).
+    sql_ac_selected: usize,
+    /// Autocomplete popup: set to `false` by Escape to hide the popup until
+    /// the user types again. Reset to `true` on any text change.
+    sql_ac_visible: bool,
 }
 
 impl TabState {
@@ -218,10 +224,12 @@ impl TabState {
             insert_col_at: None,
             show_delete_columns_dialog: false,
             delete_col_selection: Vec::new(),
-            sql_query: String::from("SELECT * FROM data LIMIT 100"),
+            sql_query: String::new(),
             sql_result: None,
             sql_error: None,
             sql_panel_open: false,
+            sql_ac_selected: 0,
+            sql_ac_visible: true,
         }
     }
 
@@ -295,6 +303,8 @@ struct OctaApp {
     show_reload_confirm: bool,
     /// Pending modal table picker (DB sources containing multiple tables).
     pending_table_picker: Option<ui::table_picker::TablePickerState>,
+    /// Currently opened directory tree sidebar (`None` = sidebar hidden).
+    directory_tree: Option<ui::directory_tree::DirectoryTreeState>,
 }
 
 /// Detect delimiter from a file by reading only the first few KB.
@@ -495,6 +505,7 @@ impl OctaApp {
             nav_focus_requested: false,
             show_reload_confirm: false,
             pending_table_picker: None,
+            directory_tree: None,
         }
     }
 
@@ -887,12 +898,9 @@ impl OctaApp {
                 tab.view_mode = ViewMode::Table;
             }
 
-            // Default SQL panel open + populate placeholder query with the
-            // user's preferred row limit. Panel is only meaningful in Table view.
-            tab.sql_query = format!(
-                "SELECT * FROM data LIMIT {}",
-                self.settings.sql_default_row_limit
-            );
+            // Default SQL panel open; query starts empty so the placeholder
+            // hint is shown. Panel is only meaningful in Table view.
+            tab.sql_query.clear();
             tab.sql_result = None;
             tab.sql_error = None;
             tab.sql_panel_open =
@@ -1453,6 +1461,7 @@ impl OctaApp {
                 .collect();
         }
         tab.filter_dirty = false;
+        tab.table_state.invalidate_row_heights();
     }
 
     /// Replace the next matching cell value (starting after the current selection).
@@ -1706,7 +1715,15 @@ impl eframe::App for OctaApp {
                 }
             }
         }
+        // Only select all table rows when no TextEdit has focus — otherwise
+        // Ctrl+A should scope to the text editor (SQL, raw, search bars, etc.)
+        // and leave the table alone.
+        let text_edit_focused = ctx
+            .memory(|m| m.focused())
+            .and_then(|id| egui::TextEdit::load_state(ctx, id).map(|_| ()))
+            .is_some();
         if action_fired(SA::SelectAllRows)
+            && !text_edit_focused
             && self.tabs[self.active_tab].table.col_count() > 0
             && self.tabs[self.active_tab].table.row_count() > 0
         {
@@ -1718,6 +1735,14 @@ impl eframe::App for OctaApp {
                     .selected_rows
                     .insert(r);
             }
+        }
+        if action_fired(SA::ExportSqlResult)
+            && self.tabs[self.active_tab]
+                .sql_result
+                .as_ref()
+                .is_some_and(|t| t.col_count() > 0)
+        {
+            self.export_sql_result();
         }
 
         // ZoomIn also accepts Ctrl+Equals in addition to the user's binding —
@@ -1732,21 +1757,63 @@ impl eframe::App for OctaApp {
         if action_fired(SA::ZoomIn) || zoom_equals_fallback {
             self.zoom_percent = (self.zoom_percent + 5).min(500);
             self.apply_zoom(ctx);
+            self.tabs[self.active_tab].table_state.invalidate_row_heights();
         }
         if action_fired(SA::ZoomOut) {
             self.zoom_percent = self.zoom_percent.saturating_sub(5).max(25);
             self.apply_zoom(ctx);
+            self.tabs[self.active_tab].table_state.invalidate_row_heights();
         }
         if action_fired(SA::ZoomReset) {
             self.zoom_percent = 100;
             self.apply_zoom(ctx);
+            self.tabs[self.active_tab].table_state.invalidate_row_heights();
         }
 
-        if action_fired(SA::LowercaseSelection) {
-            self.transform_selected_cells(str::to_lowercase);
-        }
-        if action_fired(SA::UppercaseSelection) {
-            self.transform_selected_cells(str::to_uppercase);
+        let lower_fired = action_fired(SA::LowercaseSelection);
+        let upper_fired = action_fired(SA::UppercaseSelection);
+        if lower_fired || upper_fired {
+            let op = if upper_fired {
+                view_modes::text_ops::CaseOp::Upper
+            } else {
+                view_modes::text_ops::CaseOp::Lower
+            };
+            // Consume the key press so built-in TextEdit bindings (e.g. egui's
+            // Ctrl+U = delete-to-start-of-line, which ignores Alt) don't also
+            // fire on the same event.
+            let combo = self.settings.shortcuts.combo(if upper_fired {
+                SA::UppercaseSelection
+            } else {
+                SA::LowercaseSelection
+            });
+            if let Some(key) = combo.key {
+                let modifiers = egui::Modifiers {
+                    alt: combo.alt,
+                    ctrl: combo.ctrl,
+                    shift: combo.shift,
+                    mac_cmd: false,
+                    command: combo.ctrl,
+                };
+                ctx.input_mut(|i| i.consume_key(modifiers, key));
+            }
+            let sql_id = view_modes::sql_editor_id();
+            let raw_id = egui::Id::new("raw_text_editor");
+            let focused = ctx.memory(|m| m.focused());
+            if focused == Some(sql_id) {
+                let tab = &mut self.tabs[self.active_tab];
+                view_modes::text_ops::apply_case_to_selection(ctx, sql_id, &mut tab.sql_query, op);
+            } else if focused == Some(raw_id) {
+                let tab = &mut self.tabs[self.active_tab];
+                if let Some(ref mut content) = tab.raw_content {
+                    if view_modes::text_ops::apply_case_to_selection(ctx, raw_id, content, op) {
+                        tab.raw_content_modified = true;
+                    }
+                }
+            } else if lower_fired {
+                self.transform_selected_cells(str::to_lowercase);
+            } else {
+                self.transform_selected_cells(str::to_uppercase);
+            }
         }
         if action_fired(SA::SaveFileAs)
             && (self.tabs[self.active_tab].table.col_count() > 0
@@ -1966,6 +2033,7 @@ impl eframe::App for OctaApp {
                     self.zoom_percent,
                     self.logo_texture.as_ref(),
                     &self.recent_files,
+                    self.directory_tree.is_some(),
                 );
                 // Clear focus request after this frame
                 self.search_focus_requested = false;
@@ -1979,6 +2047,15 @@ impl eframe::App for OctaApp {
                 }
                 if action.open_file {
                     self.open_file();
+                }
+                if action.open_directory {
+                    if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                        self.directory_tree =
+                            Some(ui::directory_tree::DirectoryTreeState::new(path));
+                    }
+                }
+                if action.close_directory {
+                    self.directory_tree = None;
                 }
                 if let Some(ref path) = action.open_recent {
                     let path_buf = std::path::PathBuf::from(path);
@@ -2011,14 +2088,17 @@ impl eframe::App for OctaApp {
                 if action.zoom_in {
                     self.zoom_percent = (self.zoom_percent + 5).min(500);
                     self.apply_zoom(ctx);
+                    self.tabs[self.active_tab].table_state.invalidate_row_heights();
                 }
                 if action.zoom_out {
                     self.zoom_percent = self.zoom_percent.saturating_sub(5).max(25);
                     self.apply_zoom(ctx);
+                    self.tabs[self.active_tab].table_state.invalidate_row_heights();
                 }
                 if action.zoom_reset {
                     self.zoom_percent = 100;
                     self.apply_zoom(ctx);
+                    self.tabs[self.active_tab].table_state.invalidate_row_heights();
                 }
                 if action.search_changed {
                     self.tabs[self.active_tab].filter_dirty = true;
@@ -2171,7 +2251,13 @@ impl eframe::App for OctaApp {
             });
 
         // --- Tab bar ---
-        if self.tabs.len() > 1 {
+        // Render whenever any file/buffer is open (including after "+ New
+        // File"). Hidden in the pristine startup state so the welcome screen
+        // isn't capped by an empty tab strip.
+        let has_open_file = self.tabs.iter().any(|t| {
+            t.table.source_path.is_some() || t.raw_content.is_some() || t.table.col_count() > 0
+        });
+        if has_open_file {
             let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
             let tab_frame = egui::Frame::new()
                 .fill(colors.bg_secondary)
@@ -2189,6 +2275,11 @@ impl eframe::App for OctaApp {
                         for (idx, tab) in self.tabs.iter().enumerate() {
                             let is_active = idx == self.active_tab;
                             let label = tab.title_display();
+                            let hover_path = tab
+                                .table
+                                .source_path
+                                .clone()
+                                .unwrap_or_else(|| "Untitled".to_string());
 
                             let bg = if is_active {
                                 colors.accent.gamma_multiply(0.3)
@@ -2210,8 +2301,9 @@ impl eframe::App for OctaApp {
                                     } else {
                                         egui::RichText::new(&label).color(colors.text_secondary)
                                     };
-                                    let tab_label_resp =
-                                        ui.add(egui::Label::new(text).sense(egui::Sense::click()));
+                                    let tab_label_resp = ui
+                                        .add(egui::Label::new(text).sense(egui::Sense::click()))
+                                        .on_hover_text(&hover_path);
                                     if tab_label_resp.hovered() {
                                         ctx.set_cursor_icon(egui::CursorIcon::Default);
                                     }
@@ -2286,6 +2378,47 @@ impl eframe::App for OctaApp {
                 });
         }
 
+        // --- Directory tree sidebar ---
+        if self.directory_tree.is_some() {
+            let tree_action = {
+                let position = self.settings.directory_tree_position;
+                let state = self.directory_tree.as_mut().unwrap();
+                let mut action = ui::directory_tree::TreeAction::default();
+                // Default to a 50/50 split the first time the sidebar is
+                // shown; subsequent frames honor whatever width the user
+                // has dragged the separator to.
+                let screen_w = ctx.screen_rect().width();
+                let default_w = (screen_w * 0.5).clamp(160.0, screen_w - 160.0);
+                let max_w = (screen_w - 80.0).max(160.0);
+                match position {
+                    ui::settings::DirectoryTreePosition::Left => {
+                        egui::SidePanel::left("directory_tree_panel")
+                            .resizable(true)
+                            .default_width(default_w)
+                            .width_range(80.0..=max_w)
+                            .show(ctx, |ui| {
+                                action = ui::directory_tree::render_directory_tree(ui, state);
+                            });
+                    }
+                    ui::settings::DirectoryTreePosition::Right => {
+                        egui::SidePanel::right("directory_tree_panel")
+                            .resizable(true)
+                            .default_width(default_w)
+                            .width_range(80.0..=max_w)
+                            .show(ctx, |ui| {
+                                action = ui::directory_tree::render_directory_tree(ui, state);
+                            });
+                    }
+                }
+                action
+            };
+            if tree_action.close {
+                self.directory_tree = None;
+            } else if let Some(path) = tree_action.open_file {
+                self.load_file(path);
+            }
+        }
+
         // --- Add Column dialog ---
         if self.tabs[self.active_tab].show_add_column_dialog {
             let mut open = true;
@@ -2300,6 +2433,37 @@ impl eframe::App for OctaApp {
                         ui.label("Name:");
                         ui.text_edit_singleline(&mut self.tabs[self.active_tab].new_col_name);
                     });
+                    // Autofill: show existing column names that match what the
+                    // user has typed so far. Clicking one fills the Name field.
+                    let typed = self.tabs[self.active_tab].new_col_name.clone();
+                    if !typed.is_empty() {
+                        let lower = typed.to_lowercase();
+                        let matches: Vec<String> = self.tabs[self.active_tab]
+                            .table
+                            .columns
+                            .iter()
+                            .filter(|c| {
+                                let n = c.name.to_lowercase();
+                                n != lower && n.contains(&lower)
+                            })
+                            .take(8)
+                            .map(|c| c.name.clone())
+                            .collect();
+                        if !matches.is_empty() {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(
+                                    RichText::new("Autofill:")
+                                        .size(10.0)
+                                        .color(ui.visuals().weak_text_color()),
+                                );
+                                for name in matches {
+                                    if ui.small_button(&name).clicked() {
+                                        self.tabs[self.active_tab].new_col_name = name;
+                                    }
+                                }
+                            });
+                        }
+                    }
                     ui.horizontal(|ui| {
                         ui.label("Type:");
                         egui::ComboBox::from_id_salt("col_type_combo")
@@ -2802,6 +2966,25 @@ Switch between views using the **View** menu:
 - **PDF View**: rendered page view (available for PDF files)
 - **Markdown View**: rendered markdown (available for .md files)
 
+## Tabs and Folder Sidebar
+
+Every opened file is shown as a tab, even when only one file is open. Hovering a tab reveals the full file path — handy when several tabs share a file name.
+
+**File > Open Directory…** opens a folder browser docked as a sidebar (left by default — switch to the right via **Settings > Directory Tree**). Clicking any file in the tree opens it in a new tab. **File > Close Directory** hides the sidebar without touching the open tabs.
+
+## SQL Autocomplete and Case Conversion
+
+In the SQL editor:
+
+- As you type, a strip of suggestion chips appears below the editor with matching column names and SQL keywords. Click a chip to complete the current token. Toggle this off under **Settings > SQL > Autocomplete** (on by default).
+- The **UPPER** / **lower** buttons (and the right-click context menu) convert the current selection, or the whole query when nothing is selected.
+
+The same upper / lower case context menu is available in the Raw Text editor.
+
+## Column Insertion Autofill
+
+When typing a name in **Insert Column**, matching existing column names are shown as clickable chips — click to fill the name field.
+
 ## Saving
 
 - **File > Save** writes changes back to the original file (preserves format and settings)
@@ -3072,6 +3255,31 @@ Open **Help > Settings** to configure:
         if sql_panel_visible {
             let position = self.settings.sql_panel_position;
             let mut sql_action = view_modes::SqlAction::default();
+            let tab = &mut self.tabs[self.active_tab];
+            let partial_rows = tab.table.total_rows.and_then(|total| {
+                let loaded = tab.table.row_count();
+                if loaded < total {
+                    Some((loaded, total))
+                } else {
+                    None
+                }
+            });
+            let render = |ui: &mut egui::Ui,
+                          tab: &mut TabState,
+                          autocomplete: bool,
+                          row_limit: usize|
+             -> view_modes::SqlAction {
+                view_modes::render_sql_view(
+                    ui,
+                    tab,
+                    autocomplete,
+                    row_limit,
+                    position,
+                    partial_rows,
+                )
+            };
+            let autocomplete = self.settings.sql_autocomplete;
+            let row_limit = self.settings.sql_default_row_limit;
             match position {
                 ui::settings::SqlPanelPosition::Bottom => {
                     egui::TopBottomPanel::bottom("sql_panel")
@@ -3079,8 +3287,25 @@ Open **Help > Settings** to configure:
                         .default_height(280.0)
                         .min_height(140.0)
                         .show(ctx, |ui| {
-                            sql_action =
-                                view_modes::render_sql_view(ui, &mut self.tabs[self.active_tab]);
+                            sql_action = render(ui, tab, autocomplete, row_limit);
+                        });
+                }
+                ui::settings::SqlPanelPosition::Top => {
+                    egui::TopBottomPanel::top("sql_panel")
+                        .resizable(true)
+                        .default_height(280.0)
+                        .min_height(140.0)
+                        .show(ctx, |ui| {
+                            sql_action = render(ui, tab, autocomplete, row_limit);
+                        });
+                }
+                ui::settings::SqlPanelPosition::Left => {
+                    egui::SidePanel::left("sql_panel")
+                        .resizable(true)
+                        .default_width(440.0)
+                        .min_width(280.0)
+                        .show(ctx, |ui| {
+                            sql_action = render(ui, tab, autocomplete, row_limit);
                         });
                 }
                 ui::settings::SqlPanelPosition::Right => {
@@ -3089,8 +3314,7 @@ Open **Help > Settings** to configure:
                         .default_width(440.0)
                         .min_width(280.0)
                         .show(ctx, |ui| {
-                            sql_action =
-                                view_modes::render_sql_view(ui, &mut self.tabs[self.active_tab]);
+                            sql_action = render(ui, tab, autocomplete, row_limit);
                         });
                 }
             }
@@ -3243,6 +3467,7 @@ Open **Help > Settings** to configure:
                 self.settings.cell_line_breaks,
                 self.settings.binary_display_mode,
                 self.welcome_logo_texture.as_ref(),
+                &self.settings.shortcuts,
             );
 
             // Handle column header click: update insert position for "Add Column" dialog

@@ -221,6 +221,26 @@ pub enum ShortcutAction {
     InsertRowBelow,
     ToggleSqlPanel,
     CycleViewMode,
+    /// Jump the selected cell to the top of the column.
+    JumpFirstRow,
+    /// Jump the selected cell to the bottom of the column.
+    JumpLastRow,
+    /// Jump the selected cell to the leftmost column.
+    JumpFirstCol,
+    /// Jump the selected cell to the rightmost column.
+    JumpLastCol,
+    /// When a full row is selected, add the row above to the selection.
+    /// When a full column is selected, no-op (use `ExtendSelectionLeft`).
+    ExtendSelectionUp,
+    /// When a full row is selected, add the row below to the selection.
+    ExtendSelectionDown,
+    /// When a full column is selected, add the column on the left.
+    ExtendSelectionLeft,
+    /// When a full column is selected, add the column on the right.
+    ExtendSelectionRight,
+    /// Export the current SQL query result to a file (only when a result is
+    /// available). No-op when no result has been produced yet.
+    ExportSqlResult,
 }
 
 impl ShortcutAction {
@@ -250,6 +270,15 @@ impl ShortcutAction {
             Self::InsertRowBelow => "Insert row below",
             Self::ToggleSqlPanel => "Toggle SQL panel",
             Self::CycleViewMode => "Cycle view mode",
+            Self::JumpFirstRow => "Jump to first row",
+            Self::JumpLastRow => "Jump to last row",
+            Self::JumpFirstCol => "Jump to first column",
+            Self::JumpLastCol => "Jump to last column",
+            Self::ExtendSelectionUp => "Extend row selection up",
+            Self::ExtendSelectionDown => "Extend row selection down",
+            Self::ExtendSelectionLeft => "Extend column selection left",
+            Self::ExtendSelectionRight => "Extend column selection right",
+            Self::ExportSqlResult => "Export SQL result",
         }
     }
 
@@ -281,6 +310,15 @@ impl ShortcutAction {
             Self::InsertRowBelow => KeyCombo::ctrl_shift(Key::Enter),
             Self::ToggleSqlPanel => KeyCombo::ctrl(Key::J),
             Self::CycleViewMode => KeyCombo::ctrl_alt(Key::V),
+            Self::JumpFirstRow => KeyCombo::ctrl_shift(Key::ArrowUp),
+            Self::JumpLastRow => KeyCombo::ctrl_shift(Key::ArrowDown),
+            Self::JumpFirstCol => KeyCombo::ctrl_shift(Key::ArrowLeft),
+            Self::JumpLastCol => KeyCombo::ctrl_shift(Key::ArrowRight),
+            Self::ExtendSelectionUp => KeyCombo::ctrl(Key::ArrowUp),
+            Self::ExtendSelectionDown => KeyCombo::ctrl(Key::ArrowDown),
+            Self::ExtendSelectionLeft => KeyCombo::ctrl(Key::ArrowLeft),
+            Self::ExtendSelectionRight => KeyCombo::ctrl(Key::ArrowRight),
+            Self::ExportSqlResult => KeyCombo::ctrl_shift(Key::E),
         }
     }
 }
