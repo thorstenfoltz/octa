@@ -4090,7 +4090,7 @@ dependencies = [
 
 [[package]]
 name = "octa"
-version = "0.3.34567"
+version = "0.0.0-dev"
 dependencies = [
  "anyhow",
  "apache-avro",
