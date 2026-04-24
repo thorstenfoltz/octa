@@ -220,7 +220,6 @@ pub enum ShortcutAction {
     DeleteRow,
     InsertRowBelow,
     ToggleSqlPanel,
-    CycleViewMode,
     /// Jump the selected cell to the top of the column.
     JumpFirstRow,
     /// Jump the selected cell to the bottom of the column.
@@ -269,7 +268,6 @@ impl ShortcutAction {
             Self::DeleteRow => "Delete selected row(s)",
             Self::InsertRowBelow => "Insert row below",
             Self::ToggleSqlPanel => "Toggle SQL panel",
-            Self::CycleViewMode => "Cycle view mode",
             Self::JumpFirstRow => "Jump to first row",
             Self::JumpLastRow => "Jump to last row",
             Self::JumpFirstCol => "Jump to first column",
@@ -309,7 +307,6 @@ impl ShortcutAction {
             Self::DeleteRow => KeyCombo::ctrl_shift(Key::K),
             Self::InsertRowBelow => KeyCombo::ctrl_shift(Key::Enter),
             Self::ToggleSqlPanel => KeyCombo::ctrl(Key::J),
-            Self::CycleViewMode => KeyCombo::ctrl_alt(Key::V),
             Self::JumpFirstRow => KeyCombo::ctrl_shift(Key::ArrowUp),
             Self::JumpLastRow => KeyCombo::ctrl_shift(Key::ArrowDown),
             Self::JumpFirstCol => KeyCombo::ctrl_shift(Key::ArrowLeft),

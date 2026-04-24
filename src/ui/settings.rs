@@ -289,9 +289,15 @@ pub struct AppSettings {
     /// User-customizable keyboard shortcut bindings.
     #[serde(default)]
     pub shortcuts: Shortcuts,
-    /// Initial window size before the window manager maximizes it.
+    /// Initial window size. Only has a visible effect when
+    /// [`AppSettings::start_maximized`] is off; otherwise it is the
+    /// restore-from-maximize size.
     #[serde(default)]
     pub window_size: WindowSize,
+    /// Whether to launch the window maximized. When off, the window
+    /// comes up at [`AppSettings::window_size`] instead.
+    #[serde(default = "default_true")]
+    pub start_maximized: bool,
 }
 
 fn default_true() -> bool {
@@ -337,6 +343,7 @@ impl Default for AppSettings {
             warn_raw_align_reload: true,
             shortcuts: Shortcuts::default(),
             window_size: WindowSize::default(),
+            start_maximized: true,
         }
     }
 }
@@ -420,6 +427,9 @@ pub struct SettingsDialog {
     /// When the user clicks "Record" for a shortcut, the action is stored here
     /// and the next key press captures a new binding. `None` = not recording.
     recording: Option<ShortcutAction>,
+    /// Set when the user tries to bind a combo that is already used by another
+    /// action. Cleared when they record successfully or edit the grid again.
+    shortcut_conflict: Option<String>,
 }
 
 impl SettingsDialog {
@@ -431,6 +441,7 @@ impl SettingsDialog {
         self.theme_changed = false;
         self.sql_row_limit_buf = current.sql_default_row_limit.to_string();
         self.recording = None;
+        self.shortcut_conflict = None;
         self.open = true;
     }
 
@@ -926,22 +937,31 @@ impl SettingsDialog {
                     .num_columns(2)
                     .spacing([16.0, 8.0])
                     .show(ui, |ui| {
-                        ui.label("Initial window size:").on_hover_text(
-                            "Window size used at startup before the window manager maximizes it.\n\
-                             Reducing this may help on systems where the window or icon\n\
-                             briefly flashes at a large size during launch.",
+                        ui.label("Start maximized:").on_hover_text(
+                            "When on, the window launches maximized and the size below\n\
+                             is used as the restore-from-maximize size.\n\
+                             When off, the window launches at the chosen size.",
                         );
-                        egui::ComboBox::from_id_salt("window_size_combo")
-                            .selected_text(self.draft.window_size.label())
-                            .show_ui(ui, |ui| {
-                                for &size in WindowSize::ALL {
-                                    ui.selectable_value(
-                                        &mut self.draft.window_size,
-                                        size,
-                                        size.label(),
-                                    );
-                                }
-                            });
+                        ui.checkbox(&mut self.draft.start_maximized, "");
+                        ui.end_row();
+
+                        ui.label("Initial window size:").on_hover_text(
+                            "Window size used at startup (when \"Start maximized\" is off),\n\
+                             or the restore-from-maximize size when it is on.",
+                        );
+                        ui.add_enabled_ui(!self.draft.start_maximized, |ui| {
+                            egui::ComboBox::from_id_salt("window_size_combo")
+                                .selected_text(self.draft.window_size.label())
+                                .show_ui(ui, |ui| {
+                                    for &size in WindowSize::ALL {
+                                        ui.selectable_value(
+                                            &mut self.draft.window_size,
+                                            size,
+                                            size.label(),
+                                        );
+                                    }
+                                });
+                        });
                         ui.end_row();
                     });
             });
@@ -956,9 +976,32 @@ impl SettingsDialog {
             if let Some(CaptureResult::Cancel) = captured {
                 self.recording = None;
             } else if let Some(CaptureResult::Combo(combo)) = captured {
-                self.draft.shortcuts.set(action, combo);
+                // Reject combos already bound to another action so two
+                // functions can never share a shortcut.
+                let conflict = self
+                    .draft
+                    .shortcuts
+                    .bindings
+                    .iter()
+                    .find(|(other, existing)| **other != action && **existing == combo)
+                    .map(|(other, _)| *other);
+                if let Some(other) = conflict {
+                    self.shortcut_conflict = Some(format!(
+                        "{} is already bound to \"{}\". Clear that binding first or pick a different key.",
+                        combo.label(),
+                        other.label(),
+                    ));
+                } else {
+                    self.draft.shortcuts.set(action, combo);
+                    self.shortcut_conflict = None;
+                }
                 self.recording = None;
             }
+        }
+
+        if let Some(msg) = &self.shortcut_conflict {
+            ui.colored_label(egui::Color32::from_rgb(0xd9, 0x53, 0x4f), msg);
+            ui.add_space(4.0);
         }
 
         egui::Grid::new("settings_shortcuts_grid")

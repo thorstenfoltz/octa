@@ -41,6 +41,164 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 
+// ureq 3.x caps response bodies at 10 MB by default. Release archives
+// bundle DuckDB + MuPDF + others and exceed that easily on Windows.
+const UPDATE_BODY_LIMIT: u64 = 512 * 1024 * 1024;
+
+/// Result of a successful download-and-install attempt. `Installed` means
+/// we replaced the running binary. `NeedsElevation` means we successfully
+/// staged the new binary in `tmp_path` but the install directory is not
+/// writable by the current user — the UI must prompt for elevation and
+/// then call [`OctaApp::install_with_sudo`].
+enum UpdateOutcome {
+    Installed,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    NeedsElevation {
+        install_path: std::path::PathBuf,
+        tmp_path: std::path::PathBuf,
+    },
+}
+
+/// Distinguish "I don't have permission to write here" from every other
+/// failure, so the update code can choose to prompt for sudo rather than
+/// surfacing a raw EACCES to the user.
+#[cfg(target_os = "linux")]
+enum InstallError {
+    PermissionDenied,
+    Other(String),
+}
+
+/// Check whether the current user can create files next to `exe` — i.e. can
+/// we replace the binary without sudo. Creates a short-lived sibling file;
+/// this avoids pulling in libc for an `access(W_OK)` call and sidesteps the
+/// fact that `std::fs::metadata` only exposes the read-only bit.
+#[cfg(target_os = "linux")]
+fn install_dir_writable(exe: &std::path::Path) -> bool {
+    let Some(parent) = exe.parent() else {
+        return false;
+    };
+    let probe = parent.join(format!(".octa-update-probe-{}", std::process::id()));
+    match std::fs::File::create(&probe) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Atomically replace `target` with the already-staged binary at `src`.
+/// Rename-across-filesystems can fail with `EXDEV` (tmp is usually a separate
+/// mount on Linux), so we fall through to a copy + rename via a sibling temp
+/// path when rename fails for that reason.
+#[cfg(target_os = "linux")]
+fn install_replace_unix(
+    src: &std::path::Path,
+    target: &std::path::Path,
+) -> Result<(), InstallError> {
+    let parent = target.parent().ok_or_else(|| {
+        InstallError::Other(format!("Target has no parent directory: {}", target.display()))
+    })?;
+    let sibling = parent.join(format!(
+        ".octa-update-new-{}",
+        std::process::id()
+    ));
+
+    // Copy staging → sibling of target. This is where EACCES shows up when
+    // the install dir isn't writable.
+    if let Err(e) = std::fs::copy(src, &sibling) {
+        return Err(match e.kind() {
+            std::io::ErrorKind::PermissionDenied => InstallError::PermissionDenied,
+            _ => InstallError::Other(format!("Copy failed: {}", e)),
+        });
+    }
+
+    use std::os::unix::fs::PermissionsExt;
+    if let Err(e) =
+        std::fs::set_permissions(&sibling, std::fs::Permissions::from_mode(0o755))
+    {
+        let _ = std::fs::remove_file(&sibling);
+        return Err(InstallError::Other(format!("chmod failed: {}", e)));
+    }
+
+    // Atomic swap on the same filesystem.
+    if let Err(e) = std::fs::rename(&sibling, target) {
+        let _ = std::fs::remove_file(&sibling);
+        return Err(match e.kind() {
+            std::io::ErrorKind::PermissionDenied => InstallError::PermissionDenied,
+            _ => InstallError::Other(format!("Install rename failed: {}", e)),
+        });
+    }
+    Ok(())
+}
+
+/// Invoke pkexec to copy `src` into `dest` as root. pkexec is part of polkit
+/// and ships with every modern Linux desktop (GNOME/KDE/XFCE), and it shows
+/// its own graphical password prompt.
+#[cfg(target_os = "linux")]
+fn run_pkexec_install(
+    src: &std::path::Path,
+    dest: &std::path::Path,
+) -> Result<(), String> {
+    if which_bin("pkexec").is_none() {
+        return Err(format!(
+            "pkexec is not installed. To update manually, run:\n\n    \
+             sudo install -m 755 {} {}",
+            src.display(),
+            dest.display()
+        ));
+    }
+
+    let status = std::process::Command::new("pkexec")
+        .arg("install")
+        .arg("-m")
+        .arg("755")
+        .arg(src)
+        .arg(dest)
+        .status()
+        .map_err(|e| format!("Failed to run pkexec: {}", e))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        // pkexec exits 126 when the user dismisses the prompt and 127 when
+        // authorization fails. Surface a friendly hint for both.
+        match status.code() {
+            Some(126) | Some(127) => Err(
+                "Authorization cancelled or failed. The update was not installed.".to_string(),
+            ),
+            Some(code) => Err(format!("pkexec install exited with code {}", code)),
+            None => Err("pkexec install was terminated by a signal".to_string()),
+        }
+    }
+}
+
+/// Minimal `which` — walks `$PATH` looking for an executable named `name`.
+#[cfg(target_os = "linux")]
+fn which_bin(name: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Build the Markdown shortcut table rendered in the Documentation dialog.
+/// Reflects the user's current bindings so the docs never drift from the
+/// actual behavior.
+fn build_shortcut_doc_table(shortcuts: &ui::shortcuts::Shortcuts) -> String {
+    use strum::IntoEnumIterator;
+    let mut s = String::from("| Shortcut | Action |\n|----------|--------|\n");
+    for action in ui::shortcuts::ShortcutAction::iter() {
+        let combo = shortcuts.combo(action);
+        s.push_str(&format!("| {} | {} |\n", combo.label(), action.label()));
+    }
+    s
+}
+
 fn main() -> eframe::Result<()> {
     // Handle CLI flags before launching GUI
     if let Some(arg) = std::env::args().nth(1) {
@@ -93,13 +251,16 @@ fn main() -> eframe::Result<()> {
     let icon = render_icon(icon_svg);
     let default_theme = settings.default_theme;
 
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size(settings.window_size.dimensions())
+        .with_min_inner_size([800.0, 600.0])
+        .with_title(&title)
+        .with_icon(Arc::new(icon));
+    if settings.start_maximized {
+        viewport = viewport.with_maximized(true);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size(settings.window_size.dimensions())
-            .with_min_inner_size([800.0, 600.0])
-            .with_maximized(true)
-            .with_title(&title)
-            .with_icon(Arc::new(icon)),
+        viewport,
         ..Default::default()
     };
 
@@ -133,6 +294,14 @@ enum UpdateState {
     UpToDate,
     /// Currently downloading and installing
     Updating,
+    /// Linux only: the new binary has been downloaded to `tmp_path`, but the
+    /// install directory is not writable by the current user. Prompt the user
+    /// to elevate so we can place the binary at `install_path`.
+    NeedsElevation {
+        version: String,
+        install_path: std::path::PathBuf,
+        tmp_path: std::path::PathBuf,
+    },
     /// Update completed successfully
     Updated(String),
     /// An error occurred
@@ -1058,42 +1227,6 @@ impl OctaApp {
         self.load_file(std::path::PathBuf::from(path));
     }
 
-    fn cycle_view_mode(&mut self) {
-        let tab = &mut self.tabs[self.active_tab];
-        let has_raw = tab.raw_content.is_some();
-        let has_markdown = tab.table.format_name.as_deref() == Some("Markdown");
-        let has_notebook = tab.table.format_name.as_deref() == Some("Jupyter Notebook");
-        let has_pdf = !tab.pdf_page_images.is_empty();
-        let has_json = tab.json_value.is_some();
-        let has_table = tab.table.col_count() > 0 && !has_notebook;
-
-        let mut modes: Vec<ViewMode> = Vec::new();
-        if has_table {
-            modes.push(ViewMode::Table);
-        }
-        if has_raw {
-            modes.push(ViewMode::Raw);
-        }
-        if has_markdown {
-            modes.push(ViewMode::Markdown);
-        }
-        if has_notebook {
-            modes.push(ViewMode::Notebook);
-        }
-        if has_pdf {
-            modes.push(ViewMode::Pdf);
-        }
-        if has_json {
-            modes.push(ViewMode::JsonTree);
-        }
-        if modes.len() < 2 {
-            return;
-        }
-        let current_idx = modes.iter().position(|&m| m == tab.view_mode).unwrap_or(0);
-        let next = modes[(current_idx + 1) % modes.len()];
-        tab.view_mode = next;
-    }
-
     fn save_file_as(&mut self) {
         let mut dialog = rfd::FileDialog::new();
         for (label, exts) in self.registry.save_format_descriptions() {
@@ -1276,6 +1409,8 @@ impl OctaApp {
                         .call()
                         .map_err(|e| format!("Request failed: {}", e))?
                         .body_mut()
+                        .with_config()
+                        .limit(UPDATE_BODY_LIMIT)
                         .read_to_string()
                         .map_err(|e| format!("Read failed: {}", e))?;
 
@@ -1308,6 +1443,43 @@ impl OctaApp {
             let result = Self::download_and_replace(&version);
             let mut s = state.lock().unwrap();
             match result {
+                Ok(UpdateOutcome::Installed) => *s = UpdateState::Updated(version),
+                Ok(UpdateOutcome::NeedsElevation {
+                    install_path,
+                    tmp_path,
+                }) => {
+                    *s = UpdateState::NeedsElevation {
+                        version,
+                        install_path,
+                        tmp_path,
+                    }
+                }
+                Err(e) => *s = UpdateState::Error(e),
+            }
+            ctx.request_repaint();
+        });
+    }
+
+    /// Linux only: invoke pkexec to copy the staged binary into a
+    /// non-user-writable install path (e.g. /usr/local/bin). pkexec shows a
+    /// native graphical password prompt and runs the install as root.
+    #[cfg(target_os = "linux")]
+    fn install_with_sudo(
+        &self,
+        tmp_path: std::path::PathBuf,
+        install_path: std::path::PathBuf,
+        version: String,
+        ctx: &egui::Context,
+    ) {
+        let state = Arc::clone(&self.update_state);
+        let ctx = ctx.clone();
+        *state.lock().unwrap() = UpdateState::Updating;
+
+        std::thread::spawn(move || {
+            let result = run_pkexec_install(&tmp_path, &install_path);
+            let _ = std::fs::remove_file(&tmp_path);
+            let mut s = state.lock().unwrap();
+            match result {
                 Ok(()) => *s = UpdateState::Updated(version),
                 Err(e) => *s = UpdateState::Error(e),
             }
@@ -1315,7 +1487,7 @@ impl OctaApp {
         });
     }
 
-    fn download_and_replace(new_version: &str) -> Result<(), String> {
+    fn download_and_replace(new_version: &str) -> Result<UpdateOutcome, String> {
         let current_exe =
             std::env::current_exe().map_err(|e| format!("Cannot find current exe: {}", e))?;
 
@@ -1331,10 +1503,16 @@ impl OctaApp {
                 .call()
                 .map_err(|e| format!("Download failed: {}", e))?
                 .body_mut()
+                .with_config()
+                .limit(UPDATE_BODY_LIMIT)
                 .read_to_vec()
                 .map_err(|e| format!("Read failed: {}", e))?;
 
-            // Extract the binary from the tar.gz
+            // Stage the extracted binary in /tmp so the download always succeeds
+            // regardless of whether the install directory is user-writable.
+            // Only the final rename/copy step needs elevation.
+            let staging_path = std::env::temp_dir()
+                .join(format!("octa-update-{}-{}", new_version, std::process::id()));
             let decoder = flate2::read::GzDecoder::new(std::io::Cursor::new(bytes));
             let mut archive = tar::Archive::new(decoder);
             let binary_name = format!("octa-{}-linux-x86_64/octa", new_version);
@@ -1347,29 +1525,17 @@ impl OctaApp {
                     .map_err(|e| format!("Path error: {}", e))?
                     .to_path_buf();
                 if path.to_string_lossy() == binary_name {
-                    // Write to a temp file next to the current exe
-                    let tmp_path = current_exe.with_extension("update");
-                    let mut tmp_file = std::fs::File::create(&tmp_path)
-                        .map_err(|e| format!("Cannot create temp file: {}", e))?;
+                    let mut tmp_file = std::fs::File::create(&staging_path)
+                        .map_err(|e| format!("Cannot create staging file: {}", e))?;
                     std::io::copy(&mut entry, &mut tmp_file)
                         .map_err(|e| format!("Extract failed: {}", e))?;
 
-                    // Set executable permission
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))
-                            .map_err(|e| format!("chmod failed: {}", e))?;
-                    }
-
-                    // Replace: rename current → .old, new → current
-                    let old_path = current_exe.with_extension("old");
-                    let _ = std::fs::remove_file(&old_path);
-                    std::fs::rename(&current_exe, &old_path)
-                        .map_err(|e| format!("Backup rename failed: {}", e))?;
-                    std::fs::rename(&tmp_path, &current_exe)
-                        .map_err(|e| format!("Install rename failed: {}", e))?;
-                    let _ = std::fs::remove_file(&old_path);
+                    use std::os::unix::fs::PermissionsExt;
+                    std::fs::set_permissions(
+                        &staging_path,
+                        std::fs::Permissions::from_mode(0o755),
+                    )
+                    .map_err(|e| format!("chmod failed: {}", e))?;
 
                     found = true;
                     break;
@@ -1377,7 +1543,34 @@ impl OctaApp {
             }
 
             if !found {
+                let _ = std::fs::remove_file(&staging_path);
                 return Err(format!("Binary '{}' not found in archive", binary_name));
+            }
+
+            // Try the unprivileged install first. If the install directory
+            // isn't writable, signal the caller to prompt for elevation
+            // instead of returning a raw permission error.
+            if !install_dir_writable(&current_exe) {
+                return Ok(UpdateOutcome::NeedsElevation {
+                    install_path: current_exe,
+                    tmp_path: staging_path,
+                });
+            }
+
+            match install_replace_unix(&staging_path, &current_exe) {
+                Ok(()) => {
+                    let _ = std::fs::remove_file(&staging_path);
+                }
+                Err(InstallError::PermissionDenied) => {
+                    return Ok(UpdateOutcome::NeedsElevation {
+                        install_path: current_exe,
+                        tmp_path: staging_path,
+                    });
+                }
+                Err(InstallError::Other(e)) => {
+                    let _ = std::fs::remove_file(&staging_path);
+                    return Err(e);
+                }
             }
         }
 
@@ -1393,6 +1586,8 @@ impl OctaApp {
                 .call()
                 .map_err(|e| format!("Download failed: {}", e))?
                 .body_mut()
+                .with_config()
+                .limit(UPDATE_BODY_LIMIT)
                 .read_to_vec()
                 .map_err(|e| format!("Read failed: {}", e))?;
 
@@ -1440,7 +1635,7 @@ impl OctaApp {
             );
         }
 
-        Ok(())
+        Ok(UpdateOutcome::Installed)
     }
 
     fn recompute_filter(&mut self) {
@@ -1863,9 +2058,6 @@ impl eframe::App for OctaApp {
             && self.tabs[self.active_tab].view_mode == ViewMode::Table
         {
             self.tabs[self.active_tab].sql_panel_open = !self.tabs[self.active_tab].sql_panel_open;
-        }
-        if action_fired(SA::CycleViewMode) {
-            self.cycle_view_mode();
         }
 
         // --- Handle close request ---
@@ -2763,9 +2955,29 @@ impl eframe::App for OctaApp {
             let icon_changed = self.settings_dialog.icon_changed;
             let font_changed = self.settings_dialog.font_changed;
             let theme_changed = self.settings_dialog.theme_changed;
+            let window_size_changed = new_settings.window_size != self.settings.window_size;
+            let maximized_changed =
+                new_settings.start_maximized != self.settings.start_maximized;
 
             self.settings = new_settings;
             self.settings.save();
+
+            // Apply window-size / maximize changes immediately so the user sees
+            // the effect without relaunching. `with_inner_size()` at startup is
+            // ignored while the window is maximized, which was the source of
+            // "the setting does nothing" reports.
+            if maximized_changed || window_size_changed {
+                if self.settings.start_maximized {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+                } else {
+                    // Un-maximize first so the inner-size command isn't ignored.
+                    if maximized_changed {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+                    }
+                    let [w, h] = self.settings.window_size.dimensions();
+                    ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
+                }
+            }
 
             if theme_changed {
                 self.theme_mode = self.settings.default_theme;
@@ -2873,7 +3085,8 @@ impl eframe::App for OctaApp {
                 .default_size([800.0, 600.0])
                 .show(ctx, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        let docs = r#"# Octa Documentation
+                        let shortcut_table = build_shortcut_doc_table(&self.settings.shortcuts);
+                        let docs = format!(r#"# Octa Documentation
 
 ## Getting Started
 
@@ -3006,26 +3219,31 @@ Open **Help > Settings** to configure:
 
 ## Keyboard Shortcuts
 
+The table below reflects your **current** bindings (customize them under
+**Help > Settings > Shortcuts**). Unbound actions show `(none)`.
+
+### Customizable shortcuts
+
+{shortcut_table}
+
+### Fixed shortcuts
+
 | Shortcut | Action |
 |----------|--------|
-| Ctrl+N | New file |
-| Ctrl+O | Open file |
-| Ctrl+S | Save file |
-| Ctrl+F | Focus search box |
-| Ctrl+H | Toggle Find & Replace bar |
 | Ctrl+Z | Undo |
 | Ctrl+Y | Redo |
 | Ctrl+C | Copy selection |
 | Ctrl+V | Paste |
-| Ctrl+A | Select all rows |
 | Arrow keys | Navigate between cells |
+| Shift+Arrow (vertical) | Extend row range from the anchor |
 | Escape | Close replace bar or cancel cell edit |
+| Tab | Confirm cell edit / move to next cell |
 | Double-click cell | Edit cell value |
 | Double-click column header | Rename column |
 | Right-click | Open context menu |
-"#;
+"#);
                         egui_commonmark::CommonMarkViewer::new()
-                            .show(ui, &mut self.tabs[self.active_tab].commonmark_cache, docs);
+                            .show(ui, &mut self.tabs[self.active_tab].commonmark_cache, &docs);
                     });
                 });
             self.show_documentation_dialog = open;
@@ -3182,6 +3400,58 @@ Open **Help > Settings** to configure:
                             ui.horizontal(|ui| {
                                 ui.spinner();
                                 ui.label("Downloading and installing update...");
+                            });
+                        }
+                        UpdateState::NeedsElevation {
+                            ref version,
+                            ref install_path,
+                            ref tmp_path,
+                        } => {
+                            ui.label(
+                                RichText::new("Administrator password required")
+                                    .strong(),
+                            );
+                            ui.add_space(4.0);
+                            ui.label(format!(
+                                "Octa is installed at:\n    {}",
+                                install_path.display()
+                            ));
+                            ui.add_space(4.0);
+                            ui.label(format!(
+                                "This directory is not writable by your user, so \
+                                 installing version {} requires elevated \
+                                 permissions. Octa will run `pkexec` to ask for \
+                                 your password and copy the new binary into \
+                                 place. The downloaded file is already staged \
+                                 locally — no further download will happen.",
+                                version
+                            ));
+                            ui.add_space(10.0);
+                            ui.horizontal(|ui| {
+                                let version_c = version.clone();
+                                let tmp_c = tmp_path.clone();
+                                let install_c = install_path.clone();
+                                if ui
+                                    .button("Update with administrator password")
+                                    .clicked()
+                                {
+                                    #[cfg(target_os = "linux")]
+                                    {
+                                        self.install_with_sudo(
+                                            tmp_c, install_c, version_c, ctx,
+                                        );
+                                    }
+                                    #[cfg(not(target_os = "linux"))]
+                                    {
+                                        let _ = (tmp_c, install_c, version_c);
+                                    }
+                                }
+                                if ui.button("Cancel").clicked() {
+                                    let _ = std::fs::remove_file(tmp_path);
+                                    self.show_update_dialog = false;
+                                    *self.update_state.lock().unwrap() =
+                                        UpdateState::Idle;
+                                }
                             });
                         }
                         UpdateState::Updated(ref version) => {

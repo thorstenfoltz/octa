@@ -552,22 +552,46 @@ pub fn draw_table(
         }
     }
 
-    // Ctrl+C / Ctrl+V / Ctrl+Z / Ctrl+Y
-    // Use consume_key to prevent egui from handling these shortcuts itself
+    // Ctrl+C / Ctrl+V / Ctrl+Z / Ctrl+Y — consume with *exact* modifier
+    // matching. egui's `consume_key` uses matches_logically, so it would also
+    // eat Ctrl+Alt+V, Ctrl+Shift+V, etc., colliding with any user shortcut
+    // that extends Ctrl+V/C/Z/Y. We iterate events by hand to enforce
+    // "Ctrl only, no Shift, no Alt".
     if state.editing_cell.is_none() && !any_text_edit_focused {
-        let cmd = egui::Modifiers::COMMAND;
-        if ui.input_mut(|i| i.consume_key(cmd, egui::Key::C)) {
-            interaction.ctx_copy = true;
-        }
-        if ui.input_mut(|i| i.consume_key(cmd, egui::Key::V)) {
-            interaction.ctx_paste = true;
-        }
-        if ui.input_mut(|i| i.consume_key(cmd, egui::Key::Z)) {
-            interaction.undo = true;
-        }
-        if ui.input_mut(|i| i.consume_key(cmd, egui::Key::Y)) {
-            interaction.redo = true;
-        }
+        ui.input_mut(|i| {
+            i.events.retain(|e| {
+                if let egui::Event::Key {
+                    key,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } = e
+                {
+                    if modifiers.command_only() {
+                        match key {
+                            egui::Key::C => {
+                                interaction.ctx_copy = true;
+                                return false;
+                            }
+                            egui::Key::V => {
+                                interaction.ctx_paste = true;
+                                return false;
+                            }
+                            egui::Key::Z => {
+                                interaction.undo = true;
+                                return false;
+                            }
+                            egui::Key::Y => {
+                                interaction.redo = true;
+                                return false;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                true
+            });
+        });
     }
     // Also detect paste from egui's Paste event (carries clipboard text directly)
     let paste_from_event: Option<String> = ui.input(|i| {
