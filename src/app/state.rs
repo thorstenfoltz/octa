@@ -60,12 +60,18 @@ pub(crate) struct TabState {
     pub(crate) bg_can_load_more: bool,
     pub(crate) bg_file_exhausted: Arc<std::sync::atomic::AtomicBool>,
     pub(crate) commonmark_cache: egui_commonmark::CommonMarkCache,
+    /// Pending vertical scroll offset for the markdown view's ScrollArea —
+    /// set when the user clicks a `#fragment` link, applied next frame.
+    pub(crate) markdown_scroll_target: Option<f32>,
     pub(crate) json_tree_expanded: std::collections::HashSet<String>,
     pub(crate) json_value: Option<serde_json::Value>,
     pub(crate) json_expand_depth: usize,
     pub(crate) json_expand_depth_str: String,
     pub(crate) json_edit_path: Option<String>,
     pub(crate) json_edit_buffer: String,
+    /// Width snapshot of the displayed JSON value when entering edit mode,
+    /// so the TextEdit doesn't shrink as the user types.
+    pub(crate) json_edit_width: Option<f32>,
     pub(crate) show_add_column_dialog: bool,
     pub(crate) new_col_name: String,
     pub(crate) new_col_type: String,
@@ -84,6 +90,10 @@ pub(crate) struct TabState {
     /// Autocomplete popup: set to `false` by Escape to hide the popup until
     /// the user types again. Reset to `true` on any text change.
     pub(crate) sql_ac_visible: bool,
+    /// Whether the first data row in the file is being treated as column
+    /// headers (the default for most readers). When toggled off, the headers
+    /// are pushed back into row 0 and column names become `column_1..N`.
+    pub(crate) first_row_is_header: bool,
 }
 
 pub(crate) struct OctaApp {

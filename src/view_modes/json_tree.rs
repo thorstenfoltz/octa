@@ -96,6 +96,7 @@ pub fn render_json_tree_view(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: 
                         true,
                         &mut tab.json_edit_path,
                         &mut tab.json_edit_buffer,
+                        &mut tab.json_edit_width,
                     );
                 });
             });
@@ -106,6 +107,7 @@ pub fn render_json_tree_view(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: 
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             tab.json_edit_path = None;
             tab.json_edit_buffer.clear();
+            tab.json_edit_width = None;
         } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
             let new_value = json_util::parse_json_edit(&tab.json_edit_buffer);
             if let Some(ref mut root) = tab.json_value {
@@ -116,6 +118,7 @@ pub fn render_json_tree_view(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: 
             }
             tab.json_edit_path = None;
             tab.json_edit_buffer.clear();
+            tab.json_edit_width = None;
         }
     }
 
@@ -173,6 +176,7 @@ fn render_json_node(
     is_last: bool,
     edit_path: &mut Option<String>,
     edit_buffer: &mut String,
+    edit_width: &mut Option<f32>,
 ) {
     let indent = depth as f32 * 20.0;
     let mono = egui::FontId::new(13.0, egui::FontFamily::Monospace);
@@ -261,6 +265,7 @@ fn render_json_node(
                         i == entries.len() - 1,
                         edit_path,
                         edit_buffer,
+                        edit_width,
                     );
                 }
                 ui.horizontal(|ui| {
@@ -333,6 +338,7 @@ fn render_json_node(
                         i == arr.len() - 1,
                         edit_path,
                         edit_buffer,
+                        edit_width,
                     );
                 }
                 ui.horizontal(|ui| {
@@ -353,10 +359,27 @@ fn render_json_node(
                 ui.add_space(18.0); // Align with content after arrows
                 show_key(ui);
                 if is_editing {
+                    if edit_width.is_none() {
+                        let display = match value {
+                            serde_json::Value::String(s) => format!("\"{s}\"{comma}"),
+                            serde_json::Value::Number(n) => format!("{n}{comma}"),
+                            serde_json::Value::Bool(b) => format!("{b}{comma}"),
+                            serde_json::Value::Null => format!("null{comma}"),
+                            _ => unreachable!(),
+                        };
+                        let measured = ui.fonts(|f| {
+                            f.layout_no_wrap(display, mono.clone(), colors.text_primary)
+                                .size()
+                                .x
+                        });
+                        *edit_width = Some(measured.max(200.0) + 16.0);
+                    }
+                    let width = edit_width.unwrap_or(200.0);
                     let response = ui.add(
                         egui::TextEdit::singleline(edit_buffer)
                             .font(mono.clone())
-                            .desired_width(200.0),
+                            .desired_width(width)
+                            .min_size(egui::vec2(width, 0.0)),
                     );
                     // Auto-focus on first frame
                     if !response.has_focus() && !response.gained_focus() {
@@ -384,6 +407,7 @@ fn render_json_node(
                     if response.double_clicked() {
                         *edit_path = Some(path.to_string());
                         *edit_buffer = leaf_edit_text(value);
+                        *edit_width = None;
                     }
                 }
             });

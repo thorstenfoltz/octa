@@ -10,7 +10,7 @@ use super::state::OctaApp;
 
 impl OctaApp {
     /// Build a tab-separated string from the current selection.
-    /// Priority: selected_rows > selected_cols > selected_cell.
+    /// Priority: selected_rows > selected_cols > selected_cells > selected_cell.
     pub(crate) fn copy_selection_to_string(&self) -> Option<String> {
         let tab = &self.tabs[self.active_tab];
         let state = &tab.table_state;
@@ -47,6 +47,29 @@ impl OctaApp {
                     cells.push(text);
                 }
                 lines.push(cells.join("\t"));
+            }
+            Some(lines.join("\n"))
+        } else if !state.selected_cells.is_empty() {
+            let cells: Vec<(usize, usize)> = state.selected_cells.iter().copied().collect();
+            let min_row = cells.iter().map(|(r, _)| *r).min().unwrap();
+            let max_row = cells.iter().map(|(r, _)| *r).max().unwrap();
+            let min_col = cells.iter().map(|(_, c)| *c).min().unwrap();
+            let max_col = cells.iter().map(|(_, c)| *c).max().unwrap();
+            let mut lines = Vec::new();
+            for row in min_row..=max_row {
+                let mut row_cells = Vec::new();
+                for col in min_col..=max_col {
+                    let text = if state.selected_cells.contains(&(row, col)) {
+                        tab.table
+                            .get(row, col)
+                            .map(|v| v.to_string())
+                            .unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
+                    row_cells.push(text);
+                }
+                lines.push(row_cells.join("\t"));
             }
             Some(lines.join("\n"))
         } else if let Some((row, col)) = state.selected_cell {
@@ -89,6 +112,39 @@ impl OctaApp {
                     tab.table.set(target_row, target_col, new_val);
                 }
             }
+        }
+        tab.filter_dirty = true;
+    }
+
+    /// Cut: copy selection then clear the underlying cells.
+    pub(crate) fn do_cut(&mut self) {
+        self.do_copy();
+        let tab = &mut self.tabs[self.active_tab];
+        let row_count = tab.table.row_count();
+        let col_count = tab.table.col_count();
+        let state = &tab.table_state;
+        let mut targets: Vec<(usize, usize)> = Vec::new();
+        if !state.selected_rows.is_empty() {
+            for &row in &state.selected_rows {
+                for col in 0..col_count {
+                    targets.push((row, col));
+                }
+            }
+        } else if !state.selected_cols.is_empty() {
+            for &col in &state.selected_cols {
+                for row in 0..row_count {
+                    targets.push((row, col));
+                }
+            }
+        } else if !state.selected_cells.is_empty() {
+            for &(row, col) in &state.selected_cells {
+                targets.push((row, col));
+            }
+        } else if let Some((row, col)) = state.selected_cell {
+            targets.push((row, col));
+        }
+        for (row, col) in targets {
+            tab.table.set(row, col, data::CellValue::Null);
         }
         tab.filter_dirty = true;
     }

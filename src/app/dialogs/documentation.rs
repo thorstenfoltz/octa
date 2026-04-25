@@ -171,22 +171,6 @@ The table below reflects your **current** bindings (customize them under
 ### Customizable shortcuts
 
 {shortcut_table}
-
-### Fixed shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| Ctrl+Z | Undo |
-| Ctrl+Y | Redo |
-| Ctrl+C | Copy selection |
-| Ctrl+V | Paste |
-| Arrow keys | Navigate between cells |
-| Shift+Arrow (vertical) | Extend row range from the anchor |
-| Escape | Close replace bar or cancel cell edit |
-| Tab | Confirm cell edit / move to next cell |
-| Double-click cell | Edit cell value |
-| Double-click column header | Rename column |
-| Right-click | Open context menu |
 "#);
                 egui_commonmark::CommonMarkViewer::new()
                     .show(ui, &mut app.tabs[app.active_tab].commonmark_cache, &docs);

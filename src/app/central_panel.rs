@@ -9,6 +9,7 @@ use eframe::egui;
 use octa::data::{self, ViewMode};
 use octa::formats;
 use octa::ui;
+use octa::ui::shortcuts::ShortcutAction as SA;
 
 use super::file_io::load_remaining_parquet_rows;
 use super::state::OctaApp;
@@ -88,6 +89,14 @@ impl OctaApp {
             }
 
             // --- Table view ---
+            // Drain pending Copy/Cut/Paste events (and remappable
+            // ShortcutAction triggers) here, AFTER all earlier panels (SQL
+            // editor, toolbar search, status bar nav, etc.) have had a chance
+            // to consume them. This keeps clipboard interactions in TextEdits
+            // local to those editors and only routes the leftover events to
+            // the table.
+            self.handle_table_clipboard(ctx);
+
             let os_has_clipboard = self.os_clipboard_has_text();
             let tab = &mut self.tabs[self.active_tab];
             let filtered = tab.filtered_rows.clone();
@@ -112,6 +121,86 @@ impl OctaApp {
 
             self.handle_table_interaction(interaction);
         });
+    }
+
+    /// Route `Event::Copy` / `Event::Cut` / `Event::Paste` and the remappable
+    /// `ShortcutAction::Copy/Cut/Paste` triggers to the table-level clipboard
+    /// ops — but only when no TextEdit has keyboard focus.
+    ///
+    /// Subtle invariant: egui's TextEdit reads `Event::Paste` etc. without
+    /// removing them from `i.events`, AND `draw_table` later in the frame
+    /// also has its own paste-event picker. So we ALWAYS drain those events
+    /// here (so nothing else fires on them), but only act on them when no
+    /// TextEdit is focused. When the SQL editor / search bar / any other
+    /// TextEdit is focused, the events have already been consumed by that
+    /// editor in an earlier panel and we just throw them away.
+    fn handle_table_clipboard(&mut self, ctx: &egui::Context) {
+        if self.tabs[self.active_tab].view_mode != ViewMode::Table {
+            return;
+        }
+        if self.tabs[self.active_tab].table.col_count() == 0 {
+            return;
+        }
+
+        let mut do_copy = false;
+        let mut do_cut = false;
+        let mut paste_text: Option<String> = None;
+        let mut had_paste_event = false;
+
+        ctx.input_mut(|i| {
+            i.events.retain(|e| match e {
+                egui::Event::Copy => {
+                    do_copy = true;
+                    false
+                }
+                egui::Event::Cut => {
+                    do_cut = true;
+                    false
+                }
+                egui::Event::Paste(t) => {
+                    paste_text = Some(t.clone());
+                    had_paste_event = true;
+                    false
+                }
+                _ => true,
+            });
+        });
+
+        // If any TextEdit holds focus (SQL editor, raw editor, search bar,
+        // inline cell editor, dialogs, status-bar nav...), the events above
+        // were already handled by that editor when it rendered. Drop them
+        // and don't react further on the table side.
+        let text_edit_focused = ctx
+            .memory(|m| m.focused())
+            .and_then(|id| egui::TextEdit::load_state(ctx, id).map(|_| ()))
+            .is_some()
+            || ctx.wants_keyboard_input();
+        if text_edit_focused {
+            return;
+        }
+
+        // Configurable shortcut path (e.g. user remapped Copy to Ctrl+Shift+C).
+        let shortcuts = self.settings.shortcuts.clone();
+        if ctx.input(|i| shortcuts.triggered(SA::Copy, i)) {
+            do_copy = true;
+        }
+        if ctx.input(|i| shortcuts.triggered(SA::Cut, i)) {
+            do_cut = true;
+        }
+        if ctx.input(|i| shortcuts.triggered(SA::Paste, i)) && !had_paste_event {
+            paste_text = None;
+            had_paste_event = true;
+        }
+
+        if do_copy {
+            self.do_copy();
+        }
+        if do_cut {
+            self.do_cut();
+        }
+        if had_paste_event {
+            self.do_paste(paste_text);
+        }
     }
 
     fn handle_table_interaction(&mut self, interaction: ui::table_view::TableInteraction) {
@@ -271,6 +360,9 @@ impl OctaApp {
         }
         if interaction.ctx_copy {
             self.do_copy();
+        }
+        if interaction.ctx_cut {
+            self.do_cut();
         }
         if interaction.ctx_paste {
             self.do_paste(interaction.paste_text);

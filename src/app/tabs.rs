@@ -36,12 +36,14 @@ impl TabState {
             bg_can_load_more: false,
             bg_file_exhausted: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             commonmark_cache: egui_commonmark::CommonMarkCache::default(),
+            markdown_scroll_target: None,
             json_tree_expanded: std::collections::HashSet::new(),
             json_value: None,
             json_expand_depth: 1,
             json_expand_depth_str: "1".to_string(),
             json_edit_path: None,
             json_edit_buffer: String::new(),
+            json_edit_width: None,
             show_add_column_dialog: false,
             new_col_name: String::new(),
             new_col_type: "String".to_string(),
@@ -55,6 +57,7 @@ impl TabState {
             sql_panel_open: false,
             sql_ac_selected: 0,
             sql_ac_visible: true,
+            first_row_is_header: true,
         }
     }
 

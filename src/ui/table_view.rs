@@ -41,6 +41,10 @@ pub struct TableViewState {
     pub selection_anchor_display: Option<usize>,
     /// Multi-selection: selected columns (by column index).
     pub selected_cols: HashSet<usize>,
+    /// Multi-cell selection (a free set of (row, col) cells). Populated by
+    /// Ctrl+Arrow extension starting from a single cell. Cleared on plain
+    /// click or plain-arrow navigation.
+    pub selected_cells: HashSet<(usize, usize)>,
     /// Clipboard content (tab-separated values, rows separated by newlines).
     pub clipboard: Option<String>,
     /// Whether the OS clipboard currently has text content (set each frame by the app).
@@ -256,8 +260,9 @@ pub struct TableInteraction {
     pub ctx_move_row_down: bool,
     pub ctx_move_col_left: bool,
     pub ctx_move_col_right: bool,
-    /// Copy/Paste signals
+    /// Copy/Cut/Paste signals
     pub ctx_copy: bool,
+    pub ctx_cut: bool,
     pub ctx_paste: bool,
     /// Text received from OS clipboard via Ctrl+V / Paste event
     pub paste_text: Option<String>,
@@ -404,13 +409,61 @@ pub fn draw_table(
         let ext_left = triggered(ShortcutAction::ExtendSelectionLeft);
         let ext_right = triggered(ShortcutAction::ExtendSelectionRight);
 
-        // Handle "extend row/column selection by one" first: this only applies
-        // when whole rows or whole columns are already selected. Returns true
-        // if consumed so the plain-arrow handler below doesn't also fire.
+        // Handle "extend row/column selection by one" first: applies when
+        // a whole row/column block is selected, or when only a single cell
+        // is selected (in which case the cell anchors a new row/column run).
+        // Returns true if consumed so the plain-arrow handler below doesn't
+        // also fire.
         let row_block_selected = !state.selected_rows.is_empty() && state.selected_cols.is_empty();
         let col_block_selected = !state.selected_cols.is_empty() && state.selected_rows.is_empty();
+        // Cell-extension mode: Ctrl+Arrow extends a free multi-cell selection
+        // anchored at the current selected_cell. Triggered from a single-cell
+        // selection or while a previous cell-extension run is active.
+        let cell_extend_mode = state.selected_cell.is_some()
+            && state.selected_rows.is_empty()
+            && state.selected_cols.is_empty();
 
         let mut handled = false;
+
+        if cell_extend_mode && (ext_up || ext_down) {
+            if let Some((cur_row, cur_col)) = state.selected_cell {
+                let cur_display = filtered_rows.iter().position(|&r| r == cur_row).unwrap_or(0);
+                let new_display = if ext_up {
+                    cur_display.saturating_sub(1)
+                } else {
+                    (cur_display + 1).min(filtered_rows.len().saturating_sub(1))
+                };
+                if let Some(&new_row) = filtered_rows.get(new_display) {
+                    state.selected_cells.insert((cur_row, cur_col));
+                    state.selected_cells.insert((new_row, cur_col));
+                    state.selected_cell = Some((new_row, cur_col));
+                    scroll_row_into_view(
+                        state,
+                        new_display,
+                        row_height,
+                        data_area_height,
+                        max_scroll_y,
+                    );
+                }
+                handled = true;
+            }
+        }
+
+        if !handled && cell_extend_mode && (ext_left || ext_right) {
+            if let Some((cur_row, cur_col)) = state.selected_cell {
+                let col_count = table.col_count();
+                let new_col = if ext_left {
+                    cur_col.saturating_sub(1)
+                } else {
+                    (cur_col + 1).min(col_count.saturating_sub(1))
+                };
+                state.selected_cells.insert((cur_row, cur_col));
+                state.selected_cells.insert((cur_row, new_col));
+                state.selected_cell = Some((cur_row, new_col));
+                scroll_col_into_view(state, new_col, view_width, max_scroll_x);
+                handled = true;
+            }
+        }
 
         if row_block_selected && (ext_up || ext_down) {
             let displays: Vec<usize> = filtered_rows
@@ -517,6 +570,7 @@ pub fn draw_table(
 
                 if let Some(&new_row) = filtered_rows.get(new_display) {
                     state.selected_cell = Some((new_row, new_col));
+                    state.selected_cells.clear();
 
                     let extending_rows = shift && (arrow_up || arrow_down);
                     if extending_rows {
@@ -552,11 +606,11 @@ pub fn draw_table(
         }
     }
 
-    // Ctrl+C / Ctrl+V / Ctrl+Z / Ctrl+Y — consume with *exact* modifier
-    // matching. egui's `consume_key` uses matches_logically, so it would also
-    // eat Ctrl+Alt+V, Ctrl+Shift+V, etc., colliding with any user shortcut
-    // that extends Ctrl+V/C/Z/Y. We iterate events by hand to enforce
-    // "Ctrl only, no Shift, no Alt".
+    // Ctrl+Z / Ctrl+Y — consume with *exact* modifier matching. egui's
+    // `consume_key` uses matches_logically, so it would also eat
+    // Ctrl+Shift+Z etc.; we iterate events by hand to enforce
+    // "Ctrl only, no Shift, no Alt". (Ctrl+C/X/V are handled globally
+    // via `ShortcutAction::Copy`/`Cut`/`Paste` in shortcuts_dispatch.rs.)
     if state.editing_cell.is_none() && !any_text_edit_focused {
         ui.input_mut(|i| {
             i.events.retain(|e| {
@@ -569,14 +623,6 @@ pub fn draw_table(
                 {
                     if modifiers.command_only() {
                         match key {
-                            egui::Key::C => {
-                                interaction.ctx_copy = true;
-                                return false;
-                            }
-                            egui::Key::V => {
-                                interaction.ctx_paste = true;
-                                return false;
-                            }
                             egui::Key::Z => {
                                 interaction.undo = true;
                                 return false;
@@ -1101,6 +1147,7 @@ fn draw_header_direct(
                     state.selected_cols.clear();
                     state.selected_cols.insert(col_idx);
                     state.selected_rows.clear();
+                    state.selected_cells.clear();
                 }
             }
 
@@ -1125,6 +1172,14 @@ fn draw_header_direct(
                         state.selected_cols.insert(col_idx);
                     }
                     interaction.ctx_copy = true;
+                    ui.close_menu();
+                }
+                if ui.button("Cut").clicked() {
+                    if !state.selected_cols.contains(&col_idx) {
+                        state.selected_cols.clear();
+                        state.selected_cols.insert(col_idx);
+                    }
+                    interaction.ctx_cut = true;
                     ui.close_menu();
                 }
                 if (state.clipboard.is_some() || state.os_clipboard_has_text)
@@ -1384,11 +1439,12 @@ fn draw_data_row_direct(
                 .unwrap_or(false);
             let is_edited = table.is_edited(actual_row, col_idx);
             let is_col_selected = state.selected_cols.contains(&col_idx);
+            let is_multi_cell = state.selected_cells.contains(&(actual_row, col_idx));
 
             let mark_color = table.get_mark_color(actual_row, col_idx);
             let cell_bg = if is_editing {
                 colors.bg_primary
-            } else if is_selected || is_multi_selected_row || is_col_selected {
+            } else if is_selected || is_multi_selected_row || is_col_selected || is_multi_cell {
                 colors.bg_selected
             } else if let Some(mc) = mark_color {
                 colors.mark_color(mc)
@@ -1536,9 +1592,10 @@ fn draw_data_row_direct(
                 if response.clicked() {
                     state.selected_cell = Some((actual_row, col_idx));
                     state.editing_cell = None;
-                    // Single click selects just the cell; clear row/col multi-selection
+                    // Single click selects just the cell; clear all multi-selection
                     state.selected_rows.clear();
                     state.selected_cols.clear();
+                    state.selected_cells.clear();
                     state.selection_anchor_display = None;
                 }
                 if response.double_clicked() {
@@ -1555,10 +1612,14 @@ fn draw_data_row_direct(
                 response.context_menu(|ui| {
                     state.selected_cell = Some((actual_row, col_idx));
 
-                    // --- Copy / Paste ---
+                    // --- Copy / Cut / Paste ---
                     ui.label(RichText::new("Clipboard").strong().size(11.0));
                     if ui.button("Copy").clicked() {
                         interaction.ctx_copy = true;
+                        ui.close_menu();
+                    }
+                    if ui.button("Cut").clicked() {
+                        interaction.ctx_cut = true;
                         ui.close_menu();
                     }
                     if (state.clipboard.is_some() || state.os_clipboard_has_text)
@@ -1689,6 +1750,7 @@ fn draw_data_row_direct(
                 state.selected_rows.clear();
                 state.selected_rows.insert(actual_row);
                 state.selected_cols.clear();
+                state.selected_cells.clear();
             }
             state.selected_cell =
                 Some((actual_row, state.selected_cell.map(|(_, c)| c).unwrap_or(0)));
@@ -1707,6 +1769,10 @@ fn draw_data_row_direct(
             ui.label(RichText::new("Clipboard").strong().size(11.0));
             if ui.button("Copy").clicked() {
                 interaction.ctx_copy = true;
+                ui.close_menu();
+            }
+            if ui.button("Cut").clicked() {
+                interaction.ctx_cut = true;
                 ui.close_menu();
             }
             if (state.clipboard.is_some() || state.os_clipboard_has_text)

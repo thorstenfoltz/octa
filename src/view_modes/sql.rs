@@ -3,6 +3,7 @@ use crate::ui::settings::SqlPanelPosition;
 
 use eframe::egui;
 use octa::data::CellValue;
+use octa::ui::status_bar::format_number;
 
 /// User actions emitted by the SQL view in a single frame.
 #[derive(Debug, Clone, Default)]
@@ -252,7 +253,9 @@ pub fn render_sql_view(
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(format!(
-                        "\u{26a0} Result based on {loaded} of {total} rows currently loaded."
+                        "\u{26a0} Result based on {} of {} rows currently loaded.",
+                        format_number(loaded),
+                        format_number(total),
                     ))
                     .small()
                     .color(egui::Color32::from_rgb(200, 160, 50)),
@@ -394,11 +397,11 @@ fn draw_sql_editor(
             let line_count = tab.sql_query.lines().count().max(1);
             let trailing = tab.sql_query.ends_with('\n');
             let effective = if trailing { line_count + 1 } else { line_count };
-            let digits = effective.to_string().len().max(2);
+            let digits = format_number(effective).len().max(2);
             let desired_rows = 8.max(effective);
 
             let numbers: String = (1..=effective)
-                .map(|n| format!("{n:>width$}", width = digits))
+                .map(|n| format!("{:>width$}", format_number(n), width = digits))
                 .collect::<Vec<_>>()
                 .join("\n");
 

@@ -274,6 +274,10 @@ impl OctaApp {
             let tab = &mut self.tabs[self.active_tab];
             tab.table = table;
             tab.table_state = TableViewState::default();
+            if tab.table.row_count() > 0 && tab.table.col_count() > 0 {
+                tab.table_state.selected_cell = Some((0, 0));
+            }
+            tab.first_row_is_header = true;
             tab.search_text.clear();
             tab.filter_dirty = true;
             if tab.table.total_rows.is_some() {

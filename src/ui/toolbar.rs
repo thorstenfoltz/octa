@@ -1,7 +1,9 @@
+use std::collections::HashSet;
+
 use egui::{RichText, Ui};
 
 use super::theme::{ThemeColors, ThemeMode};
-use crate::data::{SearchMode, ViewMode};
+use crate::data::{DataTable, MarkColor, MarkKey, SearchMode, ViewMode};
 
 #[derive(Default)]
 pub struct ToolbarAction {
@@ -39,6 +41,12 @@ pub struct ToolbarAction {
     pub zoom_out: bool,
     pub zoom_reset: bool,
     pub toggle_sql_panel: bool,
+    /// Toggle "first row is header" for the active table.
+    pub toggle_first_row_header: bool,
+    /// Apply a color mark to a set of keys (cell/row/column).
+    pub set_marks: Vec<(MarkKey, MarkColor)>,
+    /// Clear color marks from a set of keys.
+    pub clear_marks: Vec<MarkKey>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -54,6 +62,8 @@ pub fn draw_toolbar(
     has_edits: bool,
     has_source_path: bool,
     selected_cell: Option<(usize, usize)>,
+    selected_rows: &HashSet<usize>,
+    selected_cols: &HashSet<usize>,
     row_count: usize,
     col_count: usize,
     current_view_mode: ViewMode,
@@ -67,6 +77,8 @@ pub fn draw_toolbar(
     logo_texture: Option<&egui::TextureHandle>,
     recent_files: &[String],
     directory_tree_open: bool,
+    first_row_is_header: bool,
+    table: &DataTable,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::default();
     let colors = ThemeColors::for_mode(theme_mode);
@@ -231,6 +243,60 @@ pub fn draw_toolbar(
                     if let Some((_, col)) = selected_cell {
                         action.sort_rows_desc_by = Some(col);
                     }
+                    ui.close_menu();
+                }
+
+                ui.separator();
+
+                // Mark submenu — surfaces the same colors as the right-click
+                // context menu, scoped to the current selection.
+                let mark_keys: Vec<MarkKey> = if !selected_rows.is_empty() {
+                    let mut rs: Vec<usize> = selected_rows.iter().copied().collect();
+                    rs.sort();
+                    rs.into_iter().map(MarkKey::Row).collect()
+                } else if !selected_cols.is_empty() {
+                    let mut cs: Vec<usize> = selected_cols.iter().copied().collect();
+                    cs.sort();
+                    cs.into_iter().map(MarkKey::Column).collect()
+                } else if let Some((r, c)) = selected_cell {
+                    vec![MarkKey::Cell(r, c)]
+                } else {
+                    Vec::new()
+                };
+                let has_marks_keys = !mark_keys.is_empty();
+                let any_currently_marked = mark_keys.iter().any(|k| table.marks.contains_key(k));
+                ui.add_enabled_ui(has_marks_keys, |ui| {
+                    ui.menu_button("Mark", |ui| {
+                        for &color in MarkColor::ALL {
+                            let swatch = ThemeColors::mark_swatch(color);
+                            let label = color.label();
+                            let btn = egui::Button::new(RichText::new(label).color(swatch));
+                            if ui.add(btn).clicked() {
+                                for k in &mark_keys {
+                                    action.set_marks.push((k.clone(), color));
+                                }
+                                ui.close_menu();
+                            }
+                        }
+                        if any_currently_marked {
+                            ui.separator();
+                            if ui.button("Clear").clicked() {
+                                for k in &mark_keys {
+                                    action.clear_marks.push(k.clone());
+                                }
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                });
+
+                ui.separator();
+                let mut header_flag = first_row_is_header;
+                if ui
+                    .checkbox(&mut header_flag, "First row is header")
+                    .changed()
+                {
+                    action.toggle_first_row_header = true;
                     ui.close_menu();
                 }
 

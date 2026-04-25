@@ -240,6 +240,12 @@ pub enum ShortcutAction {
     /// Export the current SQL query result to a file (only when a result is
     /// available). No-op when no result has been produced yet.
     ExportSqlResult,
+    /// Copy the current selection to the OS clipboard.
+    Copy,
+    /// Cut the current selection (copy then clear cells).
+    Cut,
+    /// Paste OS clipboard contents into the current selection.
+    Paste,
 }
 
 impl ShortcutAction {
@@ -277,6 +283,9 @@ impl ShortcutAction {
             Self::ExtendSelectionLeft => "Extend column selection left",
             Self::ExtendSelectionRight => "Extend column selection right",
             Self::ExportSqlResult => "Export SQL result",
+            Self::Copy => "Copy selection",
+            Self::Cut => "Cut selection",
+            Self::Paste => "Paste",
         }
     }
 
@@ -316,6 +325,9 @@ impl ShortcutAction {
             Self::ExtendSelectionLeft => KeyCombo::ctrl(Key::ArrowLeft),
             Self::ExtendSelectionRight => KeyCombo::ctrl(Key::ArrowRight),
             Self::ExportSqlResult => KeyCombo::ctrl_shift(Key::E),
+            Self::Copy => KeyCombo::ctrl(Key::C),
+            Self::Cut => KeyCombo::ctrl(Key::X),
+            Self::Paste => KeyCombo::ctrl(Key::V),
         }
     }
 }

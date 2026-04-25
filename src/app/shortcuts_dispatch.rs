@@ -128,6 +128,11 @@ impl OctaApp {
                     .insert(r);
             }
         }
+        // Copy / Cut / Paste — handled inside `render_central_panel` so SQL
+        // editor, raw text editor, search bar, and any other earlier-rendered
+        // TextEdits consume the clipboard events first. This avoids the
+        // "Ctrl+V into the SQL editor also pastes into the table" bug.
+
         if action_fired(SA::ExportSqlResult)
             && self.tabs[self.active_tab]
                 .sql_result

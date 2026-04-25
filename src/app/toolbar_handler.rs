@@ -34,6 +34,8 @@ impl OctaApp {
                     tab.table.is_modified(),
                     tab.table.source_path.is_some(),
                     tab.table_state.selected_cell,
+                    &tab.table_state.selected_rows,
+                    &tab.table_state.selected_cols,
                     tab.table.row_count(),
                     tab.table.col_count(),
                     tab.view_mode,
@@ -47,6 +49,8 @@ impl OctaApp {
                     self.logo_texture.as_ref(),
                     &self.recent_files,
                     self.directory_tree.is_some(),
+                    tab.first_row_is_header,
+                    &tab.table,
                 );
                 self.search_focus_requested = false;
 
@@ -309,6 +313,34 @@ impl OctaApp {
 
         if action.discard_edits {
             self.tabs[self.active_tab].table.discard_edits();
+        }
+
+        if action.toggle_first_row_header {
+            let tab = &mut self.tabs[self.active_tab];
+            if tab.first_row_is_header {
+                tab.table.promote_headers_to_row();
+                tab.first_row_is_header = false;
+            } else {
+                tab.table.promote_first_row_to_headers();
+                tab.first_row_is_header = true;
+            }
+            tab.filter_dirty = true;
+            tab.table_state.widths_initialized = false;
+            tab.table_state.editing_cell = None;
+            tab.table_state.selected_rows.clear();
+            tab.table_state.selected_cols.clear();
+            if tab.table.row_count() > 0 && tab.table.col_count() > 0 {
+                tab.table_state.selected_cell = Some((0, 0));
+            } else {
+                tab.table_state.selected_cell = None;
+            }
+        }
+
+        for (key, color) in action.set_marks {
+            self.tabs[self.active_tab].table.set_mark(key, color);
+        }
+        for key in action.clear_marks {
+            self.tabs[self.active_tab].table.clear_mark(key);
         }
     }
 }
