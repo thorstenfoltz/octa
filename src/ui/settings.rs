@@ -25,23 +25,106 @@ impl NotebookOutputLayout {
     }
 }
 
+/// Where to dock the directory tree sidebar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum DirectoryTreePosition {
+    /// Docked to the left of the main area.
+    #[default]
+    Left,
+    /// Docked to the right of the main area.
+    Right,
+}
+
+impl DirectoryTreePosition {
+    pub const ALL: &[DirectoryTreePosition] = &[Self::Left, Self::Right];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Left => "Left",
+            Self::Right => "Right",
+        }
+    }
+}
+
 /// Where to dock the SQL editor/result panel relative to the table view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SqlPanelPosition {
     /// Below the table (full width).
     #[default]
     Bottom,
+    /// Above the table (full width).
+    Top,
+    /// To the left of the table (full height).
+    Left,
     /// To the right of the table (full height).
     Right,
 }
 
 impl SqlPanelPosition {
-    pub const ALL: &[SqlPanelPosition] = &[Self::Bottom, Self::Right];
+    pub const ALL: &[SqlPanelPosition] = &[Self::Bottom, Self::Top, Self::Left, Self::Right];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Bottom => "Bottom",
+            Self::Top => "Top",
+            Self::Left => "Left",
             Self::Right => "Right",
+        }
+    }
+}
+
+/// Initial window size before maximizing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum WindowSize {
+    /// 800 × 600
+    W800x600,
+    /// 1280 × 720
+    W1280x720,
+    /// 1920 × 1080
+    W1920x1080,
+    /// 2560 × 1440
+    W2560x1440,
+    /// 3840 × 2160 (4K)
+    #[default]
+    W3840x2160,
+    /// 5120 × 2880 (5K)
+    W5120x2880,
+    /// 7680 × 4320 (8K)
+    W7680x4320,
+}
+
+impl WindowSize {
+    pub const ALL: &[WindowSize] = &[
+        Self::W800x600,
+        Self::W1280x720,
+        Self::W1920x1080,
+        Self::W2560x1440,
+        Self::W3840x2160,
+        Self::W5120x2880,
+        Self::W7680x4320,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::W800x600 => "800 × 600",
+            Self::W1280x720 => "1280 × 720",
+            Self::W1920x1080 => "1920 × 1080 (FHD)",
+            Self::W2560x1440 => "2560 × 1440 (QHD)",
+            Self::W3840x2160 => "3840 × 2160 (4K)",
+            Self::W5120x2880 => "5120 × 2880 (5K)",
+            Self::W7680x4320 => "7680 × 4320 (8K)",
+        }
+    }
+
+    pub fn dimensions(self) -> [f32; 2] {
+        match self {
+            Self::W800x600 => [800.0, 600.0],
+            Self::W1280x720 => [1280.0, 720.0],
+            Self::W1920x1080 => [1920.0, 1080.0],
+            Self::W2560x1440 => [2560.0, 1440.0],
+            Self::W3840x2160 => [3840.0, 2160.0],
+            Self::W5120x2880 => [5120.0, 2880.0],
+            Self::W7680x4320 => [7680.0, 4320.0],
         }
     }
 }
@@ -193,6 +276,12 @@ pub struct AppSettings {
     /// Default LIMIT used in the placeholder query for new tabs.
     #[serde(default = "default_sql_row_limit")]
     pub sql_default_row_limit: usize,
+    /// Whether the SQL editor offers keyword + column-name autocomplete.
+    #[serde(default = "default_true")]
+    pub sql_autocomplete: bool,
+    /// Where to dock the directory tree sidebar when a folder is open.
+    #[serde(default)]
+    pub directory_tree_position: DirectoryTreePosition,
     /// Whether to show a confirmation warning before toggling "Align Columns"
     /// off in the raw CSV/TSV view, which reloads the file and discards edits.
     #[serde(default = "default_true")]
@@ -200,6 +289,15 @@ pub struct AppSettings {
     /// User-customizable keyboard shortcut bindings.
     #[serde(default)]
     pub shortcuts: Shortcuts,
+    /// Initial window size. Only has a visible effect when
+    /// [`AppSettings::start_maximized`] is off; otherwise it is the
+    /// restore-from-maximize size.
+    #[serde(default)]
+    pub window_size: WindowSize,
+    /// Whether to launch the window maximized. When off, the window
+    /// comes up at [`AppSettings::window_size`] instead.
+    #[serde(default = "default_true")]
+    pub start_maximized: bool,
 }
 
 fn default_true() -> bool {
@@ -240,8 +338,12 @@ impl Default for AppSettings {
             sql_panel_default_open: false,
             sql_panel_position: SqlPanelPosition::default(),
             sql_default_row_limit: 100,
+            sql_autocomplete: true,
+            directory_tree_position: DirectoryTreePosition::default(),
             warn_raw_align_reload: true,
             shortcuts: Shortcuts::default(),
+            window_size: WindowSize::default(),
+            start_maximized: true,
         }
     }
 }
@@ -325,6 +427,9 @@ pub struct SettingsDialog {
     /// When the user clicks "Record" for a shortcut, the action is stored here
     /// and the next key press captures a new binding. `None` = not recording.
     recording: Option<ShortcutAction>,
+    /// Set when the user tries to bind a combo that is already used by another
+    /// action. Cleared when they record successfully or edit the grid again.
+    shortcut_conflict: Option<String>,
 }
 
 impl SettingsDialog {
@@ -336,6 +441,7 @@ impl SettingsDialog {
         self.theme_changed = false;
         self.sql_row_limit_buf = current.sql_default_row_limit.to_string();
         self.recording = None;
+        self.shortcut_conflict = None;
         self.open = true;
     }
 
@@ -739,6 +845,41 @@ impl SettingsDialog {
                                 .hint_text("100"),
                         );
                         ui.end_row();
+
+                        ui.label("Autocomplete:").on_hover_text(
+                            "Offer SQL keyword and column-name suggestions\n\
+                             beneath the SQL editor.",
+                        );
+                        ui.checkbox(&mut self.draft.sql_autocomplete, "");
+                        ui.end_row();
+                    });
+            });
+
+        // ── Directory Tree ──
+        egui::CollapsingHeader::new(egui::RichText::new("Directory Tree").strong().size(13.0))
+            .id_salt("settings_section_directory_tree")
+            .default_open(false)
+            .show(ui, |ui| {
+                egui::Grid::new("settings_directory_tree")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label("Sidebar position:").on_hover_text(
+                            "Which side the directory tree is docked on when a\n\
+                         folder is opened via File > Open Directory.",
+                        );
+                        egui::ComboBox::from_id_salt("directory_tree_position_combo")
+                            .selected_text(self.draft.directory_tree_position.label())
+                            .show_ui(ui, |ui| {
+                                for &pos in DirectoryTreePosition::ALL {
+                                    ui.selectable_value(
+                                        &mut self.draft.directory_tree_position,
+                                        pos,
+                                        pos.label(),
+                                    );
+                                }
+                            });
+                        ui.end_row();
                     });
             });
 
@@ -786,6 +927,44 @@ impl SettingsDialog {
                         ui.end_row();
                     });
             });
+
+        // ── Window ──
+        egui::CollapsingHeader::new(egui::RichText::new("Window").strong().size(13.0))
+            .id_salt("settings_section_window")
+            .default_open(false)
+            .show(ui, |ui| {
+                egui::Grid::new("settings_window")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label("Start maximized:").on_hover_text(
+                            "When on, the window launches maximized and the size below\n\
+                             is used as the restore-from-maximize size.\n\
+                             When off, the window launches at the chosen size.",
+                        );
+                        ui.checkbox(&mut self.draft.start_maximized, "");
+                        ui.end_row();
+
+                        ui.label("Initial window size:").on_hover_text(
+                            "Window size used at startup (when \"Start maximized\" is off),\n\
+                             or the restore-from-maximize size when it is on.",
+                        );
+                        ui.add_enabled_ui(!self.draft.start_maximized, |ui| {
+                            egui::ComboBox::from_id_salt("window_size_combo")
+                                .selected_text(self.draft.window_size.label())
+                                .show_ui(ui, |ui| {
+                                    for &size in WindowSize::ALL {
+                                        ui.selectable_value(
+                                            &mut self.draft.window_size,
+                                            size,
+                                            size.label(),
+                                        );
+                                    }
+                                });
+                        });
+                        ui.end_row();
+                    });
+            });
     }
 
     /// One grid row per [`ShortcutAction`]: name, current combo, Record/Clear/Reset.
@@ -797,9 +976,32 @@ impl SettingsDialog {
             if let Some(CaptureResult::Cancel) = captured {
                 self.recording = None;
             } else if let Some(CaptureResult::Combo(combo)) = captured {
-                self.draft.shortcuts.set(action, combo);
+                // Reject combos already bound to another action so two
+                // functions can never share a shortcut.
+                let conflict = self
+                    .draft
+                    .shortcuts
+                    .bindings
+                    .iter()
+                    .find(|(other, existing)| **other != action && **existing == combo)
+                    .map(|(other, _)| *other);
+                if let Some(other) = conflict {
+                    self.shortcut_conflict = Some(format!(
+                        "{} is already bound to \"{}\". Clear that binding first or pick a different key.",
+                        combo.label(),
+                        other.label(),
+                    ));
+                } else {
+                    self.draft.shortcuts.set(action, combo);
+                    self.shortcut_conflict = None;
+                }
                 self.recording = None;
             }
+        }
+
+        if let Some(msg) = &self.shortcut_conflict {
+            ui.colored_label(egui::Color32::from_rgb(0xd9, 0x53, 0x4f), msg);
+            ui.add_space(4.0);
         }
 
         egui::Grid::new("settings_shortcuts_grid")

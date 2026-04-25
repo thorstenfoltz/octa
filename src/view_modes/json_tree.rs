@@ -1,4 +1,4 @@
-use crate::TabState;
+use crate::app::state::TabState;
 use crate::ui;
 use octa::data::json_util;
 
