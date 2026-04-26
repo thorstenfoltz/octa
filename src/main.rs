@@ -10,8 +10,8 @@ use eframe::egui;
 use octa::ui;
 use ui::settings::AppSettings;
 
-use app::init::render_icon;
 use app::OctaApp;
+use app::init::render_icon;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");

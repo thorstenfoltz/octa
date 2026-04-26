@@ -131,13 +131,11 @@ pub fn render_markdown_view(ui: &mut egui::Ui, tab: &mut TabState) {
             });
         });
 
-        let clicked_fragment = tab.commonmark_cache.link_hooks().iter().find_map(|(k, v)| {
-            if *v {
-                Some(k.clone())
-            } else {
-                None
-            }
-        });
+        let clicked_fragment = tab
+            .commonmark_cache
+            .link_hooks()
+            .iter()
+            .find_map(|(k, v)| if *v { Some(k.clone()) } else { None });
         if let Some(frag) = clicked_fragment {
             tab.commonmark_cache
                 .link_hooks_mut()

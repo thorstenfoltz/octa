@@ -1,9 +1,9 @@
 use crate::data::{CellValue, ColumnInfo, DataTable};
 use crate::formats::FormatReader;
 use anyhow::Result;
-use apache_avro::types::Value as AvroValue;
 use apache_avro::Reader as AvroFileReader;
 use apache_avro::Writer as AvroFileWriter;
+use apache_avro::types::Value as AvroValue;
 use std::path::Path;
 
 pub struct AvroReader;

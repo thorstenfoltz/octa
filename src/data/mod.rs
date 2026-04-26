@@ -1030,10 +1030,7 @@ impl DataTable {
         self.apply_edits();
         let first = self.rows.remove(0);
         for (i, col) in self.columns.iter_mut().enumerate() {
-            let name = first
-                .get(i)
-                .map(|v| v.to_string())
-                .unwrap_or_default();
+            let name = first.get(i).map(|v| v.to_string()).unwrap_or_default();
             col.name = if name.is_empty() {
                 format!("column_{}", i + 1)
             } else {

@@ -4,10 +4,10 @@
 use std::sync::Arc;
 use tempfile::TempDir;
 
-use ambers::{metadata::SpssMetadata, Compression};
+use ambers::{Compression, metadata::SpssMetadata};
 use arrow57::array::{Float64Array, RecordBatch, StringArray};
 use arrow57::datatypes::{DataType, Field, Schema};
-use octa::data::CellValue;
+use octa::data::{CellValue, ColumnInfo, DataTable};
 use octa::formats::FormatRegistry;
 
 fn make_sav(dir: &TempDir) -> std::path::PathBuf {
@@ -87,9 +87,141 @@ fn spss_reader_supports_zsav_extension() {
 }
 
 #[test]
-fn spss_reader_does_not_support_write() {
+fn spss_reader_supports_write() {
     let registry = FormatRegistry::new();
     let dummy = std::path::Path::new("foo.sav");
     let reader = registry.reader_for_path(dummy).unwrap();
-    assert!(!reader.supports_write());
+    assert!(reader.supports_write());
+}
+
+fn make_simple_table() -> DataTable {
+    let mut t = DataTable::empty();
+    t.columns = vec![
+        ColumnInfo {
+            name: "id".to_string(),
+            data_type: "Int64".to_string(),
+        },
+        ColumnInfo {
+            name: "name".to_string(),
+            data_type: "Utf8".to_string(),
+        },
+        ColumnInfo {
+            name: "score".to_string(),
+            data_type: "Float64".to_string(),
+        },
+        ColumnInfo {
+            name: "active".to_string(),
+            data_type: "Boolean".to_string(),
+        },
+        ColumnInfo {
+            name: "born".to_string(),
+            data_type: "Date".to_string(),
+        },
+    ];
+    t.rows = vec![
+        vec![
+            CellValue::Int(1),
+            CellValue::String("Alice".to_string()),
+            CellValue::Float(90.5),
+            CellValue::Bool(true),
+            CellValue::Date("1990-01-15".to_string()),
+        ],
+        vec![
+            CellValue::Int(2),
+            CellValue::String("Bob".to_string()),
+            CellValue::Null,
+            CellValue::Bool(false),
+            CellValue::Date("1985-06-30".to_string()),
+        ],
+        vec![
+            CellValue::Null,
+            CellValue::String("Charlie".to_string()),
+            CellValue::Float(77.3),
+            CellValue::Null,
+            CellValue::Null,
+        ],
+    ];
+    t
+}
+
+#[test]
+fn spss_writer_round_trips_basic_types() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("out.sav");
+
+    let table = make_simple_table();
+    let registry = FormatRegistry::new();
+    let reader = registry.reader_for_path(&path).expect("reader for .sav");
+    reader.write_file(&path, &table).expect("write .sav");
+
+    let read = reader.read_file(&path).expect("read back .sav");
+    assert_eq!(read.col_count(), 5);
+    assert_eq!(read.row_count(), 3);
+
+    let cols: Vec<&str> = read.columns.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(cols, vec!["id", "name", "score", "active", "born"]);
+
+    // SPSS stores all numerics as Float64 internally — Int64/Boolean
+    // both come back as Float64 columns.
+    assert_eq!(read.columns[0].data_type, "Float64");
+    assert_eq!(read.columns[1].data_type, "Utf8");
+    assert_eq!(read.columns[2].data_type, "Float64");
+    assert_eq!(read.columns[3].data_type, "Float64");
+    assert_eq!(read.columns[4].data_type, "Date");
+
+    // Row 0
+    assert!(matches!(
+        read.get(0, 0),
+        Some(CellValue::Float(v)) if (*v - 1.0).abs() < 1e-9
+    ));
+    assert!(matches!(read.get(0, 1), Some(CellValue::String(s)) if s == "Alice"));
+    assert!(matches!(
+        read.get(0, 2),
+        Some(CellValue::Float(v)) if (*v - 90.5).abs() < 1e-9
+    ));
+    assert!(matches!(
+        read.get(0, 3),
+        Some(CellValue::Float(v)) if (*v - 1.0).abs() < 1e-9
+    ));
+    assert!(matches!(read.get(0, 4), Some(CellValue::Date(s)) if s == "1990-01-15"));
+
+    // Row 1: score is Null
+    assert!(matches!(read.get(1, 2), Some(CellValue::Null)));
+
+    // Row 2: id and active are Null
+    assert!(matches!(read.get(2, 0), Some(CellValue::Null)));
+    assert!(matches!(read.get(2, 3), Some(CellValue::Null)));
+    assert!(matches!(read.get(2, 4), Some(CellValue::Null)));
+}
+
+#[test]
+fn spss_writer_round_trips_zsav_extension() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("out.zsav");
+
+    let table = make_simple_table();
+    let registry = FormatRegistry::new();
+    let reader = registry.reader_for_path(&path).expect("reader for .zsav");
+    reader.write_file(&path, &table).expect("write .zsav");
+
+    let read = reader.read_file(&path).expect("read back .zsav");
+    assert_eq!(read.col_count(), 5);
+    assert_eq!(read.row_count(), 3);
+    assert!(matches!(read.get(0, 1), Some(CellValue::String(s)) if s == "Alice"));
+}
+
+#[test]
+fn spss_writer_applies_pending_edits_before_writing() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("edited.sav");
+
+    let mut table = make_simple_table();
+    table.set(0, 1, CellValue::String("Alicia".to_string()));
+
+    let registry = FormatRegistry::new();
+    let reader = registry.reader_for_path(&path).unwrap();
+    reader.write_file(&path, &table).expect("write .sav");
+
+    let read = reader.read_file(&path).unwrap();
+    assert!(matches!(read.get(0, 1), Some(CellValue::String(s)) if s == "Alicia"));
 }

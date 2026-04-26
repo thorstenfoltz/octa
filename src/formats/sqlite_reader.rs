@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use anyhow::{anyhow, bail, Context, Result};
-use rusqlite::{types::ValueRef, Connection, OpenFlags};
+use anyhow::{Context, Result, anyhow, bail};
+use rusqlite::{Connection, OpenFlags, types::ValueRef};
 
 use crate::data::{CellValue, ColumnInfo, DataTable, DbRowMeta};
 

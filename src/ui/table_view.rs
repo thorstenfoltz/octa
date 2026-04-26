@@ -345,7 +345,13 @@ pub fn draw_table(
 
     let total_data_height = if cell_line_breaks {
         ensure_row_y_offsets(
-            ui, state, table, filtered_rows, font_size, row_height, binary_display_mode,
+            ui,
+            state,
+            table,
+            filtered_rows,
+            font_size,
+            row_height,
+            binary_display_mode,
         );
         state.row_y_offsets[row_count]
     } else {
@@ -364,7 +370,11 @@ pub fn draw_table(
     // footprint here so the data area shrinks accordingly and `max_scroll_y`
     // lands the last row exactly above the scrollbar — no slack, no clipping.
     let horizontal_scrollbar_visible = total_col_width > view_width - vscroll_width;
-    let horizontal_scrollbar_height = if horizontal_scrollbar_visible { 11.0 } else { 0.0 };
+    let horizontal_scrollbar_height = if horizontal_scrollbar_visible {
+        11.0
+    } else {
+        0.0
+    };
     let total_content_height =
         HEADER_HEIGHT + 1.0 + total_data_height + horizontal_scrollbar_height;
 
@@ -427,7 +437,10 @@ pub fn draw_table(
 
         if cell_extend_mode && (ext_up || ext_down) {
             if let Some((cur_row, cur_col)) = state.selected_cell {
-                let cur_display = filtered_rows.iter().position(|&r| r == cur_row).unwrap_or(0);
+                let cur_display = filtered_rows
+                    .iter()
+                    .position(|&r| r == cur_row)
+                    .unwrap_or(0);
                 let new_display = if ext_up {
                     cur_display.saturating_sub(1)
                 } else {
@@ -688,8 +701,8 @@ pub fn draw_table(
 
     // --- Visible row range ---
     let data_area_top = header_bottom + 1.0;
-    let data_area_height = (panel_rect.bottom() - data_area_top - horizontal_scrollbar_height)
-        .max(0.0);
+    let data_area_height =
+        (panel_rect.bottom() - data_area_top - horizontal_scrollbar_height).max(0.0);
     let data_area_bottom = data_area_top + data_area_height;
 
     let data_clip_rect = egui::Rect::from_min_max(
@@ -698,13 +711,14 @@ pub fn draw_table(
     );
     let data_painter = painter.with_clip_rect(data_clip_rect);
 
-    let (first_visible, first_visible_offset) = if cell_line_breaks && !state.row_y_offsets.is_empty() {
-        let idx = row_at_offset(&state.row_y_offsets, state.scroll_y);
-        (idx, state.row_y_offsets[idx])
-    } else {
-        let idx = (state.scroll_y / row_height).floor() as usize;
-        (idx, idx as f32 * row_height)
-    };
+    let (first_visible, first_visible_offset) =
+        if cell_line_breaks && !state.row_y_offsets.is_empty() {
+            let idx = row_at_offset(&state.row_y_offsets, state.scroll_y);
+            (idx, state.row_y_offsets[idx])
+        } else {
+            let idx = (state.scroll_y / row_height).floor() as usize;
+            (idx, idx as f32 * row_height)
+        };
     let visible_count = (data_area_height / row_height).ceil() as usize + 2;
     let last_visible = (first_visible + visible_count).min(row_count);
 

@@ -2,9 +2,9 @@ use crate::data::{CellValue, ColumnInfo, DataTable};
 use crate::formats::FormatReader;
 use anyhow::{Context, Result};
 use sas7bdat::{
+    OffsetDateTime, SasReader,
     cell::CellValue as SasCell,
     dataset::{Variable, VariableKind},
-    OffsetDateTime, SasReader,
 };
 use std::path::Path;
 

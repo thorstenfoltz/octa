@@ -2,14 +2,19 @@ use crate::data::{CellValue, ColumnInfo, DataTable};
 use crate::formats::FormatReader;
 use anyhow::{Context, Result};
 use std::path::Path;
+use std::sync::Arc;
 
 // `ambers` returns data as `arrow` v57 RecordBatch. We import that arrow
 // version under an alias to coexist with the project's main arrow v54.
 use arrow57::array::{
-    Array, BinaryViewArray, Date32Array, DurationMicrosecondArray, Float64Array, StringArray,
+    Array, ArrayRef, BinaryViewArray, BooleanArray, Date32Array, DurationMicrosecondArray,
+    Float64Array, Int8Array, Int16Array, Int32Array, Int64Array, RecordBatch, StringArray,
     StringViewArray, TimestampMicrosecondArray,
 };
-use arrow57::datatypes::{DataType as Arrow57DataType, TimeUnit as Arrow57TimeUnit};
+use arrow57::datatypes::{
+    DataType as Arrow57DataType, Field as Arrow57Field, Schema as Arrow57Schema,
+    TimeUnit as Arrow57TimeUnit,
+};
 
 pub struct SpssReader;
 
@@ -20,6 +25,14 @@ impl FormatReader for SpssReader {
 
     fn extensions(&self) -> &[&str] {
         &["sav", "zsav"]
+    }
+
+    fn supports_write(&self) -> bool {
+        true
+    }
+
+    fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {
+        write_sav(path, table)
     }
 
     fn read_file(&self, path: &Path) -> Result<DataTable> {
@@ -63,6 +76,184 @@ impl FormatReader for SpssReader {
             db_meta: None,
         })
     }
+}
+
+/// Map an octa column data_type string to the arrow57 `DataType` we
+/// expose to `ambers`. Unknown / non-mappable types fall through to
+/// `Utf8` so we always write something parseable.
+fn arrow57_type_for_column(data_type: &str) -> Arrow57DataType {
+    match data_type {
+        "Boolean" => Arrow57DataType::Boolean,
+        "Int8" => Arrow57DataType::Int8,
+        "Int16" => Arrow57DataType::Int16,
+        "Int32" => Arrow57DataType::Int32,
+        "Int64" => Arrow57DataType::Int64,
+        // SPSS only stores numerics as Float64 internally; collapsing
+        // Float32 here keeps the writer simple and matches what
+        // `SpssMetadata::from_arrow_schema` expects.
+        "Float32" | "Float64" => Arrow57DataType::Float64,
+        "Date" | "Date32" => Arrow57DataType::Date32,
+        "DateTime" | "Timestamp(Microsecond, None)" => {
+            Arrow57DataType::Timestamp(Arrow57TimeUnit::Microsecond, None)
+        }
+        _ => Arrow57DataType::Utf8,
+    }
+}
+
+fn cell_as_f64(cell: &CellValue) -> Option<f64> {
+    match cell {
+        CellValue::Float(f) => Some(*f),
+        CellValue::Int(i) => Some(*i as f64),
+        CellValue::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+        CellValue::String(s) => s.trim().parse::<f64>().ok(),
+        _ => None,
+    }
+}
+
+fn cell_as_i64(cell: &CellValue) -> Option<i64> {
+    match cell {
+        CellValue::Int(i) => Some(*i),
+        CellValue::Bool(b) => Some(if *b { 1 } else { 0 }),
+        CellValue::Float(f) if f.is_finite() && f.fract() == 0.0 => Some(*f as i64),
+        CellValue::String(s) => s.trim().parse::<i64>().ok(),
+        _ => None,
+    }
+}
+
+/// Convert a `CellValue::Date` string ("YYYY-MM-DD") to days since the
+/// Unix epoch, matching the inverse of the read path.
+fn date_string_to_days(s: &str) -> Option<i32> {
+    use chrono::Datelike;
+    chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+        .ok()
+        .map(|d| d.num_days_from_ce() - 719_163)
+}
+
+/// Convert a `CellValue::DateTime` string to microseconds since the
+/// Unix epoch. Accepts the same formats the read path produces.
+fn datetime_string_to_micros(s: &str) -> Option<i64> {
+    let dt = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.6f")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f"))
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S"))
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f"))
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S"))
+        .ok()?;
+    Some(dt.and_utc().timestamp_micros())
+}
+
+fn build_array(table: &DataTable, col_idx: usize, dt: &Arrow57DataType) -> ArrayRef {
+    let n = table.row_count();
+    let cell = |r: usize| table.get(r, col_idx).cloned().unwrap_or(CellValue::Null);
+    match dt {
+        Arrow57DataType::Boolean => {
+            let v: Vec<Option<bool>> = (0..n)
+                .map(|r| match cell(r) {
+                    CellValue::Bool(b) => Some(b),
+                    CellValue::Int(i) => Some(i != 0),
+                    CellValue::Null => None,
+                    other => cell_as_f64(&other).map(|f| f != 0.0),
+                })
+                .collect();
+            Arc::new(BooleanArray::from(v)) as ArrayRef
+        }
+        Arrow57DataType::Int8 => {
+            let v: Vec<Option<i8>> = (0..n)
+                .map(|r| cell_as_i64(&cell(r)).and_then(|i| i8::try_from(i).ok()))
+                .collect();
+            Arc::new(Int8Array::from(v)) as ArrayRef
+        }
+        Arrow57DataType::Int16 => {
+            let v: Vec<Option<i16>> = (0..n)
+                .map(|r| cell_as_i64(&cell(r)).and_then(|i| i16::try_from(i).ok()))
+                .collect();
+            Arc::new(Int16Array::from(v)) as ArrayRef
+        }
+        Arrow57DataType::Int32 => {
+            let v: Vec<Option<i32>> = (0..n)
+                .map(|r| cell_as_i64(&cell(r)).and_then(|i| i32::try_from(i).ok()))
+                .collect();
+            Arc::new(Int32Array::from(v)) as ArrayRef
+        }
+        Arrow57DataType::Int64 => {
+            let v: Vec<Option<i64>> = (0..n).map(|r| cell_as_i64(&cell(r))).collect();
+            Arc::new(Int64Array::from(v)) as ArrayRef
+        }
+        Arrow57DataType::Float64 => {
+            let v: Vec<Option<f64>> = (0..n).map(|r| cell_as_f64(&cell(r))).collect();
+            Arc::new(Float64Array::from(v)) as ArrayRef
+        }
+        Arrow57DataType::Date32 => {
+            let v: Vec<Option<i32>> = (0..n)
+                .map(|r| match cell(r) {
+                    CellValue::Date(s) | CellValue::String(s) | CellValue::DateTime(s) => {
+                        date_string_to_days(&s)
+                    }
+                    _ => None,
+                })
+                .collect();
+            Arc::new(Date32Array::from(v)) as ArrayRef
+        }
+        Arrow57DataType::Timestamp(Arrow57TimeUnit::Microsecond, _) => {
+            let v: Vec<Option<i64>> = (0..n)
+                .map(|r| match cell(r) {
+                    CellValue::DateTime(s) | CellValue::String(s) => datetime_string_to_micros(&s),
+                    CellValue::Date(s) => {
+                        date_string_to_days(&s).map(|d| (d as i64) * 86_400_000_000)
+                    }
+                    _ => None,
+                })
+                .collect();
+            Arc::new(TimestampMicrosecondArray::from(v)) as ArrayRef
+        }
+        _ => {
+            let v: Vec<Option<String>> = (0..n)
+                .map(|r| match cell(r) {
+                    CellValue::Null => None,
+                    other => Some(other.to_string()),
+                })
+                .collect();
+            Arc::new(StringArray::from(v)) as ArrayRef
+        }
+    }
+}
+
+fn write_sav(path: &Path, table: &DataTable) -> Result<()> {
+    let mut working = table.clone();
+    working.apply_edits();
+
+    let fields: Vec<Arrow57Field> = working
+        .columns
+        .iter()
+        .map(|c| Arrow57Field::new(c.name.clone(), arrow57_type_for_column(&c.data_type), true))
+        .collect();
+    let schema = Arc::new(Arrow57Schema::new(fields));
+
+    let arrays: Vec<ArrayRef> = working
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(i, _)| build_array(&working, i, schema.field(i).data_type()))
+        .collect();
+
+    let batch = RecordBatch::try_new(schema.clone(), arrays)
+        .with_context(|| "building SPSS RecordBatch")?;
+    let metadata = ambers::metadata::SpssMetadata::from_arrow_schema(schema.as_ref());
+
+    let compression = match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_lowercase())
+        .as_deref()
+    {
+        Some("zsav") => ambers::Compression::Zlib,
+        // Bytecode is the default SPSS compression for `.sav`; matches what
+        // `read_sav` accepts and produces smaller files than `Compression::None`.
+        _ => ambers::Compression::Bytecode,
+    };
+
+    ambers::write_sav(path, &batch, &metadata, compression, None)
+        .with_context(|| format!("writing SPSS file {}", path.display()))?;
+    Ok(())
 }
 
 fn arrow57_type_string(dt: &Arrow57DataType) -> &'static str {

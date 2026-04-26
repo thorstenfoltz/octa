@@ -1,6 +1,7 @@
 ## Features
 
 - Read SAS (`.sas7bdat`), SPSS (`.sav`, `.zsav`), and Stata (`.dta`) files via pure-Rust parsers — no system libraries required
+- Write SPSS (`.sav`, `.zsav`) and Stata (`.dta`) files; SAS remains read-only since the SAS7BDAT format is proprietary and undocumented
 - Add a `Random` icon-color mode and make it the new default: every Octa launch now picks a fresh color from the 12 built-in palettes
 - Right-click → Copy / Copy All available across content views (raw text editor, SQL editor, PDF view, directory tree); selection-aware where the view has a TextEdit selection
 - Add a macOS release artifact: tagged releases now publish a native Apple Silicon `.app` bundle alongside the existing platform builds

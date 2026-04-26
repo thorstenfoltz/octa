@@ -154,11 +154,7 @@ impl OctaApp {
                 .name
                 .to_lowercase()
                 .cmp(&tab.table.columns[b].name.to_lowercase());
-            if ascending {
-                cmp
-            } else {
-                cmp.reverse()
-            }
+            if ascending { cmp } else { cmp.reverse() }
         });
 
         let old_widths = tab.table_state.col_widths.clone();

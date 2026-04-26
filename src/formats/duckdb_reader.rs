@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use anyhow::{anyhow, bail, Context, Result};
-use duckdb::{types::ValueRef, Connection};
+use anyhow::{Context, Result, anyhow, bail};
+use duckdb::{Connection, types::ValueRef};
 
 use crate::data::{CellValue, ColumnInfo, DataTable, DbRowMeta};
 
