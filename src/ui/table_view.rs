@@ -274,9 +274,6 @@ pub struct TableInteraction {
     pub ctx_copy_cell: bool,
     /// Signal that more rows should be loaded (scroll near bottom with truncated data).
     pub needs_more_rows: bool,
-    /// Undo/redo signals
-    pub undo: bool,
-    pub redo: bool,
     /// Set a color mark
     pub set_mark: Option<(MarkKey, MarkColor)>,
     /// Clear a color mark
@@ -619,39 +616,8 @@ pub fn draw_table(
         }
     }
 
-    // Ctrl+Z / Ctrl+Y — consume with *exact* modifier matching. egui's
-    // `consume_key` uses matches_logically, so it would also eat
-    // Ctrl+Shift+Z etc.; we iterate events by hand to enforce
-    // "Ctrl only, no Shift, no Alt". (Ctrl+C/X/V are handled globally
-    // via `ShortcutAction::Copy`/`Cut`/`Paste` in shortcuts_dispatch.rs.)
-    if state.editing_cell.is_none() && !any_text_edit_focused {
-        ui.input_mut(|i| {
-            i.events.retain(|e| {
-                if let egui::Event::Key {
-                    key,
-                    pressed: true,
-                    modifiers,
-                    ..
-                } = e
-                {
-                    if modifiers.command_only() {
-                        match key {
-                            egui::Key::Z => {
-                                interaction.undo = true;
-                                return false;
-                            }
-                            egui::Key::Y => {
-                                interaction.redo = true;
-                                return false;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                true
-            });
-        });
-    }
+    // Ctrl+Z / Ctrl+Y are dispatched by `handle_shortcuts` via
+    // `ShortcutAction::Undo`/`Redo`, which honors user-rebound combos.
     // Also detect paste from egui's Paste event (carries clipboard text directly)
     let paste_from_event: Option<String> = ui.input(|i| {
         i.events.iter().find_map(|e| {

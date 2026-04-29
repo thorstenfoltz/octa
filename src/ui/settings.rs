@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::shortcuts::{KeyCombo, ShortcutAction, Shortcuts};
 use super::theme::{BodyFont, ThemeMode};
-use crate::data::{BinaryDisplayMode, SearchMode};
+use crate::data::{BinaryDisplayMode, MarkColor, SearchMode};
 
 /// Layout for Jupyter notebook output cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -306,6 +306,10 @@ pub struct AppSettings {
     /// for proportional text when set and readable.
     #[serde(default)]
     pub custom_font_path: String,
+    /// Default color used by the `Mark` shortcut when the user has not picked
+    /// a specific color via the toolbar / context menu.
+    #[serde(default = "default_mark_color")]
+    pub default_mark_color: MarkColor,
     /// Whether the SQL panel should be open by default when a tabular file is
     /// loaded.
     #[serde(default)]
@@ -356,6 +360,10 @@ fn default_sql_row_limit() -> usize {
     100
 }
 
+fn default_mark_color() -> MarkColor {
+    MarkColor::Yellow
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -375,6 +383,7 @@ impl Default for AppSettings {
             tab_size: 4,
             body_font: BodyFont::Proportional,
             custom_font_path: String::new(),
+            default_mark_color: default_mark_color(),
             sql_panel_default_open: false,
             sql_panel_position: SqlPanelPosition::default(),
             sql_default_row_limit: 100,
@@ -502,11 +511,16 @@ impl SettingsDialog {
         // highlight). We mirror it back to `self.open` after the frame.
         let mut window_open = self.open;
 
+        // Center on first frame, then let the user drag the window freely.
+        // Pinning with `.anchor()` would make Settings non-draggable, which is
+        // confusing because the Documentation dialog is movable.
+        let screen_center = ctx.screen_rect().center();
+        let default_pos = screen_center - egui::vec2(240.0, 290.0);
         egui::Window::new("Settings")
             .open(&mut window_open)
             .resizable(true)
             .collapsible(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .default_pos(default_pos)
             .min_width(460.0)
             .default_width(480.0)
             .default_height(580.0)
@@ -580,12 +594,18 @@ impl SettingsDialog {
                         ui.label("Font size:")
                             .on_hover_text("Base font size for all text in the application");
                         let old_size = self.draft.font_size;
-                        ui.add(
-                            egui::DragValue::new(&mut self.draft.font_size)
-                                .range(8.0..=32.0)
-                                .speed(0.25)
-                                .suffix(" pt"),
-                        );
+                        let current_pt = self.draft.font_size.round() as i32;
+                        egui::ComboBox::from_id_salt("font_size_combo")
+                            .selected_text(format!("{} pt", current_pt))
+                            .show_ui(ui, |ui| {
+                                for sz in 8..=32 {
+                                    ui.selectable_value(
+                                        &mut self.draft.font_size,
+                                        sz as f32,
+                                        format!("{} pt", sz),
+                                    );
+                                }
+                            });
                         if self.draft.font_size != old_size {
                             self.font_changed = true;
                         }
@@ -746,6 +766,23 @@ impl SettingsDialog {
                                     BinaryDisplayMode::Text,
                                     BinaryDisplayMode::Text.label(),
                                 );
+                            });
+                        ui.end_row();
+
+                        ui.label("Default mark color:").on_hover_text(
+                            "Color applied by the Mark shortcut (Ctrl+M by default).\n\
+                             The toolbar / context menu still let you pick any color.",
+                        );
+                        egui::ComboBox::from_id_salt("default_mark_color_combo")
+                            .selected_text(self.draft.default_mark_color.label())
+                            .show_ui(ui, |ui| {
+                                for &color in MarkColor::ALL {
+                                    ui.selectable_value(
+                                        &mut self.draft.default_mark_color,
+                                        color,
+                                        color.label(),
+                                    );
+                                }
                             });
                         ui.end_row();
                     });

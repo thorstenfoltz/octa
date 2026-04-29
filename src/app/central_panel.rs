@@ -24,6 +24,9 @@ impl OctaApp {
                     let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
                     let color = if msg.starts_with("Saved") {
                         colors.success
+                    } else if msg.starts_with('\u{1f419}') {
+                        // Easter-egg messages (kraken, etc.) get the accent.
+                        colors.accent
                     } else {
                         colors.error
                     };
@@ -368,20 +371,8 @@ impl OctaApp {
             self.do_paste(interaction.paste_text);
         }
 
-        // --- Undo / Redo ---
-        let tab = &mut self.tabs[self.active_tab];
-        if interaction.undo {
-            tab.table.undo();
-            tab.filter_dirty = true;
-            tab.table_state.widths_initialized = false;
-        }
-        if interaction.redo {
-            tab.table.redo();
-            tab.filter_dirty = true;
-            tab.table_state.widths_initialized = false;
-        }
-
         // --- Color marks ---
+        let tab = &mut self.tabs[self.active_tab];
         if let Some((key, color)) = interaction.set_mark {
             tab.table.set_mark(key, color);
         }

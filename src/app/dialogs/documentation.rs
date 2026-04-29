@@ -60,7 +60,7 @@ All formats support both reading and writing. When saving, the original format a
 - **Double-click** a cell to start editing — the current text is selected so you can type to replace it, or click to position the cursor
 - Click outside the cell or press **Tab** to confirm the edit
 - **Escape** cancels the current edit
-- **Ctrl+Z** to undo, **Ctrl+Y** to redo — works for cell edits, row/column operations, and color marks
+- **Undo** (default **Ctrl+Z**) and **Redo** (default **Ctrl+Y**) — works for cell edits, row/column operations, and color marks. Both are also available in the **Edit** menu and remappable under **Settings > Shortcuts**.
 - **Edit > Insert Row** adds a new empty row below the selected cell
 - **Edit > Insert Column** opens a dialog to add a column (choose name and type)
 - **Edit > Delete Row / Delete Column** removes the selected row or column
@@ -111,6 +111,8 @@ Press **Escape** to close the replace bar.
 ## Color Marking
 
 Right-click a **cell**, **row number**, or **column header** to open the context menu, then use the **Mark** submenu. Available colors: Red, Orange, Yellow, Green, Blue, Purple.
+
+The **Edit > Mark** menu (and the **Mark** keyboard shortcut, default **Ctrl+M**) apply a single color to the **whole current selection** — selected rows, selected columns, a free multi-cell selection, or the single selected cell. The shortcut uses the color set in **Settings > Table > Default mark color** (Yellow by default).
 
 Mark precedence: cell marks take priority over row marks, which take priority over column marks.
 

@@ -4377,7 +4377,7 @@ dependencies = [
 
 [[package]]
 name = "octa"
-version = "0.0.0-dev"
+version = "0.4.371"
 dependencies = [
  "ambers",
  "anyhow",

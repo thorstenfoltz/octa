@@ -45,10 +45,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build
-        run: cargo build
-
-      - name: Run tests
+      # `cargo test` builds every target in the workspace (lib, bin, tests)
+      # before running them, so a separate `cargo build` step would just
+      # repeat the compilation that `cargo test` is about to do.
+      - name: Build and run tests
         run: cargo test
 
   megalinter:
@@ -60,8 +60,34 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Cache the custom MegaLinter image's layers via the GitHub Actions
+      # cache backend. The base image pull and the apk install layer dominate
+      # this step's runtime; caching them turns warm runs into seconds instead
+      # of minutes.
+      #
+      # Two precautions to avoid serving stale security updates:
+      #  - `pull: true` always re-fetches the upstream `megalinter-rust:v9`
+      #    manifest, so a refreshed base image cascades through the apk layer.
+      #  - The cache scope rotates weekly (ISO week number). After at most
+      #    seven days the apk install layer is rebuilt from scratch, picking
+      #    up Alpine package updates even when neither the Dockerfile nor the
+      #    base-image digest changed.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute weekly cache scope
+        id: cache-scope
+        run: echo "week=$(date -u +'%G-W%V')" >> "$GITHUB_OUTPUT"
+
       - name: Build custom MegaLinter image
-        run: docker build -t custom-megalinter .github/megalinter-rust/
+        uses: docker/build-push-action@v6
+        with:
+          context: .github/megalinter-rust/
+          tags: custom-megalinter:latest
+          load: true
+          pull: true
+          cache-from: type=gha,scope=megalinter-rust-${{ steps.cache-scope.outputs.week }}
+          cache-to: type=gha,mode=max,scope=megalinter-rust-${{ steps.cache-scope.outputs.week }}
 
       - name: Run MegaLinter
         env:

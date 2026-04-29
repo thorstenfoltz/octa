@@ -15,6 +15,12 @@ pub enum ThemeMode {
     Dracula,
     GruvboxDark,
     HighContrast,
+    /// Bright colorful manga / shōnen-page look on cream paper, with sakura
+    /// pink and sky-blue accents and high-contrast ink text.
+    Manga,
+    /// Refined gentleman's-club palette: deep walnut and burgundy backgrounds
+    /// with champagne-gold accents and warm parchment text.
+    Gentleman,
 }
 
 impl ThemeMode {
@@ -25,16 +31,21 @@ impl ThemeMode {
         Self::Dracula,
         Self::GruvboxDark,
         Self::HighContrast,
+        Self::Manga,
+        Self::Gentleman,
     ];
 
     /// Whether the preset has a dark background. Drives base egui visuals
     /// and any view-mode logic that wants to swap text colors per brightness.
     pub fn is_dark(self) -> bool {
         match self {
-            Self::Light => false,
-            Self::Dark | Self::Nord | Self::Dracula | Self::GruvboxDark | Self::HighContrast => {
-                true
-            }
+            Self::Light | Self::Manga => false,
+            Self::Dark
+            | Self::Nord
+            | Self::Dracula
+            | Self::GruvboxDark
+            | Self::HighContrast
+            | Self::Gentleman => true,
         }
     }
 
@@ -57,6 +68,8 @@ impl ThemeMode {
             Self::Dracula => "Dracula",
             Self::GruvboxDark => "Gruvbox Dark",
             Self::HighContrast => "High Contrast",
+            Self::Manga => "Manga",
+            Self::Gentleman => "Gentleman",
         }
     }
 
@@ -168,6 +181,8 @@ impl ThemeColors {
             ThemeMode::Dracula => Self::dracula(),
             ThemeMode::GruvboxDark => Self::gruvbox_dark(),
             ThemeMode::HighContrast => Self::high_contrast(),
+            ThemeMode::Manga => Self::manga(),
+            ThemeMode::Gentleman => Self::gentleman(),
         }
     }
 
@@ -381,6 +396,88 @@ impl ThemeColors {
             scrollbar_thumb_hover: Color32::from_rgb(0xa0, 0xa0, 0xa0),
         }
     }
+
+    /// Bright manga / shōnen-page palette: cream paper, ink-black text,
+    /// sakura pink primary accent, sky blue hover, with warm peach hovers
+    /// and cherry-red selection — a colorful comic feel without sacrificing
+    /// readability.
+    fn manga() -> Self {
+        Self {
+            // Warm cream "paper" backgrounds.
+            bg_primary: Color32::from_rgb(0xfb, 0xf7, 0xee),
+            bg_secondary: Color32::from_rgb(0xf5, 0xef, 0xde),
+            bg_tertiary: Color32::from_rgb(0xeb, 0xe4, 0xd2),
+            bg_header: Color32::from_rgb(0xfc, 0xe2, 0xe7),
+            bg_selected: Color32::from_rgba_unmultiplied(0xff, 0x4f, 0x9a, 90),
+            bg_hover: Color32::from_rgb(0xfd, 0xe4, 0xc8),
+            bg_edited: Color32::from_rgb(0xff, 0xe9, 0xc0),
+
+            // Strong ink contrast like manga line work.
+            text_primary: Color32::from_rgb(0x1c, 0x19, 0x17),
+            text_secondary: Color32::from_rgb(0x3f, 0x3a, 0x36),
+            text_muted: Color32::from_rgb(0x7a, 0x71, 0x6a),
+            text_header: Color32::from_rgb(0xc2, 0x18, 0x5b),
+
+            // Cherry-blossom pink primary, sky-blue secondary.
+            accent: Color32::from_rgb(0xe9, 0x1e, 0x63),
+            accent_hover: Color32::from_rgb(0x03, 0xa9, 0xf4),
+            border: Color32::from_rgb(0xcd, 0xb9, 0x97),
+            border_subtle: Color32::from_rgb(0xe7, 0xd8, 0xb8),
+
+            success: Color32::from_rgb(0x4c, 0xaf, 0x50),
+            warning: Color32::from_rgb(0xff, 0x98, 0x00),
+            error: Color32::from_rgb(0xd5, 0x00, 0x00),
+
+            // Subtle alternation; the second band picks up a peach tint.
+            row_even: Color32::from_rgb(0xfb, 0xf7, 0xee),
+            row_odd: Color32::from_rgb(0xfc, 0xee, 0xd9),
+            row_number_bg: Color32::from_rgb(0xfc, 0xe2, 0xe7),
+            row_number_text: Color32::from_rgb(0x88, 0x32, 0x60),
+
+            scrollbar_track: Color32::from_rgb(0xeb, 0xe4, 0xd2),
+            scrollbar_thumb: Color32::from_rgb(0xd8, 0xa6, 0xb6),
+            scrollbar_thumb_hover: Color32::from_rgb(0xc2, 0x18, 0x5b),
+        }
+    }
+
+    /// Gentleman palette: deep walnut and burgundy, parchment text, with
+    /// champagne-gold accents — a refined, library-after-dark feel.
+    fn gentleman() -> Self {
+        Self {
+            // Warm dark walnut backgrounds with a hint of leather.
+            bg_primary: Color32::from_rgb(0x1a, 0x14, 0x10),
+            bg_secondary: Color32::from_rgb(0x23, 0x1b, 0x15),
+            bg_tertiary: Color32::from_rgb(0x2d, 0x24, 0x19),
+            bg_header: Color32::from_rgb(0x2a, 0x18, 0x18),
+            bg_selected: Color32::from_rgba_unmultiplied(0xc8, 0x9b, 0x3c, 110),
+            bg_hover: Color32::from_rgb(0x3a, 0x2c, 0x1e),
+            bg_edited: Color32::from_rgb(0x3d, 0x2e, 0x16),
+
+            // Aged parchment text with champagne-gold for headings.
+            text_primary: Color32::from_rgb(0xf0, 0xe6, 0xd2),
+            text_secondary: Color32::from_rgb(0xc9, 0xb8, 0x96),
+            text_muted: Color32::from_rgb(0x8a, 0x7a, 0x5e),
+            text_header: Color32::from_rgb(0xd4, 0xa8, 0x5c),
+
+            accent: Color32::from_rgb(0xc8, 0x9b, 0x3c),
+            accent_hover: Color32::from_rgb(0xe5, 0xb8, 0x5f),
+            border: Color32::from_rgb(0x5e, 0x4a, 0x30),
+            border_subtle: Color32::from_rgb(0x3a, 0x2c, 0x1e),
+
+            success: Color32::from_rgb(0x3e, 0x8e, 0x6e),
+            warning: Color32::from_rgb(0xd4, 0xa8, 0x5c),
+            error: Color32::from_rgb(0xa8, 0x30, 0x2d),
+
+            row_even: Color32::from_rgb(0x1a, 0x14, 0x10),
+            row_odd: Color32::from_rgb(0x21, 0x1a, 0x14),
+            row_number_bg: Color32::from_rgb(0x23, 0x1b, 0x15),
+            row_number_text: Color32::from_rgb(0x8a, 0x7a, 0x5e),
+
+            scrollbar_track: Color32::from_rgb(0x23, 0x1b, 0x15),
+            scrollbar_thumb: Color32::from_rgb(0x5e, 0x4a, 0x30),
+            scrollbar_thumb_hover: Color32::from_rgb(0xc8, 0x9b, 0x3c),
+        }
+    }
 }
 
 /// Apply the theme to an egui context.
@@ -420,12 +517,13 @@ pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font: FontSettings) {
     visuals.widgets.inactive.bg_stroke = Stroke::new(0.5, colors.border);
     visuals.widgets.inactive.corner_radius = CornerRadius::same(4);
 
-    visuals.widgets.hovered.bg_fill = colors.bg_hover;
-    // Use accent for fg_stroke on hover so icon-style widgets that only draw
-    // strokes (e.g. egui's window close-X) visibly highlight. Buttons still
-    // look fine because their text is drawn over a hover-filled background.
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.5, colors.accent);
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, colors.accent);
+    // Hover highlighting needs to read clearly on small icon-style widgets
+    // such as the window close-X. We pair a tinted accent fill with a thicker
+    // accent stroke so the whole hit-target lights up — the previous bg_hover
+    // fill alone was too subtle to spot on the close button.
+    visuals.widgets.hovered.bg_fill = colors.accent.linear_multiply(0.28);
+    visuals.widgets.hovered.fg_stroke = Stroke::new(2.0, colors.accent);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.5, colors.accent);
     visuals.widgets.hovered.corner_radius = CornerRadius::same(4);
 
     visuals.widgets.active.bg_fill = colors.accent;

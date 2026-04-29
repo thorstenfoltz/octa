@@ -36,6 +36,7 @@ impl OctaApp {
                     tab.table_state.selected_cell,
                     &tab.table_state.selected_rows,
                     &tab.table_state.selected_cols,
+                    &tab.table_state.selected_cells,
                     tab.table.row_count(),
                     tab.table.col_count(),
                     tab.view_mode,
@@ -50,6 +51,9 @@ impl OctaApp {
                     &self.recent_files,
                     self.directory_tree.is_some(),
                     tab.first_row_is_header,
+                    !tab.table.undo_stack.is_empty(),
+                    !tab.table.redo_stack.is_empty(),
+                    &self.settings.shortcuts,
                     &tab.table,
                 );
                 self.search_focus_requested = false;
@@ -341,6 +345,13 @@ impl OctaApp {
         }
         for key in action.clear_marks {
             self.tabs[self.active_tab].table.clear_mark(key);
+        }
+
+        if action.undo {
+            self.do_undo();
+        }
+        if action.redo {
+            self.do_redo();
         }
     }
 }

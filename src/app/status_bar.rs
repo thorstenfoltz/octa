@@ -49,5 +49,15 @@ impl OctaApp {
             let col_left: f32 = tab.table_state.col_widths[..col].iter().sum();
             tab.table_state.set_scroll_x(col_left);
         }
+
+        if status_action.kraken_summoned {
+            // Easter egg: typing "kraken" into the nav input wakes the beast.
+            // Prefixed with "\u{1f419}" so the central-panel renderer paints
+            // the message in the accent color instead of error-red.
+            self.status_message = Some((
+                "\u{1f419} The kraken stirs from the depths\u{2026}".to_string(),
+                std::time::Instant::now(),
+            ));
+        }
     }
 }

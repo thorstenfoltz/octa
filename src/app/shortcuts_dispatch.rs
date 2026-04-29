@@ -268,6 +268,22 @@ impl OctaApp {
             self.tabs[self.active_tab].sql_panel_open = !self.tabs[self.active_tab].sql_panel_open;
         }
 
+        // Undo / Redo / Mark — gated on no TextEdit being focused so Ctrl+Z
+        // inside the SQL editor / raw editor / search bar undoes *text*, not
+        // the table.
+        if !text_edit_focused {
+            if action_fired(SA::Undo) {
+                self.do_undo();
+            }
+            if action_fired(SA::Redo) {
+                self.do_redo();
+            }
+            if action_fired(SA::Mark) {
+                let color = self.settings.default_mark_color;
+                self.mark_selection_default(color);
+            }
+        }
+
         // --- Handle close request ---
         if ctx.input(|i| i.viewport().close_requested())
             && self.tabs[self.active_tab].is_modified()

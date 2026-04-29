@@ -43,12 +43,19 @@ pub struct QueryOutcome {
 /// The table is exposed in SQL as `data`. Identifiers in the schema are quoted,
 /// so column names with spaces or punctuation are preserved.
 pub fn run_query(table: &DataTable, query: &str) -> Result<QueryOutcome> {
-    let conn = Connection::open_in_memory().context("opening in-memory DuckDB")?;
-    register_table(&conn, "data", table)?;
     let trimmed = query.trim();
     if trimmed.is_empty() {
         return Err(anyhow!("Query is empty"));
     }
+    if let Some(egg) = octopuses_easter_egg(trimmed) {
+        return Ok(QueryOutcome {
+            kind: QueryKind::Select,
+            affected: None,
+            table: egg,
+        });
+    }
+    let conn = Connection::open_in_memory().context("opening in-memory DuckDB")?;
+    register_table(&conn, "data", table)?;
     if is_mutation(trimmed) {
         let affected = conn.execute(trimmed, [])?;
         let mut mutated = execute_query(&conn, "SELECT * FROM data")?;
@@ -261,4 +268,155 @@ fn value_ref_to_cell(v: ValueRef<'_>) -> CellValue {
 fn quote_ident(name: &str) -> String {
     let escaped = name.replace('"', "\"\"");
     format!("\"{escaped}\"")
+}
+
+/// Easter egg: `SELECT * FROM octopuses` (case-insensitive, optional trailing
+/// semicolon) returns a hand-crafted little aquarium. Anything more elaborate —
+/// extra clauses, joins, projections — falls through to DuckDB unchanged.
+fn octopuses_easter_egg(query: &str) -> Option<DataTable> {
+    let normalized = query
+        .trim_end_matches(';')
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    if normalized != "select * from octopuses" {
+        return None;
+    }
+    let columns = vec![
+        ColumnInfo {
+            name: "id".into(),
+            data_type: "Int64".into(),
+        },
+        ColumnInfo {
+            name: "name".into(),
+            data_type: "Utf8".into(),
+        },
+        ColumnInfo {
+            name: "species".into(),
+            data_type: "Utf8".into(),
+        },
+        ColumnInfo {
+            name: "tentacles".into(),
+            data_type: "Int64".into(),
+        },
+        ColumnInfo {
+            name: "favorite_snack".into(),
+            data_type: "Utf8".into(),
+        },
+        ColumnInfo {
+            name: "iq".into(),
+            data_type: "Int64".into(),
+        },
+    ];
+    let rows = vec![
+        vec![
+            CellValue::Int(1),
+            CellValue::String("Inky".into()),
+            CellValue::String("Common octopus".into()),
+            CellValue::Int(8),
+            CellValue::String("Crab".into()),
+            CellValue::Int(140),
+        ],
+        vec![
+            CellValue::Int(2),
+            CellValue::String("Otto".into()),
+            CellValue::String("Giant Pacific octopus".into()),
+            CellValue::Int(8),
+            CellValue::String("Lego brick".into()),
+            CellValue::Int(155),
+        ],
+        vec![
+            CellValue::Int(3),
+            CellValue::String("Paul".into()),
+            CellValue::String("Common octopus".into()),
+            CellValue::Int(8),
+            CellValue::String("Mussel (predicted)".into()),
+            CellValue::Int(200),
+        ],
+        vec![
+            CellValue::Int(4),
+            CellValue::String("Mimi".into()),
+            CellValue::String("Mimic octopus".into()),
+            CellValue::Int(8),
+            CellValue::String("Whatever the neighbors brought".into()),
+            CellValue::Int(160),
+        ],
+        vec![
+            CellValue::Int(5),
+            CellValue::String("Blue".into()),
+            CellValue::String("Blue-ringed octopus".into()),
+            CellValue::Int(8),
+            CellValue::String("Tiny shrimp (do not pet)".into()),
+            CellValue::Int(120),
+        ],
+    ];
+    Some(DataTable {
+        columns,
+        rows,
+        edits: HashMap::new(),
+        source_path: None,
+        format_name: Some("\u{1f419} Octopuses".to_string()),
+        structural_changes: false,
+        total_rows: None,
+        row_offset: 0,
+        marks: HashMap::new(),
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+        db_meta: None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_table() -> DataTable {
+        DataTable {
+            columns: vec![ColumnInfo {
+                name: "x".into(),
+                data_type: "Int64".into(),
+            }],
+            rows: vec![],
+            edits: HashMap::new(),
+            source_path: None,
+            format_name: None,
+            structural_changes: false,
+            total_rows: None,
+            row_offset: 0,
+            marks: HashMap::new(),
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            db_meta: None,
+        }
+    }
+
+    #[test]
+    fn octopuses_egg_triggers_case_insensitively() {
+        let t = empty_table();
+        for q in [
+            "SELECT * FROM octopuses",
+            "select * from octopuses",
+            "  SELECT   *   FROM   octopuses  ",
+            "SELECT * FROM octopuses;",
+        ] {
+            let out = run_query(&t, q).expect(q);
+            assert_eq!(out.kind, QueryKind::Select);
+            assert_eq!(out.table.col_count(), 6);
+            assert_eq!(out.table.row_count(), 5);
+            assert_eq!(out.table.columns[0].name, "id");
+            assert_eq!(out.table.columns[1].name, "name");
+        }
+    }
+
+    #[test]
+    fn octopuses_egg_does_not_swallow_real_queries() {
+        let t = empty_table();
+        let err = run_query(&t, "SELECT * FROM octopuses WHERE iq > 100").unwrap_err();
+        let msg = err.to_string().to_ascii_lowercase();
+        assert!(
+            msg.contains("octopuses"),
+            "expected DuckDB to complain about missing table `octopuses`, got: {msg}"
+        );
+    }
 }

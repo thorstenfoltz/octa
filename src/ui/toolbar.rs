@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use egui::{RichText, Ui};
 
+use super::shortcuts::{ShortcutAction, Shortcuts};
 use super::theme::{ThemeColors, ThemeMode};
 use crate::data::{DataTable, MarkColor, MarkKey, SearchMode, ViewMode};
 
@@ -47,6 +48,10 @@ pub struct ToolbarAction {
     pub set_marks: Vec<(MarkKey, MarkColor)>,
     /// Clear color marks from a set of keys.
     pub clear_marks: Vec<MarkKey>,
+    /// Undo the last change.
+    pub undo: bool,
+    /// Redo the last undone change.
+    pub redo: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -64,6 +69,7 @@ pub fn draw_toolbar(
     selected_cell: Option<(usize, usize)>,
     selected_rows: &HashSet<usize>,
     selected_cols: &HashSet<usize>,
+    selected_cells: &HashSet<(usize, usize)>,
     row_count: usize,
     col_count: usize,
     current_view_mode: ViewMode,
@@ -78,6 +84,9 @@ pub fn draw_toolbar(
     recent_files: &[String],
     directory_tree_open: bool,
     first_row_is_header: bool,
+    can_undo: bool,
+    can_redo: bool,
+    shortcuts: &Shortcuts,
     table: &DataTable,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::default();
@@ -158,6 +167,28 @@ pub fn draw_toolbar(
         // --- Edit menu ---
         if has_data {
             ui.menu_button(RichText::new("Edit").color(colors.text_primary), |ui| {
+                // Undo / Redo — labels show the current binding so users can
+                // rediscover the shortcut without opening Settings.
+                let undo_label =
+                    format!("Undo  ({})", shortcuts.combo(ShortcutAction::Undo).label());
+                let redo_label =
+                    format!("Redo  ({})", shortcuts.combo(ShortcutAction::Redo).label());
+                if ui
+                    .add_enabled(can_undo, egui::Button::new(undo_label))
+                    .clicked()
+                {
+                    action.undo = true;
+                    ui.close_menu();
+                }
+                if ui
+                    .add_enabled(can_redo, egui::Button::new(redo_label))
+                    .clicked()
+                {
+                    action.redo = true;
+                    ui.close_menu();
+                }
+                ui.separator();
+
                 // Row operations
                 ui.label(
                     RichText::new("Rows")
@@ -258,6 +289,10 @@ pub fn draw_toolbar(
                     let mut cs: Vec<usize> = selected_cols.iter().copied().collect();
                     cs.sort();
                     cs.into_iter().map(MarkKey::Column).collect()
+                } else if !selected_cells.is_empty() {
+                    let mut cs: Vec<(usize, usize)> = selected_cells.iter().copied().collect();
+                    cs.sort();
+                    cs.into_iter().map(|(r, c)| MarkKey::Cell(r, c)).collect()
                 } else if let Some((r, c)) = selected_cell {
                     vec![MarkKey::Cell(r, c)]
                 } else {

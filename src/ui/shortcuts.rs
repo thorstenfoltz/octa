@@ -246,6 +246,14 @@ pub enum ShortcutAction {
     Cut,
     /// Paste OS clipboard contents into the current selection.
     Paste,
+    /// Apply the default mark color (configurable in Settings) to the current
+    /// selection. Honors the same precedence as the toolbar Mark menu:
+    /// rows > columns > free multi-cell selection > single cell.
+    Mark,
+    /// Undo the last change.
+    Undo,
+    /// Redo the last undone change.
+    Redo,
 }
 
 impl ShortcutAction {
@@ -286,6 +294,9 @@ impl ShortcutAction {
             Self::Copy => "Copy selection",
             Self::Cut => "Cut selection",
             Self::Paste => "Paste",
+            Self::Mark => "Mark selection (default color)",
+            Self::Undo => "Undo last change",
+            Self::Redo => "Redo last undone change",
         }
     }
 
@@ -328,6 +339,9 @@ impl ShortcutAction {
             Self::Copy => KeyCombo::ctrl(Key::C),
             Self::Cut => KeyCombo::ctrl(Key::X),
             Self::Paste => KeyCombo::ctrl(Key::V),
+            Self::Mark => KeyCombo::ctrl(Key::M),
+            Self::Undo => KeyCombo::ctrl(Key::Z),
+            Self::Redo => KeyCombo::ctrl(Key::Y),
         }
     }
 }

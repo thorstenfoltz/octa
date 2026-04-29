@@ -22,6 +22,8 @@ pub fn format_number(n: usize) -> String {
 pub struct StatusBarAction {
     /// Navigate to this cell (row, col) — 0-indexed.
     pub navigate_to: Option<(usize, usize)>,
+    /// User typed the secret "kraken" command into the nav input.
+    pub kraken_summoned: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -127,7 +129,7 @@ pub fn draw_status_bar(
             ui.separator();
             let nav_response = ui.add(
                 egui::TextEdit::singleline(nav_input)
-                    .desired_width(120.0)
+                    .desired_width(180.0)
                     .hint_text("Go to R:C or col name")
                     .font(egui::FontId::new(11.0, egui::FontFamily::Monospace)),
             );
@@ -138,7 +140,9 @@ pub fn draw_status_bar(
                 && ui.input(|i| i.key_pressed(egui::Key::Enter))
                 && !nav_input.is_empty()
             {
-                if let Some(target) = parse_nav_input(nav_input, table) {
+                if nav_input.trim().eq_ignore_ascii_case("kraken") {
+                    action.kraken_summoned = true;
+                } else if let Some(target) = parse_nav_input(nav_input, table) {
                     action.navigate_to = Some(target);
                 }
                 nav_input.clear();

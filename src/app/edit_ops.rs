@@ -2,6 +2,7 @@
 //! context menu, or keyboard shortcuts.
 
 use octa::data;
+use octa::data::{MarkColor, MarkKey};
 
 use super::state::OctaApp;
 
@@ -114,6 +115,53 @@ impl OctaApp {
         tab.table_state.selected_rows.clear();
         tab.table_state.selected_cell = None;
         tab.filter_dirty = true;
+    }
+
+    /// Undo the last change on the active tab. Resets caches that depend on
+    /// table contents so the view reflects the rolled-back state immediately.
+    pub(crate) fn do_undo(&mut self) {
+        let tab = &mut self.tabs[self.active_tab];
+        if tab.table.undo() {
+            tab.filter_dirty = true;
+            tab.table_state.widths_initialized = false;
+        }
+    }
+
+    /// Redo the last undone change.
+    pub(crate) fn do_redo(&mut self) {
+        let tab = &mut self.tabs[self.active_tab];
+        if tab.table.redo() {
+            tab.filter_dirty = true;
+            tab.table_state.widths_initialized = false;
+        }
+    }
+
+    /// Apply the configured default mark color to the current selection.
+    /// Precedence (matches the toolbar Mark menu): selected rows > selected
+    /// columns > free multi-cell selection > single selected cell.
+    pub(crate) fn mark_selection_default(&mut self, color: MarkColor) {
+        let tab = &mut self.tabs[self.active_tab];
+        let state = &tab.table_state;
+        let keys: Vec<MarkKey> = if !state.selected_rows.is_empty() {
+            let mut rs: Vec<usize> = state.selected_rows.iter().copied().collect();
+            rs.sort();
+            rs.into_iter().map(MarkKey::Row).collect()
+        } else if !state.selected_cols.is_empty() {
+            let mut cs: Vec<usize> = state.selected_cols.iter().copied().collect();
+            cs.sort();
+            cs.into_iter().map(MarkKey::Column).collect()
+        } else if !state.selected_cells.is_empty() {
+            let mut cs: Vec<(usize, usize)> = state.selected_cells.iter().copied().collect();
+            cs.sort();
+            cs.into_iter().map(|(r, c)| MarkKey::Cell(r, c)).collect()
+        } else if let Some((r, c)) = state.selected_cell {
+            vec![MarkKey::Cell(r, c)]
+        } else {
+            return;
+        };
+        for k in keys {
+            tab.table.set_mark(k, color);
+        }
     }
 
     pub(crate) fn reload_active_file(&mut self) {
