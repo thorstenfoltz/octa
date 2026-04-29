@@ -64,6 +64,8 @@ sas7bdat = { version = "0.2", default-features = false, features = ["time"] }
 ambers = "0.4"
 arrow57 = { package = "arrow", version = "57", default-features = false }
 dta = "0.4"
+dbase = "0.7"
+rds2rust = "0.1.41"
 
 [build-dependencies]
 winresource = "0.1"

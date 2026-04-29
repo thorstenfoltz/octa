@@ -23,6 +23,8 @@ An application for viewing data files. Octa opens files in a spreadsheet-like ta
 | SAS (.sas7bdat)     | yes  | no    |
 | SPSS (.sav, .zsav)  | yes  | yes   |
 | Stata (.dta)        | yes  | yes   |
+| R (.rds)            | yes  | no    |
+| DBF / dBase (.dbf)  | yes  | yes   |
 | XML                 | yes  | yes   |
 | TOML                | yes  | yes   |
 | YAML                | yes  | yes   |

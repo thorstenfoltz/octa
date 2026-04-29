@@ -1399,6 +1399,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bufrw"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "394c22b416e3981206df472c3bcbbf9ae130883619aefc2199e6087517af1bba"
+
+[[package]]
 name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1924,6 +1930,17 @@ name = "data-url"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
+
+[[package]]
+name = "dbase"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15526d487321e5121f43efab7f9929f0f0581859b8d710fec545938b2d2d4489"
+dependencies = [
+ "bufrw",
+ "byteorder",
+ "time",
+]
 
 [[package]]
 name = "deranged"
@@ -3722,6 +3739,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lzma-sys"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fda04ab3764e6cde78b9974eec4f779acaba7c4e84b36eca3cf77c581b85d27"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
+]
+
+[[package]]
 name = "lzokay-native"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4377,7 +4405,7 @@ dependencies = [
 
 [[package]]
 name = "octa"
-version = "0.4.371"
+version = "0.0.0-dev"
 dependencies = [
  "ambers",
  "anyhow",
@@ -4389,6 +4417,7 @@ dependencies = [
  "calamine",
  "chrono",
  "csv",
+ "dbase",
  "dta",
  "duckdb",
  "eframe",
@@ -4404,6 +4433,7 @@ dependencies = [
  "printpdf",
  "quick-xml 0.37.5",
  "rand 0.8.5",
+ "rds2rust",
  "regex",
  "regex-syntax",
  "resvg",
@@ -5171,6 +5201,28 @@ checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
+]
+
+[[package]]
+name = "rds2rust"
+version = "0.1.41"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c8b11befffa67b42904f53bb066d2703e04d8f7a5fd3d7c7509e9a2a82fdf72"
+dependencies = [
+ "byteorder",
+ "flate2",
+ "indexmap",
+ "js-sys",
+ "memmap2",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "tempfile",
+ "thiserror 2.0.18",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "xz2",
 ]
 
 [[package]]
@@ -7881,6 +7933,15 @@ name = "xmlwriter"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
+
+[[package]]
+name = "xz2"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "388c44dc09d76f1536602ead6d325eb532f5c122f17782bd57fb47baeeb767e2"
+dependencies = [
+ "lzma-sys",
+]
 
 [[package]]
 name = "yeslogic-fontconfig-sys"

@@ -1,6 +1,7 @@
 pub mod arrow_ipc_reader;
 pub mod avro_reader;
 pub mod csv_reader;
+pub mod dbf_reader;
 pub mod duckdb_reader;
 pub mod excel_reader;
 pub mod hdf5_reader;
@@ -10,6 +11,7 @@ pub mod markdown_reader;
 pub mod orc_reader;
 pub mod parquet_reader;
 pub mod pdf_reader;
+pub mod rds_reader;
 pub mod sas_reader;
 pub mod spss_reader;
 pub mod sqlite_reader;
@@ -104,6 +106,8 @@ impl FormatRegistry {
         registry.register(Box::new(sas_reader::SasFormatReader));
         registry.register(Box::new(spss_reader::SpssReader));
         registry.register(Box::new(stata_reader::StataReader));
+        registry.register(Box::new(dbf_reader::DbfReader));
+        registry.register(Box::new(rds_reader::RdsReader));
         registry.register(Box::new(text_reader::TextReader));
         registry
     }

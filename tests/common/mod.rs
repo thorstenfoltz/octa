@@ -72,6 +72,7 @@ pub fn ensure_fixtures() {
             ("sample.xlsx", "xlsx"),
             ("sample.pdf", "pdf"),
             ("sample.orc", "orc"),
+            ("sample.dbf", "dbf"),
         ];
 
         for (filename, ext) in binary_fixtures {

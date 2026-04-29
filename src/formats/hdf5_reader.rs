@@ -65,6 +65,7 @@ fn read_compound_dataset(
     dataset: &hdf5_reader::Dataset<'_>,
     fields: &[hdf5_reader::messages::datatype::CompoundField],
 ) -> Result<DataTable> {
+    use hdf5_reader::dtype_element_size;
     let columns: Vec<ColumnInfo> = fields
         .iter()
         .map(|f| ColumnInfo {
@@ -73,22 +74,27 @@ fn read_compound_dataset(
         })
         .collect();
 
-    let num_rows = dataset.shape().first().copied().unwrap_or(1) as usize;
+    // Read every record into a flat Vec<u8> via a one-off H5Type wrapper,
+    // then slice each field from its byte offset using the declared layout.
+    let array = dataset.read_array::<CompoundRow>()?;
+    let record_size = dtype_element_size(dataset.dtype());
 
-    // For compound datasets, we need to read the raw bytes and parse per-field
-    // This is complex, so we try reading individual field datasets if available
-    // or fall back to a simple representation
-    let mut rows = Vec::with_capacity(num_rows);
-
-    // Try to read each field as a separate typed column
-    let mut col_data: Vec<Vec<CellValue>> = Vec::new();
-    for field in fields {
-        let field_values = read_compound_field_data(dataset, field, num_rows);
-        col_data.push(field_values);
-    }
-
-    for row_idx in 0..num_rows {
-        let row: Vec<CellValue> = col_data.iter().map(|col| col[row_idx].clone()).collect();
+    let mut rows = Vec::with_capacity(array.len());
+    for row_bytes in array.iter() {
+        let bytes = &row_bytes.0;
+        let mut row: Vec<CellValue> = Vec::with_capacity(fields.len());
+        for field in fields {
+            let offset = field.byte_offset as usize;
+            let size = dtype_element_size(&field.datatype);
+            let slice = if offset + size <= bytes.len() {
+                &bytes[offset..offset + size]
+            } else {
+                // Truncated record (shouldn't happen for well-formed files).
+                &[]
+            };
+            row.push(decode_compound_field(slice, &field.datatype));
+        }
+        debug_assert_eq!(record_size, bytes.len());
         rows.push(row);
     }
 
@@ -108,14 +114,144 @@ fn read_compound_dataset(
     })
 }
 
-fn read_compound_field_data(
-    _dataset: &hdf5_reader::Dataset<'_>,
-    _field: &hdf5_reader::messages::datatype::CompoundField,
-    num_rows: usize,
-) -> Vec<CellValue> {
-    // Compound field reading requires parsing raw bytes at offsets.
-    // For now return placeholder - compound datasets are complex.
-    vec![CellValue::String("(compound)".to_string()); num_rows]
+/// Wraps a single compound record as an opaque byte buffer so we can use
+/// `Dataset::read_array::<CompoundRow>()` to traverse the layout once and
+/// then slice each declared field out of the bytes ourselves.
+#[derive(Clone)]
+struct CompoundRow(Vec<u8>);
+
+impl hdf5_reader::H5Type for CompoundRow {
+    fn hdf5_type() -> hdf5_reader::Datatype {
+        // Placeholder — `read_array` never compares this against the
+        // dataset's datatype; it only uses our `from_bytes`/`element_size`.
+        hdf5_reader::Datatype::Opaque {
+            size: 0,
+            tag: String::new(),
+        }
+    }
+
+    fn from_bytes(bytes: &[u8], dtype: &hdf5_reader::Datatype) -> hdf5_reader::error::Result<Self> {
+        let n = hdf5_reader::dtype_element_size(dtype);
+        let mut buf = vec![0u8; n];
+        let take = bytes.len().min(n);
+        buf[..take].copy_from_slice(&bytes[..take]);
+        Ok(CompoundRow(buf))
+    }
+
+    fn element_size(dtype: &hdf5_reader::Datatype) -> usize {
+        hdf5_reader::dtype_element_size(dtype)
+    }
+}
+
+fn decode_compound_field(bytes: &[u8], dtype: &hdf5_reader::Datatype) -> CellValue {
+    use hdf5_reader::ByteOrder;
+    use hdf5_reader::Datatype;
+    use hdf5_reader::messages::datatype::StringSize;
+
+    let little_endian = |bo: ByteOrder| matches!(bo, ByteOrder::LittleEndian);
+
+    match dtype {
+        Datatype::FixedPoint {
+            size,
+            signed,
+            byte_order,
+        } => {
+            if bytes.len() < *size as usize {
+                return CellValue::Null;
+            }
+            let buf = &bytes[..*size as usize];
+            macro_rules! read_int {
+                ($t:ty) => {{
+                    let mut arr = [0u8; std::mem::size_of::<$t>()];
+                    arr.copy_from_slice(buf);
+                    if little_endian(*byte_order) {
+                        <$t>::from_le_bytes(arr) as i64
+                    } else {
+                        <$t>::from_be_bytes(arr) as i64
+                    }
+                }};
+            }
+            let v = match (size, signed) {
+                (1, true) => read_int!(i8),
+                (1, false) => read_int!(u8),
+                (2, true) => read_int!(i16),
+                (2, false) => read_int!(u16),
+                (4, true) => read_int!(i32),
+                (4, false) => read_int!(u32),
+                (8, true) => read_int!(i64),
+                (8, false) => {
+                    // u64 truncates above i64::MAX into negative i64; keep as f64 in that case.
+                    let mut arr = [0u8; 8];
+                    arr.copy_from_slice(buf);
+                    let raw = if little_endian(*byte_order) {
+                        u64::from_le_bytes(arr)
+                    } else {
+                        u64::from_be_bytes(arr)
+                    };
+                    if raw <= i64::MAX as u64 {
+                        return CellValue::Int(raw as i64);
+                    } else {
+                        return CellValue::Float(raw as f64);
+                    }
+                }
+                _ => return CellValue::Null,
+            };
+            CellValue::Int(v)
+        }
+        Datatype::FloatingPoint { size, byte_order } => {
+            if bytes.len() < *size as usize {
+                return CellValue::Null;
+            }
+            match size {
+                4 => {
+                    let mut arr = [0u8; 4];
+                    arr.copy_from_slice(&bytes[..4]);
+                    let v = if little_endian(*byte_order) {
+                        f32::from_le_bytes(arr)
+                    } else {
+                        f32::from_be_bytes(arr)
+                    };
+                    CellValue::Float(v as f64)
+                }
+                8 => {
+                    let mut arr = [0u8; 8];
+                    arr.copy_from_slice(&bytes[..8]);
+                    let v = if little_endian(*byte_order) {
+                        f64::from_le_bytes(arr)
+                    } else {
+                        f64::from_be_bytes(arr)
+                    };
+                    CellValue::Float(v)
+                }
+                _ => CellValue::Null,
+            }
+        }
+        Datatype::String {
+            size: StringSize::Fixed(n),
+            ..
+        } => {
+            let take = bytes.len().min(*n as usize);
+            let raw = &bytes[..take];
+            // Trim trailing null and space padding.
+            let trimmed_end = raw
+                .iter()
+                .rposition(|b| *b != 0 && *b != b' ')
+                .map(|i| i + 1)
+                .unwrap_or(0);
+            let s = String::from_utf8_lossy(&raw[..trimmed_end]).into_owned();
+            CellValue::String(s)
+        }
+        // Variable-length strings inside a compound record contain a heap
+        // pointer that requires global-heap traversal — out of scope for
+        // the embedded compound decoder. Fall back to a placeholder so the
+        // user knows the cell exists but isn't decoded.
+        Datatype::String {
+            size: StringSize::Variable,
+            ..
+        }
+        | Datatype::VarLen { .. } => CellValue::String("(varlen)".to_string()),
+        _ => CellValue::Null,
+    }
 }
 
 fn read_string_dataset(
