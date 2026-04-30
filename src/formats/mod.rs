@@ -4,6 +4,7 @@ pub mod csv_reader;
 pub mod dbf_reader;
 pub mod duckdb_reader;
 pub mod excel_reader;
+pub mod gpkg_reader;
 pub mod hdf5_reader;
 pub mod json_reader;
 pub mod jupyter_reader;
@@ -102,6 +103,7 @@ impl FormatRegistry {
         registry.register(Box::new(hdf5_reader::Hdf5Reader));
         registry.register(Box::new(markdown_reader::MarkdownReader));
         registry.register(Box::new(sqlite_reader::SqliteReader));
+        registry.register(Box::new(gpkg_reader::GeoPackageReader));
         registry.register(Box::new(duckdb_reader::DuckDbReader));
         registry.register(Box::new(sas_reader::SasFormatReader));
         registry.register(Box::new(spss_reader::SpssReader));

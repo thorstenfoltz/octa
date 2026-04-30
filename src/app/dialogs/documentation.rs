@@ -5,6 +5,7 @@
 use eframe::egui;
 
 use octa::ui;
+use octa::ui::settings::{DialogSize, draw_window_controls};
 
 use super::super::state::OctaApp;
 
@@ -23,13 +24,39 @@ pub(crate) fn render_documentation_dialog(app: &mut OctaApp, ctx: &egui::Context
     if !app.show_documentation_dialog {
         return;
     }
-    let mut open = app.show_documentation_dialog;
-    egui::Window::new("Documentation")
-        .open(&mut open)
-        .resizable(true)
-        .collapsible(true)
-        .default_size([800.0, 600.0])
+    let mut window = egui::Window::new("Documentation")
+        .title_bar(false)
+        .collapsible(false);
+    window = match app.documentation_size {
+        DialogSize::Maximized => window.fixed_rect(ctx.screen_rect().shrink(8.0)),
+        DialogSize::Minimized => window.resizable(false),
+        DialogSize::Normal => window.resizable(true).default_size([800.0, 600.0]),
+    };
+    let minimized = app.documentation_size == DialogSize::Minimized;
+    window
         .show(ctx, |ui| {
+            // Custom title bar: title text on the left, three control
+            // buttons on the right. Stays rendered when minimized so the
+            // user can restore from there.
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Documentation").strong().size(16.0),
+                );
+                ui.with_layout(
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        if draw_window_controls(ui, &mut app.documentation_size) {
+                            app.show_documentation_dialog = false;
+                        }
+                    },
+                );
+            });
+            ui.separator();
+
+            if minimized {
+                return;
+            }
+
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let shortcut_table = build_shortcut_doc_table(&app.settings.shortcuts);
                 let docs = format!(r#"# Octa Documentation
@@ -178,5 +205,4 @@ The table below reflects your **current** bindings (customize them under
                     .show(ui, &mut app.tabs[app.active_tab].commonmark_cache, &docs);
             });
         });
-    app.show_documentation_dialog = open;
 }

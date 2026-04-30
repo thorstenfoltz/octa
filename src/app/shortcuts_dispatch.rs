@@ -268,9 +268,10 @@ impl OctaApp {
             self.tabs[self.active_tab].sql_panel_open = !self.tabs[self.active_tab].sql_panel_open;
         }
 
-        // Undo / Redo / Mark — gated on no TextEdit being focused so Ctrl+Z
-        // inside the SQL editor / raw editor / search bar undoes *text*, not
-        // the table.
+        // Undo / Redo / Mark / OpenSettings / OpenDocumentation — gated on no
+        // TextEdit being focused so Ctrl+Z inside the SQL editor / raw editor
+        // / search bar undoes *text*, not the table, and so the F-key dialog
+        // shortcuts don't pop a window out from under the user mid-typing.
         if !text_edit_focused {
             if action_fired(SA::Undo) {
                 self.do_undo();
@@ -281,6 +282,12 @@ impl OctaApp {
             if action_fired(SA::Mark) {
                 let color = self.settings.default_mark_color;
                 self.mark_selection_default(color);
+            }
+            if action_fired(SA::OpenSettings) {
+                self.settings_dialog.open(&self.settings);
+            }
+            if action_fired(SA::OpenDocumentation) {
+                self.show_documentation_dialog = true;
             }
         }
 

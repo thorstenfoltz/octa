@@ -8,7 +8,7 @@ use eframe::egui;
 use octa::data::{self, DataTable, ViewMode};
 use octa::formats::FormatRegistry;
 use octa::ui;
-use ui::settings::{AppSettings, IconVariant, SettingsDialog};
+use ui::settings::{AppSettings, DialogSize, IconVariant, SettingsDialog};
 use ui::table_view::TableViewState;
 use ui::theme::ThemeMode;
 
@@ -130,6 +130,8 @@ pub(crate) struct OctaApp {
     pub(crate) show_about_dialog: bool,
     /// Show the Documentation dialog
     pub(crate) show_documentation_dialog: bool,
+    /// Window-size mode for the Documentation dialog.
+    pub(crate) documentation_size: DialogSize,
     /// Show the Update dialog
     pub(crate) show_update_dialog: bool,
     /// Confirm before reloading the raw CSV/TSV file when un-aligning columns.

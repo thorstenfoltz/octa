@@ -18,6 +18,10 @@ use crate::view_modes;
 impl OctaApp {
     pub(crate) fn render_central_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
+            // Per-theme background decoration (e.g. Manga's halftone field).
+            // Painted before any content so widgets sit on top.
+            ui::theme::paint_background_decoration(ui.painter(), ui.max_rect(), self.theme_mode);
+
             // Status message — auto-fades after 10s.
             if let Some((ref msg, instant)) = self.status_message {
                 if instant.elapsed().as_secs() < 10 {

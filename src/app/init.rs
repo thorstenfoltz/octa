@@ -71,6 +71,7 @@ impl OctaApp {
             show_open_confirm: false,
             show_about_dialog: false,
             show_documentation_dialog: false,
+            documentation_size: octa::ui::settings::DialogSize::Normal,
             show_update_dialog: false,
             show_unalign_confirm: false,
             update_state: Arc::new(Mutex::new(UpdateState::Idle)),

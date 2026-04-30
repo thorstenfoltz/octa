@@ -258,7 +258,13 @@ impl IconVariant {
 }
 
 /// Persistent application settings.
+///
+/// `#[serde(default)]` on the struct fills every missing field from
+/// [`AppSettings::default`] when loading a TOML written by an older or newer
+/// release. Combined with the parse-failure backup in [`AppSettings::load`],
+/// this means upgrading Octa never silently wipes the user's settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppSettings {
     /// Base font size in points (applied to Body, Button, Monospace).
     pub font_size: f32,
@@ -426,11 +432,37 @@ impl AppSettings {
     }
 
     /// Load settings from disk, falling back to defaults.
+    ///
+    /// Robustness: missing/extra fields are tolerated via `#[serde(default)]`
+    /// at the struct level. Hard parse failures (e.g. an enum variant the
+    /// current binary no longer knows) cause the broken file to be copied
+    /// alongside as `settings.toml.bak-<unix-timestamp>` before defaults are
+    /// returned, so the user can recover their values manually.
     pub fn load() -> Self {
-        Self::config_path()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| toml::from_str(&s).ok())
-            .unwrap_or_default()
+        let Some(path) = Self::config_path() else {
+            return Self::default();
+        };
+        let contents = match std::fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(_) => return Self::default(),
+        };
+        match toml::from_str::<Self>(&contents) {
+            Ok(s) => s,
+            Err(err) => {
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let backup = path.with_file_name(format!("settings.toml.bak-{ts}"));
+                let _ = std::fs::copy(&path, &backup);
+                eprintln!(
+                    "octa: failed to parse {} ({err}); backed up to {} and using defaults.",
+                    path.display(),
+                    backup.display(),
+                );
+                Self::default()
+            }
+        }
     }
 
     /// Persist settings to disk.
@@ -479,6 +511,23 @@ pub struct SettingsDialog {
     /// Set when the user tries to bind a combo that is already used by another
     /// action. Cleared when they record successfully or edit the grid again.
     shortcut_conflict: Option<String>,
+    /// Whether the "Reset to defaults" confirmation modal is currently shown.
+    show_reset_confirm: bool,
+    /// Window-size mode for the dialog (Normal / Maximized / Minimized).
+    /// Persists across re-opens within the same app session — closing and
+    /// reopening Settings keeps the size choice the user last picked.
+    size: DialogSize,
+}
+
+/// Window-size mode for a dialog. `Maximized` forces a full-screen rect;
+/// `Minimized` hides the body so only the header bar is shown (the checkbox
+/// stays visible there to restore). `Normal` is the default size.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum DialogSize {
+    #[default]
+    Normal,
+    Maximized,
+    Minimized,
 }
 
 impl SettingsDialog {
@@ -491,6 +540,7 @@ impl SettingsDialog {
         self.sql_row_limit_buf = current.sql_default_row_limit.to_string();
         self.recording = None;
         self.shortcut_conflict = None;
+        self.show_reset_confirm = false;
         self.open = true;
     }
 
@@ -507,26 +557,38 @@ impl SettingsDialog {
         }
 
         let mut applied: Option<AppSettings> = None;
-        // `.open(&mut open)` gives us egui's built-in close-X (with hover
-        // highlight). We mirror it back to `self.open` after the frame.
-        let mut window_open = self.open;
 
-        // Center on first frame, then let the user drag the window freely.
-        // Pinning with `.anchor()` would make Settings non-draggable, which is
-        // confusing because the Documentation dialog is movable.
+        // Render the reset-confirm modal first so it sits above the Settings
+        // window in the same frame.
+        self.draw_reset_confirm(ctx);
+
+        // Custom title bar (egui's is disabled below) — we render Min /
+        // Max / Close buttons inline next to the title, like a typical
+        // desktop window. Dragging works because the title text is a
+        // non-interactive area inside the window's drag region.
         let screen_center = ctx.screen_rect().center();
         let default_pos = screen_center - egui::vec2(240.0, 290.0);
-        egui::Window::new("Settings")
-            .open(&mut window_open)
-            .resizable(true)
-            .collapsible(false)
-            .default_pos(default_pos)
-            .min_width(460.0)
-            .default_width(480.0)
-            .default_height(580.0)
-            .min_height(360.0)
+        let mut window = egui::Window::new("Settings")
+            .title_bar(false)
+            .collapsible(false);
+        window = match self.size {
+            DialogSize::Maximized => window.fixed_rect(ctx.screen_rect().shrink(8.0)),
+            // Minimized: no min sizing — let egui auto-shrink to the header.
+            DialogSize::Minimized => window.resizable(false).default_pos(default_pos),
+            DialogSize::Normal => window
+                .resizable(true)
+                .default_pos(default_pos)
+                .min_width(460.0)
+                .default_width(480.0)
+                .default_height(580.0)
+                .min_height(360.0),
+        };
+        let minimized = self.size == DialogSize::Minimized;
+        window
             .show(ctx, |ui| {
-                // Top header: logo + title, to give the dialog an Octa identity.
+                // Custom title bar: logo + "Octa Settings" + three control
+                // buttons. Stays rendered when minimized so the user can
+                // restore from there.
                 egui::TopBottomPanel::top("settings_header")
                     .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
                     .show_inside(ui, |ui| {
@@ -537,8 +599,20 @@ impl SettingsDialog {
                                 ui.add_space(8.0);
                             }
                             ui.label(egui::RichText::new("Octa Settings").strong().size(16.0));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if draw_window_controls(ui, &mut self.size) {
+                                        self.open = false;
+                                    }
+                                },
+                            );
                         });
                     });
+
+                if minimized {
+                    return;
+                }
 
                 // Pin Apply/Cancel to the bottom so they're always reachable
                 // regardless of how much content the scroll area holds.
@@ -558,6 +632,16 @@ impl SettingsDialog {
                             if ui.button("Cancel").clicked() {
                                 self.open = false;
                             }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let label = egui::RichText::new("Reset to defaults")
+                                        .color(ui.visuals().error_fg_color);
+                                    if ui.button(label).clicked() {
+                                        self.show_reset_confirm = true;
+                                    }
+                                },
+                            );
                         });
                     });
 
@@ -572,12 +656,49 @@ impl SettingsDialog {
                     });
             });
 
-        // If the user clicked the window's X, `window_open` flipped to false.
-        if !window_open {
-            self.open = false;
-        }
-
         applied
+    }
+
+    /// Render the "Reset to defaults?" confirmation modal. On confirm, the
+    /// draft is replaced with `AppSettings::default()` and the icon/font/theme
+    /// changed flags are set so the existing Apply path re-applies them.
+    /// Nothing is written to disk and the Settings window stays open — the
+    /// user still has to click Apply (or Cancel) to commit / discard.
+    fn draw_reset_confirm(&mut self, ctx: &egui::Context) {
+        if !self.show_reset_confirm {
+            return;
+        }
+        let mut confirm = false;
+        let mut cancel = false;
+        egui::Window::new("Reset all settings to defaults?")
+            .resizable(false)
+            .collapsible(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label(
+                    "This replaces every value in the Settings dialog with its default.\n\
+                     Nothing is saved until you click Apply — Cancel still reverts.",
+                );
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Reset").clicked() {
+                        confirm = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        if confirm {
+            self.draft = AppSettings::default();
+            self.sql_row_limit_buf = self.draft.sql_default_row_limit.to_string();
+            self.icon_changed = true;
+            self.font_changed = true;
+            self.theme_changed = true;
+            self.show_reset_confirm = false;
+        } else if cancel {
+            self.show_reset_confirm = false;
+        }
     }
 
     /// Render the collapsible setting groups inside the scroll area.
@@ -1116,6 +1237,62 @@ impl SettingsDialog {
     }
 }
 
+/// Render the three title-bar control buttons (Minimize, Maximize, Close)
+/// into the current `ui` in right-to-left order (so the visual order is
+/// `[_] [□] [x]`, matching desktop convention). Updates `*size` per click,
+/// with mutual exclusion between Minimize and Maximize. Returns `true` when
+/// the user clicked the close button.
+///
+/// Glyph choice: stick to characters the egui default font definitely
+/// renders — underscore, U+25A1 white square, and `x`. Trying ─ / ⛶ / ✕
+/// silently falls back to a missing-glyph box so all three buttons end up
+/// visually identical.
+pub fn draw_window_controls(ui: &mut egui::Ui, size: &mut DialogSize) -> bool {
+    let btn_size = egui::vec2(26.0, 22.0);
+    let mut close = false;
+
+    // Close — bold lowercase `x`.
+    if ui
+        .add(
+            egui::Button::new(egui::RichText::new("x").size(15.0).strong())
+                .min_size(btn_size),
+        )
+        .on_hover_text("Close")
+        .clicked()
+    {
+        close = true;
+    }
+    // Maximize — U+25A1 WHITE SQUARE. `selected(active)` highlights it.
+    let max_active = *size == DialogSize::Maximized;
+    if ui
+        .add(
+            egui::Button::new(egui::RichText::new("\u{25A1}").size(14.0))
+                .selected(max_active)
+                .min_size(btn_size),
+        )
+        .on_hover_text(if max_active { "Restore" } else { "Full size" })
+        .clicked()
+    {
+        *size = if max_active { DialogSize::Normal } else { DialogSize::Maximized };
+    }
+    // Minimize — plain ASCII underscore, lowered visually so it sits where
+    // the Windows minimize bar sits (the underscore baseline draws low,
+    // matching the convention).
+    let min_active = *size == DialogSize::Minimized;
+    if ui
+        .add(
+            egui::Button::new(egui::RichText::new("_").size(15.0).strong())
+                .selected(min_active)
+                .min_size(btn_size),
+        )
+        .on_hover_text(if min_active { "Restore" } else { "Minimize" })
+        .clicked()
+    {
+        *size = if min_active { DialogSize::Normal } else { DialogSize::Minimized };
+    }
+    close
+}
+
 /// Result of a single-frame shortcut capture.
 enum CaptureResult {
     Cancel,
@@ -1149,4 +1326,49 @@ fn capture_combo(input: &egui::InputState) -> Option<CaptureResult> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn partial_toml_loads_with_defaults_for_missing_fields() {
+        // Writing only `font_size` should still deserialize cleanly: every
+        // other field is filled from `AppSettings::default()` thanks to the
+        // struct-level `#[serde(default)]`. This is the upgrade-survivability
+        // contract.
+        let partial = "font_size = 10.0\n";
+        let settings: AppSettings =
+            toml::from_str(partial).expect("partial TOML must deserialize");
+        let defaults = AppSettings::default();
+        assert_eq!(settings.font_size, 10.0);
+        assert_eq!(settings.default_theme, defaults.default_theme);
+        assert_eq!(settings.icon_variant, defaults.icon_variant);
+        assert_eq!(settings.show_row_numbers, defaults.show_row_numbers);
+        assert_eq!(settings.sql_default_row_limit, defaults.sql_default_row_limit);
+        assert_eq!(settings.start_maximized, defaults.start_maximized);
+    }
+
+    #[test]
+    fn unknown_fields_are_silently_ignored() {
+        // A field this binary doesn't know about (e.g. left over from a future
+        // release downgraded back to the current one) must not blow up the
+        // whole config — just skip it.
+        let with_unknown = "font_size = 11.0\nmysterious_future_field = \"hi\"\n";
+        let settings: AppSettings = toml::from_str(with_unknown)
+            .expect("unknown fields should be tolerated");
+        assert_eq!(settings.font_size, 11.0);
+    }
+
+    #[test]
+    fn defaults_round_trip_through_toml() {
+        let defaults = AppSettings::default();
+        let serialized = toml::to_string_pretty(&defaults).expect("serialize");
+        let parsed: AppSettings = toml::from_str(&serialized).expect("round-trip");
+        assert_eq!(parsed.font_size, defaults.font_size);
+        assert_eq!(parsed.default_theme, defaults.default_theme);
+        assert_eq!(parsed.icon_variant, defaults.icon_variant);
+        assert_eq!(parsed.start_maximized, defaults.start_maximized);
+    }
 }

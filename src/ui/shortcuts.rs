@@ -254,6 +254,10 @@ pub enum ShortcutAction {
     Undo,
     /// Redo the last undone change.
     Redo,
+    /// Open the Settings dialog.
+    OpenSettings,
+    /// Open the Documentation dialog.
+    OpenDocumentation,
 }
 
 impl ShortcutAction {
@@ -297,6 +301,8 @@ impl ShortcutAction {
             Self::Mark => "Mark selection (default color)",
             Self::Undo => "Undo last change",
             Self::Redo => "Redo last undone change",
+            Self::OpenSettings => "Open settings",
+            Self::OpenDocumentation => "Open documentation",
         }
     }
 
@@ -342,6 +348,8 @@ impl ShortcutAction {
             Self::Mark => KeyCombo::ctrl(Key::M),
             Self::Undo => KeyCombo::ctrl(Key::Z),
             Self::Redo => KeyCombo::ctrl(Key::Y),
+            Self::OpenSettings => KeyCombo::plain(Key::F3),
+            Self::OpenDocumentation => KeyCombo::plain(Key::F1),
         }
     }
 }
