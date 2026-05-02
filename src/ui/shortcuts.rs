@@ -258,6 +258,8 @@ pub enum ShortcutAction {
     OpenSettings,
     /// Open the Documentation dialog.
     OpenDocumentation,
+    /// Open the Column Inspector dialog for the active tab.
+    OpenColumnInspector,
 }
 
 impl ShortcutAction {
@@ -303,6 +305,7 @@ impl ShortcutAction {
             Self::Redo => "Redo last undone change",
             Self::OpenSettings => "Open settings",
             Self::OpenDocumentation => "Open documentation",
+            Self::OpenColumnInspector => "Open column inspector",
         }
     }
 
@@ -350,6 +353,7 @@ impl ShortcutAction {
             Self::Redo => KeyCombo::ctrl(Key::Y),
             Self::OpenSettings => KeyCombo::plain(Key::F3),
             Self::OpenDocumentation => KeyCombo::plain(Key::F1),
+            Self::OpenColumnInspector => KeyCombo::ctrl(Key::I),
         }
     }
 }

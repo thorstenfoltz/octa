@@ -1,7 +1,18 @@
 ## Features
 
-- Settings now **survive an upgrade** — struct-level `#[serde(default)]` keeps every still-valid field across format changes, and a hard parse failure copies the broken file to `settings.toml.bak-<unix-timestamp>` instead of silently wiping it
-- New **Reset to defaults** button in the Settings dialog, gated by a confirmation modal; the reset stays draft-only until the user clicks Apply, so it can still be cancelled
-- Settings and Documentation dialogs now have **custom Minimize / Maximize / Close buttons** in their title bar. Maximize forces a full-window rect; Minimize collapses to the header bar (the buttons stay visible there to restore); the chosen size is remembered for the rest of the session
-- New **Open Settings** (`F3`) and **Open Documentation** (`F1`) shortcuts, both rebindable under Settings > Shortcuts and gated on no text-input being focused so they don't fire while typing in the SQL editor or search bar
-- **Distinctive visual identity per theme** beyond colors — every non-default theme now overrides button shape, border thickness, hover behavior, and paints a per-theme background decoration: Manga gets bold "speech bubble" buttons on a halftone screentone with a top-right speed-line burst; Nord gets soft frosted buttons over horizontal aurora bands; Dracula gets sharp neon-purple buttons on a CRT scanline field with a right-edge neon glow; Gruvbox Dark gets warm amber buttons on a deterministic film-grain backdrop; High Contrast gets sharp rectangular buttons with no decoration; Gentleman gets gold-accented pill buttons on a champagne lozenge lattice
+- New **read-only Column Inspector** with per-column type and quick stats (min, max, not-null, all-unique). Multi-select rows, sort A→Z / Z→A without touching
+the actual table order, double-click a row to jump to that column in the underlying table, or right-click → **Copy column** to grab every value of a single inspector column (e.g., a one-shot export of every column name or every type)
+- **Alphabetical column sort** is now a toolbar action and is undo/redo-safe, so reordering is reversible
+- **0-byte files** open as a friendly placeholder view instead of failing with a schema error
+- **Deep Sea** and **Frost** themes added; selected-cell contrast, numeric alignment, and layout spacing tightened across light and dark palettes
+- Parquet, ORC, and RDS readers now decode additional binary and string-backed Arrow types (`FixedSizeBinary`, `BinaryView`, `Utf8View`, R `raw` vectors), so the **Binary display mode** (Binary / Hex / UTF-8 Text) applies to more files
+
+## Fixes
+
+- Selected numeric cells stay readable — the previous "blue text on blue selection background" collision in Deep Sea and the default dark theme is gone
+- Column Inspector right-click menu no longer becomes unresponsive after the first use
+- Settings → Shortcuts grid no longer hides Record / Clear / Reset buttons behind matching striped-row backgrounds
+
+## Documentation
+
+- In-app documentation and package descriptions updated to reflect the current set of supported formats and database-save behavior

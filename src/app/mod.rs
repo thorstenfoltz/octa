@@ -7,6 +7,7 @@ pub(crate) mod bg_rows;
 pub(crate) mod central_panel;
 pub(crate) mod clipboard;
 pub(crate) mod dialogs;
+pub(crate) mod easter_eggs;
 pub(crate) mod edit_ops;
 pub(crate) mod file_io;
 pub(crate) mod find_replace;

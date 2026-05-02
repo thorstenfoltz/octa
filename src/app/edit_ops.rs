@@ -187,8 +187,8 @@ impl OctaApp {
         tab.show_delete_columns_dialog = true;
     }
 
-    /// Sort columns alphabetically by name, ascending or descending.
-    #[allow(dead_code)]
+    /// Sort columns alphabetically by name, ascending or descending. Wired to
+    /// the Edit menu's "Sort Columns A → Z" / "Sort Columns Z → A" entries.
     pub(crate) fn sort_columns_alphabetically(&mut self, ascending: bool) {
         let tab = &mut self.tabs[self.active_tab];
         let col_count = tab.table.col_count();

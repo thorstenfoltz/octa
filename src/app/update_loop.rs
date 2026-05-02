@@ -14,6 +14,7 @@ impl eframe::App for OctaApp {
         }
 
         self.handle_shortcuts(ctx);
+        self.update_easter_egg_inputs(ctx);
         self.drain_background_rows(ctx);
 
         if self.tabs[self.active_tab].filter_dirty {
@@ -30,5 +31,6 @@ impl eframe::App for OctaApp {
         self.render_status_bar(ctx, filtered_count, search_active);
         self.render_sql_panel(ctx);
         self.render_central_panel(ctx);
+        self.render_confetti(ctx);
     }
 }

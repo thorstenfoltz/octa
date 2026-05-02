@@ -5,12 +5,7 @@ use egui::{Align2, Color32, CursorIcon, RichText, Sense, Ui, Vec2};
 use super::shortcuts::{ShortcutAction, Shortcuts};
 use super::status_bar::format_number;
 use super::theme::{ThemeColors, ThemeMode};
-use crate::data::{BinaryDisplayMode, CellValue, DataTable, MarkColor, MarkKey};
-
-/// Whether a cell value should be right-aligned (numbers only).
-pub fn is_right_aligned(value: &CellValue) -> bool {
-    matches!(value, CellValue::Int(_) | CellValue::Float(_))
-}
+use crate::data::{BinaryDisplayMode, CellValue, DataTable, MarkColor, MarkKey, is_numeric_data_type};
 
 /// State for the table view (selection, editing).
 #[derive(Default)]
@@ -70,6 +65,9 @@ const DEFAULT_COL_WIDTH: f32 = 120.0;
 const MIN_ROW_NUMBER_WIDTH: f32 = 60.0;
 const HEADER_HEIGHT: f32 = 44.0; // taller to fit column index number
 const RESIZE_HANDLE_WIDTH: f32 = 6.0;
+/// Empty pad after the last column so its tail characters never sit under
+/// the vertical scrollbar. Reachable via horizontal scroll, not painted over.
+const TRAILING_GAP: f32 = 12.0;
 
 /// Scroll vertically so the given display-row index stays visible.
 fn scroll_row_into_view(
@@ -332,8 +330,10 @@ pub fn draw_table(
         return interaction;
     }
 
-    let total_col_width: f32 =
-        state.row_number_width + state.col_widths.iter().sum::<f32>() + RESIZE_HANDLE_WIDTH;
+    let total_col_width: f32 = state.row_number_width
+        + state.col_widths.iter().sum::<f32>()
+        + RESIZE_HANDLE_WIDTH
+        + TRAILING_GAP;
     let row_count = filtered_rows.len();
 
     let available_rect = ui.available_rect_before_wrap();
@@ -1422,9 +1422,11 @@ fn draw_data_row_direct(
             let is_multi_cell = state.selected_cells.contains(&(actual_row, col_idx));
 
             let mark_color = table.get_mark_color(actual_row, col_idx);
+            let is_any_selected =
+                is_selected || is_multi_selected_row || is_col_selected || is_multi_cell;
             let cell_bg = if is_editing {
                 colors.bg_primary
-            } else if is_selected || is_multi_selected_row || is_col_selected || is_multi_cell {
+            } else if is_any_selected {
                 colors.bg_selected
             } else if let Some(mc) = mark_color {
                 colors.mark_color(mc)
@@ -1512,18 +1514,38 @@ fn draw_data_row_direct(
                         crate::data::CellValue::Float(f) => *f < 0.0,
                         _ => false,
                     };
-                    let text_color = match value {
-                        crate::data::CellValue::Null => colors.text_muted,
-                        crate::data::CellValue::Int(_) | crate::data::CellValue::Float(_) => {
-                            if negative_numbers_red && is_negative {
-                                Color32::from_rgb(0xef, 0x44, 0x44)
-                            } else {
-                                colors.accent
+                    // Color picks both the cell variant *and* the column type: a
+                    // numeric value sitting in a string column is conceptually
+                    // text — render it the same way as a real string so the
+                    // column reads uniformly. The variant alone isn't enough.
+                    let col_numeric_for_color = table
+                        .columns
+                        .get(col_idx)
+                        .is_some_and(|c| is_numeric_data_type(&c.data_type));
+                    let text_color = if is_any_selected {
+                        // Selection backgrounds in most themes are a translucent
+                        // tint of the same hue family as `accent`, so a numeric
+                        // cell painted with the accent color disappears the
+                        // moment it gets selected. Fall back to a high-contrast
+                        // text color for any selected cell regardless of value
+                        // type.
+                        colors.text_primary
+                    } else {
+                        match value {
+                            crate::data::CellValue::Null => colors.text_muted,
+                            crate::data::CellValue::Int(_) | crate::data::CellValue::Float(_)
+                                if col_numeric_for_color =>
+                            {
+                                if negative_numbers_red && is_negative {
+                                    Color32::from_rgb(0xef, 0x44, 0x44)
+                                } else {
+                                    colors.accent
+                                }
                             }
+                            crate::data::CellValue::Bool(_) => colors.warning,
+                            crate::data::CellValue::Nested(_) => colors.text_secondary,
+                            _ => colors.text_primary,
                         }
-                        crate::data::CellValue::Bool(_) => colors.warning,
-                        crate::data::CellValue::Nested(_) => colors.text_secondary,
-                        _ => colors.text_primary,
                     };
 
                     let text_rect = rect.shrink2(Vec2::new(6.0, 0.0));
@@ -1547,7 +1569,11 @@ fn draw_data_row_direct(
                             text_color,
                         )
                     };
-                    let x = if is_right_aligned(value) {
+                    let col_is_numeric = table
+                        .columns
+                        .get(col_idx)
+                        .is_some_and(|c| is_numeric_data_type(&c.data_type));
+                    let x = if col_is_numeric {
                         text_rect.right() - galley.size().x
                     } else {
                         text_rect.left()

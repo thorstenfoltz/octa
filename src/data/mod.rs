@@ -254,6 +254,29 @@ impl CellValue {
     }
 }
 
+/// Whether an Arrow-style column type string is numeric.
+///
+/// Used to decide cell text alignment: numeric columns right-align every cell,
+/// non-numeric columns left-align — independent of an individual cell's runtime
+/// `CellValue` variant. This way a stray number stored in a `Utf8` column still
+/// reads as text.
+pub fn is_numeric_data_type(s: &str) -> bool {
+    matches!(
+        s,
+        "Int8"
+            | "Int16"
+            | "Int32"
+            | "Int64"
+            | "UInt8"
+            | "UInt16"
+            | "UInt32"
+            | "UInt64"
+            | "Float16"
+            | "Float32"
+            | "Float64"
+    )
+}
+
 /// Evaluate a simple Excel-like formula.
 /// Supports cell references (e.g. A1, B2), numeric literals, and operators +, -, *, /.
 /// Column letters: A=0, B=1, ..., Z=25, AA=26, etc. Row numbers are 1-based.
@@ -529,6 +552,11 @@ pub enum UndoAction {
     MoveColumn {
         from: usize,
         to: usize,
+    },
+    /// Bulk column reorder via permutation: `order[new_pos] = old_pos`.
+    /// Stored as the *forward* mapping; undo reorders by the inverse.
+    ReorderColumns {
+        order: Vec<usize>,
     },
     SetMark {
         key: MarkKey,
@@ -922,6 +950,21 @@ impl DataTable {
             return;
         }
         self.structural_changes = true;
+        self.undo_stack.push(UndoAction::ReorderColumns {
+            order: order.to_vec(),
+        });
+        self.redo_stack.clear();
+
+        self.apply_order(order);
+    }
+
+    /// Apply a column permutation without touching the undo/redo stacks.
+    /// `order[new_pos] = old_pos`.
+    fn apply_order(&mut self, order: &[usize]) {
+        let n = self.columns.len();
+        if order.len() != n {
+            return;
+        }
 
         // Reorder column metadata
         let old_cols = self.columns.clone();
@@ -949,6 +992,17 @@ impl DataTable {
             }
         }
         self.edits = new_edits;
+    }
+
+    /// Compute the inverse of a column permutation (`inv[order[i]] = i`).
+    fn invert_order(order: &[usize]) -> Vec<usize> {
+        let mut inv = vec![0usize; order.len()];
+        for (new_pos, &old_pos) in order.iter().enumerate() {
+            if old_pos < inv.len() {
+                inv[old_pos] = new_pos;
+            }
+        }
+        inv
     }
 
     /// Sort all rows by the values in the given column, ascending or descending.
@@ -1328,6 +1382,11 @@ impl DataTable {
                         }
                     }
                 }
+                UndoAction::ReorderColumns { ref order } => {
+                    let inv = Self::invert_order(order);
+                    self.apply_order(&inv);
+                    self.structural_changes = true;
+                }
                 UndoAction::SetMark { key, old_color, .. } => match old_color {
                     Some(c) => {
                         self.marks.insert(key, c);
@@ -1478,6 +1537,10 @@ impl DataTable {
                             }
                         }
                     }
+                }
+                UndoAction::ReorderColumns { ref order } => {
+                    self.apply_order(order);
+                    self.structural_changes = true;
                 }
                 UndoAction::SetMark { key, new_color, .. } => match new_color {
                     Some(c) => {

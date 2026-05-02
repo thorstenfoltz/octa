@@ -960,24 +960,27 @@ fn test_settings_serialization_roundtrip() {
 // --- Number alignment tests ---
 
 #[test]
-fn test_is_right_aligned() {
-    use octa::ui::table_view::is_right_aligned;
+fn test_is_numeric_data_type() {
+    use octa::data::is_numeric_data_type;
 
-    assert!(is_right_aligned(&CellValue::Int(42)));
-    assert!(is_right_aligned(&CellValue::Int(-1)));
-    assert!(is_right_aligned(&CellValue::Float(3.14)));
-    assert!(is_right_aligned(&CellValue::Float(0.0)));
+    for ty in [
+        "Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float16",
+        "Float32", "Float64",
+    ] {
+        assert!(is_numeric_data_type(ty), "{ty} should be numeric");
+    }
 
-    assert!(!is_right_aligned(&CellValue::String("123".into())));
-    assert!(!is_right_aligned(&CellValue::String("hello".into())));
-    assert!(!is_right_aligned(&CellValue::Null));
-    assert!(!is_right_aligned(&CellValue::Bool(true)));
-    assert!(!is_right_aligned(&CellValue::Date("2024-01-01".into())));
-    assert!(!is_right_aligned(&CellValue::DateTime(
-        "2024-01-01 00:00:00".into()
-    )));
-    assert!(!is_right_aligned(&CellValue::Nested("{}".into())));
-    assert!(!is_right_aligned(&CellValue::Binary(vec![1, 2, 3])));
+    for ty in [
+        "Utf8",
+        "LargeUtf8",
+        "Boolean",
+        "Date",
+        "DateTime",
+        "Binary",
+        "",
+    ] {
+        assert!(!is_numeric_data_type(ty), "{ty} should not be numeric");
+    }
 }
 
 // --- Column type conversion tests ---
