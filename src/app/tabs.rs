@@ -10,7 +10,7 @@ use octa::data::{self, DataTable, ViewMode};
 use octa::ui;
 use octa::ui::table_view::TableViewState;
 
-use super::state::{OctaApp, TabState};
+use super::state::{ColumnInspectorSort, OctaApp, TabState};
 
 impl TabState {
     pub(crate) fn new(search_mode: data::SearchMode) -> Self {
@@ -58,6 +58,12 @@ impl TabState {
             sql_ac_selected: 0,
             sql_ac_visible: true,
             first_row_is_header: true,
+            show_column_inspector: false,
+            column_inspector_sort: ColumnInspectorSort::Default,
+            column_inspector_size: octa::ui::settings::DialogSize::default(),
+            column_inspector_selected: std::collections::HashSet::new(),
+            column_inspector_anchor: None,
+            empty_file_placeholder: false,
         }
     }
 

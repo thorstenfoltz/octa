@@ -69,9 +69,22 @@ Open a file using **File > Open** (or **Ctrl+O**), or pass a file path as a comm
 octa path/to/file.parquet
 ```
 
-**Supported formats:** Parquet, CSV, TSV, JSON, JSONL, Excel (.xlsx), Avro, Arrow IPC, ORC, HDF5, XML, TOML, YAML, PDF, Markdown, Plain Text.
+**Read + write formats**
 
-All formats support both reading and writing. When saving, the original format and settings (e.g. CSV delimiter) are preserved.
+- Tabular columnar / data-science: Parquet, Avro, Arrow IPC, ORC
+- Plain text / interchange: CSV, TSV, JSON, JSONL, XML, TOML, YAML
+- Office: Excel (`.xlsx`)
+- Databases (diff-on-save row-level edits, no schema changes): SQLite (`.sqlite`, `.sqlite3`, `.db`), DuckDB (`.duckdb`, `.ddb`), GeoPackage (`.gpkg`)
+- Statistical: SPSS (`.sav`, `.zsav`), Stata (`.dta`)
+- Other: dBase / DBF, Jupyter notebooks (`.ipynb`), PDF, Markdown (`.md`), Plain Text
+
+**Read-only formats**
+
+- SAS (`.sas7bdat`)
+- R Datasets (`.rds`, `.rdata`, `.rda`)
+- HDF5 (`.h5`, `.hdf5`, `.hdf`)
+
+When saving, the original format and settings (e.g. CSV delimiter) are preserved. Database writes only update changed rows and reject schema changes — rename or add columns in another tool first.
 
 ## Navigation
 

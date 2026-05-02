@@ -365,9 +365,25 @@ pub fn render_sql_view(
             egui::popup::PopupCloseBehavior::IgnoreClicks,
             |ui| {
                 ui.set_min_width(220.0);
+                // Force a high-contrast text color on the selected chip so the
+                // variable name stays readable against the translucent selection
+                // tint that some dark themes use for `selection.bg_fill`. egui's
+                // default selectable_label inherits `widgets.inactive.fg_stroke`
+                // for selected items, which produced barely-visible text in
+                // Dark / Nord / Dracula / Gruvbox / DeepSea / Gentleman.
+                let strong_color = if ui.visuals().dark_mode {
+                    egui::Color32::WHITE
+                } else {
+                    ui.visuals().strong_text_color()
+                };
                 for (idx, s) in suggestions.iter().enumerate() {
                     let selected = idx == tab.sql_ac_selected;
-                    let resp = ui.selectable_label(selected, s);
+                    let label = if selected {
+                        egui::RichText::new(s).color(strong_color).strong()
+                    } else {
+                        egui::RichText::new(s)
+                    };
+                    let resp = ui.selectable_label(selected, label);
                     if resp.clicked() {
                         apply_suggestion_later(tab, prefix_start, prefix_len, s, ui.ctx());
                         editor_response.request_focus();

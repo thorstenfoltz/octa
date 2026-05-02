@@ -54,6 +54,13 @@ pub fn run_query(table: &DataTable, query: &str) -> Result<QueryOutcome> {
             table: egg,
         });
     }
+    if let Some(egg) = stars_easter_egg(trimmed) {
+        return Ok(QueryOutcome {
+            kind: QueryKind::Select,
+            affected: None,
+            table: egg,
+        });
+    }
     let conn = Connection::open_in_memory().context("opening in-memory DuckDB")?;
     register_table(&conn, "data", table)?;
     if is_mutation(trimmed) {
@@ -357,6 +364,80 @@ fn octopuses_easter_egg(query: &str) -> Option<DataTable> {
         edits: HashMap::new(),
         source_path: None,
         format_name: Some("\u{1f419} Octopuses".to_string()),
+        structural_changes: false,
+        total_rows: None,
+        row_offset: 0,
+        marks: HashMap::new(),
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+        db_meta: None,
+    })
+}
+
+/// Easter egg: `SELECT * FROM stars` returns ten of the brightest known
+/// stars. Same matching rules as `octopuses_easter_egg`.
+fn stars_easter_egg(query: &str) -> Option<DataTable> {
+    let normalized = query
+        .trim_end_matches(';')
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    if normalized != "select * from stars" {
+        return None;
+    }
+    let columns = vec![
+        ColumnInfo {
+            name: "id".into(),
+            data_type: "Int64".into(),
+        },
+        ColumnInfo {
+            name: "name".into(),
+            data_type: "Utf8".into(),
+        },
+        ColumnInfo {
+            name: "constellation".into(),
+            data_type: "Utf8".into(),
+        },
+        ColumnInfo {
+            name: "apparent_magnitude".into(),
+            data_type: "Float64".into(),
+        },
+        ColumnInfo {
+            name: "distance_ly".into(),
+            data_type: "Float64".into(),
+        },
+    ];
+    let entries: &[(i64, &str, &str, f64, f64)] = &[
+        (1, "Sirius", "Canis Major", -1.46, 8.6),
+        (2, "Canopus", "Carina", -0.74, 310.0),
+        (3, "Arcturus", "Boötes", -0.05, 36.7),
+        (4, "Vega", "Lyra", 0.03, 25.0),
+        (5, "Rigel", "Orion", 0.13, 860.0),
+        (6, "Procyon", "Canis Minor", 0.34, 11.46),
+        (7, "Betelgeuse", "Orion", 0.50, 642.5),
+        (8, "Altair", "Aquila", 0.77, 16.73),
+        (9, "Aldebaran", "Taurus", 0.85, 65.3),
+        (10, "Antares", "Scorpius", 1.06, 555.0),
+    ];
+    let rows = entries
+        .iter()
+        .map(|(id, name, con, mag, ly)| {
+            vec![
+                CellValue::Int(*id),
+                CellValue::String((*name).to_string()),
+                CellValue::String((*con).to_string()),
+                CellValue::Float(*mag),
+                CellValue::Float(*ly),
+            ]
+        })
+        .collect();
+    Some(DataTable {
+        columns,
+        rows,
+        edits: HashMap::new(),
+        source_path: None,
+        format_name: Some("\u{2728} Stars".to_string()),
         structural_changes: false,
         total_rows: None,
         row_offset: 0,

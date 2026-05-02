@@ -92,7 +92,7 @@ pub fn draw_status_bar(
             );
             ui.separator();
             ui.label(
-                RichText::new(format!("{} cols", format_number(table.col_count())))
+                RichText::new(format!("{} columns", format_number(table.col_count())))
                     .size(11.0)
                     .color(colors.text_secondary),
             );

@@ -126,6 +126,7 @@ fn column_to_cells(obj: &RObject) -> Result<(&'static str, Vec<CellValue>)> {
         RObject::Logical(v) => Ok(("Boolean", logical_cells(v))),
         RObject::Character(v) => Ok(("Utf8", character_cells(v))),
         RObject::Factor(f) => Ok(("Utf8", factor_cells(f))),
+        RObject::Raw(v) => Ok(("Binary", raw_cells(v))),
         RObject::WithAttributes { object, attributes } => {
             decode_with_attributes(object, attributes)
         }
@@ -199,6 +200,20 @@ fn character_cells(v: &VectorData<Arc<str>>) -> Vec<CellValue> {
     v.as_vec()
         .iter()
         .map(|s| CellValue::String(s.to_string()))
+        .collect()
+}
+
+fn raw_cells(v: &VectorData<u8>) -> Vec<CellValue> {
+    if !v.is_loaded() {
+        return Vec::new();
+    }
+    // R's `raw` vector is one `u8` per element with no NA encoding, so each
+    // row gets a single-byte `Binary`. The user can switch the global
+    // BinaryDisplayMode (Binary digits / Hex / UTF-8 Text) to render the
+    // bytes the way they want.
+    v.as_vec()
+        .iter()
+        .map(|b| CellValue::Binary(vec![*b]))
         .collect()
 }
 

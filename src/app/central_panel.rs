@@ -48,6 +48,12 @@ impl OctaApp {
                 self.recompute_filter();
             }
 
+            // Empty-file easter egg: render ASCII art instead of the table.
+            if self.tabs[self.active_tab].empty_file_placeholder {
+                render_empty_file_placeholder(ui, self.theme_mode);
+                return;
+            }
+
             // Non-table view modes render and return early.
             if self.tabs[self.active_tab].view_mode == ViewMode::Pdf {
                 view_modes::render_pdf_view(
@@ -444,4 +450,26 @@ impl OctaApp {
             }
         }
     }
+}
+
+/// Center the easter-egg ASCII art for an empty file. Picks the accent color
+/// from the active theme so the art doesn't fight the theme palette.
+fn render_empty_file_placeholder(ui: &mut egui::Ui, theme_mode: ui::theme::ThemeMode) {
+    let colors = ui::theme::ThemeColors::for_mode(theme_mode);
+    ui.add_space(48.0);
+    ui.vertical_centered(|ui| {
+        ui.label(
+            egui::RichText::new(super::easter_eggs::EMPTY_FILE_ART)
+                .monospace()
+                .size(14.0)
+                .color(colors.accent),
+        );
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new(super::easter_eggs::EMPTY_FILE_TAGLINE)
+                .italics()
+                .size(13.0)
+                .color(colors.text_secondary),
+        );
+    });
 }

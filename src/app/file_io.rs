@@ -181,6 +181,13 @@ impl OctaApp {
     }
 
     pub(crate) fn load_file(&mut self, path: std::path::PathBuf) {
+        // Empty-file easter egg: short-circuit before format dispatch, since
+        // most readers will surface a confusing "no schema found" error on a
+        // 0-byte file.
+        if std::fs::metadata(&path).map(|m| m.len() == 0).unwrap_or(false) {
+            self.open_empty_file_placeholder(path);
+            return;
+        }
         let reader = match self.registry.reader_for_path(&path) {
             Some(r) => r,
             None => {
@@ -543,5 +550,36 @@ impl OctaApp {
                 ));
             }
         }
+    }
+
+    /// Open an empty (0-byte) file as a placeholder tab. Skips the format
+    /// dispatch path so readers don't surface "missing schema" errors on
+    /// genuinely-empty files; renders ASCII art on the central panel instead.
+    pub(crate) fn open_empty_file_placeholder(&mut self, path: std::path::PathBuf) {
+        let current_empty = self.tabs[self.active_tab].table.col_count() == 0
+            && !self.tabs[self.active_tab].is_modified();
+        if !current_empty {
+            let new_tab = TabState::new(self.settings.default_search_mode);
+            self.tabs.push(new_tab);
+            self.active_tab = self.tabs.len() - 1;
+        }
+        let tab = &mut self.tabs[self.active_tab];
+        let mut blank = DataTable::empty();
+        blank.source_path = Some(path.to_string_lossy().to_string());
+        tab.table = blank;
+        tab.table_state = TableViewState::default();
+        tab.empty_file_placeholder = true;
+        tab.view_mode = ViewMode::Table;
+        tab.search_text.clear();
+        tab.filter_dirty = true;
+        self.status_message = Some((
+            format!(
+                "{} is empty.",
+                path.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.to_string_lossy().to_string())
+            ),
+            std::time::Instant::now(),
+        ));
     }
 }

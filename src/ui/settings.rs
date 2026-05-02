@@ -567,7 +567,7 @@ impl SettingsDialog {
         // desktop window. Dragging works because the title text is a
         // non-interactive area inside the window's drag region.
         let screen_center = ctx.screen_rect().center();
-        let default_pos = screen_center - egui::vec2(240.0, 290.0);
+        let default_pos = screen_center - egui::vec2(340.0, 290.0);
         let mut window = egui::Window::new("Settings")
             .title_bar(false)
             .collapsible(false);
@@ -578,8 +578,8 @@ impl SettingsDialog {
             DialogSize::Normal => window
                 .resizable(true)
                 .default_pos(default_pos)
-                .min_width(460.0)
-                .default_width(480.0)
+                .min_width(640.0)
+                .default_width(680.0)
                 .default_height(580.0)
                 .min_height(360.0),
         };
@@ -1205,7 +1205,6 @@ impl SettingsDialog {
         egui::Grid::new("settings_shortcuts_grid")
             .num_columns(4)
             .spacing([12.0, 4.0])
-            .striped(true)
             .show(ui, |ui| {
                 for action in ShortcutAction::iter() {
                     ui.label(action.label());

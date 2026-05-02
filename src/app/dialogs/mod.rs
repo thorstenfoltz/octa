@@ -8,6 +8,7 @@ use super::state::OctaApp;
 
 pub(crate) mod about;
 pub(crate) mod add_column;
+pub(crate) mod column_inspector;
 pub(crate) mod delete_columns;
 pub(crate) mod documentation;
 pub(crate) mod reload_confirm;
@@ -22,6 +23,7 @@ impl OctaApp {
     /// false, so calling all of them every frame is cheap.
     pub(crate) fn render_dialogs(&mut self, ctx: &egui::Context) {
         add_column::render_add_column_dialog(self, ctx);
+        column_inspector::render_column_inspector_dialog(self, ctx);
         delete_columns::render_delete_columns_dialog(self, ctx);
         unsaved_changes::render_close_confirm_dialog(self, ctx);
         unsaved_changes::render_open_confirm_dialog(self, ctx);

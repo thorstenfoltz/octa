@@ -12,6 +12,16 @@ use ui::settings::{AppSettings, DialogSize, IconVariant, SettingsDialog};
 use ui::table_view::TableViewState;
 use ui::theme::ThemeMode;
 
+/// Sort order for the Column Inspector dialog. View-only — does not mutate
+/// the underlying column order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ColumnInspectorSort {
+    #[default]
+    Default,
+    Asc,
+    Desc,
+}
+
 #[derive(Clone)]
 pub(crate) enum UpdateState {
     /// No check in progress
@@ -94,6 +104,21 @@ pub(crate) struct TabState {
     /// headers (the default for most readers). When toggled off, the headers
     /// are pushed back into row 0 and column names become `column_1..N`.
     pub(crate) first_row_is_header: bool,
+    /// Whether the Column Inspector modal is open for this tab.
+    pub(crate) show_column_inspector: bool,
+    /// Sort order applied inside the Column Inspector (view-only).
+    pub(crate) column_inspector_sort: ColumnInspectorSort,
+    /// Window-size mode for the Column Inspector (Normal/Maximized/Minimized).
+    pub(crate) column_inspector_size: ui::settings::DialogSize,
+    /// Selected row indices (display-position indices) inside the Column
+    /// Inspector. Drives Ctrl+C / context-menu copy. Cleared when the dialog
+    /// closes.
+    pub(crate) column_inspector_selected: std::collections::HashSet<usize>,
+    /// Anchor index for Shift+click range selection in the Column Inspector.
+    pub(crate) column_inspector_anchor: Option<usize>,
+    /// Set to true when this tab represents an empty (0-byte) file. Renders
+    /// the easter-egg ASCII art instead of the table view.
+    pub(crate) empty_file_placeholder: bool,
 }
 
 pub(crate) struct OctaApp {
@@ -153,4 +178,18 @@ pub(crate) struct OctaApp {
     pub(crate) pending_table_picker: Option<ui::table_picker::TablePickerState>,
     /// Currently opened directory tree sidebar (`None` = sidebar hidden).
     pub(crate) directory_tree: Option<ui::directory_tree::DirectoryTreeState>,
+    /// How many key presses of the Konami sequence have been matched so far.
+    pub(crate) konami_index: u8,
+    /// Wall-clock deadline up to which the confetti overlay is animated.
+    pub(crate) confetti_until: Option<std::time::Instant>,
+    /// Click counter on the toolbar Octa logo. Reaching 7 clicks within
+    /// `LOGO_CLICK_WINDOW` activates the hidden Rainbow theme.
+    pub(crate) logo_click_count: u8,
+    /// Most recent click timestamp on the Octa logo. Used to expire stale
+    /// streaks from `logo_click_count`.
+    pub(crate) logo_last_click: Option<std::time::Instant>,
+    /// `true` while the hidden Rainbow theme is active. Decoupled from
+    /// `theme_mode == Rainbow` so the surrounding code can keep using
+    /// `theme_mode` without surprise.
+    pub(crate) rainbow_active: bool,
 }

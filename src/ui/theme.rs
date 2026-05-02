@@ -21,6 +21,16 @@ pub enum ThemeMode {
     /// Refined gentleman's-club palette: deep walnut and burgundy backgrounds
     /// with champagne-gold accents and warm parchment text.
     Gentleman,
+    /// Deep ocean blue: a Nord-flavoured but bluer and more saturated palette,
+    /// with abyssal navy backgrounds and lagoon-blue accents.
+    DeepSea,
+    /// Frost: cool, near-white backgrounds with pale ice-blue accents and
+    /// dark slate text. The light counterpart to Deep Sea.
+    Frost,
+    /// Hidden easter-egg theme — not listed in `ALL`, only reachable by
+    /// clicking the toolbar logo seven times in quick succession. Cycles the
+    /// accent hue every frame.
+    Rainbow,
 }
 
 impl ThemeMode {
@@ -33,19 +43,23 @@ impl ThemeMode {
         Self::HighContrast,
         Self::Manga,
         Self::Gentleman,
+        Self::DeepSea,
+        Self::Frost,
     ];
 
     /// Whether the preset has a dark background. Drives base egui visuals
     /// and any view-mode logic that wants to swap text colors per brightness.
     pub fn is_dark(self) -> bool {
         match self {
-            Self::Light | Self::Manga => false,
+            Self::Light | Self::Manga | Self::Frost => false,
             Self::Dark
             | Self::Nord
             | Self::Dracula
             | Self::GruvboxDark
             | Self::HighContrast
-            | Self::Gentleman => true,
+            | Self::Gentleman
+            | Self::DeepSea
+            | Self::Rainbow => true,
         }
     }
 
@@ -70,6 +84,9 @@ impl ThemeMode {
             Self::HighContrast => "High Contrast",
             Self::Manga => "Manga",
             Self::Gentleman => "Gentleman",
+            Self::DeepSea => "Deep Sea",
+            Self::Frost => "Frost",
+            Self::Rainbow => "Rainbow",
         }
     }
 
@@ -183,6 +200,9 @@ impl ThemeColors {
             ThemeMode::HighContrast => Self::high_contrast(),
             ThemeMode::Manga => Self::manga(),
             ThemeMode::Gentleman => Self::gentleman(),
+            ThemeMode::DeepSea => Self::deep_sea(),
+            ThemeMode::Frost => Self::frost(),
+            ThemeMode::Rainbow => Self::rainbow(),
         }
     }
 
@@ -478,11 +498,124 @@ impl ThemeColors {
             scrollbar_thumb_hover: Color32::from_rgb(0xc8, 0x9b, 0x3c),
         }
     }
+
+    /// Deep Sea: a Nord-inspired palette pushed deeper and bluer. Abyssal navy
+    /// backgrounds, lagoon-blue accents, near-white text. Reads like Nord at
+    /// 200 m depth.
+    fn deep_sea() -> Self {
+        Self {
+            bg_primary: Color32::from_rgb(0x0e, 0x1f, 0x2e),
+            bg_secondary: Color32::from_rgb(0x14, 0x2a, 0x3f),
+            bg_tertiary: Color32::from_rgb(0x1c, 0x36, 0x52),
+            bg_header: Color32::from_rgb(0x10, 0x25, 0x38),
+            bg_selected: Color32::from_rgba_unmultiplied(0x5f, 0xb1, 0xd4, 110),
+            bg_hover: Color32::from_rgb(0x22, 0x3f, 0x5e),
+            bg_edited: Color32::from_rgb(0x2e, 0x36, 0x1a),
+
+            text_primary: Color32::from_rgb(0xe6, 0xf0, 0xf7),
+            text_secondary: Color32::from_rgb(0xb6, 0xc8, 0xd8),
+            text_muted: Color32::from_rgb(0x6f, 0x8a, 0xa1),
+            text_header: Color32::from_rgb(0x8f, 0xc6, 0xe2),
+
+            accent: Color32::from_rgb(0x3a, 0x8f, 0xb7),
+            accent_hover: Color32::from_rgb(0x5f, 0xb1, 0xd4),
+            border: Color32::from_rgb(0x1c, 0x36, 0x52),
+            border_subtle: Color32::from_rgb(0x14, 0x2a, 0x3f),
+
+            success: Color32::from_rgb(0x6e, 0xc4, 0xa8),
+            warning: Color32::from_rgb(0xe7, 0xc7, 0x6f),
+            error: Color32::from_rgb(0xd0, 0x6a, 0x6a),
+
+            row_even: Color32::from_rgb(0x0e, 0x1f, 0x2e),
+            row_odd: Color32::from_rgb(0x12, 0x26, 0x38),
+            row_number_bg: Color32::from_rgb(0x10, 0x25, 0x38),
+            row_number_text: Color32::from_rgb(0x6f, 0x8a, 0xa1),
+
+            scrollbar_track: Color32::from_rgb(0x14, 0x2a, 0x3f),
+            scrollbar_thumb: Color32::from_rgb(0x22, 0x3f, 0x5e),
+            scrollbar_thumb_hover: Color32::from_rgb(0x5f, 0xb1, 0xd4),
+        }
+    }
+
+    /// Frost: cool, near-white "snowfield" background with pale ice-blue
+    /// accents and dark slate text. The light counterpart to Deep Sea.
+    fn frost() -> Self {
+        Self {
+            bg_primary: Color32::from_rgb(0xf4, 0xf8, 0xfb),
+            bg_secondary: Color32::from_rgb(0xea, 0xf2, 0xf8),
+            bg_tertiary: Color32::from_rgb(0xdc, 0xe9, 0xf2),
+            bg_header: Color32::from_rgb(0xe3, 0xee, 0xf6),
+            bg_selected: Color32::from_rgb(0xbf, 0xdc, 0xee),
+            bg_hover: Color32::from_rgb(0xd6, 0xe6, 0xf0),
+            bg_edited: Color32::from_rgb(0xff, 0xf3, 0xc4),
+
+            text_primary: Color32::from_rgb(0x1f, 0x29, 0x33),
+            text_secondary: Color32::from_rgb(0x4a, 0x5b, 0x6c),
+            text_muted: Color32::from_rgb(0x8a, 0x9b, 0xa9),
+            text_header: Color32::from_rgb(0x29, 0x4f, 0x6b),
+
+            accent: Color32::from_rgb(0x4d, 0x95, 0xb8),
+            accent_hover: Color32::from_rgb(0x7f, 0xb4, 0xd4),
+            border: Color32::from_rgb(0xc6, 0xd6, 0xe2),
+            border_subtle: Color32::from_rgb(0xdc, 0xe9, 0xf2),
+
+            success: Color32::from_rgb(0x46, 0x99, 0x70),
+            warning: Color32::from_rgb(0xb8, 0x84, 0x1f),
+            error: Color32::from_rgb(0xb6, 0x3a, 0x3a),
+
+            row_even: Color32::from_rgb(0xf4, 0xf8, 0xfb),
+            row_odd: Color32::from_rgb(0xe6, 0xee, 0xf5),
+            row_number_bg: Color32::from_rgb(0xea, 0xf2, 0xf8),
+            row_number_text: Color32::from_rgb(0x8a, 0x9b, 0xa9),
+
+            scrollbar_track: Color32::from_rgb(0xdc, 0xe9, 0xf2),
+            scrollbar_thumb: Color32::from_rgb(0xb6, 0xc9, 0xd7),
+            scrollbar_thumb_hover: Color32::from_rgb(0x7f, 0xb4, 0xd4),
+        }
+    }
+
+    /// Hidden rainbow theme. Returns the Dark base palette with a placeholder
+    /// accent — the live accent is rotated per-frame in [`apply_theme`] when
+    /// the mode is `Rainbow`, so any caller that reads this palette directly
+    /// only needs sane defaults for non-accent colors.
+    fn rainbow() -> Self {
+        let mut base = Self::dark();
+        base.accent = Color32::from_rgb(0xff, 0x00, 0x88);
+        base.accent_hover = Color32::from_rgb(0x88, 0xff, 0xff);
+        base
+    }
+}
+
+/// HSV → RGB helper for the hidden Rainbow theme. `h` in 0..1, s/v in 0..1.
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> Color32 {
+    let h = (h.fract() + 1.0).fract() * 6.0;
+    let i = h.floor() as i32;
+    let f = h - i as f32;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - s * f);
+    let t = v * (1.0 - s * (1.0 - f));
+    let (r, g, b) = match i.rem_euclid(6) {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
+    };
+    Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
 }
 
 /// Apply the theme to an egui context.
 pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font: FontSettings) {
-    let colors = ThemeColors::for_mode(mode);
+    let mut colors = ThemeColors::for_mode(mode);
+    if mode == ThemeMode::Rainbow {
+        // Cycle the accent hue once per second for the hidden easter-egg theme.
+        let phase = (ctx.input(|i| i.time) * 0.25).fract() as f32;
+        colors.accent = hsv_to_rgb(phase, 0.85, 0.95);
+        colors.accent_hover = hsv_to_rgb((phase + 0.15) % 1.0, 0.85, 1.0);
+        colors.text_header = hsv_to_rgb((phase + 0.5) % 1.0, 0.7, 1.0);
+        ctx.request_repaint();
+    }
     let is_dark = mode.is_dark();
 
     let mut style = Style::default();
@@ -539,7 +672,17 @@ pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font: FontSettings) {
     visuals.widgets.active.corner_radius = CornerRadius::same(4);
 
     visuals.selection.bg_fill = colors.bg_selected;
-    visuals.selection.stroke = Stroke::new(1.0, colors.accent);
+    // egui's `interact_selectable` aliases the selected widget's *fg_stroke*
+    // (the text color) to `selection.stroke`. The accent color reads cleanly
+    // on light themes but turns into mid-saturation-on-mid-saturation in
+    // dark themes — selected radio/menu/list entries become unreadable.
+    // Use a high-contrast color in dark mode and slate in light mode.
+    let selection_stroke_color = if is_dark {
+        Color32::WHITE
+    } else {
+        colors.text_primary
+    };
+    visuals.selection.stroke = Stroke::new(1.0, selection_stroke_color);
 
     visuals.hyperlink_color = colors.accent;
     visuals.warn_fg_color = colors.warning;
@@ -600,13 +743,15 @@ pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font: FontSettings) {
 /// fg_stroke — otherwise strong text everywhere becomes invisible.
 fn apply_theme_decoration(style: &mut Style, mode: ThemeMode, colors: &ThemeColors) {
     match mode {
-        ThemeMode::Light | ThemeMode::Dark => {}
+        ThemeMode::Light | ThemeMode::Dark | ThemeMode::Rainbow => {}
         ThemeMode::Manga => apply_manga_decoration(style, colors),
         ThemeMode::Nord => apply_nord_decoration(style, colors),
         ThemeMode::Dracula => apply_dracula_decoration(style, colors),
         ThemeMode::GruvboxDark => apply_gruvbox_decoration(style, colors),
         ThemeMode::HighContrast => apply_high_contrast_decoration(style, colors),
         ThemeMode::Gentleman => apply_gentleman_decoration(style, colors),
+        ThemeMode::DeepSea => apply_deep_sea_decoration(style, colors),
+        ThemeMode::Frost => apply_frost_decoration(style, colors),
     }
 }
 
@@ -909,7 +1054,12 @@ pub fn paint_background_decoration(
         ThemeMode::Dracula => paint_dracula_background(painter, rect),
         ThemeMode::GruvboxDark => paint_gruvbox_background(painter, rect),
         ThemeMode::Gentleman => paint_gentleman_background(painter, rect),
-        ThemeMode::Light | ThemeMode::Dark | ThemeMode::HighContrast => {}
+        ThemeMode::DeepSea => paint_deep_sea_background(painter, rect),
+        ThemeMode::Frost => paint_frost_background(painter, rect),
+        ThemeMode::Light
+        | ThemeMode::Dark
+        | ThemeMode::HighContrast
+        | ThemeMode::Rainbow => {}
     }
 }
 
@@ -1065,6 +1215,152 @@ fn paint_gentleman_background(painter: &egui::Painter, rect: egui::Rect) {
         let p2 = egui::pos2(start, rect.bottom());
         painter.line_segment([p1, p2], stroke);
         start += step;
+    }
+}
+
+fn apply_deep_sea_decoration(style: &mut Style, colors: &ThemeColors) {
+    // Calm rounded panels with a thin lagoon-blue rim. Less aggressive than
+    // Nord's frosted glass; the feel is "something glowing under the water".
+    let radius = CornerRadius::same(8);
+    let rim = Stroke::new(1.0, colors.border);
+    let glow = Stroke::new(1.5, colors.accent);
+    let foam = Color32::from_rgb(0xe6, 0xf0, 0xf7);
+
+    let v = &mut style.visuals;
+
+    v.widgets.noninteractive.corner_radius = radius;
+    v.widgets.noninteractive.bg_stroke = rim;
+
+    v.widgets.inactive.corner_radius = radius;
+    v.widgets.inactive.bg_fill = colors.bg_tertiary;
+    v.widgets.inactive.weak_bg_fill = colors.bg_tertiary;
+    v.widgets.inactive.bg_stroke = rim;
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0, foam);
+
+    v.widgets.hovered.corner_radius = radius;
+    v.widgets.hovered.bg_fill = colors.accent.linear_multiply(0.35);
+    v.widgets.hovered.weak_bg_fill = colors.accent.linear_multiply(0.35);
+    v.widgets.hovered.bg_stroke = glow;
+    v.widgets.hovered.fg_stroke = Stroke::new(1.5, foam);
+    v.widgets.hovered.expansion = 1.0;
+
+    v.widgets.active.corner_radius = radius;
+    // Darker lagoon shade so foam-white text stays legible.
+    v.widgets.active.bg_fill = Color32::from_rgb(0x29, 0x65, 0x86);
+    v.widgets.active.weak_bg_fill = Color32::from_rgb(0x29, 0x65, 0x86);
+    v.widgets.active.bg_stroke = glow;
+    v.widgets.active.fg_stroke = Stroke::new(1.5, foam);
+
+    v.widgets.open.corner_radius = radius;
+    v.widgets.open.bg_fill = colors.accent.linear_multiply(0.4);
+    v.widgets.open.bg_stroke = glow;
+
+    v.window_corner_radius = CornerRadius::same(8);
+    v.menu_corner_radius = CornerRadius::same(6);
+
+    style.spacing.button_padding = egui::vec2(10.0, 5.0);
+}
+
+fn apply_frost_decoration(style: &mut Style, colors: &ThemeColors) {
+    // Crisp, near-monochrome ice palette. Slightly larger corners, very thin
+    // borders, and almost no hover expansion — keep it pristine.
+    let radius = CornerRadius::same(8);
+    let rim = Stroke::new(0.8, colors.border);
+    let chill = Stroke::new(1.5, colors.accent);
+    let slate = colors.text_primary;
+
+    let v = &mut style.visuals;
+
+    v.widgets.noninteractive.corner_radius = radius;
+    v.widgets.noninteractive.bg_stroke = rim;
+
+    v.widgets.inactive.corner_radius = radius;
+    v.widgets.inactive.bg_fill = colors.bg_secondary;
+    v.widgets.inactive.weak_bg_fill = colors.bg_secondary;
+    v.widgets.inactive.bg_stroke = rim;
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0, slate);
+
+    v.widgets.hovered.corner_radius = radius;
+    v.widgets.hovered.bg_fill = colors.accent.linear_multiply(0.25);
+    v.widgets.hovered.weak_bg_fill = colors.accent.linear_multiply(0.25);
+    v.widgets.hovered.bg_stroke = chill;
+    v.widgets.hovered.fg_stroke = Stroke::new(1.2, slate);
+    v.widgets.hovered.expansion = 0.5;
+
+    // egui aliases `RichText::strong()` text color to `widgets.active.fg_stroke.color`.
+    // Frost's panel background is near-white, so a white fg_stroke makes every
+    // strong heading (Settings section titles, Markdown headings, CollapsingHeader
+    // main labels) invisible. Use slate text instead, and darken the active fill
+    // to keep contrast on actual pressed buttons.
+    v.widgets.active.corner_radius = radius;
+    v.widgets.active.bg_fill = Color32::from_rgb(0x29, 0x6e, 0x90);
+    v.widgets.active.weak_bg_fill = Color32::from_rgb(0x29, 0x6e, 0x90);
+    v.widgets.active.bg_stroke = chill;
+    v.widgets.active.fg_stroke = Stroke::new(1.5, slate);
+
+    v.widgets.open.corner_radius = radius;
+    v.widgets.open.bg_fill = colors.accent.linear_multiply(0.3);
+    v.widgets.open.bg_stroke = chill;
+
+    v.window_corner_radius = CornerRadius::same(8);
+    v.menu_corner_radius = CornerRadius::same(6);
+
+    style.spacing.button_padding = egui::vec2(10.0, 5.0);
+}
+
+fn paint_deep_sea_background(painter: &egui::Painter, rect: egui::Rect) {
+    // Slow caustic-style horizontal bands rising from the depths. Very faint
+    // — readability of dark text on dark navy beats decoration.
+    let bands = [
+        (0.20_f32, Color32::from_rgba_unmultiplied(0x5f, 0xb1, 0xd4, 12)),
+        (0.55_f32, Color32::from_rgba_unmultiplied(0x3a, 0x8f, 0xb7, 14)),
+        (0.85_f32, Color32::from_rgba_unmultiplied(0x21, 0x4a, 0x6a, 18)),
+    ];
+    let height = rect.height();
+    let band_h = height * 0.25;
+    for (center_t, color) in bands {
+        let cy = rect.top() + height * center_t;
+        let n = 22;
+        for i in 0..n {
+            let dt = (i as f32 / n as f32 - 0.5) * 2.0;
+            let y = cy + dt * band_h * 0.5;
+            let alpha_factor = 1.0 - dt.abs();
+            let faded = Color32::from_rgba_unmultiplied(
+                color.r(),
+                color.g(),
+                color.b(),
+                (color.a() as f32 * alpha_factor) as u8,
+            );
+            painter.line_segment(
+                [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
+                Stroke::new(band_h / n as f32 + 0.5, faded),
+            );
+        }
+    }
+}
+
+fn paint_frost_background(painter: &egui::Painter, rect: egui::Rect) {
+    // Sparse drifting snowflake field. Deterministic LCG so flakes don't
+    // shimmer between frames. Two sizes for a tiny depth cue.
+    let mut seed: u32 = 0x5f3759df;
+    let mut next = || {
+        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        seed
+    };
+    let area = rect.width() * rect.height();
+    let count = (area / 1800.0) as usize;
+    let dot_color = Color32::from_rgba_unmultiplied(0x7f, 0xb4, 0xd4, 40);
+    let dot_color_dim = Color32::from_rgba_unmultiplied(0xb6, 0xc9, 0xd7, 30);
+    for i in 0..count {
+        let r1 = next();
+        let r2 = next();
+        let r3 = next();
+        let x = rect.left() + (r1 % 10_000) as f32 / 10_000.0 * rect.width();
+        let y = rect.top() + (r2 % 10_000) as f32 / 10_000.0 * rect.height();
+        let big = (r3 & 3) == 0;
+        let radius = if big { 1.6 } else { 0.9 };
+        let color = if i & 1 == 0 { dot_color } else { dot_color_dim };
+        painter.circle_filled(egui::pos2(x, y), radius, color);
     }
 }
 

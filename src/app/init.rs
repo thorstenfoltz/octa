@@ -83,6 +83,11 @@ impl OctaApp {
             show_reload_confirm: false,
             pending_table_picker: None,
             directory_tree: None,
+            konami_index: 0,
+            confetti_until: None,
+            logo_click_count: 0,
+            logo_last_click: None,
+            rainbow_active: false,
         }
     }
 

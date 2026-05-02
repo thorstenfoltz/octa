@@ -116,6 +116,7 @@ impl OctaApp {
             .is_some();
         if action_fired(SA::SelectAllRows)
             && !text_edit_focused
+            && !self.tabs[self.active_tab].show_column_inspector
             && self.tabs[self.active_tab].table.col_count() > 0
             && self.tabs[self.active_tab].table.row_count() > 0
         {
@@ -288,6 +289,10 @@ impl OctaApp {
             }
             if action_fired(SA::OpenDocumentation) {
                 self.show_documentation_dialog = true;
+            }
+            if action_fired(SA::OpenColumnInspector) {
+                let tab = &mut self.tabs[self.active_tab];
+                tab.show_column_inspector = true;
             }
         }
 

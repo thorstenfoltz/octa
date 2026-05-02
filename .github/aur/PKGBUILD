@@ -2,7 +2,7 @@
 pkgname=octa
 pkgver=X.X.X
 pkgrel=1
-pkgdesc="A modular multi-format data viewer and editor"
+pkgdesc="Multi-format data viewer/editor supporting parquet, csv, json, avro, xlsx and more"
 arch=('x86_64')
 url="https://github.com/thorstenfoltz/octa"
 license=('MIT')

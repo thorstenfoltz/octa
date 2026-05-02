@@ -27,6 +27,12 @@ pub struct ToolbarAction {
     pub move_col_right: bool,
     pub sort_rows_asc_by: Option<usize>,
     pub sort_rows_desc_by: Option<usize>,
+    /// Reorder all columns alphabetically by name (case-insensitive).
+    pub sort_columns_asc: bool,
+    /// Reorder all columns reverse-alphabetically by name (case-insensitive).
+    pub sort_columns_desc: bool,
+    /// Open the read-only Column Inspector dialog.
+    pub show_column_inspector: bool,
     pub discard_edits: bool,
     pub view_mode_changed: Option<ViewMode>,
     pub show_settings: bool,
@@ -52,6 +58,9 @@ pub struct ToolbarAction {
     pub undo: bool,
     /// Redo the last undone change.
     pub redo: bool,
+    /// Logo in the top-left was clicked. Wired to a hidden easter-egg counter
+    /// in the app shell — most users never trigger it.
+    pub logo_clicked: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -96,9 +105,15 @@ pub fn draw_toolbar(
     ui.horizontal(|ui| {
         ui.add_space(4.0);
 
-        // App logo + title
+        // App logo + title. The logo is wrapped as a clickable widget so the
+        // hidden easter-egg counter (seven clicks within ~1.5 s) can trigger.
         if let Some(tex) = logo_texture {
-            ui.image(egui::load::SizedTexture::new(tex.id(), [20.0, 20.0]));
+            let img = egui::Image::new(egui::load::SizedTexture::new(tex.id(), [20.0, 20.0]))
+                .sense(egui::Sense::click());
+            let resp = ui.add(img);
+            if resp.clicked() {
+                action.logo_clicked = true;
+            }
         }
         ui.label(
             RichText::new("Octa")
@@ -251,6 +266,25 @@ pub fn draw_toolbar(
                     ui.add_enabled(can_move_right, egui::Button::new("Move Column Right"));
                 if right_btn.clicked() {
                     action.move_col_right = true;
+                    ui.close_menu();
+                }
+
+                let can_sort_cols = col_count > 1;
+                let sort_cols_asc =
+                    ui.add_enabled(can_sort_cols, egui::Button::new("Sort Columns A -> Z"));
+                if sort_cols_asc.clicked() {
+                    action.sort_columns_asc = true;
+                    ui.close_menu();
+                }
+                let sort_cols_desc =
+                    ui.add_enabled(can_sort_cols, egui::Button::new("Sort Columns Z -> A"));
+                if sort_cols_desc.clicked() {
+                    action.sort_columns_desc = true;
+                    ui.close_menu();
+                }
+
+                if ui.button("Column Inspector...").clicked() {
+                    action.show_column_inspector = true;
                     ui.close_menu();
                 }
 

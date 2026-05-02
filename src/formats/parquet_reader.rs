@@ -172,6 +172,21 @@ pub fn arrow_value_to_cell(array: &dyn Array, idx: usize) -> CellValue {
             let arr = array.as_any().downcast_ref::<LargeBinaryArray>().unwrap();
             CellValue::Binary(arr.value(idx).to_vec())
         }
+        DataType::FixedSizeBinary(_) => {
+            let arr = array
+                .as_any()
+                .downcast_ref::<FixedSizeBinaryArray>()
+                .unwrap();
+            CellValue::Binary(arr.value(idx).to_vec())
+        }
+        DataType::BinaryView => {
+            let arr = array.as_any().downcast_ref::<BinaryViewArray>().unwrap();
+            CellValue::Binary(arr.value(idx).to_vec())
+        }
+        DataType::Utf8View => {
+            let arr = array.as_any().downcast_ref::<StringViewArray>().unwrap();
+            CellValue::String(arr.value(idx).to_string())
+        }
         DataType::Date32 => {
             let arr = array.as_any().downcast_ref::<Date32Array>().unwrap();
             let days = arr.value(idx);
