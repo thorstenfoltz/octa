@@ -10,6 +10,28 @@ use octa::ui::table_view::TableViewState;
 
 use super::state::{OctaApp, TabState};
 
+/// Whether the post-load date-inference pass should run for a given format.
+/// Binary formats with their own typed-date support (Parquet, Arrow, SQLite,
+/// DuckDB, SAS, Stata, SPSS, RDS, ORC, Avro, HDF5, GeoPackage) are
+/// authoritative — re-typing their columns from string content would only
+/// confuse users. Inference runs on text-style formats whose readers leave
+/// non-ISO dates as plain strings.
+fn date_inference_runs_on(format_name: Option<&str>) -> bool {
+    matches!(
+        format_name,
+        Some("CSV")
+            | Some("TSV")
+            | Some("JSON")
+            | Some("JSON Lines")
+            | Some("Excel")
+            | Some("XML")
+            | Some("TOML")
+            | Some("YAML")
+            | Some("Markdown")
+            | Some("DBF")
+    )
+}
+
 /// Shift cell references in a formula to target a specific row. The formula
 /// is written as a template using row 1 (e.g. "A1+B1"). For `target_row=4`
 /// (0-indexed), references are shifted so row 1 → row 5 (1-indexed).
@@ -175,7 +197,31 @@ impl OctaApp {
         }
         dialog = dialog.add_filter("All Files", &["*"]);
 
-        if let Some(path) = dialog.pick_file() {
+        if let Some(paths) = dialog.pick_files() {
+            self.enqueue_open_files(paths);
+        }
+    }
+
+    /// Queue one or more files for batch open. The first file (if the queue is
+    /// empty and no other modal is up) loads immediately; the rest are
+    /// drained one per frame from `drain_pending_open_queue`.
+    pub(crate) fn enqueue_open_files(&mut self, paths: Vec<std::path::PathBuf>) {
+        if paths.is_empty() {
+            return;
+        }
+        for p in paths {
+            self.pending_open_queue.push_back(p);
+        }
+    }
+
+    /// Drain at most one file per frame from the open queue. Pauses while a
+    /// table-picker or date-ambiguity dialog is up so the user can resolve
+    /// the modal before the next file potentially queues another one.
+    pub(crate) fn drain_pending_open_queue(&mut self) {
+        if self.pending_table_picker.is_some() || !self.pending_date_pickers.is_empty() {
+            return;
+        }
+        if let Some(path) = self.pending_open_queue.pop_front() {
             self.load_file(path);
         }
     }
@@ -184,7 +230,10 @@ impl OctaApp {
         // Empty-file easter egg: short-circuit before format dispatch, since
         // most readers will surface a confusing "no schema found" error on a
         // 0-byte file.
-        if std::fs::metadata(&path).map(|m| m.len() == 0).unwrap_or(false) {
+        if std::fs::metadata(&path)
+            .map(|m| m.len() == 0)
+            .unwrap_or(false)
+        {
             self.open_empty_file_placeholder(path);
             return;
         }
@@ -367,14 +416,100 @@ impl OctaApp {
                     tab.json_value = serde_json::from_str(content).ok();
                 }
             }
-            tab.json_expand_depth = tab
+            tab.json_file_max_depth = tab
                 .json_value
                 .as_ref()
                 .map(octa::data::json_util::max_json_depth)
                 .unwrap_or(0);
+            tab.json_expand_depth = tab.json_file_max_depth;
             tab.json_expand_depth_str = tab.json_expand_depth.to_string();
 
             self.add_recent_file(&path.to_string_lossy());
+        }
+
+        // Promote string columns that are uniformly date-shaped. Runs on
+        // text-style formats; binary formats already carry typed dates from
+        // the reader and would only confuse users by being re-typed here.
+        self.run_date_inference_pass(self.active_tab);
+    }
+
+    /// Walk the freshly-loaded tab's columns and either (a) promote a
+    /// uniformly-formatted string column to typed `Date`/`DateTime`, or (b)
+    /// queue a modal date-ambiguity dialog when the values are consistent
+    /// with multiple layouts (US vs European).
+    fn run_date_inference_pass(&mut self, tab_idx: usize) {
+        if tab_idx >= self.tabs.len() {
+            return;
+        }
+        let format_name = self.tabs[tab_idx].table.format_name.clone();
+        if !date_inference_runs_on(format_name.as_deref()) {
+            return;
+        }
+
+        use octa::data::date_infer;
+        let col_count = self.tabs[tab_idx].table.col_count();
+        for col_idx in 0..col_count {
+            let table = &self.tabs[tab_idx].table;
+            if !date_infer::column_is_candidate(table, col_idx) {
+                continue;
+            }
+            let collected = date_infer::collect_column_strings(table, col_idx);
+            if collected.is_empty() {
+                continue;
+            }
+            match date_infer::infer_column(&collected) {
+                date_infer::InferOutcome::Skip => {}
+                date_infer::InferOutcome::PromotedDate(layout) => {
+                    date_infer::apply_date(&mut self.tabs[tab_idx].table, col_idx, layout);
+                    self.tabs[tab_idx].filter_dirty = true;
+                    self.tabs[tab_idx].table_state.invalidate_row_heights();
+                }
+                date_infer::InferOutcome::PromotedDateTime(layout) => {
+                    date_infer::apply_datetime(&mut self.tabs[tab_idx].table, col_idx, layout);
+                    self.tabs[tab_idx].filter_dirty = true;
+                    self.tabs[tab_idx].table_state.invalidate_row_heights();
+                }
+                date_infer::InferOutcome::AmbiguousDate {
+                    candidates,
+                    samples,
+                } => {
+                    let col_name = self.tabs[tab_idx]
+                        .table
+                        .columns
+                        .get(col_idx)
+                        .map(|c| c.name.clone())
+                        .unwrap_or_default();
+                    self.pending_date_pickers
+                        .push_back(super::state::DateAmbiguity {
+                            tab_idx,
+                            col_idx,
+                            col_name,
+                            samples,
+                            date_candidates: candidates,
+                            datetime_candidates: Vec::new(),
+                        });
+                }
+                date_infer::InferOutcome::AmbiguousDateTime {
+                    candidates,
+                    samples,
+                } => {
+                    let col_name = self.tabs[tab_idx]
+                        .table
+                        .columns
+                        .get(col_idx)
+                        .map(|c| c.name.clone())
+                        .unwrap_or_default();
+                    self.pending_date_pickers
+                        .push_back(super::state::DateAmbiguity {
+                            tab_idx,
+                            col_idx,
+                            col_name,
+                            samples,
+                            date_candidates: Vec::new(),
+                            datetime_candidates: candidates,
+                        });
+                }
+            }
         }
     }
 

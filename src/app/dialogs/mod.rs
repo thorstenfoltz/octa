@@ -9,6 +9,7 @@ use super::state::OctaApp;
 pub(crate) mod about;
 pub(crate) mod add_column;
 pub(crate) mod column_inspector;
+pub(crate) mod date_ambiguity;
 pub(crate) mod delete_columns;
 pub(crate) mod documentation;
 pub(crate) mod reload_confirm;
@@ -28,6 +29,7 @@ impl OctaApp {
         unsaved_changes::render_close_confirm_dialog(self, ctx);
         unsaved_changes::render_open_confirm_dialog(self, ctx);
         table_picker::render_table_picker(self, ctx);
+        date_ambiguity::render_date_ambiguity_dialog(self, ctx);
         settings::render_settings_dialog(self, ctx);
         documentation::render_documentation_dialog(self, ctx);
         reload_confirm::render_unalign_confirm_dialog(self, ctx);

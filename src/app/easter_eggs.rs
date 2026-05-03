@@ -77,13 +77,9 @@ impl OctaApp {
             }
         });
         if matched {
-            self.confetti_until = Some(
-                Instant::now() + Duration::from_millis((CONFETTI_DURATION_S * 1000.0) as u64),
-            );
-            self.status_message = Some((
-                "\u{1f389} ↑↑↓↓←→←→BA".to_string(),
-                Instant::now(),
-            ));
+            self.confetti_until =
+                Some(Instant::now() + Duration::from_millis((CONFETTI_DURATION_S * 1000.0) as u64));
+            self.status_message = Some(("\u{1f389} Konami!".to_string(), Instant::now()));
         }
     }
 
@@ -98,7 +94,9 @@ impl OctaApp {
         }
         ctx.request_repaint();
         let elapsed = CONFETTI_DURATION_S
-            - until.saturating_duration_since(Instant::now()).as_secs_f32();
+            - until
+                .saturating_duration_since(Instant::now())
+                .as_secs_f32();
         let area = egui::Area::new(egui::Id::new("octa_confetti"))
             .order(egui::Order::Foreground)
             .fixed_pos(egui::pos2(0.0, 0.0))
@@ -107,6 +105,7 @@ impl OctaApp {
             let screen = ctx.screen_rect();
             let painter = ui.painter();
             paint_confetti(painter, screen, elapsed);
+            paint_konami_banner(painter, screen, elapsed);
         });
     }
 
@@ -174,17 +173,10 @@ fn paint_confetti(painter: &egui::Painter, screen: egui::Rect, t: f32) {
             continue;
         }
         let color = palette[i % palette.len()];
-        let faded = Color32::from_rgba_unmultiplied(
-            color.r(),
-            color.g(),
-            color.b(),
-            (255.0 * fade) as u8,
-        );
+        let faded =
+            Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), (255.0 * fade) as u8);
         let size = 4.0 + ((seed >> 24) & 7) as f32;
-        let rect = egui::Rect::from_center_size(
-            egui::pos2(x, y),
-            egui::vec2(size, size * 0.6),
-        );
+        let rect = egui::Rect::from_center_size(egui::pos2(x, y), egui::vec2(size, size * 0.6));
         painter.rect_filled(rect, egui::CornerRadius::same(1), faded);
         painter.rect_stroke(
             rect,
@@ -193,6 +185,127 @@ fn paint_confetti(painter: &egui::Painter, screen: egui::Rect, t: f32) {
             egui::StrokeKind::Outside,
         );
     }
+}
+
+/// Direction for [`paint_arrow`]. Up = points toward the top of the screen.
+#[derive(Clone, Copy)]
+enum ArrowDir {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+/// Paint a small filled triangular arrow centered on `center`, pointing in
+/// `dir`, with `size` controlling both width and height (≈ size × size).
+fn paint_arrow(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    dir: ArrowDir,
+    size: f32,
+    color: Color32,
+) {
+    let h = size * 0.5;
+    let pts = match dir {
+        ArrowDir::Up => vec![
+            egui::pos2(center.x, center.y - h),
+            egui::pos2(center.x - h, center.y + h),
+            egui::pos2(center.x + h, center.y + h),
+        ],
+        ArrowDir::Down => vec![
+            egui::pos2(center.x, center.y + h),
+            egui::pos2(center.x - h, center.y - h),
+            egui::pos2(center.x + h, center.y - h),
+        ],
+        ArrowDir::Left => vec![
+            egui::pos2(center.x - h, center.y),
+            egui::pos2(center.x + h, center.y - h),
+            egui::pos2(center.x + h, center.y + h),
+        ],
+        ArrowDir::Right => vec![
+            egui::pos2(center.x + h, center.y),
+            egui::pos2(center.x - h, center.y - h),
+            egui::pos2(center.x - h, center.y + h),
+        ],
+    };
+    painter.add(egui::Shape::convex_polygon(
+        pts,
+        color,
+        Stroke::new(1.0, color),
+    ));
+}
+
+/// Paint the "↑↑↓↓←→←→BA" banner inside the same overlay area as the confetti.
+/// Uses vector triangles for the arrows so the glyphs always render, regardless
+/// of the active font's coverage.
+fn paint_konami_banner(painter: &egui::Painter, screen: egui::Rect, t: f32) {
+    let life = CONFETTI_DURATION_S;
+    let fade = ((life - t) / life).clamp(0.0, 1.0);
+    let alpha = (255.0 * fade) as u8;
+    let arrow_color = Color32::from_rgba_unmultiplied(255, 255, 255, alpha);
+    let label_color = Color32::from_rgba_unmultiplied(255, 220, 120, alpha);
+    let bg = Color32::from_rgba_unmultiplied(20, 20, 28, (alpha as f32 * 0.8) as u8);
+    let border = Color32::from_rgba_unmultiplied(255, 220, 120, (alpha as f32 * 0.9) as u8);
+
+    let arrow_size = 18.0;
+    let gap = 6.0;
+    let label_w = 56.0;
+    let total_w = label_w + gap + 8.0 * (arrow_size + gap) + label_w;
+    let banner_h = arrow_size + 24.0;
+    let center_x = screen.center().x;
+    let top_y = screen.top() + 32.0;
+    let rect = egui::Rect::from_center_size(
+        egui::pos2(center_x, top_y + banner_h * 0.5),
+        egui::vec2(total_w + 24.0, banner_h),
+    );
+    painter.rect_filled(rect, egui::CornerRadius::same(6), bg);
+    painter.rect_stroke(
+        rect,
+        egui::CornerRadius::same(6),
+        Stroke::new(1.0, border),
+        egui::StrokeKind::Outside,
+    );
+
+    let label_font = egui::FontId::proportional(16.0);
+    let mut x = rect.left() + 12.0;
+    let cy = rect.center().y;
+
+    painter.text(
+        egui::pos2(x, cy),
+        egui::Align2::LEFT_CENTER,
+        "KONAMI!",
+        label_font.clone(),
+        label_color,
+    );
+    x += label_w + gap;
+
+    let dirs = [
+        ArrowDir::Up,
+        ArrowDir::Up,
+        ArrowDir::Down,
+        ArrowDir::Down,
+        ArrowDir::Left,
+        ArrowDir::Right,
+        ArrowDir::Left,
+        ArrowDir::Right,
+    ];
+    for d in dirs {
+        paint_arrow(
+            painter,
+            egui::pos2(x + arrow_size * 0.5, cy),
+            d,
+            arrow_size,
+            arrow_color,
+        );
+        x += arrow_size + gap;
+    }
+    painter.text(
+        egui::pos2(x + 4.0, cy),
+        egui::Align2::LEFT_CENTER,
+        "B A",
+        label_font,
+        label_color,
+    );
 }
 
 /// ASCII art shown on the central panel when an empty file is opened.

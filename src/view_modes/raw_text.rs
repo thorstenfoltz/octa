@@ -1,4 +1,4 @@
-use crate::app::state::TabState;
+use crate::app::state::{RawCsvEscape, RawCsvQuote, TabState};
 use crate::ui;
 
 use eframe::egui;
@@ -66,7 +66,12 @@ pub fn render_raw_view(
                 {
                     if tab.raw_view_formatted {
                         let delim = tab.csv_delimiter as char;
-                        *content = format_delimited_text(content, delim);
+                        *content = format_delimited_text(
+                            content,
+                            delim,
+                            tab.raw_csv_quote,
+                            tab.raw_csv_escape,
+                        );
                         tab.raw_content_modified = true;
                     } else if warn_unalign && tab.raw_content_modified {
                         // Reloading would discard in-buffer edits — bounce the
@@ -108,6 +113,66 @@ pub fn render_raw_view(
                                 }
                             }
                         });
+                }
+
+                ui.add_space(12.0);
+                ui.label("Quotes:");
+                let quote_label = match tab.raw_csv_quote {
+                    RawCsvQuote::Double => "Double (\")",
+                    RawCsvQuote::Single => "Single (')",
+                    RawCsvQuote::Both => "Either",
+                    RawCsvQuote::None => "None",
+                };
+                let prev_quote = tab.raw_csv_quote;
+                egui::ComboBox::from_id_salt("csv_quote_combo")
+                    .selected_text(quote_label)
+                    .show_ui(ui, |ui| {
+                        for (variant, label) in [
+                            (RawCsvQuote::Double, "Double (\")"),
+                            (RawCsvQuote::Single, "Single (')"),
+                            (RawCsvQuote::Both, "Either"),
+                            (RawCsvQuote::None, "None"),
+                        ] {
+                            ui.selectable_value(&mut tab.raw_csv_quote, variant, label);
+                        }
+                    });
+
+                ui.label("Escape:");
+                let esc_label = match tab.raw_csv_escape {
+                    RawCsvEscape::Doubled => "Doubled (\"\")",
+                    RawCsvEscape::Backslash => "Backslash (\\\")",
+                    RawCsvEscape::None => "None",
+                };
+                let prev_escape = tab.raw_csv_escape;
+                egui::ComboBox::from_id_salt("csv_escape_combo")
+                    .selected_text(esc_label)
+                    .show_ui(ui, |ui| {
+                        for (variant, label) in [
+                            (RawCsvEscape::Doubled, "Doubled (\"\")"),
+                            (RawCsvEscape::Backslash, "Backslash (\\\")"),
+                            (RawCsvEscape::None, "None"),
+                        ] {
+                            ui.selectable_value(&mut tab.raw_csv_escape, variant, label);
+                        }
+                    });
+
+                // Re-format the buffer if either combo changed and alignment
+                // is currently on, so the user sees the effect immediately.
+                let mode_changed =
+                    prev_quote != tab.raw_csv_quote || prev_escape != tab.raw_csv_escape;
+                if mode_changed && tab.raw_view_formatted {
+                    if let Some(ref path) = tab.table.source_path {
+                        if let Ok(original) = std::fs::read_to_string(path) {
+                            let delim = tab.csv_delimiter as char;
+                            *content = format_delimited_text(
+                                &original,
+                                delim,
+                                tab.raw_csv_quote,
+                                tab.raw_csv_escape,
+                            );
+                            tab.raw_content_modified = true;
+                        }
+                    }
                 }
             });
             ui.add_space(2.0);
@@ -294,31 +359,40 @@ pub fn render_raw_view(
     action
 }
 
-/// Align columns in delimited text for display.
-fn format_delimited_text(content: &str, delimiter: char) -> String {
-    let lines: Vec<Vec<&str>> = content
+/// Align columns in delimited text for display. The tokenizer respects the
+/// configured quoting and escape conventions so a delimiter inside `"a,b"`
+/// stays inside that single field.
+pub(crate) fn format_delimited_text(
+    content: &str,
+    delimiter: char,
+    quote: RawCsvQuote,
+    escape: RawCsvEscape,
+) -> String {
+    let parsed: Vec<Vec<String>> = content
         .lines()
-        .map(|line| line.split(delimiter).collect())
+        .map(|line| split_delimited_line(line, delimiter, quote, escape))
         .collect();
-    if lines.is_empty() {
+    if parsed.is_empty() {
         return content.to_string();
     }
-    let max_cols = lines.iter().map(|l| l.len()).max().unwrap_or(0);
+    let max_cols = parsed.iter().map(|l| l.len()).max().unwrap_or(0);
     let mut widths = vec![0usize; max_cols];
-    for line in &lines {
+    for line in &parsed {
         for (i, cell) in line.iter().enumerate() {
-            widths[i] = widths[i].max(cell.trim().len());
+            widths[i] = widths[i].max(cell.trim().chars().count());
         }
     }
-    lines
+    parsed
         .iter()
         .map(|line| {
             line.iter()
                 .enumerate()
                 .map(|(i, cell)| {
                     let trimmed = cell.trim();
+                    let glyph_count = trimmed.chars().count();
                     if i < line.len() - 1 {
-                        format!("{:<width$}", trimmed, width = widths[i])
+                        let pad = widths[i].saturating_sub(glyph_count);
+                        format!("{}{}", trimmed, " ".repeat(pad))
                     } else {
                         trimmed.to_string()
                     }
@@ -328,4 +402,153 @@ fn format_delimited_text(content: &str, delimiter: char) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Split a single line into fields, respecting `quote` and `escape`. The
+/// outer quotes are stripped from quoted fields; embedded escape sequences
+/// (`""` or `\"`) are decoded so the displayed cell is the logical value, not
+/// its on-disk form.
+fn split_delimited_line(
+    line: &str,
+    delimiter: char,
+    quote: RawCsvQuote,
+    escape: RawCsvEscape,
+) -> Vec<String> {
+    let allowed_quotes: &[char] = match quote {
+        RawCsvQuote::Double => &['"'],
+        RawCsvQuote::Single => &['\''],
+        RawCsvQuote::Both => &['"', '\''],
+        RawCsvQuote::None => &[],
+    };
+
+    let mut fields = Vec::new();
+    let mut cur = String::new();
+    let mut chars = line.chars().peekable();
+    let mut in_quote: Option<char> = None;
+    let mut at_field_start = true;
+
+    while let Some(c) = chars.next() {
+        match in_quote {
+            None => {
+                if c == delimiter {
+                    fields.push(std::mem::take(&mut cur));
+                    at_field_start = true;
+                } else if at_field_start && cur.is_empty() && allowed_quotes.contains(&c) {
+                    in_quote = Some(c);
+                    at_field_start = false;
+                } else {
+                    cur.push(c);
+                    at_field_start = false;
+                }
+            }
+            Some(q) => match escape {
+                RawCsvEscape::Doubled => {
+                    if c == q {
+                        if chars.peek() == Some(&q) {
+                            chars.next();
+                            cur.push(q);
+                        } else {
+                            in_quote = None;
+                        }
+                    } else {
+                        cur.push(c);
+                    }
+                }
+                RawCsvEscape::Backslash => {
+                    if c == '\\' {
+                        if let Some(&next) = chars.peek() {
+                            chars.next();
+                            cur.push(next);
+                        }
+                    } else if c == q {
+                        in_quote = None;
+                    } else {
+                        cur.push(c);
+                    }
+                }
+                RawCsvEscape::None => {
+                    if c == q {
+                        in_quote = None;
+                    } else {
+                        cur.push(c);
+                    }
+                }
+            },
+        }
+    }
+    fields.push(cur);
+    fields
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_plain_csv() {
+        let r = split_delimited_line("a,b,c", ',', RawCsvQuote::Double, RawCsvEscape::Doubled);
+        assert_eq!(r, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn split_quoted_comma_inside() {
+        let r = split_delimited_line(
+            r#""Smith, A","note","x""#,
+            ',',
+            RawCsvQuote::Double,
+            RawCsvEscape::Doubled,
+        );
+        assert_eq!(r, vec!["Smith, A", "note", "x"]);
+    }
+
+    #[test]
+    fn split_doubled_quote_escape() {
+        // "a""b" -> a"b
+        let r = split_delimited_line(
+            r#""a""b","c""#,
+            ',',
+            RawCsvQuote::Double,
+            RawCsvEscape::Doubled,
+        );
+        assert_eq!(r, vec![r#"a"b"#, "c"]);
+    }
+
+    #[test]
+    fn split_backslash_escape() {
+        let r = split_delimited_line(
+            r#""a\"b","c""#,
+            ',',
+            RawCsvQuote::Double,
+            RawCsvEscape::Backslash,
+        );
+        assert_eq!(r, vec![r#"a"b"#, "c"]);
+    }
+
+    #[test]
+    fn split_single_quotes() {
+        let r = split_delimited_line(
+            "'Smith, A',note",
+            ',',
+            RawCsvQuote::Single,
+            RawCsvEscape::None,
+        );
+        assert_eq!(r, vec!["Smith, A", "note"]);
+    }
+
+    #[test]
+    fn split_either_quote() {
+        let r = split_delimited_line(
+            r#""a, b",'c, d',e"#,
+            ',',
+            RawCsvQuote::Both,
+            RawCsvEscape::None,
+        );
+        assert_eq!(r, vec!["a, b", "c, d", "e"]);
+    }
+
+    #[test]
+    fn split_none_mode_treats_quotes_as_literal() {
+        let r = split_delimited_line(r#""a,b",c"#, ',', RawCsvQuote::None, RawCsvEscape::None);
+        assert_eq!(r, vec![r#""a"#, r#"b""#, "c"]);
+    }
 }

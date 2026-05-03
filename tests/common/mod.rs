@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use octa::data::{CellValue, ColumnInfo, DataTable};
 use octa::formats::FormatRegistry;
 use std::collections::HashMap;

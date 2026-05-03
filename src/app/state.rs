@@ -22,6 +22,49 @@ pub(crate) enum ColumnInspectorSort {
     Desc,
 }
 
+/// One pending date-format ambiguity dialog request: a column whose values
+/// are consistent with more than one date layout (e.g. DD/MM/YYYY and
+/// MM/DD/YYYY). The user picks one, or chooses to leave the column as
+/// strings.
+pub(crate) struct DateAmbiguity {
+    pub(crate) tab_idx: usize,
+    pub(crate) col_idx: usize,
+    pub(crate) col_name: String,
+    pub(crate) samples: Vec<String>,
+    pub(crate) date_candidates: Vec<octa::data::date_infer::DateLayout>,
+    pub(crate) datetime_candidates: Vec<octa::data::date_infer::DateTimeLayout>,
+}
+
+/// Quoting convention recognized by the raw CSV/TSV alignment view. Drives
+/// the inline tokenizer in `format_delimited_text` so a delimiter inside a
+/// quoted field doesn't split the cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum RawCsvQuote {
+    /// RFC 4180 default — fields may be wrapped in `"`.
+    #[default]
+    Double,
+    /// Fields may be wrapped in `'` (some dialects).
+    Single,
+    /// Either `"` or `'` opens a quoted span; whichever opens it must close it.
+    Both,
+    /// Quote characters carry no meaning — split purely on the delimiter.
+    None,
+}
+
+/// How an embedded quote inside a quoted field is escaped. Determines whether
+/// `""` collapses to `"`, whether `\"` collapses to `"`, or whether the first
+/// matching quote always closes the span.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum RawCsvEscape {
+    /// RFC 4180 default — `""` inside a `"..."` span is a literal quote.
+    #[default]
+    Doubled,
+    /// C-style `\"` (and `\\`) escape inside the quoted span.
+    Backslash,
+    /// No escapes — the first matching quote closes the span.
+    None,
+}
+
 #[derive(Clone)]
 pub(crate) enum UpdateState {
     /// No check in progress
@@ -65,6 +108,10 @@ pub(crate) struct TabState {
     pub(crate) pdf_page_texts: Vec<String>,
     pub(crate) raw_view_formatted: bool,
     pub(crate) csv_delimiter: u8,
+    /// Quote convention used by the raw CSV/TSV column-alignment view.
+    pub(crate) raw_csv_quote: RawCsvQuote,
+    /// Escape convention for quoted fields in the raw CSV/TSV view.
+    pub(crate) raw_csv_escape: RawCsvEscape,
     pub(crate) bg_row_buffer: Option<Arc<Mutex<Vec<Vec<data::CellValue>>>>>,
     pub(crate) bg_loading_done: Arc<std::sync::atomic::AtomicBool>,
     pub(crate) bg_can_load_more: bool,
@@ -77,6 +124,10 @@ pub(crate) struct TabState {
     pub(crate) json_value: Option<serde_json::Value>,
     pub(crate) json_expand_depth: usize,
     pub(crate) json_expand_depth_str: String,
+    /// Maximum nesting depth of `json_value`, computed once at load. Cached
+    /// here so the tree renderer doesn't walk the whole tree every frame just
+    /// to label the depth slider.
+    pub(crate) json_file_max_depth: usize,
     pub(crate) json_edit_path: Option<String>,
     pub(crate) json_edit_buffer: String,
     /// Width snapshot of the displayed JSON value when entering edit mode,
@@ -145,8 +196,9 @@ pub(crate) struct OctaApp {
     pub(crate) logo_texture: Option<egui::TextureHandle>,
     /// Logo texture for welcome screen (large, rendered from SVG at high resolution)
     pub(crate) welcome_logo_texture: Option<egui::TextureHandle>,
-    /// File path passed via command line (loaded on first frame)
-    pub(crate) initial_file: Option<std::path::PathBuf>,
+    /// File paths passed via command line (loaded on first frame). Each path
+    /// opens in its own tab; the first replaces the empty welcome tab.
+    pub(crate) initial_files: Vec<std::path::PathBuf>,
     /// Pending file to open after unsaved-changes dialog resolves
     pub(crate) pending_open_file: bool,
     /// Show unsaved-changes dialog before opening a new file
@@ -176,6 +228,15 @@ pub(crate) struct OctaApp {
     pub(crate) show_reload_confirm: bool,
     /// Pending modal table picker (DB sources containing multiple tables).
     pub(crate) pending_table_picker: Option<ui::table_picker::TablePickerState>,
+    /// Files queued for batch open (e.g. from a multi-select File→Open dialog
+    /// or multiple paths on the command line). Drained one per frame so that
+    /// any modal picker that surfaces during a load (e.g. multi-table DB)
+    /// pauses the queue naturally until the user resolves it.
+    pub(crate) pending_open_queue: std::collections::VecDeque<std::path::PathBuf>,
+    /// Queue of columns whose date inference was ambiguous (US vs European)
+    /// and need user confirmation. Each entry is shown as a modal one at a
+    /// time; the head of the queue is the active dialog.
+    pub(crate) pending_date_pickers: std::collections::VecDeque<DateAmbiguity>,
     /// Currently opened directory tree sidebar (`None` = sidebar hidden).
     pub(crate) directory_tree: Option<ui::directory_tree::DirectoryTreeState>,
     /// How many key presses of the Konami sequence have been matched so far.
