@@ -8,14 +8,17 @@ use super::state::OctaApp;
 
 impl eframe::App for OctaApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Load file from CLI on first frame.
-        if let Some(path) = self.initial_file.take() {
-            self.load_file(path);
+        // Load CLI-provided files on first frame. Multiple paths are queued so
+        // the standard drain logic creates one tab per file.
+        if !self.initial_files.is_empty() {
+            let files = std::mem::take(&mut self.initial_files);
+            self.enqueue_open_files(files);
         }
 
         self.handle_shortcuts(ctx);
         self.update_easter_egg_inputs(ctx);
         self.drain_background_rows(ctx);
+        self.drain_pending_open_queue();
 
         if self.tabs[self.active_tab].filter_dirty {
             self.recompute_filter();

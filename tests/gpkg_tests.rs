@@ -105,10 +105,7 @@ fn reads_features_table_keeps_geometry_as_binary() {
         .iter()
         .position(|c| c.name == "geom")
         .expect("geom column must exist");
-    assert!(matches!(
-        table.get(0, geom_col),
-        Some(CellValue::Binary(_))
-    ));
+    assert!(matches!(table.get(0, geom_col), Some(CellValue::Binary(_))));
 }
 
 #[test]

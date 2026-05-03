@@ -584,77 +584,70 @@ impl SettingsDialog {
                 .min_height(360.0),
         };
         let minimized = self.size == DialogSize::Minimized;
-        window
-            .show(ctx, |ui| {
-                // Custom title bar: logo + "Octa Settings" + three control
-                // buttons. Stays rendered when minimized so the user can
-                // restore from there.
-                egui::TopBottomPanel::top("settings_header")
-                    .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-                    .show_inside(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            if let Some(tex) = logo {
-                                let size = egui::vec2(28.0, 28.0);
-                                ui.add(egui::Image::new(tex).fit_to_exact_size(size));
-                                ui.add_space(8.0);
+        window.show(ctx, |ui| {
+            // Custom title bar: logo + "Octa Settings" + three control
+            // buttons. Stays rendered when minimized so the user can
+            // restore from there.
+            egui::TopBottomPanel::top("settings_header")
+                .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+                .show_inside(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if let Some(tex) = logo {
+                            let size = egui::vec2(28.0, 28.0);
+                            ui.add(egui::Image::new(tex).fit_to_exact_size(size));
+                            ui.add_space(8.0);
+                        }
+                        ui.label(egui::RichText::new("Octa Settings").strong().size(16.0));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if draw_window_controls(ui, &mut self.size) {
+                                self.open = false;
                             }
-                            ui.label(egui::RichText::new("Octa Settings").strong().size(16.0));
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if draw_window_controls(ui, &mut self.size) {
-                                        self.open = false;
-                                    }
-                                },
-                            );
                         });
                     });
+                });
 
-                if minimized {
-                    return;
-                }
+            if minimized {
+                return;
+            }
 
-                // Pin Apply/Cancel to the bottom so they're always reachable
-                // regardless of how much content the scroll area holds.
-                egui::TopBottomPanel::bottom("settings_buttons")
-                    .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-                    .show_inside(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            if ui.button("Apply").clicked() {
-                                if let Ok(n) = self.sql_row_limit_buf.trim().parse::<usize>() {
-                                    if n >= 1 {
-                                        self.draft.sql_default_row_limit = n;
-                                    }
+            // Pin Apply/Cancel to the bottom so they're always reachable
+            // regardless of how much content the scroll area holds.
+            egui::TopBottomPanel::bottom("settings_buttons")
+                .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
+                .show_inside(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("Apply").clicked() {
+                            if let Ok(n) = self.sql_row_limit_buf.trim().parse::<usize>() {
+                                if n >= 1 {
+                                    self.draft.sql_default_row_limit = n;
                                 }
-                                applied = Some(self.draft.clone());
-                                self.open = false;
                             }
-                            if ui.button("Cancel").clicked() {
-                                self.open = false;
+                            applied = Some(self.draft.clone());
+                            self.open = false;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.open = false;
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let label = egui::RichText::new("Reset to defaults")
+                                .color(ui.visuals().error_fg_color);
+                            if ui.button(label).clicked() {
+                                self.show_reset_confirm = true;
                             }
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    let label = egui::RichText::new("Reset to defaults")
-                                        .color(ui.visuals().error_fg_color);
-                                    if ui.button(label).clicked() {
-                                        self.show_reset_confirm = true;
-                                    }
-                                },
-                            );
                         });
                     });
+                });
 
-                egui::CentralPanel::default()
-                    .frame(egui::Frame::default())
-                    .show_inside(ui, |ui| {
-                        egui::ScrollArea::vertical()
-                            .auto_shrink([false; 2])
-                            .show(ui, |ui| {
-                                self.draw_sections(ui);
-                            });
-                    });
-            });
+            egui::CentralPanel::default()
+                .frame(egui::Frame::default())
+                .show_inside(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false; 2])
+                        .show(ui, |ui| {
+                            self.draw_sections(ui);
+                        });
+                });
+        });
 
         applied
     }
@@ -1252,10 +1245,7 @@ pub fn draw_window_controls(ui: &mut egui::Ui, size: &mut DialogSize) -> bool {
 
     // Close — bold lowercase `x`.
     if ui
-        .add(
-            egui::Button::new(egui::RichText::new("x").size(15.0).strong())
-                .min_size(btn_size),
-        )
+        .add(egui::Button::new(egui::RichText::new("x").size(15.0).strong()).min_size(btn_size))
         .on_hover_text("Close")
         .clicked()
     {
@@ -1272,7 +1262,11 @@ pub fn draw_window_controls(ui: &mut egui::Ui, size: &mut DialogSize) -> bool {
         .on_hover_text(if max_active { "Restore" } else { "Full size" })
         .clicked()
     {
-        *size = if max_active { DialogSize::Normal } else { DialogSize::Maximized };
+        *size = if max_active {
+            DialogSize::Normal
+        } else {
+            DialogSize::Maximized
+        };
     }
     // Minimize — plain ASCII underscore, lowered visually so it sits where
     // the Windows minimize bar sits (the underscore baseline draws low,
@@ -1287,7 +1281,11 @@ pub fn draw_window_controls(ui: &mut egui::Ui, size: &mut DialogSize) -> bool {
         .on_hover_text(if min_active { "Restore" } else { "Minimize" })
         .clicked()
     {
-        *size = if min_active { DialogSize::Normal } else { DialogSize::Minimized };
+        *size = if min_active {
+            DialogSize::Normal
+        } else {
+            DialogSize::Minimized
+        };
     }
     close
 }
@@ -1338,14 +1336,16 @@ mod tests {
         // struct-level `#[serde(default)]`. This is the upgrade-survivability
         // contract.
         let partial = "font_size = 10.0\n";
-        let settings: AppSettings =
-            toml::from_str(partial).expect("partial TOML must deserialize");
+        let settings: AppSettings = toml::from_str(partial).expect("partial TOML must deserialize");
         let defaults = AppSettings::default();
         assert_eq!(settings.font_size, 10.0);
         assert_eq!(settings.default_theme, defaults.default_theme);
         assert_eq!(settings.icon_variant, defaults.icon_variant);
         assert_eq!(settings.show_row_numbers, defaults.show_row_numbers);
-        assert_eq!(settings.sql_default_row_limit, defaults.sql_default_row_limit);
+        assert_eq!(
+            settings.sql_default_row_limit,
+            defaults.sql_default_row_limit
+        );
         assert_eq!(settings.start_maximized, defaults.start_maximized);
     }
 
@@ -1355,8 +1355,8 @@ mod tests {
         // release downgraded back to the current one) must not blow up the
         // whole config — just skip it.
         let with_unknown = "font_size = 11.0\nmysterious_future_field = \"hi\"\n";
-        let settings: AppSettings = toml::from_str(with_unknown)
-            .expect("unknown fields should be tolerated");
+        let settings: AppSettings =
+            toml::from_str(with_unknown).expect("unknown fields should be tolerated");
         assert_eq!(settings.font_size, 11.0);
     }
 

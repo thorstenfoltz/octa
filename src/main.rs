@@ -47,18 +47,30 @@ fn main() -> eframe::Result<()> {
         }
     }
 
-    let initial_file = std::env::args()
-        .nth(1)
-        .map(std::path::PathBuf::from)
-        .filter(|p| p.exists());
+    // Windows: clean up leftovers from any previous self-update. Once this new
+    // exe is running, the previous-version `.old.exe` is no longer locked, so
+    // it can be removed. Best-effort — the next update would surface a clear
+    // error if the file is still around.
+    #[cfg(target_os = "windows")]
+    if let Ok(current_exe) = std::env::current_exe() {
+        let _ = std::fs::remove_file(current_exe.with_extension("old.exe"));
+        let _ = std::fs::remove_file(current_exe.with_extension("update.exe"));
+    }
 
-    let title = match &initial_file {
-        Some(p) => format!(
+    let initial_files: Vec<std::path::PathBuf> = std::env::args()
+        .skip(1)
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.exists())
+        .collect();
+
+    let title = match initial_files.first() {
+        Some(p) if initial_files.len() == 1 => format!(
             "Octa - {}",
             p.file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default()
         ),
+        Some(_) => format!("Octa - {} files", initial_files.len()),
         None => "Octa".to_string(),
     };
 
@@ -95,7 +107,7 @@ fn main() -> eframe::Result<()> {
                 },
             );
             Ok(Box::new(OctaApp::new(
-                initial_file,
+                initial_files,
                 settings,
                 resolved_icon,
             )))

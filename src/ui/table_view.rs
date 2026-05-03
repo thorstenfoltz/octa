@@ -5,7 +5,9 @@ use egui::{Align2, Color32, CursorIcon, RichText, Sense, Ui, Vec2};
 use super::shortcuts::{ShortcutAction, Shortcuts};
 use super::status_bar::format_number;
 use super::theme::{ThemeColors, ThemeMode};
-use crate::data::{BinaryDisplayMode, CellValue, DataTable, MarkColor, MarkKey, is_numeric_data_type};
+use crate::data::{
+    BinaryDisplayMode, CellValue, DataTable, MarkColor, MarkKey, is_numeric_data_type,
+};
 
 /// State for the table view (selection, editing).
 #[derive(Default)]
@@ -172,6 +174,68 @@ fn ensure_row_y_offsets(
 
 const SORT_ARROW_SIZE: f32 = 14.0;
 const COL_INDEX_HEIGHT: f32 = 12.0; // space for the column index letter at top
+
+/// Cap on how many rows to sample when computing the best-fit column width on
+/// double-click. The cell renderer truncates beyond the visible area anyway,
+/// and walking 11 M rows for a single double-click would freeze the UI.
+const AUTOFIT_MAX_ROWS: usize = 5_000;
+
+/// Padding added to the longest measured cell or header text so the column
+/// doesn't end with the last glyph kissing the right border.
+const AUTOFIT_PADDING: f32 = 16.0;
+
+/// Compute the "best fit" width for a column by measuring header + content
+/// with the actual font, then padding. Sample is capped at [`AUTOFIT_MAX_ROWS`]
+/// rows from the filtered set.
+fn compute_optimal_col_width(
+    ui: &Ui,
+    table: &DataTable,
+    filtered_rows: &[usize],
+    col_idx: usize,
+    font_size: f32,
+    binary_display_mode: BinaryDisplayMode,
+) -> f32 {
+    let mono = egui::FontId::new(font_size, egui::FontFamily::Monospace);
+    let mut max_w: f32 = 0.0;
+
+    if let Some(col) = table.columns.get(col_idx) {
+        let header_w = ui.fonts(|f| {
+            f.layout_no_wrap(col.name.clone(), mono.clone(), egui::Color32::WHITE)
+                .size()
+                .x
+        });
+        // Header row also fits a sort-arrow icon and the column-index letter,
+        // so reserve some extra headroom.
+        max_w = max_w.max(header_w + SORT_ARROW_SIZE * 2.0 + 16.0);
+
+        let type_w = ui.fonts(|f| {
+            f.layout_no_wrap(col.data_type.clone(), mono.clone(), egui::Color32::WHITE)
+                .size()
+                .x
+        });
+        max_w = max_w.max(type_w + 16.0);
+    }
+
+    let sample_count = filtered_rows.len().min(AUTOFIT_MAX_ROWS);
+    for row_idx in &filtered_rows[..sample_count] {
+        if let Some(value) = table.get(*row_idx, col_idx) {
+            let text = value.display_with_binary_mode(binary_display_mode);
+            if text.is_empty() {
+                continue;
+            }
+            let w = ui.fonts(|f| {
+                f.layout_no_wrap(text, mono.clone(), egui::Color32::WHITE)
+                    .size()
+                    .x
+            });
+            if w > max_w {
+                max_w = w;
+            }
+        }
+    }
+
+    (max_w + AUTOFIT_PADDING).max(MIN_COL_WIDTH)
+}
 
 /// Convert a 0-based column index to an Excel-style letter label (A, B, ..., Z, AA, AB, ...).
 fn col_index_letter(idx: usize) -> String {
@@ -653,6 +717,8 @@ pub fn draw_table(
         panel_rect,
         &mut interaction,
         font_size,
+        filtered_rows,
+        binary_display_mode,
     );
 
     // Header bottom border
@@ -852,6 +918,8 @@ fn draw_header_direct(
     panel_rect: egui::Rect,
     interaction: &mut TableInteraction,
     font_size: f32,
+    filtered_rows: &[usize],
+    binary_display_mode: BinaryDisplayMode,
 ) {
     let rn_rect = egui::Rect::from_min_size(
         egui::pos2(left_x, top_y),
@@ -1282,10 +1350,13 @@ fn draw_header_direct(
             let resize_response = ui.interact(
                 resize_rect.intersect(panel_rect),
                 ui.id().with(("col_resize", col_idx)),
-                Sense::drag(),
+                Sense::click_and_drag(),
             );
 
-            if resize_response.hovered() || resize_response.dragged() {
+            if resize_response.hovered()
+                || resize_response.dragged()
+                || resize_response.is_pointer_button_down_on()
+            {
                 ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
             }
 
@@ -1304,6 +1375,23 @@ fn draw_header_direct(
 
             if resize_response.drag_stopped() {
                 state.resizing_col = None;
+                state.invalidate_row_heights();
+            }
+
+            // Double-click on the seam → fit-to-content (best fit) for the
+            // column to the LEFT of the seam.
+            if resize_response.double_clicked() {
+                let optimal = compute_optimal_col_width(
+                    ui,
+                    table,
+                    filtered_rows,
+                    col_idx,
+                    font_size,
+                    binary_display_mode,
+                );
+                if let Some(w) = state.col_widths.get_mut(col_idx) {
+                    *w = optimal;
+                }
                 state.invalidate_row_heights();
             }
         }
@@ -1522,13 +1610,14 @@ fn draw_data_row_direct(
                         .columns
                         .get(col_idx)
                         .is_some_and(|c| is_numeric_data_type(&c.data_type));
-                    let text_color = if is_any_selected {
+                    let text_color = if is_any_selected || mark_color.is_some() {
                         // Selection backgrounds in most themes are a translucent
                         // tint of the same hue family as `accent`, so a numeric
                         // cell painted with the accent color disappears the
-                        // moment it gets selected. Fall back to a high-contrast
-                        // text color for any selected cell regardless of value
-                        // type.
+                        // moment it gets selected. Mark backgrounds are saturated
+                        // tints that swallow accent-colored numeric text the
+                        // same way. Fall back to a high-contrast text color
+                        // whenever the cell has any colored background.
                         colors.text_primary
                     } else {
                         match value {

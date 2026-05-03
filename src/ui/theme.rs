@@ -609,11 +609,24 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> Color32 {
 pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font: FontSettings) {
     let mut colors = ThemeColors::for_mode(mode);
     if mode == ThemeMode::Rainbow {
-        // Cycle the accent hue once per second for the hidden easter-egg theme.
-        let phase = (ctx.input(|i| i.time) * 0.25).fract() as f32;
-        colors.accent = hsv_to_rgb(phase, 0.85, 0.95);
-        colors.accent_hover = hsv_to_rgb((phase + 0.15) % 1.0, 0.85, 1.0);
-        colors.text_header = hsv_to_rgb((phase + 0.5) % 1.0, 0.7, 1.0);
+        // Hidden easter-egg theme: cycle ten palette slots through HSV at
+        // staggered phase offsets so accents, text, borders, row stripes and
+        // selection all glide through the spectrum simultaneously. ~10s per
+        // full hue cycle — fast enough to read as motion, slow enough to not
+        // induce a headache. Background fills stay near-black (low saturation)
+        // so the table remains readable.
+        let t = ctx.input(|i| i.time) as f32 * 0.10;
+        let h = |off: f32| ((t + off).fract() + 1.0).fract();
+        colors.accent = hsv_to_rgb(h(0.00), 0.85, 0.95);
+        colors.accent_hover = hsv_to_rgb(h(0.05), 0.85, 1.00);
+        colors.text_header = hsv_to_rgb(h(0.50), 0.70, 1.00);
+        colors.text_primary = hsv_to_rgb(h(0.33), 0.30, 0.95);
+        colors.text_secondary = hsv_to_rgb(h(0.66), 0.30, 0.85);
+        colors.border = hsv_to_rgb(h(0.20), 0.55, 0.70);
+        colors.border_subtle = hsv_to_rgb(h(0.20), 0.30, 0.40);
+        colors.row_odd = hsv_to_rgb(h(0.40), 0.20, 0.18);
+        colors.bg_selected = hsv_to_rgb(h(0.10), 0.45, 0.35);
+        colors.warning = hsv_to_rgb(h(0.80), 0.85, 1.00);
         ctx.request_repaint();
     }
     let is_dark = mode.is_dark();
@@ -1043,11 +1056,7 @@ fn apply_gentleman_decoration(style: &mut Style, colors: &ThemeColors) {
 /// Called by the central panel before rendering content, so widgets sit on
 /// top. Themes without a decoration are a no-op — this is the *only* place
 /// background graphics live; it keeps the renderer thin and theme-aware.
-pub fn paint_background_decoration(
-    painter: &egui::Painter,
-    rect: egui::Rect,
-    mode: ThemeMode,
-) {
+pub fn paint_background_decoration(painter: &egui::Painter, rect: egui::Rect, mode: ThemeMode) {
     match mode {
         ThemeMode::Manga => paint_manga_background(painter, rect),
         ThemeMode::Nord => paint_nord_background(painter, rect),
@@ -1056,10 +1065,7 @@ pub fn paint_background_decoration(
         ThemeMode::Gentleman => paint_gentleman_background(painter, rect),
         ThemeMode::DeepSea => paint_deep_sea_background(painter, rect),
         ThemeMode::Frost => paint_frost_background(painter, rect),
-        ThemeMode::Light
-        | ThemeMode::Dark
-        | ThemeMode::HighContrast
-        | ThemeMode::Rainbow => {}
+        ThemeMode::Light | ThemeMode::Dark | ThemeMode::HighContrast | ThemeMode::Rainbow => {}
     }
 }
 
@@ -1113,9 +1119,18 @@ fn paint_nord_background(painter: &egui::Painter, rect: egui::Rect) {
     // Nord's polar inspiration without obscuring content. The bands fade in
     // and out via piecewise-linear alpha so the seam isn't a hard line.
     let bands = [
-        (0.18_f32, Color32::from_rgba_unmultiplied(0x88, 0xc0, 0xd0, 14)),
-        (0.55_f32, Color32::from_rgba_unmultiplied(0x8f, 0xbc, 0xbb, 12)),
-        (0.82_f32, Color32::from_rgba_unmultiplied(0x5e, 0x81, 0xac, 14)),
+        (
+            0.18_f32,
+            Color32::from_rgba_unmultiplied(0x88, 0xc0, 0xd0, 14),
+        ),
+        (
+            0.55_f32,
+            Color32::from_rgba_unmultiplied(0x8f, 0xbc, 0xbb, 12),
+        ),
+        (
+            0.82_f32,
+            Color32::from_rgba_unmultiplied(0x5e, 0x81, 0xac, 14),
+        ),
     ];
     let height = rect.height();
     let band_h = height * 0.22;
@@ -1312,9 +1327,18 @@ fn paint_deep_sea_background(painter: &egui::Painter, rect: egui::Rect) {
     // Slow caustic-style horizontal bands rising from the depths. Very faint
     // — readability of dark text on dark navy beats decoration.
     let bands = [
-        (0.20_f32, Color32::from_rgba_unmultiplied(0x5f, 0xb1, 0xd4, 12)),
-        (0.55_f32, Color32::from_rgba_unmultiplied(0x3a, 0x8f, 0xb7, 14)),
-        (0.85_f32, Color32::from_rgba_unmultiplied(0x21, 0x4a, 0x6a, 18)),
+        (
+            0.20_f32,
+            Color32::from_rgba_unmultiplied(0x5f, 0xb1, 0xd4, 12),
+        ),
+        (
+            0.55_f32,
+            Color32::from_rgba_unmultiplied(0x3a, 0x8f, 0xb7, 14),
+        ),
+        (
+            0.85_f32,
+            Color32::from_rgba_unmultiplied(0x21, 0x4a, 0x6a, 18),
+        ),
     ];
     let height = rect.height();
     let band_h = height * 0.25;

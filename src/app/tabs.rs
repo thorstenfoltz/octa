@@ -10,7 +10,7 @@ use octa::data::{self, DataTable, ViewMode};
 use octa::ui;
 use octa::ui::table_view::TableViewState;
 
-use super::state::{ColumnInspectorSort, OctaApp, TabState};
+use super::state::{ColumnInspectorSort, OctaApp, RawCsvEscape, RawCsvQuote, TabState};
 
 impl TabState {
     pub(crate) fn new(search_mode: data::SearchMode) -> Self {
@@ -31,6 +31,8 @@ impl TabState {
             pdf_page_texts: Vec::new(),
             raw_view_formatted: false,
             csv_delimiter: b',',
+            raw_csv_quote: RawCsvQuote::default(),
+            raw_csv_escape: RawCsvEscape::default(),
             bg_row_buffer: None,
             bg_loading_done: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             bg_can_load_more: false,
@@ -41,6 +43,7 @@ impl TabState {
             json_value: None,
             json_expand_depth: 1,
             json_expand_depth_str: "1".to_string(),
+            json_file_max_depth: 0,
             json_edit_path: None,
             json_edit_buffer: String::new(),
             json_edit_width: None,

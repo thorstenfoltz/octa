@@ -6,9 +6,38 @@ use eframe::egui;
 use egui::{Color32, RichText};
 use ui::theme::ThemeMode;
 
+/// Approximate height of one tree row at the default 13pt monospace font.
+/// Used as the constant row height for `ScrollArea::show_rows` virtualization.
+/// If the actual row layout exceeds this, egui clips per-row but the column
+/// scroll bar will be slightly off — close enough for the use case.
+const JSON_ROW_HEIGHT: f32 = 18.0;
+
+/// One renderable row in the flattened JSON tree.
+struct JsonRow<'a> {
+    path: String,
+    depth: usize,
+    key: Option<String>,
+    is_index: bool,
+    is_last: bool,
+    kind: JsonRowKind<'a>,
+}
+
+enum JsonRowKind<'a> {
+    /// Opening line of an object/array (with arrow).
+    Open {
+        is_object: bool,
+        count: usize,
+        is_expanded: bool,
+    },
+    /// Closing brace/bracket of an object/array.
+    Close { is_object: bool },
+    /// Leaf value (string/number/bool/null).
+    Leaf { value: &'a serde_json::Value },
+}
+
 /// Render the interactive JSON tree view (Firefox-style collapsible tree).
 pub fn render_json_tree_view(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMode) {
-    let Some(ref value) = tab.json_value else {
+    if tab.json_value.is_none() {
         ui.centered_and_justified(|ui| {
             ui.label(
                 RichText::new("JSON tree view is not available")
@@ -17,25 +46,26 @@ pub fn render_json_tree_view(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: 
             );
         });
         return;
-    };
+    }
 
     let colors = ui::theme::ThemeColors::for_mode(theme_mode);
-    let value = value.clone();
-    let file_max_depth = json_util::max_json_depth(&value);
+    let file_max_depth = tab.json_file_max_depth;
 
-    // Clamp expand_depth to this file's max
     if tab.json_expand_depth > file_max_depth {
         tab.json_expand_depth = file_max_depth;
         tab.json_expand_depth_str = tab.json_expand_depth.to_string();
     }
 
-    // --- Expand/Collapse toolbar ---
+    let mut apply_depth: Option<usize> = None;
+    let mut expand_all = false;
+    let mut collapse_all = false;
+
     ui.horizontal(|ui| {
         if ui.button("Expand All").clicked() {
-            tab.json_tree_expanded = json_util::collect_json_paths(&value, None);
+            expand_all = true;
         }
         if ui.button("Collapse All").clicked() {
-            tab.json_tree_expanded.clear();
+            collapse_all = true;
         }
         ui.separator();
         ui.label("Depth:");
@@ -50,26 +80,29 @@ pub fn render_json_tree_view(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: 
             }
         }
         if response.lost_focus() {
-            // On blur, clamp and re-sync the string
             tab.json_expand_depth = tab.json_expand_depth.min(file_max_depth);
             tab.json_expand_depth_str = tab.json_expand_depth.to_string();
         }
         ui.label(format!("/ {file_max_depth}"));
         let enter_pressed = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         if ui.button("Apply").clicked() || enter_pressed {
-            tab.json_tree_expanded =
-                json_util::collect_json_paths(&value, Some(tab.json_expand_depth));
+            apply_depth = Some(tab.json_expand_depth);
         }
     });
     ui.add_space(4.0);
 
-    let json_text = tab
-        .raw_content
-        .clone()
-        .unwrap_or_else(|| serde_json::to_string_pretty(&value).unwrap_or_default());
+    if expand_all {
+        if let Some(ref v) = tab.json_value {
+            tab.json_tree_expanded = json_util::collect_json_paths(v, None);
+        }
+    } else if collapse_all {
+        tab.json_tree_expanded.clear();
+    } else if let Some(d) = apply_depth {
+        if let Some(ref v) = tab.json_value {
+            tab.json_tree_expanded = json_util::collect_json_paths(v, Some(d));
+        }
+    }
 
-    // Background interact covering only the remaining area (below the toolbar).
-    // Placed BEFORE the scroll area so tree nodes drawn later take click priority.
     let remaining_rect = ui.available_rect_before_wrap();
     let bg_response = ui.interact(
         remaining_rect,
@@ -77,38 +110,146 @@ pub fn render_json_tree_view(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: 
         egui::Sense::click(),
     );
 
+    let value_ref = tab.json_value.as_ref().expect("checked above");
+    let mut rows: Vec<JsonRow<'_>> = Vec::new();
+    flatten(
+        value_ref,
+        "",
+        None,
+        false,
+        0,
+        true,
+        &tab.json_tree_expanded,
+        &mut rows,
+    );
+
+    let mut toggle_path: Option<String> = None;
+    let mut edit_request: Option<(String, String)> = None;
+    let mut edit_commit = false;
+    let mut edit_cancel = false;
+
     egui::ScrollArea::both()
         .auto_shrink([false, false])
-        .show(ui, |ui| {
+        .show_rows(ui, JSON_ROW_HEIGHT, rows.len(), |ui, range| {
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.add_space(16.0);
-                ui.vertical(|ui| {
-                    render_json_node(
-                        ui,
-                        &value,
-                        "",
-                        None,
-                        false,
-                        0,
-                        &colors,
-                        &mut tab.json_tree_expanded,
-                        true,
-                        &mut tab.json_edit_path,
-                        &mut tab.json_edit_buffer,
-                        &mut tab.json_edit_width,
-                    );
+            for i in range {
+                let row = &rows[i];
+                let comma = if row.is_last { "" } else { "," };
+                ui.horizontal(|ui| {
+                    ui.add_space(16.0 + row.depth as f32 * 20.0);
+                    match &row.kind {
+                        JsonRowKind::Open {
+                            is_object,
+                            count,
+                            is_expanded,
+                        } => {
+                            let arrow = if *is_expanded { "\u{25BC}" } else { "\u{25B6}" };
+                            if ui
+                                .add(
+                                    egui::Label::new(
+                                        RichText::new(arrow).font(mono()).color(colors.text_muted),
+                                    )
+                                    .selectable(false)
+                                    .sense(egui::Sense::click()),
+                                )
+                                .clicked()
+                            {
+                                toggle_path = Some(row.path.clone());
+                            }
+                            render_key(ui, row.key.as_deref(), row.is_index, &colors);
+                            if *is_expanded {
+                                let opener = if *is_object { "{" } else { "[" };
+                                ui.label(
+                                    RichText::new(opener)
+                                        .font(mono())
+                                        .color(colors.text_primary),
+                                );
+                            } else {
+                                let summary = if *is_object {
+                                    format!("{{...}} ({count} keys){comma}")
+                                } else {
+                                    format!("[...] ({count} items){comma}")
+                                };
+                                ui.label(
+                                    RichText::new(summary).font(mono()).color(colors.text_muted),
+                                );
+                            }
+                        }
+                        JsonRowKind::Close { is_object } => {
+                            let closer = if *is_object { "}" } else { "]" };
+                            ui.label(
+                                RichText::new(format!("{closer}{comma}"))
+                                    .font(mono())
+                                    .color(colors.text_primary),
+                            );
+                        }
+                        JsonRowKind::Leaf { value } => {
+                            ui.add_space(18.0);
+                            render_key(ui, row.key.as_deref(), row.is_index, &colors);
+                            let is_editing = tab.json_edit_path.as_deref() == Some(&row.path);
+                            if is_editing {
+                                if tab.json_edit_width.is_none() {
+                                    let display = leaf_display(value, comma);
+                                    let measured = ui.fonts(|f| {
+                                        f.layout_no_wrap(display, mono(), colors.text_primary)
+                                            .size()
+                                            .x
+                                    });
+                                    tab.json_edit_width = Some(measured.max(200.0) + 16.0);
+                                }
+                                let width = tab.json_edit_width.unwrap_or(200.0);
+                                let response = ui.add(
+                                    egui::TextEdit::singleline(&mut tab.json_edit_buffer)
+                                        .font(mono())
+                                        .desired_width(width)
+                                        .min_size(egui::vec2(width, 0.0)),
+                                );
+                                if !response.has_focus() && !response.gained_focus() {
+                                    response.request_focus();
+                                }
+                                ui.label(
+                                    RichText::new(comma).font(mono()).color(colors.text_muted),
+                                );
+                            } else {
+                                let display = leaf_display(value, comma);
+                                let color = json_value_color(value, &colors);
+                                let response = ui.add(
+                                    egui::Label::new(
+                                        RichText::new(display).font(mono()).color(color),
+                                    )
+                                    .selectable(true)
+                                    .sense(egui::Sense::click()),
+                                );
+                                if response.double_clicked() {
+                                    edit_request = Some((row.path.clone(), leaf_edit_text(value)));
+                                }
+                            }
+                        }
+                    }
                 });
-            });
+            }
         });
 
-    // Apply pending edit if confirmed
-    if let Some(ref edit_path) = tab.json_edit_path.clone() {
+    if tab.json_edit_path.is_some() {
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            tab.json_edit_path = None;
-            tab.json_edit_buffer.clear();
-            tab.json_edit_width = None;
+            edit_cancel = true;
         } else if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            edit_commit = true;
+        }
+    }
+
+    if let Some(p) = toggle_path {
+        if !tab.json_tree_expanded.remove(&p) {
+            tab.json_tree_expanded.insert(p);
+        }
+    }
+    if let Some((path, buf)) = edit_request {
+        tab.json_edit_path = Some(path);
+        tab.json_edit_buffer = buf;
+        tab.json_edit_width = None;
+    }
+    if edit_commit {
+        if let Some(ref edit_path) = tab.json_edit_path.clone() {
             let new_value = json_util::parse_json_edit(&tab.json_edit_buffer);
             if let Some(ref mut root) = tab.json_value {
                 if json_util::set_json_value_at_path(root, edit_path, new_value).is_ok() {
@@ -116,42 +257,84 @@ pub fn render_json_tree_view(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: 
                     tab.raw_content_modified = true;
                 }
             }
-            tab.json_edit_path = None;
-            tab.json_edit_buffer.clear();
-            tab.json_edit_width = None;
         }
+        tab.json_edit_path = None;
+        tab.json_edit_buffer.clear();
+        tab.json_edit_width = None;
+    } else if edit_cancel {
+        tab.json_edit_path = None;
+        tab.json_edit_buffer.clear();
+        tab.json_edit_width = None;
     }
 
-    // Right-click context menu on the background
     bg_response.context_menu(|ui| {
         if ui.button("Copy JSON").clicked() {
-            ui.ctx().copy_text(json_text.clone());
+            let s = tab
+                .raw_content
+                .clone()
+                .unwrap_or_else(|| match tab.json_value.as_ref() {
+                    Some(v) => serde_json::to_string_pretty(v).unwrap_or_default(),
+                    None => String::new(),
+                });
+            ui.ctx().copy_text(s);
             ui.close_menu();
         }
     });
 
-    // Ctrl+C / Ctrl+X: copy full JSON (only when not editing)
     if tab.json_edit_path.is_none()
         && ui.input(|i| {
             i.modifiers.command && (i.key_pressed(egui::Key::C) || i.key_pressed(egui::Key::X))
         })
     {
-        ui.ctx().copy_text(json_text);
+        let s = tab
+            .raw_content
+            .clone()
+            .unwrap_or_else(|| match tab.json_value.as_ref() {
+                Some(v) => serde_json::to_string_pretty(v).unwrap_or_default(),
+                None => String::new(),
+            });
+        ui.ctx().copy_text(s);
     }
 }
 
-/// Colors for different JSON value types.
-fn json_value_color(value: &serde_json::Value, colors: &ui::theme::ThemeColors) -> Color32 {
+fn mono() -> egui::FontId {
+    egui::FontId::new(13.0, egui::FontFamily::Monospace)
+}
+
+fn render_key(
+    ui: &mut egui::Ui,
+    key: Option<&str>,
+    is_index: bool,
+    colors: &ui::theme::ThemeColors,
+) {
+    if let Some(k) = key {
+        let label = if is_index {
+            format!("{k}:")
+        } else {
+            format!("\"{k}\":")
+        };
+        let key_color = if is_index {
+            colors.text_muted
+        } else {
+            colors.accent
+        };
+        ui.add(
+            egui::Label::new(RichText::new(label).font(mono()).color(key_color)).selectable(true),
+        );
+        ui.add_space(4.0);
+    }
+}
+
+fn leaf_display(value: &serde_json::Value, comma: &str) -> String {
     match value {
-        serde_json::Value::String(_) => Color32::from_rgb(10, 140, 70),
-        serde_json::Value::Number(_) => Color32::from_rgb(30, 100, 200),
-        serde_json::Value::Bool(_) => Color32::from_rgb(180, 80, 180),
-        serde_json::Value::Null => colors.text_muted,
-        _ => colors.text_primary,
+        serde_json::Value::String(s) => format!("\"{s}\"{comma}"),
+        serde_json::Value::Number(n) => format!("{n}{comma}"),
+        serde_json::Value::Bool(b) => format!("{b}{comma}"),
+        serde_json::Value::Null => format!("null{comma}"),
+        _ => String::new(),
     }
 }
 
-/// Extract the raw display text for a leaf value (without quotes for strings).
 fn leaf_edit_text(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::String(s) => s.clone(),
@@ -162,254 +345,126 @@ fn leaf_edit_text(value: &serde_json::Value) -> String {
     }
 }
 
-/// Render a single JSON node recursively.
+fn json_value_color(value: &serde_json::Value, colors: &ui::theme::ThemeColors) -> Color32 {
+    match value {
+        serde_json::Value::String(_) => Color32::from_rgb(10, 140, 70),
+        serde_json::Value::Number(_) => Color32::from_rgb(30, 100, 200),
+        serde_json::Value::Bool(_) => Color32::from_rgb(180, 80, 180),
+        serde_json::Value::Null => colors.text_muted,
+        _ => colors.text_primary,
+    }
+}
+
+/// DFS pre-order walk of the JSON value, emitting one [`JsonRow`] per visible
+/// line. Honors the `expanded` set — collapsed subtrees produce a single row
+/// summary and skip their descendants.
 #[allow(clippy::too_many_arguments)]
-fn render_json_node(
-    ui: &mut egui::Ui,
-    value: &serde_json::Value,
+fn flatten<'a>(
+    value: &'a serde_json::Value,
     path: &str,
     key: Option<&str>,
     is_index: bool,
     depth: usize,
-    colors: &ui::theme::ThemeColors,
-    expanded: &mut std::collections::HashSet<String>,
     is_last: bool,
-    edit_path: &mut Option<String>,
-    edit_buffer: &mut String,
-    edit_width: &mut Option<f32>,
+    expanded: &std::collections::HashSet<String>,
+    out: &mut Vec<JsonRow<'a>>,
 ) {
-    let indent = depth as f32 * 20.0;
-    let mono = egui::FontId::new(13.0, egui::FontFamily::Monospace);
-    let comma = if is_last { "" } else { "," };
-
-    // Render the key label: "key": for object keys, index: for array items
-    let show_key = |ui: &mut egui::Ui| {
-        if let Some(k) = key {
-            let label = if is_index {
-                format!("{k}:")
-            } else {
-                format!("\"{k}\":")
-            };
-            let key_color = if is_index {
-                colors.text_muted
-            } else {
-                colors.accent
-            };
-            ui.add(
-                egui::Label::new(RichText::new(label).font(mono.clone()).color(key_color))
-                    .selectable(true),
-            );
-            ui.add_space(4.0);
-        }
-    };
-
     match value {
         serde_json::Value::Object(map) => {
             let is_expanded = expanded.contains(path);
-            let count = map.len();
-
-            ui.horizontal(|ui| {
-                ui.add_space(indent);
-                let arrow = if is_expanded { "\u{25BC}" } else { "\u{25B6}" };
-                if ui
-                    .add(
-                        egui::Label::new(
-                            RichText::new(arrow)
-                                .font(mono.clone())
-                                .color(colors.text_muted),
-                        )
-                        .selectable(false)
-                        .sense(egui::Sense::click()),
-                    )
-                    .clicked()
-                {
-                    if is_expanded {
-                        expanded.remove(path);
-                    } else {
-                        expanded.insert(path.to_string());
-                    }
-                }
-                show_key(ui);
-                if is_expanded {
-                    ui.label(
-                        RichText::new("{")
-                            .font(mono.clone())
-                            .color(colors.text_primary),
-                    );
-                } else {
-                    ui.label(
-                        RichText::new(format!("{{...}} ({count} keys){comma}"))
-                            .font(mono.clone())
-                            .color(colors.text_muted),
-                    );
-                }
+            out.push(JsonRow {
+                path: path.to_string(),
+                depth,
+                key: key.map(str::to_string),
+                is_index,
+                is_last,
+                kind: JsonRowKind::Open {
+                    is_object: true,
+                    count: map.len(),
+                    is_expanded,
+                },
             });
-
             if is_expanded {
-                let entries: Vec<_> = map.iter().collect();
-                for (i, (k, v)) in entries.iter().enumerate() {
+                let n = map.len();
+                for (i, (k, v)) in map.iter().enumerate() {
                     let child_path = if path.is_empty() {
-                        k.to_string()
+                        k.clone()
                     } else {
                         format!("{path}.{k}")
                     };
-                    render_json_node(
-                        ui,
+                    flatten(
                         v,
                         &child_path,
                         Some(k),
                         false,
                         depth + 1,
-                        colors,
+                        i + 1 == n,
                         expanded,
-                        i == entries.len() - 1,
-                        edit_path,
-                        edit_buffer,
-                        edit_width,
+                        out,
                     );
                 }
-                ui.horizontal(|ui| {
-                    ui.add_space(indent);
-                    ui.label(
-                        RichText::new(format!("}}{comma}"))
-                            .font(mono.clone())
-                            .color(colors.text_primary),
-                    );
+                out.push(JsonRow {
+                    path: path.to_string(),
+                    depth,
+                    key: None,
+                    is_index: false,
+                    is_last,
+                    kind: JsonRowKind::Close { is_object: true },
                 });
             }
         }
         serde_json::Value::Array(arr) => {
             let is_expanded = expanded.contains(path);
-            let count = arr.len();
-
-            ui.horizontal(|ui| {
-                ui.add_space(indent);
-                let arrow = if is_expanded { "\u{25BC}" } else { "\u{25B6}" };
-                if ui
-                    .add(
-                        egui::Label::new(
-                            RichText::new(arrow)
-                                .font(mono.clone())
-                                .color(colors.text_muted),
-                        )
-                        .selectable(false)
-                        .sense(egui::Sense::click()),
-                    )
-                    .clicked()
-                {
-                    if is_expanded {
-                        expanded.remove(path);
-                    } else {
-                        expanded.insert(path.to_string());
-                    }
-                }
-                show_key(ui);
-                if is_expanded {
-                    ui.label(
-                        RichText::new("[")
-                            .font(mono.clone())
-                            .color(colors.text_primary),
-                    );
-                } else {
-                    ui.label(
-                        RichText::new(format!("[...] ({count} items){comma}"))
-                            .font(mono.clone())
-                            .color(colors.text_muted),
-                    );
-                }
+            out.push(JsonRow {
+                path: path.to_string(),
+                depth,
+                key: key.map(str::to_string),
+                is_index,
+                is_last,
+                kind: JsonRowKind::Open {
+                    is_object: false,
+                    count: arr.len(),
+                    is_expanded,
+                },
             });
-
             if is_expanded {
+                let n = arr.len();
                 for (i, v) in arr.iter().enumerate() {
                     let child_path = if path.is_empty() {
                         format!("[{i}]")
                     } else {
                         format!("{path}[{i}]")
                     };
-                    render_json_node(
-                        ui,
+                    let key_owned = i.to_string();
+                    flatten(
                         v,
                         &child_path,
-                        Some(&i.to_string()),
+                        Some(&key_owned),
                         true,
                         depth + 1,
-                        colors,
+                        i + 1 == n,
                         expanded,
-                        i == arr.len() - 1,
-                        edit_path,
-                        edit_buffer,
-                        edit_width,
+                        out,
                     );
                 }
-                ui.horizontal(|ui| {
-                    ui.add_space(indent);
-                    ui.label(
-                        RichText::new(format!("]{comma}"))
-                            .font(mono.clone())
-                            .color(colors.text_primary),
-                    );
+                out.push(JsonRow {
+                    path: path.to_string(),
+                    depth,
+                    key: None,
+                    is_index: false,
+                    is_last,
+                    kind: JsonRowKind::Close { is_object: false },
                 });
             }
         }
-        // Leaf values (string, number, bool, null)
         _ => {
-            let is_editing = edit_path.as_deref() == Some(path);
-            ui.horizontal(|ui| {
-                ui.add_space(indent);
-                ui.add_space(18.0); // Align with content after arrows
-                show_key(ui);
-                if is_editing {
-                    if edit_width.is_none() {
-                        let display = match value {
-                            serde_json::Value::String(s) => format!("\"{s}\"{comma}"),
-                            serde_json::Value::Number(n) => format!("{n}{comma}"),
-                            serde_json::Value::Bool(b) => format!("{b}{comma}"),
-                            serde_json::Value::Null => format!("null{comma}"),
-                            _ => unreachable!(),
-                        };
-                        let measured = ui.fonts(|f| {
-                            f.layout_no_wrap(display, mono.clone(), colors.text_primary)
-                                .size()
-                                .x
-                        });
-                        *edit_width = Some(measured.max(200.0) + 16.0);
-                    }
-                    let width = edit_width.unwrap_or(200.0);
-                    let response = ui.add(
-                        egui::TextEdit::singleline(edit_buffer)
-                            .font(mono.clone())
-                            .desired_width(width)
-                            .min_size(egui::vec2(width, 0.0)),
-                    );
-                    // Auto-focus on first frame
-                    if !response.has_focus() && !response.gained_focus() {
-                        response.request_focus();
-                    }
-                    ui.label(
-                        RichText::new(comma)
-                            .font(mono.clone())
-                            .color(colors.text_muted),
-                    );
-                } else {
-                    let display = match value {
-                        serde_json::Value::String(s) => format!("\"{s}\"{comma}"),
-                        serde_json::Value::Number(n) => format!("{n}{comma}"),
-                        serde_json::Value::Bool(b) => format!("{b}{comma}"),
-                        serde_json::Value::Null => format!("null{comma}"),
-                        _ => unreachable!(),
-                    };
-                    let color = json_value_color(value, colors);
-                    let response = ui.add(
-                        egui::Label::new(RichText::new(display).font(mono.clone()).color(color))
-                            .selectable(true)
-                            .sense(egui::Sense::click()),
-                    );
-                    if response.double_clicked() {
-                        *edit_path = Some(path.to_string());
-                        *edit_buffer = leaf_edit_text(value);
-                        *edit_width = None;
-                    }
-                }
+            out.push(JsonRow {
+                path: path.to_string(),
+                depth,
+                key: key.map(str::to_string),
+                is_index,
+                is_last,
+                kind: JsonRowKind::Leaf { value },
             });
         }
     }

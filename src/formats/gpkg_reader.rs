@@ -89,8 +89,7 @@ fn list_gpkg_data_tables(path: &Path) -> Result<Option<Vec<TableInfo>>> {
         .collect::<Result<_, _>>()?;
 
     let all = SqliteReader.list_tables(path)?.unwrap_or_default();
-    let by_name: HashMap<&str, &TableInfo> =
-        all.iter().map(|t| (t.name.as_str(), t)).collect();
+    let by_name: HashMap<&str, &TableInfo> = all.iter().map(|t| (t.name.as_str(), t)).collect();
     let filtered: Vec<TableInfo> = names
         .iter()
         .filter_map(|n| by_name.get(n.as_str()).map(|t| (*t).clone()))

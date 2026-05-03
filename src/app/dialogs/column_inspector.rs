@@ -109,8 +109,16 @@ fn stat_row_cells(s: &ColumnStat, display_pos: usize) -> [String; 7] {
         format!("{}", display_pos),
         s.name.clone(),
         s.data_type.clone(),
-        if numeric { format_num(s.numeric_min) } else { String::new() },
-        if numeric { format_num(s.numeric_max) } else { String::new() },
+        if numeric {
+            format_num(s.numeric_min)
+        } else {
+            String::new()
+        },
+        if numeric {
+            format_num(s.numeric_max)
+        } else {
+            String::new()
+        },
         yes_no(!s.has_null).to_string(),
         yes_no(s.all_unique).to_string(),
     ]
@@ -276,14 +284,11 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Column Inspector").strong().size(16.0));
-                    ui.with_layout(
-                        egui::Layout::right_to_left(egui::Align::Center),
-                        |ui| {
-                            if draw_window_controls(ui, &mut size) {
-                                close_requested = true;
-                            }
-                        },
-                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if draw_window_controls(ui, &mut size) {
+                            close_requested = true;
+                        }
+                    });
                 });
             });
 
@@ -381,15 +386,14 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
                                         if weak {
                                             text = text.color(visuals.weak_text_color());
                                         }
-                                        ui.add(
-                                            egui::Label::new(text)
-                                                .selectable(false)
-                                                .truncate(),
-                                        );
+                                        ui.add(egui::Label::new(text).selectable(false).truncate());
                                     });
                                     let (_rect, response) = resp;
                                     if response.clicked() {
-                                        clicked = Some((display_pos, response.ctx.input(|i| i.modifiers)));
+                                        clicked = Some((
+                                            display_pos,
+                                            response.ctx.input(|i| i.modifiers),
+                                        ));
                                     }
                                     if response.double_clicked() {
                                         // Double-click jumps to the column in
@@ -411,11 +415,13 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
                                             // row like a regular click first, so
                                             // the menu's actions target an
                                             // unambiguous row set.
-                                            clicked = Some((display_pos, egui::Modifiers::default()));
+                                            clicked =
+                                                Some((display_pos, egui::Modifiers::default()));
                                         }
                                         ui.menu_button("Copy column", |ui| {
                                             for (col_idx, header) in HEADERS.iter().enumerate() {
-                                                if ui.button(format!("Copy '{}'", header)).clicked() {
+                                                if ui.button(format!("Copy '{}'", header)).clicked()
+                                                {
                                                     context_action = Some(
                                                         ContextAction::CopyInspectorColumn(col_idx),
                                                     );
@@ -571,12 +577,7 @@ fn apply_select_in_table(tab: &mut super::super::state::TabState, cols: &[usize]
         .min()
         .unwrap_or(0);
     tab.table_state.selected_cell = Some((0, first));
-    let col_left: f32 = tab
-        .table_state
-        .col_widths
-        .iter()
-        .take(first)
-        .sum();
+    let col_left: f32 = tab.table_state.col_widths.iter().take(first).sum();
     tab.table_state.set_scroll_x(col_left);
     tab.table_state.set_scroll_y(0.0);
 }

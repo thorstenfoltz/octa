@@ -42,7 +42,7 @@ pub(crate) const COLUMN_TYPES: &[&str] = &[
 
 impl OctaApp {
     pub(crate) fn new(
-        initial_file: Option<std::path::PathBuf>,
+        initial_files: Vec<std::path::PathBuf>,
         settings: AppSettings,
         resolved_icon: IconVariant,
     ) -> Self {
@@ -66,7 +66,7 @@ impl OctaApp {
                 .map(|c| Arc::new(Mutex::new(c))),
             logo_texture: None,
             welcome_logo_texture: None,
-            initial_file,
+            initial_files,
             pending_open_file: false,
             show_open_confirm: false,
             show_about_dialog: false,
@@ -82,6 +82,8 @@ impl OctaApp {
             nav_focus_requested: false,
             show_reload_confirm: false,
             pending_table_picker: None,
+            pending_open_queue: std::collections::VecDeque::new(),
+            pending_date_pickers: std::collections::VecDeque::new(),
             directory_tree: None,
             konami_index: 0,
             confetti_until: None,
