@@ -69,6 +69,14 @@ impl DateLayout {
         }
     }
 
+    /// Whether this layout's source representation matches the canonical
+    /// ISO display format (`YYYY-MM-DD`). Used to decide whether a promotion
+    /// of a column under this layout is a visible format change worth
+    /// surfacing to the user.
+    pub fn is_canonical(self) -> bool {
+        matches!(self, Self::YmdDash)
+    }
+
     fn fmt_str(self) -> &'static str {
         match self {
             Self::YmdDash => "%Y-%m-%d",
@@ -123,6 +131,13 @@ impl DateTimeLayout {
             Self::DmySlashSpace => "DD/MM/YYYY HH:MM:SS (European)",
             Self::MdySlashSpace => "MM/DD/YYYY HH:MM:SS (US)",
         }
+    }
+
+    /// Whether this layout matches the canonical ISO display
+    /// (`YYYY-MM-DD HH:MM:SS`). The `T` separator counts as different
+    /// because the displayed cell uses a space.
+    pub fn is_canonical(self) -> bool {
+        matches!(self, Self::YmdDashSpace)
     }
 
     /// Try to parse the value under this layout, allowing `HH:MM`, `HH:MM:SS`,

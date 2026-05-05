@@ -8,6 +8,23 @@ use super::super::state::OctaApp;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
+const EMAIL: &str = "thorsten.foltz@live.com";
+
+/// Strip the `<email>` suffix Cargo embeds in `CARGO_PKG_AUTHORS` so the
+/// dialog shows just the name. The email is rendered separately as a
+/// `mailto:` link below.
+fn author_names(raw: &str) -> String {
+    raw.split(',')
+        .map(|entry| {
+            let trimmed = entry.trim();
+            match trimmed.find('<') {
+                Some(idx) => trimmed[..idx].trim().to_string(),
+                None => trimmed.to_string(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 /// Easter egg: clicking the "Octa" title eight times (one per tentacle)
 /// reveals a hidden line. Counter is kept in egui's transient memory store
@@ -42,7 +59,9 @@ pub(crate) fn render_about_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 ui.add_space(4.0);
                 ui.label(format!("Version {}", VERSION));
                 ui.add_space(8.0);
-                ui.label(format!("Author: {}", AUTHORS));
+                ui.label(format!("Author: {}", author_names(AUTHORS)));
+                ui.add_space(4.0);
+                ui.hyperlink_to(EMAIL, format!("mailto:{}", EMAIL));
                 ui.add_space(4.0);
                 if ui.hyperlink_to("GitHub Repository", REPOSITORY).clicked() {
                     // egui opens the link automatically

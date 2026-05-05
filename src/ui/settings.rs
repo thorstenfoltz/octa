@@ -226,10 +226,12 @@ impl IconVariant {
     /// Resolve a concrete variant: returns `self` for any concrete variant; for
     /// `Random`, picks one of [`Self::CONCRETE`] uniformly at random.
     pub fn resolve(self) -> IconVariant {
-        use rand::seq::SliceRandom;
+        // rand 0.9+ moved `choose` to the `IndexedRandom` trait and renamed
+        // the global RNG constructor from `thread_rng` to `rng`.
+        use rand::seq::IndexedRandom;
         if self == Self::Random {
             *Self::CONCRETE
-                .choose(&mut rand::thread_rng())
+                .choose(&mut rand::rng())
                 .unwrap_or(&Self::Rose)
         } else {
             self
@@ -336,6 +338,13 @@ pub struct AppSettings {
     /// off in the raw CSV/TSV view, which reloads the file and discards edits.
     #[serde(default = "default_true")]
     pub warn_raw_align_reload: bool,
+    /// Whether to show a one-shot banner when date inference promotes a string
+    /// column to typed `Date`/`DateTime` AND the canonical ISO display format
+    /// differs from the source format on disk (e.g. stored as `02.05.2026` but
+    /// displayed as `2026-05-02`). The banner explains the change and offers
+    /// a Dismiss button. Disable here to silence it globally.
+    #[serde(default = "default_true")]
+    pub warn_on_date_format_change: bool,
     /// User-customizable keyboard shortcut bindings.
     #[serde(default)]
     pub shortcuts: Shortcuts,
@@ -396,6 +405,7 @@ impl Default for AppSettings {
             sql_autocomplete: true,
             directory_tree_position: DirectoryTreePosition::default(),
             warn_raw_align_reload: true,
+            warn_on_date_format_change: true,
             shortcuts: Shortcuts::default(),
             window_size: WindowSize::default(),
             start_maximized: true,
@@ -970,6 +980,14 @@ impl SettingsDialog {
                              and discards in-buffer edits.",
                         );
                         ui.checkbox(&mut self.draft.warn_raw_align_reload, "");
+                        ui.end_row();
+
+                        ui.label("Warn on date format change:").on_hover_text(
+                            "Show a banner when date inference rewrites a column\n\
+                             into ISO display form (e.g. stored as 02.05.2026,\n\
+                             shown as 2026-05-02). Disable to silence the warning.",
+                        );
+                        ui.checkbox(&mut self.draft.warn_on_date_format_change, "");
                         ui.end_row();
 
                         ui.label("Notebook output:").on_hover_text(

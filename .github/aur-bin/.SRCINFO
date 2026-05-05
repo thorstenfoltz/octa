@@ -1,5 +1,5 @@
 pkgbase = octa-bin
-	pkgdesc = A modular multi-format data viewer and editor (pre-compiled)
+	pkgdesc = Multi-format data viewer/editor supporting parquet, csv, json, avro, xlsx and more (pre-compiled)
 	pkgver = X.X.X
 	pkgrel = 1
 	url = https://github.com/thorstenfoltz/octa

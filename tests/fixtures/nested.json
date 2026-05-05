@@ -1,0 +1,24 @@
+[
+  {
+    "user": {
+      "name": "Alice",
+      "addr": {
+        "city": "NY",
+        "zip": "10001",
+        "geo": { "lat": 40, "lon": -74 }
+      }
+    },
+    "tags": ["a", "b"]
+  },
+  {
+    "user": {
+      "name": "Bob",
+      "addr": {
+        "city": "LA",
+        "zip": "90001",
+        "geo": { "lat": 34, "lon": -118 }
+      }
+    },
+    "tags": ["c"]
+  }
+]

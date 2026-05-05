@@ -260,6 +260,12 @@ pub enum ShortcutAction {
     OpenDocumentation,
     /// Open the Column Inspector dialog for the active tab.
     OpenColumnInspector,
+    /// Cycle to the next available view mode for the active tab. The cycle
+    /// order matches the View menu (Table, Raw, Markdown, Notebook, PDF,
+    /// JSON Tree); modes that aren't applicable to the current file are
+    /// skipped. No-op when the focus is in a TextEdit so the keypress can
+    /// reach the editor.
+    CycleViewMode,
 }
 
 impl ShortcutAction {
@@ -306,6 +312,7 @@ impl ShortcutAction {
             Self::OpenSettings => "Open settings",
             Self::OpenDocumentation => "Open documentation",
             Self::OpenColumnInspector => "Open column inspector",
+            Self::CycleViewMode => "Cycle view mode",
         }
     }
 
@@ -354,6 +361,7 @@ impl ShortcutAction {
             Self::OpenSettings => KeyCombo::plain(Key::F3),
             Self::OpenDocumentation => KeyCombo::plain(Key::F1),
             Self::OpenColumnInspector => KeyCombo::ctrl(Key::I),
+            Self::CycleViewMode => KeyCombo::plain(Key::F4),
         }
     }
 }

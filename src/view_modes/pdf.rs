@@ -25,6 +25,19 @@ pub fn render_pdf_view(
         }
     }
 
+    // Re-derive the per-page text frames from the live table so user edits
+    // in the table view are reflected here. Page bitmaps are still the ones
+    // mupdf rendered at load (frozen until save). Cheap: a single grouped
+    // walk of the table rows.
+    let rebuilt = octa::formats::pdf_reader::page_texts_from_table(&tab.table);
+    if !rebuilt.is_empty() {
+        let mut padded = rebuilt;
+        while padded.len() < tab.pdf_textures.len() {
+            padded.push(String::new());
+        }
+        tab.pdf_page_texts = padded;
+    }
+
     if tab.pdf_textures.is_empty() {
         ui.centered_and_justified(|ui| {
             ui.label(

@@ -16,6 +16,22 @@ use super::state::{OctaApp, TabState};
 /// authoritative — re-typing their columns from string content would only
 /// confuse users. Inference runs on text-style formats whose readers leave
 /// non-ISO dates as plain strings.
+/// Capture the source-string content of every cell in `col_idx` (None for
+/// pre-existing nulls). Used right before date promotion so the warning
+/// banner's Dismiss button can revert the column back to its on-disk shape.
+fn snapshot_column_strings(table: &octa::data::DataTable, col_idx: usize) -> Vec<Option<String>> {
+    use octa::data::CellValue;
+    let mut out = Vec::with_capacity(table.row_count());
+    for row in 0..table.row_count() {
+        out.push(match table.get(row, col_idx) {
+            Some(CellValue::String(s)) => Some(s.clone()),
+            Some(CellValue::Null) | None => None,
+            Some(other) => Some(other.to_string()),
+        });
+    }
+    out
+}
+
 fn date_inference_runs_on(format_name: Option<&str>) -> bool {
     matches!(
         format_name,
@@ -374,7 +390,11 @@ impl OctaApp {
             } else {
                 tab.raw_content = None;
             }
+            tab.raw_content_original = tab.raw_content.clone();
             tab.raw_content_modified = false;
+            tab.raw_color_enabled = true;
+            tab.raw_file_size = Some(file_size);
+            tab.raw_perf_prompt_resolved = false;
 
             tab.pdf_page_images.clear();
             tab.pdf_textures.clear();
@@ -448,6 +468,7 @@ impl OctaApp {
 
         use octa::data::date_infer;
         let col_count = self.tabs[tab_idx].table.col_count();
+        let mut format_changes: Vec<super::state::DatePromotionInfo> = Vec::new();
         for col_idx in 0..col_count {
             let table = &self.tabs[tab_idx].table;
             if !date_infer::column_is_candidate(table, col_idx) {
@@ -460,14 +481,52 @@ impl OctaApp {
             match date_infer::infer_column(&collected) {
                 date_infer::InferOutcome::Skip => {}
                 date_infer::InferOutcome::PromotedDate(layout) => {
+                    let col_name = self.tabs[tab_idx]
+                        .table
+                        .columns
+                        .get(col_idx)
+                        .map(|c| c.name.clone())
+                        .unwrap_or_default();
+                    let snapshot = if layout.is_canonical() {
+                        Vec::new()
+                    } else {
+                        snapshot_column_strings(&self.tabs[tab_idx].table, col_idx)
+                    };
                     date_infer::apply_date(&mut self.tabs[tab_idx].table, col_idx, layout);
                     self.tabs[tab_idx].filter_dirty = true;
                     self.tabs[tab_idx].table_state.invalidate_row_heights();
+                    if !layout.is_canonical() {
+                        format_changes.push(super::state::DatePromotionInfo {
+                            col_idx,
+                            column_name: col_name,
+                            source_label: layout.label(),
+                            original_values: snapshot,
+                        });
+                    }
                 }
                 date_infer::InferOutcome::PromotedDateTime(layout) => {
+                    let col_name = self.tabs[tab_idx]
+                        .table
+                        .columns
+                        .get(col_idx)
+                        .map(|c| c.name.clone())
+                        .unwrap_or_default();
+                    let snapshot = if layout.is_canonical() {
+                        Vec::new()
+                    } else {
+                        snapshot_column_strings(&self.tabs[tab_idx].table, col_idx)
+                    };
                     date_infer::apply_datetime(&mut self.tabs[tab_idx].table, col_idx, layout);
                     self.tabs[tab_idx].filter_dirty = true;
                     self.tabs[tab_idx].table_state.invalidate_row_heights();
+                    if !layout.is_canonical() {
+                        format_changes.push(super::state::DatePromotionInfo {
+                            col_idx,
+                            column_name: col_name,
+                            source_label: layout.label(),
+                            original_values: snapshot,
+                        });
+                    }
                 }
                 date_infer::InferOutcome::AmbiguousDate {
                     candidates,
@@ -510,6 +569,13 @@ impl OctaApp {
                         });
                 }
             }
+        }
+
+        if !format_changes.is_empty() && self.settings.warn_on_date_format_change {
+            self.pending_date_warning = Some(super::state::DateWarning {
+                tab_idx,
+                entries: format_changes,
+            });
         }
     }
 

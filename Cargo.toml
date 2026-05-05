@@ -29,21 +29,19 @@ egui = { version = "0.31", features = ["serde"] }
 egui_extras = { version = "0.31", features = ["default"] }
 parquet = { version = "54", features = ["default"] }
 arrow = { version = "54", features = ["default"] }
-rfd = "0.15"
+rfd = "0.17"
 serde = { version = "1", features = ["derive"] }
-strum = { version = "0.26", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-pdf-extract = "0.7"
-printpdf = "0.7"
 chrono = "0.4"
 anyhow = "1"
 arboard = "3"
 csv = "1"
-calamine = "0.26"
-rust_xlsxwriter = "0.82"
-apache-avro = "0.17"
-quick-xml = "0.37"
-toml = "0.8"
+calamine = "0.34"
+rust_xlsxwriter = "0.94"
+apache-avro = "0.21"
+quick-xml = "0.39"
+toml = "1"
 serde_yaml = "0.9"
 mupdf = "0.6"
 resvg = "0.47"
@@ -56,14 +54,14 @@ regex = "1"
 regex-syntax = "0.8"
 orc-rust = { version = "0.8.0", default-features = false }
 arrow58 = { package = "arrow", version = "58", default-features = false, features = ["prettyprint"] }
-hdf5-reader = "0.2.0"
-rusqlite = { version = "0.32", features = ["bundled"] }
+hdf5-reader = "0.4"
+rusqlite = { version = "0.39", features = ["bundled"] }
 duckdb = { version = "1", features = ["bundled"] }
-rand = "0.8"
+rand = "0.10"
 sas7bdat = { version = "0.2", default-features = false, features = ["time"] }
 ambers = "0.4"
 arrow57 = { package = "arrow", version = "57", default-features = false }
-dta = "0.4"
+dta = "0.5"
 dbase = "0.7"
 rds2rust = "0.1.41"
 

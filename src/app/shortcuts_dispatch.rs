@@ -294,6 +294,15 @@ impl OctaApp {
                 let tab = &mut self.tabs[self.active_tab];
                 tab.show_column_inspector = true;
             }
+            if action_fired(SA::CycleViewMode) {
+                let tab = &mut self.tabs[self.active_tab];
+                let modes = tab.available_view_modes();
+                if modes.len() > 1 {
+                    let current_idx = modes.iter().position(|m| *m == tab.view_mode).unwrap_or(0);
+                    let next_idx = (current_idx + 1) % modes.len();
+                    tab.view_mode = modes[next_idx];
+                }
+            }
         }
 
         // --- Handle close request ---

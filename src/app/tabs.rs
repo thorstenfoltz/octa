@@ -26,6 +26,10 @@ impl TabState {
             view_mode: ViewMode::Table,
             raw_content: None,
             raw_content_modified: false,
+            raw_content_original: None,
+            raw_color_enabled: true,
+            raw_file_size: None,
+            raw_perf_prompt_resolved: false,
             pdf_page_images: Vec::new(),
             pdf_textures: Vec::new(),
             pdf_page_texts: Vec::new(),
@@ -72,6 +76,39 @@ impl TabState {
 
     pub(crate) fn is_modified(&self) -> bool {
         self.table.is_modified() || self.raw_content_modified
+    }
+
+    /// Ordered list of view modes that make sense for this tab — same order
+    /// as the View menu radio buttons. Used by the toolbar (gating which
+    /// options are clickable) and by the `CycleViewMode` shortcut handler
+    /// (advancing to the next available mode).
+    pub(crate) fn available_view_modes(&self) -> Vec<ViewMode> {
+        let mut modes = Vec::new();
+        let has_notebook = self.table.format_name.as_deref() == Some("Jupyter Notebook");
+        let has_markdown = self.table.format_name.as_deref() == Some("Markdown");
+        let has_pdf = !self.pdf_page_images.is_empty();
+        let has_json = self.json_value.is_some();
+        let has_raw = self.raw_content.is_some();
+
+        if !has_notebook {
+            modes.push(ViewMode::Table);
+        }
+        if has_raw {
+            modes.push(ViewMode::Raw);
+        }
+        if has_markdown {
+            modes.push(ViewMode::Markdown);
+        }
+        if has_notebook {
+            modes.push(ViewMode::Notebook);
+        }
+        if has_pdf {
+            modes.push(ViewMode::Pdf);
+        }
+        if has_json {
+            modes.push(ViewMode::JsonTree);
+        }
+        modes
     }
 
     pub(crate) fn title_display(&self) -> String {

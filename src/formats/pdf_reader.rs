@@ -67,13 +67,24 @@ impl FormatReader for PdfReader {
     }
 
     fn read_file(&self, path: &Path) -> Result<DataTable> {
-        let text = pdf_extract::extract_text(path)
-            .map_err(|e| anyhow::anyhow!("Failed to extract PDF text: {}", e))?;
-
-        // Split into lines and create a single-column table
-        let lines: Vec<&str> = text.lines().collect();
+        // Use mupdf (the same engine that renders the page bitmaps) so the
+        // table-view rows are aligned with the per-page text shown in the
+        // PDF view. `pdf_extract` was used historically but it has no page
+        // boundary information — every line ended up on a synthetic page 1.
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Invalid path encoding"))?;
+        let doc = mupdf::Document::open(path_str)
+            .map_err(|e| anyhow::anyhow!("Failed to open PDF: {}", e))?;
+        let page_count = doc
+            .page_count()
+            .map_err(|e| anyhow::anyhow!("Failed to get page count: {}", e))?;
 
         let columns = vec![
+            ColumnInfo {
+                name: "page".to_string(),
+                data_type: "Int64".to_string(),
+            },
             ColumnInfo {
                 name: "line".to_string(),
                 data_type: "Int64".to_string(),
@@ -84,16 +95,23 @@ impl FormatReader for PdfReader {
             },
         ];
 
-        let rows: Vec<Vec<CellValue>> = lines
-            .iter()
-            .enumerate()
-            .map(|(i, line)| {
-                vec![
+        let mut rows: Vec<Vec<CellValue>> = Vec::new();
+        for i in 0..page_count {
+            let page = doc
+                .load_page(i)
+                .map_err(|e| anyhow::anyhow!("Failed to load page {}: {}", i, e))?;
+            let page_text = page
+                .to_text_page(mupdf::TextPageFlags::empty())
+                .and_then(|tp| tp.to_text())
+                .unwrap_or_default();
+            for (line_idx, line) in page_text.lines().enumerate() {
+                rows.push(vec![
                     CellValue::Int((i + 1) as i64),
+                    CellValue::Int((line_idx + 1) as i64),
                     CellValue::String(line.to_string()),
-                ]
-            })
-            .collect();
+                ]);
+            }
+        }
 
         Ok(DataTable {
             columns,
@@ -111,50 +129,49 @@ impl FormatReader for PdfReader {
         })
     }
 
-    fn supports_write(&self) -> bool {
-        true
-    }
+    // PDF is read-only. Octa's previous writer round-tripped only the
+    // extracted text, which lost layout/typography/embedded objects from the
+    // source document. The trait default returns `false` for `supports_write`
+    // so the menu hides Save/Save As for PDF tabs.
+}
 
-    fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {
-        use printpdf::*;
-
-        let (doc, page1, layer1) = PdfDocument::new("Octa Export", Mm(210.0), Mm(297.0), "Layer 1");
-
-        let font = doc.add_builtin_font(BuiltinFont::Helvetica)?;
-
-        let mut current_page = page1;
-        let mut current_layer = layer1;
-        let mut y_pos: f32 = 280.0; // Start near top of A4 page
-        let line_height: f32 = 5.0;
-        let margin_bottom: f32 = 15.0;
-
-        // Determine the text column index (prefer column named "text", fallback to last)
-        let text_col = table
-            .columns
-            .iter()
-            .position(|c| c.name == "text")
-            .unwrap_or(table.col_count().saturating_sub(1));
-
-        for row_idx in 0..table.row_count() {
-            if y_pos < margin_bottom {
-                // New page
-                let (new_page, new_layer) = doc.add_page(Mm(210.0), Mm(297.0), "Layer 1");
-                current_page = new_page;
-                current_layer = new_layer;
-                y_pos = 280.0;
+/// Group the live table rows by `page` and join their `text` cells with
+/// newlines, returning one string per page (1-indexed). Used by the PDF
+/// view to keep the selectable text frame in sync with table edits without
+/// re-rendering the page bitmaps. Returns an empty Vec if the table doesn't
+/// have the expected columns.
+pub fn page_texts_from_table(table: &DataTable) -> Vec<String> {
+    let page_col = match table.columns.iter().position(|c| c.name == "page") {
+        Some(idx) => idx,
+        None => return Vec::new(),
+    };
+    let text_col = match table.columns.iter().position(|c| c.name == "text") {
+        Some(idx) => idx,
+        None => return Vec::new(),
+    };
+    let mut max_page = 0usize;
+    for row_idx in 0..table.row_count() {
+        if let Some(CellValue::Int(p)) = table.get(row_idx, page_col) {
+            if *p > 0 {
+                max_page = max_page.max(*p as usize);
             }
-
-            let text = table
-                .get(row_idx, text_col)
-                .map(|v| v.to_string())
-                .unwrap_or_default();
-
-            let layer = doc.get_page(current_page).get_layer(current_layer);
-            layer.use_text(&text, 10.0, Mm(15.0), Mm(y_pos), &font);
-            y_pos -= line_height;
         }
-
-        doc.save(&mut std::io::BufWriter::new(std::fs::File::create(path)?))?;
-        Ok(())
     }
+    let mut buckets: Vec<String> = vec![String::new(); max_page];
+    for row_idx in 0..table.row_count() {
+        if let Some(CellValue::Int(p)) = table.get(row_idx, page_col) {
+            if *p > 0 && (*p as usize) <= max_page {
+                let bucket = &mut buckets[(*p as usize) - 1];
+                if !bucket.is_empty() {
+                    bucket.push('\n');
+                }
+                let text = table
+                    .get(row_idx, text_col)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default();
+                bucket.push_str(&text);
+            }
+        }
+    }
+    buckets
 }
