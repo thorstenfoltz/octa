@@ -109,7 +109,14 @@ fn parse_xml_to_table(content: &str, path: &Path) -> Result<DataTable> {
             }
             Ok(Event::Text(e)) => {
                 if let Some(current) = stack.last_mut() {
-                    current.text.push_str(&e.unescape().unwrap_or_default());
+                    // quick-xml 0.39 split decoding from unescaping; do both
+                    // explicitly so `&amp;` etc. round-trip into the table as
+                    // their literal characters.
+                    let decoded = e.decode().unwrap_or_default();
+                    let text = quick_xml::escape::unescape(&decoded)
+                        .map(|c| c.into_owned())
+                        .unwrap_or_else(|_| decoded.into_owned());
+                    current.text.push_str(&text);
                 }
             }
             Ok(Event::End(_)) => {

@@ -1,6 +1,6 @@
 use octa::data::CellValue;
 use octa::formats::json_reader::*;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::path::PathBuf;
 
 fn test_path() -> PathBuf {
@@ -76,6 +76,79 @@ fn test_flatten_nested_object() {
     flatten_value("", &val, &mut out);
     assert!(out.iter().any(|(k, _)| k == "user.name"));
     assert!(out.iter().any(|(k, _)| k == "user.address.city"));
+}
+
+#[test]
+fn test_flatten_objects_at_arbitrary_depth() {
+    // Every leaf path must become its own column entry, regardless of how
+    // many object levels separate it from the root.
+    let val = json!({
+        "a": {"b": {"c": {"d": {"e": 1}}}},
+        "x": 2
+    });
+    let mut out = Vec::new();
+    flatten_value("", &val, &mut out);
+    let keys: Vec<&str> = out.iter().map(|(k, _)| k.as_str()).collect();
+    assert!(keys.contains(&"a.b.c.d.e"), "got keys: {:?}", keys);
+    assert!(keys.contains(&"x"), "got keys: {:?}", keys);
+}
+
+#[test]
+fn test_flatten_array_of_objects_at_depth() {
+    // An object nested inside an array, nested inside an object, must
+    // produce indexed leaf columns — not a single Nested cell.
+    let val = json!({"data": {"items": [{"x": {"y": 1}}, {"x": {"y": 2}}]}});
+    let mut out = Vec::new();
+    flatten_value("", &val, &mut out);
+    let keys: Vec<&str> = out.iter().map(|(k, _)| k.as_str()).collect();
+    assert!(keys.contains(&"data.items[0].x.y"), "got keys: {:?}", keys);
+    assert!(keys.contains(&"data.items[1].x.y"), "got keys: {:?}", keys);
+}
+
+#[test]
+fn test_flatten_array_of_primitives_stays_nested() {
+    // ["a", "b"] inside an object stays as a single column whose value is
+    // the JSON-encoded array — that's the rule the user picked.
+    let val = json!({"tags": ["a", "b"]});
+    let mut out = Vec::new();
+    flatten_value("", &val, &mut out);
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].0, "tags");
+    match &out[0].1 {
+        Value::Array(arr) => assert_eq!(arr.len(), 2),
+        other => panic!("expected Array, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_json_to_table_deep_nested_with_arrays() {
+    // Confirms the user-approved layout: nested objects flatten arbitrarily
+    // deep; arrays remain JSON-string cells.
+    let raw = std::fs::read_to_string("tests/fixtures/nested.json").unwrap();
+    let val: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let table = json_to_table(val, &test_path(), "JSON").unwrap();
+    assert_eq!(table.row_count(), 2);
+    let names: Vec<&str> = table.columns.iter().map(|c| c.name.as_str()).collect();
+    for expected in [
+        "user.name",
+        "user.addr.city",
+        "user.addr.zip",
+        "user.addr.geo.lat",
+        "user.addr.geo.lon",
+        "tags",
+    ] {
+        assert!(
+            names.contains(&expected),
+            "missing column {}, got {:?}",
+            expected,
+            names
+        );
+    }
+    let tags_idx = table.columns.iter().position(|c| c.name == "tags").unwrap();
+    match table.get(0, tags_idx) {
+        Some(CellValue::Nested(s)) => assert!(s.contains("\"a\"") && s.contains("\"b\"")),
+        other => panic!("expected Nested array for tags, got {:?}", other),
+    }
 }
 
 #[test]

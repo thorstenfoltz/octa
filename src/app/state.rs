@@ -22,6 +22,40 @@ pub(crate) enum ColumnInspectorSort {
     Desc,
 }
 
+/// One-shot per-file prompt shown after loading a CSV/TSV whose size is
+/// likely to make column coloring or column alignment laggy. The user can
+/// either keep the slow features on (we honor their choice and don't ask
+/// again for this tab) or disable them just for the current file. Choice is
+/// transient — never written back to `AppSettings`.
+pub(crate) struct RawPerfPrompt {
+    pub(crate) tab_idx: usize,
+    pub(crate) file_size: u64,
+    pub(crate) file_name: String,
+}
+
+/// One promoted column whose stored canonical ISO display differs from the
+/// detected source format. Collected during `run_date_inference_pass` and
+/// surfaced together as a single dismissible banner above the table.
+/// `original_values` carries the source strings for every row (None for
+/// pre-existing nulls) so dismissing the banner can revert the column back
+/// to its on-disk shape.
+#[derive(Debug, Clone)]
+pub(crate) struct DatePromotionInfo {
+    pub(crate) col_idx: usize,
+    pub(crate) column_name: String,
+    pub(crate) source_label: &'static str,
+    pub(crate) original_values: Vec<Option<String>>,
+}
+
+/// Aggregate set of date promotions to surface to the user as a single
+/// non-modal banner. `None` means no banner is currently pending. Cleared
+/// when the user clicks Dismiss or opens a new file.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DateWarning {
+    pub(crate) tab_idx: usize,
+    pub(crate) entries: Vec<DatePromotionInfo>,
+}
+
 /// One pending date-format ambiguity dialog request: a column whose values
 /// are consistent with more than one date layout (e.g. DD/MM/YYYY and
 /// MM/DD/YYYY). The user picks one, or chooses to leave the column as
@@ -103,6 +137,23 @@ pub(crate) struct TabState {
     pub(crate) view_mode: ViewMode,
     pub(crate) raw_content: Option<String>,
     pub(crate) raw_content_modified: bool,
+    /// Snapshot of the file content as it was on disk at load time. Used by
+    /// the raw CSV/TSV view to switch between aligned and un-aligned forms,
+    /// or to re-format under a different quote/escape mode, without going
+    /// back to disk. `None` for files that weren't loaded as raw text.
+    pub(crate) raw_content_original: Option<String>,
+    /// Per-tab gate for raw-view column coloring. Defaults to `true`; flipped
+    /// off by the slow-file prompt when the user enters the raw view of a
+    /// large CSV/TSV. Not persisted — only governs this tab.
+    pub(crate) raw_color_enabled: bool,
+    /// Source-file size in bytes captured at load time. Used by the
+    /// slow-file prompt that appears the first time the user enters raw view
+    /// for a CSV/TSV above the threshold. `None` for non-text formats.
+    pub(crate) raw_file_size: Option<u64>,
+    /// Whether the slow-file prompt has already been shown (and either
+    /// answered or dismissed) for this tab. Prevents re-prompting every time
+    /// the user toggles back into the raw view.
+    pub(crate) raw_perf_prompt_resolved: bool,
     pub(crate) pdf_page_images: Vec<egui::ColorImage>,
     pub(crate) pdf_textures: Vec<egui::TextureHandle>,
     pub(crate) pdf_page_texts: Vec<String>,
@@ -209,6 +260,9 @@ pub(crate) struct OctaApp {
     pub(crate) show_documentation_dialog: bool,
     /// Window-size mode for the Documentation dialog.
     pub(crate) documentation_size: DialogSize,
+    /// Index of the active documentation section (sidebar selection). Reset
+    /// to 0 each time the dialog opens.
+    pub(crate) docs_active_section: usize,
     /// Show the Update dialog
     pub(crate) show_update_dialog: bool,
     /// Confirm before reloading the raw CSV/TSV file when un-aligning columns.
@@ -237,6 +291,15 @@ pub(crate) struct OctaApp {
     /// and need user confirmation. Each entry is shown as a modal one at a
     /// time; the head of the queue is the active dialog.
     pub(crate) pending_date_pickers: std::collections::VecDeque<DateAmbiguity>,
+    /// One-shot prompt offered when a large CSV/TSV is opened: keep coloring
+    /// and alignment on (slow but full-featured) or disable them just for
+    /// this file. `None` while no prompt is pending. Resolved by the user via
+    /// `raw_perf_prompt::render_raw_perf_prompt_dialog`.
+    pub(crate) pending_raw_perf_prompt: Option<RawPerfPrompt>,
+    /// Pending date-format-change banner to render above the central panel.
+    /// Set by `run_date_inference_pass` whenever one or more columns are
+    /// promoted with a non-ISO source layout. `None` once dismissed.
+    pub(crate) pending_date_warning: Option<DateWarning>,
     /// Currently opened directory tree sidebar (`None` = sidebar hidden).
     pub(crate) directory_tree: Option<ui::directory_tree::DirectoryTreeState>,
     /// How many key presses of the Konami sequence have been matched so far.

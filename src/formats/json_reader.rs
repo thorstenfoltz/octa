@@ -78,11 +78,14 @@ pub fn json_to_table(value: Value, path: &Path, format_name: &str) -> Result<Dat
     let records = match value {
         Value::Array(arr) => arr,
         Value::Object(ref map) => {
-            // Try to find the first array field in the object
+            // Only treat a top-level array as "the records list" when it
+            // contains objects. An array of pure primitives (e.g. `tags`)
+            // should stay anchored under its key and be flattened as one
+            // column, not turned into rows of `"value"`.
             let mut found = None;
             for (_, v) in map {
                 if let Value::Array(arr) = v {
-                    if !arr.is_empty() {
+                    if !arr.is_empty() && arr.iter().any(|e| matches!(e, Value::Object(_))) {
                         found = Some(arr.clone());
                         break;
                     }
@@ -212,12 +215,21 @@ pub fn flatten_value(prefix: &str, value: &Value, out: &mut Vec<(String, Value)>
                 } else {
                     format!("{}.{}", prefix, key)
                 };
-                match val {
-                    Value::Object(_) => flatten_value(&full_key, val, out),
-                    _ => {
-                        out.push((full_key, val.clone()));
-                    }
-                }
+                flatten_value(&full_key, val, out);
+            }
+        }
+        Value::Array(arr) if array_has_complex_element(arr) => {
+            // An object inside the array means the user expects every leaf
+            // path inside that object to become its own column, indexed by
+            // position. Pure-primitive arrays fall through to the `_` arm and
+            // ride along as a single JSON-string cell.
+            for (i, item) in arr.iter().enumerate() {
+                let child_key = if prefix.is_empty() {
+                    format!("[{}]", i)
+                } else {
+                    format!("{}[{}]", prefix, i)
+                };
+                flatten_value(&child_key, item, out);
             }
         }
         _ => {
@@ -229,6 +241,14 @@ pub fn flatten_value(prefix: &str, value: &Value, out: &mut Vec<(String, Value)>
             out.push((key, value.clone()));
         }
     }
+}
+
+/// Whether an array contains at least one nested object or sub-array — the
+/// signal we use to decide a JSON array is structured data worth expanding
+/// into per-index columns rather than serialized into a single string.
+fn array_has_complex_element(arr: &[Value]) -> bool {
+    arr.iter()
+        .any(|v| matches!(v, Value::Object(_) | Value::Array(_)))
 }
 
 /// Convert a DataTable back to a JSON array of objects.

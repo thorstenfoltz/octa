@@ -37,7 +37,7 @@ impl FormatReader for Hdf5Reader {
     }
 }
 
-fn read_first_dataset(path: &Path, datasets: &[hdf5_reader::Dataset<'_>]) -> Result<DataTable> {
+fn read_first_dataset(path: &Path, datasets: &[hdf5_reader::Dataset]) -> Result<DataTable> {
     use hdf5_reader::messages::datatype::Datatype;
 
     let dataset = &datasets[0];
@@ -62,7 +62,7 @@ fn read_first_dataset(path: &Path, datasets: &[hdf5_reader::Dataset<'_>]) -> Res
 
 fn read_compound_dataset(
     path: &Path,
-    dataset: &hdf5_reader::Dataset<'_>,
+    dataset: &hdf5_reader::Dataset,
     fields: &[hdf5_reader::messages::datatype::CompoundField],
 ) -> Result<DataTable> {
     use hdf5_reader::dtype_element_size;
@@ -256,7 +256,7 @@ fn decode_compound_field(bytes: &[u8], dtype: &hdf5_reader::Datatype) -> CellVal
 
 fn read_string_dataset(
     path: &Path,
-    dataset: &hdf5_reader::Dataset<'_>,
+    dataset: &hdf5_reader::Dataset,
     shape: &[u64],
 ) -> Result<DataTable> {
     let strings = dataset.read_strings()?;
@@ -314,7 +314,7 @@ fn read_string_dataset(
 
 fn read_numeric_dataset(
     path: &Path,
-    dataset: &hdf5_reader::Dataset<'_>,
+    dataset: &hdf5_reader::Dataset,
     shape: &[u64],
     size: u8,
     signed: bool,
@@ -451,7 +451,7 @@ fn read_numeric_dataset(
 
 fn read_float_dataset(
     path: &Path,
-    dataset: &hdf5_reader::Dataset<'_>,
+    dataset: &hdf5_reader::Dataset,
     shape: &[u64],
     size: u8,
 ) -> Result<DataTable> {

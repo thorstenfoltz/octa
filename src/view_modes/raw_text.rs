@@ -78,11 +78,9 @@ pub fn render_raw_view(
                         // checkbox back and let the app confirm first.
                         tab.raw_view_formatted = true;
                         action.confirm_unalign = true;
-                    } else if let Some(ref path) = tab.table.source_path {
-                        if let Ok(original) = std::fs::read_to_string(path) {
-                            *content = original;
-                            tab.raw_content_modified = false;
-                        }
+                    } else if let Some(ref original) = tab.raw_content_original {
+                        *content = original.clone();
+                        tab.raw_content_modified = false;
                     }
                 }
                 ui.add_space(16.0);
@@ -158,20 +156,20 @@ pub fn render_raw_view(
 
                 // Re-format the buffer if either combo changed and alignment
                 // is currently on, so the user sees the effect immediately.
+                // Reformatting starts from the cached original so the prior
+                // (now-stale) quote/escape choices don't leak through.
                 let mode_changed =
                     prev_quote != tab.raw_csv_quote || prev_escape != tab.raw_csv_escape;
                 if mode_changed && tab.raw_view_formatted {
-                    if let Some(ref path) = tab.table.source_path {
-                        if let Ok(original) = std::fs::read_to_string(path) {
-                            let delim = tab.csv_delimiter as char;
-                            *content = format_delimited_text(
-                                &original,
-                                delim,
-                                tab.raw_csv_quote,
-                                tab.raw_csv_escape,
-                            );
-                            tab.raw_content_modified = true;
-                        }
+                    if let Some(ref original) = tab.raw_content_original {
+                        let delim = tab.csv_delimiter as char;
+                        *content = format_delimited_text(
+                            original,
+                            delim,
+                            tab.raw_csv_quote,
+                            tab.raw_csv_escape,
+                        );
+                        tab.raw_content_modified = true;
                     }
                 }
             });
@@ -198,9 +196,14 @@ pub fn render_raw_view(
             ui.fonts(|f| f.layout_job(job))
         };
 
-        let use_col_colors = tab.raw_view_formatted && color_aligned_columns && (is_csv || is_tsv);
+        let use_col_colors = tab.raw_view_formatted
+            && color_aligned_columns
+            && tab.raw_color_enabled
+            && (is_csv || is_tsv);
         let col_colors = column_colors(theme_mode);
         let delimiter = tab.csv_delimiter as char;
+        let layouter_quote = tab.raw_csv_quote;
+        let layouter_escape = tab.raw_csv_escape;
 
         let colored_layouter = move |ui: &egui::Ui, text: &str, _wrap_width: f32| {
             let font = egui::FontId::new(13.0, egui::FontFamily::Monospace);
@@ -219,20 +222,30 @@ pub fn render_raw_view(
                 }
                 first_line = false;
 
-                for (col_idx, segment) in line.split(delimiter).enumerate() {
-                    if col_idx > 0 {
-                        let delim_str = &format!("{delimiter}");
+                let ranges =
+                    split_delimited_line_ranges(line, delimiter, layouter_quote, layouter_escape);
+                let mut prev_end = 0;
+                for (col_idx, range) in ranges.iter().enumerate() {
+                    if range.start > prev_end {
                         job.append(
-                            delim_str,
+                            &line[prev_end..range.start],
                             0.0,
                             egui::text::TextFormat::simple(font.clone(), default_color),
                         );
                     }
                     let color = col_colors[col_idx % col_colors.len()];
                     job.append(
-                        segment,
+                        &line[range.clone()],
                         0.0,
                         egui::text::TextFormat::simple(font.clone(), color),
+                    );
+                    prev_end = range.end;
+                }
+                if prev_end < line.len() {
+                    job.append(
+                        &line[prev_end..],
+                        0.0,
+                        egui::text::TextFormat::simple(font.clone(), default_color),
                     );
                 }
             }
@@ -368,9 +381,18 @@ pub(crate) fn format_delimited_text(
     quote: RawCsvQuote,
     escape: RawCsvEscape,
 ) -> String {
+    // Tokenize each line, then re-emit cells preserving the configured quotes
+    // around fields whose content contains the delimiter. Round-tripping the
+    // formatted output through the same tokenizer is what lets the colored
+    // layouter assign one color per logical column.
     let parsed: Vec<Vec<String>> = content
         .lines()
-        .map(|line| split_delimited_line(line, delimiter, quote, escape))
+        .map(|line| {
+            split_delimited_line(line, delimiter, quote, escape)
+                .into_iter()
+                .map(|cell| requote_if_needed(cell.trim(), delimiter, quote, escape))
+                .collect()
+        })
         .collect();
     if parsed.is_empty() {
         return content.to_string();
@@ -379,7 +401,7 @@ pub(crate) fn format_delimited_text(
     let mut widths = vec![0usize; max_cols];
     for line in &parsed {
         for (i, cell) in line.iter().enumerate() {
-            widths[i] = widths[i].max(cell.trim().chars().count());
+            widths[i] = widths[i].max(cell.chars().count());
         }
     }
     parsed
@@ -388,13 +410,12 @@ pub(crate) fn format_delimited_text(
             line.iter()
                 .enumerate()
                 .map(|(i, cell)| {
-                    let trimmed = cell.trim();
-                    let glyph_count = trimmed.chars().count();
+                    let glyph_count = cell.chars().count();
                     if i < line.len() - 1 {
                         let pad = widths[i].saturating_sub(glyph_count);
-                        format!("{}{}", trimmed, " ".repeat(pad))
+                        format!("{}{}", cell, " ".repeat(pad))
                     } else {
-                        trimmed.to_string()
+                        cell.clone()
                     }
                 })
                 .collect::<Vec<_>>()
@@ -402,6 +423,104 @@ pub(crate) fn format_delimited_text(
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Re-emit a logical cell value with surrounding quotes (and escaped internal
+/// quotes) when the value contains the delimiter and the active quoting mode
+/// permits a quote character. Cells that don't contain the delimiter, or
+/// modes with `RawCsvQuote::None`, are left untouched.
+fn requote_if_needed(
+    cell: &str,
+    delimiter: char,
+    quote: RawCsvQuote,
+    escape: RawCsvEscape,
+) -> String {
+    if !cell.contains(delimiter) {
+        return cell.to_string();
+    }
+    let q_char: char = match quote {
+        RawCsvQuote::Double | RawCsvQuote::Both => '"',
+        RawCsvQuote::Single => '\'',
+        RawCsvQuote::None => return cell.to_string(),
+    };
+    let escaped = match escape {
+        RawCsvEscape::Doubled => cell.replace(q_char, &format!("{}{}", q_char, q_char)),
+        RawCsvEscape::Backslash => cell.replace(q_char, &format!("\\{}", q_char)),
+        RawCsvEscape::None => cell.to_string(),
+    };
+    format!("{}{}{}", q_char, escaped, q_char)
+}
+
+/// Same tokenization rules as [`split_delimited_line`], but returns the byte
+/// ranges of each logical column *within the input line*. Ranges include any
+/// wrapping quote characters and escape bytes; the bytes between consecutive
+/// ranges are exactly the delimiter character. Used by the raw view's
+/// per-column color layouter so a delimiter inside a quoted field shares the
+/// column's color rather than starting a new one.
+pub(crate) fn split_delimited_line_ranges(
+    line: &str,
+    delimiter: char,
+    quote: RawCsvQuote,
+    escape: RawCsvEscape,
+) -> Vec<std::ops::Range<usize>> {
+    let allowed_quotes: &[char] = match quote {
+        RawCsvQuote::Double => &['"'],
+        RawCsvQuote::Single => &['\''],
+        RawCsvQuote::Both => &['"', '\''],
+        RawCsvQuote::None => &[],
+    };
+
+    let mut ranges = Vec::new();
+    let mut field_start: usize = 0;
+    let mut in_quote: Option<char> = None;
+    let mut at_field_start = true;
+    let mut iter = line.char_indices().peekable();
+
+    while let Some((i, c)) = iter.next() {
+        match in_quote {
+            None => {
+                if c == delimiter {
+                    ranges.push(field_start..i);
+                    field_start = i + c.len_utf8();
+                    at_field_start = true;
+                } else if at_field_start && i == field_start && allowed_quotes.contains(&c) {
+                    in_quote = Some(c);
+                    at_field_start = false;
+                } else {
+                    at_field_start = false;
+                }
+            }
+            Some(q) => match escape {
+                RawCsvEscape::Doubled => {
+                    if c == q {
+                        if let Some(&(_, next)) = iter.peek() {
+                            if next == q {
+                                iter.next();
+                                continue;
+                            }
+                        }
+                        in_quote = None;
+                    }
+                }
+                RawCsvEscape::Backslash => {
+                    if c == '\\' {
+                        if iter.peek().is_some() {
+                            iter.next();
+                        }
+                    } else if c == q {
+                        in_quote = None;
+                    }
+                }
+                RawCsvEscape::None => {
+                    if c == q {
+                        in_quote = None;
+                    }
+                }
+            },
+        }
+    }
+    ranges.push(field_start..line.len());
+    ranges
 }
 
 /// Split a single line into fields, respecting `quote` and `escape`. The
@@ -550,5 +669,56 @@ mod tests {
     fn split_none_mode_treats_quotes_as_literal() {
         let r = split_delimited_line(r#""a,b",c"#, ',', RawCsvQuote::None, RawCsvEscape::None);
         assert_eq!(r, vec![r#""a"#, r#"b""#, "c"]);
+    }
+
+    #[test]
+    fn ranges_plain_csv() {
+        let line = "a,b,c";
+        let r = split_delimited_line_ranges(line, ',', RawCsvQuote::Double, RawCsvEscape::Doubled);
+        assert_eq!(r.len(), 3);
+        assert_eq!(&line[r[0].clone()], "a");
+        assert_eq!(&line[r[1].clone()], "b");
+        assert_eq!(&line[r[2].clone()], "c");
+    }
+
+    #[test]
+    fn ranges_quoted_field_with_internal_delim_is_one_column() {
+        // The whole `"1,2,3,4,5"` must come back as one column range — that's
+        // the bug the colored layouter was hitting before this fix.
+        let line = r#""1,2,3,4,5",foo"#;
+        let r = split_delimited_line_ranges(line, ',', RawCsvQuote::Double, RawCsvEscape::Doubled);
+        assert_eq!(r.len(), 2);
+        assert_eq!(&line[r[0].clone()], r#""1,2,3,4,5""#);
+        assert_eq!(&line[r[1].clone()], "foo");
+    }
+
+    #[test]
+    fn ranges_handle_doubled_quote_escape() {
+        let line = r#""a""b",c"#;
+        let r = split_delimited_line_ranges(line, ',', RawCsvQuote::Double, RawCsvEscape::Doubled);
+        assert_eq!(r.len(), 2);
+        assert_eq!(&line[r[0].clone()], r#""a""b""#);
+        assert_eq!(&line[r[1].clone()], "c");
+    }
+
+    #[test]
+    fn format_preserves_quotes_around_embedded_delimiter() {
+        // After alignment the cell `"1,2,3,4,5"` keeps its quotes so the
+        // tokenizer can group it as one column when re-rendered.
+        let formatted = format_delimited_text(
+            r#""1,2,3,4,5",foo"#,
+            ',',
+            RawCsvQuote::Double,
+            RawCsvEscape::Doubled,
+        );
+        let r = split_delimited_line_ranges(
+            &formatted,
+            ',',
+            RawCsvQuote::Double,
+            RawCsvEscape::Doubled,
+        );
+        assert_eq!(r.len(), 2);
+        assert!(formatted[r[0].clone()].starts_with('"'));
+        assert!(formatted[r[0].clone()].contains("1,2,3,4,5"));
     }
 }

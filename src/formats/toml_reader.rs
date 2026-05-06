@@ -16,7 +16,10 @@ impl FormatReader for TomlReader {
 
     fn read_file(&self, path: &Path) -> Result<DataTable> {
         let content = std::fs::read_to_string(path)?;
-        let value: toml::Value = content.parse()?;
+        // toml 1.x split parsing into "single value" (`FromStr`) vs whole
+        // document (`from_str`). Files like `[[items]]` are documents, so
+        // route through the document parser.
+        let value: toml::Value = toml::from_str(&content)?;
         let json_value = toml_to_json(&value);
         crate::formats::json_reader::json_to_table(json_value, path, "TOML")
     }

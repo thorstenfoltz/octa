@@ -39,14 +39,12 @@ pub(crate) fn render_unalign_confirm_dialog(app: &mut OctaApp, ctx: &egui::Conte
         });
     if confirm {
         let tab = &mut app.tabs[app.active_tab];
-        if let (Some(content), Some(path)) =
-            (tab.raw_content.as_mut(), tab.table.source_path.clone())
+        if let (Some(original), Some(content)) =
+            (tab.raw_content_original.clone(), tab.raw_content.as_mut())
         {
-            if let Ok(original) = std::fs::read_to_string(&path) {
-                *content = original;
-                tab.raw_content_modified = false;
-                tab.raw_view_formatted = false;
-            }
+            *content = original;
+            tab.raw_content_modified = false;
+            tab.raw_view_formatted = false;
         }
         app.show_unalign_confirm = false;
     } else if cancel {

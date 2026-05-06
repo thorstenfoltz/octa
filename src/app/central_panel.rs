@@ -42,6 +42,48 @@ impl OctaApp {
                 }
             }
 
+            // Date format-change banner. Stays visible until the user
+            // dismisses it; the inference pass only sets it when the source
+            // layout differs from the canonical ISO display.
+            let mut dismiss_warning = false;
+            if let Some(warning) = self
+                .pending_date_warning
+                .as_ref()
+                .filter(|w| w.tab_idx == self.active_tab && !w.entries.is_empty())
+            {
+                let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
+                let summary = warning
+                    .entries
+                    .iter()
+                    .map(|e| format!("{} ({})", e.column_name, e.source_label))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Detected dates in {}; showing as YYYY-MM-DD. \
+                             Source format kept on save.",
+                            summary
+                        ))
+                        .color(colors.warning)
+                        .size(12.0),
+                    );
+                    if ui.small_button("Dismiss").clicked() {
+                        dismiss_warning = true;
+                    }
+                    ui.label(
+                        egui::RichText::new("(disable in Settings → File-Specific)")
+                            .color(colors.text_muted)
+                            .size(11.0),
+                    );
+                });
+                ui.add_space(4.0);
+            }
+            if dismiss_warning {
+                self.revert_promoted_date_columns();
+            }
+
             // Recompute filter before drawing (toolbar actions earlier in the
             // frame may have dirtied it).
             if self.tabs[self.active_tab].filter_dirty {
@@ -79,6 +121,7 @@ impl OctaApp {
                 return;
             }
             if self.tabs[self.active_tab].view_mode == ViewMode::Raw {
+                self.maybe_offer_raw_perf_prompt();
                 let raw_action = view_modes::render_raw_view(
                     ui,
                     &mut self.tabs[self.active_tab],
@@ -214,6 +257,77 @@ impl OctaApp {
         if had_paste_event {
             self.do_paste(paste_text);
         }
+    }
+
+    /// Revert every column that the date inference pass promoted under a
+    /// non-canonical layout, restoring the source strings the user saw on
+    /// disk and switching the column type back to `Utf8`. Called from the
+    /// "Dismiss" button on the date-format-change banner.
+    fn revert_promoted_date_columns(&mut self) {
+        use octa::data::CellValue;
+        let Some(warning) = self.pending_date_warning.take() else {
+            return;
+        };
+        let Some(tab) = self.tabs.get_mut(warning.tab_idx) else {
+            return;
+        };
+        for entry in &warning.entries {
+            if entry.col_idx >= tab.table.col_count() {
+                continue;
+            }
+            for (row, original) in entry.original_values.iter().enumerate() {
+                if row >= tab.table.row_count() {
+                    break;
+                }
+                let new_cell = match original {
+                    Some(s) => CellValue::String(s.clone()),
+                    None => CellValue::Null,
+                };
+                tab.table.rows[row][entry.col_idx] = new_cell;
+            }
+            if let Some(col) = tab.table.columns.get_mut(entry.col_idx) {
+                col.data_type = "Utf8".to_string();
+            }
+        }
+        tab.filter_dirty = true;
+        tab.table_state.invalidate_row_heights();
+    }
+
+    /// Surface the slow-file prompt the first time the user actually enters
+    /// the raw view of a CSV/TSV above the threshold. Triggered here (not at
+    /// load time) so the prompt doesn't appear for users who only ever look
+    /// at the table view of a large CSV.
+    fn maybe_offer_raw_perf_prompt(&mut self) {
+        const RAW_PERF_PROMPT_BYTES: u64 = 10 * 1024 * 1024;
+        if self.pending_raw_perf_prompt.is_some() {
+            return;
+        }
+        let Some(tab) = self.tabs.get(self.active_tab) else {
+            return;
+        };
+        if tab.raw_perf_prompt_resolved {
+            return;
+        }
+        let Some(file_size) = tab.raw_file_size else {
+            return;
+        };
+        let format = tab.table.format_name.as_deref();
+        if !matches!(format, Some("CSV") | Some("TSV")) || file_size <= RAW_PERF_PROMPT_BYTES {
+            return;
+        }
+        let file_name = tab
+            .table
+            .source_path
+            .as_deref()
+            .map(std::path::Path::new)
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "this file".to_string());
+        self.pending_raw_perf_prompt = Some(super::state::RawPerfPrompt {
+            tab_idx: self.active_tab,
+            file_size,
+            file_name,
+        });
     }
 
     fn handle_table_interaction(&mut self, interaction: ui::table_view::TableInteraction) {
