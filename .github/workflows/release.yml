@@ -38,8 +38,6 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
-
       - name: Build and test
         run: |
           cargo test
@@ -86,8 +84,6 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
-
       - name: Build and test
         run: |
           cargo test --release
@@ -128,8 +124,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin
-
-      - uses: Swatinem/rust-cache@v2
 
       - name: Build and test
         run: |
