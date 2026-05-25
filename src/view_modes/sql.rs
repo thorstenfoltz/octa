@@ -3,7 +3,22 @@ use crate::ui::settings::SqlPanelPosition;
 
 use eframe::egui;
 use octa::data::CellValue;
+use octa::ui::settings::SqlEditorFont;
 use octa::ui::status_bar::format_number;
+
+/// Resolve the configured `SqlEditorFont` into an `egui::FontFamily`. The
+/// `JetBrainsMono` variant points at the bundled named family registered in
+/// `apply_fonts`; `MatchUiFont` falls back to the active style's body font;
+/// `SystemMonospace` uses egui's built-in mono family.
+fn sql_font_family(font: SqlEditorFont, ui: &egui::Ui) -> egui::FontFamily {
+    match font {
+        SqlEditorFont::JetBrainsMono => egui::FontFamily::Name(std::sync::Arc::from("sql_mono")),
+        SqlEditorFont::SystemMonospace => egui::FontFamily::Monospace,
+        SqlEditorFont::MatchUiFont => ui.style().text_styles[&egui::TextStyle::Body]
+            .family
+            .clone(),
+    }
+}
 
 /// User actions emitted by the SQL view in a single frame.
 #[derive(Debug, Clone, Default)]
@@ -11,6 +26,10 @@ pub struct SqlAction {
     pub run: bool,
     pub clear: bool,
     pub export: bool,
+    /// User clicked the × button in the panel header. The caller flips
+    /// `tab.sql_panel_open` to false, hiding the panel until the user
+    /// reopens it from **Analyse → SQL**.
+    pub close: bool,
 }
 
 /// Persistent id of the SQL editor TextEdit. Exposed so the global keyboard
@@ -134,6 +153,7 @@ pub fn render_sql_view(
     default_row_limit: usize,
     panel_position: SqlPanelPosition,
     partial_rows: Option<(usize, usize)>,
+    editor_font: octa::ui::settings::SqlEditorFont,
 ) -> SqlAction {
     let mut action = SqlAction::default();
     let editor_id = editor_id();
@@ -169,6 +189,18 @@ pub fn render_sql_view(
                 if rows == 1 { "" } else { "s" }
             ));
         }
+        // Close (×) button on the right — flips `sql_panel_open` to false.
+        // The Analyse dropdown is two clicks away, so without an in-panel
+        // close the user has to fiddle to dismiss it.
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .button(egui::RichText::new("\u{00d7}").size(16.0).strong())
+                .on_hover_text("Close SQL panel")
+                .clicked()
+            {
+                action.close = true;
+            }
+        });
     });
     ui.add_space(4.0);
 
@@ -278,10 +310,10 @@ pub fn render_sql_view(
     };
 
     if matches!(panel_position, SqlPanelPosition::Bottom) {
-        egui::TopBottomPanel::bottom("sql_result_split")
+        egui::Panel::bottom("sql_result_split")
             .resizable(true)
-            .default_height(default_result_h)
-            .min_height(80.0)
+            .default_size(default_result_h)
+            .min_size(80.0)
             .show_inside(ui, |ui| {
                 render_result_area(ui, tab);
             });
@@ -291,12 +323,13 @@ pub fn render_sql_view(
             editor_id,
             default_row_limit,
             &mut action,
+            editor_font,
         ));
     } else {
-        egui::TopBottomPanel::top("sql_editor_split")
+        egui::Panel::top("sql_editor_split")
             .resizable(true)
-            .default_height(default_editor_h)
-            .min_height(80.0)
+            .default_size(default_editor_h)
+            .min_size(80.0)
             .show_inside(ui, |ui| {
                 editor_response = Some(draw_sql_editor(
                     ui,
@@ -304,6 +337,7 @@ pub fn render_sql_view(
                     editor_id,
                     default_row_limit,
                     &mut action,
+                    editor_font,
                 ));
             });
         ui.add_space(2.0);
@@ -326,11 +360,11 @@ pub fn render_sql_view(
                 if let Some(s) = selection {
                     ui.ctx().copy_text(s);
                 }
-                ui.close_menu();
+                ui.close();
             }
             if ui.button("Copy All").clicked() {
                 ui.ctx().copy_text(buffer.clone());
-                ui.close_menu();
+                ui.close();
             }
         });
     }
@@ -356,14 +390,11 @@ pub fn render_sql_view(
     // --- Autocomplete popup ---
     if popup_active {
         let popup_id = ui.make_persistent_id("sql_autocomplete_popup");
-        let below = egui::AboveOrBelow::Below;
-        egui::popup::popup_above_or_below_widget(
-            ui,
-            popup_id,
-            &editor_response,
-            below,
-            egui::popup::PopupCloseBehavior::IgnoreClicks,
-            |ui| {
+        egui::Popup::from_response(&editor_response)
+            .id(popup_id)
+            .open(true)
+            .close_behavior(egui::PopupCloseBehavior::IgnoreClicks)
+            .show(|ui| {
                 ui.set_min_width(220.0);
                 // Force a high-contrast text color on the selected chip so the
                 // variable name stays readable against the translucent selection
@@ -392,18 +423,7 @@ pub fn render_sql_view(
                         tab.sql_ac_selected = idx;
                     }
                 }
-            },
-        );
-        // popup_above_or_below_widget only opens when memory is open, so we
-        // force it open every frame while the popup is active.
-        ui.memory_mut(|m| m.open_popup(popup_id));
-    } else {
-        let popup_id = ui.make_persistent_id("sql_autocomplete_popup");
-        ui.memory_mut(|m| {
-            if m.is_popup_open(popup_id) {
-                m.close_popup();
-            }
-        });
+            });
     }
 
     // For Bottom docking the result already rendered inside the bottom nested
@@ -426,8 +446,9 @@ fn draw_sql_editor(
     editor_id: egui::Id,
     default_row_limit: usize,
     action: &mut SqlAction,
+    editor_font: octa::ui::settings::SqlEditorFont,
 ) -> egui::Response {
-    let mono = egui::FontId::new(13.0, egui::FontFamily::Monospace);
+    let mono = egui::FontId::new(13.0, sql_font_family(editor_font, ui));
     let hint = format!("SELECT * FROM data LIMIT {default_row_limit}");
     let weak = ui.visuals().weak_text_color();
 

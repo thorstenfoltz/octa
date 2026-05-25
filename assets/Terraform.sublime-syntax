@@ -1,0 +1,119 @@
+%YAML 1.2
+---
+# Minimal Terraform / HCL syntax definition.
+# Hand-written for Octa — covers the syntactic categories syntect knows how
+# to colour. Not a complete HCL2 grammar (e.g. complex heredoc interpolation
+# is approximate), but enough for highlighting typical Terraform code in
+# the raw editor.
+#
+# License: bundled with Octa under the MIT license. No third-party syntax
+# file is copied — the patterns below were written from scratch against
+# the public HCL2 spec.
+name: Terraform
+file_extensions:
+  - tf
+  - tfvars
+  - hcl
+scope: source.terraform
+
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - include: numbers
+    - include: keywords
+    - include: top-level-blocks
+    - include: function-call
+    - include: operators
+    - include: identifier
+
+  comments:
+    - match: '#'
+      scope: punctuation.definition.comment.terraform
+      push: line-comment
+    - match: '//'
+      scope: punctuation.definition.comment.terraform
+      push: line-comment
+    - match: '/\*'
+      scope: punctuation.definition.comment.terraform
+      push: block-comment
+
+  line-comment:
+    - meta_scope: comment.line.terraform
+    - match: $\n?
+      pop: true
+
+  block-comment:
+    - meta_scope: comment.block.terraform
+    - match: '\*/'
+      scope: punctuation.definition.comment.terraform
+      pop: true
+
+  strings:
+    - match: '"'
+      scope: punctuation.definition.string.begin.terraform
+      push: dq-string
+    - match: '<<-?(\w+)'
+      scope: punctuation.definition.string.begin.terraform
+      push: heredoc
+
+  dq-string:
+    - meta_scope: string.quoted.double.terraform
+    - match: '\\.'
+      scope: constant.character.escape.terraform
+    - match: '\$\{'
+      scope: punctuation.section.interpolation.begin.terraform
+      push: interpolation
+    - match: '"'
+      scope: punctuation.definition.string.end.terraform
+      pop: true
+
+  heredoc:
+    - meta_scope: string.unquoted.heredoc.terraform
+    - match: '^\s*\w+\s*$'
+      pop: true
+
+  interpolation:
+    - meta_scope: variable.other.interpolation.terraform
+    - match: '\}'
+      scope: punctuation.section.interpolation.end.terraform
+      pop: true
+    - include: numbers
+    - include: strings
+    - include: function-call
+    - include: operators
+    - match: '[A-Za-z_][A-Za-z0-9_]*'
+      scope: variable.other.terraform
+
+  numbers:
+    - match: '\b\d+\.\d+([eE][+-]?\d+)?\b'
+      scope: constant.numeric.float.terraform
+    - match: '\b\d+\b'
+      scope: constant.numeric.integer.terraform
+
+  keywords:
+    - match: '\b(true|false|null)\b'
+      scope: constant.language.terraform
+    - match: '\b(if|else|for|in|endfor|endif)\b'
+      scope: keyword.control.terraform
+    - match: '\b(var|local|module|data|each|count|self|path|terraform)\b'
+      scope: variable.language.terraform
+
+  top-level-blocks:
+    # `resource "type" "name" { ... }`, `data "..." "..."`, etc.
+    - match: '\b(resource|data|module|provider|variable|output|locals|terraform|provisioner|backend|connection|lifecycle|dynamic|check|removed|import|moved|ephemeral)\b'
+      scope: storage.type.terraform
+
+  function-call:
+    - match: '([A-Za-z_][A-Za-z0-9_]*)\s*(?=\()'
+      scope: support.function.terraform
+
+  operators:
+    - match: '==|!=|<=|>=|<|>|&&|\|\||!|\?|:'
+      scope: keyword.operator.logical.terraform
+    - match: '\+|-|\*|/|%|='
+      scope: keyword.operator.terraform
+
+  identifier:
+    - match: '[A-Za-z_][A-Za-z0-9_-]*'
+      scope: variable.other.terraform

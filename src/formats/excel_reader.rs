@@ -13,7 +13,7 @@ impl FormatReader for ExcelReader {
     }
 
     fn extensions(&self) -> &[&str] {
-        &["xlsx", "xls", "xlsm", "xlsb", "xlm", "ods"]
+        &["xlsx", "xls", "xlsm", "xlsb", "xlm"]
     }
 
     fn read_file(&self, path: &Path) -> Result<DataTable> {

@@ -1,18 +1,21 @@
+pub mod archive_reader;
 pub mod arrow_ipc_reader;
 pub mod avro_reader;
 pub mod csv_reader;
 pub mod dbf_reader;
 pub mod duckdb_reader;
+pub mod epub_reader;
 pub mod excel_reader;
+pub mod geojson_reader;
 pub mod gpkg_reader;
 pub mod hdf5_reader;
 pub mod json_reader;
 pub mod jupyter_reader;
 pub mod markdown_reader;
 pub mod netcdf_reader;
+pub mod ods_reader;
 pub mod orc_reader;
 pub mod parquet_reader;
-pub mod pdf_reader;
 pub mod rds_reader;
 pub mod sas_reader;
 pub mod spss_reader;
@@ -26,6 +29,57 @@ pub mod yaml_reader;
 use crate::data::{ColumnInfo, DataTable};
 use anyhow::Result;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Initial-load row cap shared by the streaming readers (Parquet, CSV, TSV).
+/// Mutable at runtime via `set_initial_load_rows` so `AppSettings` can override
+/// the 5 M default without each reader having to know about the settings type.
+/// Background row streaming uses the same value as its per-chunk size.
+/// Setting to `usize::MAX` effectively disables the cap (Settings → Performance
+/// → "Unlimited" checkbox, CLI `--rows all`, MCP `unlimited: true`).
+static INITIAL_LOAD_ROWS: AtomicUsize = AtomicUsize::new(5_000_000);
+
+/// Returns the current first-load row cap. Streaming readers consult this
+/// instead of a hardcoded constant.
+pub fn initial_load_rows() -> usize {
+    INITIAL_LOAD_ROWS.load(Ordering::Relaxed)
+}
+
+/// Updates the first-load row cap. Called from `OctaApp` after `AppSettings`
+/// loads or whenever the user applies a new value in the Settings dialog.
+/// Lower-bounded at 1 so a corrupt setting can't disable loads entirely.
+pub fn set_initial_load_rows(n: usize) {
+    INITIAL_LOAD_ROWS.store(n.max(1), Ordering::Relaxed);
+}
+
+/// RAII override for [`INITIAL_LOAD_ROWS`]. Constructing the guard swaps in a
+/// new cap; dropping it restores the previous value. Used by the CLI (`--rows`)
+/// and MCP (`unlimited: true`) to lift the cap for a single read without
+/// permanently mutating process-wide state.
+///
+/// **Concurrency**: the swap/restore is *not* safe under concurrent reads with
+/// different caps. The CLI is single-threaded; the MCP server uses a
+/// current-thread tokio runtime, which serialises tool dispatch. As long as
+/// the guard is held inside `spawn_blocking` for the duration of a single
+/// reader call, no other guarded read can race.
+pub struct InitialLoadRowsGuard {
+    previous: usize,
+}
+
+impl InitialLoadRowsGuard {
+    /// Temporarily set the initial-load cap for the lifetime of this guard.
+    /// `temporary` is lower-bounded at 1 (matches [`set_initial_load_rows`]).
+    pub fn new(temporary: usize) -> Self {
+        let previous = INITIAL_LOAD_ROWS.swap(temporary.max(1), Ordering::SeqCst);
+        Self { previous }
+    }
+}
+
+impl Drop for InitialLoadRowsGuard {
+    fn drop(&mut self) {
+        INITIAL_LOAD_ROWS.store(self.previous, Ordering::SeqCst);
+    }
+}
 
 /// Schema description of a single table inside a multi-table source (DB file).
 #[derive(Debug, Clone)]
@@ -93,16 +147,19 @@ impl FormatRegistry {
         registry.register(Box::new(json_reader::JsonReader));
         registry.register(Box::new(json_reader::JsonlReader));
         registry.register(Box::new(excel_reader::ExcelReader));
+        registry.register(Box::new(ods_reader::OdsReader));
         registry.register(Box::new(avro_reader::AvroReader));
         registry.register(Box::new(arrow_ipc_reader::ArrowIpcReader));
         registry.register(Box::new(xml_reader::XmlFormatReader));
-        registry.register(Box::new(pdf_reader::PdfReader));
         registry.register(Box::new(toml_reader::TomlReader));
         registry.register(Box::new(yaml_reader::YamlReader));
         registry.register(Box::new(jupyter_reader::JupyterReader));
         registry.register(Box::new(orc_reader::OrcReader));
         registry.register(Box::new(hdf5_reader::Hdf5Reader));
         registry.register(Box::new(markdown_reader::MarkdownReader));
+        registry.register(Box::new(epub_reader::EpubReader));
+        registry.register(Box::new(geojson_reader::GeoJsonReader));
+        registry.register(Box::new(archive_reader::ArchiveReader));
         registry.register(Box::new(sqlite_reader::SqliteReader));
         registry.register(Box::new(gpkg_reader::GeoPackageReader));
         registry.register(Box::new(duckdb_reader::DuckDbReader));

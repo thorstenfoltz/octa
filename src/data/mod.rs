@@ -1,6 +1,12 @@
+pub mod chart;
+pub mod chart_export;
 pub mod date_infer;
+pub mod duplicates;
 pub mod json_util;
+pub mod multi_search;
+pub mod schema_export;
 pub mod search;
+pub mod value_frequency;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -14,8 +20,6 @@ pub enum ViewMode {
     Table,
     /// Raw text view of the file content (like a text editor).
     Raw,
-    /// Rendered PDF page view (like Adobe Reader).
-    Pdf,
     /// Rendered Markdown view.
     Markdown,
     /// Rendered Jupyter Notebook view.
@@ -24,6 +28,69 @@ pub enum ViewMode {
     JsonTree,
     /// Collapsible YAML tree view (mirrors JsonTree, fed by the YAML parser).
     YamlTree,
+    /// Side-by-side comparison of two files. The active tab provides the
+    /// left side; the right side is loaded via View → Compare with…
+    /// Two sub-modes toggle within the view (Text Diff / Row Hash Diff).
+    Compare,
+    /// EPUB reading view. Renders the book chapter-by-chapter as Markdown
+    /// (converted from each spine entry's XHTML at load time). Embedded
+    /// images decode lazily into egui textures.
+    EpubReader,
+    /// GeoJSON map view. Renders feature geometries on top of slippy-map
+    /// tiles (when network is reachable) or a plain canvas (geometry-only
+    /// mode / offline fallback).
+    Map,
+    /// `egui_plot`-backed chart view. The user picks a chart kind
+    /// (Histogram / Bar / Line / Scatter / Box) and the X / Y columns
+    /// through a control bar at the top of the view; data prep lives in
+    /// [`chart::build_chart`] so the same code path is integration-tested.
+    Chart,
+}
+
+/// Tile-rendering mode for the Map view. `Tiles` fetches raster tiles from
+/// the configured `map_tile_url_template`; `GeometryOnly` skips the tile
+/// fetch and paints just the geometry on a neutral background. The default
+/// per-tab choice is set by `AppSettings.map_default_mode`; the user can
+/// flip between modes via the Map view's toolbar toggle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum MapMode {
+    /// Show OSM (or configured) tiles behind the features. Requires net.
+    #[default]
+    Tiles,
+    /// Geometry only, no tiles. Useful offline or when the tile server is
+    /// blocked.
+    GeometryOnly,
+}
+
+impl MapMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Tiles => "Tiles",
+            Self::GeometryOnly => "Geometry only",
+        }
+    }
+
+    pub const ALL: &'static [Self] = &[Self::Tiles, Self::GeometryOnly];
+}
+
+/// Sub-mode for the Compare view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum CompareMode {
+    /// Line-by-line git-style diff of the raw text content.
+    #[default]
+    TextDiff,
+    /// Hash the user-picked columns per row and report uniques + duplicates
+    /// across both files. Cross-format because only cell text is hashed.
+    RowHashDiff,
+}
+
+impl CompareMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::TextDiff => "Text Diff",
+            Self::RowHashDiff => "Row Hash Diff",
+        }
+    }
 }
 
 /// Layout for the Markdown view: preview-only, side-by-side editor + preview,
@@ -1155,6 +1222,46 @@ impl DataTable {
         self.edits.clear();
     }
 
+    /// Return a fresh `DataTable` containing the same columns but only the
+    /// rows whose indices appear in `row_indices`, in the order given.
+    ///
+    /// Used by **Save As** when the user has an active row filter (text
+    /// search and/or column filters): the on-disk file should reflect what
+    /// is visible, not the full unfiltered table. Edits are applied as part
+    /// of the clone so the writer sees committed values. The returned table
+    /// has `db_meta: None` (rowids no longer line up) and inherits no marks /
+    /// undo state (irrelevant to the writer).
+    pub fn clone_with_rows(&self, row_indices: &[usize]) -> Self {
+        let mut rows: Vec<Vec<CellValue>> = Vec::with_capacity(row_indices.len());
+        for &src in row_indices {
+            if src >= self.rows.len() {
+                continue;
+            }
+            let mut row = self.rows[src].clone();
+            // Apply pending edits inline (avoid mutating self).
+            for (c, cell) in row.iter_mut().enumerate().take(self.columns.len()) {
+                if let Some(v) = self.edits.get(&(src, c)) {
+                    *cell = v.clone();
+                }
+            }
+            rows.push(row);
+        }
+        Self {
+            columns: self.columns.clone(),
+            rows,
+            edits: HashMap::new(),
+            source_path: self.source_path.clone(),
+            format_name: self.format_name.clone(),
+            structural_changes: true,
+            total_rows: None,
+            row_offset: 0,
+            marks: HashMap::new(),
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            db_meta: None,
+        }
+    }
+
     /// Treat current header names as a real first data row. Column names are
     /// reset to defaults (`column_1`..`column_N`) and types are widened to
     /// Utf8 since the header strings may not parse as the original types.
@@ -1373,6 +1480,25 @@ impl DataTable {
             self.redo_stack.clear();
             self.marks.remove(&key);
         }
+    }
+
+    /// Remove every color mark on the table. Pushes one `SetMark` undo
+    /// entry per cleared key so the operation is undoable one mark at a
+    /// time — that matches the granularity of the per-key clear path
+    /// without bloating the `UndoAction` enum with a new variant.
+    pub fn clear_all_marks(&mut self) {
+        if self.marks.is_empty() {
+            return;
+        }
+        let entries: Vec<(MarkKey, MarkColor)> = self.marks.drain().collect();
+        for (key, old_color) in entries {
+            self.undo_stack.push(UndoAction::SetMark {
+                key,
+                old_color: Some(old_color),
+                new_color: None,
+            });
+        }
+        self.redo_stack.clear();
     }
 
     /// Get the effective mark color for a cell (cell mark > row mark > column mark).

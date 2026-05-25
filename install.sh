@@ -14,6 +14,8 @@ fi
 BIN_DIR="$PREFIX/bin"
 ICON_DIR="$PREFIX/share/icons/hicolor/scalable/apps"
 DESKTOP_DIR="$PREFIX/share/applications"
+DOC_DIR="$PREFIX/share/doc/octa"
+MAN_DIR="$PREFIX/share/man/man1"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -50,6 +52,43 @@ install -Dm644 "$SCRIPT_DIR/assets/octa.svg" "$ICON_DIR/octa.svg"
 echo "Installing desktop entry to $DESKTOP_DIR..."
 install -Dm644 "$SCRIPT_DIR/octa.desktop" "$DESKTOP_DIR/octa.desktop"
 
+# Man page. Release tarballs ship the pre-rendered `octa.1` next to this
+# script. Source builds can render it on the fly if `asciidoctor` is on
+# PATH; otherwise we skip with a hint so `man octa` won't work but the
+# install still succeeds.
+MAN_SRC=""
+if [[ -f "$SCRIPT_DIR/octa.1" ]]; then
+	MAN_SRC="$SCRIPT_DIR/octa.1"
+elif [[ -f "$SCRIPT_DIR/docs/cli/octa.1.adoc" ]] && command -v asciidoctor >/dev/null; then
+	echo "Rendering man page from docs/cli/octa.1.adoc..."
+	asciidoctor -b manpage "$SCRIPT_DIR/docs/cli/octa.1.adoc" -o "$SCRIPT_DIR/octa.1"
+	MAN_SRC="$SCRIPT_DIR/octa.1"
+fi
+if [[ -n "$MAN_SRC" ]]; then
+	echo "Installing man page to $MAN_DIR..."
+	install -Dm644 "$MAN_SRC" "$MAN_DIR/octa.1"
+	if command -v mandb >/dev/null; then
+		mandb --quiet "$MAN_DIR" 2>/dev/null || true
+	fi
+else
+	echo "No man page available (no octa.1 next to script and asciidoctor not found)."
+	echo "  Install \`asciidoctor\` and rerun if you want \`man octa\` to work."
+fi
+
+if [[ -f "$SCRIPT_DIR/THIRD_PARTY_LICENSES.md" ]]; then
+	echo "Installing third-party license bundle to $DOC_DIR..."
+	install -Dm644 "$SCRIPT_DIR/THIRD_PARTY_LICENSES.md" "$DOC_DIR/THIRD_PARTY_LICENSES.md"
+fi
+if [[ -f "$SCRIPT_DIR/LICENSE" ]]; then
+	install -Dm644 "$SCRIPT_DIR/LICENSE" "$DOC_DIR/LICENSE"
+fi
+if [[ -d "$SCRIPT_DIR/licenses" ]]; then
+	for f in "$SCRIPT_DIR/licenses"/*.txt; do
+		[[ -f "$f" ]] || continue
+		install -Dm644 "$f" "$DOC_DIR/licenses/$(basename "$f")"
+	done
+fi
+
 echo "Updating icon cache..."
 if command -v gtk-update-icon-cache &>/dev/null; then
 	gtk-update-icon-cache -f -t "$PREFIX/share/icons/hicolor" 2>/dev/null || true
@@ -63,3 +102,6 @@ echo "Octa installed successfully."
 echo "  Binary:  $BIN_DIR/octa"
 echo "  Icon:    $ICON_DIR/octa.svg"
 echo "  Desktop: $DESKTOP_DIR/octa.desktop"
+if [[ -f "$MAN_DIR/octa.1" ]]; then
+	echo "  Man:     $MAN_DIR/octa.1   (try \`man octa\`)"
+fi

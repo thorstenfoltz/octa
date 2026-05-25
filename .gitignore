@@ -8,3 +8,14 @@ CLAUDE.md
 megalinter-reports/
 pkg/build/
 *.tar.gz
+TODO.md
+
+# Python / uv (docs toolchain)
+.venv/
+__pycache__/
+
+# mkdocs build output
+/site/
+
+# Local-only parked plans (kept in repo for context, not for sharing)
+windows/WINDOWS_INSTALL_PLAN.md

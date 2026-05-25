@@ -100,6 +100,13 @@ impl DateLayout {
 }
 
 /// Datetime layout = a `DateLayout` plus a separator and time precision.
+///
+/// Timezone-aware variants (`*Tz`) accept ISO offsets (`Z`, `+02:00`, `+0200`,
+/// `-05:00`, …) and **normalize every value to UTC** before storing it. This
+/// keeps cross-row comparison consistent (all instants land in the same
+/// timeline) at the price of silently shifting wall-clock times; the format
+/// banner surfaces that to the user the same way it does for European date
+/// promotion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DateTimeLayout {
     /// `YYYY-MM-DD HH:MM[:SS]`
@@ -112,6 +119,10 @@ pub enum DateTimeLayout {
     DmySlashSpace,
     /// `MM/DD/YYYY HH:MM[:SS]`
     MdySlashSpace,
+    /// `YYYY-MM-DD HH:MM[:SS]<tz>` — ISO with space separator + offset.
+    YmdDashSpaceTz,
+    /// `YYYY-MM-DDTHH:MM[:SS]<tz>` — ISO with `T` separator + offset.
+    YmdDashTTz,
 }
 
 impl DateTimeLayout {
@@ -121,6 +132,8 @@ impl DateTimeLayout {
         Self::DmyDotSpace,
         Self::DmySlashSpace,
         Self::MdySlashSpace,
+        Self::YmdDashSpaceTz,
+        Self::YmdDashTTz,
     ];
 
     pub fn label(self) -> &'static str {
@@ -130,27 +143,64 @@ impl DateTimeLayout {
             Self::DmyDotSpace => "DD.MM.YYYY HH:MM:SS (European)",
             Self::DmySlashSpace => "DD/MM/YYYY HH:MM:SS (European)",
             Self::MdySlashSpace => "MM/DD/YYYY HH:MM:SS (US)",
+            Self::YmdDashSpaceTz => "YYYY-MM-DD HH:MM:SS\u{00B1}HH:MM (\u{2192} UTC)",
+            Self::YmdDashTTz => "YYYY-MM-DDTHH:MM:SS\u{00B1}HH:MM (\u{2192} UTC)",
         }
     }
 
     /// Whether this layout matches the canonical ISO display
-    /// (`YYYY-MM-DD HH:MM:SS`). The `T` separator counts as different
-    /// because the displayed cell uses a space.
+    /// (`YYYY-MM-DD HH:MM:SS`). The `T` separator and any tz-aware variant
+    /// count as different because the displayed cell uses a space and the
+    /// original wall-clock time may have been shifted.
     pub fn is_canonical(self) -> bool {
         matches!(self, Self::YmdDashSpace)
     }
 
+    /// Whether this layout consumes a timezone offset. Tz-aware layouts
+    /// branch in [`parse`] to use `DateTime::parse_from_str` and normalize
+    /// to UTC.
+    fn has_timezone(self) -> bool {
+        matches!(self, Self::YmdDashSpaceTz | Self::YmdDashTTz)
+    }
+
     /// Try to parse the value under this layout, allowing `HH:MM`, `HH:MM:SS`,
-    /// and `HH:MM:SS.fff`. Returns the canonical ISO form
-    /// `YYYY-MM-DD HH:MM:SS[.fff]` on success.
+    /// and arbitrary-precision fractional seconds (`HH:MM:SS.fffffffff`).
+    /// Returns the canonical ISO form `YYYY-MM-DD HH:MM:SS` when the source
+    /// had no fractional component, and `YYYY-MM-DD HH:MM:SS.<fraction>`
+    /// when it did. Chrono's `%.f` formatter emits the fractional suffix
+    /// only when nanoseconds > 0, so whole-second timestamps still render
+    /// without a trailing dot.
+    ///
+    /// For timezone-aware layouts the source value is shifted to UTC before
+    /// formatting; the offset itself is not preserved in the canonical
+    /// string because the underlying `Timestamp(Microsecond, None)` cell
+    /// type has no slot for it.
     pub fn parse(self, s: &str) -> Option<String> {
         let trimmed = s.trim();
-        for fmt in self.candidate_formats() {
-            if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(trimmed, fmt) {
-                return Some(dt.format("%Y-%m-%d %H:%M:%S").to_string());
+        if self.has_timezone() {
+            // Chrono doesn't accept the bare `Z` (Zulu/UTC) suffix when
+            // parsing through a `%:z` directive; rewrite it to `+00:00` so
+            // a single offset pattern handles both ISO conventions.
+            let candidate: std::borrow::Cow<str> =
+                if let Some(rest) = trimmed.strip_suffix(['Z', 'z']) {
+                    std::borrow::Cow::Owned(format!("{rest}+00:00"))
+                } else {
+                    std::borrow::Cow::Borrowed(trimmed)
+                };
+            for fmt in self.candidate_formats() {
+                if let Ok(dt) = chrono::DateTime::parse_from_str(&candidate, fmt) {
+                    return Some(dt.naive_utc().format("%Y-%m-%d %H:%M:%S%.f").to_string());
+                }
             }
+            None
+        } else {
+            for fmt in self.candidate_formats() {
+                if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(trimmed, fmt) {
+                    return Some(dt.format("%Y-%m-%d %H:%M:%S%.f").to_string());
+                }
+            }
+            None
         }
-        None
     }
 
     fn candidate_formats(self) -> &'static [&'static str] {
@@ -179,6 +229,19 @@ impl DateTimeLayout {
                 "%m/%d/%Y %H:%M:%S%.f",
                 "%m/%d/%Y %H:%M:%S",
                 "%m/%d/%Y %H:%M",
+            ],
+            // `%:z` accepts both `+02:00` and `+0200`; chrono's parser is
+            // permissive about the colon. The `Z` suffix is rewritten to
+            // `+00:00` in `parse()` before reaching these patterns.
+            Self::YmdDashSpaceTz => &[
+                "%Y-%m-%d %H:%M:%S%.f%:z",
+                "%Y-%m-%d %H:%M:%S%:z",
+                "%Y-%m-%d %H:%M%:z",
+            ],
+            Self::YmdDashTTz => &[
+                "%Y-%m-%dT%H:%M:%S%.f%:z",
+                "%Y-%m-%dT%H:%M:%S%:z",
+                "%Y-%m-%dT%H:%M%:z",
             ],
         }
     }
@@ -471,5 +534,131 @@ mod tests {
             }
             other => panic!("expected PromotedDateTime, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn iso_utc_zulu_normalized_to_utc() {
+        let strings = vec![
+            Some("2024-03-15T13:45:00Z"),
+            Some("2024-04-01T08:00:00z"), // lowercase z also accepted
+        ];
+        match infer_column(&strings) {
+            InferOutcome::PromotedDateTime(DateTimeLayout::YmdDashTTz) => {}
+            other => panic!("expected YmdDashTTz, got {other:?}"),
+        }
+        // Round-trip via apply: cells render as UTC, no tz suffix.
+        let mut t = table(vec!["2024-03-15T13:45:00Z", "2024-04-01T08:00:00z"]);
+        apply_datetime(&mut t, 0, DateTimeLayout::YmdDashTTz);
+        match t.rows[0][0] {
+            CellValue::DateTime(ref s) => assert_eq!(s, "2024-03-15 13:45:00"),
+            ref other => panic!("expected DateTime, got {other:?}"),
+        }
+        match t.rows[1][0] {
+            CellValue::DateTime(ref s) => assert_eq!(s, "2024-04-01 08:00:00"),
+            ref other => panic!("expected DateTime, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn iso_offset_shifted_to_utc() {
+        // +02:00 shifts back two hours; -05:00 shifts forward five.
+        let strings = vec![
+            Some("2024-03-15T14:30:00+02:00"),
+            Some("2024-03-15T09:00:00-05:00"),
+        ];
+        match infer_column(&strings) {
+            InferOutcome::PromotedDateTime(DateTimeLayout::YmdDashTTz) => {}
+            other => panic!("expected YmdDashTTz, got {other:?}"),
+        }
+        let mut t = table(vec![
+            "2024-03-15T14:30:00+02:00",
+            "2024-03-15T09:00:00-05:00",
+        ]);
+        apply_datetime(&mut t, 0, DateTimeLayout::YmdDashTTz);
+        match t.rows[0][0] {
+            CellValue::DateTime(ref s) => assert_eq!(s, "2024-03-15 12:30:00"),
+            ref other => panic!("expected DateTime, got {other:?}"),
+        }
+        match t.rows[1][0] {
+            CellValue::DateTime(ref s) => assert_eq!(s, "2024-03-15 14:00:00"),
+            ref other => panic!("expected DateTime, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn iso_offset_with_fractional_preserved() {
+        let strings = vec![
+            Some("2024-03-15T14:30:00.123456+02:00"),
+            Some("2024-04-01T08:00:00.5Z"),
+        ];
+        match infer_column(&strings) {
+            InferOutcome::PromotedDateTime(DateTimeLayout::YmdDashTTz) => {}
+            other => panic!("expected YmdDashTTz, got {other:?}"),
+        }
+        let mut t = table(vec![
+            "2024-03-15T14:30:00.123456+02:00",
+            "2024-04-01T08:00:00.5Z",
+        ]);
+        apply_datetime(&mut t, 0, DateTimeLayout::YmdDashTTz);
+        match t.rows[0][0] {
+            CellValue::DateTime(ref s) => assert_eq!(s, "2024-03-15 12:30:00.123456"),
+            ref other => panic!("expected DateTime, got {other:?}"),
+        }
+        match t.rows[1][0] {
+            CellValue::DateTime(ref s) => assert_eq!(s, "2024-04-01 08:00:00.500"),
+            ref other => panic!("expected DateTime, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn iso_offset_compact_form_accepted() {
+        // `+0200` (no colon) is the RFC 822 / ISO 8601 basic offset form.
+        let strings = vec![
+            Some("2024-03-15T14:30:00+0200"),
+            Some("2024-04-01T08:00:00-0500"),
+        ];
+        match infer_column(&strings) {
+            InferOutcome::PromotedDateTime(DateTimeLayout::YmdDashTTz) => {}
+            other => panic!("expected YmdDashTTz, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mixed_naive_and_tz_rejects() {
+        // A column with one tz-aware and one naive row is semantically
+        // inconsistent — neither layout matches every value.
+        let strings = vec![Some("2024-03-15T14:30:00Z"), Some("2024-04-01T08:00:00")];
+        assert!(matches!(infer_column(&strings), InferOutcome::Skip));
+    }
+
+    #[test]
+    fn fractional_seconds_preserved_after_promotion() {
+        // Mixed precision in the same column: milli, micro, nano, and
+        // whole-second values must round-trip through the inference pass.
+        let strings = vec![
+            Some("2024-03-15 13:45:00.123"),
+            Some("2024-04-01 08:00:00.456789"),
+            Some("2024-05-10 09:15:30.000000001"),
+            Some("2024-06-20 12:00:00"),
+        ];
+        match infer_column(&strings) {
+            InferOutcome::PromotedDateTime(DateTimeLayout::YmdDashSpace) => {}
+            other => panic!("expected YmdDashSpace, got {other:?}"),
+        }
+        let mut t = table(vec![
+            "2024-03-15 13:45:00.123",
+            "2024-04-01 08:00:00.456789",
+            "2024-05-10 09:15:30.000000001",
+            "2024-06-20 12:00:00",
+        ]);
+        apply_datetime(&mut t, 0, DateTimeLayout::YmdDashSpace);
+        let expect = |row: usize, want: &str| match t.rows[row][0] {
+            CellValue::DateTime(ref s) => assert_eq!(s, want, "row {row}"),
+            ref other => panic!("row {row} expected DateTime, got {other:?}"),
+        };
+        expect(0, "2024-03-15 13:45:00.123");
+        expect(1, "2024-04-01 08:00:00.456789");
+        expect(2, "2024-05-10 09:15:30.000000001");
+        expect(3, "2024-06-20 12:00:00");
     }
 }

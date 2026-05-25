@@ -21,6 +21,24 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     app.settings = new_settings;
     app.settings.save();
 
+    // Truncate the recent-files list if the user lowered `max_recent_files`.
+    // Without this the menu keeps showing the old (longer) list until a new
+    // file is opened — confusing because the setting appears to do nothing.
+    if app.recent_files.len() > app.settings.max_recent_files {
+        app.recent_files.truncate(app.settings.max_recent_files);
+        app.save_recent_files();
+    }
+
+    // Push the (possibly changed) first-load row cap into the streaming
+    // readers' process-wide atomic so any subsequent file open picks up
+    // the new value without restart. "Unlimited" overrides the numeric.
+    let initial_cap = if app.settings.initial_load_rows_unlimited {
+        usize::MAX
+    } else {
+        app.settings.initial_load_rows
+    };
+    octa::formats::set_initial_load_rows(initial_cap);
+
     // Apply window-size / maximize changes immediately so the user sees the
     // effect without relaunching. `with_inner_size()` at startup is ignored
     // while the window is maximized, which was the source of "the setting

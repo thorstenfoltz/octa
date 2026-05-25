@@ -4,15 +4,15 @@ use serde::{Deserialize, Serialize};
 
 use super::shortcuts::{KeyCombo, ShortcutAction, Shortcuts};
 use super::theme::{BodyFont, ThemeMode};
-use crate::data::{BinaryDisplayMode, MarkColor, SearchMode};
+use crate::data::{BinaryDisplayMode, MapMode, MarkColor, SearchMode};
 
 /// Layout for Jupyter notebook output cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum NotebookOutputLayout {
     /// Output shown beside the source cell (side by side).
-    #[default]
     Beside,
     /// Output shown beneath the source cell (like Jupyter).
+    #[default]
     Beneath,
 }
 
@@ -71,6 +71,94 @@ impl SqlPanelPosition {
             Self::Right => "Right",
         }
     }
+}
+
+/// Font used by the SQL editor's TextEdit and its gutter. Independent of the
+/// table view's font setting so users who want a code-style monospace in the
+/// editor but a different font everywhere else can have both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SqlEditorFont {
+    /// Bundled JetBrains Mono Regular. Recommended for code legibility.
+    #[default]
+    JetBrainsMono,
+    /// Reuse whatever family the rest of the UI uses (proportional or
+    /// custom). Picks up the user's `FontSettings.body` and any custom path.
+    MatchUiFont,
+    /// egui's built-in monospace (Hack Regular). Lightest weight, no extra
+    /// face registered.
+    SystemMonospace,
+}
+
+impl SqlEditorFont {
+    pub const ALL: &[SqlEditorFont] = &[
+        Self::JetBrainsMono,
+        Self::MatchUiFont,
+        Self::SystemMonospace,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::JetBrainsMono => "JetBrains Mono (bundled)",
+            Self::MatchUiFont => "Match UI font",
+            Self::SystemMonospace => "System monospace",
+        }
+    }
+}
+
+/// Display unit for the syntax-highlight size cap in the Settings dialog.
+/// Octa stores the cap as raw bytes in `settings.toml`; this enum only
+/// governs how the value is presented and edited in the dialog. Not
+/// persisted to the toml — defaults to MB at each open and the dialog
+/// picks the most natural unit for the current value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SyntaxSizeUnit {
+    Bytes,
+    KB,
+    #[default]
+    MB,
+}
+
+impl SyntaxSizeUnit {
+    pub const ALL: &[SyntaxSizeUnit] = &[Self::Bytes, Self::KB, Self::MB];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Bytes => "Bytes",
+            Self::KB => "KB",
+            Self::MB => "MB",
+        }
+    }
+
+    pub fn factor(self) -> usize {
+        match self {
+            Self::Bytes => 1,
+            Self::KB => 1_024,
+            Self::MB => 1_024 * 1_024,
+        }
+    }
+
+    /// Pick the largest unit that represents `bytes` as an integer
+    /// (so 1,048,576 → 1 MB; 2,048 → 2 KB; 1,500 → 1500 Bytes).
+    pub fn best_fit(bytes: usize) -> Self {
+        if bytes == 0 {
+            return Self::MB;
+        }
+        if bytes.is_multiple_of(Self::MB.factor()) {
+            return Self::MB;
+        }
+        if bytes.is_multiple_of(Self::KB.factor()) {
+            return Self::KB;
+        }
+        Self::Bytes
+    }
+}
+
+/// Parse a string with optional comma thousand-separators into a `usize`.
+/// Empty after stripping commas → Err. Used by the Performance settings
+/// inputs so users can type "1,000,000" the same way Octa renders numbers
+/// elsewhere in the UI.
+pub fn parse_comma_number(s: &str) -> Result<usize, std::num::ParseIntError> {
+    s.replace(',', "").trim().parse::<usize>()
 }
 
 /// Initial window size before maximizing.
@@ -277,6 +365,20 @@ impl IconVariant {
     }
 }
 
+/// Allocate a small filled square next to a label so the icon-color picker
+/// can show its swatch without baking the color into the label text (which
+/// would render `White` invisibly on light themes and `Black` on dark).
+fn paint_icon_swatch(ui: &mut egui::Ui, color: egui::Color32) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 2.0, color);
+    ui.painter().rect_stroke(
+        rect,
+        2.0,
+        egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
+        egui::StrokeKind::Outside,
+    );
+}
+
 /// Persistent application settings.
 ///
 /// `#[serde(default)]` on the struct fills every missing field from
@@ -349,6 +451,11 @@ pub struct AppSettings {
     /// Whether the SQL editor offers keyword + column-name autocomplete.
     #[serde(default = "default_true")]
     pub sql_autocomplete: bool,
+    /// Which font face the SQL editor (and its line-number gutter) uses.
+    /// Independent of the UI font so users can keep the rest of Octa on a
+    /// proportional face while reading SQL in monospace.
+    #[serde(default)]
+    pub sql_editor_font: SqlEditorFont,
     /// Where to dock the directory tree sidebar when a folder is open.
     #[serde(default)]
     pub directory_tree_position: DirectoryTreePosition,
@@ -388,6 +495,94 @@ pub struct AppSettings {
     /// preferred unless the user explicitly opts in.
     #[serde(default)]
     pub use_custom_title_bar: bool,
+    /// Hard cap (in bytes) for files where the raw editor still applies
+    /// syntect syntax highlighting. Past this threshold the editor falls
+    /// back to plain monospace because per-frame tokenisation gets laggy.
+    /// Default 1 MB. Set to 0 to disable highlighting entirely; set very
+    /// high to opt out of the guard.
+    #[serde(default = "default_syntax_highlight_max_bytes")]
+    pub syntax_highlight_max_bytes: usize,
+    /// Maximum number of rows loaded into the active `DataTable` on first
+    /// open for streaming formats (Parquet, CSV, TSV). Additional rows
+    /// load in the background as the user scrolls toward the bottom.
+    /// Default 5,000,000. Setting this very high improves first-paint
+    /// completeness but uses more memory; setting it lower makes the
+    /// initial open faster but means the background loader has to do
+    /// more work as you scroll. Ignored when
+    /// [`initial_load_rows_unlimited`](Self::initial_load_rows_unlimited)
+    /// is `true`.
+    #[serde(default = "default_initial_load_rows")]
+    pub initial_load_rows: usize,
+    /// When `true`, disables the initial-load cap entirely — every row in
+    /// the file is loaded up front. Trumps [`initial_load_rows`](Self::initial_load_rows).
+    /// Default `false`. Power users on machines with plenty of RAM can flip
+    /// this on so a single huge parquet/CSV opens in one shot.
+    #[serde(default)]
+    pub initial_load_rows_unlimited: bool,
+    /// User-extensible list of file extensions (no leading dot, lowercase)
+    /// that Octa should treat as plain text. Files with these extensions
+    /// are routed through `TextReader` regardless of any other reader that
+    /// would normally claim them. Useful for unusual config or log
+    /// extensions Octa doesn't ship native support for.
+    #[serde(default)]
+    pub text_mode_extensions: Vec<String>,
+    /// Absolute paths of pinned tabs. Restored on next launch through the
+    /// regular `load_file` path. Files that no longer exist on disk are
+    /// silently dropped from this list. Unsaved changes in a pinned tab are
+    /// **not** auto-saved at close — the standard unsaved-changes dialog
+    /// still runs.
+    #[serde(default)]
+    pub pinned_tabs: Vec<String>,
+    /// Default row cap applied by the MCP server (`octa --mcp`) when a tool
+    /// call omits its `limit` parameter. `None` means "return every row";
+    /// `Some(n)` caps the response and sets `truncated: true` in the JSON.
+    /// Defaults to `Some(1000)`. Read once at server startup — changing this
+    /// while a server is running needs an `octa --mcp` restart.
+    #[serde(default = "default_mcp_row_limit")]
+    pub mcp_default_row_limit: Option<usize>,
+    /// Per-cell byte cap applied by the MCP server. Cells whose textual
+    /// form exceeds this are replaced with a `[truncated: ...]` marker and
+    /// the tool response flags `cell_truncated: true`. `0` means no cap.
+    /// Default 65,536 bytes (64 KiB).
+    #[serde(default = "default_mcp_cell_bytes")]
+    pub mcp_default_cell_bytes: usize,
+    /// Default rendering mode for the Map view when opening a GeoJSON file.
+    /// `Tiles` shows a slippy-map background; `GeometryOnly` skips the
+    /// network fetch and paints just the geometry on a blank canvas.
+    /// Toggleable per tab via the Map toolbar.
+    #[serde(default)]
+    pub map_default_mode: MapMode,
+    /// When the map mode is `Tiles` and tile fetching fails (offline / DNS
+    /// block / server error), automatically fall back to geometry-only
+    /// rendering instead of leaving the user staring at a grey grid.
+    /// Default `true`.
+    #[serde(default = "default_true")]
+    pub map_fallback_to_geometry: bool,
+    /// Tile URL template, `{z}/{x}/{y}` for zoom + tile coordinates. The
+    /// default points at the OSM tile server — please honour the
+    /// [OSM Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/)
+    /// in production deployments (point at a self-hosted or commercial
+    /// provider, or get an API key).
+    #[serde(default = "default_map_tile_url")]
+    pub map_tile_url_template: String,
+    /// Per-file size cap (megabytes) for the directory scope of the
+    /// multi-search panel. Files over this size are skipped silently
+    /// during the scan. Default 50 MB. `0` disables the cap.
+    #[serde(default = "default_grep_max_file_size_mb")]
+    pub grep_max_file_size_mb: u32,
+    /// Maximum number of input rows the Chart tab will plot before
+    /// evenly-spaced downsampling kicks in. Histogram, Line, and Scatter
+    /// all honour this; Bar always aggregates the full input and is
+    /// bounded by `chart_max_categories` instead. Default 100,000.
+    /// `0` disables sampling — at your own risk for very large tables.
+    #[serde(default = "default_chart_max_points")]
+    pub chart_max_points: usize,
+    /// Maximum distinct X categories a Bar chart will accept. Above this
+    /// the chart refuses to draw rather than rendering a wall of
+    /// unreadable bars — the user should filter or group before charting.
+    /// Default 200.
+    #[serde(default = "default_chart_max_categories")]
+    pub chart_max_categories: usize,
 }
 
 fn default_true() -> bool {
@@ -406,8 +601,47 @@ fn default_sql_row_limit() -> usize {
     100
 }
 
+fn default_syntax_highlight_max_bytes() -> usize {
+    1024 * 1024
+}
+
+fn default_initial_load_rows() -> usize {
+    5_000_000
+}
+
+// Kept literal here (rather than referencing `crate::mcp::DEFAULT_*`)
+// because `mcp` lives in the binary side of the crate split and the
+// settings module is in the library. The values are mirrored by
+// `src/mcp/mod.rs::DEFAULT_ROW_LIMIT` / `DEFAULT_CELL_BYTE_LIMIT`.
+fn default_mcp_row_limit() -> Option<usize> {
+    Some(1000)
+}
+
+fn default_mcp_cell_bytes() -> usize {
+    64 * 1024
+}
+
+fn default_grep_max_file_size_mb() -> u32 {
+    50
+}
+
+fn default_chart_max_points() -> usize {
+    100_000
+}
+
+fn default_chart_max_categories() -> usize {
+    crate::data::chart::DEFAULT_MAX_BAR_CATEGORIES
+}
+
+fn default_map_tile_url() -> String {
+    // Stock OSM tile server. Walkers ships a `sources::OpenStreetMap`
+    // helper that points at the same URL; we duplicate the literal here
+    // so the user can edit it without juggling a `walkers::sources` type.
+    "https://tile.openstreetmap.org/{z}/{x}/{y}.png".to_string()
+}
+
 fn default_mark_color() -> MarkColor {
-    MarkColor::Yellow
+    MarkColor::Green
 }
 
 impl Default for AppSettings {
@@ -415,17 +649,17 @@ impl Default for AppSettings {
         Self {
             font_size: 13.0,
             default_theme: ThemeMode::Light,
-            icon_variant: IconVariant::Random,
+            icon_variant: IconVariant::Rose,
             default_search_mode: SearchMode::Plain,
             show_row_numbers: true,
             alternating_row_colors: true,
-            negative_numbers_red: false,
+            negative_numbers_red: true,
             highlight_edits: false,
             cell_line_breaks: false,
             binary_display_mode: BinaryDisplayMode::default(),
             color_aligned_columns: true,
             notebook_output_layout: NotebookOutputLayout::default(),
-            max_recent_files: 5,
+            max_recent_files: 10,
             tab_size: 4,
             body_font: BodyFont::Proportional,
             custom_font_path: String::new(),
@@ -434,6 +668,7 @@ impl Default for AppSettings {
             sql_panel_position: SqlPanelPosition::default(),
             sql_default_row_limit: 100,
             sql_autocomplete: true,
+            sql_editor_font: SqlEditorFont::default(),
             directory_tree_position: DirectoryTreePosition::default(),
             warn_raw_align_reload: true,
             warn_on_date_format_change: true,
@@ -442,6 +677,19 @@ impl Default for AppSettings {
             start_maximized: true,
             show_readonly_notice: true,
             use_custom_title_bar: false,
+            syntax_highlight_max_bytes: default_syntax_highlight_max_bytes(),
+            initial_load_rows: default_initial_load_rows(),
+            initial_load_rows_unlimited: false,
+            text_mode_extensions: Vec::new(),
+            pinned_tabs: Vec::new(),
+            mcp_default_row_limit: default_mcp_row_limit(),
+            mcp_default_cell_bytes: default_mcp_cell_bytes(),
+            map_default_mode: MapMode::default(),
+            map_fallback_to_geometry: true,
+            map_tile_url_template: default_map_tile_url(),
+            grep_max_file_size_mb: default_grep_max_file_size_mb(),
+            chart_max_points: default_chart_max_points(),
+            chart_max_categories: default_chart_max_categories(),
         }
     }
 }
@@ -548,6 +796,43 @@ pub struct SettingsDialog {
     /// Buffer backing the SQL row-limit text input. Parsed into the draft
     /// on Apply so the user can type freely without drag widgets fighting them.
     sql_row_limit_buf: String,
+    /// Buffer backing the syntax-highlight size text input. Holds the value
+    /// in whichever unit `syntax_highlight_size_unit` currently picks, with
+    /// comma thousand separators so it matches Octa's display conventions.
+    /// Parsed on Apply.
+    syntax_highlight_max_bytes_buf: String,
+    /// Display unit for the syntax-highlight size input. Not persisted —
+    /// reset each time the dialog opens.
+    syntax_highlight_size_unit: SyntaxSizeUnit,
+    /// Buffer backing the initial-load-rows text input. Holds a comma-
+    /// separated integer (e.g. "1,000,000"). Parsed on Apply.
+    initial_load_rows_buf: String,
+    /// Buffer backing the user-extensible "treat as text" extensions input.
+    /// Comma- or space-separated; canonicalised on Apply (lowercased,
+    /// leading dot stripped). Parsed on Apply.
+    text_mode_extensions_buf: String,
+    /// Buffer backing the MCP default-row-limit text input. Comma-separated
+    /// integer; ignored when `mcp_unlimited_rows` is checked.
+    mcp_row_limit_buf: String,
+    /// When true, the MCP server returns every row by default (the row
+    /// limit input is greyed out). Mirrors `AppSettings.mcp_default_row_limit ==
+    /// None`. Toggling on Apply writes `None`; toggling off writes
+    /// `Some(parse(mcp_row_limit_buf))`.
+    mcp_unlimited_rows: bool,
+    /// Buffer backing the MCP default cell-byte cap input. Comma-separated
+    /// integer; `0` means unlimited (same as the field semantic).
+    mcp_cell_bytes_buf: String,
+    /// Buffer backing the Multi-search file-size cap input. Comma-separated
+    /// integer in megabytes; parsed back into `grep_max_file_size_mb` on Apply.
+    /// Lives here (not on the field directly) so hover over the input doesn't
+    /// flash the drag-resize cursor egui's `DragValue` always renders.
+    grep_max_file_size_buf: String,
+    /// Buffer backing the chart `max_points` input. Same pattern as
+    /// `initial_load_rows_buf` so the user can paste "1,000,000" without
+    /// fighting commas.
+    chart_max_points_buf: String,
+    /// Buffer backing the chart `max_categories` input.
+    chart_max_categories_buf: String,
     /// When the user clicks "Record" for a shortcut, the action is stored here
     /// and the next key press captures a new binding. `None` = not recording.
     recording: Option<ShortcutAction>,
@@ -581,6 +866,27 @@ impl SettingsDialog {
         self.font_changed = false;
         self.theme_changed = false;
         self.sql_row_limit_buf = current.sql_default_row_limit.to_string();
+        // Pick the most natural unit for the current bytes value so the
+        // user sees "1 MB" rather than "1,048,576 Bytes" when the setting
+        // is at the default.
+        self.syntax_highlight_size_unit =
+            SyntaxSizeUnit::best_fit(current.syntax_highlight_max_bytes);
+        // `SyntaxSizeUnit::factor` is always >= 1, so the division is safe.
+        let unit_factor = self.syntax_highlight_size_unit.factor();
+        self.syntax_highlight_max_bytes_buf =
+            super::status_bar::format_number(current.syntax_highlight_max_bytes / unit_factor);
+        self.initial_load_rows_buf = super::status_bar::format_number(current.initial_load_rows);
+        self.text_mode_extensions_buf = current.text_mode_extensions.join(", ");
+        // MCP buffers seed from the live settings.
+        self.mcp_unlimited_rows = current.mcp_default_row_limit.is_none();
+        self.mcp_row_limit_buf =
+            super::status_bar::format_number(current.mcp_default_row_limit.unwrap_or(1000));
+        self.mcp_cell_bytes_buf = super::status_bar::format_number(current.mcp_default_cell_bytes);
+        self.grep_max_file_size_buf =
+            super::status_bar::format_number(current.grep_max_file_size_mb as usize);
+        self.chart_max_points_buf = super::status_bar::format_number(current.chart_max_points);
+        self.chart_max_categories_buf =
+            super::status_bar::format_number(current.chart_max_categories);
         self.recording = None;
         self.shortcut_conflict = None;
         self.show_reset_confirm = false;
@@ -609,13 +915,13 @@ impl SettingsDialog {
         // Max / Close buttons inline next to the title, like a typical
         // desktop window. Dragging works because the title text is a
         // non-interactive area inside the window's drag region.
-        let screen_center = ctx.screen_rect().center();
+        let screen_center = ctx.content_rect().center();
         let default_pos = screen_center - egui::vec2(340.0, 290.0);
         let mut window = egui::Window::new("Settings")
             .title_bar(false)
             .collapsible(false);
         window = match self.size {
-            DialogSize::Maximized => window.fixed_rect(ctx.screen_rect().shrink(8.0)),
+            DialogSize::Maximized => window.fixed_rect(ctx.content_rect().shrink(8.0)),
             // Minimized: no min sizing — let egui auto-shrink to the header.
             DialogSize::Minimized => window.resizable(false).default_pos(default_pos),
             DialogSize::Normal => window
@@ -631,7 +937,7 @@ impl SettingsDialog {
             // Custom title bar: logo + "Octa Settings" + three control
             // buttons. Stays rendered when minimized so the user can
             // restore from there.
-            egui::TopBottomPanel::top("settings_header")
+            egui::Panel::top("settings_header")
                 .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
                 .show_inside(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -655,15 +961,60 @@ impl SettingsDialog {
 
             // Pin Apply/Cancel to the bottom so they're always reachable
             // regardless of how much content the scroll area holds.
-            egui::TopBottomPanel::bottom("settings_buttons")
+            egui::Panel::bottom("settings_buttons")
                 .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
                 .show_inside(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button("Apply").clicked() {
-                            if let Ok(n) = self.sql_row_limit_buf.trim().parse::<usize>()
+                            if let Ok(n) = parse_comma_number(&self.sql_row_limit_buf)
                                 && n >= 1
                             {
                                 self.draft.sql_default_row_limit = n;
+                            }
+                            if let Ok(n) = parse_comma_number(&self.syntax_highlight_max_bytes_buf)
+                            {
+                                // 0 is a valid input meaning "disable highlighting"
+                                // — anything <= 0 trips the size guard immediately.
+                                let unit_factor = self.syntax_highlight_size_unit.factor();
+                                self.draft.syntax_highlight_max_bytes =
+                                    n.saturating_mul(unit_factor);
+                            }
+                            if let Ok(n) = parse_comma_number(&self.initial_load_rows_buf)
+                                && n >= 1
+                            {
+                                self.draft.initial_load_rows = n;
+                            }
+                            self.draft.text_mode_extensions = self
+                                .text_mode_extensions_buf
+                                .split([',', ' ', '\t', '\n'])
+                                .map(|s| s.trim().trim_start_matches('.').to_lowercase())
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                            // MCP row cap: "Unlimited" overrides the text
+                            // input, otherwise parse the comma-separated
+                            // number. Invalid input falls back to the
+                            // existing draft value so the user doesn't
+                            // silently lose their previous setting.
+                            if self.mcp_unlimited_rows {
+                                self.draft.mcp_default_row_limit = None;
+                            } else if let Ok(n) = parse_comma_number(&self.mcp_row_limit_buf)
+                                && n >= 1
+                            {
+                                self.draft.mcp_default_row_limit = Some(n);
+                            }
+                            if let Ok(n) = parse_comma_number(&self.mcp_cell_bytes_buf) {
+                                self.draft.mcp_default_cell_bytes = n;
+                            }
+                            if let Ok(n) = parse_comma_number(&self.grep_max_file_size_buf) {
+                                // Multi-search per-file size cap. Stored as u32
+                                // because mb >= 4 GB is nonsense for this knob.
+                                self.draft.grep_max_file_size_mb = n.min(u32::MAX as usize) as u32;
+                            }
+                            if let Ok(n) = parse_comma_number(&self.chart_max_points_buf) {
+                                self.draft.chart_max_points = n;
+                            }
+                            if let Ok(n) = parse_comma_number(&self.chart_max_categories_buf) {
+                                self.draft.chart_max_categories = n.max(1);
                             }
                             applied = Some(self.draft.clone());
                             self.open = false;
@@ -728,6 +1079,20 @@ impl SettingsDialog {
         if confirm {
             self.draft = AppSettings::default();
             self.sql_row_limit_buf = self.draft.sql_default_row_limit.to_string();
+            self.syntax_highlight_size_unit =
+                SyntaxSizeUnit::best_fit(self.draft.syntax_highlight_max_bytes);
+            // `SyntaxSizeUnit::factor` is always >= 1, so the division is safe.
+            let factor = self.syntax_highlight_size_unit.factor();
+            self.syntax_highlight_max_bytes_buf =
+                super::status_bar::format_number(self.draft.syntax_highlight_max_bytes / factor);
+            self.initial_load_rows_buf =
+                super::status_bar::format_number(self.draft.initial_load_rows);
+            self.text_mode_extensions_buf = self.draft.text_mode_extensions.join(", ");
+            self.mcp_unlimited_rows = self.draft.mcp_default_row_limit.is_none();
+            self.mcp_row_limit_buf =
+                super::status_bar::format_number(self.draft.mcp_default_row_limit.unwrap_or(1000));
+            self.mcp_cell_bytes_buf =
+                super::status_bar::format_number(self.draft.mcp_default_cell_bytes);
             self.icon_changed = true;
             self.font_changed = true;
             self.theme_changed = true;
@@ -842,19 +1207,23 @@ impl SettingsDialog {
                         ui.label("Icon color:")
                             .on_hover_text("Color variant for the application icon");
                         let old_icon = self.draft.icon_variant;
-                        egui::ComboBox::from_id_salt("icon_combo")
-                            .selected_text(self.draft.icon_variant.label())
-                            .show_ui(ui, |ui| {
-                                for &variant in IconVariant::ALL {
-                                    let color = variant.preview_color();
-                                    let text = egui::RichText::new(variant.label()).color(color);
-                                    ui.selectable_value(
-                                        &mut self.draft.icon_variant,
-                                        variant,
-                                        text,
-                                    );
-                                }
-                            });
+                        ui.horizontal(|ui| {
+                            paint_icon_swatch(ui, self.draft.icon_variant.preview_color());
+                            egui::ComboBox::from_id_salt("icon_combo")
+                                .selected_text(self.draft.icon_variant.label())
+                                .show_ui(ui, |ui| {
+                                    for &variant in IconVariant::ALL {
+                                        ui.horizontal(|ui| {
+                                            paint_icon_swatch(ui, variant.preview_color());
+                                            ui.selectable_value(
+                                                &mut self.draft.icon_variant,
+                                                variant,
+                                                variant.label(),
+                                            );
+                                        });
+                                    }
+                                });
+                        });
                         if self.draft.icon_variant != old_icon {
                             self.icon_changed = true;
                         }
@@ -1111,6 +1480,138 @@ impl SettingsDialog {
                         );
                         ui.checkbox(&mut self.draft.sql_autocomplete, "");
                         ui.end_row();
+
+                        ui.label("Editor font:").on_hover_text(
+                            "Font face used by the SQL editor and its line-number\n\
+                             gutter. JetBrains Mono is bundled with Octa.\n\
+                             \n\
+                             Note: programming ligatures (e.g. != → ≠, -> → →)\n\
+                             are not applied — egui's text renderer does not\n\
+                             process OpenType GSUB substitutions yet.",
+                        );
+                        egui::ComboBox::from_id_salt("sql_editor_font_combo")
+                            .selected_text(self.draft.sql_editor_font.label())
+                            .show_ui(ui, |ui| {
+                                for &font in SqlEditorFont::ALL {
+                                    ui.selectable_value(
+                                        &mut self.draft.sql_editor_font,
+                                        font,
+                                        font.label(),
+                                    );
+                                }
+                            });
+                        ui.end_row();
+                    });
+            });
+
+        // ── MCP server ──
+        egui::CollapsingHeader::new(egui::RichText::new("MCP").strong().size(13.0))
+            .id_salt("settings_section_mcp")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new(
+                        "Defaults for the MCP server (`octa --mcp`). The server reads these \
+                         once at startup; changing them while a server is running needs an \
+                         `octa --mcp` restart.",
+                    )
+                    .weak()
+                    .size(11.0),
+                );
+                ui.add_space(6.0);
+                egui::Grid::new("settings_mcp")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label("Default row limit:").on_hover_text(
+                            "Maximum rows returned by `read_table` / `run_sql` when the \
+                             caller omits `limit`. The tool schema advertises this default \
+                             to the model so it can ask for more (or unlimited) when needed.\n\
+                             \n\
+                             Default: 1,000. Setting this high — or checking Unlimited — \
+                             can push very large responses through stdio and slow down the \
+                             MCP client.",
+                        );
+                        ui.horizontal(|ui| {
+                            let edit = egui::TextEdit::singleline(&mut self.mcp_row_limit_buf)
+                                .desired_width(100.0)
+                                .hint_text("1,000");
+                            ui.add_enabled(!self.mcp_unlimited_rows, edit);
+                            ui.checkbox(&mut self.mcp_unlimited_rows, "Unlimited");
+                        });
+                        ui.end_row();
+
+                        ui.label("Cell byte cap:").on_hover_text(
+                            "Per-cell on-wire size cap. Cells whose textual form exceeds \
+                             this are replaced with a `[truncated: ...]` marker and the \
+                             response flags `cell_truncated: true`. Set to 0 to disable \
+                             the cap.\n\
+                             \n\
+                             Default: 65,536 (64 KiB).",
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.mcp_cell_bytes_buf)
+                                .desired_width(120.0)
+                                .hint_text("65,536"),
+                        );
+                        ui.end_row();
+                    });
+            });
+
+        // ── Map ──
+        egui::CollapsingHeader::new(egui::RichText::new("Map").strong().size(13.0))
+            .id_salt("settings_section_map")
+            .default_open(false)
+            .show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new(
+                        "Defaults for the Map view (used by GeoJSON files). The active tab \
+                         can flip between Tiles and Geometry-only via the Map toolbar.",
+                    )
+                    .weak()
+                    .size(11.0),
+                );
+                ui.add_space(6.0);
+                egui::Grid::new("settings_map")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label("Default mode:").on_hover_text(
+                            "Tiles: fetch a slippy map from the configured tile URL.\n\
+                             Geometry only: paint just the features on a blank canvas.",
+                        );
+                        egui::ComboBox::from_id_salt("map_default_mode_combo")
+                            .selected_text(self.draft.map_default_mode.label())
+                            .show_ui(ui, |ui| {
+                                for &m in MapMode::ALL {
+                                    ui.selectable_value(
+                                        &mut self.draft.map_default_mode,
+                                        m,
+                                        m.label(),
+                                    );
+                                }
+                            });
+                        ui.end_row();
+
+                        ui.label("Fallback to geometry:").on_hover_text(
+                            "When tile fetch fails (offline, blocked), automatically \
+                             switch to geometry-only rendering for that tab.",
+                        );
+                        ui.checkbox(&mut self.draft.map_fallback_to_geometry, "");
+                        ui.end_row();
+
+                        ui.label("Tile URL template:").on_hover_text(
+                            "URL pattern for raster tiles. `{z}/{x}/{y}` are substituted \
+                             with the zoom level and tile coordinates. Default points at \
+                             the OSM tile server — for production / heavy use, point at \
+                             a self-hosted or commercial provider.",
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.draft.map_tile_url_template)
+                                .desired_width(380.0)
+                                .hint_text("https://tile.openstreetmap.org/{z}/{x}/{y}.png"),
+                        );
+                        ui.end_row();
                     });
             });
 
@@ -1159,6 +1660,138 @@ impl SettingsDialog {
                 self.draw_shortcuts_grid(ui);
             });
 
+        // ── Performance ──
+        egui::CollapsingHeader::new(egui::RichText::new("Performance").strong().size(13.0))
+            .id_salt("settings_section_performance")
+            .default_open(false)
+            .show(ui, |ui| {
+                egui::Grid::new("settings_performance")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label("Initial-load row cap:").on_hover_text(
+                            "Maximum rows loaded into the table on first open for\n\
+                             streaming formats (Parquet, CSV, TSV). Remaining rows\n\
+                             stream in the background as you scroll.\n\
+                             \n\
+                             Default: 5,000,000. Raising it improves first-paint\n\
+                             completeness but uses more memory. Lowering it makes\n\
+                             the initial open faster but pushes more work onto\n\
+                             the background loader. Tick \"Unlimited\" to disable\n\
+                             the cap entirely and load every row up front.\n\
+                             \n\
+                             Type a number — applied on Apply.",
+                        );
+                        ui.horizontal(|ui| {
+                            ui.add_enabled(
+                                !self.draft.initial_load_rows_unlimited,
+                                egui::TextEdit::singleline(&mut self.initial_load_rows_buf)
+                                    .desired_width(120.0)
+                                    .hint_text("5,000,000"),
+                            );
+                            ui.checkbox(&mut self.draft.initial_load_rows_unlimited, "Unlimited")
+                                .on_hover_text(
+                                    "Load every row in the file up front. Recommended only\n\
+                                 when you have RAM to spare — a 100 M-row parquet eats\n\
+                                 several GB.",
+                                );
+                        });
+                        ui.end_row();
+
+                        ui.label("Syntax-highlight size cap:").on_hover_text(
+                            "Files larger than this fall back to plain monospace in\n\
+                             the raw editor. Set to 0 to disable syntax highlighting\n\
+                             entirely; set a very large number to opt out of the\n\
+                             guard. JSON/YAML/XML/Markdown/TOML are never highlighted\n\
+                             — they use their dedicated tree/preview views.\n\
+                             \n\
+                             Default: 1 MB. Type a number, pick a unit — applied on Apply.",
+                        );
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(
+                                    &mut self.syntax_highlight_max_bytes_buf,
+                                )
+                                .desired_width(100.0)
+                                .hint_text("1"),
+                            );
+                            egui::ComboBox::from_id_salt("syntax_size_unit_combo")
+                                .selected_text(self.syntax_highlight_size_unit.label())
+                                .width(70.0)
+                                .show_ui(ui, |ui| {
+                                    for &unit in SyntaxSizeUnit::ALL {
+                                        ui.selectable_value(
+                                            &mut self.syntax_highlight_size_unit,
+                                            unit,
+                                            unit.label(),
+                                        );
+                                    }
+                                });
+                        });
+                        ui.end_row();
+
+                        ui.label("Open as text:").on_hover_text(
+                            "Extra file extensions to treat as plain text on open\n\
+                             (overrides whatever reader would normally claim them).\n\
+                             Comma- or space-separated, no leading dot, lowercase.\n\
+                             Example: log4j  myproj  rawdata\n\
+                             \n\
+                             Applied on Apply; takes effect for subsequent file opens.",
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.text_mode_extensions_buf)
+                                .desired_width(280.0)
+                                .hint_text("log4j, myproj, rawdata"),
+                        );
+                        ui.end_row();
+
+                        ui.label("Multi-search file cap (MB):").on_hover_text(
+                            "Per-file size cap for the Multi-search panel's directory\n\
+                             scope. Files larger than this are skipped and listed in\n\
+                             the skipped-files chip. Set to 0 to disable the cap.\n\
+                             \n\
+                             Default: 50 MB.",
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.grep_max_file_size_buf)
+                                .desired_width(120.0)
+                                .hint_text("50"),
+                        );
+                        ui.end_row();
+
+                        ui.label("Chart max points:").on_hover_text(
+                            "Maximum rows the Chart tab will plot before evenly-spaced\n\
+                             downsampling kicks in (Histogram, Line, Scatter). Bar charts\n\
+                             always aggregate the full input; Box plots compute the\n\
+                             5-number summary over the full input. Set to 0 to disable\n\
+                             sampling — only safe for moderately-sized tables.\n\
+                             \n\
+                             Default: 100,000. Numeric input accepts comma separators.",
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.chart_max_points_buf)
+                                .desired_width(120.0)
+                                .hint_text("100,000"),
+                        );
+                        ui.end_row();
+
+                        ui.label("Chart max categories:").on_hover_text(
+                            "Maximum distinct X categories a Bar chart will accept before\n\
+                             refusing to draw. Above this the renderer surfaces an error\n\
+                             rather than producing an unreadable wall of bars — filter or\n\
+                             aggregate the table first.\n\
+                             \n\
+                             Default: 200. Numeric input accepts comma separators.",
+                        );
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.chart_max_categories_buf)
+                                .desired_width(120.0)
+                                .hint_text("200"),
+                        );
+                        ui.end_row();
+                    });
+            });
+
         // ── Files ──
         egui::CollapsingHeader::new(egui::RichText::new("Files").strong().size(13.0))
             .id_salt("settings_section_files")
@@ -1196,8 +1829,8 @@ impl SettingsDialog {
                     .num_columns(2)
                     .spacing([16.0, 8.0])
                     .show(ui, |ui| {
-                        ui.label("Start maximized:").on_hover_text(
-                            "When on, the window launches maximized and the size below\n\
+                        ui.label("Start maximised:").on_hover_text(
+                            "When on, the window launches maximised and the size below\n\
                              is used as the restore-from-maximize size.\n\
                              When off, the window launches at the chosen size.",
                         );
@@ -1205,7 +1838,7 @@ impl SettingsDialog {
                         ui.end_row();
 
                         ui.label("Initial window size:").on_hover_text(
-                            "Window size used at startup (when \"Start maximized\" is off),\n\
+                            "Window size used at startup (when \"Start maximised\" is off),\n\
                              or the restore-from-maximize size when it is on.",
                         );
                         ui.add_enabled_ui(!self.draft.start_maximized, |ui| {
@@ -1346,7 +1979,7 @@ pub fn draw_window_controls(ui: &mut egui::Ui, size: &mut DialogSize) -> bool {
                 .selected(min_active)
                 .min_size(btn_size),
         )
-        .on_hover_text(if min_active { "Restore" } else { "Minimize" })
+        .on_hover_text(if min_active { "Restore" } else { "Minimise" })
         .clicked()
     {
         *size = if min_active {

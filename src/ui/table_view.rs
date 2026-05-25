@@ -59,6 +59,9 @@ pub struct TableViewState {
     row_heights_generation: u64,
     /// Generation at which the cache was last built.
     row_heights_cached_generation: u64,
+    /// Pending request from the `FitAllColumns` shortcut. Drained on the next
+    /// `draw_table` call, where a `Ui` is available for font measurement.
+    pub fit_all_columns_requested: bool,
 }
 
 const DEFAULT_ROW_HEIGHT: f32 = 26.0;
@@ -199,7 +202,7 @@ fn compute_optimal_col_width(
     let mut max_w: f32 = 0.0;
 
     if let Some(col) = table.columns.get(col_idx) {
-        let header_w = ui.fonts(|f| {
+        let header_w = ui.fonts_mut(|f| {
             f.layout_no_wrap(col.name.clone(), mono.clone(), egui::Color32::WHITE)
                 .size()
                 .x
@@ -208,7 +211,7 @@ fn compute_optimal_col_width(
         // so reserve some extra headroom.
         max_w = max_w.max(header_w + SORT_ARROW_SIZE * 2.0 + 16.0);
 
-        let type_w = ui.fonts(|f| {
+        let type_w = ui.fonts_mut(|f| {
             f.layout_no_wrap(col.data_type.clone(), mono.clone(), egui::Color32::WHITE)
                 .size()
                 .x
@@ -223,7 +226,7 @@ fn compute_optimal_col_width(
             if text.is_empty() {
                 continue;
             }
-            let w = ui.fonts(|f| {
+            let w = ui.fonts_mut(|f| {
                 f.layout_no_wrap(text, mono.clone(), egui::Color32::WHITE)
                     .size()
                     .x
@@ -300,6 +303,35 @@ impl TableViewState {
         self.editing_cell = Some((row, col, text));
         self.edit_needs_focus = true;
     }
+
+    /// Resize every column to its best-fit width using the same algorithm
+    /// as the double-click-the-header-seam gesture. Sample is capped at
+    /// `AUTOFIT_MAX_ROWS` rows per column so multi-million-row tables stay
+    /// snappy.
+    pub fn fit_all_columns(
+        &mut self,
+        ui: &Ui,
+        table: &DataTable,
+        filtered_rows: &[usize],
+        font_size: f32,
+        binary_display_mode: BinaryDisplayMode,
+    ) {
+        self.ensure_widths(table);
+        for col_idx in 0..table.col_count() {
+            let optimal = compute_optimal_col_width(
+                ui,
+                table,
+                filtered_rows,
+                col_idx,
+                font_size,
+                binary_display_mode,
+            );
+            if let Some(width) = self.col_widths.get_mut(col_idx) {
+                *width = optimal;
+            }
+        }
+        self.invalidate_row_heights();
+    }
 }
 
 /// Signals from the table back to the app.
@@ -342,6 +374,22 @@ pub struct TableInteraction {
     pub clear_mark: Option<MarkKey>,
     /// Open the "Parse in new tab" modal for the selected scope.
     pub ctx_parse_in_new_tab: Option<super::toolbar::ParseScope>,
+    /// Open the Column Filter dialog pre-selected on this column index.
+    /// Fired by the column-header right-click menu's "Filter values..." entry.
+    pub ctx_filter_column: Option<usize>,
+    /// Hide a column from the table view. The data is preserved on disk
+    /// (Save / Save As writes hidden columns too); only the renderer omits
+    /// them. Cleared via Edit → Show hidden columns.
+    pub ctx_hide_column: Option<usize>,
+    /// Open the Value Frequency dialog for this column. Fired by the
+    /// column-header right-click menu's "Value frequency…" entry; the
+    /// `ColumnValueFrequency` keyboard shortcut goes through
+    /// `shortcuts_dispatch` instead.
+    pub ctx_value_frequency: Option<usize>,
+    /// The big logo on the welcome screen (rendered when the active tab has
+    /// no columns) was just clicked. Counted by the snow easter egg —
+    /// three within 1.5s triggers a 5-second snowfall.
+    pub welcome_logo_clicked: bool,
 }
 
 /// Draw the data table with true row virtualization.
@@ -363,11 +411,26 @@ pub fn draw_table(
     welcome_logo_texture: Option<&egui::TextureHandle>,
     shortcuts: &Shortcuts,
     readonly: bool,
+    // Column indices that currently have an active per-column filter. Used
+    // only to paint the header dot marker; the actual row filtering is
+    // already applied in `filtered_rows`.
+    filtered_columns: &HashSet<usize>,
+    // Column indices the user has hidden via right-click → "Hide column".
+    // Hidden columns render with width 0 and skip paint entirely. Data
+    // stays in the table (Save / Save As writes them).
+    hidden_columns: &HashSet<usize>,
 ) -> TableInteraction {
     let colors = ThemeColors::for_mode(theme_mode);
     let row_height = (font_size * 2.0).max(DEFAULT_ROW_HEIGHT);
     state.ensure_widths(table);
     state.os_clipboard_has_text = os_clipboard_has_content;
+
+    // Fulfil a pending FitAllColumns shortcut request now that we have a Ui
+    // for font measurement.
+    if state.fit_all_columns_requested {
+        state.fit_all_columns_requested = false;
+        state.fit_all_columns(ui, table, filtered_rows, font_size, binary_display_mode);
+    }
 
     // Compute row number column width based on the largest row number
     if show_row_numbers {
@@ -386,10 +449,16 @@ pub fn draw_table(
             let logo_size = (avail.x.min(avail.y) * 0.55).clamp(128.0, 512.0);
             ui.add_space((avail.y - logo_size - 40.0).max(0.0) / 2.0);
             if let Some(tex) = welcome_logo_texture {
-                ui.add(egui::Image::new(egui::load::SizedTexture::new(
-                    tex.id(),
-                    [logo_size, logo_size],
-                )));
+                let resp = ui.add(
+                    egui::Image::new(egui::load::SizedTexture::new(
+                        tex.id(),
+                        [logo_size, logo_size],
+                    ))
+                    .sense(egui::Sense::click()),
+                );
+                if resp.clicked() {
+                    interaction.welcome_logo_clicked = true;
+                }
             }
             ui.add_space(16.0);
             ui.label(RichText::new("Octa").size(28.0).color(colors.text_muted));
@@ -725,6 +794,8 @@ pub fn draw_table(
         font_size,
         filtered_rows,
         binary_display_mode,
+        filtered_columns,
+        hidden_columns,
     );
 
     // Header bottom border
@@ -794,6 +865,7 @@ pub fn draw_table(
                 binary_display_mode,
                 actual_row_height,
                 readonly,
+                hidden_columns,
             );
         }
 
@@ -927,6 +999,8 @@ fn draw_header_direct(
     font_size: f32,
     filtered_rows: &[usize],
     binary_display_mode: BinaryDisplayMode,
+    filtered_columns: &HashSet<usize>,
+    hidden_columns: &HashSet<usize>,
 ) {
     let rn_rect = egui::Rect::from_min_size(
         egui::pos2(left_x, top_y),
@@ -947,13 +1021,27 @@ fn draw_header_direct(
     let mut col_starts: Vec<f32> = Vec::with_capacity(table.col_count());
 
     for (col_idx, col) in table.columns.iter().enumerate() {
-        let w = state
-            .col_widths
-            .get(col_idx)
-            .copied()
-            .unwrap_or(DEFAULT_COL_WIDTH);
+        // Hidden columns collapse to zero width and skip every paint /
+        // interaction inside this loop. col_idx arithmetic is otherwise
+        // unchanged so col_widths, marks, edits, sort arrows, selected_cols
+        // — everything keyed by col_idx — stays correct.
+        let hidden = hidden_columns.contains(&col_idx);
+        let w = if hidden {
+            0.0
+        } else {
+            state
+                .col_widths
+                .get(col_idx)
+                .copied()
+                .unwrap_or(DEFAULT_COL_WIDTH)
+        };
 
         col_starts.push(x);
+
+        if hidden {
+            // No header paint, no resize handle, no x advance.
+            continue;
+        }
 
         let rect = egui::Rect::from_min_size(egui::pos2(x, top_y), Vec2::new(w, HEADER_HEIGHT));
 
@@ -1027,7 +1115,7 @@ fn draw_header_direct(
                     let edit = egui::TextEdit::singleline(buf)
                         .id(edit_id)
                         .font(egui::FontId::new(font_size, egui::FontFamily::Proportional))
-                        .frame(false)
+                        .frame(egui::Frame::NONE)
                         .desired_width(name_edit_rect.width());
                     let edit_response = ui.put(name_edit_rect, edit);
                     if state.edit_col_needs_focus {
@@ -1046,11 +1134,26 @@ fn draw_header_direct(
                 egui::FontId::new(font_size, egui::FontFamily::Proportional),
                 colors.text_header,
             );
+            let name_size = name_galley.size();
             painter.with_clip_rect(cell_clip).galley(
                 egui::pos2(rect.left() + 6.0, content_top + 1.0),
                 name_galley,
                 Color32::TRANSPARENT,
             );
+            // Active column-filter marker. A small accent-filled disc beside
+            // the column name (not a triangle - the sort indicator already
+            // owns the ▼/▲ glyphs to the right). Painted only when this
+            // column has an active filter so unfiltered headers look
+            // unchanged.
+            if filtered_columns.contains(&col_idx) {
+                let dot_center = egui::pos2(
+                    rect.left() + 6.0 + name_size.x + 8.0,
+                    content_top + 1.0 + name_size.y / 2.0,
+                );
+                painter
+                    .with_clip_rect(cell_clip)
+                    .circle_filled(dot_center, 3.5, colors.accent);
+            }
         }
 
         // Data type subtitle
@@ -1217,7 +1320,7 @@ fn draw_header_direct(
                 if ui.button("Rename").clicked() {
                     state.editing_col_name = Some((col_idx, col.name.clone()));
                     state.edit_col_needs_focus = true;
-                    ui.close_menu();
+                    ui.close();
                 }
                 ui.separator();
                 ui.label(RichText::new("Clipboard").strong().size(11.0));
@@ -1227,7 +1330,7 @@ fn draw_header_direct(
                         state.selected_cols.insert(col_idx);
                     }
                     interaction.ctx_copy = true;
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.button("Cut").clicked() {
                     if !state.selected_cols.contains(&col_idx) {
@@ -1235,34 +1338,64 @@ fn draw_header_direct(
                         state.selected_cols.insert(col_idx);
                     }
                     interaction.ctx_cut = true;
-                    ui.close_menu();
+                    ui.close();
                 }
                 if (state.clipboard.is_some() || state.os_clipboard_has_text)
                     && ui.button("Paste").clicked()
                 {
                     interaction.ctx_paste = true;
-                    ui.close_menu();
+                    ui.close();
                 }
                 ui.separator();
                 mark_submenu(ui, MarkKey::Column(col_idx), table, interaction);
                 ui.separator();
                 if ui.button("Sort A-Z").clicked() {
                     interaction.sort_rows_asc_by = Some(col_idx);
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.button("Sort Z-A").clicked() {
                     interaction.sort_rows_desc_by = Some(col_idx);
-                    ui.close_menu();
+                    ui.close();
+                }
+                if ui.button("Filter values...").clicked() {
+                    interaction.ctx_filter_column = Some(col_idx);
+                    ui.close();
+                }
+                if ui.button("Value frequency...").clicked() {
+                    interaction.ctx_value_frequency = Some(col_idx);
+                    ui.close();
+                }
+                if ui.button("Hide column").clicked() {
+                    interaction.ctx_hide_column = Some(col_idx);
+                    ui.close();
+                }
+                if ui.button("Copy column name(s)").clicked() {
+                    // Multi-column when the right-clicked column is part of
+                    // an existing column selection; otherwise just this one.
+                    let names: Vec<String> = if state.selected_cols.contains(&col_idx)
+                        && state.selected_cols.len() > 1
+                    {
+                        let mut ordered: Vec<usize> = state.selected_cols.iter().copied().collect();
+                        ordered.sort_unstable();
+                        ordered
+                            .into_iter()
+                            .filter_map(|i| table.columns.get(i).map(|c| c.name.clone()))
+                            .collect()
+                    } else {
+                        vec![col.name.clone()]
+                    };
+                    ui.ctx().copy_text(names.join("\n"));
+                    ui.close();
                 }
                 ui.separator();
                 if ui.button("Insert Column...").clicked() {
                     interaction.header_col_clicked = Some(col_idx);
                     interaction.ctx_insert_column = true;
-                    ui.close_menu();
+                    ui.close();
                 }
                 if ui.button("Delete Columns...").clicked() {
                     interaction.ctx_delete_column = true;
-                    ui.close_menu();
+                    ui.close();
                 }
                 ui.menu_button("Change Type", |ui| {
                     let types = &[
@@ -1292,7 +1425,7 @@ fn draw_header_direct(
                         };
                         if btn.clicked() {
                             interaction.change_col_type = Some((col_idx, t.to_string()));
-                            ui.close_menu();
+                            ui.close();
                         }
                     }
                 });
@@ -1303,7 +1436,7 @@ fn draw_header_direct(
                         .map(|(r, _)| (r, col_idx))
                         .or(Some((0, col_idx)));
                     interaction.ctx_move_col_left = true;
-                    ui.close_menu();
+                    ui.close();
                 }
                 if col_idx + 1 < table.col_count() && ui.button("Move Right").clicked() {
                     state.selected_cell = state
@@ -1311,7 +1444,7 @@ fn draw_header_direct(
                         .map(|(r, _)| (r, col_idx))
                         .or(Some((0, col_idx)));
                     interaction.ctx_move_col_right = true;
-                    ui.close_menu();
+                    ui.close();
                 }
             });
 
@@ -1467,6 +1600,7 @@ fn draw_data_row_direct(
     binary_display_mode: BinaryDisplayMode,
     row_height: f32,
     readonly: bool,
+    hidden_columns: &HashSet<usize>,
 ) {
     let is_multi_selected_row = state.selected_rows.contains(&actual_row);
 
@@ -1495,6 +1629,10 @@ fn draw_data_row_direct(
     let col_count = table.col_count();
 
     for col_idx in 0..col_count {
+        if hidden_columns.contains(&col_idx) {
+            // Hidden column: zero width, no paint, no x advance.
+            continue;
+        }
         let w = state
             .col_widths
             .get(col_idx)
@@ -1547,7 +1685,7 @@ fn draw_data_row_direct(
                         let edit = egui::TextEdit::singleline(buf)
                             .id(edit_id)
                             .font(egui::FontId::new(font_size, egui::FontFamily::Monospace))
-                            .frame(false)
+                            .frame(egui::Frame::NONE)
                             .desired_width(text_rect.width());
                         let edit_response = ui.put(text_rect.intersect(panel_rect), edit);
 
@@ -1719,17 +1857,17 @@ fn draw_data_row_direct(
                     ui.label(RichText::new("Clipboard").strong().size(11.0));
                     if ui.button("Copy").clicked() {
                         interaction.ctx_copy = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("Cut").clicked() {
                         interaction.ctx_cut = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if (state.clipboard.is_some() || state.os_clipboard_has_text)
                         && ui.button("Paste").clicked()
                     {
                         interaction.ctx_paste = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.separator();
 
@@ -1740,19 +1878,19 @@ fn draw_data_row_direct(
                     ui.label(RichText::new("Row").strong().size(11.0));
                     if ui.button("Insert Row").clicked() {
                         interaction.ctx_insert_row = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("Delete Row").clicked() {
                         interaction.ctx_delete_row = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if actual_row > 0 && ui.button("Move Row Up").clicked() {
                         interaction.ctx_move_row_up = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if actual_row + 1 < row_count && ui.button("Move Row Down").clicked() {
                         interaction.ctx_move_row_down = true;
-                        ui.close_menu();
+                        ui.close();
                     }
 
                     ui.separator();
@@ -1761,35 +1899,35 @@ fn draw_data_row_direct(
                         state.editing_col_name =
                             Some((col_idx, table.columns[col_idx].name.clone()));
                         state.edit_col_needs_focus = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("Insert Column...").clicked() {
                         interaction.header_col_clicked = Some(col_idx);
                         interaction.ctx_insert_column = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("Delete Columns...").clicked() {
                         interaction.ctx_delete_column = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if col_idx > 0 && ui.button("Move Column Left").clicked() {
                         interaction.ctx_move_col_left = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if col_idx + 1 < col_count && ui.button("Move Column Right").clicked() {
                         interaction.ctx_move_col_right = true;
-                        ui.close_menu();
+                        ui.close();
                     }
 
                     ui.separator();
                     ui.label(RichText::new("Sort").strong().size(11.0));
                     if ui.button("Sort A-Z").clicked() {
                         interaction.sort_rows_asc_by = Some(col_idx);
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("Sort Z-A").clicked() {
                         interaction.sort_rows_desc_by = Some(col_idx);
-                        ui.close_menu();
+                        ui.close();
                     }
 
                     ui.separator();
@@ -1803,22 +1941,22 @@ fn draw_data_row_direct(
                                     row: actual_row,
                                     col: col_idx,
                                 });
-                            ui.close_menu();
+                            ui.close();
                         }
                         if ui.button("Row").clicked() {
                             interaction.ctx_parse_in_new_tab =
                                 Some(super::toolbar::ParseScope::Row { row: actual_row });
-                            ui.close_menu();
+                            ui.close();
                         }
                         if ui.button("Column").clicked() {
                             interaction.ctx_parse_in_new_tab =
                                 Some(super::toolbar::ParseScope::Column { col: col_idx });
-                            ui.close_menu();
+                            ui.close();
                         }
                         if ui.button("Whole table").clicked() {
                             interaction.ctx_parse_in_new_tab =
                                 Some(super::toolbar::ParseScope::Table);
-                            ui.close_menu();
+                            ui.close();
                         }
                     });
                 });
@@ -1902,17 +2040,17 @@ fn draw_data_row_direct(
             ui.label(RichText::new("Clipboard").strong().size(11.0));
             if ui.button("Copy").clicked() {
                 interaction.ctx_copy = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui.button("Cut").clicked() {
                 interaction.ctx_cut = true;
-                ui.close_menu();
+                ui.close();
             }
             if (state.clipboard.is_some() || state.os_clipboard_has_text)
                 && ui.button("Paste").clicked()
             {
                 interaction.ctx_paste = true;
-                ui.close_menu();
+                ui.close();
             }
             ui.separator();
 
@@ -1922,19 +2060,19 @@ fn draw_data_row_direct(
             ui.label(RichText::new("Row").strong().size(11.0));
             if ui.button("Insert Row").clicked() {
                 interaction.ctx_insert_row = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui.button("Delete Row").clicked() {
                 interaction.ctx_delete_row = true;
-                ui.close_menu();
+                ui.close();
             }
             if actual_row > 0 && ui.button("Move Row Up").clicked() {
                 interaction.ctx_move_row_up = true;
-                ui.close_menu();
+                ui.close();
             }
             if actual_row + 1 < row_count && ui.button("Move Row Down").clicked() {
                 interaction.ctx_move_row_down = true;
-                ui.close_menu();
+                ui.close();
             }
         });
     }
@@ -1961,7 +2099,7 @@ fn compute_row_height(
                 .unwrap_or(DEFAULT_COL_WIDTH);
             let wrap_width = (col_width - 12.0).max(20.0); // account for cell padding
             let galley =
-                ui.fonts(|f| f.layout(text, font_id.clone(), egui::Color32::WHITE, wrap_width));
+                ui.fonts_mut(|f| f.layout(text, font_id.clone(), egui::Color32::WHITE, wrap_width));
             let text_height = galley.size().y + 4.0; // small vertical padding
             max_height = max_height.max(text_height);
         }
@@ -1982,14 +2120,14 @@ fn mark_submenu(ui: &mut Ui, key: MarkKey, table: &DataTable, interaction: &mut 
             let btn = egui::Button::new(RichText::new(label).color(swatch));
             if ui.add(btn).clicked() {
                 interaction.set_mark = Some((key.clone(), color));
-                ui.close_menu();
+                ui.close();
             }
         }
         if current_mark.is_some() {
             ui.separator();
             if ui.button("Clear").clicked() {
                 interaction.clear_mark = Some(key.clone());
-                ui.close_menu();
+                ui.close();
             }
         }
     });

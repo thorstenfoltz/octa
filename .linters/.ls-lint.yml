@@ -13,3 +13,5 @@ ignore:
   - target
   - Cargo.toml
   - Cargo.lock
+  - .venv
+  - licenses

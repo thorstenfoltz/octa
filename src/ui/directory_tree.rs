@@ -173,7 +173,7 @@ fn draw_dir(
         resp.context_menu(|ui| {
             if ui.button("Copy name").clicked() {
                 ui.ctx().copy_text(copy_name.clone());
-                ui.close_menu();
+                ui.close();
             }
         });
         if resp.clicked() {

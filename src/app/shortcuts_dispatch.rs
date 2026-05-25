@@ -300,6 +300,9 @@ impl OctaApp {
                 let tab = &mut self.tabs[self.active_tab];
                 tab.show_column_inspector = true;
             }
+            if action_fired(SA::OpenColumnFilter) {
+                self.open_column_filter_dialog(None);
+            }
             if action_fired(SA::CycleViewMode) {
                 let tab = &mut self.tabs[self.active_tab];
                 let modes = tab.available_view_modes();
@@ -311,6 +314,72 @@ impl OctaApp {
             }
             if action_fired(SA::ToggleReadOnly) {
                 self.toggle_readonly();
+            }
+            if action_fired(SA::FitAllColumns) {
+                // Cannot measure font widths without a Ui; queue the request
+                // and let `draw_table` fulfil it on the next frame.
+                self.tabs[self.active_tab]
+                    .table_state
+                    .fit_all_columns_requested = true;
+            }
+            if action_fired(SA::ReopenLastClosedTab) {
+                self.reopen_last_closed_tab(ctx);
+            }
+            if action_fired(SA::CompareSelectedTabs) {
+                // Needs exactly one Ctrl-click-selected tab. Multiple
+                // selections are ambiguous (no defined left/right); zero
+                // means the user pressed the key without staging anything.
+                if self.tab_multi_selection.len() == 1
+                    && let Some(&target) = self.tab_multi_selection.iter().next()
+                {
+                    self.begin_compare_with_tab(target);
+                }
+            }
+            if action_fired(SA::ColumnValueFrequency) {
+                let tab = &mut self.tabs[self.active_tab];
+                if tab.table.col_count() > 0 {
+                    // Prefer the column of the selected cell; fall back to the
+                    // first column. Lets the shortcut be useful even without
+                    // a click, mirroring how Ctrl+I (inspector) works.
+                    let col = tab
+                        .table_state
+                        .selected_cell
+                        .map(|(_, c)| c)
+                        .filter(|&c| c < tab.table.col_count())
+                        .unwrap_or(0);
+                    tab.value_frequency_col = Some(col);
+                    tab.value_frequency_size = octa::ui::settings::DialogSize::default();
+                }
+            }
+            if action_fired(SA::ExportSchema) {
+                super::dialogs::schema_export::open(self);
+            }
+            if action_fired(SA::MultiSearch) {
+                self.toggle_multi_search();
+            }
+            if action_fired(SA::OpenChart) {
+                self.open_chart_tab();
+            }
+            if action_fired(SA::FindDuplicates) {
+                let tab = &mut self.tabs[self.active_tab];
+                if tab.table.col_count() > 0 {
+                    // Seed key from selection so the common one-column dedupe
+                    // is two keys away (Ctrl+Shift+D, then Apply). Matches the
+                    // toolbar-handler seeding path.
+                    tab.find_duplicates_key_cols.clear();
+                    if !tab.table_state.selected_cols.is_empty() {
+                        for &c in &tab.table_state.selected_cols {
+                            if c < tab.table.col_count() {
+                                tab.find_duplicates_key_cols.insert(c);
+                            }
+                        }
+                    } else if let Some((_, c)) = tab.table_state.selected_cell
+                        && c < tab.table.col_count()
+                    {
+                        tab.find_duplicates_key_cols.insert(c);
+                    }
+                    tab.show_find_duplicates = true;
+                }
             }
         }
 

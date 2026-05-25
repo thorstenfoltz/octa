@@ -9,7 +9,18 @@ accept = ["200", "429"]
 exclude = [
     "https://megalinter.io/configuration/",
     "file:///tmp/lint/dwh/models/logo.png",
-    "file://.linters/mega-linter-plugin-*"
+    "file://.linters/mega-linter-plugin-*",
+    # Screenshots will be authored by the user later; the docs link to the
+    # filenames in advance per INDEX.md so the prose is ready to ship.
+    "file://.*docs/assets/screenshots/.*\\.png$",
+    # GitHub Pages site goes live after the docs PR lands; the URL is
+    # referenced from README/mkdocs.yml in advance.
+    "https://thorstenfoltz.github.io/octa/?$",
+    # Source-code links into the `master` branch for files that currently
+    # live on `feature/mcp` (ods_reader.rs, docs/cli/octa.1.adoc). These
+    # resolve once the branch is merged.
+    "https://github.com/thorstenfoltz/octa/blob/master/src/formats/ods_reader\\.rs$",
+    "https://github.com/thorstenfoltz/octa/blob/master/docs/cli/octa\\.1\\.adoc$"
     ]
 
 exclude_path = [

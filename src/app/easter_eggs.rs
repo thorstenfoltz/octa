@@ -37,6 +37,18 @@ pub(crate) const LOGO_CLICK_TARGET: u8 = 7;
 /// Maximum gap between consecutive logo clicks for the streak to count.
 pub(crate) const LOGO_CLICK_WINDOW: Duration = Duration::from_millis(1500);
 
+/// Clicks on the *welcome-screen* logo required to start the snow easter egg.
+/// Distinct from the toolbar logo's Rainbow trigger so the two animations
+/// can coexist without stealing each other's input.
+pub(crate) const WELCOME_LOGO_CLICK_TARGET: u8 = 3;
+
+/// Maximum gap between consecutive welcome-logo clicks for the streak.
+pub(crate) const WELCOME_LOGO_CLICK_WINDOW: Duration = Duration::from_millis(1500);
+
+/// How long the snowfall overlay animates after the trigger. Long enough
+/// for the snow drift at the bottom to visibly accumulate.
+pub(crate) const SNOWFALL_DURATION_S: f32 = 7.0;
+
 impl OctaApp {
     /// Walk this frame's keyboard events and advance the Konami matcher.
     /// Triggers a confetti animation on full match. Safe to call every frame.
@@ -102,7 +114,7 @@ impl OctaApp {
             .fixed_pos(egui::pos2(0.0, 0.0))
             .interactable(false);
         area.show(ctx, |ui| {
-            let screen = ctx.screen_rect();
+            let screen = ctx.content_rect();
             let painter = ui.painter();
             paint_confetti(painter, screen, elapsed);
             paint_konami_banner(painter, screen, elapsed);
@@ -323,3 +335,268 @@ pub(crate) const EMPTY_FILE_ART: &str = r#"
 
 pub(crate) const EMPTY_FILE_TAGLINE: &str =
     "This file is as empty as the deep sea floor. Nothing to read here.";
+
+/// Local date check: is today in the Dec 24-26 window? Used to enable the
+/// passive Christmas overlay without any explicit trigger. Returns `false`
+/// when the local clock can't be read (unlikely).
+pub(crate) fn is_christmas_window() -> bool {
+    use chrono::Datelike;
+    let today = chrono::Local::now().date_naive();
+    today.month() == 12 && (24..=26).contains(&today.day())
+}
+
+impl OctaApp {
+    /// Register a click on the welcome-screen logo. When three clicks land
+    /// within `WELCOME_LOGO_CLICK_WINDOW`, kicks off a `SNOWFALL_DURATION_S`
+    /// snowfall animation. No-op if a snowfall is already in flight (so the
+    /// user can't pile clicks to extend it).
+    pub(crate) fn register_welcome_logo_click(&mut self, ctx: &egui::Context) {
+        let now = Instant::now();
+        let in_window = self
+            .welcome_logo_last_click
+            .is_some_and(|t| now.saturating_duration_since(t) < WELCOME_LOGO_CLICK_WINDOW);
+        self.welcome_logo_last_click = Some(now);
+        if in_window {
+            self.welcome_logo_click_count = self.welcome_logo_click_count.saturating_add(1);
+        } else {
+            self.welcome_logo_click_count = 1;
+        }
+        if self.welcome_logo_click_count >= WELCOME_LOGO_CLICK_TARGET
+            && self.snowfall_until.is_none()
+        {
+            self.welcome_logo_click_count = 0;
+            self.snowfall_until =
+                Some(Instant::now() + Duration::from_millis((SNOWFALL_DURATION_S * 1000.0) as u64));
+            self.status_message = Some(("\u{2744} Let it snow!".to_string(), Instant::now()));
+            ctx.request_repaint();
+        }
+    }
+
+    /// Paint the snowfall overlay if currently active. No-op otherwise.
+    /// Painted in the same `Foreground` Area pattern as the confetti so it
+    /// floats on top of the table view without intercepting clicks.
+    pub(crate) fn render_snowfall(&mut self, ctx: &egui::Context) {
+        let Some(until) = self.snowfall_until else {
+            return;
+        };
+        if Instant::now() >= until {
+            self.snowfall_until = None;
+            return;
+        }
+        ctx.request_repaint();
+        let elapsed = SNOWFALL_DURATION_S
+            - until
+                .saturating_duration_since(Instant::now())
+                .as_secs_f32();
+        let is_dark = self.theme_mode.is_dark();
+        let area = egui::Area::new(egui::Id::new("octa_snowfall"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(0.0, 0.0))
+            .interactable(false);
+        area.show(ctx, |ui| {
+            let screen = ctx.content_rect();
+            paint_snowfall(ui.painter(), screen, elapsed, is_dark);
+        });
+    }
+
+    /// Paint the passive Christmas overlay if today is Dec 24-26.
+    /// Renders a few large snowflakes near the screen corners — subtle,
+    /// always on top, never blocks clicks. Independent of the snowfall
+    /// easter egg (which is the click-triggered burst).
+    pub(crate) fn render_christmas_overlay(&mut self, ctx: &egui::Context) {
+        if !is_christmas_window() {
+            return;
+        }
+        let is_dark = self.theme_mode.is_dark();
+        let area = egui::Area::new(egui::Id::new("octa_christmas"))
+            .order(egui::Order::Background)
+            .fixed_pos(egui::pos2(0.0, 0.0))
+            .interactable(false);
+        area.show(ctx, |ui| {
+            let screen = ctx.content_rect();
+            paint_christmas_decorations(ui.painter(), screen, is_dark);
+        });
+    }
+}
+
+/// Deterministic snowfall: a dense field of particles drifting from above
+/// the viewport down, with a gentle horizontal sway, plus an accumulating
+/// snow drift at the bottom edge that grows over the burst's lifetime.
+/// Each particle has a fixed seed so the animation is reproducible without
+/// per-frame allocation.
+fn paint_snowfall(painter: &egui::Painter, screen: egui::Rect, t: f32, is_dark: bool) {
+    const N: usize = 260;
+    let life = SNOWFALL_DURATION_S;
+    let fade = ((life - t) / life).clamp(0.0, 1.0);
+    let alpha = (255.0 * fade) as u8;
+    let flake_color = if is_dark {
+        Color32::from_rgba_unmultiplied(245, 248, 255, alpha)
+    } else {
+        Color32::from_rgba_unmultiplied(110, 145, 200, alpha)
+    };
+    let flake_outline = if is_dark {
+        None
+    } else {
+        Some(Stroke::new(
+            0.8,
+            Color32::from_rgba_unmultiplied(60, 95, 150, (alpha as u16 * 180 / 255) as u8),
+        ))
+    };
+    for i in 0..N {
+        let seed = (i as u32).wrapping_mul(2654435761) ^ 0x5e1f_a771;
+        let x_seed = ((seed >> 8) & 0xffff) as f32 / 65535.0;
+        let phase = ((seed >> 3) & 0xff) as f32 / 255.0;
+        let speed = 90.0 + ((seed & 0xff) as f32) * 0.6;
+        let sway = (t * 2.0 + phase * std::f32::consts::TAU).sin() * 20.0;
+        // Particles spawn at staggered start times so the sky isn't filled
+        // instantly — looks like real snow gathering.
+        let delay = phase * 0.8;
+        let local_t = (t - delay).max(0.0);
+        let y = -16.0 + speed * local_t;
+        let x = screen.left() + x_seed * screen.width() + sway;
+        if y > screen.bottom() + 16.0 {
+            continue;
+        }
+        let radius = 1.6 + ((seed >> 24) & 7) as f32 * 0.35;
+        let center = egui::pos2(x, y);
+        painter.circle_filled(center, radius, flake_color);
+        if let Some(stroke) = flake_outline {
+            painter.circle_stroke(center, radius, stroke);
+        }
+    }
+    // Drift goes last so it occludes flakes that have already passed below
+    // the accumulating snow line.
+    paint_snow_drift(painter, screen, t, is_dark, fade);
+}
+
+/// Paint a deterministic, irregular snow drift along the bottom edge of
+/// the viewport. Height grows linearly with the burst's elapsed time so
+/// the user sees the mound build up. 64 buckets across the screen give
+/// natural unevenness without expensive smoothing.
+fn paint_snow_drift(painter: &egui::Painter, screen: egui::Rect, t: f32, is_dark: bool, fade: f32) {
+    const BUCKETS: usize = 64;
+    const BASE_HEIGHT: f32 = 36.0;
+    const MAX_HEIGHT: f32 = 56.0;
+
+    let alpha_scale = fade;
+    let scale_alpha = |a: u8| -> u8 { (a as f32 * alpha_scale) as u8 };
+
+    let (fill, stroke_col, crust, sparkle) = if is_dark {
+        (
+            Color32::from_rgba_unmultiplied(235, 240, 250, scale_alpha(230)),
+            Color32::from_rgba_unmultiplied(255, 255, 255, scale_alpha(200)),
+            Color32::from_rgba_unmultiplied(240, 250, 255, scale_alpha(90)),
+            Color32::from_rgba_unmultiplied(255, 255, 255, scale_alpha(230)),
+        )
+    } else {
+        (
+            Color32::from_rgba_unmultiplied(200, 220, 240, scale_alpha(230)),
+            Color32::from_rgba_unmultiplied(100, 140, 190, scale_alpha(220)),
+            Color32::from_rgba_unmultiplied(180, 210, 240, scale_alpha(140)),
+            Color32::from_rgba_unmultiplied(245, 252, 255, scale_alpha(230)),
+        )
+    };
+
+    let progress = (t / SNOWFALL_DURATION_S).clamp(0.0, 1.0);
+    let bucket_w = screen.width() / BUCKETS as f32;
+
+    // Precompute bucket heights so we can both fill the polygon and stroke
+    // the top crust ribbon without doing the math twice.
+    let mut top_pts: Vec<egui::Pos2> = Vec::with_capacity(BUCKETS + 1);
+    for b in 0..=BUCKETS {
+        let seed = (b as u32).wrapping_mul(2246822519) ^ 0xc0ff_ee42;
+        let jitter = ((seed >> 8) & 0xff) as f32 / 255.0; // 0..1
+        let h = (BASE_HEIGHT * progress * (0.55 + jitter * 0.9)).min(MAX_HEIGHT);
+        let x = screen.left() + b as f32 * bucket_w;
+        let y = screen.bottom() - h;
+        top_pts.push(egui::pos2(x, y));
+    }
+
+    // Filled mound. Build the polygon manually (top edge + two bottom
+    // corners). `Shape::convex_polygon` accepts non-strictly-convex shapes
+    // for filling; the irregular top is fine.
+    let mut poly_pts = top_pts.clone();
+    poly_pts.push(egui::pos2(screen.right(), screen.bottom()));
+    poly_pts.push(egui::pos2(screen.left(), screen.bottom()));
+    painter.add(egui::Shape::convex_polygon(poly_pts, fill, Stroke::NONE));
+
+    // Top crust ribbon: a thicker translucent stroke right on the curve,
+    // selling the "icy crust on top of fresh snow" look.
+    painter.add(egui::Shape::line(top_pts.clone(), Stroke::new(2.5, crust)));
+
+    // Sharper outline for definition (especially important in light mode).
+    painter.add(egui::Shape::line(
+        top_pts.clone(),
+        Stroke::new(1.0, stroke_col),
+    ));
+
+    // Sparkle dots: a handful of bright pinpricks scattered on the drift
+    // surface. Cheap, deterministic, and sells the ice effect.
+    for (idx, p) in top_pts.iter().enumerate().step_by(7) {
+        let seed = (idx as u32).wrapping_mul(0x9E37_79B1) ^ 0xfade_b00b;
+        let offset = ((seed >> 4) & 0x1f) as f32 * 0.4; // 0..12 px
+        let sparkle_r = 1.0 + ((seed >> 12) & 3) as f32 * 0.3;
+        let center = egui::pos2(p.x, p.y + 3.0 + offset);
+        if center.y < screen.bottom() {
+            painter.circle_filled(center, sparkle_r, sparkle);
+        }
+    }
+}
+
+/// Static decorations for the Christmas window: large snowflakes in the
+/// screen corners, painted just behind everything else.
+fn paint_christmas_decorations(painter: &egui::Painter, screen: egui::Rect, is_dark: bool) {
+    let color = if is_dark {
+        Color32::from_rgba_unmultiplied(220, 230, 245, 70)
+    } else {
+        Color32::from_rgba_unmultiplied(140, 170, 210, 110)
+    };
+    let inset = 36.0;
+    let positions = [
+        egui::pos2(screen.left() + inset, screen.top() + inset),
+        egui::pos2(screen.right() - inset, screen.top() + inset),
+        egui::pos2(screen.left() + inset, screen.bottom() - inset),
+        egui::pos2(screen.right() - inset, screen.bottom() - inset),
+    ];
+    for p in positions {
+        paint_snowflake(painter, p, 18.0, color);
+    }
+}
+
+/// Paint a six-armed snowflake glyph centered on `center`. Uses thin line
+/// segments so it stays crisp at any size and never overlaps the underlying
+/// content visibly.
+fn paint_snowflake(painter: &egui::Painter, center: egui::Pos2, radius: f32, color: Color32) {
+    let stroke = Stroke::new(1.4, color);
+    for arm in 0..6 {
+        let angle = arm as f32 * std::f32::consts::TAU / 6.0;
+        let (s, c) = angle.sin_cos();
+        let tip = egui::pos2(center.x + c * radius, center.y + s * radius);
+        painter.line_segment([center, tip], stroke);
+        // Two small barbs near the tip for the classic snowflake silhouette.
+        let barb_base = egui::pos2(center.x + c * radius * 0.6, center.y + s * radius * 0.6);
+        let barb_angle1 = angle + std::f32::consts::FRAC_PI_4;
+        let barb_angle2 = angle - std::f32::consts::FRAC_PI_4;
+        let barb_len = radius * 0.35;
+        painter.line_segment(
+            [
+                barb_base,
+                egui::pos2(
+                    barb_base.x + barb_angle1.cos() * barb_len,
+                    barb_base.y + barb_angle1.sin() * barb_len,
+                ),
+            ],
+            stroke,
+        );
+        painter.line_segment(
+            [
+                barb_base,
+                egui::pos2(
+                    barb_base.x + barb_angle2.cos() * barb_len,
+                    barb_base.y + barb_angle2.sin() * barb_len,
+                ),
+            ],
+            stroke,
+        );
+    }
+}

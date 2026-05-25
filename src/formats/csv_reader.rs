@@ -88,8 +88,6 @@ pub fn detect_delimiter(path: &Path) -> Option<u8> {
     best.map(|(d, _)| d)
 }
 
-const MAX_ROWS: usize = 1_000_000;
-
 pub fn infer_cell_value(s: &str) -> CellValue {
     if s.is_empty() {
         return CellValue::Null;
@@ -144,10 +142,11 @@ fn read_delimited(path: &Path, delimiter: u8, format_name: &str) -> Result<DataT
         .collect();
 
     let col_count = columns.len();
+    let max_rows = super::initial_load_rows();
     let mut rows: Vec<Vec<CellValue>> = Vec::new();
     let mut truncated = false;
     for result in rdr.records() {
-        if rows.len() >= MAX_ROWS {
+        if rows.len() >= max_rows {
             truncated = true;
             break;
         }

@@ -260,8 +260,12 @@ pub enum ShortcutAction {
     OpenDocumentation,
     /// Open the Column Inspector dialog for the active tab.
     OpenColumnInspector,
+    /// Open the Excel-style Column Filter dialog for the active tab. The
+    /// Search menu's entry deliberately omits this shortcut from its label
+    /// (the binding is discoverable via Settings → Shortcuts).
+    OpenColumnFilter,
     /// Cycle to the next available view mode for the active tab. The cycle
-    /// order matches the View menu (Table, Raw, Markdown, Notebook, PDF,
+    /// order matches the View menu (Table, Raw, Markdown, Notebook,
     /// JSON Tree); modes that aren't applicable to the current file are
     /// skipped. No-op when the focus is in a TextEdit so the keypress can
     /// reach the editor.
@@ -271,6 +275,44 @@ pub enum ShortcutAction {
     /// SQL DML). Persists for the current session only — every launch
     /// starts editable.
     ToggleReadOnly,
+    /// Resize every column in the active table to its best-fit width
+    /// (header + content sampled up to 5000 rows). Same algorithm used
+    /// by double-clicking the header seam between two columns, applied
+    /// across the whole table.
+    FitAllColumns,
+    /// Reopen the most-recently-closed tab. Stack-based — repeated
+    /// triggers walk back through close history (capacity 10). No-op
+    /// when the close stack is empty.
+    ReopenLastClosedTab,
+    /// Compare the active tab with the Ctrl-click-selected tab. Requires
+    /// exactly one tab in the multi-selection set; otherwise the shortcut
+    /// no-ops. The active tab becomes the Left side, the selected tab the
+    /// Right side, and the active tab switches into `ViewMode::Compare`.
+    CompareSelectedTabs,
+    /// Open the Value Frequency dialog for the column of the currently
+    /// selected cell — `df.value_counts()` for the active column. Falls
+    /// back to the first column when no cell is selected. Also reachable
+    /// via the column-header right-click → "Value frequency…" entry.
+    ColumnValueFrequency,
+    /// Open the Find Duplicates dialog for the active tab. The dialog
+    /// seeds its key from the currently selected column or cell. Also
+    /// reachable via **Search → Find duplicates…**.
+    FindDuplicates,
+    /// Open the Schema Export dialog. The dialog itself lets the user
+    /// pick which of the seven targets (Postgres / MySQL / SQLite /
+    /// Pydantic v2 / TypeScript / JSON Schema / Rust) to render, so a
+    /// single key is enough. Also reachable via **File → Export schema…**.
+    ExportSchema,
+    /// Open the cross-tab + directory multi-search panel. The active-tab
+    /// search bar (`Ctrl+F`) is unchanged — multi-search adds scope =
+    /// All Open Tabs or Directory and a results list. Reachable via
+    /// **Search → Multi-search…**.
+    MultiSearch,
+    /// Open a Chart tab for the active table. Equivalent to clicking
+    /// **Analyse → Chart** in the toolbar. The new tab is single-mode
+    /// (`ViewMode::Chart`), holds a clone of the source table, and
+    /// exposes the chart-kind / column / styling / export controls.
+    OpenChart,
 }
 
 impl ShortcutAction {
@@ -317,8 +359,17 @@ impl ShortcutAction {
             Self::OpenSettings => "Open settings",
             Self::OpenDocumentation => "Open documentation",
             Self::OpenColumnInspector => "Open column inspector",
+            Self::OpenColumnFilter => "Open column filter",
             Self::CycleViewMode => "Cycle view mode",
             Self::ToggleReadOnly => "Toggle read-only mode",
+            Self::FitAllColumns => "Auto-fit all columns",
+            Self::ReopenLastClosedTab => "Reopen last closed tab",
+            Self::CompareSelectedTabs => "Compare selected tabs",
+            Self::ColumnValueFrequency => "Show column value frequency",
+            Self::FindDuplicates => "Find duplicate rows…",
+            Self::ExportSchema => "Export schema…",
+            Self::MultiSearch => "Open multi-search panel",
+            Self::OpenChart => "Open chart tab",
         }
     }
 
@@ -367,8 +418,25 @@ impl ShortcutAction {
             Self::OpenSettings => KeyCombo::plain(Key::F3),
             Self::OpenDocumentation => KeyCombo::plain(Key::F1),
             Self::OpenColumnInspector => KeyCombo::ctrl(Key::I),
+            Self::OpenColumnFilter => KeyCombo::ctrl_shift(Key::F),
             Self::CycleViewMode => KeyCombo::plain(Key::F4),
             Self::ToggleReadOnly => KeyCombo::plain(Key::F8),
+            Self::FitAllColumns => KeyCombo::ctrl_shift(Key::W),
+            Self::ReopenLastClosedTab => KeyCombo::ctrl_shift(Key::T),
+            Self::CompareSelectedTabs => KeyCombo::plain(Key::F9),
+            Self::ColumnValueFrequency => KeyCombo::ctrl_shift(Key::I),
+            Self::FindDuplicates => KeyCombo::ctrl_shift(Key::D),
+            // F7 (not Ctrl+Shift+X): on Linux/Windows egui receives an
+            // OS-level `Event::Cut` for Ctrl+Shift+X, which collides
+            // with `do_cut`. F-keys don't generate clipboard events.
+            Self::ExportSchema => KeyCombo::plain(Key::F7),
+            // F6 mirrors the feature ID (v3 batch). Ctrl+Shift+F is
+            // already the column-filter shortcut and Ctrl+F is the
+            // active-tab search — both useful enough to keep.
+            Self::MultiSearch => KeyCombo::plain(Key::F6),
+            // F5 is the only free F-key in the (F4–F9) cluster after the
+            // v3 batch; "refresh" semantics also map naturally to "re-plot".
+            Self::OpenChart => KeyCombo::plain(Key::F5),
         }
     }
 }

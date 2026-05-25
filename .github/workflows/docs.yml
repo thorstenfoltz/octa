@@ -1,0 +1,97 @@
+# Build + deploy the mkdocs-material documentation site to GitHub Pages.
+#
+# Deployment model: GitHub Pages source is set to "GitHub Actions" (in repo
+# Settings → Pages). This workflow builds the site with mkdocs, uploads it
+# as a Pages artifact, and the `actions/deploy-pages` step publishes it.
+# No `gh-pages` branch — the deployment is artifact-based.
+#
+# Triggered on:
+#   - push to master that touches anything under `docs/`, `mkdocs.yml`,
+#     `pyproject.toml`, `uv.lock`, or this workflow file
+#   - manual workflow dispatch (so you can re-deploy without a commit)
+name: Documentation
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - docs/**
+      - mkdocs.yml
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+# `pages: write` + `id-token: write` are required by `actions/deploy-pages`
+# for OIDC-based deployment. `contents: read` is enough for checkout — we
+# no longer push back to a `gh-pages` branch.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deployment at a time. A new push cancels an in-flight
+# build to avoid stale deploys arriving after a newer commit.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Suppress Material for MkDocs' MkDocs-2.0 advisory banner. We've pinned
+    # mkdocs<2.0 in pyproject.toml; the banner adds nothing actionable for
+    # CI logs. See `material/templates/__init__.py` for the env-var hook.
+    env:
+      NO_MKDOCS_2_WARNING: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          # Pin a known-good uv release; bump as needed. Matches the
+          # `uv 0.11.x` line used in dev.
+          version: "0.11.14"
+          # Cache `~/.cache/uv` so subsequent runs reuse downloaded wheels.
+          enable-cache: true
+
+      - name: Sync Python toolchain
+        # `--frozen` fails fast if uv.lock is out of sync with pyproject.toml
+        # — surfaces dependency drift instead of silently picking new
+        # versions in CI.
+        run: uv sync --frozen
+
+      - name: Build site
+        # Output goes to `./site/` (mkdocs default).
+        # `--strict` would turn link warnings into build failures — useful
+        # once Phase 2 pages (mcp/limits-and-truncation, mcp/examples, mcp/
+        # troubleshooting, reference/csv-quote-escape, reference/date-
+        # inference, tips/workflows, troubleshooting) have all landed and
+        # the screenshot placeholders have been swapped for real PNGs. For
+        # now warnings are logged but don't fail CI.
+        run: uv run mkdocs build
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # The directory mkdocs built. The action tarballs this for the
+          # deploy step.
+          path: ./site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # GitHub injects the deployed URL into this environment, so the run
+    # summary on the Actions tab shows a clickable link to the live site.
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

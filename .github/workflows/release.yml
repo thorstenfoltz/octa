@@ -32,16 +32,30 @@ jobs:
           sed -i "s/^version = .*/version = \"$VERSION\"/" Cargo.toml
 
       - name: Install system dependencies
+        # asciidoctor renders the man page from docs/cli/octa.1.adoc; bundled
+        # with the Linux tarball so `install.sh` can drop it into
+        # share/man/man1/. Same package on macOS via brew (asciidoctor) and
+        # on Arch via the standard repo, but Linux release is the only path
+        # that needs it in CI.
+        #
+        # The remaining packages are linuxdeploy / linuxdeploy-plugin-gtk
+        # runtime deps used in the "Build AppImage" step: patchelf rewrites
+        # rpaths in the bundled binary; gtk/gdk-pixbuf/rsvg *-bin packages
+        # supply the loader-cache tools the plugin invokes.
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libfontconfig1-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev libjpeg-dev libopenjp2-7-dev libgumbo-dev libjbig2dec0-dev libmujs-dev
+          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libfontconfig1-dev libfreetype6-dev asciidoctor patchelf librsvg2-common libgdk-pixbuf2.0-bin libgtk-3-bin
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Build and test
-        run: |
-          cargo test
-          cargo build --release
+      # No `cargo test` here. PR-time CI (ci.yml::test) already ran fmt + clippy
+      # + tests against this exact commit before merge; re-running on tag push
+      # would double the wall-time of every release without catching anything new.
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Render man page
+        run: asciidoctor -b manpage docs/cli/octa.1.adoc -o octa.1
 
       - name: Package Linux release
         run: |
@@ -55,6 +69,7 @@ jobs:
           cp assets/octa.png "$DIR/assets/"
           cp pkg/README-linux.md "$DIR/README.md"
           cp LICENSE "$DIR/" 2>/dev/null || true
+          cp octa.1 "$DIR/"
           tar czf "${DIR}.tar.gz" "$DIR/"
 
       - name: Upload artifact
@@ -62,6 +77,43 @@ jobs:
         with:
           name: linux-release
           path: octa-${{ env.VERSION }}-linux-x86_64.tar.gz
+
+      - name: Download AppImage tooling
+        # linuxdeploy ships only as a rolling "continuous" release. Pinning by
+        # tag isn't an option; if a future linuxdeploy release breaks the build,
+        # swap to a specific dated tag from
+        # https://github.com/linuxdeploy/linuxdeploy/releases.
+        run: |
+          cd "$RUNNER_TEMP"
+          wget -q -O linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q -O linuxdeploy-plugin-gtk https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
+          chmod +x linuxdeploy linuxdeploy-plugin-gtk
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Build AppImage
+        env:
+          OUTPUT: Octa-${{ env.VERSION }}-x86_64.AppImage
+        # APPIMAGE_EXTRACT_AND_RUN sidesteps FUSE — ubuntu-latest (24.04) no
+        # longer ships libfuse2 by default, and running AppImages without it
+        # otherwise fails with "dlopen(): error loading libfuse.so.2".
+        run: |
+          rm -rf AppDir
+          APPIMAGE_EXTRACT_AND_RUN=1 linuxdeploy \
+            --appdir AppDir \
+            --executable target/release/octa \
+            --desktop-file octa.desktop \
+            --icon-file assets/octa.png \
+            --plugin gtk \
+            --output appimage
+          # linuxdeploy derives the filename from the desktop Name field
+          # ("Octa-x86_64.AppImage"); rename to embed the version.
+          mv Octa-*.AppImage "$OUTPUT"
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: linux-appimage
+          path: Octa-${{ env.VERSION }}-x86_64.AppImage
 
   build-windows:
     runs-on: windows-latest
@@ -84,10 +136,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Build and test
-        run: |
-          cargo test --release
-          cargo build --release
+      # See linux comment: PR-time CI already covered tests on this commit.
+      - name: Build release binary
+        run: cargo build --release
 
       - name: Package Windows release
         shell: pwsh
@@ -125,10 +176,9 @@ jobs:
         with:
           targets: aarch64-apple-darwin
 
-      - name: Build and test
-        run: |
-          cargo test --release --target aarch64-apple-darwin
-          cargo build --release --target aarch64-apple-darwin
+      # See linux comment: PR-time CI already covered tests on this commit.
+      - name: Build release binary
+        run: cargo build --release --target aarch64-apple-darwin
 
       - name: Generate ICNS from PNG
         run: |
@@ -222,6 +272,7 @@ jobs:
             --title "Octa $VERSION" \
             $NOTES_ARGS \
             artifacts/linux-release/*.tar.gz \
+            artifacts/linux-appimage/*.AppImage \
             artifacts/windows-release/*.zip \
             artifacts/macos-release/*.tar.gz
 

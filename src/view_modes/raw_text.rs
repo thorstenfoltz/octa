@@ -42,16 +42,32 @@ fn column_colors(theme_mode: ThemeMode) -> &'static [egui::Color32] {
     }
 }
 
+/// Settings-derived options for `render_raw_view`. Bundled into a struct so
+/// the function stays under clippy's `too_many_arguments` threshold and so
+/// new settings can be added without disturbing every call site.
+#[derive(Debug, Clone, Copy)]
+pub struct RawViewOpts {
+    pub color_aligned_columns: bool,
+    pub tab_size: usize,
+    pub warn_unalign: bool,
+    pub readonly: bool,
+    /// Files larger than this skip syntect highlighting (raw editor falls
+    /// back to plain monospace).
+    pub syntax_highlight_max_bytes: usize,
+}
+
 /// Render the raw text editor view with line numbers and optional column alignment.
 pub fn render_raw_view(
     ui: &mut egui::Ui,
     tab: &mut TabState,
     theme_mode: ThemeMode,
-    color_aligned_columns: bool,
-    tab_size: usize,
-    warn_unalign: bool,
-    readonly: bool,
+    opts: RawViewOpts,
 ) -> RawAction {
+    let color_aligned_columns = opts.color_aligned_columns;
+    let tab_size = opts.tab_size;
+    let warn_unalign = opts.warn_unalign;
+    let readonly = opts.readonly;
+    let syntax_highlight_max_bytes = opts.syntax_highlight_max_bytes;
     let mut action = RawAction::default();
 
     // Parse-error fallback banner: shown when load_file failed to parse the
@@ -197,15 +213,15 @@ pub fn render_raw_view(
         let line_num_width = line_count.to_string().len() as f32 * 8.0 + 16.0;
 
         let mono_font = egui::FontId::new(13.0, egui::FontFamily::Monospace);
-        let nowrap_layouter = |ui: &egui::Ui, text: &str, _wrap_width: f32| {
+        let nowrap_layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap_width: f32| {
             let mut job = egui::text::LayoutJob::simple(
-                text.to_owned(),
+                text.as_str().to_owned(),
                 egui::FontId::new(13.0, egui::FontFamily::Monospace),
                 ui.visuals().text_color(),
                 f32::INFINITY,
             );
             job.wrap.max_width = f32::INFINITY;
-            ui.fonts(|f| f.layout_job(job))
+            ui.fonts_mut(|f| f.layout_job(job))
         };
 
         let use_col_colors = tab.raw_view_formatted
@@ -217,14 +233,52 @@ pub fn render_raw_view(
         let layouter_quote = tab.raw_csv_quote;
         let layouter_escape = tab.raw_csv_escape;
 
-        let colored_layouter = move |ui: &egui::Ui, text: &str, _wrap_width: f32| {
+        // Syntect-based syntax highlighting for known languages. Only kicks
+        // in when:
+        //   - We're NOT doing CSV/TSV column coloring (those keep their own palette).
+        //   - The file extension is on the syntax module's whitelist
+        //     (JSON/YAML/XML/Markdown/TOML are deliberately excluded — they
+        //     have dedicated tree/preview views, and running syntect every
+        //     frame on a multi-MB JSON made the raw editor sluggish).
+        //   - The buffer is below `MAX_HIGHLIGHT_BYTES` (1 MB) — past that
+        //     point per-line tokenisation on every layouter call is too slow.
+        let syntect_syntax = (!use_col_colors && content.len() <= syntax_highlight_max_bytes)
+            .then(|| {
+                tab.table
+                    .source_path
+                    .as_deref()
+                    .and_then(|p| {
+                        std::path::Path::new(p)
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .map(|e| e.to_lowercase())
+                    })
+                    .and_then(|ext| octa::ui::syntax::syntax_for_extension(&ext))
+            })
+            .flatten();
+        let syntect_theme = octa::ui::syntax::theme_for_mode(theme_mode);
+        let syntect_layouter =
+            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap_width: f32| {
+                let job = octa::ui::syntax::highlight_layout_job(
+                    text.as_str(),
+                    syntect_syntax.expect("syntect_layouter only used when syntax is Some"),
+                    syntect_theme,
+                    egui::FontId::new(13.0, egui::FontFamily::Monospace),
+                );
+                ui.fonts_mut(|f| f.layout_job(job))
+            };
+
+        let colored_layouter = move |ui: &egui::Ui,
+                                     text: &dyn egui::TextBuffer,
+                                     _wrap_width: f32| {
             let font = egui::FontId::new(13.0, egui::FontFamily::Monospace);
             let default_color = ui.visuals().text_color();
             let mut job = egui::text::LayoutJob::default();
             job.wrap.max_width = f32::INFINITY;
 
+            let text_str = text.as_str();
             let mut first_line = true;
-            for line in text.split('\n') {
+            for line in text_str.split('\n') {
                 if !first_line {
                     job.append(
                         "\n",
@@ -261,7 +315,7 @@ pub fn render_raw_view(
                     );
                 }
             }
-            ui.fonts(|f| f.layout_job(job))
+            ui.fonts_mut(|f| f.layout_job(job))
         };
 
         let content_for_copy = content.clone();
@@ -286,7 +340,7 @@ pub fn render_raw_view(
                             .interactive(false)
                             .desired_width(line_num_width)
                             .text_color(colors.text_muted)
-                            .frame(false)
+                            .frame(egui::Frame::NONE)
                             .layouter(&mut nowrap_layouter.clone()),
                     );
                     // Separator line
@@ -309,6 +363,15 @@ pub fn render_raw_view(
                             .interactive(!readonly)
                             .layouter(&mut colored_layouter.clone())
                             .show(ui)
+                    } else if syntect_syntax.is_some() {
+                        egui::TextEdit::multiline(content)
+                            .id(editor_id)
+                            .font(mono_font)
+                            .desired_width(f32::INFINITY)
+                            .lock_focus(true)
+                            .interactive(!readonly)
+                            .layouter(&mut syntect_layouter.clone())
+                            .show(ui)
                     } else {
                         egui::TextEdit::multiline(content)
                             .id(editor_id)
@@ -329,10 +392,7 @@ pub fn render_raw_view(
                     let had_tabs = !readonly && content.contains('\t');
                     if had_tabs {
                         // Track cursor so we can restore it after replacement
-                        let cursor_idx = output
-                            .cursor_range
-                            .map(|r| r.primary.ccursor.index)
-                            .unwrap_or(0);
+                        let cursor_idx = output.cursor_range.map(|r| r.primary.index).unwrap_or(0);
                         // Count \t chars before cursor to compute offset shift
                         let tabs_before = content[..cursor_idx.min(content.len())]
                             .chars()
@@ -368,11 +428,11 @@ pub fn render_raw_view(
                 if let Some(s) = selection {
                     ui.ctx().copy_text(s);
                 }
-                ui.close_menu();
+                ui.close();
             }
             if ui.button("Copy All").clicked() {
                 ui.ctx().copy_text(content_for_copy.clone());
-                ui.close_menu();
+                ui.close();
             }
         });
     } else {

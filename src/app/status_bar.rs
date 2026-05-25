@@ -10,7 +10,7 @@ use super::state::{OctaApp, UpdateState};
 impl OctaApp {
     pub(crate) fn render_status_bar(
         &mut self,
-        ctx: &egui::Context,
+        parent_ui: &mut egui::Ui,
         filtered_count: usize,
         search_active: bool,
     ) {
@@ -42,10 +42,22 @@ impl OctaApp {
             None
         };
 
-        let status_action = egui::TopBottomPanel::bottom("status_bar")
-            .exact_height(28.0)
+        let column_filter_count = self.tabs[self.active_tab].column_filters.len();
+        let first_filtered_col = self.tabs[self.active_tab]
+            .column_filters
+            .keys()
+            .min()
+            .copied();
+        let selected_rows = self.tabs[self.active_tab].table_state.selected_rows.clone();
+        let selected_cells = self.tabs[self.active_tab]
+            .table_state
+            .selected_cells
+            .clone();
+
+        let status_action = egui::Panel::bottom("status_bar")
+            .exact_size(28.0)
             .frame(status_frame)
-            .show(ctx, |ui| {
+            .show_inside(parent_ui, |ui| {
                 ui::status_bar::draw_status_bar(
                     ui,
                     &self.tabs[self.active_tab].table,
@@ -59,9 +71,17 @@ impl OctaApp {
                     self.readonly_mode,
                     busy,
                     busy_hint,
+                    column_filter_count,
+                    first_filtered_col,
+                    &selected_rows,
+                    &selected_cells,
                 )
             })
             .inner;
+
+        if let Some(preselect) = status_action.open_column_filter {
+            self.open_column_filter_dialog(Some(preselect));
+        }
 
         if let Some((row, col)) = status_action.navigate_to {
             let tab = &mut self.tabs[self.active_tab];

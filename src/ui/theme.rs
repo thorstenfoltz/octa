@@ -244,22 +244,22 @@ impl ThemeColors {
     fn light() -> Self {
         Self {
             bg_primary: Color32::from_rgb(255, 255, 255),
-            bg_secondary: Color32::from_rgb(249, 250, 251),
-            bg_tertiary: Color32::from_rgb(243, 244, 246),
-            bg_header: Color32::from_rgb(238, 240, 248),
+            bg_secondary: Color32::from_rgb(244, 246, 250),
+            bg_tertiary: Color32::from_rgb(232, 236, 244),
+            bg_header: Color32::from_rgb(218, 224, 238),
             bg_selected: Color32::from_rgb(191, 219, 254),
-            bg_hover: Color32::from_rgb(243, 244, 246),
+            bg_hover: Color32::from_rgb(232, 236, 244),
             bg_edited: Color32::from_rgb(255, 249, 219),
 
-            text_primary: Color32::from_rgb(17, 24, 39),
-            text_secondary: Color32::from_rgb(107, 114, 128),
-            text_muted: Color32::from_rgb(156, 163, 175),
-            text_header: Color32::from_rgb(31, 41, 55),
+            text_primary: Color32::from_rgb(7, 12, 22),
+            text_secondary: Color32::from_rgb(45, 52, 66),
+            text_muted: Color32::from_rgb(120, 128, 142),
+            text_header: Color32::from_rgb(15, 22, 35),
 
             accent: Color32::from_rgb(79, 70, 229),
             accent_hover: Color32::from_rgb(99, 102, 241),
-            border: Color32::from_rgb(229, 231, 235),
-            border_subtle: Color32::from_rgb(243, 244, 246),
+            border: Color32::from_rgb(200, 207, 220),
+            border_subtle: Color32::from_rgb(218, 224, 238),
 
             success: Color32::from_rgb(22, 163, 74),
             warning: Color32::from_rgb(202, 138, 4),
@@ -741,7 +741,7 @@ pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font: FontSettings) {
     // swap. Keep edits minimal — anything done here ripples across every view.
     apply_theme_decoration(&mut style, mode, &colors);
 
-    ctx.set_style(style);
+    ctx.set_global_style(style);
 }
 
 /// Apply per-theme structural tweaks (corner_radius, button padding, stroke
@@ -1421,5 +1421,34 @@ fn apply_fonts(ctx: &egui::Context, font: &FontSettings) {
         .insert("bold".into(), Arc::new(FontData::from_static(BOLD_BYTES)));
     defs.families
         .insert(FontFamily::Name(Arc::from("bold")), vec!["bold".into()]);
+
+    // Bundled Roboto Medium becomes the **default proportional** face — it sits
+    // between the upstream Ubuntu-Light (too thin for readability on bars / tabs
+    // / column headers / docs) and Roboto-Bold (which reads as too heavy for
+    // body prose). Apache-2.0, attributed in `licenses/Apache-2.0.txt`.
+    static MEDIUM_BYTES: &[u8] = include_bytes!("../../assets/Roboto-Medium.ttf");
+    defs.font_data.insert(
+        "medium".into(),
+        Arc::new(FontData::from_static(MEDIUM_BYTES)),
+    );
+    if let Some(prop) = defs.families.get_mut(&FontFamily::Proportional) {
+        prop.insert(0, "medium".into());
+    } else {
+        defs.families
+            .insert(FontFamily::Proportional, vec!["medium".into()]);
+    }
+
+    // Bundled JetBrains Mono Regular — opt-in family for the SQL editor and
+    // any other monospace-heavy view that the user can switch on in Settings.
+    // OFL-1.1, attributed in `licenses/OFL-1.1.txt`.
+    static SQL_MONO_BYTES: &[u8] = include_bytes!("../../assets/JetBrainsMono-Regular.ttf");
+    defs.font_data.insert(
+        "sql_mono".into(),
+        Arc::new(FontData::from_static(SQL_MONO_BYTES)),
+    );
+    defs.families.insert(
+        FontFamily::Name(Arc::from("sql_mono")),
+        vec!["sql_mono".into()],
+    );
     ctx.set_fonts(defs);
 }

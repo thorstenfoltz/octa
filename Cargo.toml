@@ -2,6 +2,7 @@
 name = "octa"
 version = "0.0.0-dev"
 edition = "2024"
+rust-version = "1.92"
 authors = ["Thorsten Foltz <thorsten.foltz@live.com>"]
 description = "A modular multi-format data viewer and editor"
 license = "MIT"
@@ -24,11 +25,11 @@ strip = true
 codegen-units = 1
 
 [dependencies]
-eframe = { version = "0.31", features = ["default"] }
-egui = { version = "0.31", features = ["serde"] }
-egui_extras = { version = "0.31", features = ["default"] }
-parquet = { version = "54", features = ["default"] }
-arrow = { version = "54", features = ["default"] }
+eframe = { version = "0.34", features = ["default"] }
+egui = { version = "0.34", features = ["serde"] }
+egui_extras = { version = "0.34", features = ["default"] }
+parquet = { version = "58", features = ["default"] }
+arrow = { version = "58", features = ["default"] }
 rfd = "0.17"
 serde = { version = "1", features = ["derive"] }
 strum = { version = "0.28", features = ["derive"] }
@@ -37,36 +38,100 @@ chrono = "0.4"
 anyhow = "1"
 arboard = "3"
 csv = "1"
-calamine = "0.34"
-rust_xlsxwriter = "0.94"
+calamine = "0.35"
+rust_xlsxwriter = "0.95"
 apache-avro = "0.21"
-quick-xml = "0.39"
+quick-xml = "0.40"
 toml = "1"
-serde_yaml = "0.9"
-mupdf = "0.6"
+serde_yaml_ng = "0.10"
 resvg = "0.47"
-egui_commonmark = "0.20"
 ureq = "3"
 flate2 = "1"
 tar = "0.4"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 regex = "1"
 regex-syntax = "0.8"
 orc-rust = { version = "0.8.0", default-features = false }
-arrow58 = { package = "arrow", version = "58", default-features = false, features = ["prettyprint"] }
-hdf5-reader = "0.4"
+hdf5-reader = "0.5"
 rusqlite = { version = "0.39", features = ["bundled"] }
 duckdb = { version = "1", features = ["bundled"] }
 rand = "0.10"
 sas7bdat = { version = "0.2", default-features = false, features = ["time"] }
 ambers = "0.4"
+# `ambers` (SPSS reader) still depends on arrow ^57 — keep arrow57 as an alias
+# alongside the main arrow 58 until ambers ships an arrow 58–compatible release.
 arrow57 = { package = "arrow", version = "57", default-features = false }
-dta = "0.5"
+dta = "0.6"
 dbase = "0.7"
 rds2rust = "0.1.41"
 netcdf3 = "0.6"
-pulldown-cmark = { version = "0.12", default-features = false }
+pulldown-cmark = { version = "0.13", default-features = false }
 tempfile = "3"
+# Syntax highlighting for the raw editor + notebook source cells. `default-fancy`
+# selects the pure-Rust `fancy-regex` backend; we explicitly avoid the default
+# `onig` feature which would pull in the Oniguruma C library.
+syntect = { version = "5", default-features = false, features = ["default-fancy"] }
+# Line-by-line text diff for the Compare view's text-diff mode.
+similar = "3"
+# Fast cryptographic hash for the Compare view's row-hash-diff mode.
+# BLAKE3 is roughly an order of magnitude faster than SHA-256 and produces
+# stable digests across runs (no per-process state) which is what we need.
+blake3 = "1"
+# Argument parsing for the CLI subcommands (`octa schema`, `octa head`, etc.).
+# `derive` keeps the boilerplate down; the binary still launches the GUI when
+# no subcommand is given.
+clap = { version = "4", features = ["derive"] }
+# Model Context Protocol server (octa --mcp). Default features cover the
+# tool/macros/server pieces we need; `transport-io` adds the stdio transport.
+rmcp = { version = "1", features = ["server", "transport-io", "macros"] }
+# Schema generator used by rmcp's `#[tool]` macro for the input-parameter
+# JSON Schema. Must match the version rmcp re-exports — rmcp 1.7 uses
+# schemars 1.x, and a 0.x dep here lands the derive macros on the wrong
+# trait so the `Parameters<T>` bound fails.
+schemars = "1"
+# Async runtime for the MCP server only — the GUI process stays sync. We
+# spawn a current-thread runtime in `main` exclusively on the `--mcp` path.
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "io-std", "io-util"] }
+# Structured logs from rmcp emit through `tracing`; route to stderr so they
+# don't collide with the JSON-RPC traffic on stdout.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# EPUB reader. `rbook` is Apache-2.0 (the GPL-licensed `epub` crate is
+# explicitly blocked by `deny.toml`). Default features cover EPUB 2 + 3 read;
+# we keep `write` off to trim the dep surface.
+rbook = { version = "0.7", default-features = false, features = ["prelude"] }
+# HTML→Markdown converter used to turn EPUB chapter XHTML into pulldown-cmark
+# input. Apache-2.0; also rules out the GPL `html2md`.
+htmd = "0.5"
+# PNG/JPEG decoding for embedded EPUB images. `image` is already pulled in
+# transitively via `egui_extras` and `resvg`, but we need a direct dep so
+# `image::ImageReader` is reachable from our code. Disable defaults — most
+# EPUB cover/figure formats are PNG/JPEG/GIF, so we don't need TIFF/BMP/etc.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+# GeoJSON parsing for the Map view. MIT/Apache-2.0.
+geojson = "1"
+# Common geometry types used by both `geojson` (conversion) and `walkers`
+# (rendering). MIT/Apache-2.0. We name it directly so the GeoJSON reader
+# can construct `geo_types::Geometry<f64>` for the side-channel.
+geo-types = "0.7"
+# Slippy-map widget for egui — used by the GeoJSON Map view. MIT license.
+# Walkers spawns its own dedicated thread with a private tokio runtime for
+# tile downloads, so the eframe app thread stays sync.
+walkers = "0.53"
+# WKT serialisation for the GeoJSON reader's `__geometry: Utf8` column.
+# MIT/Apache-2.0.
+wkt = "0.14"
+# Immediate-mode plotting widgets for the Chart tab (`ViewMode::Chart`).
+# `egui_plot 0.35` is the first release that targets egui 0.34 — upstream
+# bumped the egui dep without bumping the major, so 0.34 of egui_plot still
+# links against egui 0.33 and is unusable here. MIT/Apache-2.0.
+egui_plot = "0.35"
+# Chart export → PDF. Disable default features (image / filters pull in
+# duplicate crates we already have via resvg) but keep `text` so the
+# usvg side exposes `fontdb_mut()` — without it the PDF text elements
+# silently drop and the rendered chart is mostly blank.
+# MIT/Apache-2.0.
+svg2pdf = { version = "0.13", default-features = false, features = ["text"] }
 
 [build-dependencies]
 winresource = "0.1"

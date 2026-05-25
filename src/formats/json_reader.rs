@@ -13,7 +13,11 @@ impl FormatReader for JsonReader {
     }
 
     fn extensions(&self) -> &[&str] {
-        &["json", "geojson"]
+        // `.geojson` is intentionally NOT claimed here — `GeoJsonReader`
+        // owns that extension because the map view depends on its
+        // dedicated parser. `.json` files that happen to be GeoJSON still
+        // open through this reader as a flat table.
+        &["json"]
     }
 
     fn read_file(&self, path: &Path) -> Result<DataTable> {

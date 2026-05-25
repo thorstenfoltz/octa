@@ -220,16 +220,143 @@ impl OctaApp {
         self.do_open_file_dialog();
     }
 
+    /// Trigger the "Compare with…" flow: pick a right-side file and load
+    /// both raw content (for TextDiff) and a `DataTable` (for RowHashDiff)
+    /// onto the active tab's `compare_*` fields. Switches the active tab
+    /// into `ViewMode::Compare` on success.
+    pub(crate) fn begin_compare_with(&mut self) {
+        let mut dialog = rfd::FileDialog::new();
+        let mut all_exts = self.registry.all_extensions();
+        for ext in &self.settings.text_mode_extensions {
+            if !all_exts.iter().any(|e| e.eq_ignore_ascii_case(ext)) {
+                all_exts.push(ext.clone());
+            }
+        }
+        let all_ext_refs: Vec<&str> = all_exts.iter().map(|s| s.as_str()).collect();
+        dialog = dialog.add_filter("All Supported", &all_ext_refs);
+        dialog = dialog.add_filter("All Files", &["*"]);
+        let Some(path) = dialog.pick_file() else {
+            return;
+        };
+
+        let tab = &mut self.tabs[self.active_tab];
+        tab.compare_error = None;
+        tab.compare_right_path = Some(path.clone());
+
+        // Best-effort raw text load. 500 MB ceiling matches the raw-view
+        // sanity cap elsewhere in the codebase.
+        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        tab.compare_right_raw = if size <= 500_000_000 {
+            std::fs::read_to_string(&path).ok()
+        } else {
+            None
+        };
+
+        // Best-effort DataTable load via the registry. Failures fall
+        // through with `compare_right_table = None` — the row-diff
+        // renderer surfaces a friendly message in that case.
+        tab.compare_right_table = match self.registry.reader_for_path(&path) {
+            Some(r) => match r.read_file(&path) {
+                Ok(t) => Some(Box::new(t)),
+                Err(e) => {
+                    tab.compare_error = Some(format!("Failed to load right side as table: {e}"));
+                    None
+                }
+            },
+            None => None,
+        };
+
+        // Reset column picks so the user starts from "hash every column"
+        // until they pick. Without this, stale picks from a previous
+        // compare would silently leak in.
+        tab.compare_columns_left.clear();
+        tab.compare_columns_right.clear();
+
+        // Pick a sensible default sub-mode: TextDiff only makes sense when
+        // both sides have raw text content. For two binary tabular files
+        // (Parquet vs Parquet, etc.) jump straight to RowHashDiff so the
+        // user doesn't see an empty diff and have to manually flip.
+        let both_have_text = tab.raw_content.is_some() && tab.compare_right_raw.is_some();
+        tab.compare_mode = if both_have_text {
+            octa::data::CompareMode::TextDiff
+        } else {
+            octa::data::CompareMode::RowHashDiff
+        };
+        tab.view_mode = octa::data::ViewMode::Compare;
+    }
+
+    /// Compare the active tab against a **sibling tab** (no file picker).
+    /// Used by:
+    ///   - The tab right-click context menu ("Compare with active tab").
+    ///   - The `CompareSelectedTabs` shortcut (when exactly one tab is in
+    ///     `tab_multi_selection`).
+    ///
+    /// Clones the sibling's state into the active tab's `compare_*`
+    /// fields and switches the active tab into `ViewMode::Compare`. No-op
+    /// if `target_idx` is the active tab or out of range.
+    pub(crate) fn begin_compare_with_tab(&mut self, target_idx: usize) {
+        if target_idx == self.active_tab || target_idx >= self.tabs.len() {
+            return;
+        }
+        // Read out everything we need from the sibling tab before borrowing
+        // the active tab mutably — split-borrowing two indices of the same
+        // Vec needs the snapshots be plain values, not references.
+        let right_path = self.tabs[target_idx]
+            .table
+            .source_path
+            .as_ref()
+            .map(std::path::PathBuf::from);
+        let right_raw = self.tabs[target_idx].raw_content.clone();
+        let right_table = self.tabs[target_idx].table.clone();
+        let left_has_text = self.tabs[self.active_tab].raw_content.is_some();
+
+        let tab = &mut self.tabs[self.active_tab];
+        tab.compare_error = None;
+        tab.compare_right_path = right_path;
+        tab.compare_right_raw = right_raw;
+        tab.compare_right_table = Some(Box::new(right_table));
+        tab.compare_columns_left.clear();
+        tab.compare_columns_right.clear();
+        let both_have_text = left_has_text && tab.compare_right_raw.is_some();
+        tab.compare_mode = if both_have_text {
+            octa::data::CompareMode::TextDiff
+        } else {
+            octa::data::CompareMode::RowHashDiff
+        };
+        tab.view_mode = octa::data::ViewMode::Compare;
+        // Clear the staging set since we've consumed it.
+        self.tab_multi_selection.clear();
+    }
+
     pub(crate) fn do_open_file_dialog(&mut self) {
         let mut dialog = rfd::FileDialog::new();
 
-        let all_exts = self.registry.all_extensions();
+        // "All Supported" filter unions the format registry's extensions with
+        // any user-configured "Open as text" extensions, so the picker shows
+        // those files without requiring "All Files".
+        let mut all_exts = self.registry.all_extensions();
+        for ext in &self.settings.text_mode_extensions {
+            if !all_exts.iter().any(|e| e.eq_ignore_ascii_case(ext)) {
+                all_exts.push(ext.clone());
+            }
+        }
         let all_ext_refs: Vec<&str> = all_exts.iter().map(|s| s.as_str()).collect();
         dialog = dialog.add_filter("All Supported", &all_ext_refs);
 
         for (name, exts) in self.registry.format_descriptions() {
             let ext_refs: Vec<&str> = exts.iter().map(|s| s.as_str()).collect();
             dialog = dialog.add_filter(&name, &ext_refs);
+        }
+        // Surface the user's extra extensions as a labelled filter so they
+        // can pick "Custom (text)" directly. Skipped when the list is empty.
+        if !self.settings.text_mode_extensions.is_empty() {
+            let custom_refs: Vec<&str> = self
+                .settings
+                .text_mode_extensions
+                .iter()
+                .map(|s| s.as_str())
+                .collect();
+            dialog = dialog.add_filter("Custom (text)", &custom_refs);
         }
         dialog = dialog.add_filter("All Files", &["*"]);
 
@@ -273,19 +400,41 @@ impl OctaApp {
             self.open_empty_file_placeholder(path);
             return;
         }
-        let reader = match self.registry.reader_for_path(&path) {
-            Some(r) => r,
-            None => {
-                self.status_message = Some((
-                    format!(
-                        "No reader available for: {}",
-                        path.extension()
-                            .map(|e| e.to_string_lossy().to_string())
-                            .unwrap_or_default()
-                    ),
-                    std::time::Instant::now(),
-                ));
-                return;
+        // User-extensible "Open as text" override: if the file's extension is
+        // on `settings.text_mode_extensions`, route through TextReader before
+        // consulting the format registry. This lets users force unfamiliar
+        // log/config extensions to render as raw text instead of failing.
+        let ext_lc = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase());
+        let force_text = ext_lc
+            .as_deref()
+            .map(|e| {
+                self.settings
+                    .text_mode_extensions
+                    .iter()
+                    .any(|u| u.eq_ignore_ascii_case(e))
+            })
+            .unwrap_or(false);
+        let text_reader: formats::text_reader::TextReader = formats::text_reader::TextReader;
+        let reader: &dyn formats::FormatReader = if force_text {
+            &text_reader
+        } else {
+            match self.registry.reader_for_path(&path) {
+                Some(r) => r,
+                None => {
+                    self.status_message = Some((
+                        format!(
+                            "No reader available for: {}",
+                            path.extension()
+                                .map(|e| e.to_string_lossy().to_string())
+                                .unwrap_or_default()
+                        ),
+                        std::time::Instant::now(),
+                    ));
+                    return;
+                }
             }
         };
 
@@ -460,26 +609,53 @@ impl OctaApp {
             tab.raw_file_size = Some(file_size);
             tab.raw_perf_prompt_resolved = false;
 
-            tab.pdf_page_images.clear();
-            tab.pdf_textures.clear();
-            tab.pdf_page_texts.clear();
-            if tab.table.format_name.as_deref() == Some("PDF") {
-                match formats::pdf_reader::render_pdf_pages(&path, 2.0) {
-                    Ok((images, texts)) => {
-                        tab.pdf_page_images = images;
-                        tab.pdf_page_texts = texts;
-                        tab.view_mode = ViewMode::Pdf;
-                    }
-                    Err(_) => {
-                        tab.view_mode = ViewMode::Table;
-                    }
-                }
-            } else if tab.table.format_name.as_deref() == Some("Markdown") {
+            // Reset any EPUB side-state — populated below for actual EPUB
+            // files, cleared here so a non-EPUB tab can't inherit it on
+            // reload. Textures aren't persisted across loads (they hold
+            // GPU handles tied to the previous tab content).
+            tab.epub_chapters_md.clear();
+            tab.epub_chapter_titles.clear();
+            tab.epub_image_bytes.clear();
+            tab.epub_image_textures.clear();
+            tab.epub_active_chapter = 0;
+            tab.epub_title = None;
+
+            // Same reset for the GeoJSON side-state — empties out anything
+            // a previous file on this tab might have left. The `walkers`
+            // tile + memory boxes are dropped so the next Map render
+            // creates fresh ones tied to the current egui context.
+            tab.geojson_features.clear();
+            tab.map_tiles = None;
+            tab.map_memory = None;
+            tab.map_mode = self.settings.map_default_mode;
+
+            if tab.table.format_name.as_deref() == Some("Markdown") {
                 tab.view_mode = ViewMode::Markdown;
             } else if tab.table.format_name.as_deref() == Some("Jupyter Notebook") {
                 tab.view_mode = ViewMode::Notebook;
             } else if tab.table.format_name.as_deref() == Some("Text") {
                 tab.view_mode = ViewMode::Raw;
+            } else if tab.table.format_name.as_deref() == Some("EPUB") {
+                // Read the chapter Markdown + image bytes from a second
+                // pass over the file. The table view is still available
+                // (paragraph-per-row) but the reading view is the default.
+                if let Ok((_, extras)) = octa::formats::epub_reader::read_with_extras(&path) {
+                    tab.epub_chapters_md = extras.chapters_md;
+                    tab.epub_chapter_titles = extras.chapter_titles;
+                    tab.epub_image_bytes = extras.image_bytes;
+                    tab.epub_title = extras.title;
+                }
+                tab.view_mode = ViewMode::EpubReader;
+            } else if tab.table.format_name.as_deref() == Some("GeoJSON") {
+                // Re-parse for `geo-types` geometries — the registry's
+                // `read_file` only returned the table, so we make a second
+                // pass to populate the Map view's side-state. The map
+                // widget itself is initialised lazily in the view (it
+                // needs the egui `Context`).
+                if let Ok((_, extras)) = octa::formats::geojson_reader::read_with_features(&path) {
+                    tab.geojson_features = extras.features;
+                }
+                tab.view_mode = ViewMode::Map;
             } else {
                 tab.view_mode = ViewMode::Table;
             }
@@ -504,7 +680,7 @@ impl OctaApp {
             } else if matches!(tab.table.format_name.as_deref(), Some("YAML"))
                 && let Some(ref content) = tab.raw_content
             {
-                tab.yaml_value = serde_yaml::from_str::<serde_yaml::Value>(content)
+                tab.yaml_value = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(content)
                     .ok()
                     .map(|v| octa::formats::yaml_reader::yaml_to_json(&v));
             }
@@ -655,7 +831,10 @@ impl OctaApp {
     pub(crate) fn save_file(&mut self) {
         if let Some(ref path) = self.tabs[self.active_tab].table.source_path.clone() {
             let path = std::path::Path::new(path);
-            self.do_save(path.to_path_buf());
+            // Regular save writes the full table back to the source path,
+            // never the filtered view — the file on disk represents the
+            // user's data, not their current view.
+            self.do_save(path.to_path_buf(), false);
         }
     }
 
@@ -672,7 +851,10 @@ impl OctaApp {
         }
 
         if let Some(path) = dialog.save_file() {
-            self.do_save(path);
+            // Save As respects the current row filter (text search + column
+            // filters). The on-disk output mirrors what the user sees; the
+            // in-memory table is left intact.
+            self.do_save(path, true);
         }
     }
 
@@ -731,15 +913,25 @@ impl OctaApp {
     pub(crate) fn save_tab(&mut self, tab_idx: usize) {
         if let Some(ref path) = self.tabs[tab_idx].table.source_path.clone() {
             let path = std::path::Path::new(path);
-            self.do_save_tab(tab_idx, path.to_path_buf());
+            self.do_save_tab(tab_idx, path.to_path_buf(), false);
         }
     }
 
-    pub(crate) fn do_save(&mut self, path: std::path::PathBuf) {
-        self.do_save_tab(self.active_tab, path);
+    pub(crate) fn do_save(&mut self, path: std::path::PathBuf, save_filtered_view: bool) {
+        self.do_save_tab(self.active_tab, path, save_filtered_view);
     }
 
-    pub(crate) fn do_save_tab(&mut self, tab_idx: usize, path: std::path::PathBuf) {
+    /// `save_filtered_view`: when `true` and the active tab has a reduced
+    /// row filter (text search and/or column filters), write only the
+    /// visible rows to disk. The in-memory table is left untouched —
+    /// `source_path` and the modified flag are not updated, so the save
+    /// acts as a one-shot export of the current view.
+    pub(crate) fn do_save_tab(
+        &mut self,
+        tab_idx: usize,
+        path: std::path::PathBuf,
+        save_filtered_view: bool,
+    ) {
         let tab = &mut self.tabs[tab_idx];
         if tab.raw_content_modified
             && let Some(ref content) = tab.raw_content
@@ -763,14 +955,42 @@ impl OctaApp {
             return;
         }
 
+        // Decide once whether the writer should see a filtered snapshot of
+        // the table or the live in-memory table. A filtered view is built
+        // when (a) the caller asked for it (Save As), and (b) the active
+        // filter actually hides some rows.
+        let filtered_active = save_filtered_view && tab.filtered_rows.len() < tab.table.row_count();
+        let filtered_table = if filtered_active {
+            Some(tab.table.clone_with_rows(&tab.filtered_rows))
+        } else {
+            None
+        };
+        let filtered_count = filtered_table.as_ref().map(|t| t.row_count()).unwrap_or(0);
+
         if tab.table.format_name.as_deref() == Some("CSV") && tab.csv_delimiter != b',' {
-            tab.table.apply_edits();
-            match formats::csv_reader::write_delimited(&path, tab.csv_delimiter, &tab.table) {
+            let write_result = if let Some(ref ftab) = filtered_table {
+                formats::csv_reader::write_delimited(&path, tab.csv_delimiter, ftab)
+            } else {
+                tab.table.apply_edits();
+                formats::csv_reader::write_delimited(&path, tab.csv_delimiter, &tab.table)
+            };
+            match write_result {
                 Ok(()) => {
-                    tab.table.source_path = Some(path.to_string_lossy().to_string());
-                    tab.table.clear_modified();
+                    if filtered_table.is_none() {
+                        tab.table.source_path = Some(path.to_string_lossy().to_string());
+                        tab.table.clear_modified();
+                    }
                     self.status_message = Some((
-                        format!("Saved to {}", path.display()),
+                        if filtered_table.is_some() {
+                            format!(
+                                "Exported {} filtered row{} to {} (in-memory table unchanged)",
+                                filtered_count,
+                                if filtered_count == 1 { "" } else { "s" },
+                                path.display()
+                            )
+                        } else {
+                            format!("Saved to {}", path.display())
+                        },
                         std::time::Instant::now(),
                     ));
                 }
@@ -794,13 +1014,29 @@ impl OctaApp {
                     return;
                 }
                 let tab = &mut self.tabs[tab_idx];
-                tab.table.apply_edits();
-                match reader.write_file(&path, &tab.table) {
+                let write_result = if let Some(ref ftab) = filtered_table {
+                    reader.write_file(&path, ftab)
+                } else {
+                    tab.table.apply_edits();
+                    reader.write_file(&path, &tab.table)
+                };
+                match write_result {
                     Ok(()) => {
-                        tab.table.source_path = Some(path.to_string_lossy().to_string());
-                        tab.table.clear_modified();
+                        if filtered_table.is_none() {
+                            tab.table.source_path = Some(path.to_string_lossy().to_string());
+                            tab.table.clear_modified();
+                        }
                         self.status_message = Some((
-                            format!("Saved to {}", path.display()),
+                            if filtered_table.is_some() {
+                                format!(
+                                    "Exported {} filtered row{} to {} (in-memory table unchanged)",
+                                    filtered_count,
+                                    if filtered_count == 1 { "" } else { "s" },
+                                    path.display()
+                                )
+                            } else {
+                                format!("Saved to {}", path.display())
+                            },
                             std::time::Instant::now(),
                         ));
                     }

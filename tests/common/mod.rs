@@ -61,7 +61,7 @@ pub fn sample_table() -> DataTable {
     }
 }
 
-/// Generate binary fixture files (parquet, avro, arrow, xlsx, pdf) if they don't exist.
+/// Generate binary fixture files (parquet, avro, arrow, xlsx) if they don't exist.
 pub fn ensure_fixtures() {
     INIT.call_once(|| {
         let registry = FormatRegistry::new();
@@ -72,7 +72,6 @@ pub fn ensure_fixtures() {
             ("sample.avro", "avro"),
             ("sample.arrow", "arrow"),
             ("sample.xlsx", "xlsx"),
-            ("sample.pdf", "pdf"),
             ("sample.orc", "orc"),
             ("sample.dbf", "dbf"),
         ];
@@ -83,13 +82,7 @@ pub fn ensure_fixtures() {
                 let dummy_path = PathBuf::from(format!("dummy.{}", ext));
                 let reader = registry.reader_for_path(&dummy_path).unwrap();
                 if reader.supports_write() {
-                    // For PDF, use a text-based table
-                    let write_table = if *ext == "pdf" {
-                        pdf_table()
-                    } else {
-                        table.clone()
-                    };
-                    reader.write_file(&path, &write_table).unwrap();
+                    reader.write_file(&path, &table).unwrap();
                 }
             }
         }
@@ -128,36 +121,4 @@ fn write_netcdf3_fixture(path: &PathBuf) {
         .write_var_i32("count", &[10_i32, 20, 30, 25, 15])
         .unwrap();
     writer.close().unwrap();
-}
-
-fn pdf_table() -> DataTable {
-    DataTable {
-        columns: vec![
-            ColumnInfo {
-                name: "line".into(),
-                data_type: "Int64".into(),
-            },
-            ColumnInfo {
-                name: "text".into(),
-                data_type: "Utf8".into(),
-            },
-        ],
-        rows: vec![
-            vec![CellValue::Int(1), CellValue::String("Hello World".into())],
-            vec![
-                CellValue::Int(2),
-                CellValue::String("Sample PDF content".into()),
-            ],
-        ],
-        edits: HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-    }
 }

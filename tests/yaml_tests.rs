@@ -5,41 +5,41 @@ use serde_json::json;
 
 #[test]
 fn test_yaml_null() {
-    assert_eq!(yaml_to_json(&serde_yaml::Value::Null), json!(null));
+    assert_eq!(yaml_to_json(&serde_yaml_ng::Value::Null), json!(null));
 }
 
 #[test]
 fn test_yaml_bool() {
-    assert_eq!(yaml_to_json(&serde_yaml::Value::Bool(true)), json!(true));
+    assert_eq!(yaml_to_json(&serde_yaml_ng::Value::Bool(true)), json!(true));
 }
 
 #[test]
 fn test_yaml_number_int() {
-    let v: serde_yaml::Value = serde_yaml::from_str("42").unwrap();
+    let v: serde_yaml_ng::Value = serde_yaml_ng::from_str("42").unwrap();
     assert_eq!(yaml_to_json(&v), json!(42));
 }
 
 #[test]
 fn test_yaml_number_float() {
-    let v: serde_yaml::Value = serde_yaml::from_str("2.5").unwrap();
+    let v: serde_yaml_ng::Value = serde_yaml_ng::from_str("2.5").unwrap();
     assert_eq!(yaml_to_json(&v), json!(2.5));
 }
 
 #[test]
 fn test_yaml_string() {
-    let v = serde_yaml::Value::String("hello".into());
+    let v = serde_yaml_ng::Value::String("hello".into());
     assert_eq!(yaml_to_json(&v), json!("hello"));
 }
 
 #[test]
 fn test_yaml_sequence() {
-    let v: serde_yaml::Value = serde_yaml::from_str("[1, 2, 3]").unwrap();
+    let v: serde_yaml_ng::Value = serde_yaml_ng::from_str("[1, 2, 3]").unwrap();
     assert_eq!(yaml_to_json(&v), json!([1, 2, 3]));
 }
 
 #[test]
 fn test_yaml_mapping() {
-    let v: serde_yaml::Value = serde_yaml::from_str("name: Alice\nage: 30").unwrap();
+    let v: serde_yaml_ng::Value = serde_yaml_ng::from_str("name: Alice\nage: 30").unwrap();
     let j = yaml_to_json(&v);
     assert_eq!(j["name"], json!("Alice"));
     assert_eq!(j["age"], json!(30));

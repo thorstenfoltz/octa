@@ -259,7 +259,7 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
         .title_bar(false)
         .collapsible(false);
     window = match size {
-        DialogSize::Maximized => window.fixed_rect(ctx.screen_rect().shrink(8.0)),
+        DialogSize::Maximized => window.fixed_rect(ctx.content_rect().shrink(8.0)),
         DialogSize::Minimized => window.resizable(false),
         DialogSize::Normal => window
             .resizable(true)
@@ -279,7 +279,7 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
     let mut double_clicked_outer: Option<usize> = None;
 
     window.show(ctx, |ui| {
-        egui::TopBottomPanel::top("column_inspector_header")
+        egui::Panel::top("column_inspector_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -296,7 +296,7 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
             return;
         }
 
-        egui::TopBottomPanel::bottom("column_inspector_footer")
+        egui::Panel::bottom("column_inspector_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -346,6 +346,13 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
                 let mut context_action: Option<ContextAction> = None;
 
                 TableBuilder::new(ui)
+                    // Without an explicit click sense, every cell defaults to
+                    // `Sense::hover()` (egui_extras 0.34 default), which makes
+                    // `response.clicked()` / `secondary_clicked()` always
+                    // return false — selection, context menu and copy
+                    // therefore all silently no-op. Click-sense is scoped to
+                    // this dialog's TableBuilder only.
+                    .sense(egui::Sense::click())
                     .striped(true)
                     .resizable(true)
                     .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
@@ -425,27 +432,27 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
                                                     context_action = Some(
                                                         ContextAction::CopyInspectorColumn(col_idx),
                                                     );
-                                                    ui.close_menu();
+                                                    ui.close();
                                                 }
                                             }
                                         });
                                         ui.separator();
                                         if ui.button("Copy").clicked() {
                                             context_action = Some(ContextAction::CopySelection);
-                                            ui.close_menu();
+                                            ui.close();
                                         }
                                         if ui.button("Copy all rows").clicked() {
                                             context_action = Some(ContextAction::CopyAll);
-                                            ui.close_menu();
+                                            ui.close();
                                         }
                                         ui.separator();
                                         if ui.button("Select all").clicked() {
                                             context_action = Some(ContextAction::SelectAll);
-                                            ui.close_menu();
+                                            ui.close();
                                         }
                                         if ui.button("Clear selection").clicked() {
                                             context_action = Some(ContextAction::ClearSelection);
-                                            ui.close_menu();
+                                            ui.close();
                                         }
                                     });
                                 }

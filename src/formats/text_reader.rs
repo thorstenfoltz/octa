@@ -27,6 +27,11 @@ impl FormatReader for TextReader {
             "dockerignore",
             "editorconfig",
             "properties",
+            // Terraform / HCL — opened as text; the raw editor's syntect
+            // pass adds proper highlighting via the bundled .sublime-syntax.
+            "tf",
+            "tfvars",
+            "hcl",
         ]
     }
 

@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
+      licenses: ${{ steps.filter.outputs.licenses }}
     steps:
       - uses: actions/checkout@v5
       - uses: dorny/paths-filter@v4
@@ -28,6 +29,27 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'build.rs'
+            licenses:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'deny.toml'
+
+  licenses:
+    needs: [changes]
+    if: needs.changes.outputs.licenses == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Check licenses
+        run: cargo deny --all-features check licenses
 
   test:
     needs: [changes]
@@ -39,7 +61,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libfontconfig1-dev libfreetype6-dev libharfbuzz-dev libfribidi-dev libjpeg-dev libopenjp2-7-dev libgumbo-dev libjbig2dec0-dev libmujs-dev
+          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libfontconfig1-dev libfreetype6-dev
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -58,7 +80,7 @@ jobs:
         run: cargo test
 
   megalinter:
-    needs: [test]
+    needs: [test, licenses]
     if: always() && !failure()
     runs-on: ubuntu-latest
     steps:

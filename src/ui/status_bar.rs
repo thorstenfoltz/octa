@@ -24,6 +24,81 @@ pub struct StatusBarAction {
     pub navigate_to: Option<(usize, usize)>,
     /// User typed the secret "kraken" command into the nav input.
     pub kraken_summoned: bool,
+    /// User clicked the column-filter chip — open the Column Filter dialog
+    /// preselected on the first filtered column.
+    pub open_column_filter: Option<usize>,
+}
+
+/// Per-selection rollups shown as a status-bar pill when more than one
+/// cell is highlighted. Numeric counts mirror what Excel shows in the
+/// bottom-right "AutoCalculate" zone; the plain `count` is always the
+/// total number of non-null cells in the selection regardless of type.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SelectionStats {
+    pub count: usize,
+    pub numeric_count: usize,
+    pub sum: f64,
+    pub min: f64,
+    pub max: f64,
+}
+
+/// Build a [`SelectionStats`] for the given (row, col) cells. Cells whose
+/// value can't be coerced to `f64` contribute to `count` only.
+pub fn compute_selection_stats(
+    table: &DataTable,
+    cells: impl Iterator<Item = (usize, usize)>,
+) -> SelectionStats {
+    use crate::data::CellValue;
+    let mut out = SelectionStats {
+        min: f64::INFINITY,
+        max: f64::NEG_INFINITY,
+        ..Default::default()
+    };
+    for (row, col) in cells {
+        let Some(value) = table.get(row, col) else {
+            continue;
+        };
+        if matches!(value, CellValue::Null) {
+            continue;
+        }
+        out.count += 1;
+        let numeric = match value {
+            CellValue::Int(n) => Some(*n as f64),
+            CellValue::Float(f) if f.is_finite() => Some(*f),
+            _ => None,
+        };
+        if let Some(n) = numeric {
+            out.numeric_count += 1;
+            out.sum += n;
+            if n < out.min {
+                out.min = n;
+            }
+            if n > out.max {
+                out.max = n;
+            }
+        }
+    }
+    if out.numeric_count == 0 {
+        out.min = 0.0;
+        out.max = 0.0;
+    }
+    out
+}
+
+fn format_float(n: f64) -> String {
+    if n.abs() >= 1e15 || (n != 0.0 && n.abs() < 1e-3) {
+        format!("{:.3e}", n)
+    } else if n.fract() == 0.0 {
+        let abs = n.abs() as usize;
+        let formatted = format_number(abs);
+        if n < 0.0 {
+            format!("-{}", formatted)
+        } else {
+            formatted
+        }
+    } else {
+        format!("{:.3}", n)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -40,6 +115,10 @@ pub fn draw_status_bar(
     readonly: bool,
     busy: bool,
     busy_hint: Option<&str>,
+    column_filter_count: usize,
+    first_filtered_col: Option<usize>,
+    selected_rows: &std::collections::HashSet<usize>,
+    selected_cells: &std::collections::HashSet<(usize, usize)>,
 ) -> StatusBarAction {
     let mut action = StatusBarAction::default();
     let colors = ThemeColors::for_mode(theme_mode);
@@ -124,6 +203,30 @@ pub fn draw_status_bar(
                     .color(colors.text_secondary),
             );
 
+            // Active column-filter chip. Clickable shortcut into the dialog,
+            // preselected on the first filtered column.
+            if column_filter_count > 0 {
+                ui.separator();
+                let chip = ui
+                    .add(
+                        egui::Label::new(
+                            RichText::new(format!(
+                                "Filter: {} col{}",
+                                column_filter_count,
+                                if column_filter_count == 1 { "" } else { "s" }
+                            ))
+                            .size(11.0)
+                            .color(colors.accent)
+                            .strong(),
+                        )
+                        .sense(egui::Sense::click()),
+                    )
+                    .on_hover_text("Click to manage column filters");
+                if chip.clicked() {
+                    action.open_column_filter = first_filtered_col;
+                }
+            }
+
             // Selected cell info + navigation input
             if let Some((row, col)) = state.selected_cell {
                 ui.separator();
@@ -150,6 +253,53 @@ pub fn draw_status_bar(
                             .size(11.0)
                             .color(colors.text_muted),
                     );
+                }
+            }
+
+            // Selection rollup pill (Excel-style Sum / Count / Avg / Min / Max).
+            // Shown only when more than one cell is selected; the single-cell
+            // info above already covers the one-cell case. Selection sources
+            // resolve in the same priority order the clipboard uses.
+            let stats_cells: Option<Vec<(usize, usize)>> = if !selected_cells.is_empty() {
+                Some(selected_cells.iter().copied().collect())
+            } else if !selected_rows.is_empty() {
+                let cols = table.col_count();
+                Some(
+                    selected_rows
+                        .iter()
+                        .flat_map(|&r| (0..cols).map(move |c| (r, c)))
+                        .collect(),
+                )
+            } else if !state.selected_cols.is_empty() {
+                let rows = table.row_count();
+                Some(
+                    state
+                        .selected_cols
+                        .iter()
+                        .flat_map(|&c| (0..rows).map(move |r| (r, c)))
+                        .collect(),
+                )
+            } else {
+                None
+            };
+            if let Some(cells) = stats_cells {
+                let stats = compute_selection_stats(table, cells.into_iter());
+                if stats.count > 1 {
+                    ui.separator();
+                    let text = if stats.numeric_count > 0 {
+                        let avg = stats.sum / stats.numeric_count as f64;
+                        format!(
+                            "Count={} Sum={} Avg={} Min={} Max={}",
+                            format_number(stats.count),
+                            format_float(stats.sum),
+                            format_float(avg),
+                            format_float(stats.min),
+                            format_float(stats.max),
+                        )
+                    } else {
+                        format!("Count={}", format_number(stats.count))
+                    };
+                    ui.label(RichText::new(text).size(11.0).color(colors.accent).strong());
                 }
             }
 

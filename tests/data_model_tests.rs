@@ -911,10 +911,10 @@ fn test_settings_defaults() {
     assert_eq!(settings.font_size, 13.0);
     assert!(settings.show_row_numbers);
     assert!(settings.alternating_row_colors);
-    assert!(!settings.negative_numbers_red);
+    assert!(settings.negative_numbers_red);
     assert_eq!(settings.default_search_mode, SearchMode::Plain);
     assert_eq!(settings.tab_size, 4);
-    assert_eq!(settings.max_recent_files, 5);
+    assert_eq!(settings.max_recent_files, 10);
 }
 
 #[test]

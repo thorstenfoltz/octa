@@ -1,4 +1,4 @@
-//! Central panel: status banner, view-mode dispatch (PDF/Notebook/Markdown/
+//! Central panel: status banner, view-mode dispatch (Notebook/Markdown/
 //! Raw/JsonTree), the table renderer, and the table interaction handling
 //! (column rename, type change, sort, context menu, lazy row loading).
 
@@ -16,8 +16,10 @@ use super::state::OctaApp;
 use crate::view_modes;
 
 impl OctaApp {
-    pub(crate) fn render_central_panel(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    pub(crate) fn render_central_panel(&mut self, parent_ui: &mut egui::Ui) {
+        let ctx = parent_ui.ctx().clone();
+        let ctx = &ctx;
+        egui::CentralPanel::default().show_inside(parent_ui, |ui| {
             // Per-theme background decoration (e.g. Manga's halftone field).
             // Painted before any content so widgets sit on top.
             ui::theme::paint_background_decoration(ui.painter(), ui.max_rect(), self.theme_mode);
@@ -97,13 +99,23 @@ impl OctaApp {
             }
 
             // Non-table view modes render and return early.
-            if self.tabs[self.active_tab].view_mode == ViewMode::Pdf {
-                view_modes::render_pdf_view(
-                    ctx,
+            if self.tabs[self.active_tab].view_mode == ViewMode::Compare {
+                let syntax_cap = self.settings.syntax_highlight_max_bytes;
+                let theme_mode = self.theme_mode;
+                let action = view_modes::render_compare_view(
                     ui,
                     &mut self.tabs[self.active_tab],
-                    self.theme_mode,
+                    theme_mode,
+                    syntax_cap,
                 );
+                if action.close {
+                    let tab = &mut self.tabs[self.active_tab];
+                    tab.compare_right_path = None;
+                    tab.compare_right_raw = None;
+                    tab.compare_right_table = None;
+                    tab.compare_error = None;
+                    tab.view_mode = ViewMode::Table;
+                }
                 return;
             }
             if self.tabs[self.active_tab].view_mode == ViewMode::Notebook {
@@ -124,16 +136,44 @@ impl OctaApp {
                 );
                 return;
             }
+            if self.tabs[self.active_tab].view_mode == ViewMode::EpubReader {
+                view_modes::render_epub_view(ctx, ui, &mut self.tabs[self.active_tab]);
+                return;
+            }
+            if self.tabs[self.active_tab].view_mode == ViewMode::Map {
+                view_modes::render_map_view(
+                    ctx,
+                    ui,
+                    &mut self.tabs[self.active_tab],
+                    &self.settings,
+                );
+                return;
+            }
+            if self.tabs[self.active_tab].view_mode == ViewMode::Chart {
+                view_modes::render_chart_view(
+                    ui,
+                    &mut self.tabs[self.active_tab],
+                    self.theme_mode,
+                    octa::data::chart::ChartLimits {
+                        max_points: self.settings.chart_max_points,
+                        max_categories: self.settings.chart_max_categories,
+                    },
+                );
+                return;
+            }
             if self.tabs[self.active_tab].view_mode == ViewMode::Raw {
                 self.maybe_offer_raw_perf_prompt();
                 let raw_action = view_modes::render_raw_view(
                     ui,
                     &mut self.tabs[self.active_tab],
                     self.theme_mode,
-                    self.settings.color_aligned_columns,
-                    self.settings.tab_size,
-                    self.settings.warn_raw_align_reload,
-                    self.readonly_mode,
+                    view_modes::raw_text::RawViewOpts {
+                        color_aligned_columns: self.settings.color_aligned_columns,
+                        tab_size: self.settings.tab_size,
+                        warn_unalign: self.settings.warn_raw_align_reload,
+                        readonly: self.readonly_mode,
+                        syntax_highlight_max_bytes: self.settings.syntax_highlight_max_bytes,
+                    },
                 );
                 if raw_action.confirm_unalign {
                     self.show_unalign_confirm = true;
@@ -166,10 +206,18 @@ impl OctaApp {
             // the table.
             self.handle_table_clipboard(ctx);
 
+            // Archive action bar: rendered when the active tab was
+            // loaded as a zip/tar/tgz so users can open the selected
+            // entry without leaving the table.
+            self.render_archive_action_bar(ui);
+
             let os_has_clipboard = self.os_clipboard_has_text();
             let readonly = self.readonly_mode;
             let tab = &mut self.tabs[self.active_tab];
             let filtered = tab.filtered_rows.clone();
+            let filtered_cols: std::collections::HashSet<usize> =
+                tab.column_filters.keys().copied().collect();
+            let hidden_cols = tab.hidden_columns.clone();
             let os_has_clip = tab.table_state.clipboard.is_some() || os_has_clipboard;
             let interaction = ui::table_view::draw_table(
                 ui,
@@ -188,9 +236,15 @@ impl OctaApp {
                 self.welcome_logo_texture.as_ref(),
                 &self.settings.shortcuts,
                 readonly,
+                &filtered_cols,
+                &hidden_cols,
             );
 
+            let welcome_logo_clicked = interaction.welcome_logo_clicked;
             self.handle_table_interaction(interaction);
+            if welcome_logo_clicked {
+                self.register_welcome_logo_click(ctx);
+            }
         });
     }
 
@@ -245,7 +299,7 @@ impl OctaApp {
             .memory(|m| m.focused())
             .and_then(|id| egui::TextEdit::load_state(ctx, id).map(|_| ()))
             .is_some()
-            || ctx.wants_keyboard_input();
+            || ctx.egui_wants_keyboard_input();
         if text_edit_focused {
             return;
         }
@@ -519,6 +573,23 @@ impl OctaApp {
                 super::dialogs::parse_in_new_tab::build_modal_state(tab_ref, scope);
         }
 
+        // --- Filter values… on a column header (right-click) ---
+        if let Some(col_idx) = interaction.ctx_filter_column {
+            self.open_column_filter_dialog(Some(col_idx));
+        }
+
+        // --- Hide column (right-click) ---
+        if let Some(col_idx) = interaction.ctx_hide_column {
+            self.tabs[self.active_tab].hidden_columns.insert(col_idx);
+        }
+
+        // --- Value frequency (right-click "Value frequency…") ---
+        if let Some(col_idx) = interaction.ctx_value_frequency {
+            let tab = &mut self.tabs[self.active_tab];
+            tab.value_frequency_col = Some(col_idx);
+            tab.value_frequency_size = octa::ui::settings::DialogSize::default();
+        }
+
         // --- Color marks ---
         let tab = &mut self.tabs[self.active_tab];
         if let Some((key, color)) = interaction.set_mark {
@@ -543,7 +614,9 @@ impl OctaApp {
             tab.bg_file_exhausted = exhausted_flag.clone();
 
             let skip_rows = tab.table.row_offset + tab.table.row_count();
-            let max_chunk = 1_000_000usize;
+            // Background-load chunk size mirrors the first-load cap so the user's
+            // Settings choice applies to both passes consistently.
+            let max_chunk = formats::initial_load_rows();
 
             if let Some(ref source_path) = tab.table.source_path.clone() {
                 let path = std::path::PathBuf::from(source_path);

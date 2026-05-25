@@ -31,7 +31,7 @@ impl TreeKind {
     fn serialize_pretty(self, value: &serde_json::Value) -> Option<String> {
         match self {
             TreeKind::Json => serde_json::to_string_pretty(value).ok(),
-            TreeKind::Yaml => serde_yaml::to_string(value).ok(),
+            TreeKind::Yaml => serde_yaml_ng::to_string(value).ok(),
         }
     }
     fn copy_label(self) -> &'static str {
@@ -315,7 +315,7 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
                             if is_editing {
                                 if tab.json_edit_width.is_none() {
                                     let display = leaf_display(value, comma);
-                                    let measured = ui.fonts(|f| {
+                                    let measured = ui.fonts_mut(|f| {
                                         f.layout_no_wrap(display, mono(), colors.text_primary)
                                             .size()
                                             .x
@@ -482,7 +482,7 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
                     .unwrap_or_default()
             });
             ui.ctx().copy_text(s);
-            ui.close_menu();
+            ui.close();
         }
     });
 
@@ -553,7 +553,7 @@ fn render_key_or_edit(
         // Inline TextEdit for the renamed key. Width tracks the buffer so
         // typing a longer name doesn't get visually clipped.
         let measured = ui
-            .fonts(|f| {
+            .fonts_mut(|f| {
                 f.layout_no_wrap(edit_buffer.clone(), mono(), colors.text_primary)
                     .size()
                     .x

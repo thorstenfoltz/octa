@@ -165,14 +165,6 @@ fn test_reader_for_arrow_ipc() {
 }
 
 #[test]
-fn test_reader_for_pdf() {
-    let reg = FormatRegistry::new();
-    let reader = reg.reader_for_path(&PathBuf::from("report.pdf"));
-    assert!(reader.is_some());
-    assert_eq!(reader.unwrap().name(), "PDF");
-}
-
-#[test]
 fn test_all_extensions_includes_new_formats() {
     let reg = FormatRegistry::new();
     let exts = reg.all_extensions();

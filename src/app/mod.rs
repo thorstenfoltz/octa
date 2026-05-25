@@ -3,6 +3,7 @@
 //! rendering, update-install flow). Lives under `src/app/` so it stays out
 //! of the public library surface.
 
+pub(crate) mod archives;
 pub(crate) mod bg_rows;
 pub(crate) mod central_panel;
 pub(crate) mod clipboard;
@@ -12,6 +13,7 @@ pub(crate) mod edit_ops;
 pub(crate) mod file_io;
 pub(crate) mod find_replace;
 pub(crate) mod init;
+pub(crate) mod multi_search;
 pub(crate) mod shortcuts_dispatch;
 pub(crate) mod sidebar;
 pub(crate) mod sql_panel;

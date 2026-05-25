@@ -51,7 +51,7 @@ pub(crate) fn render_about_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     if !app.show_about_dialog {
         return;
     }
-    let screen_center = ctx.screen_rect().center();
+    let screen_center = ctx.content_rect().center();
     let default_pos = screen_center - egui::vec2(160.0, 100.0);
     egui::Window::new("About Octa")
         .resizable(false)

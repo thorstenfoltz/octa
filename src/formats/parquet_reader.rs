@@ -1,6 +1,6 @@
 use crate::data::{CellValue, ColumnInfo, DataTable};
 use crate::formats::FormatReader;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use arrow::array::*;
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use parquet::arrow::ArrowWriter;
@@ -28,76 +28,240 @@ impl FormatReader for ParquetReader {
         write_parquet(path, table)
     }
 
+    /// Try the native arrow-parquet reader first; if it errors (most commonly
+    /// `Row group ordinal 32768 exceeds i16 max value` on files with > 32 767
+    /// row groups), retry via DuckDB which uses its own parquet implementation
+    /// without that hard cap. Wraps a second failure with an actionable
+    /// recompact hint.
     fn read_file(&self, path: &Path) -> Result<DataTable> {
-        let file = File::open(path)?;
-        let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-        let schema = builder.schema().clone();
+        match read_via_arrow(path) {
+            Ok(table) => Ok(table),
+            Err(arrow_err) => match read_via_duckdb(path) {
+                Ok(table) => Ok(table),
+                Err(duck_err) => Err(anyhow!(
+                    "Parquet read failed via both arrow and DuckDB.\n  \
+                     arrow error: {arrow_err}\n  \
+                     DuckDB error: {duck_err}\n\
+                     If the file was written with many small row groups \
+                     (Spark / streaming ingest), recompact it, e.g.:\n  \
+                     duckdb -c \"COPY (SELECT * FROM '{}') TO 'compact.parquet' \
+                     (FORMAT PARQUET, ROW_GROUP_SIZE 1000000)\"",
+                    path.display()
+                )),
+            },
+        }
+    }
+}
 
-        // Get total row count from Parquet metadata without reading data
-        let metadata = builder.metadata();
-        let total_file_rows: usize = metadata
-            .row_groups()
-            .iter()
-            .map(|rg| rg.num_rows() as usize)
-            .sum();
+/// Native arrow-parquet path. Honoured first because it preserves Arrow types
+/// faithfully and is the fast path for well-formed files.
+fn read_via_arrow(path: &Path) -> Result<DataTable> {
+    let file = File::open(path)?;
+    let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
+    let schema = builder.schema().clone();
 
-        // Limit: load at most MAX_ROWS rows to avoid OOM
-        const MAX_ROWS: usize = 1_000_000;
-        let truncated = total_file_rows > MAX_ROWS;
+    // Get total row count from Parquet metadata without reading data
+    let metadata = builder.metadata();
+    let total_file_rows: usize = metadata
+        .row_groups()
+        .iter()
+        .map(|rg| rg.num_rows() as usize)
+        .sum();
 
-        let reader = builder.with_batch_size(8192).build()?;
+    // First-load cap: respects the user-configurable `initial_load_rows`
+    // (default 5 M). Remaining rows stream in the background as the user
+    // scrolls toward the bottom.
+    let max_rows = super::initial_load_rows();
+    let truncated = total_file_rows > max_rows;
 
-        // Build column info from Arrow schema
-        let columns: Vec<ColumnInfo> = schema
+    let reader = builder.with_batch_size(8192).build()?;
+
+    // Build column info from Arrow schema
+    let columns: Vec<ColumnInfo> = schema
+        .fields()
+        .iter()
+        .map(|f| ColumnInfo {
+            name: f.name().clone(),
+            data_type: format!("{}", f.data_type()),
+        })
+        .collect();
+
+    let mut rows: Vec<Vec<CellValue>> = Vec::new();
+    let mut loaded = 0usize;
+
+    'outer: for batch_result in reader {
+        let batch = batch_result?;
+        let num_rows = batch.num_rows();
+        let num_cols = batch.num_columns();
+
+        for row_idx in 0..num_rows {
+            if loaded >= max_rows {
+                break 'outer;
+            }
+            let mut row = Vec::with_capacity(num_cols);
+            for col_idx in 0..num_cols {
+                let array = batch.column(col_idx);
+                let value = arrow_value_to_cell(array, row_idx);
+                row.push(value);
+            }
+            rows.push(row);
+            loaded += 1;
+        }
+    }
+
+    Ok(DataTable {
+        columns,
+        rows,
+        edits: std::collections::HashMap::new(),
+        source_path: Some(path.to_string_lossy().to_string()),
+        format_name: Some("Parquet".to_string()),
+        structural_changes: false,
+        total_rows: if truncated {
+            Some(total_file_rows)
+        } else {
+            None
+        },
+        row_offset: 0,
+        marks: std::collections::HashMap::new(),
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+        db_meta: None,
+    })
+}
+
+/// DuckDB-backed fallback. DuckDB's parquet reader has no i16 row-group
+/// ordinal limit, so it can ingest files that the native arrow path rejects.
+/// Rows are yielded as Arrow `RecordBatch`es so we reuse the same
+/// `arrow_value_to_cell` mapping as the native path. The same `initial_load_rows`
+/// cap applies via `LIMIT`.
+fn read_via_duckdb(path: &Path) -> Result<DataTable> {
+    let conn = duckdb::Connection::open_in_memory()?;
+    let max_rows = super::initial_load_rows();
+    // Use parameter binding for the path so single quotes in filenames don't break the SQL.
+    // DuckDB recognises `?` for positional parameters.
+    let sql = if max_rows == usize::MAX {
+        "SELECT * FROM read_parquet(?)".to_string()
+    } else {
+        format!("SELECT * FROM read_parquet(?) LIMIT {max_rows}")
+    };
+    let path_str = path.to_string_lossy().to_string();
+    let mut stmt = conn.prepare(&sql)?;
+    let batches: Vec<arrow::record_batch::RecordBatch> =
+        stmt.query_arrow([path_str.as_str()])?.collect();
+
+    // Get the Arrow schema from the first batch (DuckDB hands us a real
+    // Arrow schema so column types round-trip cleanly).
+    let columns: Vec<ColumnInfo> = if let Some(first) = batches.first() {
+        first
+            .schema()
             .fields()
             .iter()
             .map(|f| ColumnInfo {
                 name: f.name().clone(),
                 data_type: format!("{}", f.data_type()),
             })
+            .collect()
+    } else {
+        // Empty result — fall back to a DESCRIBE for the column list.
+        let mut describe = conn.prepare(&format!(
+            "DESCRIBE SELECT * FROM read_parquet({})",
+            quote_sql_literal(&path_str)
+        ))?;
+        let cols: Vec<(String, String)> = describe
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .filter_map(|r| r.ok())
             .collect();
+        cols.into_iter()
+            .map(|(name, ty)| ColumnInfo {
+                name,
+                data_type: duckdb_type_to_arrow_name(&ty),
+            })
+            .collect()
+    };
 
-        let mut rows: Vec<Vec<CellValue>> = Vec::new();
-        let mut loaded = 0usize;
-
-        'outer: for batch_result in reader {
-            let batch = batch_result?;
-            let num_rows = batch.num_rows();
-            let num_cols = batch.num_columns();
-
-            for row_idx in 0..num_rows {
-                if loaded >= MAX_ROWS {
-                    break 'outer;
-                }
-                let mut row = Vec::with_capacity(num_cols);
-                for col_idx in 0..num_cols {
-                    let array = batch.column(col_idx);
-                    let value = arrow_value_to_cell(array, row_idx);
-                    row.push(value);
-                }
-                rows.push(row);
-                loaded += 1;
+    let mut rows: Vec<Vec<CellValue>> = Vec::new();
+    for batch in &batches {
+        let num_rows = batch.num_rows();
+        let num_cols = batch.num_columns();
+        for row_idx in 0..num_rows {
+            let mut row = Vec::with_capacity(num_cols);
+            for col_idx in 0..num_cols {
+                let array = batch.column(col_idx);
+                row.push(arrow_value_to_cell(array, row_idx));
             }
+            rows.push(row);
         }
+    }
 
-        Ok(DataTable {
-            columns,
-            rows,
-            edits: std::collections::HashMap::new(),
-            source_path: Some(path.to_string_lossy().to_string()),
-            format_name: Some("Parquet".to_string()),
-            structural_changes: false,
-            total_rows: if truncated {
-                Some(total_file_rows)
-            } else {
-                None
-            },
-            row_offset: 0,
-            marks: std::collections::HashMap::new(),
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            db_meta: None,
-        })
+    // The DuckDB path uses LIMIT, so we can't know the full file row count
+    // cheaply. Setting total_rows = None means the UI won't show a stale
+    // "+N more" — that's acceptable for the fallback path.
+    let loaded = rows.len();
+    let truncated_marker = if max_rows != usize::MAX && loaded == max_rows {
+        // Confirm there are more rows by running a fast count via DuckDB.
+        let total: Option<i64> = conn
+            .query_row(
+                "SELECT count(*) FROM read_parquet(?)",
+                [path_str.as_str()],
+                |r| r.get(0),
+            )
+            .ok();
+        total.and_then(|n| (n as usize > loaded).then_some(n as usize))
+    } else {
+        None
+    };
+
+    Ok(DataTable {
+        columns,
+        rows,
+        edits: std::collections::HashMap::new(),
+        source_path: Some(path.to_string_lossy().to_string()),
+        format_name: Some("Parquet".to_string()),
+        structural_changes: false,
+        total_rows: truncated_marker,
+        row_offset: 0,
+        marks: std::collections::HashMap::new(),
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+        db_meta: None,
+    })
+}
+
+/// Single-quote a SQL string literal (escape inner single quotes).
+fn quote_sql_literal(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+/// Minimal DuckDB→Arrow type-name mapping for the rare empty-result case in
+/// the DuckDB fallback. The non-empty path gets full fidelity directly from
+/// the Arrow schema on the first RecordBatch.
+fn duckdb_type_to_arrow_name(ty: &str) -> String {
+    let upper = ty.to_uppercase();
+    if upper.contains("BIGINT")
+        || upper.contains("INTEGER")
+        || upper.contains("HUGEINT")
+        || upper.starts_with("INT")
+        || upper.contains("SMALLINT")
+        || upper.contains("TINYINT")
+    {
+        "Int64".into()
+    } else if upper.contains("DOUBLE")
+        || upper.contains("REAL")
+        || upper.contains("FLOAT")
+        || upper.contains("DECIMAL")
+        || upper.contains("NUMERIC")
+    {
+        "Float64".into()
+    } else if upper.contains("BOOL") {
+        "Boolean".into()
+    } else if upper.contains("BLOB") || upper.contains("BYTEA") {
+        "Binary".into()
+    } else if upper.contains("DATE") && !upper.contains("TIME") {
+        "Date32".into()
+    } else if upper.contains("TIMESTAMP") || upper.contains("DATETIME") {
+        "Timestamp(Microsecond, None)".into()
+    } else {
+        "Utf8".into()
     }
 }
 

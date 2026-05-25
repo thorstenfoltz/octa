@@ -41,7 +41,7 @@ clean: ## Clean cache of uv and delete virtual environment
 	@rm -rf .venv
 
 lint: check-npx ## Lints the code (uses cached MegaLinter Rust flavor image)
-	@npx mega-linter-runner@v9 --flavor rust
+	@npx -y mega-linter-runner@v9 --flavor rust
 
 lint-fix: check-npx ## Lints the code and applies fixes
-	@npx mega-linter-runner@v9 --flavor rust --fix
+	@npx -y mega-linter-runner@v9 --flavor rust --fix

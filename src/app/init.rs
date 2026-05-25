@@ -49,6 +49,16 @@ impl OctaApp {
         let theme_mode = settings.default_theme;
         let search_mode = settings.default_search_mode;
         let recent_files = Self::load_recent_files();
+        // Push the configured first-load row cap into the streaming readers
+        // (Parquet, CSV, TSV) which consult a process-wide atomic instead of
+        // a hardcoded const. Re-applied whenever the user changes the setting.
+        // The "Unlimited" checkbox overrides the numeric value with usize::MAX.
+        let initial_cap = if settings.initial_load_rows_unlimited {
+            usize::MAX
+        } else {
+            settings.initial_load_rows
+        };
+        octa::formats::set_initial_load_rows(initial_cap);
         Self {
             tabs: vec![TabState::new(search_mode)],
             active_tab: 0,
@@ -84,10 +94,16 @@ impl OctaApp {
             show_reload_confirm: false,
             pending_table_picker: None,
             pending_open_queue: std::collections::VecDeque::new(),
+            recently_closed_tabs: std::collections::VecDeque::new(),
+            tab_multi_selection: std::collections::HashSet::new(),
+            welcome_logo_click_count: 0,
+            welcome_logo_last_click: None,
+            snowfall_until: None,
             pending_date_pickers: std::collections::VecDeque::new(),
             pending_raw_perf_prompt: None,
             pending_date_warning: None,
             pending_parse_modal: None,
+            schema_export: None,
             directory_tree: None,
             konami_index: 0,
             confetti_until: None,
@@ -96,6 +112,8 @@ impl OctaApp {
             rainbow_active: false,
             readonly_mode: false,
             pending_readonly_notice: None,
+            startup_pin_load_done: false,
+            multi_search: super::multi_search::MultiSearchState::new(search_mode),
         }
     }
 

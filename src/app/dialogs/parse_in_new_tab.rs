@@ -48,6 +48,14 @@ pub(crate) struct ParseModalState {
     /// Cell strings captured at modal-open time. `None` for Table scope —
     /// those go through a format-writer instead of cell concatenation.
     pub cells: Option<Vec<String>>,
+    /// Source-column headers captured at modal-open time, used to keep
+    /// the new tab's column names aligned with the source table instead
+    /// of letting the format reader treat the first cell value as the
+    /// header. For Row scope this is the full column list (length ==
+    /// `cells.len()`); for Column and Cell scopes it's a single-element
+    /// vec carrying just the affected column's name. Empty for Table
+    /// scope (whole-table serialization preserves headers anyway).
+    pub headers: Vec<String>,
     /// Index into [`PARSE_FORMATS`].
     pub format_idx: usize,
     /// Delimiter the user picked for CSV / TSV (ignored for other formats).
@@ -55,11 +63,17 @@ pub(crate) struct ParseModalState {
 }
 
 impl ParseModalState {
-    pub(crate) fn new(scope: ParseScope, source_label: String, cells: Option<Vec<String>>) -> Self {
+    pub(crate) fn new(
+        scope: ParseScope,
+        source_label: String,
+        cells: Option<Vec<String>>,
+        headers: Vec<String>,
+    ) -> Self {
         Self {
             scope,
             source_label,
             cells,
+            headers,
             // Default to JSON — the original motivation for this feature
             // was un-flattening JSON-shaped cell payloads.
             format_idx: 0,
@@ -151,14 +165,17 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
 /// tab will look like before they click Open.
 fn scope_hint(scope: &ParseScope) -> &'static str {
     match scope {
-        ParseScope::Cell { .. } => "The cell's text is parsed as the chosen format.",
+        ParseScope::Cell { .. } => {
+            "Serialized as a 1x1 table with the source column name as header, \
+             then reopened in the chosen format. (Plain Text passes through verbatim.)"
+        }
         ParseScope::Row { .. } => {
-            "Row cells are combined (JSON: wrapped as an array; others: joined with newlines) \
-             then parsed."
+            "Serialized as a single-row table with the source column names as headers, \
+             then reopened in the chosen format."
         }
         ParseScope::Column { .. } => {
-            "Column cells are combined (JSON: wrapped as an array; others: joined with newlines) \
-             then parsed."
+            "Serialized as a single-column table with the source column name as header, \
+             then reopened in the chosen format."
         }
         ParseScope::Table => "The whole table is serialized to the chosen format, then reopened.",
     }
@@ -189,7 +206,24 @@ fn execute_parse(app: &mut OctaApp, state: ParseModalState) {
                 .cells
                 .as_deref()
                 .expect("non-Table scope must carry cell strings");
-            build_payload(cells, ext, &state.csv_delimiter).into_bytes()
+            // Plain Text has no schema, so synthesising a 1-col table
+            // would just inject a synthetic header line into the output.
+            // Pass the cell text through verbatim and let the TextReader
+            // render it as raw lines.
+            if ext == "txt" {
+                cells.join("\n").into_bytes()
+            } else {
+                match build_synthetic_payload(&state.scope, cells, &state.headers, ext) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        app.status_message = Some((
+                            format!("Parse in new tab: {}", e),
+                            std::time::Instant::now(),
+                        ));
+                        return;
+                    }
+                }
+            }
         }
     };
 
@@ -252,24 +286,87 @@ fn scope_friendly_name(scope: &ParseScope, _fallback: &str) -> String {
     }
 }
 
-/// Combine `cells` into one text payload based on format conventions:
-/// * JSON: build a JSON array `[c1, c2, …]` so the result is a single
-///   valid JSON document. Single-cell payloads pass through unchanged.
-/// * Everything else: join cells with `\n`.
-fn build_payload(cells: &[String], ext: &str, _delim: &str) -> String {
-    if cells.len() == 1 {
-        return cells[0].clone();
+/// Build the parsed-payload bytes for a Cell / Row / Column scope by
+/// constructing a small synthetic `DataTable` and running it through
+/// the format-registry writer. This is the same code path Whole-Table
+/// scope uses, so headers are preserved consistently across all
+/// formats (CSV / TSV: written as the first data row; JSON / JSONL /
+/// YAML / TOML / Markdown: written as the object keys / table
+/// columns). Plain Text is short-circuited by the caller — it has no
+/// schema concept.
+///
+/// Shapes:
+/// * Cell scope: 1 row × 1 column, header from the source column.
+/// * Row scope: 1 row × N columns, headers from the source columns.
+/// * Column scope: N rows × 1 column, single header from the source column.
+fn build_synthetic_payload(
+    scope: &ParseScope,
+    cells: &[String],
+    headers: &[String],
+    ext: &str,
+) -> Result<Vec<u8>, String> {
+    let rows: Vec<Vec<String>> = match scope {
+        ParseScope::Cell { .. } | ParseScope::Row { .. } => vec![cells.to_vec()],
+        ParseScope::Column { .. } => cells.iter().map(|c| vec![c.clone()]).collect(),
+        ParseScope::Table => unreachable!("Table scope uses serialize_active_table"),
+    };
+    let table = synthetic_table(headers, rows);
+    serialize_table_bytes(&table, ext)
+}
+
+/// Build a `DataTable` with the given headers and string-typed rows.
+/// All cells go in as `CellValue::String`; the format writers we route
+/// through (CSV / TSV / JSON / JSONL / YAML / TOML / Markdown / XML)
+/// serialize string cells without complaint.
+fn synthetic_table(headers: &[String], rows: Vec<Vec<String>>) -> octa::data::DataTable {
+    let columns = headers
+        .iter()
+        .map(|h| octa::data::ColumnInfo {
+            name: h.clone(),
+            data_type: "Utf8".to_string(),
+        })
+        .collect();
+    let cell_rows: Vec<Vec<octa::data::CellValue>> = rows
+        .into_iter()
+        .map(|row| row.into_iter().map(octa::data::CellValue::String).collect())
+        .collect();
+    octa::data::DataTable {
+        columns,
+        rows: cell_rows,
+        edits: std::collections::HashMap::new(),
+        source_path: None,
+        format_name: None,
+        structural_changes: false,
+        total_rows: None,
+        row_offset: 0,
+        marks: std::collections::HashMap::new(),
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+        db_meta: None,
     }
-    if ext == "json" {
-        // Each cell is assumed to already be valid JSON (object, array,
-        // or scalar). We just wrap them as an array — the JSON reader
-        // then sees an array of objects and produces one row per cell,
-        // which is the behavior the user said they want ("like the
-        // current JSON parser").
-        format!("[{}]", cells.join(","))
-    } else {
-        cells.join("\n")
+}
+
+/// Round-trip a `DataTable` to bytes via the format registry's writer.
+/// Shared by `build_synthetic_payload` (Cell / Row / Column) and
+/// `serialize_active_table` (Table).
+fn serialize_table_bytes(table: &octa::data::DataTable, ext: &str) -> Result<Vec<u8>, String> {
+    let tmp = tempfile::Builder::new()
+        .prefix("octa-parse-src-")
+        .suffix(&format!(".{}", ext))
+        .tempfile()
+        .map_err(|e| e.to_string())?;
+    let tmp_path = tmp.path().to_path_buf();
+    let registry = octa::formats::FormatRegistry::new();
+    let Some(reader) = registry.reader_for_path(&tmp_path) else {
+        return Err(format!("no writer registered for .{}", ext));
+    };
+    if !reader.supports_write() {
+        return Err(format!("{} is read-only", reader.name()));
     }
+    reader
+        .write_file(&tmp_path, table)
+        .map_err(|e| e.to_string())?;
+    std::fs::read(&tmp_path).map_err(|e| e.to_string())
 }
 
 /// Serialize the currently active tab's table to bytes in the chosen
@@ -283,28 +380,8 @@ fn serialize_active_table(app: &mut OctaApp, ext: &str) -> Result<Vec<u8>, Strin
     // Apply pending edits so the serialized table matches what the user
     // sees on screen.
     tab.table.apply_edits();
-
-    let tmp = tempfile::Builder::new()
-        .prefix("octa-parse-src-")
-        .suffix(&format!(".{}", ext))
-        .tempfile()
-        .map_err(|e| e.to_string())?;
-    let tmp_path = tmp.path().to_path_buf();
-
     let table_clone: octa::data::DataTable = tab.table.clone();
-
-    let registry = octa::formats::FormatRegistry::new();
-    let Some(reader) = registry.reader_for_path(&tmp_path) else {
-        return Err(format!("no writer registered for .{}", ext));
-    };
-    if !reader.supports_write() {
-        return Err(format!("{} is read-only", reader.name()));
-    }
-    reader
-        .write_file(&tmp_path, &table_clone)
-        .map_err(|e| e.to_string())?;
-    let bytes = std::fs::read(&tmp_path).map_err(|e| e.to_string())?;
-    Ok(bytes)
+    serialize_table_bytes(&table_clone, ext)
 }
 
 /// Helper: given a [`ParseScope`] picked from a menu, build the
@@ -318,17 +395,18 @@ pub(crate) fn build_modal_state(tab: &TabState, scope: ParseScope) -> Option<Par
         ParseScope::Cell { row, col } => {
             let value = table.get(row, col)?;
             let text = value.display_with_binary_mode(bdm);
-            let label = format!(
-                "Cell R{}:C{}{}",
-                row + 1,
-                col + 1,
-                table
-                    .columns
-                    .get(col)
-                    .map(|c| format!(" ({})", c.name))
-                    .unwrap_or_default()
-            );
-            Some(ParseModalState::new(scope, label, Some(vec![text])))
+            let col_name = table
+                .columns
+                .get(col)
+                .map(|c| c.name.clone())
+                .unwrap_or_else(|| "value".to_string());
+            let label = format!("Cell R{}:C{} ({})", row + 1, col + 1, col_name);
+            Some(ParseModalState::new(
+                scope,
+                label,
+                Some(vec![text]),
+                vec![col_name],
+            ))
         }
         ParseScope::Row { row } => {
             if row >= table.row_count() {
@@ -338,8 +416,9 @@ pub(crate) fn build_modal_state(tab: &TabState, scope: ParseScope) -> Option<Par
                 .filter_map(|c| table.get(row, c))
                 .map(|v| v.display_with_binary_mode(bdm))
                 .collect();
+            let headers: Vec<String> = table.columns.iter().map(|c| c.name.clone()).collect();
             let label = format!("Row {} ({} cells)", row + 1, cells.len());
-            Some(ParseModalState::new(scope, label, Some(cells)))
+            Some(ParseModalState::new(scope, label, Some(cells), headers))
         }
         ParseScope::Column { col } => {
             if col >= table.col_count() {
@@ -351,7 +430,12 @@ pub(crate) fn build_modal_state(tab: &TabState, scope: ParseScope) -> Option<Par
                 .map(|v| v.display_with_binary_mode(bdm))
                 .collect();
             let label = format!("Column '{}' ({} cells)", col_name, cells.len());
-            Some(ParseModalState::new(scope, label, Some(cells)))
+            Some(ParseModalState::new(
+                scope,
+                label,
+                Some(cells),
+                vec![col_name],
+            ))
         }
         ParseScope::Table => {
             let label = format!(
@@ -359,7 +443,7 @@ pub(crate) fn build_modal_state(tab: &TabState, scope: ParseScope) -> Option<Par
                 table.row_count(),
                 table.col_count()
             );
-            Some(ParseModalState::new(scope, label, None))
+            Some(ParseModalState::new(scope, label, None, Vec::new()))
         }
     }
 }

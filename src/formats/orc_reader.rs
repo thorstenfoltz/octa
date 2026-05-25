@@ -3,10 +3,8 @@ use crate::formats::FormatReader;
 use anyhow::Result;
 use std::path::Path;
 
-// orc-rust uses arrow v58 internally; we import it as `arrow58` to avoid
-// conflicting with the project's main arrow v54 dependency.
-use arrow58::array::*;
-use arrow58::datatypes::{DataType, Field, Schema, TimeUnit};
+use arrow::array::*;
+use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 
 pub struct OrcReader;
 
@@ -265,7 +263,7 @@ fn arrow_value_to_cell(array: &dyn Array, row: usize) -> CellValue {
             }
         }
         _ => {
-            let formatted = arrow58::util::display::array_value_to_string(array, row);
+            let formatted = arrow::util::display::array_value_to_string(array, row);
             match formatted {
                 Ok(s) => CellValue::String(s),
                 Err(_) => CellValue::Null,
@@ -274,7 +272,7 @@ fn arrow_value_to_cell(array: &dyn Array, row: usize) -> CellValue {
     }
 }
 
-fn build_orc_schema(table: &DataTable) -> arrow58::datatypes::SchemaRef {
+fn build_orc_schema(table: &DataTable) -> arrow::datatypes::SchemaRef {
     let fields: Vec<Field> = table
         .columns
         .iter()
@@ -304,8 +302,8 @@ fn build_orc_schema(table: &DataTable) -> arrow58::datatypes::SchemaRef {
 
 fn build_record_batch(
     table: &DataTable,
-    schema: &arrow58::datatypes::SchemaRef,
-) -> Result<arrow58::record_batch::RecordBatch> {
+    schema: &arrow::datatypes::SchemaRef,
+) -> Result<arrow::record_batch::RecordBatch> {
     let mut arrays: Vec<ArrayRef> = Vec::new();
 
     for (col_idx, field) in schema.fields().iter().enumerate() {
@@ -387,7 +385,7 @@ fn build_record_batch(
         arrays.push(array);
     }
 
-    Ok(arrow58::record_batch::RecordBatch::try_new(
+    Ok(arrow::record_batch::RecordBatch::try_new(
         schema.clone(),
         arrays,
     )?)

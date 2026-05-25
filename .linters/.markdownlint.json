@@ -5,14 +5,22 @@
   },
   "MD013": {
     "line_length": 256,
-    "code_blocks": false
+    "code_blocks": false,
+    "tables": false
+  },
+  "MD024": {
+    "siblings_only": true
   },
   "MD026": {
     "punctuation": ".,;:!。，；:"
   },
+  "MD028": false,
   "MD029": true,
   "MD033": false,
   "MD036": true,
+  "MD040": false,
   "MD041": false,
-  "MD051": true
+  "MD046": false,
+  "MD051": true,
+  "MD060": false
 }

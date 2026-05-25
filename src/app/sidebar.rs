@@ -8,7 +8,7 @@ use octa::ui;
 use super::state::OctaApp;
 
 impl OctaApp {
-    pub(crate) fn render_sidebar(&mut self, ctx: &egui::Context) {
+    pub(crate) fn render_sidebar(&mut self, parent_ui: &mut egui::Ui) {
         if self.directory_tree.is_none() {
             return;
         }
@@ -19,25 +19,25 @@ impl OctaApp {
             // Default to a 50/50 split the first time the sidebar is shown;
             // subsequent frames honor whatever width the user has dragged the
             // separator to.
-            let screen_w = ctx.screen_rect().width();
+            let screen_w = parent_ui.ctx().content_rect().width();
             let default_w = (screen_w * 0.5).clamp(160.0, screen_w - 160.0);
             let max_w = (screen_w - 80.0).max(160.0);
             match position {
                 ui::settings::DirectoryTreePosition::Left => {
-                    egui::SidePanel::left("directory_tree_panel")
+                    egui::Panel::left("directory_tree_panel")
                         .resizable(true)
-                        .default_width(default_w)
-                        .width_range(80.0..=max_w)
-                        .show(ctx, |ui| {
+                        .default_size(default_w)
+                        .size_range(80.0..=max_w)
+                        .show_inside(parent_ui, |ui| {
                             action = ui::directory_tree::render_directory_tree(ui, state);
                         });
                 }
                 ui::settings::DirectoryTreePosition::Right => {
-                    egui::SidePanel::right("directory_tree_panel")
+                    egui::Panel::right("directory_tree_panel")
                         .resizable(true)
-                        .default_width(default_w)
-                        .width_range(80.0..=max_w)
-                        .show(ctx, |ui| {
+                        .default_size(default_w)
+                        .size_range(80.0..=max_w)
+                        .show_inside(parent_ui, |ui| {
                             action = ui::directory_tree::render_directory_tree(ui, state);
                         });
                 }

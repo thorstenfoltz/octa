@@ -1,0 +1,31 @@
+[project]
+name = "octa-docs"
+version = "0.0.0"
+description = "Documentation build toolchain for Octa (mkdocs-material site published to GitHub Pages)"
+requires-python = ">=3.13"
+dependencies = [
+    # Pin MkDocs to the 1.x line. MkDocs 2.0 is backward-incompatible
+    # (plugin system removed, theming rewritten, no migration path) and
+    # the Material team explicitly recommends pinning until the ecosystem
+    # settles. See: https://squidfunk.github.io/mkdocs-material/blog/2026/02/18/mkdocs-2.0/
+    "mkdocs>=1.6,<2.0",
+    "mkdocs-material>=9.5",
+    "pymdown-extensions>=10",
+    "mkdocs-material[imaging]>=9.5",
+]
+
+# This pyproject.toml is intentionally scoped to the Python docs toolchain
+# only. The Rust crate metadata stays in `Cargo.toml`; the two files
+# coexist without overlap.
+#
+# Local workflow:
+#   uv sync                 # creates .venv/ + uv.lock
+#   uv run mkdocs serve     # live preview on http://127.0.0.1:8000
+#   uv run mkdocs build     # static site to ./site/ (gitignored)
+#
+# Suppress Material for MkDocs' "MkDocs 2.0 is breaking" advisory banner
+# locally with `export NO_MKDOCS_2_WARNING=true` (also set in CI). We've
+# already pinned mkdocs<2.0 above, so the banner is purely cosmetic.
+#
+# CI workflow uses `uv sync --frozen` so a stale lockfile breaks the
+# build rather than silently picking up new versions.

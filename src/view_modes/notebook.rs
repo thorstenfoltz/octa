@@ -181,7 +181,7 @@ pub fn render_notebook_view(
                                 out_frame.response.context_menu(|ui| {
                                     if ui.button("Copy output").clicked() {
                                         ui.ctx().copy_text(copy_output.clone());
-                                        ui.close_menu();
+                                        ui.close();
                                     }
                                 });
                             };
@@ -224,18 +224,54 @@ pub fn render_notebook_view(
                                             build_line_numbers(line_count, line_num_color);
                                         ui.add(egui::Label::new(gutter_job).selectable(false));
                                         ui.add_space(8.0);
-                                        // Source text (selectable -- no line numbers)
-                                        ui.add(
-                                            egui::Label::new(
-                                                RichText::new(&source)
-                                                    .font(egui::FontId::new(
+                                        // Source text (selectable -- no line numbers).
+                                        // Code cells get syntect highlighting; we
+                                        // assume Python because that's overwhelmingly
+                                        // what `.ipynb` files contain. Falls back to
+                                        // plain monospace if Python isn't in the
+                                        // syntax set (it always is in the default
+                                        // bundle, but be defensive).
+                                        if is_code {
+                                            let syntax = octa::ui::syntax::syntax_by_name("Python");
+                                            if let Some(syn) = syntax {
+                                                let theme =
+                                                    octa::ui::syntax::theme_for_mode(theme_mode);
+                                                let job = octa::ui::syntax::highlight_layout_job(
+                                                    &source,
+                                                    syn,
+                                                    theme,
+                                                    egui::FontId::new(
                                                         13.0,
                                                         egui::FontFamily::Monospace,
-                                                    ))
-                                                    .color(text_color),
-                                            )
-                                            .selectable(true),
-                                        );
+                                                    ),
+                                                );
+                                                ui.add(egui::Label::new(job).selectable(true));
+                                            } else {
+                                                ui.add(
+                                                    egui::Label::new(
+                                                        RichText::new(&source)
+                                                            .font(egui::FontId::new(
+                                                                13.0,
+                                                                egui::FontFamily::Monospace,
+                                                            ))
+                                                            .color(text_color),
+                                                    )
+                                                    .selectable(true),
+                                                );
+                                            }
+                                        } else {
+                                            ui.add(
+                                                egui::Label::new(
+                                                    RichText::new(&source)
+                                                        .font(egui::FontId::new(
+                                                            13.0,
+                                                            egui::FontFamily::Monospace,
+                                                        ))
+                                                        .color(text_color),
+                                                )
+                                                .selectable(true),
+                                            );
+                                        }
                                     });
                                 });
                             let copy_source = source.clone();
@@ -243,11 +279,11 @@ pub fn render_notebook_view(
                             frame_response.response.context_menu(|ui| {
                                 if ui.button("Copy cell").clicked() {
                                     ui.ctx().copy_text(copy_source.clone());
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                                 if ui.button("Copy all cells").clicked() {
                                     ui.ctx().copy_text(all_text.clone());
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                             });
 

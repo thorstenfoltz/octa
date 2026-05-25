@@ -12,7 +12,9 @@ use super::state::{OctaApp, TabState};
 use crate::view_modes;
 
 impl OctaApp {
-    pub(crate) fn render_sql_panel(&mut self, ctx: &egui::Context) {
+    pub(crate) fn render_sql_panel(&mut self, parent_ui: &mut egui::Ui) {
+        let ctx = parent_ui.ctx().clone();
+        let ctx = &ctx;
         let sql_panel_visible = {
             let tab = &self.tabs[self.active_tab];
             tab.sql_panel_open && tab.table.col_count() > 0 && tab.view_mode == ViewMode::Table
@@ -31,49 +33,58 @@ impl OctaApp {
                 None
             }
         });
+        let editor_font = self.settings.sql_editor_font;
         let render = |ui: &mut egui::Ui,
                       tab: &mut TabState,
                       autocomplete: bool,
                       row_limit: usize|
          -> view_modes::SqlAction {
-            view_modes::render_sql_view(ui, tab, autocomplete, row_limit, position, partial_rows)
+            view_modes::render_sql_view(
+                ui,
+                tab,
+                autocomplete,
+                row_limit,
+                position,
+                partial_rows,
+                editor_font,
+            )
         };
         let autocomplete = self.settings.sql_autocomplete;
         let row_limit = self.settings.sql_default_row_limit;
         match position {
             ui::settings::SqlPanelPosition::Bottom => {
-                egui::TopBottomPanel::bottom("sql_panel")
+                egui::Panel::bottom("sql_panel")
                     .resizable(true)
-                    .default_height(280.0)
-                    .min_height(140.0)
-                    .show(ctx, |ui| {
+                    .default_size(280.0)
+                    .min_size(140.0)
+                    .show_inside(parent_ui, |ui| {
                         sql_action = render(ui, tab, autocomplete, row_limit);
                     });
             }
             ui::settings::SqlPanelPosition::Top => {
-                egui::TopBottomPanel::top("sql_panel")
+                egui::Panel::top("sql_panel")
                     .resizable(true)
-                    .default_height(280.0)
-                    .min_height(140.0)
-                    .show(ctx, |ui| {
+                    .default_size(280.0)
+                    .min_size(140.0)
+                    .show_inside(parent_ui, |ui| {
                         sql_action = render(ui, tab, autocomplete, row_limit);
                     });
             }
             ui::settings::SqlPanelPosition::Left => {
-                egui::SidePanel::left("sql_panel")
+                egui::Panel::left("sql_panel")
                     .resizable(true)
-                    .default_width(440.0)
-                    .min_width(280.0)
-                    .show(ctx, |ui| {
+                    .default_size(440.0)
+                    .min_size(280.0)
+                    .show_inside(parent_ui, |ui| {
                         sql_action = render(ui, tab, autocomplete, row_limit);
                     });
             }
             ui::settings::SqlPanelPosition::Right => {
-                egui::SidePanel::right("sql_panel")
+                egui::Panel::right("sql_panel")
                     .resizable(true)
-                    .default_width(440.0)
-                    .min_width(280.0)
-                    .show(ctx, |ui| {
+                    .default_size(440.0)
+                    .min_size(280.0)
+                    .show_inside(parent_ui, |ui| {
                         sql_action = render(ui, tab, autocomplete, row_limit);
                     });
             }
@@ -125,6 +136,10 @@ impl OctaApp {
         }
         if sql_action.export {
             self.export_sql_result();
+        }
+        if sql_action.close {
+            let tab = &mut self.tabs[self.active_tab];
+            tab.sql_panel_open = false;
         }
     }
 }

@@ -51,8 +51,8 @@ pkgdesc="A modular multi-format data viewer and editor"
 arch=('x86_64')
 url="https://github.com/thorstenfoltz/octa"
 license=('MIT')
-depends=('gtk3' 'libxcb' 'libxkbcommon' 'openssl' 'fontconfig' 'freetype2' 'harfbuzz' 'fribidi' 'libjpeg-turbo' 'openjpeg2' 'gumbo-parser' 'jbig2dec' 'mujs')
-makedepends=('rust' 'cargo' 'clang' 'cmake' 'nasm' 'pkgconf')
+depends=('gtk3' 'libxcb' 'libxkbcommon' 'openssl' 'fontconfig' 'freetype2' 'harfbuzz' 'fribidi')
+makedepends=('rust' 'cargo' 'clang' 'cmake' 'nasm' 'pkgconf' 'asciidoctor')
 conflicts=('octa-bin')
 options=(!lto)
 source=("octa-$pkgver.tar.gz")
@@ -73,6 +73,7 @@ build() {
     export CARGO_BUILD_JOBS="$(nproc)"
     export MAKEFLAGS="-j$(nproc)"
     cargo build --frozen --release
+    asciidoctor -b manpage docs/cli/octa.1.adoc -o octa.1
 }
 
 package() {
@@ -81,6 +82,7 @@ package() {
     install -Dm644 "assets/octa.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/octa.svg"
     install -Dm644 "octa.desktop" "$pkgdir/usr/share/applications/octa.desktop"
     install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 "octa.1" "$pkgdir/usr/share/man/man1/octa.1"
 }
 PKGBUILD_EOF
 
@@ -104,6 +106,15 @@ else
 	cp "$REPO_DIR/assets/octa.svg" "$BUILD_DIR/octa.svg"
 	cp "$REPO_DIR/octa.desktop" "$BUILD_DIR/octa.desktop"
 	cp "$REPO_DIR/LICENSE" "$BUILD_DIR/LICENSE"
+	# Render the man page from the asciidoc source so the local-test
+	# binary package matches what the AUR octa-bin / release tarball ship.
+	if command -v asciidoctor &>/dev/null; then
+		asciidoctor -b manpage "$REPO_DIR/docs/cli/octa.1.adoc" -o "$BUILD_DIR/octa.1"
+	else
+		echo "WARNING: asciidoctor not found; the local-test binary package won't include the man page."
+		# Touch a placeholder so the PKGBUILD source list still resolves.
+		: >"$BUILD_DIR/octa.1"
+	fi
 
 	cat >"$BUILD_DIR/PKGBUILD" <<'PKGBUILD_EOF'
 # Local test build (binary) — not for AUR
@@ -114,17 +125,18 @@ pkgdesc="A modular multi-format data viewer and editor (pre-compiled)"
 arch=('x86_64')
 url="https://github.com/thorstenfoltz/octa"
 license=('MIT')
-depends=('gtk3' 'libxcb' 'libxkbcommon' 'openssl' 'fontconfig' 'freetype2' 'harfbuzz' 'fribidi' 'libjpeg-turbo' 'openjpeg2' 'gumbo-parser' 'jbig2dec' 'mujs')
+depends=('gtk3' 'libxcb' 'libxkbcommon' 'openssl' 'fontconfig' 'freetype2' 'harfbuzz' 'fribidi')
 provides=('octa')
 conflicts=('octa')
-source=('octa' 'octa.svg' 'octa.desktop' 'LICENSE')
-sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
+source=('octa' 'octa.svg' 'octa.desktop' 'LICENSE' 'octa.1')
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
     install -Dm755 "$srcdir/octa" "$pkgdir/usr/bin/octa"
     install -Dm644 "$srcdir/octa.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/octa.svg"
     install -Dm644 "$srcdir/octa.desktop" "$pkgdir/usr/share/applications/octa.desktop"
     install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/octa/LICENSE"
+    [[ -s "$srcdir/octa.1" ]] && install -Dm644 "$srcdir/octa.1" "$pkgdir/usr/share/man/man1/octa.1"
 }
 PKGBUILD_EOF
 

@@ -4,7 +4,7 @@
         , "annotations.misc": false
         , "archaism.misc": false
         , "cliches.hell": true
-        , "cliches.misc": true
+        , "cliches.misc": false
         , "consistency.spacing": true
         , "consistency.spelling": true
         , "corporate_speak.misc": true
@@ -13,7 +13,7 @@
         , "dates_times.am_pm": true
         , "dates_times.dates": true
         , "hedging.misc": true
-        , "hyperbole.misc": true
+        , "hyperbole.misc": false
         , "jargon.misc": false
         , "lgbtq.offensive_terms": true
         , "lgbtq.terms": true
@@ -48,7 +48,7 @@
         , "misc.whence": true
         , "mixed_metaphors.misc": true
         , "mondegreens.misc": true
-        , "needless_variants.misc": true
+        , "needless_variants.misc": false
         , "nonwords.misc": true
         , "oxymorons.misc": true
         , "psychology.misc": true
@@ -69,7 +69,7 @@
         , "terms.eponymous_adjectives": true
         , "terms.venery": true
         , "typography.diacritical_marks": true
-        , "typography.exclamation": true
+        , "typography.exclamation": false
         , "typography.symbols": false
         , "uncomparables.misc": true
         , "weasel_words.misc": true

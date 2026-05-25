@@ -1,0 +1,169 @@
+site_name: Octa
+site_description: A desktop application for viewing and editing tabular data files.
+site_url: https://thorstenfoltz.github.io/octa/
+repo_url: https://github.com/thorstenfoltz/octa
+repo_name: thorstenfoltz/octa
+
+# The site footer shows whatever string is here. Setting `copyright:` also
+# suppresses the "Made with Material for MkDocs" generator credit that
+# Material renders by default.
+copyright: Octa is MIT-licensed. Source on <a href="https://github.com/thorstenfoltz/octa">GitHub</a>.
+
+theme:
+  name: material
+  language: en
+  logo: assets/octa-rose.svg
+  favicon: assets/octa-rose.svg
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  palette:
+    # Light mode (default — matches Octa's default UI theme).
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    # Dark mode.
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  font:
+    text: Roboto
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+
+extra:
+  # Suppress the "Made with Material for MkDocs" generator credit shown
+  # under the footer copyright. `copyright:` above provides the
+  # replacement footer text.
+  generator: false
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator:
+        !!python/name:material.extensions.emoji.to_svg # Nav matches the IA in the docs plan. Pages get created during Phase 1.
+
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - First Steps: getting-started/first-steps.md
+      - Supported Formats: getting-started/supported-formats.md
+  - Using Octa:
+      - Table View: usage/table-view.md
+      - Search & Filter: usage/search-and-filter.md
+      - Editing: usage/editing.md
+      - Formulas: usage/formulas.md
+      - Colour Marking: usage/colour-marking.md
+      - Column Inspector: usage/column-inspector.md
+      - Value Frequency: usage/value-frequency.md
+      - Schema Export: usage/schema-export.md
+      - Archive Viewer: usage/archive-viewer.md
+      - Chart: usage/chart.md
+      - SQL Panel: usage/sql.md
+      - Saving: usage/saving.md
+      - Tabs & Folder Sidebar: usage/tabs-and-sidebar.md
+      - View Modes:
+          - Overview: usage/view-modes/overview.md
+          - Raw Text: usage/view-modes/raw-text.md
+          - Markdown: usage/view-modes/markdown.md
+          - JSON & YAML Tree: usage/view-modes/json-and-yaml-tree.md
+          - Notebook: usage/view-modes/notebook.md
+          - EPUB Reader: usage/view-modes/epub-reader.md
+          - Map: usage/view-modes/map.md
+          - Compare: usage/view-modes/compare.md
+  - Command Line:
+      - Overview: cli/index.md
+      - "--schema": cli/schema.md
+      - "--head": cli/head.md
+      - "--convert": cli/convert.md
+      - "--sql": cli/sql.md
+      - "--export-schema": cli/export-schema.md
+      - Man Page: cli/man-page.md
+  - MCP Server:
+      - Overview: mcp/index.md
+      - Setup: mcp/setup.md
+      - Tools:
+          - Overview: mcp/tools/index.md
+          - read_table: mcp/tools/read_table.md
+          - schema: mcp/tools/schema.md
+          - list_tables: mcp/tools/list_tables.md
+          - count_rows: mcp/tools/count_rows.md
+          - run_sql: mcp/tools/run_sql.md
+          - convert: mcp/tools/convert.md
+          - export_schema: mcp/tools/export_schema.md
+          - profile: mcp/tools/profile.md
+          - find_duplicates: mcp/tools/find_duplicates.md
+          - value_frequency: mcp/tools/value_frequency.md
+          - search: mcp/tools/search.md
+      - Limits & Truncation: mcp/limits-and-truncation.md
+      - Examples: mcp/examples.md
+      - Troubleshooting: mcp/troubleshooting.md
+  - Reference:
+      - Settings: reference/settings.md
+      - Keyboard Shortcuts: reference/shortcuts.md
+      - CSV Quote / Escape: reference/csv-quote-escape.md
+      - Date Inference: reference/date-inference.md
+  - Tips & Recipes: tips/workflows.md
+  - Troubleshooting: troubleshooting.md
+
+# `INDEX.md` under `docs/assets/screenshots/` is the screenshot shopping
+# list for the user — intentionally kept inside `docs/` so it's
+# version-controlled next to the placeholder references, but kept off
+# the rendered site nav. Listing it here silences the "exists but not
+# in nav" build warning.
+not_in_nav: |
+  /assets/screenshots/INDEX.md
+
+# Surface broken links + missing anchors as errors during the strict
+# build (used in CI). Locally `mkdocs serve` reports them as warnings.
+strict: false

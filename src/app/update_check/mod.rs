@@ -12,7 +12,7 @@ use eframe::egui;
 use super::state::{OctaApp, UpdateState};
 
 // ureq 3.x caps response bodies at 10 MB by default. Release archives bundle
-// DuckDB + MuPDF + others and exceed that easily on Windows.
+// DuckDB + others and exceed that easily on Windows.
 const UPDATE_BODY_LIMIT: u64 = 512 * 1024 * 1024;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");

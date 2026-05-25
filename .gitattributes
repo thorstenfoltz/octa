@@ -1,0 +1,6 @@
+# Normalize line endings: store everything LF in the repo, auto-detect binary.
+* text=auto
+
+# Scripts must keep their platform's endings regardless of who commits them.
+*.sh  text eol=lf
+*.bat text eol=crlf

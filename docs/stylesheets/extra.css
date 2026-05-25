@@ -1,0 +1,45 @@
+/* Octa documentation — minor brand tweaks on top of mkdocs-material. */
+
+/* ---------------------------------------------------------------------------
+ * Screenshot placeholder
+ *
+ * Pages reference future screenshots via:
+ *   ![alt text](../assets/screenshots/foo.png){ .screenshot-placeholder }
+ *
+ * Until the user supplies the actual PNG, the alt text falls back to a
+ * dashed grey box so the site stays publishable and the placeholder is
+ * obvious to readers.
+ * ------------------------------------------------------------------------- */
+.screenshot-placeholder {
+  display: block;
+  margin: 1.5rem auto;
+  padding: 4rem 1.5rem;
+  max-width: 600px;
+  border: 2px dashed var(--md-default-fg-color--lighter, #999);
+  border-radius: 6px;
+  background-color: var(--md-default-bg-color--lighter, rgba(0, 0, 0, 0.03));
+  text-align: center;
+  color: var(--md-default-fg-color--light, #777);
+  font-style: italic;
+  /* Hide the broken-image icon — the alt text alone is the placeholder. */
+  font-size: 0.95rem;
+}
+
+/* When the image *does* load (PNG is present), reset the placeholder
+ * styles so the actual screenshot is rendered cleanly. */
+.screenshot-placeholder[src]:not([src=""]) {
+  padding: 0;
+  border: none;
+  background: none;
+  font-style: normal;
+}
+
+/* ---------------------------------------------------------------------------
+ * Misc visual polish
+ * ------------------------------------------------------------------------- */
+
+/* Tighten the spacing of code blocks slightly — mkdocs-material's default
+ * vertical padding is a touch heavy for the dense reference pages. */
+.md-typeset pre > code {
+  padding: 0.6rem 0.9rem;
+}

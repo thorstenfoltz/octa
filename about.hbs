@@ -1,0 +1,28 @@
+{{!--
+  Slim template for THIRD_PARTY_LICENSES.md. Emits a flat crate index;
+  canonical license texts live in `licenses/<SPDX-id>.txt` alongside this
+  file. Re-run after dependency changes:
+
+      cargo about generate about.hbs --output-file THIRD_PARTY_LICENSES.md
+--}}
+# Third-Party Licenses
+
+Octa is distributed under the [MIT License](LICENSE). It bundles a number
+of open-source Rust crates whose licenses require attribution. The table
+below lists every transitive dependency and its SPDX license expression.
+
+The full text of each unique license is shipped in the `licenses/`
+directory alongside this file (one file per SPDX identifier). License
+families used in this build include MIT, Apache-2.0, BSD-2-Clause,
+BSD-3-Clause, BSL-1.0, CC0-1.0, CDLA-Permissive-2.0, ISC, OFL-1.1,
+Ubuntu-font-1.0, Unicode-3.0, and Zlib.
+
+This file is generated automatically from `Cargo.lock` by `cargo about`.
+Do not edit by hand.
+
+## Crate index
+
+| Crate | Version | License |
+|-------|---------|---------|
+{{#each licenses}}{{#each used_by}}| `{{crate.name}}` | {{crate.version}} | {{../id}} |
+{{/each}}{{/each}}

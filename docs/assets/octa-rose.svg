@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Head -->
+  <circle cx="32" cy="22" r="18" fill="#e11d48"/>
+  <!-- Lighter head accent -->
+  <circle cx="29" cy="19" r="12" fill="#fb7185" opacity="0.5"/>
+  <!-- Eyes -->
+  <ellipse cx="25" cy="20" rx="5" ry="6" fill="white"/>
+  <ellipse cx="39" cy="20" rx="5" ry="6" fill="white"/>
+  <circle cx="26" cy="20" r="3.5" fill="#1e1b4b"/>
+  <circle cx="40" cy="20" r="3.5" fill="#1e1b4b"/>
+  <circle cx="27.5" cy="18.5" r="1.5" fill="white"/>
+  <circle cx="41.5" cy="18.5" r="1.5" fill="white"/>
+  <!-- Tentacles -->
+  <path d="M14,36 C10,44 7,52 9,57 C10,60 14,59 15,55 C17,48 18,42 20,37Z" fill="#e11d48"/>
+  <path d="M18,38 C15,47 13,55 16,60 C17,63 21,62 21,58 C21,51 22,44 24,39Z" fill="#fb7185"/>
+  <path d="M24,39 C22,48 21,56 24,61 C25,64 29,63 29,59 C29,52 28,46 30,40Z" fill="#e11d48"/>
+  <path d="M30,40 C29,49 29,57 32,62 C33,65 37,64 36,60 C35,53 34,47 34,40Z" fill="#fb7185"/>
+  <path d="M34,40 C34,47 33,53 34,60 C35,64 39,65 40,62 C43,57 41,49 38,40Z" fill="#fb7185"/>
+  <path d="M38,40 C40,46 39,52 39,59 C39,63 43,64 44,61 C47,56 46,48 44,39Z" fill="#e11d48"/>
+  <path d="M44,39 C46,44 47,51 47,58 C47,62 51,63 52,60 C55,55 53,47 50,38Z" fill="#fb7185"/>
+  <path d="M48,37 C50,42 51,48 53,55 C54,59 58,60 59,57 C61,52 58,44 54,36Z" fill="#e11d48"/>
+</svg>

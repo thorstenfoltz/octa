@@ -9,16 +9,18 @@ use octa::ui;
 use super::state::{ColumnInspectorSort, OctaApp, TabState};
 
 impl OctaApp {
-    pub(crate) fn render_toolbar(&mut self, ctx: &egui::Context) {
+    pub(crate) fn render_toolbar(&mut self, parent_ui: &mut egui::Ui) {
+        let ctx = parent_ui.ctx().clone();
+        let ctx = &ctx;
         let header_colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
         let toolbar_frame = egui::Frame::new()
             .fill(header_colors.bg_header)
             .inner_margin(egui::Margin::symmetric(4, 4))
             .stroke(egui::Stroke::new(1.0, header_colors.border_subtle));
-        egui::TopBottomPanel::top("toolbar")
-            .exact_height(40.0)
+        egui::Panel::top("toolbar")
+            .exact_size(40.0)
             .frame(toolbar_frame)
-            .show(ctx, |ui| {
+            .show_inside(parent_ui, |ui| {
                 self.ensure_logo_textures(ctx);
 
                 let tab = &mut self.tabs[self.active_tab];
@@ -41,9 +43,10 @@ impl OctaApp {
                     tab.table.col_count(),
                     tab.view_mode,
                     tab.raw_content.is_some(),
-                    !tab.pdf_page_images.is_empty(),
                     tab.table.format_name.as_deref() == Some("Markdown"),
                     tab.table.format_name.as_deref() == Some("Jupyter Notebook"),
+                    !tab.epub_chapters_md.is_empty(),
+                    tab.table.format_name.as_deref() == Some("GeoJSON"),
                     tab.json_value.is_some(),
                     tab.yaml_value.is_some(),
                     self.readonly_mode,
@@ -53,8 +56,10 @@ impl OctaApp {
                     &self.recent_files,
                     self.directory_tree.is_some(),
                     tab.first_row_is_header,
+                    !tab.hidden_columns.is_empty(),
                     !tab.table.undo_stack.is_empty(),
                     !tab.table.redo_stack.is_empty(),
+                    !self.recently_closed_tabs.is_empty(),
                     &self.settings.shortcuts,
                     &tab.table,
                     self.settings.use_custom_title_bar,
@@ -147,6 +152,14 @@ impl OctaApp {
                 self.status_message =
                     Some((format!("File not found: {path}"), std::time::Instant::now()));
             }
+        }
+        if let Some(ref path) = action.remove_recent {
+            self.recent_files.retain(|p| p != path);
+            self.save_recent_files();
+        }
+        if action.clear_recent {
+            self.recent_files.clear();
+            self.save_recent_files();
         }
         if action.save_file {
             self.save_file();
@@ -334,6 +347,12 @@ impl OctaApp {
             tab.show_column_inspector = true;
             tab.column_inspector_sort = ColumnInspectorSort::Default;
         }
+        if action.show_all_columns {
+            self.tabs[self.active_tab].hidden_columns.clear();
+        }
+        if let Some(preselect) = action.show_column_filter {
+            self.open_column_filter_dialog(preselect);
+        }
         if action.logo_clicked {
             self.register_logo_click(ctx);
         }
@@ -369,12 +388,57 @@ impl OctaApp {
         for key in action.clear_marks {
             self.tabs[self.active_tab].table.clear_mark(key);
         }
+        if action.clear_all_marks {
+            self.tabs[self.active_tab].table.clear_all_marks();
+        }
 
         if action.undo {
             self.do_undo();
         }
         if action.redo {
             self.do_redo();
+        }
+        if action.reopen_last_closed_tab {
+            self.reopen_last_closed_tab(ctx);
+        }
+        if action.fit_all_columns {
+            self.tabs[self.active_tab]
+                .table_state
+                .fit_all_columns_requested = true;
+        }
+        if action.compare_with {
+            self.begin_compare_with();
+        }
+        if action.show_schema_export {
+            super::dialogs::schema_export::open(self);
+        }
+        if action.toggle_multi_search {
+            self.toggle_multi_search();
+        }
+        if action.open_chart_tab {
+            self.open_chart_tab();
+        }
+        if action.show_find_duplicates {
+            let tab = &mut self.tabs[self.active_tab];
+            if tab.table.col_count() > 0 {
+                // Seed the key with the currently selected column (or the
+                // selected cell's column) so common workflows don't need
+                // an extra click. Otherwise leave empty and let the user
+                // tick boxes.
+                tab.find_duplicates_key_cols.clear();
+                if !tab.table_state.selected_cols.is_empty() {
+                    for &c in &tab.table_state.selected_cols {
+                        if c < tab.table.col_count() {
+                            tab.find_duplicates_key_cols.insert(c);
+                        }
+                    }
+                } else if let Some((_, c)) = tab.table_state.selected_cell
+                    && c < tab.table.col_count()
+                {
+                    tab.find_duplicates_key_cols.insert(c);
+                }
+                tab.show_find_duplicates = true;
+            }
         }
     }
 }

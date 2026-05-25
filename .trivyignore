@@ -1,3 +1,19 @@
 # MegaLinter build image - not a production container
 DS-0002
 DS-0026
+
+# `lru` 0.15.0 is pulled in transitively by `walkers` 0.42.
+# Walkers is pinned to 0.42 (see CLAUDE.md: highest version on egui 0.31;
+# upgrading walkers requires upgrading egui, out of scope for this batch).
+# Severity: LOW. Stacked-borrows invariant in IterMut; we don't call IterMut
+# on the tile cache. Revisit when walkers/egui are bumped.
+GHSA-rhfx-m35p-ff5j
+
+# `thrift` 0.17.0 — no fixed upstream version published yet.
+# Severity: MEDIUM. Pulled in via parquet/arrow stack.
+# Memory allocation with excessive size value; only reachable when parsing
+# untrusted Thrift payloads, which Octa does not accept directly (it reads
+# Parquet via the arrow/parquet crates which use thrift for metadata, where
+# the file's own metadata cap bounds the allocation). Revisit when the
+# upstream advisory publishes a fixed crate version.
+CVE-2026-43868

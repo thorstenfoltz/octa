@@ -47,6 +47,12 @@ if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 copy /y "%BINARY%" "%INSTALL_DIR%\octa.exe"
 copy /y "%SCRIPT_DIR%assets\octa.svg" "%INSTALL_DIR%\octa.svg"
 copy /y "%SCRIPT_DIR%assets\octa.png" "%INSTALL_DIR%\octa.png"
+if exist "%SCRIPT_DIR%THIRD_PARTY_LICENSES.md" copy /y "%SCRIPT_DIR%THIRD_PARTY_LICENSES.md" "%INSTALL_DIR%\THIRD_PARTY_LICENSES.md"
+if exist "%SCRIPT_DIR%LICENSE" copy /y "%SCRIPT_DIR%LICENSE" "%INSTALL_DIR%\LICENSE"
+if exist "%SCRIPT_DIR%licenses" (
+    if not exist "%INSTALL_DIR%\licenses" mkdir "%INSTALL_DIR%\licenses"
+    copy /y "%SCRIPT_DIR%licenses\*.txt" "%INSTALL_DIR%\licenses\"
+)
 
 :: Convert PNG to ICO if not already present and magick is available
 if not exist "%INSTALL_DIR%\octa.ico" (
