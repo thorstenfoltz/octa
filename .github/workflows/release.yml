@@ -110,9 +110,14 @@ jobs:
             --icon-file assets/octa.png \
             --plugin gtk \
             --output appimage
-          # linuxdeploy derives the filename from the desktop Name field
-          # ("Octa-x86_64.AppImage"); rename to embed the version.
-          mv Octa-*.AppImage "$OUTPUT"
+          # Current linuxdeploy-plugin-appimage honours $OUTPUT and writes
+          # the AppImage with that exact name, so the rename is usually a
+          # no-op (and `mv X X` errors with "same file"). Only rename if the
+          # plugin ever reverts to its older "<Name>-x86_64.AppImage"
+          # filename derived from the desktop Name field.
+          if [ ! -f "$OUTPUT" ]; then
+            mv Octa-*.AppImage "$OUTPUT"
+          fi
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v6
