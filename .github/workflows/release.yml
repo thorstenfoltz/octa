@@ -93,6 +93,11 @@ jobs:
       - name: Build AppImage
         env:
           OUTPUT: Octa-${{ env.VERSION }}-x86_64.AppImage
+          # linuxdeploy-plugin-gtk can't auto-detect a GTK version when the
+          # ELF doesn't link libgtk directly (our binary only pulls libgtk
+          # transitively through eframe at runtime); set it explicitly to
+          # match the libgtk-3-dev we install above.
+          DEPLOY_GTK_VERSION: "3"
         # APPIMAGE_EXTRACT_AND_RUN sidesteps FUSE — ubuntu-latest (24.04) no
         # longer ships libfuse2 by default, and running AppImages without it
         # otherwise fails with "dlopen(): error loading libfuse.so.2".
