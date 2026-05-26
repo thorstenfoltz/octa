@@ -315,6 +315,11 @@ pub struct TableInteraction {
     /// no columns) was just clicked. Counted by the snow easter egg —
     /// three within 1.5s triggers a 5-second snowfall.
     pub welcome_logo_clicked: bool,
+    /// Screen-space rect the welcome-screen logo image was painted into, if
+    /// the welcome screen rendered this frame. Used by the Christmas easter
+    /// egg to overlay a Santa hat at a position the binary side can compute
+    /// without re-deriving the centred-image math.
+    pub welcome_logo_rect: Option<egui::Rect>,
 }
 
 /// Draw the data table with true row virtualization.
@@ -405,6 +410,7 @@ pub fn draw_table(
                 if resp.clicked() {
                     interaction.welcome_logo_clicked = true;
                 }
+                interaction.welcome_logo_rect = Some(resp.rect);
             }
             ui.add_space(16.0);
             ui.label(RichText::new("Octa").size(28.0).color(colors.text_muted));

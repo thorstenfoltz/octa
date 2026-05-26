@@ -406,22 +406,27 @@ impl OctaApp {
     }
 
     /// Paint the passive Christmas overlay if today is Dec 24-26.
-    /// Renders a few large snowflakes near the screen corners — subtle,
-    /// always on top, never blocks clicks. Independent of the snowfall
-    /// easter egg (which is the click-triggered burst).
+    /// Renders large corner snowflakes plus a slow continuous low-density
+    /// snowfall across the whole viewport — subtle, always on top, never
+    /// blocks clicks. Independent of the click-triggered snowfall burst.
     pub(crate) fn render_christmas_overlay(&mut self, ctx: &egui::Context) {
         if !is_christmas_window() {
             return;
         }
         let is_dark = self.theme_mode.is_dark();
+        // Drive the drift from wall-clock so flakes keep moving across
+        // frames regardless of when the user last interacted.
+        let t = ctx.input(|i| i.time) as f32;
         let area = egui::Area::new(egui::Id::new("octa_christmas"))
             .order(egui::Order::Background)
             .fixed_pos(egui::pos2(0.0, 0.0))
             .interactable(false);
         area.show(ctx, |ui| {
             let screen = ctx.content_rect();
-            paint_christmas_decorations(ui.painter(), screen, is_dark);
+            paint_christmas_decorations(ui.painter(), screen, is_dark, t);
         });
+        // Animation only progresses if we keep asking for frames.
+        ctx.request_repaint();
     }
 }
 
@@ -549,23 +554,53 @@ fn paint_snow_drift(painter: &egui::Painter, screen: egui::Rect, t: f32, is_dark
     }
 }
 
-/// Static decorations for the Christmas window: large snowflakes in the
-/// screen corners, painted just behind everything else.
-fn paint_christmas_decorations(painter: &egui::Painter, screen: egui::Rect, is_dark: bool) {
-    let color = if is_dark {
+/// Decorations for the Christmas window: large corner snowflakes plus a
+/// slow, low-density continuous snowfall drifting top-to-bottom. Painted
+/// behind everything else so it never competes with content for attention.
+fn paint_christmas_decorations(painter: &egui::Painter, screen: egui::Rect, is_dark: bool, t: f32) {
+    // --- Corner snowflakes (the original passive decoration) ---
+    let corner_color = if is_dark {
         Color32::from_rgba_unmultiplied(220, 230, 245, 70)
     } else {
         Color32::from_rgba_unmultiplied(140, 170, 210, 110)
     };
     let inset = 36.0;
-    let positions = [
+    for p in [
         egui::pos2(screen.left() + inset, screen.top() + inset),
         egui::pos2(screen.right() - inset, screen.top() + inset),
         egui::pos2(screen.left() + inset, screen.bottom() - inset),
         egui::pos2(screen.right() - inset, screen.bottom() - inset),
-    ];
-    for p in positions {
-        paint_snowflake(painter, p, 18.0, color);
+    ] {
+        paint_snowflake(painter, p, 18.0, corner_color);
+    }
+
+    // --- Continuous, low-density drifting snow ---
+    //
+    // Deterministic per-flake seed → no per-frame allocation, and the
+    // pattern is reproducible across runs. Density is intentionally low
+    // (~40 flakes) so text on the welcome screen / table headers stays
+    // perfectly readable. Each flake wraps from bottom back to top by
+    // letting its y position depend on `(t * speed) mod (height + margin)`.
+    const N: usize = 40;
+    let flake_fill = if is_dark {
+        Color32::from_rgba_unmultiplied(235, 240, 250, 70)
+    } else {
+        Color32::from_rgba_unmultiplied(120, 150, 200, 90)
+    };
+    let height = screen.height() + 32.0;
+    for i in 0..N {
+        let seed = (i as u32).wrapping_mul(2654435761) ^ 0xc1ee_ce11;
+        let x_seed = ((seed >> 8) & 0xffff) as f32 / 65535.0;
+        let phase = ((seed >> 3) & 0xff) as f32 / 255.0;
+        // Range ~18-46 px/s — slow and snow-like, not a blizzard.
+        let speed = 18.0 + ((seed & 0xff) as f32) * 0.11;
+        let sway = (t * 0.6 + phase * std::f32::consts::TAU).sin() * 14.0;
+        let raw_y = phase * height + t * speed;
+        let y_off = (raw_y.rem_euclid(height)) - 16.0;
+        let y = screen.top() + y_off;
+        let x = screen.left() + x_seed * screen.width() + sway;
+        let radius = 1.5 + ((seed >> 24) & 7) as f32 * 0.25;
+        painter.circle_filled(egui::pos2(x, y), radius, flake_fill);
     }
 }
 
@@ -604,5 +639,84 @@ fn paint_snowflake(painter: &egui::Painter, center: egui::Pos2, radius: f32, col
             ],
             stroke,
         );
+    }
+}
+
+/// Christmas-window overlay: paint a Santa hat sitting on the top-right
+/// corner of the welcome-screen logo. Drawn in a foreground `Area` so it
+/// floats above the centred image without intercepting clicks. Sized
+/// proportionally to the logo so it scales naturally with window size and
+/// the user's chosen logo dimensions.
+pub(crate) fn paint_santa_hat_overlay(ctx: &egui::Context, logo_rect: egui::Rect) {
+    let area = egui::Area::new(egui::Id::new("octa_santa_hat"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(egui::pos2(0.0, 0.0))
+        .interactable(false);
+    area.show(ctx, |ui| {
+        paint_santa_hat(ui.painter(), logo_rect);
+    });
+}
+
+/// Draw a classic Santa hat — red triangular cone tilted slightly to the
+/// right, white fluffy band at the base, white pompom dangling off the
+/// tip — over the top-right portion of `logo_rect`. Drawn from primitives;
+/// no SVG asset.
+fn paint_santa_hat(painter: &egui::Painter, logo_rect: egui::Rect) {
+    // Scale every dimension off the logo size so the hat looks proportional
+    // whether the welcome icon is 128 px (small window) or 512 px (huge).
+    let scale = logo_rect.width().min(logo_rect.height());
+    // The hat sits at the top-right of the logo. Its base sweeps a slight
+    // arc from roughly the logo's centre-top out past the right edge so it
+    // reads as "perched on top" rather than "floating beside".
+    let base_left = egui::pos2(
+        logo_rect.left() + scale * 0.30,
+        logo_rect.top() + scale * 0.12,
+    );
+    let base_right = egui::pos2(
+        logo_rect.left() + scale * 0.92,
+        logo_rect.top() + scale * 0.08,
+    );
+    // Tip: well above the logo and tilted to the right, suggesting weight
+    // from the pompom pulling it sideways.
+    let tip = egui::pos2(
+        logo_rect.left() + scale * 1.05,
+        logo_rect.top() - scale * 0.22,
+    );
+
+    // Colours: classic santa red + warm-white fluff. Slight desaturation
+    // keeps it from clashing with the table view if the user opens a file
+    // while the hat is on screen.
+    let red = Color32::from_rgb(0xc1, 0x21, 0x2a);
+    let red_shade = Color32::from_rgb(0x9c, 0x18, 0x1f);
+    let white = Color32::from_rgb(0xf8, 0xfa, 0xfb);
+    let white_shade = Color32::from_rgb(0xd8, 0xde, 0xe5);
+
+    // --- Cone (red triangle) ---
+    painter.add(egui::Shape::convex_polygon(
+        vec![base_left, base_right, tip],
+        red,
+        Stroke::new(1.2, red_shade),
+    ));
+
+    // --- Pompom (white circle at the tip) ---
+    let pompom_r = scale * 0.075;
+    painter.circle_filled(tip, pompom_r, white);
+    painter.circle_stroke(tip, pompom_r, Stroke::new(1.0, white_shade));
+
+    // --- Fluffy white band along the base ---
+    //
+    // A series of overlapping circles along the base line gives the bumpy
+    // "fluff" silhouette without needing curve primitives. The circles
+    // straddle the base so the band overlaps both into the cone (hiding
+    // the seam) and below it (sitting on the logo's hair-line).
+    let band_count = 7;
+    let band_r = scale * 0.055;
+    for i in 0..band_count {
+        let t = i as f32 / (band_count - 1) as f32;
+        let cx = base_left.x + (base_right.x - base_left.x) * t;
+        let cy = base_left.y + (base_right.y - base_left.y) * t;
+        let c = egui::pos2(cx, cy);
+        painter.circle_filled(c, band_r, white);
+        painter.circle_stroke(c, band_r, Stroke::new(0.8, white_shade));
     }
 }

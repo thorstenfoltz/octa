@@ -101,10 +101,10 @@ The **Customise** collapsible exposes presentation knobs:
 A dedicated **X axis** sub-section under Customise, mirroring the Y axis
 controls so you can clamp either dimension:
 
-| Control       | What it does                                                                                                                                                                                                                                  |
-|---------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Control       | What it does                                                                                                                                                                                                                 |
+|---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Min / Max** | Force fixed left / right bounds. Both must be set; a half-set range is ignored. Leave blank to auto-fit. For **Date** axes the bound is in *days since 1970-01-01*; for **DateTime** axes in *seconds since the Unix epoch*. |
-| **Step**      | Custom grid step in original-data units. Empty = let `Octa` pick.                                                                                                                                                                              |
+| **Step**      | Custom grid step in original-data units. Empty = let `Octa` pick.                                                                                                                                                            |
 
 Categorical Bar and Box charts treat the bounds as *category indices*
 (0, 1, 2, …), so you can zoom into a slice of bars by setting Min / Max.

@@ -42,15 +42,15 @@ of them, or clear the binding on one) before applying.
 
 ## Navigation in the table
 
-| Action                       | Default                                       | Notes                                                 |
-|------------------------------|-----------------------------------------------|-------------------------------------------------------|
-| Go to cell (focus nav input) | <kbd>Ctrl</kbd>+<kbd>G</kbd>                  | Status-bar field accepts `R5:C3`, row #, column name. |
-| Jump to first row            | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd> |                                                       |
-| Jump to last row             | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↓</kbd> |                                                       |
-| Jump to first column         | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd> |                                                       |
-| Jump to last column          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd> |                                                       |
+| Action                       | Default                                       | Notes                                                      |
+|------------------------------|-----------------------------------------------|------------------------------------------------------------|
+| Go to cell (focus nav input) | <kbd>Ctrl</kbd>+<kbd>G</kbd>                  | Status-bar field accepts `R5:C3`, row #, column name.      |
+| Jump to first row            | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd> |                                                            |
+| Jump to last row             | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↓</kbd> |                                                            |
+| Jump to first column         | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd> |                                                            |
+| Jump to last column          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd> |                                                            |
 | Scroll up one page           | <kbd>Ctrl</kbd>+<kbd>PgUp</kbd>               | Advances selection by one visible page; spreadsheet-style. |
-| Scroll down one page         | <kbd>Ctrl</kbd>+<kbd>PgDn</kbd>               | Mirror of **Scroll up one page** in the other direction. |
+| Scroll down one page         | <kbd>Ctrl</kbd>+<kbd>PgDn</kbd>               | Mirror of **Scroll up one page** in the other direction.   |
 
 ## Selection
 
