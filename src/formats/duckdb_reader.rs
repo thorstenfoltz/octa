@@ -361,15 +361,69 @@ fn duckdb_value_to_cell(v: ValueRef<'_>) -> CellValue {
         V::Float(f) => CellValue::Float(f as f64),
         V::Double(f) => CellValue::Float(f),
         V::Decimal(d) => CellValue::String(d.to_string()),
-        V::Timestamp(_unit, ts) => CellValue::DateTime(ts.to_string()),
+        V::Timestamp(unit, ts) => duckdb_timestamp_to_cell(unit, ts),
         V::Text(t) => match std::str::from_utf8(t) {
             Ok(s) => CellValue::String(s.to_string()),
             Err(_) => CellValue::Binary(t.to_vec()),
         },
         V::Blob(b) => CellValue::Binary(b.to_vec()),
-        V::Date32(d) => CellValue::Date(d.to_string()),
-        V::Time64(_, t) => CellValue::String(t.to_string()),
+        V::Date32(d) => duckdb_date32_to_cell(d),
+        V::Time64(unit, t) => duckdb_time_to_cell(unit, t),
         other => CellValue::String(format!("{other:?}")),
+    }
+}
+
+/// Split a DuckDB temporal count expressed in `unit` into whole seconds plus
+/// sub-second nanoseconds. Euclidean div/rem keep pre-1970 (negative) values
+/// on the correct second.
+fn duckdb_unit_to_secs_nanos(unit: duckdb::types::TimeUnit, value: i64) -> (i64, u32) {
+    use duckdb::types::TimeUnit;
+    let (secs, nanos) = match unit {
+        TimeUnit::Second => (value, 0),
+        TimeUnit::Millisecond => (value.div_euclid(1_000), value.rem_euclid(1_000) * 1_000_000),
+        TimeUnit::Microsecond => (
+            value.div_euclid(1_000_000),
+            value.rem_euclid(1_000_000) * 1_000,
+        ),
+        TimeUnit::Nanosecond => (
+            value.div_euclid(1_000_000_000),
+            value.rem_euclid(1_000_000_000),
+        ),
+    };
+    (secs, nanos as u32)
+}
+
+/// Format a DuckDB `DATE` (days since the Unix epoch) as `YYYY-MM-DD`.
+/// Shared with the SQL engine's result converter (`src/sql/engine.rs`).
+pub(crate) fn duckdb_date32_to_cell(d: i32) -> CellValue {
+    match chrono::DateTime::from_timestamp(d as i64 * 86_400, 0) {
+        Some(dt) => CellValue::Date(dt.naive_utc().format("%Y-%m-%d").to_string()),
+        None => CellValue::String(d.to_string()),
+    }
+}
+
+/// Format a DuckDB `TIMESTAMP` (a count since the Unix epoch in `unit`) as a
+/// canonical datetime string, matching the Parquet / Avro / ORC readers.
+/// Falls back to the raw number on out-of-range values. Shared with the SQL
+/// engine's result converter (`src/sql/engine.rs`).
+pub(crate) fn duckdb_timestamp_to_cell(unit: duckdb::types::TimeUnit, ts: i64) -> CellValue {
+    let (secs, nanos) = duckdb_unit_to_secs_nanos(unit, ts);
+    match chrono::DateTime::from_timestamp(secs, nanos) {
+        Some(dt) => CellValue::DateTime(dt.naive_utc().format("%Y-%m-%d %H:%M:%S%.f").to_string()),
+        None => CellValue::String(ts.to_string()),
+    }
+}
+
+/// Format a DuckDB `TIME` (a count since midnight in `unit`) as `HH:MM:SS[.f]`.
+/// Shared with the SQL engine's result converter (`src/sql/engine.rs`).
+pub(crate) fn duckdb_time_to_cell(unit: duckdb::types::TimeUnit, t: i64) -> CellValue {
+    let (secs, nanos) = duckdb_unit_to_secs_nanos(unit, t);
+    match u32::try_from(secs)
+        .ok()
+        .and_then(|s| chrono::NaiveTime::from_num_seconds_from_midnight_opt(s, nanos))
+    {
+        Some(tm) => CellValue::String(tm.format("%H:%M:%S%.f").to_string()),
+        None => CellValue::String(t.to_string()),
     }
 }
 

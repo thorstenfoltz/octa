@@ -1,24 +1,34 @@
 # Tools Reference
 
-The MCP server exposes eleven tools. All are **read-only** against a
-file argument except `convert`, which writes a new file but doesn't
-modify the input.
+The MCP server exposes twenty tools. Most are **read-only** against a
+file argument. The exceptions are `convert` (writes a new output file),
+`write_table` (writes model-supplied rows to a new file), and
+`edit_table` (edits an existing file in place).
 
 ## At-a-glance
 
-| Tool                                        | Purpose                                   | Mutates files?                  |
-|---------------------------------------------|-------------------------------------------|---------------------------------|
-| **[`read_table`](read_table.md)**           | Load schema + rows from a file            | No                              |
-| **[`schema`](schema.md)**                   | Schema only (no rows)                     | No                              |
-| **[`list_tables`](list_tables.md)**         | List tables in a multi-table source       | No                              |
-| **[`count_rows`](count_rows.md)**           | Row count for a table                     | No                              |
-| **[`run_sql`](run_sql.md)**                 | DuckDB SQL against the file               | No *                            |
-| **[`convert`](convert.md)**                 | Write a file in a different format        | Writes only the new output path |
-| **[`export_schema`](export_schema.md)**     | Render the schema as DDL / model / struct | No                              |
-| **[`profile`](profile.md)**                 | Per-column statistics (`SUMMARIZE`)       | No                              |
-| **[`find_duplicates`](find_duplicates.md)** | Rows sharing key-column values            | No                              |
-| **[`value_frequency`](value_frequency.md)** | Per-column value counts                   | No                              |
-| **[`search`](search.md)**                   | Match cells across every column           | No                              |
+| Tool                                                        | Purpose                                   | Mutates files?                  |
+|-------------------------------------------------------------|-------------------------------------------|---------------------------------|
+| **[`read_table`](read_table.md)**                           | Load schema + rows from a file            | No                              |
+| **[`tail`](tail.md)**                                       | Last N rows of a file                     | No                              |
+| **[`sample`](sample.md)**                                   | Reproducible random N-row sample          | No                              |
+| **[`schema`](schema.md)**                                   | Schema only (no rows)                     | No                              |
+| **[`list_tables`](list_tables.md)**                         | List tables in a multi-table source       | No                              |
+| **[`count_rows`](count_rows.md)**                           | Row count for a table                     | No                              |
+| **[`run_sql`](run_sql.md)**                                 | DuckDB SQL against the file               | No *                            |
+| **[`convert`](convert.md)**                                 | Write a file in a different format        | Writes only the new output path |
+| **[`export_schema`](export_schema.md)**                     | Render the schema as DDL / model / struct | No                              |
+| **[`profile`](profile.md)**                                 | Per-column statistics (`SUMMARIZE`)       | No                              |
+| **[`find_duplicates`](find_duplicates.md)**                 | Rows sharing key-column values            | No                              |
+| **[`value_frequency`](value_frequency.md)**                 | Per-column value counts                   | No                              |
+| **[`search`](search.md)**                                   | Match cells across every column           | No                              |
+| **[`compare_schemas`](compare_schemas.md)**                 | Diff the column metadata of two files     | No                              |
+| **[`diff_tables`](diff_tables.md)**                         | Row-level diff of two files               | No                              |
+| **[`describe_file`](describe_file.md)**                     | One-shot orientation snapshot             | No                              |
+| **[`validate_against_schema`](validate_against_schema.md)** | Validate columns against a JSON Schema    | No                              |
+| **[`unique_columns`](unique_columns.md)**                   | Unique columns / key candidates           | No                              |
+| **[`write_table`](write_table.md)**                         | Write inline rows to a new file           | Writes/replaces the output path |
+| **[`edit_table`](edit_table.md)**                           | Set cells / insert / delete rows in place | Yes (edits the file)            |
 
 \* `run_sql` accepts mutation queries (`INSERT` / `UPDATE` / `DELETE`)
 but the in-memory DuckDB connection is discarded at the end of the
@@ -37,8 +47,8 @@ All tools share two parameter conventions:
   single-table formats. If you don't know the available tables,
   call [`list_tables`](list_tables.md) first.
 
-Row-returning tools (`read_table`, `run_sql`, `find_duplicates`,
-`search`) also share:
+Row-returning tools (`read_table`, `tail`, `sample`, `run_sql`,
+`find_duplicates`, `search`, `diff_tables`) also share:
 
 - `limit` *(optional)*: maximum rows / hits to return.
   - Omit → use the server's configured default (1000 unless changed

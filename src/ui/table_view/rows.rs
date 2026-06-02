@@ -355,17 +355,21 @@ pub(super) fn draw_data_row_direct(
                     state.selected_cell = Some((actual_row, col_idx));
 
                     // --- Copy / Cut / Paste ---
-                    ui.label(RichText::new("Clipboard").strong().size(11.0));
-                    if ui.button("Copy").clicked() {
+                    ui.label(
+                        RichText::new(crate::i18n::t("context_menu.sec_clipboard"))
+                            .strong()
+                            .size(11.0),
+                    );
+                    if ui.button(crate::i18n::t("header.copy")).clicked() {
                         interaction.ctx_copy = true;
                         ui.close();
                     }
-                    if ui.button("Cut").clicked() {
+                    if ui.button(crate::i18n::t("header.cut")).clicked() {
                         interaction.ctx_cut = true;
                         ui.close();
                     }
                     if (state.clipboard.is_some() || state.os_clipboard_has_text)
-                        && ui.button("Paste").clicked()
+                        && ui.button(crate::i18n::t("header.paste")).clicked()
                     {
                         interaction.ctx_paste = true;
                         ui.close();
@@ -402,57 +406,86 @@ pub(super) fn draw_data_row_direct(
                     mark_submenu(ui, mark_keys, &cell_anchor, table, interaction);
                     ui.separator();
 
-                    ui.label(RichText::new("Row").strong().size(11.0));
-                    if ui.button("Insert Row").clicked() {
+                    ui.label(
+                        RichText::new(crate::i18n::t("context_menu.sec_row"))
+                            .strong()
+                            .size(11.0),
+                    );
+                    if ui.button(crate::i18n::t("edit_menu.insert_row")).clicked() {
                         interaction.ctx_insert_row = true;
                         ui.close();
                     }
-                    if ui.button("Delete Row").clicked() {
+                    if ui.button(crate::i18n::t("edit_menu.delete_row")).clicked() {
                         interaction.ctx_delete_row = true;
                         ui.close();
                     }
-                    if actual_row > 0 && ui.button("Move Row Up").clicked() {
+                    if actual_row > 0
+                        && ui.button(crate::i18n::t("edit_menu.move_row_up")).clicked()
+                    {
                         interaction.ctx_move_row_up = true;
                         ui.close();
                     }
-                    if actual_row + 1 < row_count && ui.button("Move Row Down").clicked() {
+                    if actual_row + 1 < row_count
+                        && ui
+                            .button(crate::i18n::t("edit_menu.move_row_down"))
+                            .clicked()
+                    {
                         interaction.ctx_move_row_down = true;
                         ui.close();
                     }
 
                     ui.separator();
-                    ui.label(RichText::new("Column").strong().size(11.0));
-                    if ui.button("Rename Column").clicked() {
+                    ui.label(
+                        RichText::new(crate::i18n::t("context_menu.sec_column"))
+                            .strong()
+                            .size(11.0),
+                    );
+                    if ui
+                        .button(crate::i18n::t("context_menu.rename_column"))
+                        .clicked()
+                    {
                         state.editing_col_name =
                             Some((col_idx, table.columns[col_idx].name.clone()));
                         state.edit_col_needs_focus = true;
                         ui.close();
                     }
-                    if ui.button("Insert Column...").clicked() {
+                    if ui.button(crate::i18n::t("toolbar.insert_column")).clicked() {
                         interaction.header_col_clicked = Some(col_idx);
                         interaction.ctx_insert_column = true;
                         ui.close();
                     }
-                    if ui.button("Delete Columns...").clicked() {
+                    if ui.button(crate::i18n::t("header.delete_columns")).clicked() {
                         interaction.ctx_delete_column = true;
                         ui.close();
                     }
-                    if col_idx > 0 && ui.button("Move Column Left").clicked() {
+                    if col_idx > 0
+                        && ui
+                            .button(crate::i18n::t("edit_menu.move_col_left"))
+                            .clicked()
+                    {
                         interaction.ctx_move_col_left = true;
                         ui.close();
                     }
-                    if col_idx + 1 < col_count && ui.button("Move Column Right").clicked() {
+                    if col_idx + 1 < col_count
+                        && ui
+                            .button(crate::i18n::t("edit_menu.move_col_right"))
+                            .clicked()
+                    {
                         interaction.ctx_move_col_right = true;
                         ui.close();
                     }
 
                     ui.separator();
-                    ui.label(RichText::new("Sort").strong().size(11.0));
-                    if ui.button("Sort A-Z").clicked() {
+                    ui.label(
+                        RichText::new(crate::i18n::t("context_menu.sec_sort"))
+                            .strong()
+                            .size(11.0),
+                    );
+                    if ui.button(crate::i18n::t("header.sort_az")).clicked() {
                         interaction.sort_rows_asc_by = Some(col_idx);
                         ui.close();
                     }
-                    if ui.button("Sort Z-A").clicked() {
+                    if ui.button(crate::i18n::t("header.sort_za")).clicked() {
                         interaction.sort_rows_desc_by = Some(col_idx);
                         ui.close();
                     }
@@ -461,25 +494,28 @@ pub(super) fn draw_data_row_direct(
                     // Parse-in-new-tab submenu - mirrors the Edit menu
                     // entry so the user can launch the modal from
                     // wherever the cell they care about lives.
-                    ui.menu_button("Parse in new tab", |ui| {
-                        if ui.button("Cell").clicked() {
+                    ui.menu_button(crate::i18n::t("edit_menu.parse_in_new_tab"), |ui| {
+                        if ui.button(crate::i18n::t("edit_menu.scope_cell")).clicked() {
                             interaction.ctx_parse_in_new_tab = Some(toolbar::ParseScope::Cell {
                                 row: actual_row,
                                 col: col_idx,
                             });
                             ui.close();
                         }
-                        if ui.button("Row").clicked() {
+                        if ui.button(crate::i18n::t("edit_menu.scope_row")).clicked() {
                             interaction.ctx_parse_in_new_tab =
                                 Some(toolbar::ParseScope::Row { row: actual_row });
                             ui.close();
                         }
-                        if ui.button("Column").clicked() {
+                        if ui
+                            .button(crate::i18n::t("edit_menu.scope_column"))
+                            .clicked()
+                        {
                             interaction.ctx_parse_in_new_tab =
                                 Some(toolbar::ParseScope::Column { col: col_idx });
                             ui.close();
                         }
-                        if ui.button("Whole table").clicked() {
+                        if ui.button(crate::i18n::t("edit_menu.scope_table")).clicked() {
                             interaction.ctx_parse_in_new_tab = Some(toolbar::ParseScope::Table);
                             ui.close();
                         }
@@ -562,17 +598,21 @@ pub(super) fn draw_data_row_direct(
                 state.selected_rows.insert(actual_row);
             }
 
-            ui.label(RichText::new("Clipboard").strong().size(11.0));
-            if ui.button("Copy").clicked() {
+            ui.label(
+                RichText::new(crate::i18n::t("context_menu.sec_clipboard"))
+                    .strong()
+                    .size(11.0),
+            );
+            if ui.button(crate::i18n::t("header.copy")).clicked() {
                 interaction.ctx_copy = true;
                 ui.close();
             }
-            if ui.button("Cut").clicked() {
+            if ui.button(crate::i18n::t("header.cut")).clicked() {
                 interaction.ctx_cut = true;
                 ui.close();
             }
             if (state.clipboard.is_some() || state.os_clipboard_has_text)
-                && ui.button("Paste").clicked()
+                && ui.button(crate::i18n::t("header.paste")).clicked()
             {
                 interaction.ctx_paste = true;
                 ui.close();
@@ -595,20 +635,28 @@ pub(super) fn draw_data_row_direct(
             mark_submenu(ui, row_keys, &row_anchor, table, interaction);
             ui.separator();
 
-            ui.label(RichText::new("Row").strong().size(11.0));
-            if ui.button("Insert Row").clicked() {
+            ui.label(
+                RichText::new(crate::i18n::t("context_menu.sec_row"))
+                    .strong()
+                    .size(11.0),
+            );
+            if ui.button(crate::i18n::t("edit_menu.insert_row")).clicked() {
                 interaction.ctx_insert_row = true;
                 ui.close();
             }
-            if ui.button("Delete Row").clicked() {
+            if ui.button(crate::i18n::t("edit_menu.delete_row")).clicked() {
                 interaction.ctx_delete_row = true;
                 ui.close();
             }
-            if actual_row > 0 && ui.button("Move Row Up").clicked() {
+            if actual_row > 0 && ui.button(crate::i18n::t("edit_menu.move_row_up")).clicked() {
                 interaction.ctx_move_row_up = true;
                 ui.close();
             }
-            if actual_row + 1 < row_count && ui.button("Move Row Down").clicked() {
+            if actual_row + 1 < row_count
+                && ui
+                    .button(crate::i18n::t("edit_menu.move_row_down"))
+                    .clicked()
+            {
                 interaction.ctx_move_row_down = true;
                 ui.close();
             }

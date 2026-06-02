@@ -21,19 +21,14 @@ pub(crate) fn render_readonly_notice_dialog(app: &mut OctaApp, ctx: &egui::Conte
     let mut close = false;
 
     let title = if is_active {
-        "Read-only mode enabled"
+        octa::i18n::t("dialog.readonly_on_title")
     } else {
-        "Read-only mode disabled"
+        octa::i18n::t("dialog.readonly_off_title")
     };
     let body = if is_active {
-        "Editing is now disabled across the app. Cells, structural changes, \
-         marks, undo/redo, and the raw text editor will all decline to mutate. \
-         Saving and copying still work. Toggle off with F8 (or your custom \
-         shortcut) when you want to edit again."
+        octa::i18n::t("dialog.readonly_on_body")
     } else {
-        "Editing is enabled again. The previous read-only toggle has been \
-         lifted; cell edits, marks, undo/redo, and structural changes will \
-         apply normally."
+        octa::i18n::t("dialog.readonly_off_body")
     };
 
     egui::Window::new(title)
@@ -44,16 +39,19 @@ pub(crate) fn render_readonly_notice_dialog(app: &mut OctaApp, ctx: &egui::Conte
             ui.set_min_width(360.0);
             ui.label(body);
             ui.add_space(8.0);
-            ui.checkbox(&mut suppress_future, "Don't show this again");
+            ui.checkbox(
+                &mut suppress_future,
+                octa::i18n::t("dialog.dont_show_again"),
+            );
             ui.add_space(4.0);
             ui.label(
-                RichText::new("(Re-enable in Settings -> Read-only notice.)")
+                RichText::new(octa::i18n::t("dialog.readonly_hint"))
                     .weak()
                     .size(11.0),
             );
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("OK").clicked() {
+                if ui.button(octa::i18n::t("common.ok")).clicked() {
                     close = true;
                 }
             });

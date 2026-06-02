@@ -18,31 +18,26 @@ pub(crate) fn render_raw_perf_prompt_dialog(app: &mut OctaApp, ctx: &egui::Conte
 
     let mut keep = false;
     let mut disable = false;
-    egui::Window::new("Large CSV file")
+    egui::Window::new(octa::i18n::t("dialog.rawperf_title"))
         .resizable(false)
         .collapsible(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
-            ui.label(RichText::new(format!("\"{}\" is {:.1} MB.", file_name, mb)).strong());
+            ui.label(RichText::new(format!("\"{}\" ({:.1} MB)", file_name, mb)).strong());
             ui.add_space(4.0);
-            ui.label(
-                "Per-column coloring re-tokenizes the whole file on every \
-                 layout pass, which is what makes raw view sluggish at this \
-                 size. Disable coloring for this file? Align Columns stays \
-                 available either way.",
-            );
+            ui.label(octa::i18n::t("dialog.rawperf_body"));
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Disable coloring for this file").clicked() {
+                if ui.button(octa::i18n::t("dialog.rawperf_disable")).clicked() {
                     disable = true;
                 }
-                if ui.button("Keep coloring on").clicked() {
+                if ui.button(octa::i18n::t("dialog.rawperf_keep")).clicked() {
                     keep = true;
                 }
             });
             ui.add_space(4.0);
             ui.label(
-                RichText::new("This choice only affects the current tab.")
+                RichText::new(octa::i18n::t("dialog.rawperf_hint"))
                     .weak()
                     .size(11.0),
             );

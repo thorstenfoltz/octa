@@ -3,8 +3,15 @@ use crate::formats::FormatReader;
 use anyhow::Result;
 use std::path::Path;
 
-/// Reader for plain text files (.txt, .log, .cfg, .ini, .conf, .sh, .bat, .ps1, etc.)
-/// Each line becomes a row with a single "Line" column.
+/// Reader for plain text, config, and source-code files. Each line becomes a
+/// row with a single "Line" column; the raw editor's syntect pass highlights
+/// the recognised languages.
+///
+/// The source-code / markup extensions mirror `ui::syntax::HIGHLIGHT_WHITELIST`
+/// so that every file Octa can syntax-highlight is also a *supported* file
+/// (listed in the open dialog's "All Supported" filter) rather than something
+/// that only opens via an unadvertised fallback. The
+/// `highlight_whitelist_is_supported` test keeps the two lists from drifting.
 pub struct TextReader;
 
 impl FormatReader for TextReader {
@@ -14,12 +21,12 @@ impl FormatReader for TextReader {
 
     fn extensions(&self) -> &[&str] {
         &[
+            // Plain text / config
             "txt",
             "log",
             "cfg",
             "ini",
             "conf",
-            "sh",
             "bat",
             "ps1",
             "env",
@@ -27,6 +34,59 @@ impl FormatReader for TextReader {
             "dockerignore",
             "editorconfig",
             "properties",
+            // Shell family
+            "sh",
+            "bash",
+            "zsh",
+            "fish",
+            // Python
+            "py",
+            "pyw",
+            "pyi",
+            // Rust
+            "rs",
+            // C / C++ / headers
+            "c",
+            "cpp",
+            "cc",
+            "cxx",
+            "h",
+            "hpp",
+            "hxx",
+            // Go
+            "go",
+            // Web / JS / TS
+            "js",
+            "jsx",
+            "mjs",
+            "cjs",
+            "ts",
+            "tsx",
+            "html",
+            "htm",
+            "css",
+            "scss",
+            "sass",
+            // JVM family
+            "java",
+            "kt",
+            "kts",
+            "scala",
+            "groovy",
+            // Scripting
+            "rb",
+            "php",
+            "pl",
+            "lua",
+            "swift",
+            // Data-science neighbours
+            "r",
+            "jl",
+            // Misc
+            "tex",
+            "dart",
+            "ex",
+            "exs",
             // Terraform / HCL - opened as text; the raw editor's syntect
             // pass adds proper highlighting via the bundled .sublime-syntax.
             "tf",

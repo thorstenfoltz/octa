@@ -2,6 +2,15 @@
 DS-0002
 DS-0026
 
+# DS-0001: "specify a tag in the FROM statement" for the distroless runtime
+# image (gcr.io/distroless/cc-debian12). Distroless publishes no semver tags,
+# and we keep the runtime on floating latest so each build pulls the newest
+# patched layer. trivy still flags this, and the bundled trivy version (shipped
+# inside the MegaLinter image) cannot be upgraded to a build that treats
+# distroless better, so we suppress it here. Mirrors the hadolint DL3006 ignore
+# in .linters/.hadolint.yaml.
+DS-0001
+
 # `lru` 0.15.0 is pulled in transitively by `walkers` 0.42.
 # Walkers is pinned to 0.42 (see CLAUDE.md: highest version on egui 0.31;
 # upgrading walkers requires upgrading egui, out of scope for this batch).

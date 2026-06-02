@@ -6,36 +6,38 @@ always open *something*.
 
 ## At-a-glance matrix
 
-| Format                        | Extensions                                | Read | Write |
-|-------------------------------|-------------------------------------------|:----:|:-----:|
-| **Parquet**                   | `.parquet`                                |  ✅   |   ✅   |
-| **CSV / TSV**                 | `.csv`, `.tsv`                            |  ✅   |   ✅   |
-| **JSON**                      | `.json`                                   |  ✅   |   ✅   |
-| **JSON Lines**                | `.jsonl`, `.ndjson`                       |  ✅   |   ✅   |
-| **Excel**                     | `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.xlm` |  ✅   |  ✅ *  |
-| **ODS**                       | `.ods`                                    |  ✅   |   ✅   |
-| **Arrow IPC / Feather**       | `.arrow`, `.feather`                      |  ✅   |   ✅   |
-| **Avro**                      | `.avro`                                   |  ✅   |   ✅   |
-| **ORC**                       | `.orc`                                    |  ✅   |   ✅   |
-| **HDF5**                      | `.h5`, `.hdf5`, `.hdf`                    |  ✅   |   ❌   |
-| **NetCDF v3**                 | `.nc`                                     |  ✅   |   ❌   |
-| **SQLite**                    | `.sqlite`, `.sqlite3`, `.db`              |  ✅   | ✅ **  |
-| **DuckDB**                    | `.duckdb`, `.ddb`                         |  ✅   | ✅ **  |
-| **GeoPackage**                | `.gpkg`                                   |  ✅   | ✅ **  |
-| **SAS**                       | `.sas7bdat`                               |  ✅   |   ❌   |
-| **SPSS**                      | `.sav`, `.zsav`                           |  ✅   |   ✅   |
-| **Stata**                     | `.dta`                                    |  ✅   |   ✅   |
-| **R Datasets**                | `.rds`, `.rdata`, `.rda`                  |  ✅   |   ❌   |
-| **DBF / dBase**               | `.dbf`                                    |  ✅   |   ✅   |
-| **XML**                       | `.xml`                                    |  ✅   |   ✅   |
-| **TOML**                      | `.toml`                                   |  ✅   |   ✅   |
-| **YAML**                      | `.yaml`, `.yml`                           |  ✅   |   ✅   |
-| **Jupyter notebook**          | `.ipynb`                                  |  ✅   |   ✅   |
-| **Markdown**                  | `.md`, `.markdown`, `.mdown`, `.mkd`      |  ✅   |   ✅   |
-| **EPUB**                      | `.epub`                                   |  ✅   |   ❌   |
-| **GeoJSON**                   | `.geojson`                                |  ✅   |   ❌   |
-| **Archive (zip / tar / tgz)** | `.zip`, `.tar`, `.tgz`                    |  ✅   |   ❌   |
-| **Plain text**                | anything else                             |  ✅   |   ✅   |
+| Format                        | Extensions                                         | Read | Write |
+|-------------------------------|----------------------------------------------------|:----:|:-----:|
+| **Parquet**                   | `.parquet`                                         |  ✅   |   ✅   |
+| **CSV / TSV**                 | `.csv`, `.tsv`                                     |  ✅   |   ✅   |
+| **JSON**                      | `.json`                                            |  ✅   |   ✅   |
+| **JSON Lines**                | `.jsonl`, `.ndjson`                                |  ✅   |   ✅   |
+| **Excel**                     | `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.xlm`          |  ✅   |  ✅ *  |
+| **ODS**                       | `.ods`                                             |  ✅   |   ✅   |
+| **Arrow IPC / Feather**       | `.arrow`, `.feather`                               |  ✅   |   ✅   |
+| **Avro**                      | `.avro`                                            |  ✅   |   ✅   |
+| **ORC**                       | `.orc`                                             |  ✅   |   ✅   |
+| **HDF5**                      | `.h5`, `.hdf5`, `.hdf`                             |  ✅   |   ❌   |
+| **NetCDF v3**                 | `.nc`                                              |  ✅   |   ❌   |
+| **SQLite**                    | `.sqlite`, `.sqlite3`, `.db`                       |  ✅   | ✅ **  |
+| **DuckDB**                    | `.duckdb`, `.ddb`                                  |  ✅   | ✅ **  |
+| **GeoPackage**                | `.gpkg`                                            |  ✅   | ✅ **  |
+| **SAS**                       | `.sas7bdat`                                        |  ✅   |   ❌   |
+| **SPSS**                      | `.sav`, `.zsav`                                    |  ✅   |   ✅   |
+| **Stata**                     | `.dta`                                             |  ✅   |   ✅   |
+| **R Datasets**                | `.rds`, `.rdata`, `.rda`                           |  ✅   |   ❌   |
+| **DBF / dBase**               | `.dbf`                                             |  ✅   |   ✅   |
+| **XML**                       | `.xml`                                             |  ✅   |   ✅   |
+| **TOML**                      | `.toml`                                            |  ✅   |   ✅   |
+| **YAML**                      | `.yaml`, `.yml`                                    |  ✅   |   ✅   |
+| **Jupyter notebook**          | `.ipynb`                                           |  ✅   |   ✅   |
+| **Markdown**                  | `.md`, `.markdown`, `.mdown`, `.mkd`               |  ✅   |   ✅   |
+| **EPUB**                      | `.epub`                                            |  ✅   |   ❌   |
+| **GeoJSON**                   | `.geojson`                                         |  ✅   |   ❌   |
+| **Archive (zip / tar / tgz)** | `.zip`, `.tar`, `.tgz`                             |  ✅   |   ❌   |
+| **Fixed-width (FWF)**         | `.fwf`, `.prn`                                     |  ✅   |   ❌   |
+| **Source code / config**      | `.py`, `.rs`, `.go`, `.ts`, `.js`, ... (see below) |  ✅   |   ✅   |
+| **Plain text**                | anything else                                      |  ✅   |   ✅   |
 
 \* **Excel write** always produces `.xlsx` structure, because the
 writer uses `rust_xlsxwriter` which doesn't emit legacy `.xls` /
@@ -139,6 +141,88 @@ into a tempfile and opens it as a fresh tab, so any reader Octa
 supports works on archive contents. See the
 [Archive Viewer](../usage/archive-viewer.md) page for the full
 walkthrough.
+
+### Fixed-width (FWF)
+
+Read-only, best-effort. Fixed-width files have no delimiter: each
+field sits in a fixed range of character columns, padded with
+spaces. Octa infers the column boundaries by sampling the leading
+lines and finding the character positions that are blank in every
+line (the gaps between fields), and treats the first line as the
+header (blank header cells become `col_1`, `col_2`, ...). All
+columns are read as text. Detection works best on cleanly aligned
+exports (typical mainframe / spreadsheet `.prn` output); a column
+whose values run together with its neighbour cannot be split.
+Claims `.fwf` and `.prn` only (not `.txt`, which stays plain text).
+
+### Source code and config files
+
+Octa opens common source-code and configuration files as plain text
+(one row per line) and syntax-highlights them in the
+[Raw view](../usage/view-modes/overview.md). Because they are
+registered formats, they appear in the open dialog's **All Supported**
+filter rather than only opening via the catch-all fallback. Recognised
+extensions include:
+
+- **Python** `.py`, `.pyw`, `.pyi`
+- **Rust** `.rs`
+- **Shell** `.sh`, `.bash`, `.zsh`, `.fish`
+- **C / C++** `.c`, `.cpp`, `.cc`, `.cxx`, `.h`, `.hpp`, `.hxx`
+- **Go** `.go`
+- **JS / TS / Web** `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`,
+  `.html`, `.htm`, `.css`, `.scss`, `.sass`
+- **JVM** `.java`, `.kt`, `.kts`, `.scala`, `.groovy`
+- **Scripting** `.rb`, `.php`, `.pl`, `.lua`, `.swift`
+- **Data science** `.r`, `.jl`
+- **Terraform / HCL** `.tf`, `.tfvars`, `.hcl`
+- **Misc** `.tex`, `.dart`, `.ex`, `.exs`, and the plain-text /
+  config set (`.txt`, `.log`, `.ini`, `.cfg`, `.conf`, `.env`, ...)
+
+Any other unknown extension still opens through the plain-text reader,
+so you can always open *something*.
+
+## Wrong or missing file extensions
+
+Octa does not rely on the extension alone. When a file's extension is
+missing, wrong, or unrecognised, it looks at the **content** to pick a
+reader:
+
+- **Magic bytes** identify binary formats regardless of name, a
+  Parquet file called `export.bin`, a SQLite database with no
+  extension, a ZIP-based archive, and so on.
+- **Structure probes** recognise text formats: a `.txt` that is
+  actually JSON, or a delimited file whose extension doesn't match.
+
+This works in two places. When opening a file, Octa consults the
+content sniffer before falling back to plain text. And if the reader
+chosen from the extension *errors* (for example a `.csv` that is really
+Parquet), Octa retries with the sniffed reader instead of just showing
+a parse error. The upshot: renamed and mislabelled files usually just
+open as the right thing.
+
+## Repairing malformed CSV / TSV files
+
+CSV and TSV files in the wild are often slightly broken: the wrong text
+encoding, a stray byte-order mark (BOM) at the start, control
+characters, a delimiter that disagrees with the extension (a `.csv`
+that is really tab-separated), or ragged rows with uneven column
+counts. Octa can offer to clean these up on open.
+
+This is **off by default**. Turn on **Offer repair on malformed files**
+in [**Settings → File-Specific**](../reference/settings.md#file-specific).
+With it on, when a CSV/TSV reads but looks malformed, a prompt appears
+that lists what was detected and shows a preview of the repaired result.
+You choose:
+
+- **Repair and open** re-decodes the text, re-detects the delimiter,
+  and strips stray markers.
+- **Open without repair** loads the file as-is.
+- **Cancel** backs out.
+
+The repair only changes what Octa loads into memory, **your file on
+disk is never modified**. It applies to CSV/TSV only. See
+[CSV quote / escape](../reference/csv-quote-escape.md) for the related
+quoting and delimiter rules.
 
 ## Multi-table files
 

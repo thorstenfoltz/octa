@@ -321,6 +321,10 @@ impl OctaApp {
                 .selected_cell
                 .map(|(_, c)| c + 1);
         }
+
+        if action.time_calc {
+            self.open_time_calc_dialog();
+        }
         if action.delete_column && self.tabs[self.active_tab].table.col_count() > 0 {
             self.open_delete_columns_dialog();
         }

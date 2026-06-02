@@ -112,7 +112,7 @@ pub fn render_raw_view(
                 }
                 ui.add_space(16.0);
                 if is_csv {
-                    ui.label("Delimiter:");
+                    ui.label(octa::i18n::t("dialog.pnt_delimiter"));
                     let delim_label = match tab.csv_delimiter {
                         b',' => "Comma (,)",
                         b';' => "Semicolon (;)",
@@ -141,7 +141,7 @@ pub fn render_raw_view(
                 }
 
                 ui.add_space(12.0);
-                ui.label("Quotes:");
+                ui.label(octa::i18n::t("view.rt_quotes"));
                 let quote_label = match tab.raw_csv_quote {
                     RawCsvQuote::Double => "Double (\")",
                     RawCsvQuote::Single => "Single (')",
@@ -162,7 +162,7 @@ pub fn render_raw_view(
                         }
                     });
 
-                ui.label("Escape:");
+                ui.label(octa::i18n::t("view.rt_escape"));
                 let esc_label = match tab.raw_csv_escape {
                     RawCsvEscape::Doubled => "Doubled (\"\")",
                     RawCsvEscape::Backslash => "Backslash (\\\")",
@@ -430,7 +430,7 @@ pub fn render_raw_view(
                 }
                 ui.close();
             }
-            if ui.button("Copy All").clicked() {
+            if ui.button(octa::i18n::t("view.copy_all")).clicked() {
                 ui.ctx().copy_text(content_for_copy.clone());
                 ui.close();
             }
@@ -438,7 +438,7 @@ pub fn render_raw_view(
     } else {
         ui.centered_and_justified(|ui| {
             ui.label(
-                RichText::new("Raw text view is not available for binary formats")
+                RichText::new(octa::i18n::t("view.rt_binary_na"))
                     .size(16.0)
                     .color(ui.visuals().weak_text_color()),
             );
@@ -719,7 +719,7 @@ pub(crate) fn render_parse_error_banner(
                     // dismiss icons across the app are visually consistent.
                     if ui
                         .button(RichText::new("\u{00D7}").color(fg).strong().size(16.0))
-                        .on_hover_text("Dismiss")
+                        .on_hover_text(octa::i18n::t("view.dismiss"))
                         .clicked()
                     {
                         dismissed = true;

@@ -43,7 +43,7 @@ pub fn render_map_view(
 ) {
     if tab.geojson_features.is_empty() {
         ui.centered_and_justified(|ui| {
-            ui.label(egui::RichText::new("GeoJSON file has no map-displayable features.").weak());
+            ui.label(egui::RichText::new(octa::i18n::t("view.map_no_features")).weak());
         });
         return;
     }
@@ -98,11 +98,18 @@ pub fn render_map_view(
 
 fn draw_toolbar(ui: &mut egui::Ui, tab: &mut TabState) {
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(format!("{} features", tab.geojson_features.len())).strong());
+        ui.label(
+            egui::RichText::new(format!(
+                "{} {}",
+                tab.geojson_features.len(),
+                octa::i18n::t("view.map_features")
+            ))
+            .strong(),
+        );
         ui.separator();
         let mut mode = tab.map_mode;
         for &m in MapMode::ALL {
-            if ui.radio(mode == m, m.label()).clicked() {
+            if ui.radio(mode == m, m.label_t()).clicked() {
                 mode = m;
             }
         }
@@ -114,7 +121,7 @@ fn draw_toolbar(ui: &mut egui::Ui, tab: &mut TabState) {
             // frame via `ensure_map_state`.
         }
         ui.separator();
-        if ui.button("Reset view").clicked() {
+        if ui.button(octa::i18n::t("view.map_reset")).clicked() {
             // Drop the map memory so the next frame re-creates it with
             // the default zoom, then re-centres on the feature centroid.
             tab.map_memory = None;

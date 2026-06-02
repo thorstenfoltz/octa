@@ -12,26 +12,26 @@ pub(crate) fn render_unalign_confirm_dialog(app: &mut OctaApp, ctx: &egui::Conte
     }
     let mut confirm = false;
     let mut cancel = false;
-    egui::Window::new("Discard aligned edits?")
+    egui::Window::new(octa::i18n::t("dialog.unalign_title"))
         .resizable(false)
         .collapsible(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
-            ui.label(
-                "Turning off 'Align Columns' reloads the file from disk.\n\
-                 Unsaved changes in the raw view will be lost.",
-            );
+            ui.label(octa::i18n::t("dialog.unalign_body"));
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Reload and discard").clicked() {
+                if ui
+                    .button(octa::i18n::t("dialog.reload_and_discard"))
+                    .clicked()
+                {
                     confirm = true;
                 }
-                if ui.button("Keep aligned").clicked() {
+                if ui.button(octa::i18n::t("dialog.keep_aligned")).clicked() {
                     cancel = true;
                 }
                 ui.add_space(12.0);
                 ui.label(
-                    RichText::new("(You can disable this warning in Settings -> File-Specific.)")
+                    RichText::new(octa::i18n::t("dialog.unalign_hint"))
                         .weak()
                         .size(11.0),
                 );
@@ -58,18 +58,21 @@ pub(crate) fn render_reload_confirm_dialog(app: &mut OctaApp, ctx: &egui::Contex
     }
     let mut confirm = false;
     let mut cancel = false;
-    egui::Window::new("Discard unsaved changes?")
+    egui::Window::new(octa::i18n::t("dialog.reload_title"))
         .resizable(false)
         .collapsible(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
-            ui.label("Reloading will replace your current edits with the contents on disk.");
+            ui.label(octa::i18n::t("dialog.reload_body"));
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Reload and discard").clicked() {
+                if ui
+                    .button(octa::i18n::t("dialog.reload_and_discard"))
+                    .clicked()
+                {
                     confirm = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(octa::i18n::t("common.cancel")).clicked() {
                     cancel = true;
                 }
             });

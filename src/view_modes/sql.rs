@@ -268,30 +268,30 @@ pub fn render_sql_view(
     let editor_id = editor_id();
 
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Query against `data`").strong());
+        ui.label(egui::RichText::new(octa::i18n::t("sql.query_against_data")).strong());
         ui.add_space(8.0);
         if ui
-            .button("Run (Ctrl+Enter)")
-            .on_hover_text("Execute the query")
+            .button(octa::i18n::t("sql.run"))
+            .on_hover_text(octa::i18n::t("sql.run_hint"))
             .clicked()
         {
             action.run = true;
         }
-        if ui.button("Clear result").clicked() {
+        if ui.button(octa::i18n::t("sql.clear_result")).clicked() {
             action.clear = true;
         }
         let has_result = tab.sql_result.as_ref().is_some_and(|t| t.col_count() > 0);
         ui.add_enabled_ui(has_result, |ui| {
             if ui
-                .button("Export...")
-                .on_hover_text("Save the result as CSV, Parquet, JSON, Excel, etc.")
+                .button(octa::i18n::t("sql.export"))
+                .on_hover_text(octa::i18n::t("sql.export_hint"))
                 .clicked()
             {
                 action.export = true;
             }
             if ui
-                .button("Write result to DB...")
-                .on_hover_text("Persist the result as a new table inside a DuckDB or SQLite file")
+                .button(octa::i18n::t("sql.write_to_db"))
+                .on_hover_text(octa::i18n::t("sql.write_to_db_hint"))
                 .clicked()
             {
                 action.open_write_back = true;
@@ -299,11 +299,7 @@ pub fn render_sql_view(
         });
         if let Some(rows) = tab.sql_result.as_ref().map(|t| t.row_count()) {
             ui.add_space(12.0);
-            ui.label(format!(
-                "{} result row{}",
-                rows,
-                if rows == 1 { "" } else { "s" }
-            ));
+            ui.label(format!("{} {}", rows, octa::i18n::t("sql.result_rows")));
         }
         // Close (×) button on the right - flips `sql_panel_open` to false.
         // The Analyse dropdown is two clicks away, so without an in-panel
@@ -311,7 +307,7 @@ pub fn render_sql_view(
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
                 .button(egui::RichText::new("\u{00d7}").size(16.0).strong())
-                .on_hover_text("Close SQL panel")
+                .on_hover_text(octa::i18n::t("sql.close_hint"))
                 .clicked()
             {
                 action.close = true;
@@ -447,7 +443,7 @@ pub fn render_sql_view(
         if let Some(result) = &tab.sql_result {
             render_result_table(ui, result);
         } else if tab.sql_error.is_none() {
-            ui.label(egui::RichText::new("Run a query to see results.").weak());
+            ui.label(egui::RichText::new(octa::i18n::t("sql.run_to_see")).weak());
         }
     };
 
@@ -493,9 +489,9 @@ pub fn render_sql_view(
         editor_response.clone().context_menu(|ui| {
             let selection = super::text_ops::selected_text(ui.ctx(), editor_id, &buffer);
             let copy_label = if selection.is_some() {
-                "Copy"
+                octa::i18n::t("header.copy")
             } else {
-                "Copy (no selection)"
+                octa::i18n::t("sql.copy_no_selection")
             };
             let copy_btn = ui.add_enabled(selection.is_some(), egui::Button::new(copy_label));
             if copy_btn.clicked() {
@@ -504,7 +500,7 @@ pub fn render_sql_view(
                 }
                 ui.close();
             }
-            if ui.button("Copy All").clicked() {
+            if ui.button(octa::i18n::t("view.copy_all")).clicked() {
                 ui.ctx().copy_text(buffer.clone());
                 ui.close();
             }
@@ -677,14 +673,15 @@ fn render_workspace_section(
     let extras = tables.iter().filter(|t| !t.is_active).count();
     let attached = attachments.len();
     let summary = if extras == 0 && attached == 0 {
-        "Workspace (only `data`)".to_string()
+        octa::i18n::t("sql.ws_only_data")
     } else {
         format!(
-            "Workspace ({} extra table{}, {} attached DB{})",
+            "{} ({} {}, {} {})",
+            octa::i18n::t("sql.workspace"),
             extras,
-            if extras == 1 { "" } else { "s" },
+            octa::i18n::t("sql.extra_tables"),
             attached,
-            if attached == 1 { "" } else { "s" },
+            octa::i18n::t("sql.attached_dbs"),
         )
     };
     // `CollapsingHeader` paints its own triangle via egui's drawing primitives,
@@ -754,25 +751,26 @@ fn render_workspace_list(
                         action.select_inspector = Some(Some(target.clone()));
                     }
                     ui.label(
-                        egui::RichText::new(format!("({} rows)", row.row_count))
-                            .small()
-                            .color(weak),
+                        egui::RichText::new(format!(
+                            "({} {})",
+                            row.row_count,
+                            octa::i18n::t("sql.rows")
+                        ))
+                        .small()
+                        .color(weak),
                     )
                     .on_hover_text(row.origin.clone());
                     if row.is_active {
                         if ui
-                            .small_button("refresh")
-                            .on_hover_text(
-                                "Re-register the tab's table after edits so the next \
-                                 query sees the live values.",
-                            )
+                            .small_button(octa::i18n::t("sql.refresh"))
+                            .on_hover_text(octa::i18n::t("sql.refresh_hint"))
                             .clicked()
                         {
                             action.refresh_active = true;
                         }
                     } else if ui
                         .small_button("\u{00d7}")
-                        .on_hover_text("Remove this table from the workspace")
+                        .on_hover_text(octa::i18n::t("sql.remove_table_hint"))
                         .clicked()
                     {
                         action.remove_table = Some(row.sql_name.clone());
@@ -784,7 +782,7 @@ fn render_workspace_list(
                 let alias_open = tab.sql_workspace_tree_expanded.contains(&alias_key);
                 ui.horizontal(|ui| {
                     let tri_resp = collapsing_triangle(ui, alias_open)
-                        .on_hover_text("Show / hide tables in this attached database");
+                        .on_hover_text(octa::i18n::t("sql.toggle_attached_hint"));
                     let label_resp = ui.add(
                         egui::Label::new(egui::RichText::new(&att.alias).strong())
                             .sense(egui::Sense::click()),
@@ -799,15 +797,12 @@ fn render_workspace_list(
                     );
                     if !att.native {
                         ui.label(
-                            egui::RichText::new("(fallback)")
+                            egui::RichText::new(octa::i18n::t("sql.fallback"))
                                 .small()
                                 .color(weak)
                                 .italics(),
                         )
-                        .on_hover_text(
-                            "DuckDB sqlite extension wasn't available; tables were \
-                             loaded individually instead of ATTACH-ed.",
-                        );
+                        .on_hover_text(octa::i18n::t("sql.fallback_hint"));
                     }
                     ui.label(
                         egui::RichText::new(format!("| {} tbl", att.table_count))
@@ -816,8 +811,8 @@ fn render_workspace_list(
                     )
                     .on_hover_text(att.source.clone());
                     if ui
-                        .small_button("detach")
-                        .on_hover_text("Detach this database from the workspace")
+                        .small_button(octa::i18n::t("sql.detach"))
+                        .on_hover_text(octa::i18n::t("sql.detach_hint"))
                         .clicked()
                     {
                         action.detach_alias = Some(att.alias.clone());
@@ -830,18 +825,15 @@ fn render_workspace_list(
             ui.add_space(2.0);
             ui.horizontal(|ui| {
                 if ui
-                    .button("+ Add table...")
-                    .on_hover_text("Pick one or more files to load into the SQL workspace.")
+                    .button(octa::i18n::t("sql.add_table"))
+                    .on_hover_text(octa::i18n::t("sql.add_table_hint"))
                     .clicked()
                 {
                     action.add_tables = true;
                 }
                 if ui
-                    .button("Attach database...")
-                    .on_hover_text(
-                        "Pick a DuckDB or SQLite file to ATTACH; every inner table \
-                         becomes queryable as `alias.schema.tbl`.",
-                    )
+                    .button(octa::i18n::t("sql.attach_db"))
+                    .on_hover_text(octa::i18n::t("sql.attach_db_hint"))
                     .clicked()
                 {
                     action.attach_db = true;
@@ -955,15 +947,13 @@ fn render_workspace_inspector(
     let target = match inspector_selection {
         Some(t) => t,
         None => {
-            ui.label(egui::RichText::new("Inspector").strong().color(strong));
-            ui.add_space(4.0);
             ui.label(
-                egui::RichText::new(
-                    "Select a workspace table or expand an attached database \
-                     on the left to see its columns and a sample of rows.",
-                )
-                .weak(),
+                egui::RichText::new(octa::i18n::t("sql.inspector"))
+                    .strong()
+                    .color(strong),
             );
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(octa::i18n::t("sql.inspector_empty")).weak());
             return;
         }
     };
@@ -983,7 +973,7 @@ fn render_workspace_inspector(
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .small_button("\u{00d7}")
-                        .on_hover_text("Clear inspector selection")
+                        .on_hover_text(octa::i18n::t("sql.clear_inspector_hint"))
                         .clicked()
                     {
                         action.select_inspector = Some(None);
@@ -1002,26 +992,27 @@ fn render_workspace_inspector(
             ui.add_space(2.0);
             ui.horizontal(|ui| {
                 if ui
-                    .small_button("Copy name")
-                    .on_hover_text("Copy the qualified table name to the clipboard")
+                    .small_button(octa::i18n::t("sql.copy_name"))
+                    .on_hover_text(octa::i18n::t("sql.copy_name_hint"))
                     .clicked()
                 {
                     action.copy_qualified = Some(qualified.clone());
                 }
                 if ui
-                    .small_button("Insert")
+                    .small_button(octa::i18n::t("sql.insert"))
                     .on_hover_text(format!(
-                        "Append `SELECT * FROM {qualified} LIMIT 100;` to the editor"
+                        "{} `SELECT * FROM {qualified} LIMIT 100;`",
+                        octa::i18n::t("sql.insert_hint")
                     ))
                     .clicked()
                 {
                     action.insert_qualified = Some(qualified.clone());
                 }
                 if ui
-                    .small_button("Run")
+                    .small_button(octa::i18n::t("sql.run_table"))
                     .on_hover_text(format!(
-                        "Replace the editor with `SELECT * FROM {qualified} LIMIT 100` \
-                         and run it"
+                        "{} `SELECT * FROM {qualified} LIMIT 100`",
+                        octa::i18n::t("sql.run_table_hint")
                     ))
                     .clicked()
                 {
@@ -1038,7 +1029,7 @@ fn render_workspace_inspector(
             let entry = match inspector_entry {
                 Some(e) => e,
                 None => {
-                    ui.label(egui::RichText::new("Loading...").weak());
+                    ui.label(egui::RichText::new(octa::i18n::t("sql.loading")).weak());
                     return;
                 }
             };
@@ -1155,7 +1146,7 @@ fn render_result_table(ui: &mut egui::Ui, table: &octa::data::DataTable) {
     use egui_extras::{Column, TableBuilder};
 
     if table.col_count() == 0 {
-        ui.label(egui::RichText::new("Query returned no columns.").weak());
+        ui.label(egui::RichText::new(octa::i18n::t("sql.no_columns")).weak());
         return;
     }
 

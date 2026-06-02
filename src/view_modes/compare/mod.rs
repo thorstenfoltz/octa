@@ -84,7 +84,7 @@ pub fn render_compare_view(
         // there's no Apply step, the renderers are cheap enough.
         for mode in [CompareMode::TextDiff, CompareMode::RowHashDiff] {
             if ui
-                .radio_value(&mut tab.compare_mode, mode, mode.label())
+                .radio_value(&mut tab.compare_mode, mode, mode.label_t())
                 .clicked()
             {
                 // Selecting a new mode is the moment to clear stale

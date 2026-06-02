@@ -295,6 +295,8 @@ Right-click any table region for context-aware actions:
 
 - [Formulas](formulas.md) covers the `=A1+B1` syntax and the Insert
   Column formula field.
+- [Date / Time calculation](date-time-calculation.md) derives a new
+  column from dates, datetimes, or durations.
 - [Colour Marking](colour-marking.md) highlights cells, rows, and
   columns.
 - [Saving](saving.md) writes back to disk, with format-specific

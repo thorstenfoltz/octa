@@ -23,7 +23,7 @@ pub fn render_markdown_view(ui: &mut egui::Ui, tab: &mut TabState, readonly: boo
     let Some(content_owned) = tab.raw_content.clone() else {
         ui.centered_and_justified(|ui| {
             ui.label(
-                RichText::new("Markdown content not available")
+                RichText::new(octa::i18n::t("view.md_na"))
                     .size(16.0)
                     .color(ui.visuals().weak_text_color()),
             );
@@ -41,21 +41,21 @@ pub fn render_markdown_view(ui: &mut egui::Ui, tab: &mut TabState, readonly: boo
         let mut layout = tab.markdown_layout;
         // Match the toggle-button text size so the row reads as one block
         // instead of "tiny label + huge buttons".
-        ui.label(RichText::new("Layout:").size(15.0));
+        ui.label(RichText::new(octa::i18n::t("view.md_layout")).size(15.0));
         ui.selectable_value(
             &mut layout,
             MarkdownLayout::Preview,
-            RichText::new("\u{1f441} Preview").size(15.0),
+            RichText::new(format!("\u{1f441} {}", octa::i18n::t("view.md_preview"))).size(15.0),
         );
         ui.selectable_value(
             &mut layout,
             MarkdownLayout::Split,
-            RichText::new("\u{1f500} Split").size(15.0),
+            RichText::new(format!("\u{1f500} {}", octa::i18n::t("view.md_split"))).size(15.0),
         );
         ui.selectable_value(
             &mut layout,
             MarkdownLayout::Edit,
-            RichText::new("\u{1f4dd} Edit").size(15.0),
+            RichText::new(format!("\u{1f4dd} {}", octa::i18n::t("view.md_edit"))).size(15.0),
         );
         if layout != tab.markdown_layout {
             tab.markdown_layout = layout;
@@ -137,7 +137,7 @@ fn render_preview_pane(ui: &mut egui::Ui, tab: &mut TabState, raw_content: &str)
     );
     let raw_for_copy = raw_content.to_string();
     bg_response.context_menu(|ui| {
-        if ui.button("Copy Markdown").clicked() {
+        if ui.button(octa::i18n::t("view.md_copy")).clicked() {
             ui.ctx().copy_text(raw_for_copy.clone());
             ui.close();
         }

@@ -66,10 +66,11 @@ like Claude can answer questions about your local files.
 
     ---
 
-    `octa --schema data.parquet` prints columns + types. `octa --head
-    file.csv -n 50 -f json` slices rows out as JSON. `octa --convert
-    in.csv out.parquet` round-trips through the same format readers
-    the GUI uses.
+    `octa --schema data.parquet` prints columns + types. `octa --head`
+    / `--tail` / `--sample` slice rows out (as TSV / JSON / CSV).
+    `octa --diff a.csv b.csv` shows the rows that changed between two
+    files, and `octa --convert in.csv out.parquet` round-trips through
+    the same format readers the GUI uses.
 
     [:octicons-arrow-right-24: Command-line reference](cli/index.md)
 
@@ -77,10 +78,11 @@ like Claude can answer questions about your local files.
 
     ---
 
-    `octa --mcp` is a Model Context Protocol server on stdio. Six
-    tools, read_table, schema, list_tables, count_rows, run_sql,
-    convert, let Claude Desktop, Claude Code, or any MCP client
-    answer questions about your local files.
+    `octa --mcp` is a Model Context Protocol server on stdio. A
+    twenty-tool set, read_table, schema, run_sql, convert, profile,
+    diff_tables, write_table, edit_table, and more, lets Claude Desktop,
+    Claude Code, or any MCP client answer questions about (and edit) your
+    local files. Runs in a [container](cli/docker.md) too.
 
     [:octicons-arrow-right-24: MCP server guide](mcp/index.md)
 
@@ -98,11 +100,26 @@ like Claude can answer questions about your local files.
 
     ---
 
-    Edit cells inline, insert and reorder columns, mark cells with
-    colours, undo and redo. SQLite/DuckDB writes are diff-based, so only
-    changed rows are touched.
+    Edit cells inline, insert and reorder columns, derive new ones with
+    [formulas](usage/formulas.md) or
+    [date/time calculation](usage/date-time-calculation.md), mark cells
+    with colours, undo and redo. Even
+    [Jupyter notebook](usage/view-modes/notebook.md) source cells are
+    editable, and saving preserves their outputs. SQLite/DuckDB writes
+    are diff-based, so only changed rows are touched.
 
     [:octicons-arrow-right-24: Editing](usage/editing.md)
+
+- :material-translate:{ .lg .middle } **Use it in your language**
+
+    ---
+
+    The interface is available in 13 languages, English, German,
+    Spanish, French, and more, switchable live under
+    **Settings → Appearance**. CSV encodings, date formats, and number
+    separators are detected per file.
+
+    [:octicons-arrow-right-24: Languages](reference/languages.md)
 
 </div>
 

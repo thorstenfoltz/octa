@@ -208,3 +208,63 @@ fn test_column_type_mixed_becomes_string() {
     let table = CsvReader.read_file(f.path()).unwrap();
     assert_eq!(table.columns[0].data_type, "Utf8");
 }
+
+// --- malformed-file repair (analyze_delimited + read_delimited_opts) ---
+
+#[test]
+fn test_analyze_healthy_csv_is_none() {
+    let mut f = NamedTempFile::with_suffix(".csv").unwrap();
+    writeln!(f, "a,b,c").unwrap();
+    writeln!(f, "1,2,3").unwrap();
+    writeln!(f, "4,5,6").unwrap();
+    assert!(analyze_delimited(f.path(), b',').is_none());
+}
+
+#[test]
+fn test_analyze_flags_bad_encoding() {
+    use std::io::Write as _;
+    let mut f = NamedTempFile::with_suffix(".csv").unwrap();
+    // Valid header + a Latin-1 0xE9 ("é") byte that isn't valid UTF-8.
+    f.write_all(b"name,city\nJose,M\xE9xico\n").unwrap();
+    let plan = analyze_delimited(f.path(), b',').expect("malformed");
+    assert!(plan.options.lossy_utf8);
+    // The repaired read succeeds where a strict read would fail.
+    let table = read_delimited_opts(f.path(), b',', "CSV", &plan.options).unwrap();
+    assert_eq!(table.row_count(), 1);
+    assert_eq!(table.columns.len(), 2);
+}
+
+#[test]
+fn test_analyze_flags_bom() {
+    use std::io::Write as _;
+    let mut f = NamedTempFile::with_suffix(".csv").unwrap();
+    f.write_all(b"\xEF\xBB\xBFa,b\n1,2\n").unwrap();
+    let plan = analyze_delimited(f.path(), b',').expect("malformed");
+    assert!(plan.options.strip_bom_controls);
+    let table = read_delimited_opts(f.path(), b',', "CSV", &plan.options).unwrap();
+    // After stripping the BOM the first header is "a", not "\u{feff}a".
+    assert_eq!(table.columns[0].name, "a");
+}
+
+#[test]
+fn test_analyze_flags_tsv_wrong_delimiter() {
+    let mut f = NamedTempFile::with_suffix(".tsv").unwrap();
+    // A ".tsv" that is actually semicolon-delimited.
+    writeln!(f, "a;b;c").unwrap();
+    writeln!(f, "1;2;3").unwrap();
+    let plan = analyze_delimited(f.path(), b'\t').expect("malformed");
+    assert_eq!(plan.options.delimiter, Some(b';'));
+    let table = read_delimited_opts(f.path(), b'\t', "TSV", &plan.options).unwrap();
+    assert_eq!(table.columns.len(), 3);
+}
+
+#[test]
+fn test_read_delimited_opts_default_matches_normal() {
+    let mut f = NamedTempFile::with_suffix(".csv").unwrap();
+    writeln!(f, "a,b").unwrap();
+    writeln!(f, "1,2").unwrap();
+    let opts = ReadOptions::default();
+    let table = read_delimited_opts(f.path(), b',', "CSV", &opts).unwrap();
+    assert_eq!(table.columns.len(), 2);
+    assert_eq!(table.row_count(), 1);
+}

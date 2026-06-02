@@ -21,13 +21,8 @@ use octa::ui::settings::{DialogSize, draw_window_controls};
 use super::super::state::OctaApp;
 
 /// Top-N presets shown in the toolbar. `None` means "all distinct values".
-const TOP_N_PRESETS: &[(Option<usize>, &str)] = &[
-    (Some(20), "Top 20"),
-    (Some(50), "Top 50"),
-    (Some(100), "Top 100"),
-    (Some(500), "Top 500"),
-    (None, "All"),
-];
+/// Labels are built at render time via `t("dialog.vf_top")` + the number.
+const TOP_N_PRESETS: &[Option<usize>] = &[Some(20), Some(50), Some(100), Some(500), None];
 
 pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let active = app.active_tab;
@@ -81,9 +76,13 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new(format!("Value Frequency - {}", column_name))
-                            .strong()
-                            .size(16.0),
+                        RichText::new(format!(
+                            "{} - {}",
+                            octa::i18n::t("dialog.vf_title"),
+                            column_name
+                        ))
+                        .strong()
+                        .size(16.0),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -106,10 +105,14 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
                     // Top-N only applies to raw value counts; when binning, the
                     // bin count is the control, so hide the presets.
                     if !binning_active {
-                        ui.label("Show:");
-                        for (preset, label) in TOP_N_PRESETS {
+                        ui.label(octa::i18n::t("dialog.vf_show"));
+                        for preset in TOP_N_PRESETS {
+                            let label = match preset {
+                                Some(n) => format!("{} {}", octa::i18n::t("dialog.vf_top"), n),
+                                None => octa::i18n::t("dialog.sel_all"),
+                            };
                             let selected = top_n_state == *preset;
-                            if ui.selectable_label(selected, *label).clicked() {
+                            if ui.selectable_label(selected, label).clicked() {
                                 top_n_state = *preset;
                             }
                         }
@@ -118,22 +121,18 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
                         if !binning_active {
                             ui.add_space(8.0);
                         }
-                        ui.checkbox(&mut bin_state, "Bin numeric values");
+                        ui.checkbox(&mut bin_state, octa::i18n::t("dialog.vf_bin_numeric"));
                         if bin_state {
                             ui.add_space(4.0);
-                            ui.label("Bins:");
+                            ui.label(octa::i18n::t("dialog.vf_bins"));
                             ui.add(
                                 egui::TextEdit::singleline(&mut bins_buf)
                                     .desired_width(48.0)
-                                    .hint_text("auto"),
+                                    .hint_text(octa::i18n::t("dialog.vf_auto")),
                             )
-                            .on_hover_text(
-                                "Number of equal-width value ranges to split the\n\
-                                 column into. Each row is one range and its count.\n\
-                                 Empty = automatic (Sturges) bin count.",
-                            );
+                            .on_hover_text(octa::i18n::t("dialog.vf_bins_hint"));
                             ui.label(
-                                egui::RichText::new("(equal-width ranges, in order)")
+                                egui::RichText::new(octa::i18n::t("dialog.vf_ranges_note"))
                                     .small()
                                     .color(ui.visuals().weak_text_color()),
                             );
@@ -163,19 +162,26 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.button("Close").clicked() {
+                    if ui.button(octa::i18n::t("common.close")).clicked() {
                         close_requested = true;
                     }
-                    if ui.button("Copy as TSV").clicked() {
+                    if ui.button(octa::i18n::t("dialog.vf_copy_tsv")).clicked() {
                         copy_payload = Some(build_tsv(&column_name, &freq));
                     }
                     ui.label(
                         RichText::new(format!(
-                            "{} distinct | {} non-null | {} null{}",
+                            "{} {} | {} {} | {} {}{}",
                             freq.unique_count,
+                            octa::i18n::t("dialog.vf_distinct"),
                             freq.total_non_null,
+                            octa::i18n::t("dialog.vf_non_null"),
                             freq.nulls,
-                            if freq.binned { " | binned" } else { "" }
+                            octa::i18n::t("dialog.vf_null"),
+                            if freq.binned {
+                                format!(" | {}", octa::i18n::t("dialog.vf_binned"))
+                            } else {
+                                String::new()
+                            }
                         ))
                         .size(10.0)
                         .color(ui.visuals().weak_text_color()),
@@ -189,11 +195,8 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
                 if freq.rows.is_empty() {
                     ui.add_space(12.0);
                     ui.label(
-                        RichText::new(
-                            "No non-null values in this column. \
-                             Nothing to count.",
-                        )
-                        .color(ui.visuals().weak_text_color()),
+                        RichText::new(octa::i18n::t("dialog.vf_no_values"))
+                            .color(ui.visuals().weak_text_color()),
                     );
                     return;
                 }
@@ -216,7 +219,13 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
                     .column(Column::initial(80.0).at_least(60.0))
                     .max_scroll_height(body_height)
                     .header(24.0, |mut header| {
-                        for h in ["#", "Value", "Count", "%"] {
+                        let headers = [
+                            "#".to_string(),
+                            octa::i18n::t("dialog.vf_col_value"),
+                            octa::i18n::t("dialog.vf_col_count"),
+                            "%".to_string(),
+                        ];
+                        for h in headers {
                             header.col(|ui| {
                                 ui.label(RichText::new(h).strong());
                             });
@@ -248,11 +257,17 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
                                     && !freq.binned
                                 {
                                     resp.context_menu(|ui| {
-                                        if ui.button("Copy value").clicked() {
+                                        if ui
+                                            .button(octa::i18n::t("dialog.vf_copy_value"))
+                                            .clicked()
+                                        {
                                             copy_payload = Some(row.label.clone());
                                             ui.close();
                                         }
-                                        if ui.button("Filter table to this value").clicked() {
+                                        if ui
+                                            .button(octa::i18n::t("dialog.vf_filter_to_value"))
+                                            .clicked()
+                                        {
                                             filter_to_this = Some(row.label.clone());
                                             ui.close();
                                         }
@@ -266,10 +281,7 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
 
     if let Some(payload) = copy_payload {
         ctx.copy_text(payload);
-        app.status_message = Some((
-            "Copied value-frequency data".to_string(),
-            std::time::Instant::now(),
-        ));
+        app.status_message = Some((octa::i18n::t("dialog.vf_copied"), std::time::Instant::now()));
     }
 
     if let Some(value) = filter_to_this {

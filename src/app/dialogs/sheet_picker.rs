@@ -16,7 +16,7 @@ pub(crate) fn render_sheet_picker_dialog(app: &mut OctaApp, ctx: &egui::Context)
     let mut confirm = false;
     let mut cancel = false;
 
-    egui::Window::new("Choose sheets to open")
+    egui::Window::new(octa::i18n::t("dialog.sheets_title"))
         .open(&mut open)
         .resizable(true)
         .collapsible(false)
@@ -30,19 +30,25 @@ pub(crate) fn render_sheet_picker_dialog(app: &mut OctaApp, ctx: &egui::Context)
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
             ui.label(format!(
-                "{} has {} sheets. Pick which to open:",
+                "{} - {}",
                 file_label,
-                picker.sheet_names.len()
+                octa::i18n::t("dialog.sheets_prompt")
             ));
             ui.add_space(6.0);
 
             ui.horizontal(|ui| {
-                if ui.small_button("Select all").clicked() {
+                if ui
+                    .small_button(octa::i18n::t("dialog.select_all"))
+                    .clicked()
+                {
                     for v in &mut picker.selected {
                         *v = true;
                     }
                 }
-                if ui.small_button("Select none").clicked() {
+                if ui
+                    .small_button(octa::i18n::t("dialog.select_none"))
+                    .clicked()
+                {
                     for v in &mut picker.selected {
                         *v = false;
                     }
@@ -66,12 +72,15 @@ pub(crate) fn render_sheet_picker_dialog(app: &mut OctaApp, ctx: &egui::Context)
             ui.horizontal(|ui| {
                 let open_btn = ui.add_enabled(
                     count > 0,
-                    egui::Button::new(format!("Open {count} sheet(s)")),
+                    egui::Button::new(format!(
+                        "{} ({count})",
+                        octa::i18n::t("dialog.open_selected_sheets")
+                    )),
                 );
                 if open_btn.clicked() {
                     confirm = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(octa::i18n::t("common.cancel")).clicked() {
                     cancel = true;
                 }
             });

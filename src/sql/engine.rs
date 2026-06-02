@@ -195,14 +195,14 @@ pub(super) fn value_ref_to_cell(v: ValueRef<'_>) -> CellValue {
         V::Float(f) => CellValue::Float(f as f64),
         V::Double(f) => CellValue::Float(f),
         V::Decimal(d) => CellValue::String(d.to_string()),
-        V::Timestamp(_, ts) => CellValue::DateTime(ts.to_string()),
+        V::Timestamp(unit, ts) => crate::formats::duckdb_reader::duckdb_timestamp_to_cell(unit, ts),
         V::Text(t) => match std::str::from_utf8(t) {
             Ok(s) => CellValue::String(s.to_string()),
             Err(_) => CellValue::Binary(t.to_vec()),
         },
         V::Blob(b) => CellValue::Binary(b.to_vec()),
-        V::Date32(d) => CellValue::Date(d.to_string()),
-        V::Time64(_, t) => CellValue::String(t.to_string()),
+        V::Date32(d) => crate::formats::duckdb_reader::duckdb_date32_to_cell(d),
+        V::Time64(unit, t) => crate::formats::duckdb_reader::duckdb_time_to_cell(unit, t),
         other => CellValue::String(format!("{other:?}")),
     }
 }

@@ -120,6 +120,65 @@ pub(crate) struct TrimWarning {
     pub(crate) columns: Vec<String>,
 }
 
+/// Pending interactive repair prompt for a malformed delimited file. Raised
+/// from `load_file` only when `offer_repair_on_malformed` is on and
+/// `csv_reader::analyze_delimited` found problems. The dialog
+/// (`dialogs::repair_file`) offers "Repair and open" (apply `options`),
+/// "Open without repair" (lossy-decode only), or "Cancel". `preview` holds the
+/// first rows of the repaired result, header included, for the dialog table.
+pub(crate) struct FileRepair {
+    pub(crate) path: std::path::PathBuf,
+    /// Reader name: "CSV" or "TSV".
+    pub(crate) format_name: String,
+    /// Delimiter the normal reader would use for this file.
+    pub(crate) default_delimiter: u8,
+    /// Human-readable issues detected (ASCII only).
+    pub(crate) issues: Vec<String>,
+    /// Options that would repair the file.
+    pub(crate) options: octa::formats::csv_reader::ReadOptions,
+    /// First rows of the repaired result (row 0 is the header).
+    pub(crate) preview: Vec<Vec<String>>,
+}
+
+/// Which family of time calculation the dialog is configured for. Maps onto
+/// the variants of [`octa::data::time_calc::TimeCalcOp`] when the user applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TimeCalcKind {
+    Difference,
+    AddSubtract,
+    ConvertDuration,
+    Extract,
+    UnixConvert,
+}
+
+/// Live state for the "Date/Time calculation" dialog. Mirrors the inputs the
+/// dialog collects; on Apply it builds a `TimeCalcOp` and materialises a new
+/// column (see `dialogs::time_calc`).
+#[derive(Debug, Clone)]
+pub(crate) struct TimeCalcDialog {
+    pub(crate) kind: TimeCalcKind,
+    /// Unit for Difference / AddSubtract.
+    pub(crate) unit: octa::data::time_calc::TimeUnit,
+    /// Source / target units for ConvertDuration.
+    pub(crate) from_unit: octa::data::time_calc::TimeUnit,
+    pub(crate) to_unit: octa::data::time_calc::TimeUnit,
+    /// Signed amount buffer for AddSubtract.
+    pub(crate) amount_buf: String,
+    /// Component for Extract.
+    pub(crate) component: octa::data::time_calc::DateComponent,
+    /// Direction + epoch precision for UnixConvert.
+    pub(crate) unix_direction: octa::data::time_calc::UnixDirection,
+    pub(crate) unix_unit: octa::data::time_calc::UnixUnit,
+    /// Primary input column index.
+    pub(crate) col_a: usize,
+    /// Second input column index (Difference only).
+    pub(crate) col_b: usize,
+    /// New column name buffer.
+    pub(crate) new_name: String,
+    /// 1-indexed insert-position buffer.
+    pub(crate) insert_at_text: String,
+}
+
 /// State for the multi-select Excel sheet picker. `selected[i]` tracks
 /// whether `sheet_names[i]` is ticked; the first `excel_max_auto_sheets` are
 /// pre-checked when the picker opens.
@@ -297,6 +356,8 @@ pub(crate) struct TabState {
     pub(crate) insert_col_at_text: String,
     pub(crate) show_delete_columns_dialog: bool,
     pub(crate) delete_col_selection: Vec<bool>,
+    /// Active "Date/Time calculation" dialog state, or `None` when closed.
+    pub(crate) time_calc: Option<TimeCalcDialog>,
     pub(crate) sql_query: String,
     pub(crate) sql_result: Option<DataTable>,
     pub(crate) sql_error: Option<String>,
@@ -636,6 +697,10 @@ pub(crate) struct OctaApp {
     /// Pending whitespace-trim banner: the columns that had leading/trailing
     /// whitespace stripped on load. `None` once dismissed.
     pub(crate) pending_trim_warning: Option<TrimWarning>,
+    /// Pending malformed-file repair prompt (opt-in via
+    /// `offer_repair_on_malformed`). Set by `load_file` when a CSV/TSV looks
+    /// malformed; resolved by `dialogs::repair_file::render_repair_file_dialog`.
+    pub(crate) pending_file_repair: Option<FileRepair>,
     /// Pending "round on save?" prompt. Set when a save is requested on a tab
     /// that has per-column rounding formats; resolved by
     /// `round_save_prompt::render_round_save_prompt_dialog`.

@@ -10,9 +10,9 @@ use crate::data::{BinaryDisplayMode, DataTable, MarkKey};
 use crate::ui::theme::ThemeColors;
 
 use super::{
-    COL_INDEX_HEIGHT, DEFAULT_COL_WIDTH, HEADER_HEIGHT, MIN_COL_WIDTH, RESIZE_HANDLE_WIDTH,
-    SORT_ARROW_SIZE, TableInteraction, TableViewState, col_index_letter, compute_optimal_col_width,
-    mark_submenu,
+    COL_INDEX_HEIGHT, DEFAULT_COL_WIDTH, HEADER_HEIGHT, MIN_COL_WIDTH, NumFmtCtx,
+    RESIZE_HANDLE_WIDTH, SORT_ARROW_SIZE, TableInteraction, TableViewState, col_index_letter,
+    compute_optimal_col_width, mark_submenu,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -31,6 +31,7 @@ pub(super) fn draw_header_direct(
     binary_display_mode: BinaryDisplayMode,
     filtered_columns: &HashSet<usize>,
     hidden_columns: &HashSet<usize>,
+    num_fmt: NumFmtCtx<'_>,
 ) {
     let rn_rect = egui::Rect::from_min_size(
         egui::pos2(left_x, top_y),
@@ -347,14 +348,14 @@ pub(super) fn draw_header_direct(
                         .size(11.0),
                 );
                 ui.separator();
-                if ui.button("Rename").clicked() {
+                if ui.button(crate::i18n::t("header.rename")).clicked() {
                     state.editing_col_name = Some((col_idx, col.name.clone()));
                     state.edit_col_needs_focus = true;
                     ui.close();
                 }
                 ui.separator();
                 ui.label(RichText::new("Clipboard").strong().size(11.0));
-                if ui.button("Copy").clicked() {
+                if ui.button(crate::i18n::t("header.copy")).clicked() {
                     if !state.selected_cols.contains(&col_idx) {
                         state.selected_cols.clear();
                         state.selected_cols.insert(col_idx);
@@ -362,7 +363,7 @@ pub(super) fn draw_header_direct(
                     interaction.ctx_copy = true;
                     ui.close();
                 }
-                if ui.button("Cut").clicked() {
+                if ui.button(crate::i18n::t("header.cut")).clicked() {
                     if !state.selected_cols.contains(&col_idx) {
                         state.selected_cols.clear();
                         state.selected_cols.insert(col_idx);
@@ -371,7 +372,7 @@ pub(super) fn draw_header_direct(
                     ui.close();
                 }
                 if (state.clipboard.is_some() || state.os_clipboard_has_text)
-                    && ui.button("Paste").clicked()
+                    && ui.button(crate::i18n::t("header.paste")).clicked()
                 {
                     interaction.ctx_paste = true;
                     ui.close();
@@ -391,33 +392,41 @@ pub(super) fn draw_header_direct(
                     };
                 mark_submenu(ui, col_keys, &col_anchor, table, interaction);
                 ui.separator();
-                if ui.button("Sort A-Z").clicked() {
+                if ui.button(crate::i18n::t("header.sort_az")).clicked() {
                     interaction.sort_rows_asc_by = Some(col_idx);
                     ui.close();
                 }
-                if ui.button("Sort Z-A").clicked() {
+                if ui.button(crate::i18n::t("header.sort_za")).clicked() {
                     interaction.sort_rows_desc_by = Some(col_idx);
                     ui.close();
                 }
-                if ui.button("Filter values...").clicked() {
+                if ui.button(crate::i18n::t("header.filter_values")).clicked() {
                     interaction.ctx_filter_column = Some(col_idx);
                     ui.close();
                 }
-                if ui.button("Value frequency...").clicked() {
+                if ui
+                    .button(crate::i18n::t("analyse_menu.value_frequency"))
+                    .clicked()
+                {
                     interaction.ctx_value_frequency = Some(col_idx);
                     ui.close();
                 }
                 if crate::data::is_numeric_data_type(&col.data_type)
-                    && ui.button("Number format...").clicked()
+                    && ui
+                        .button(crate::i18n::t("edit_menu.number_format"))
+                        .clicked()
                 {
                     interaction.ctx_column_format = Some(col_idx);
                     ui.close();
                 }
-                if ui.button("Hide column").clicked() {
+                if ui.button(crate::i18n::t("header.hide_column")).clicked() {
                     interaction.ctx_hide_column = Some(col_idx);
                     ui.close();
                 }
-                if ui.button("Copy column name(s)").clicked() {
+                if ui
+                    .button(crate::i18n::t("header.copy_column_names"))
+                    .clicked()
+                {
                     // Multi-column when the right-clicked column is part of
                     // an existing column selection; otherwise just this one.
                     let names: Vec<String> = if state.selected_cols.contains(&col_idx)
@@ -436,12 +445,12 @@ pub(super) fn draw_header_direct(
                     ui.close();
                 }
                 ui.separator();
-                if ui.button("Insert Column...").clicked() {
+                if ui.button(crate::i18n::t("toolbar.insert_column")).clicked() {
                     interaction.header_col_clicked = Some(col_idx);
                     interaction.ctx_insert_column = true;
                     ui.close();
                 }
-                if ui.button("Delete Columns...").clicked() {
+                if ui.button(crate::i18n::t("header.delete_columns")).clicked() {
                     interaction.ctx_delete_column = true;
                     ui.close();
                 }
@@ -478,7 +487,7 @@ pub(super) fn draw_header_direct(
                     }
                 });
                 ui.separator();
-                if col_idx > 0 && ui.button("Move Left").clicked() {
+                if col_idx > 0 && ui.button(crate::i18n::t("header.move_left")).clicked() {
                     state.selected_cell = state
                         .selected_cell
                         .map(|(r, _)| (r, col_idx))
@@ -486,7 +495,9 @@ pub(super) fn draw_header_direct(
                     interaction.ctx_move_col_left = true;
                     ui.close();
                 }
-                if col_idx + 1 < table.col_count() && ui.button("Move Right").clicked() {
+                if col_idx + 1 < table.col_count()
+                    && ui.button(crate::i18n::t("header.move_right")).clicked()
+                {
                     state.selected_cell = state
                         .selected_cell
                         .map(|(r, _)| (r, col_idx))
@@ -577,6 +588,7 @@ pub(super) fn draw_header_direct(
                     col_idx,
                     font_size,
                     binary_display_mode,
+                    num_fmt,
                 );
                 if let Some(w) = state.col_widths.get_mut(col_idx) {
                     *w = optimal;

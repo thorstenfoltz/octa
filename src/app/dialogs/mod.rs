@@ -19,12 +19,14 @@ pub(crate) mod parse_in_new_tab;
 pub(crate) mod raw_perf_prompt;
 pub(crate) mod readonly_notice;
 pub(crate) mod reload_confirm;
+pub(crate) mod repair_file;
 pub(crate) mod round_save_prompt;
 pub(crate) mod schema_export;
 pub(crate) mod settings;
 pub(crate) mod sheet_picker;
 pub(crate) mod sql_write_back;
 pub(crate) mod table_picker;
+pub(crate) mod time_calc;
 pub(crate) mod unsaved_changes;
 pub(crate) mod update_dialog;
 pub(crate) mod value_frequency;
@@ -45,6 +47,7 @@ impl OctaApp {
         table_picker::render_table_picker(self, ctx);
         sheet_picker::render_sheet_picker_dialog(self, ctx);
         raw_perf_prompt::render_raw_perf_prompt_dialog(self, ctx);
+        repair_file::render_repair_file_dialog(self, ctx);
         readonly_notice::render_readonly_notice_dialog(self, ctx);
         date_ambiguity::render_date_ambiguity_dialog(self, ctx);
         settings::render_settings_dialog(self, ctx);
@@ -58,6 +61,7 @@ impl OctaApp {
         value_frequency_picker::render_value_frequency_picker_dialog(self, ctx);
         value_frequency::render_value_frequency_dialog(self, ctx);
         find_duplicates::render_find_duplicates_dialog(self, ctx);
+        time_calc::render_time_calc_dialog(self, ctx);
         schema_export::render_schema_export_dialog(self, ctx);
         sql_write_back::render_sql_write_back_dialog(self, ctx);
     }

@@ -16,35 +16,31 @@ pub(crate) fn render_round_save_prompt_dialog(app: &mut OctaApp, ctx: &egui::Con
     let mut cancel = false;
     let mut open = true;
 
-    egui::Window::new("Save rounded values?")
+    egui::Window::new(octa::i18n::t("dialog.round_title"))
         .open(&mut open)
         .resizable(false)
         .collapsible(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.set_min_width(360.0);
-            ui.label(
-                "This table has columns with a display rounding format. \
-                 Rounding is normally display-only - how should the \
-                 file be written?",
-            );
+            ui.label(octa::i18n::t("dialog.round_body"));
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 if ui
-                    .button("Save rounded values")
-                    .on_hover_text("Write the rounded numbers shown in the table")
+                    .button(octa::i18n::t("dialog.round_save_rounded"))
+                    .on_hover_text(octa::i18n::t("dialog.round_save_rounded_hint"))
                     .clicked()
                 {
                     decision = Some(true);
                 }
                 if ui
-                    .button("Save full precision")
-                    .on_hover_text("Write the original, un-rounded numbers")
+                    .button(octa::i18n::t("dialog.round_save_full"))
+                    .on_hover_text(octa::i18n::t("dialog.round_save_full_hint"))
                     .clicked()
                 {
                     decision = Some(false);
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(octa::i18n::t("common.cancel")).clicked() {
                     cancel = true;
                 }
             });

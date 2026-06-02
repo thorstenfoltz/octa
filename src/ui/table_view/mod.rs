@@ -192,6 +192,17 @@ const AUTOFIT_PADDING: f32 = 16.0;
 /// Compute the "best fit" width for a column by measuring header + content
 /// with the actual font, then padding. Sample is capped at [`AUTOFIT_MAX_ROWS`]
 /// rows from the filtered set.
+/// Numeric-display context needed to reproduce the cell text the renderer
+/// paints (thousands separators + per-column rounding). Bundled so the autofit
+/// helpers stay under clippy's argument-count limit; the three fields always
+/// travel together.
+#[derive(Clone, Copy)]
+pub(crate) struct NumFmtCtx<'a> {
+    pub thousands: bool,
+    pub style: crate::data::num_format::SeparatorStyle,
+    pub formats: &'a std::collections::HashMap<usize, crate::data::num_format::NumberFormat>,
+}
+
 fn compute_optimal_col_width(
     ui: &Ui,
     table: &DataTable,
@@ -199,9 +210,19 @@ fn compute_optimal_col_width(
     col_idx: usize,
     font_size: f32,
     binary_display_mode: BinaryDisplayMode,
+    num_fmt: NumFmtCtx<'_>,
 ) -> f32 {
     let mono = egui::FontId::new(font_size, egui::FontFamily::Monospace);
     let mut max_w: f32 = 0.0;
+
+    // Numeric columns paint through `format_cell_number` (thousands separators
+    // + per-column rounding), so measure that same string - otherwise long
+    // numbers fit to their un-grouped width and get clipped.
+    let col_numeric = table
+        .columns
+        .get(col_idx)
+        .is_some_and(|c| crate::data::is_numeric_data_type(&c.data_type));
+    let col_fmt = num_fmt.formats.get(&col_idx).copied();
 
     if let Some(col) = table.columns.get(col_idx) {
         let header_w = ui.fonts_mut(|f| {
@@ -224,7 +245,17 @@ fn compute_optimal_col_width(
     let sample_count = filtered_rows.len().min(AUTOFIT_MAX_ROWS);
     for row_idx in &filtered_rows[..sample_count] {
         if let Some(value) = table.get(*row_idx, col_idx) {
-            let text = value.display_with_binary_mode(binary_display_mode);
+            let text = if col_numeric {
+                crate::data::num_format::format_cell_number(
+                    value,
+                    col_fmt,
+                    num_fmt.thousands,
+                    num_fmt.style,
+                )
+                .unwrap_or_else(|| value.display_with_binary_mode(binary_display_mode))
+            } else {
+                value.display_with_binary_mode(binary_display_mode)
+            };
             if text.is_empty() {
                 continue;
             }
@@ -365,11 +396,26 @@ pub fn draw_table(
     state.ensure_widths(table);
     state.os_clipboard_has_text = os_clipboard_has_content;
 
+    // Numeric-display context shared by autofit measurement (Ctrl+Shift+W and
+    // the header-seam double-click), so widths match the painted cell text.
+    let num_fmt_ctx = NumFmtCtx {
+        thousands: thousands_separators,
+        style: separator_style,
+        formats: column_number_formats,
+    };
+
     // Fulfil a pending FitAllColumns shortcut request now that we have a Ui
     // for font measurement.
     if state.fit_all_columns_requested {
         state.fit_all_columns_requested = false;
-        state.fit_all_columns(ui, table, filtered_rows, font_size, binary_display_mode);
+        state.fit_all_columns(
+            ui,
+            table,
+            filtered_rows,
+            font_size,
+            binary_display_mode,
+            num_fmt_ctx,
+        );
     }
 
     // Compute row number column width based on the largest row number
@@ -802,6 +848,7 @@ pub fn draw_table(
         binary_display_mode,
         filtered_columns,
         hidden_columns,
+        num_fmt_ctx,
     );
 
     // Header bottom border
@@ -1039,13 +1086,13 @@ fn mark_submenu(
     interaction: &mut TableInteraction,
 ) {
     let current_mark = table.marks.get(anchor).copied();
-    ui.menu_button("Mark", |ui| {
+    ui.menu_button(crate::i18n::t("edit_menu.mark"), |ui| {
         for &color in MarkColor::ALL {
             let swatch = ThemeColors::mark_swatch(color);
             let label = if current_mark == Some(color) {
-                format!("{} (current)", color.label())
+                format!("{} ({})", color.label_t(), crate::i18n::t("mark.current"))
             } else {
-                color.label().to_string()
+                color.label_t()
             };
             let btn = egui::Button::new(RichText::new(label).color(swatch));
             if ui.add(btn).clicked() {
@@ -1055,7 +1102,7 @@ fn mark_submenu(
         }
         if current_mark.is_some() {
             ui.separator();
-            if ui.button("Clear").clicked() {
+            if ui.button(crate::i18n::t("edit_menu.clear")).clicked() {
                 interaction.clear_mark = Some(keys.clone());
                 ui.close();
             }

@@ -142,7 +142,7 @@ pub fn draw_status_bar(
             // Plain text instead of a lock emoji - many bundled fonts lack
             // U+1F512 and render it as a tofu / replacement glyph.
             ui.label(
-                RichText::new("[Read-only]")
+                RichText::new(crate::i18n::t("status_bar.readonly"))
                     .size(11.0)
                     .color(Color32::from_rgb(0xc0, 0x6a, 0x10))
                     .strong(),
@@ -158,9 +158,13 @@ pub fn draw_status_bar(
                     .map(|f| f.to_string_lossy().to_string())
                     .unwrap_or_else(|| path.clone());
                 ui.label(
-                    RichText::new(format!("File: {}", filename))
-                        .size(11.0)
-                        .color(colors.text_secondary),
+                    RichText::new(format!(
+                        "{} {}",
+                        crate::i18n::t("status_bar.file"),
+                        filename
+                    ))
+                    .size(11.0)
+                    .color(colors.text_secondary),
                 );
                 ui.separator();
             }
@@ -171,25 +175,34 @@ pub fn draw_status_bar(
             }
 
             // Row/col count
+            let rows_word = crate::i18n::t("status_bar.rows");
             let row_text = if table.total_rows.is_some() {
                 let loaded = table.row_offset + table.row_count();
                 if search_active {
                     format!(
-                        "{} / {}+ rows (partial)",
+                        "{} / {}+ {} {}",
                         format_number(filtered_count),
-                        format_number(loaded)
+                        format_number(loaded),
+                        rows_word,
+                        crate::i18n::t("status_bar.partial")
                     )
                 } else {
-                    format!("{}+ rows (scroll to load more)", format_number(loaded))
+                    format!(
+                        "{}+ {} {}",
+                        format_number(loaded),
+                        rows_word,
+                        crate::i18n::t("status_bar.scroll_more")
+                    )
                 }
             } else if search_active {
                 format!(
-                    "{} / {} rows",
+                    "{} / {} {}",
                     format_number(filtered_count),
-                    format_number(table.row_count())
+                    format_number(table.row_count()),
+                    rows_word
                 )
             } else {
-                format!("{} rows", format_number(table.row_count()))
+                format!("{} {}", format_number(table.row_count()), rows_word)
             };
             ui.label(
                 RichText::new(row_text)
@@ -198,9 +211,13 @@ pub fn draw_status_bar(
             );
             ui.separator();
             ui.label(
-                RichText::new(format!("{} columns", format_number(table.col_count())))
-                    .size(11.0)
-                    .color(colors.text_secondary),
+                RichText::new(format!(
+                    "{} {}",
+                    format_number(table.col_count()),
+                    crate::i18n::t("status_bar.columns")
+                ))
+                .size(11.0)
+                .color(colors.text_secondary),
             );
 
             // Active column-filter chip. Clickable shortcut into the dialog,
@@ -211,9 +228,10 @@ pub fn draw_status_bar(
                     .add(
                         egui::Label::new(
                             RichText::new(format!(
-                                "Filter: {} col{}",
+                                "{} {} {}",
+                                crate::i18n::t("status_bar.filter"),
                                 column_filter_count,
-                                if column_filter_count == 1 { "" } else { "s" }
+                                crate::i18n::t("status_bar.columns")
                             ))
                             .size(11.0)
                             .color(colors.accent)
@@ -221,7 +239,7 @@ pub fn draw_status_bar(
                         )
                         .sense(egui::Sense::click()),
                     )
-                    .on_hover_text("Click to manage column filters");
+                    .on_hover_text(crate::i18n::t("status_bar.filter_hint"));
                 if chip.clicked() {
                     action.open_column_filter = first_filtered_col;
                 }
@@ -237,7 +255,8 @@ pub fn draw_status_bar(
                     .unwrap_or("?");
                 ui.label(
                     RichText::new(format!(
-                        "Cell: R{}:C{} ({})",
+                        "{} R{}:C{} ({})",
+                        crate::i18n::t("status_bar.cell"),
                         row + 1 + table.row_offset,
                         col + 1,
                         col_name
@@ -249,9 +268,13 @@ pub fn draw_status_bar(
                 if let Some(val) = table.get(row, col) {
                     ui.separator();
                     ui.label(
-                        RichText::new(format!("Type: {}", val.type_name()))
-                            .size(11.0)
-                            .color(colors.text_muted),
+                        RichText::new(format!(
+                            "{} {}",
+                            crate::i18n::t("status_bar.type"),
+                            val.type_name()
+                        ))
+                        .size(11.0)
+                        .color(colors.text_muted),
                     );
                 }
             }
@@ -289,15 +312,24 @@ pub fn draw_status_bar(
                     let text = if stats.numeric_count > 0 {
                         let avg = stats.sum / stats.numeric_count as f64;
                         format!(
-                            "Count={} Sum={} Avg={} Min={} Max={}",
+                            "{}={} {}={} {}={} {}={} {}={}",
+                            crate::i18n::t("status_bar.count"),
                             format_number(stats.count),
+                            crate::i18n::t("status_bar.sum"),
                             format_float(stats.sum),
+                            crate::i18n::t("status_bar.avg"),
                             format_float(avg),
+                            crate::i18n::t("status_bar.min"),
                             format_float(stats.min),
+                            crate::i18n::t("status_bar.max"),
                             format_float(stats.max),
                         )
                     } else {
-                        format!("Count={}", format_number(stats.count))
+                        format!(
+                            "{}={}",
+                            crate::i18n::t("status_bar.count"),
+                            format_number(stats.count)
+                        )
                     };
                     ui.label(RichText::new(text).size(11.0).color(colors.accent).strong());
                 }
@@ -307,7 +339,7 @@ pub fn draw_status_bar(
             let nav_response = ui.add(
                 egui::TextEdit::singleline(nav_input)
                     .desired_width(180.0)
-                    .hint_text("Go to R:C or col name")
+                    .hint_text(crate::i18n::t("status_bar.nav_hint"))
                     .font(egui::FontId::new(11.0, egui::FontFamily::Monospace)),
             );
             if nav_focus_requested {
@@ -344,13 +376,17 @@ pub fn draw_status_bar(
                     let edit_count = table.edits.len();
                     if edit_count > 0 {
                         ui.label(
-                            RichText::new(format!("({} edits)", edit_count))
-                                .size(11.0)
-                                .color(colors.warning),
+                            RichText::new(format!(
+                                "({} {})",
+                                edit_count,
+                                crate::i18n::t("status_bar.edits")
+                            ))
+                            .size(11.0)
+                            .color(colors.warning),
                         );
                     }
                     ui.label(
-                        RichText::new("Modified")
+                        RichText::new(crate::i18n::t("status_bar.modified"))
                             .size(11.0)
                             .strong()
                             .color(colors.warning),
@@ -359,7 +395,7 @@ pub fn draw_status_bar(
             });
         } else {
             ui.label(
-                RichText::new("No file loaded")
+                RichText::new(crate::i18n::t("status_bar.no_file"))
                     .size(11.0)
                     .color(colors.text_muted),
             );

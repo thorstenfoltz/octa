@@ -99,7 +99,11 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Column Filter").strong().size(16.0));
+                    ui.label(
+                        RichText::new(octa::i18n::t("dialog.cf_title"))
+                            .strong()
+                            .size(16.0),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
                             close_requested = true;
@@ -116,14 +120,14 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.button("Clear filter on this column").clicked() {
+                    if ui.button(octa::i18n::t("dialog.cf_clear")).clicked() {
                         clear_requested = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Apply").clicked() {
+                        if ui.button(octa::i18n::t("common.apply")).clicked() {
                             apply_requested = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(octa::i18n::t("common.cancel")).clicked() {
                             close_requested = true;
                         }
                     });
@@ -135,7 +139,7 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
             .show_inside(ui, |ui| {
                 // Column picker.
                 ui.horizontal(|ui| {
-                    ui.label("Column:");
+                    ui.label(octa::i18n::t("dialog.cf_column"));
                     egui::ComboBox::from_id_salt("column_filter_combo")
                         .selected_text(&col_name)
                         .show_ui(ui, |ui| {
@@ -152,10 +156,10 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
 
                 // Value-list type-filter.
                 ui.horizontal(|ui| {
-                    ui.label("Find:");
+                    ui.label(octa::i18n::t("dialog.cf_find"));
                     ui.add(
                         egui::TextEdit::singleline(&mut value_search)
-                            .hint_text("(filter the list below)"),
+                            .hint_text(octa::i18n::t("dialog.cf_find_hint")),
                     );
                 });
                 let needle = value_search.to_lowercase();
@@ -171,21 +175,32 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                 let hidden = total_matching.saturating_sub(visible.len());
 
                 ui.horizontal(|ui| {
-                    if ui.small_button("Select all").clicked() {
+                    if ui
+                        .small_button(octa::i18n::t("dialog.select_all"))
+                        .clicked()
+                    {
                         for v in &visible {
                             draft.insert((*v).clone());
                         }
                     }
-                    if ui.small_button("Select none").clicked() {
+                    if ui
+                        .small_button(octa::i18n::t("dialog.select_none"))
+                        .clicked()
+                    {
                         for v in &visible {
                             draft.remove(*v);
                         }
                     }
                     let checked = unique_values.iter().filter(|v| draft.contains(*v)).count();
                     ui.label(
-                        RichText::new(format!("{} of {} checked", checked, total_unique))
-                            .size(10.0)
-                            .color(ui.visuals().weak_text_color()),
+                        RichText::new(format!(
+                            "{}/{} {}",
+                            checked,
+                            total_unique,
+                            octa::i18n::t("dialog.cf_checked")
+                        ))
+                        .size(10.0)
+                        .color(ui.visuals().weak_text_color()),
                     );
                 });
 
@@ -198,7 +213,7 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                         for v in &visible {
                             let mut checked = draft.contains(*v);
                             let display = if v.is_empty() {
-                                "(empty)".to_string()
+                                octa::i18n::t("dialog.cf_empty")
                             } else {
                                 (*v).clone()
                             };
@@ -213,8 +228,9 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                         if hidden > 0 {
                             ui.label(
                                 RichText::new(format!(
-                                    "({} more values not shown - narrow with the search box)",
-                                    hidden
+                                    "({} {})",
+                                    hidden,
+                                    octa::i18n::t("dialog.cf_more_hidden")
                                 ))
                                 .size(10.0)
                                 .color(ui.visuals().weak_text_color()),

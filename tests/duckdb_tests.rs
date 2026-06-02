@@ -62,6 +62,42 @@ fn test_read_table_populates_db_meta() {
 }
 
 #[test]
+fn test_timestamp_and_date_columns_are_formatted() {
+    // Regression: the reader used to dump the raw epoch integer as the cell
+    // text (e.g. "1769975775172766") instead of a readable datetime. A
+    // TIMESTAMP must come back as a DateTime string and a DATE as a Date
+    // string, not as raw numbers.
+    let dir = TempDir::new().unwrap();
+    let path = fresh_db_path(&dir, "temporal.duckdb");
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE t (ts TIMESTAMP, d DATE);
+         INSERT INTO t VALUES (TIMESTAMP '2026-02-01 19:56:15.172766', DATE '2026-02-01');",
+    )
+    .unwrap();
+    drop(conn);
+
+    let table = DuckDbReader.read_table(&path, "t").unwrap();
+    match table.get(0, 0) {
+        Some(CellValue::DateTime(s)) => {
+            assert!(
+                s.starts_with("2026-02-01 19:56:15"),
+                "timestamp should be a formatted datetime, got {s:?}"
+            );
+            assert!(
+                !s.chars().all(|c| c.is_ascii_digit()),
+                "timestamp must not be a raw integer string, got {s:?}"
+            );
+        }
+        other => panic!("expected DateTime cell, got {other:?}"),
+    }
+    match table.get(0, 1) {
+        Some(CellValue::Date(s)) => assert_eq!(s, "2026-02-01"),
+        other => panic!("expected Date cell, got {other:?}"),
+    }
+}
+
+#[test]
 fn test_read_first_table_when_no_name_given() {
     let dir = TempDir::new().unwrap();
     let path = fresh_db_path(&dir, "two.duckdb");

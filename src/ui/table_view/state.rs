@@ -7,7 +7,8 @@ use egui::Ui;
 use crate::data::{BinaryDisplayMode, DataTable};
 
 use super::{
-    DEFAULT_COL_WIDTH, MIN_COL_WIDTH, SORT_ARROW_SIZE, TableViewState, compute_optimal_col_width,
+    DEFAULT_COL_WIDTH, MIN_COL_WIDTH, NumFmtCtx, SORT_ARROW_SIZE, TableViewState,
+    compute_optimal_col_width,
 };
 
 impl TableViewState {
@@ -64,13 +65,14 @@ impl TableViewState {
     /// as the double-click-the-header-seam gesture. Sample is capped at
     /// `AUTOFIT_MAX_ROWS` rows per column so multi-million-row tables stay
     /// snappy.
-    pub fn fit_all_columns(
+    pub(crate) fn fit_all_columns(
         &mut self,
         ui: &Ui,
         table: &DataTable,
         filtered_rows: &[usize],
         font_size: f32,
         binary_display_mode: BinaryDisplayMode,
+        num_fmt: NumFmtCtx<'_>,
     ) {
         self.ensure_widths(table);
         for col_idx in 0..table.col_count() {
@@ -81,6 +83,7 @@ impl TableViewState {
                 col_idx,
                 font_size,
                 binary_display_mode,
+                num_fmt,
             );
             if let Some(width) = self.col_widths.get_mut(col_idx) {
                 *width = optimal;

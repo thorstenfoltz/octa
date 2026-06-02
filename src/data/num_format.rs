@@ -33,6 +33,14 @@ impl RoundingMode {
         }
     }
 
+    pub fn label_t(self) -> String {
+        crate::i18n::t(match self {
+            RoundingMode::Normal => "enum2.round_normal",
+            RoundingMode::Up => "enum2.round_up",
+            RoundingMode::Down => "enum2.round_down",
+        })
+    }
+
     pub const ALL: &'static [RoundingMode] =
         &[RoundingMode::Normal, RoundingMode::Up, RoundingMode::Down];
 }
@@ -53,6 +61,13 @@ impl SeparatorStyle {
             SeparatorStyle::English => "English (1,234.56)",
             SeparatorStyle::European => "European (1.234,56)",
         }
+    }
+
+    pub fn label_t(self) -> String {
+        crate::i18n::t(match self {
+            SeparatorStyle::English => "enum.sep_english",
+            SeparatorStyle::European => "enum.sep_european",
+        })
     }
 
     pub const ALL: &'static [SeparatorStyle] = &[SeparatorStyle::English, SeparatorStyle::European];

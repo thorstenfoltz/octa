@@ -3,7 +3,6 @@
 *.swo
 *~
 .DS_Store
-CLAUDE.md
 .claude/
 megalinter-reports/
 pkg/build/
@@ -19,3 +18,4 @@ __pycache__/
 
 # Local-only parked plans (kept in repo for context, not for sharing)
 windows/WINDOWS_INSTALL_PLAN.md
+MANUAL_TEST_PLAN.md

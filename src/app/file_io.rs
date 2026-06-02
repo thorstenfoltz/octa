@@ -30,6 +30,30 @@ fn format_is_text_fallback_eligible(format_name: &str) -> bool {
     )
 }
 
+/// Build a small preview grid (row 0 is the header) from a table, capped to
+/// `max_rows` data rows and `max_cols` columns. Used by the malformed-file
+/// repair dialog to show what the repaired result looks like.
+fn repair_preview_rows(table: &DataTable, max_rows: usize, max_cols: usize) -> Vec<Vec<String>> {
+    let ncols = table.col_count().min(max_cols);
+    let mut out: Vec<Vec<String>> = Vec::new();
+    out.push(
+        table
+            .columns
+            .iter()
+            .take(ncols)
+            .map(|c| c.name.clone())
+            .collect(),
+    );
+    for r in 0..table.row_count().min(max_rows) {
+        out.push(
+            (0..ncols)
+                .map(|c| table.get(r, c).map(|v| v.to_string()).unwrap_or_default())
+                .collect(),
+        );
+    }
+    out
+}
+
 /// Apply per-column value-rounding formats to a table in place. Only columns
 /// whose format `rounds_values()` are touched; `Int` / `Float` cells are
 /// replaced with their rounded `Float`. Used to build the on-disk snapshot
@@ -412,6 +436,7 @@ impl OctaApp {
     pub(crate) fn drain_pending_open_queue(&mut self) {
         if self.pending_table_picker.is_some()
             || self.pending_sheet_picker.is_some()
+            || self.pending_file_repair.is_some()
             || !self.pending_date_pickers.is_empty()
         {
             return;
@@ -464,6 +489,24 @@ impl OctaApp {
                     .any(|u| u.eq_ignore_ascii_case(e))
             })
             .unwrap_or(false);
+        // Opt-in malformed-file repair: probe CSV/TSV files for encoding /
+        // delimiter / structure problems and, if found, raise the interactive
+        // repair prompt instead of loading. Computed via a short-lived borrow
+        // so the `&mut self` call below doesn't conflict with the reader
+        // binding. Skipped when the user forced text mode.
+        let probe_name = if force_text {
+            None
+        } else {
+            self.registry
+                .reader_for_path(&path)
+                .map(|r| r.name().to_string())
+        };
+        if let Some(ref name) = probe_name
+            && self.maybe_offer_repair(&path, name)
+        {
+            return;
+        }
+
         let text_reader: formats::text_reader::TextReader = formats::text_reader::TextReader;
         let reader: &dyn formats::FormatReader = if force_text {
             &text_reader
@@ -558,6 +601,13 @@ impl OctaApp {
             Ok(table) => self.apply_loaded_table(path, table),
             Err(e) => {
                 let format_name = reader.name().to_string();
+                // The extension-chosen reader failed. Before giving up, see if
+                // the file's *content* identifies a different format (e.g. a
+                // Parquet file saved as `export.txt`). Only then try the raw
+                // text fallback.
+                if self.try_content_sniff_reload(&path, &format_name) {
+                    return;
+                }
                 if format_is_text_fallback_eligible(&format_name) {
                     self.fallback_to_raw_text(path, format_name, e);
                 } else {
@@ -566,6 +616,107 @@ impl OctaApp {
                         std::time::Instant::now(),
                     ));
                 }
+            }
+        }
+    }
+
+    /// After an extension-chosen reader fails, attempt to reload using the
+    /// reader identified by [`formats::sniff::sniff_format`]. Handles the
+    /// wrong-extension case (a binary format with a misleading extension).
+    /// Returns `true` when a sniffed reader successfully loaded the file.
+    ///
+    /// Multi-table sources (databases, Excel) are skipped here: they keep
+    /// conventional extensions, and the missing-extension case is already
+    /// handled in `reader_for_path` (which routes them through the normal
+    /// table-picker dispatch).
+    fn try_content_sniff_reload(&mut self, path: &std::path::Path, failed_format: &str) -> bool {
+        let Some(name) = formats::sniff::sniff_format(path) else {
+            return false;
+        };
+        if name == failed_format {
+            return false;
+        }
+        let Some(reader) = self.registry.reader_by_name(name) else {
+            return false;
+        };
+        // Skip multi-table sniff targets (e.g. SQLite via a wrong extension);
+        // we can't raise the picker cleanly from here.
+        if matches!(reader.list_tables(path), Ok(Some(ref t)) if !t.is_empty()) {
+            return false;
+        }
+        match reader.read_file(path) {
+            Ok(table) => {
+                self.apply_loaded_table(path.to_path_buf(), table);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// If malformed-file repair is enabled and the CSV/TSV at `path` looks
+    /// malformed, stage the interactive repair prompt and return `true` (the
+    /// caller should stop loading). Returns `false` for healthy files, other
+    /// formats, or when the setting is off.
+    fn maybe_offer_repair(&mut self, path: &std::path::Path, reader_name: &str) -> bool {
+        if !self.settings.offer_repair_on_malformed {
+            return false;
+        }
+        let default_delim = match reader_name {
+            "CSV" => formats::csv_reader::detect_delimiter(path).unwrap_or(b','),
+            "TSV" => b'\t',
+            _ => return false,
+        };
+        let Some(plan) = formats::csv_reader::analyze_delimited(path, default_delim) else {
+            return false;
+        };
+        let preview = formats::csv_reader::read_delimited_opts(
+            path,
+            default_delim,
+            reader_name,
+            &plan.options,
+        )
+        .ok()
+        .map(|t| repair_preview_rows(&t, 8, 8))
+        .unwrap_or_default();
+        self.pending_file_repair = Some(super::state::FileRepair {
+            path: path.to_path_buf(),
+            format_name: reader_name.to_string(),
+            default_delimiter: default_delim,
+            issues: plan.issues,
+            options: plan.options,
+            preview,
+        });
+        true
+    }
+
+    /// Resolve a pending repair prompt. `apply_repair = true` applies the
+    /// suggested fixes; `false` opens the file without repair (lossy decode
+    /// only, so a bad-encoding file still loads). Clears the pending state.
+    pub(crate) fn resolve_file_repair(&mut self, apply_repair: bool) {
+        let Some(repair) = self.pending_file_repair.take() else {
+            return;
+        };
+        let opts = if apply_repair {
+            repair.options.clone()
+        } else {
+            formats::csv_reader::ReadOptions {
+                lossy_utf8: true,
+                delimiter: Some(repair.default_delimiter),
+                strip_bom_controls: false,
+            }
+        };
+        match formats::csv_reader::read_delimited_opts(
+            &repair.path,
+            repair.default_delimiter,
+            &repair.format_name,
+            &opts,
+        ) {
+            Ok(table) => self.apply_loaded_table(repair.path, table),
+            Err(e) => {
+                self.status_message = Some((
+                    format!("Failed to open {}: {e}", repair.path.display()),
+                    std::time::Instant::now(),
+                ));
             }
         }
     }

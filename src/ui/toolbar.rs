@@ -91,6 +91,7 @@ pub struct ToolbarAction {
     pub add_row: bool,
     pub delete_row: bool,
     pub add_column: bool,
+    pub time_calc: bool,
     pub delete_column: bool,
     pub move_row_up: bool,
     pub move_row_down: bool,
@@ -267,487 +268,593 @@ pub fn draw_toolbar(
         ui.add_space(8.0);
 
         // --- File menu ---
-        top_menu_button(ui, RichText::new("File").color(colors.text_primary), |ui| {
-            ui.set_min_width(180.0);
-            if ui.button("New File").clicked() {
-                action.new_file = true;
-                ui.close();
-            }
-            if ui.button("Open...").clicked() {
-                action.open_file = true;
-                ui.close();
-            }
-            if ui.button("Open Directory...").clicked() {
-                action.open_directory = true;
-                ui.close();
-            }
-            if directory_tree_open && ui.button("Close Directory").clicked() {
-                action.close_directory = true;
-                ui.close();
-            }
-            if has_data {
-                ui.separator();
-                if has_source_path && ui.button("Save").clicked() {
-                    action.save_file = true;
+        top_menu_button(
+            ui,
+            RichText::new(crate::i18n::t("menu.file")).color(colors.text_primary),
+            |ui| {
+                ui.set_min_width(180.0);
+                if ui.button(crate::i18n::t("file_menu.new_file")).clicked() {
+                    action.new_file = true;
                     ui.close();
                 }
-                if ui.button("Save As...").clicked() {
-                    action.save_file_as = true;
+                if ui.button(crate::i18n::t("common.open")).clicked() {
+                    action.open_file = true;
                     ui.close();
                 }
-                if ui.button("Export schema...").clicked() {
-                    action.show_schema_export = true;
+                if ui
+                    .button(crate::i18n::t("file_menu.open_directory"))
+                    .clicked()
+                {
+                    action.open_directory = true;
                     ui.close();
                 }
-            }
-            ui.separator();
-            ui.menu_button("Recent Files", |ui| {
-                ui.set_min_width(250.0);
-                if recent_files.is_empty() {
-                    ui.add_enabled(false, egui::Button::new("(none)"));
-                } else {
-                    for path in recent_files {
-                        let filename = std::path::Path::new(path)
-                            .file_name()
-                            .map(|n| n.to_string_lossy().to_string())
-                            .unwrap_or_else(|| path.clone());
-                        let resp = ui.button(&filename).on_hover_text(path);
-                        if resp.clicked() {
-                            action.open_recent = Some(path.clone());
-                            ui.close();
-                        }
-                        resp.context_menu(|ui| {
-                            if ui.button("Remove from list").clicked() {
-                                action.remove_recent = Some(path.clone());
-                                ui.close();
-                            }
-                            ui.separator();
-                            if ui.button("Clear all").clicked() {
-                                action.clear_recent = true;
-                                ui.close();
-                            }
-                        });
+                if directory_tree_open
+                    && ui
+                        .button(crate::i18n::t("file_menu.close_directory"))
+                        .clicked()
+                {
+                    action.close_directory = true;
+                    ui.close();
+                }
+                if has_data {
+                    ui.separator();
+                    if has_source_path && ui.button(crate::i18n::t("common.save")).clicked() {
+                        action.save_file = true;
+                        ui.close();
+                    }
+                    if ui.button(crate::i18n::t("common.save_as")).clicked() {
+                        action.save_file_as = true;
+                        ui.close();
+                    }
+                    if ui
+                        .button(crate::i18n::t("file_menu.export_schema"))
+                        .clicked()
+                    {
+                        action.show_schema_export = true;
+                        ui.close();
                     }
                 }
-            });
-            ui.separator();
-            if ui.button("Exit").clicked() {
-                action.exit = true;
-                ui.close();
-            }
-        });
+                ui.separator();
+                ui.menu_button(crate::i18n::t("menu.recent_files"), |ui| {
+                    ui.set_min_width(250.0);
+                    if recent_files.is_empty() {
+                        ui.add_enabled(
+                            false,
+                            egui::Button::new(crate::i18n::t("file_menu.recent_none")),
+                        );
+                    } else {
+                        for path in recent_files {
+                            let filename = std::path::Path::new(path)
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_else(|| path.clone());
+                            let resp = ui.button(&filename).on_hover_text(path);
+                            if resp.clicked() {
+                                action.open_recent = Some(path.clone());
+                                ui.close();
+                            }
+                            resp.context_menu(|ui| {
+                                if ui
+                                    .button(crate::i18n::t("file_menu.remove_from_list"))
+                                    .clicked()
+                                {
+                                    action.remove_recent = Some(path.clone());
+                                    ui.close();
+                                }
+                                ui.separator();
+                                if ui.button(crate::i18n::t("file_menu.clear_all")).clicked() {
+                                    action.clear_recent = true;
+                                    ui.close();
+                                }
+                            });
+                        }
+                    }
+                });
+                ui.separator();
+                if ui.button(crate::i18n::t("file_menu.exit")).clicked() {
+                    action.exit = true;
+                    ui.close();
+                }
+            },
+        );
 
         // --- Edit menu ---
         if has_data {
-            top_menu_button(ui, RichText::new("Edit").color(colors.text_primary), |ui| {
-                // Edit menu entries deliberately omit shortcut suffixes -
-                // bindings are discoverable via Settings -> Shortcuts; cramming
-                // them into the menu was visually noisy.
-                if ui
-                    .add_enabled(can_undo, egui::Button::new("Undo"))
-                    .clicked()
-                {
-                    action.undo = true;
-                    ui.close();
-                }
-                if ui
-                    .add_enabled(can_redo, egui::Button::new("Redo"))
-                    .clicked()
-                {
-                    action.redo = true;
-                    ui.close();
-                }
-                if ui
-                    .add_enabled(can_reopen_tab, egui::Button::new("Reopen Last Closed Tab"))
-                    .clicked()
-                {
-                    action.reopen_last_closed_tab = true;
-                    ui.close();
-                }
-                if ui.button("Auto-fit All Columns").clicked() {
-                    action.fit_all_columns = true;
-                    ui.close();
-                }
-                ui.separator();
-
-                // Row operations
-                ui.label(
-                    RichText::new("Rows")
-                        .strong()
-                        .size(11.0)
-                        .color(colors.text_muted),
-                );
-                if ui.button("Insert Row").clicked() {
-                    action.add_row = true;
-                    ui.close();
-                }
-                let del_row = ui.add_enabled(has_selected_cell, egui::Button::new("Delete Row"));
-                if del_row.clicked() {
-                    action.delete_row = true;
-                    ui.close();
-                }
-
-                let can_move_up = selected_cell.is_some_and(|(r, _)| r > 0);
-                let can_move_down = selected_cell.is_some_and(|(r, _)| r + 1 < row_count);
-
-                let up_btn = ui.add_enabled(can_move_up, egui::Button::new("Move Row Up"));
-                if up_btn.clicked() {
-                    action.move_row_up = true;
-                    ui.close();
-                }
-                let down_btn = ui.add_enabled(can_move_down, egui::Button::new("Move Row Down"));
-                if down_btn.clicked() {
-                    action.move_row_down = true;
-                    ui.close();
-                }
-
-                ui.separator();
-
-                // Column operations
-                ui.label(
-                    RichText::new("Columns")
-                        .strong()
-                        .size(11.0)
-                        .color(colors.text_muted),
-                );
-                if ui.button("Insert Column...").clicked() {
-                    action.add_column = true;
-                    ui.close();
-                }
-                let del_col = ui.add_enabled(has_selected_cell, egui::Button::new("Delete Column"));
-                if del_col.clicked() {
-                    action.delete_column = true;
-                    ui.close();
-                }
-
-                let can_move_left = selected_cell.is_some_and(|(_, c)| c > 0);
-                let can_move_right = selected_cell.is_some_and(|(_, c)| c + 1 < col_count);
-
-                let left_btn = ui.add_enabled(can_move_left, egui::Button::new("Move Column Left"));
-                if left_btn.clicked() {
-                    action.move_col_left = true;
-                    ui.close();
-                }
-                let right_btn =
-                    ui.add_enabled(can_move_right, egui::Button::new("Move Column Right"));
-                if right_btn.clicked() {
-                    action.move_col_right = true;
-                    ui.close();
-                }
-
-                let can_sort_cols = col_count > 1;
-                let sort_cols_asc =
-                    ui.add_enabled(can_sort_cols, egui::Button::new("Sort Columns A -> Z"));
-                if sort_cols_asc.clicked() {
-                    action.sort_columns_asc = true;
-                    ui.close();
-                }
-                let sort_cols_desc =
-                    ui.add_enabled(can_sort_cols, egui::Button::new("Sort Columns Z -> A"));
-                if sort_cols_desc.clicked() {
-                    action.sort_columns_desc = true;
-                    ui.close();
-                }
-
-                if ui.button("Column Inspector...").clicked() {
-                    action.show_column_inspector = true;
-                    ui.close();
-                }
-
-                let num_fmt_btn =
-                    ui.add_enabled(has_selected_cell, egui::Button::new("Number format..."));
-                if num_fmt_btn
-                    .on_hover_text(
-                        "Set decimals + rounding for the selected numeric column (display only)",
-                    )
-                    .clicked()
-                {
-                    action.open_column_format = true;
-                    ui.close();
-                }
-
-                let show_all_btn = ui.add_enabled(
-                    has_hidden_columns,
-                    egui::Button::new("Show hidden columns"),
-                );
-                let show_all_btn = if !has_hidden_columns {
-                    show_all_btn.on_disabled_hover_text(
-                        "No columns are currently hidden. Right-click a column header and pick \"Hide column\" first.",
-                    )
-                } else {
-                    show_all_btn
-                };
-                if show_all_btn.clicked() {
-                    action.show_all_columns = true;
-                    ui.close();
-                }
-
-                ui.separator();
-
-                // "Parse in new tab" submenu - opens a modal that
-                // parses the chosen scope (cell / row / column / whole
-                // table) as a user-picked format and opens the result
-                // in a new tab. Cell / Row / Column require a selected
-                // cell so we know which row+col to target; Whole table
-                // is always available.
-                ui.menu_button("Parse in new tab", |ui| {
-                    let cell_btn = ui.add_enabled(has_selected_cell, egui::Button::new("Cell"));
-                    if cell_btn.clicked()
-                        && let Some((row, col)) = selected_cell
+            top_menu_button(
+                ui,
+                RichText::new(crate::i18n::t("menu.edit")).color(colors.text_primary),
+                |ui| {
+                    // Edit menu entries deliberately omit shortcut suffixes -
+                    // bindings are discoverable via Settings -> Shortcuts; cramming
+                    // them into the menu was visually noisy.
+                    if ui
+                        .add_enabled(
+                            can_undo,
+                            egui::Button::new(crate::i18n::t("edit_menu.undo")),
+                        )
+                        .clicked()
                     {
-                        action.parse_in_new_tab = Some(ParseScope::Cell { row, col });
+                        action.undo = true;
                         ui.close();
                     }
-                    let row_btn = ui.add_enabled(has_selected_cell, egui::Button::new("Row"));
-                    if row_btn.clicked()
-                        && let Some((row, _)) = selected_cell
+                    if ui
+                        .add_enabled(
+                            can_redo,
+                            egui::Button::new(crate::i18n::t("edit_menu.redo")),
+                        )
+                        .clicked()
                     {
-                        action.parse_in_new_tab = Some(ParseScope::Row { row });
+                        action.redo = true;
                         ui.close();
                     }
-                    let col_btn = ui.add_enabled(has_selected_cell, egui::Button::new("Column"));
-                    if col_btn.clicked()
-                        && let Some((_, col)) = selected_cell
+                    if ui
+                        .add_enabled(
+                            can_reopen_tab,
+                            egui::Button::new(crate::i18n::t("edit_menu.reopen_tab")),
+                        )
+                        .clicked()
                     {
-                        action.parse_in_new_tab = Some(ParseScope::Column { col });
+                        action.reopen_last_closed_tab = true;
                         ui.close();
                     }
-                    if ui.button("Whole table").clicked() {
-                        action.parse_in_new_tab = Some(ParseScope::Table);
+                    if ui
+                        .button(crate::i18n::t("edit_menu.fit_all_columns"))
+                        .clicked()
+                    {
+                        action.fit_all_columns = true;
                         ui.close();
                     }
-                });
+                    ui.separator();
 
-                ui.separator();
-                ui.label(
-                    RichText::new("Sort Rows")
-                        .strong()
-                        .size(11.0)
-                        .color(colors.text_muted),
-                );
-                let can_sort = selected_cell.is_some();
-                let sort_asc = ui.add_enabled(can_sort, egui::Button::new("Sort A -> Z"));
-                if sort_asc.clicked() {
-                    if let Some((_, col)) = selected_cell {
-                        action.sort_rows_asc_by = Some(col);
+                    // Row operations
+                    ui.label(
+                        RichText::new(crate::i18n::t("edit_menu.section_rows"))
+                            .strong()
+                            .size(11.0)
+                            .color(colors.text_muted),
+                    );
+                    if ui.button(crate::i18n::t("edit_menu.insert_row")).clicked() {
+                        action.add_row = true;
+                        ui.close();
                     }
-                    ui.close();
-                }
-                let sort_desc = ui.add_enabled(can_sort, egui::Button::new("Sort Z -> A"));
-                if sort_desc.clicked() {
-                    if let Some((_, col)) = selected_cell {
-                        action.sort_rows_desc_by = Some(col);
+                    let del_row = ui.add_enabled(
+                        has_selected_cell,
+                        egui::Button::new(crate::i18n::t("edit_menu.delete_row")),
+                    );
+                    if del_row.clicked() {
+                        action.delete_row = true;
+                        ui.close();
                     }
-                    ui.close();
-                }
 
-                ui.separator();
+                    let can_move_up = selected_cell.is_some_and(|(r, _)| r > 0);
+                    let can_move_down = selected_cell.is_some_and(|(r, _)| r + 1 < row_count);
 
-                // Mark submenu - surfaces the same colors as the right-click
-                // context menu, scoped to the current selection.
-                let mark_keys: Vec<MarkKey> = if !selected_rows.is_empty() {
-                    let mut rs: Vec<usize> = selected_rows.iter().copied().collect();
-                    rs.sort();
-                    rs.into_iter().map(MarkKey::Row).collect()
-                } else if !selected_cols.is_empty() {
-                    let mut cs: Vec<usize> = selected_cols.iter().copied().collect();
-                    cs.sort();
-                    cs.into_iter().map(MarkKey::Column).collect()
-                } else if !selected_cells.is_empty() {
-                    let mut cs: Vec<(usize, usize)> = selected_cells.iter().copied().collect();
-                    cs.sort();
-                    cs.into_iter().map(|(r, c)| MarkKey::Cell(r, c)).collect()
-                } else if let Some((r, c)) = selected_cell {
-                    vec![MarkKey::Cell(r, c)]
-                } else {
-                    Vec::new()
-                };
-                let has_marks_keys = !mark_keys.is_empty();
-                let any_currently_marked = mark_keys.iter().any(|k| table.marks.contains_key(k));
-                let table_has_any_marks = !table.marks.is_empty();
-                // The submenu opens whenever a clear path is available -
-                // either the selection has marks to color/clear, or the
-                // table has marks somewhere (so "Clear all marks" applies).
-                let menu_enabled = has_marks_keys || table_has_any_marks;
-                ui.add_enabled_ui(menu_enabled, |ui| {
-                    ui.menu_button("Mark", |ui| {
-                        // Color buttons + scoped Clear act on the current
-                        // selection; greyed when there is none so the user
-                        // can still reach the always-available "Clear all
-                        // marks" entry below.
-                        ui.add_enabled_ui(has_marks_keys, |ui| {
-                            for &color in MarkColor::ALL {
-                                let swatch = ThemeColors::mark_swatch(color);
-                                let label = color.label();
-                                let btn =
-                                    egui::Button::new(RichText::new(label).color(swatch));
-                                if ui.add(btn).clicked() {
-                                    for k in &mark_keys {
-                                        action.set_marks.push((k.clone(), color));
+                    let up_btn = ui.add_enabled(
+                        can_move_up,
+                        egui::Button::new(crate::i18n::t("edit_menu.move_row_up")),
+                    );
+                    if up_btn.clicked() {
+                        action.move_row_up = true;
+                        ui.close();
+                    }
+                    let down_btn = ui.add_enabled(
+                        can_move_down,
+                        egui::Button::new(crate::i18n::t("edit_menu.move_row_down")),
+                    );
+                    if down_btn.clicked() {
+                        action.move_row_down = true;
+                        ui.close();
+                    }
+
+                    ui.separator();
+
+                    // Column operations
+                    ui.label(
+                        RichText::new(crate::i18n::t("edit_menu.section_columns"))
+                            .strong()
+                            .size(11.0)
+                            .color(colors.text_muted),
+                    );
+                    if ui.button(crate::i18n::t("toolbar.insert_column")).clicked() {
+                        action.add_column = true;
+                        ui.close();
+                    }
+                    if ui.button(crate::i18n::t("toolbar.time_calc")).clicked() {
+                        action.time_calc = true;
+                        ui.close();
+                    }
+                    let del_col = ui.add_enabled(
+                        has_selected_cell,
+                        egui::Button::new(crate::i18n::t("toolbar.delete_column")),
+                    );
+                    if del_col.clicked() {
+                        action.delete_column = true;
+                        ui.close();
+                    }
+
+                    let can_move_left = selected_cell.is_some_and(|(_, c)| c > 0);
+                    let can_move_right = selected_cell.is_some_and(|(_, c)| c + 1 < col_count);
+
+                    let left_btn = ui.add_enabled(
+                        can_move_left,
+                        egui::Button::new(crate::i18n::t("edit_menu.move_col_left")),
+                    );
+                    if left_btn.clicked() {
+                        action.move_col_left = true;
+                        ui.close();
+                    }
+                    let right_btn = ui.add_enabled(
+                        can_move_right,
+                        egui::Button::new(crate::i18n::t("edit_menu.move_col_right")),
+                    );
+                    if right_btn.clicked() {
+                        action.move_col_right = true;
+                        ui.close();
+                    }
+
+                    let can_sort_cols = col_count > 1;
+                    let sort_cols_asc = ui.add_enabled(
+                        can_sort_cols,
+                        egui::Button::new(crate::i18n::t("edit_menu.sort_cols_asc")),
+                    );
+                    if sort_cols_asc.clicked() {
+                        action.sort_columns_asc = true;
+                        ui.close();
+                    }
+                    let sort_cols_desc = ui.add_enabled(
+                        can_sort_cols,
+                        egui::Button::new(crate::i18n::t("edit_menu.sort_cols_desc")),
+                    );
+                    if sort_cols_desc.clicked() {
+                        action.sort_columns_desc = true;
+                        ui.close();
+                    }
+
+                    if ui
+                        .button(crate::i18n::t("edit_menu.column_inspector"))
+                        .clicked()
+                    {
+                        action.show_column_inspector = true;
+                        ui.close();
+                    }
+
+                    let num_fmt_btn = ui.add_enabled(
+                        has_selected_cell,
+                        egui::Button::new(crate::i18n::t("edit_menu.number_format")),
+                    );
+                    if num_fmt_btn
+                        .on_hover_text(crate::i18n::t("edit_menu.number_format_hint"))
+                        .clicked()
+                    {
+                        action.open_column_format = true;
+                        ui.close();
+                    }
+
+                    let show_all_btn = ui.add_enabled(
+                        has_hidden_columns,
+                        egui::Button::new(crate::i18n::t("edit_menu.show_hidden_columns")),
+                    );
+                    let show_all_btn = if !has_hidden_columns {
+                        show_all_btn.on_disabled_hover_text(crate::i18n::t(
+                            "edit_menu.show_hidden_columns_hint",
+                        ))
+                    } else {
+                        show_all_btn
+                    };
+                    if show_all_btn.clicked() {
+                        action.show_all_columns = true;
+                        ui.close();
+                    }
+
+                    ui.separator();
+
+                    // "Parse in new tab" submenu - opens a modal that
+                    // parses the chosen scope (cell / row / column / whole
+                    // table) as a user-picked format and opens the result
+                    // in a new tab. Cell / Row / Column require a selected
+                    // cell so we know which row+col to target; Whole table
+                    // is always available.
+                    ui.menu_button(crate::i18n::t("edit_menu.parse_in_new_tab"), |ui| {
+                        let cell_btn = ui.add_enabled(
+                            has_selected_cell,
+                            egui::Button::new(crate::i18n::t("edit_menu.scope_cell")),
+                        );
+                        if cell_btn.clicked()
+                            && let Some((row, col)) = selected_cell
+                        {
+                            action.parse_in_new_tab = Some(ParseScope::Cell { row, col });
+                            ui.close();
+                        }
+                        let row_btn = ui.add_enabled(
+                            has_selected_cell,
+                            egui::Button::new(crate::i18n::t("edit_menu.scope_row")),
+                        );
+                        if row_btn.clicked()
+                            && let Some((row, _)) = selected_cell
+                        {
+                            action.parse_in_new_tab = Some(ParseScope::Row { row });
+                            ui.close();
+                        }
+                        let col_btn = ui.add_enabled(
+                            has_selected_cell,
+                            egui::Button::new(crate::i18n::t("edit_menu.scope_column")),
+                        );
+                        if col_btn.clicked()
+                            && let Some((_, col)) = selected_cell
+                        {
+                            action.parse_in_new_tab = Some(ParseScope::Column { col });
+                            ui.close();
+                        }
+                        if ui.button(crate::i18n::t("edit_menu.scope_table")).clicked() {
+                            action.parse_in_new_tab = Some(ParseScope::Table);
+                            ui.close();
+                        }
+                    });
+
+                    ui.separator();
+                    ui.label(
+                        RichText::new(crate::i18n::t("edit_menu.section_sort_rows"))
+                            .strong()
+                            .size(11.0)
+                            .color(colors.text_muted),
+                    );
+                    let can_sort = selected_cell.is_some();
+                    let sort_asc = ui.add_enabled(
+                        can_sort,
+                        egui::Button::new(crate::i18n::t("edit_menu.sort_asc")),
+                    );
+                    if sort_asc.clicked() {
+                        if let Some((_, col)) = selected_cell {
+                            action.sort_rows_asc_by = Some(col);
+                        }
+                        ui.close();
+                    }
+                    let sort_desc = ui.add_enabled(
+                        can_sort,
+                        egui::Button::new(crate::i18n::t("edit_menu.sort_desc")),
+                    );
+                    if sort_desc.clicked() {
+                        if let Some((_, col)) = selected_cell {
+                            action.sort_rows_desc_by = Some(col);
+                        }
+                        ui.close();
+                    }
+
+                    ui.separator();
+
+                    // Mark submenu - surfaces the same colors as the right-click
+                    // context menu, scoped to the current selection.
+                    let mark_keys: Vec<MarkKey> = if !selected_rows.is_empty() {
+                        let mut rs: Vec<usize> = selected_rows.iter().copied().collect();
+                        rs.sort();
+                        rs.into_iter().map(MarkKey::Row).collect()
+                    } else if !selected_cols.is_empty() {
+                        let mut cs: Vec<usize> = selected_cols.iter().copied().collect();
+                        cs.sort();
+                        cs.into_iter().map(MarkKey::Column).collect()
+                    } else if !selected_cells.is_empty() {
+                        let mut cs: Vec<(usize, usize)> = selected_cells.iter().copied().collect();
+                        cs.sort();
+                        cs.into_iter().map(|(r, c)| MarkKey::Cell(r, c)).collect()
+                    } else if let Some((r, c)) = selected_cell {
+                        vec![MarkKey::Cell(r, c)]
+                    } else {
+                        Vec::new()
+                    };
+                    let has_marks_keys = !mark_keys.is_empty();
+                    let any_currently_marked =
+                        mark_keys.iter().any(|k| table.marks.contains_key(k));
+                    let table_has_any_marks = !table.marks.is_empty();
+                    // The submenu opens whenever a clear path is available -
+                    // either the selection has marks to color/clear, or the
+                    // table has marks somewhere (so "Clear all marks" applies).
+                    let menu_enabled = has_marks_keys || table_has_any_marks;
+                    ui.add_enabled_ui(menu_enabled, |ui| {
+                        ui.menu_button(crate::i18n::t("edit_menu.mark"), |ui| {
+                            // Color buttons + scoped Clear act on the current
+                            // selection; greyed when there is none so the user
+                            // can still reach the always-available "Clear all
+                            // marks" entry below.
+                            ui.add_enabled_ui(has_marks_keys, |ui| {
+                                for &color in MarkColor::ALL {
+                                    let swatch = ThemeColors::mark_swatch(color);
+                                    let label = color.label_t();
+                                    let btn = egui::Button::new(RichText::new(label).color(swatch));
+                                    if ui.add(btn).clicked() {
+                                        for k in &mark_keys {
+                                            action.set_marks.push((k.clone(), color));
+                                        }
+                                        ui.close();
                                     }
-                                    ui.close();
                                 }
-                            }
-                            if any_currently_marked {
-                                ui.separator();
-                                if ui.button("Clear").clicked() {
-                                    for k in &mark_keys {
-                                        action.clear_marks.push(k.clone());
+                                if any_currently_marked {
+                                    ui.separator();
+                                    if ui.button(crate::i18n::t("edit_menu.clear")).clicked() {
+                                        for k in &mark_keys {
+                                            action.clear_marks.push(k.clone());
+                                        }
+                                        ui.close();
                                     }
+                                }
+                            });
+                            if table_has_any_marks {
+                                ui.separator();
+                                if ui
+                                    .button(crate::i18n::t("edit_menu.clear_all_marks"))
+                                    .clicked()
+                                {
+                                    action.clear_all_marks = true;
                                     ui.close();
                                 }
                             }
                         });
-                        if table_has_any_marks {
-                            ui.separator();
-                            if ui.button("Clear all marks").clicked() {
-                                action.clear_all_marks = true;
-                                ui.close();
-                            }
-                        }
                     });
-                });
 
-                ui.separator();
-                let mut header_flag = first_row_is_header;
-                if ui
-                    .checkbox(&mut header_flag, "First row is header")
-                    .changed()
-                {
-                    action.toggle_first_row_header = true;
-                    ui.close();
-                }
-
-                if has_edits {
                     ui.separator();
-                    if ui.button("Discard All Edits").clicked() {
-                        action.discard_edits = true;
+                    let mut header_flag = first_row_is_header;
+                    if ui
+                        .checkbox(
+                            &mut header_flag,
+                            crate::i18n::t("edit_menu.first_row_is_header"),
+                        )
+                        .changed()
+                    {
+                        action.toggle_first_row_header = true;
                         ui.close();
                     }
-                }
-            });
+
+                    if has_edits {
+                        ui.separator();
+                        if ui
+                            .button(crate::i18n::t("edit_menu.discard_all_edits"))
+                            .clicked()
+                        {
+                            action.discard_edits = true;
+                            ui.close();
+                        }
+                    }
+                },
+            );
 
             // --- View menu ---
-            top_menu_button(ui, RichText::new("View").color(colors.text_primary), |ui| {
-                let is_table = current_view_mode == ViewMode::Table;
-                let is_raw = current_view_mode == ViewMode::Raw;
+            top_menu_button(
+                ui,
+                RichText::new(crate::i18n::t("menu.view")).color(colors.text_primary),
+                |ui| {
+                    let is_table = current_view_mode == ViewMode::Table;
+                    let is_raw = current_view_mode == ViewMode::Raw;
 
-                // Disable table view for notebook files (notebook view is the primary view)
-                let table_enabled = !has_notebook;
-                let table_btn = ui.add_enabled(
-                    table_enabled,
-                    egui::RadioButton::new(is_table, "Table View"),
-                );
-                if table_btn.clicked() {
-                    action.view_mode_changed = Some(ViewMode::Table);
-                    ui.close();
-                }
-                let raw_btn =
-                    ui.add_enabled(has_raw_content, egui::RadioButton::new(is_raw, "Raw Text"));
-                if raw_btn.clicked() {
-                    action.view_mode_changed = Some(ViewMode::Raw);
-                    ui.close();
-                }
-                if has_markdown {
-                    let is_md = current_view_mode == ViewMode::Markdown;
-                    let md_btn = ui.radio(is_md, "Markdown View");
-                    if md_btn.clicked() {
-                        action.view_mode_changed = Some(ViewMode::Markdown);
+                    // Disable table view for notebook files (notebook view is the primary view)
+                    let table_enabled = !has_notebook;
+                    let table_btn = ui.add_enabled(
+                        table_enabled,
+                        egui::RadioButton::new(is_table, crate::i18n::t("view_menu.table")),
+                    );
+                    if table_btn.clicked() {
+                        action.view_mode_changed = Some(ViewMode::Table);
                         ui.close();
                     }
-                }
-                if has_notebook {
-                    let is_nb = current_view_mode == ViewMode::Notebook;
-                    let nb_btn = ui.radio(is_nb, "Notebook View");
-                    if nb_btn.clicked() {
-                        action.view_mode_changed = Some(ViewMode::Notebook);
+                    let raw_btn = ui.add_enabled(
+                        has_raw_content,
+                        egui::RadioButton::new(is_raw, crate::i18n::t("view_menu.raw")),
+                    );
+                    if raw_btn.clicked() {
+                        action.view_mode_changed = Some(ViewMode::Raw);
                         ui.close();
                     }
-                }
-                if has_epub {
-                    let is_epub = current_view_mode == ViewMode::EpubReader;
-                    let epub_btn = ui.radio(is_epub, "EPUB Reader");
-                    if epub_btn.clicked() {
-                        action.view_mode_changed = Some(ViewMode::EpubReader);
+                    if has_markdown {
+                        let is_md = current_view_mode == ViewMode::Markdown;
+                        let md_btn = ui.radio(is_md, crate::i18n::t("view_menu.markdown"));
+                        if md_btn.clicked() {
+                            action.view_mode_changed = Some(ViewMode::Markdown);
+                            ui.close();
+                        }
+                    }
+                    if has_notebook {
+                        let is_nb = current_view_mode == ViewMode::Notebook;
+                        let nb_btn = ui.radio(is_nb, crate::i18n::t("view_menu.notebook"));
+                        if nb_btn.clicked() {
+                            action.view_mode_changed = Some(ViewMode::Notebook);
+                            ui.close();
+                        }
+                    }
+                    if has_epub {
+                        let is_epub = current_view_mode == ViewMode::EpubReader;
+                        let epub_btn = ui.radio(is_epub, crate::i18n::t("view_menu.epub"));
+                        if epub_btn.clicked() {
+                            action.view_mode_changed = Some(ViewMode::EpubReader);
+                            ui.close();
+                        }
+                    }
+                    if has_map {
+                        let is_map = current_view_mode == ViewMode::Map;
+                        let map_btn = ui.radio(is_map, crate::i18n::t("view_menu.map"));
+                        if map_btn.clicked() {
+                            action.view_mode_changed = Some(ViewMode::Map);
+                            ui.close();
+                        }
+                    }
+                    if has_json {
+                        let is_json_tree = current_view_mode == ViewMode::JsonTree;
+                        let json_btn =
+                            ui.radio(is_json_tree, crate::i18n::t("view_menu.json_tree"));
+                        if json_btn.clicked() {
+                            action.view_mode_changed = Some(ViewMode::JsonTree);
+                            ui.close();
+                        }
+                    }
+                    if has_yaml {
+                        let is_yaml_tree = current_view_mode == ViewMode::YamlTree;
+                        let yaml_btn =
+                            ui.radio(is_yaml_tree, crate::i18n::t("view_menu.yaml_tree"));
+                        if yaml_btn.clicked() {
+                            action.view_mode_changed = Some(ViewMode::YamlTree);
+                            ui.close();
+                        }
+                    }
+                    // Compare with... - always available; the click triggers a
+                    // file picker that loads the right side and switches the
+                    // active tab into Compare view.
+                    ui.separator();
+                    if ui
+                        .button(crate::i18n::t("view_menu.compare_with"))
+                        .clicked()
+                    {
+                        action.compare_with = true;
                         ui.close();
                     }
-                }
-                if has_map {
-                    let is_map = current_view_mode == ViewMode::Map;
-                    let map_btn = ui.radio(is_map, "Map View");
-                    if map_btn.clicked() {
-                        action.view_mode_changed = Some(ViewMode::Map);
-                        ui.close();
-                    }
-                }
-                if has_json {
-                    let is_json_tree = current_view_mode == ViewMode::JsonTree;
-                    let json_btn = ui.radio(is_json_tree, "JSON Tree");
-                    if json_btn.clicked() {
-                        action.view_mode_changed = Some(ViewMode::JsonTree);
-                        ui.close();
-                    }
-                }
-                if has_yaml {
-                    let is_yaml_tree = current_view_mode == ViewMode::YamlTree;
-                    let yaml_btn = ui.radio(is_yaml_tree, "YAML Tree");
-                    if yaml_btn.clicked() {
-                        action.view_mode_changed = Some(ViewMode::YamlTree);
-                        ui.close();
-                    }
-                }
-                // Compare with... - always available; the click triggers a
-                // file picker that loads the right side and switches the
-                // active tab into Compare view.
-                ui.separator();
-                if ui.button("Compare with...").clicked() {
-                    action.compare_with = true;
-                    ui.close();
-                }
 
-
-                ui.separator();
-                if ui
-                    .checkbox(&mut readonly_mode.clone(), "Read-only mode")
-                    .clicked()
-                {
-                    action.toggle_readonly = true;
-                    ui.close();
-                }
-
-                ui.separator();
-                ui.label(
-                    RichText::new("Zoom")
-                        .strong()
-                        .size(11.0)
-                        .color(colors.text_muted),
-                );
-                ui.horizontal(|ui| {
-                    if ui.button("-").clicked() {
-                        action.zoom_out = true;
+                    ui.separator();
+                    if ui
+                        .checkbox(
+                            &mut readonly_mode.clone(),
+                            crate::i18n::t("view_menu.readonly"),
+                        )
+                        .clicked()
+                    {
+                        action.toggle_readonly = true;
+                        ui.close();
                     }
-                    ui.label(format!("{}%", zoom_percent));
-                    if ui.button("+").clicked() {
-                        action.zoom_in = true;
+
+                    ui.separator();
+                    ui.label(
+                        RichText::new(crate::i18n::t("view_menu.zoom"))
+                            .strong()
+                            .size(11.0)
+                            .color(colors.text_muted),
+                    );
+                    ui.horizontal(|ui| {
+                        if ui.button("-").clicked() {
+                            action.zoom_out = true;
+                        }
+                        ui.label(format!("{}%", zoom_percent));
+                        if ui.button("+").clicked() {
+                            action.zoom_in = true;
+                        }
+                    });
+                    if zoom_percent != 100
+                        && ui.button(crate::i18n::t("view_menu.zoom_reset")).clicked()
+                    {
+                        action.zoom_reset = true;
+                        ui.close();
                     }
-                });
-                if zoom_percent != 100 && ui.button("Reset (100%)").clicked() {
-                    action.zoom_reset = true;
-                    ui.close();
-                }
-            });
+                },
+            );
 
             // --- Search menu ---
             top_menu_button(
                 ui,
-                RichText::new("Search").color(colors.text_primary),
+                RichText::new(crate::i18n::t("menu.search")).color(colors.text_primary),
                 |ui| {
                     ui.set_min_width(180.0);
-                    if ui.button("Find").clicked() {
+                    if ui.button(crate::i18n::t("search_menu.find")).clicked() {
                         action.search_focus = true;
                         ui.close();
                     }
-                    if ui.button("Find & Replace").clicked() {
+                    if ui
+                        .button(crate::i18n::t("search_menu.find_replace"))
+                        .clicked()
+                    {
                         action.toggle_replace_bar = true;
                         ui.close();
                     }
@@ -755,20 +862,27 @@ pub fn draw_toolbar(
                     // Excel-style per-column value filter. Deliberately *not*
                     // suffixed with the shortcut combo (Ctrl+Shift+F by default)
                     // - same convention as the F8 read-only menu entry.
-                    let filter_btn =
-                        ui.add_enabled(has_data, egui::Button::new("Column Filter..."));
+                    let filter_btn = ui.add_enabled(
+                        has_data,
+                        egui::Button::new(crate::i18n::t("search_menu.column_filter")),
+                    );
                     if filter_btn.clicked() {
                         action.show_column_filter = Some(None);
                         ui.close();
                     }
-                    let dup_btn =
-                        ui.add_enabled(has_data, egui::Button::new("Find duplicates..."));
+                    let dup_btn = ui.add_enabled(
+                        has_data,
+                        egui::Button::new(crate::i18n::t("search_menu.find_duplicates")),
+                    );
                     if dup_btn.clicked() {
                         action.show_find_duplicates = true;
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button("Multi-search...").clicked() {
+                    if ui
+                        .button(crate::i18n::t("search_menu.multi_search"))
+                        .clicked()
+                    {
                         action.toggle_multi_search = true;
                         ui.close();
                     }
@@ -784,47 +898,64 @@ pub fn draw_toolbar(
             // user can open either without the other. Only shown on Table
             // view tabs since neither makes sense in raw / json / etc.
             if current_view_mode == ViewMode::Table {
-                top_menu_button(ui, RichText::new("Analyse").color(colors.text_primary), |ui| {
-                    ui.set_min_width(120.0);
-                    if ui.button("SQL").clicked() {
-                        action.toggle_sql_panel = true;
-                        ui.close();
-                    }
-                    if ui.button("Chart").clicked() {
-                        action.open_chart_tab = true;
-                        ui.close();
-                    }
-                    if ui.button("Value frequency...").clicked() {
-                        action.open_value_frequency = true;
-                        ui.close();
-                    }
-                });
+                top_menu_button(
+                    ui,
+                    RichText::new(crate::i18n::t("menu.analyse")).color(colors.text_primary),
+                    |ui| {
+                        ui.set_min_width(120.0);
+                        if ui.button(crate::i18n::t("analyse_menu.sql")).clicked() {
+                            action.toggle_sql_panel = true;
+                            ui.close();
+                        }
+                        if ui.button(crate::i18n::t("analyse_menu.chart")).clicked() {
+                            action.open_chart_tab = true;
+                            ui.close();
+                        }
+                        if ui
+                            .button(crate::i18n::t("analyse_menu.value_frequency"))
+                            .clicked()
+                        {
+                            action.open_value_frequency = true;
+                            ui.close();
+                        }
+                    },
+                );
             }
         }
 
         // --- Help menu (always visible, next to Search) ---
-        top_menu_button(ui, RichText::new("Help").color(colors.text_primary), |ui| {
-            ui.set_min_width(180.0);
-            if ui.button("Documentation...").clicked() {
-                action.show_documentation = true;
-                ui.close();
-            }
-            ui.separator();
-            if ui.button("Settings...").clicked() {
-                action.show_settings = true;
-                ui.close();
-            }
-            ui.separator();
-            if ui.button("Check for Updates...").clicked() {
-                action.check_for_updates = true;
-                ui.close();
-            }
-            ui.separator();
-            if ui.button("About").clicked() {
-                action.show_about = true;
-                ui.close();
-            }
-        });
+        top_menu_button(
+            ui,
+            RichText::new(crate::i18n::t("menu.help")).color(colors.text_primary),
+            |ui| {
+                ui.set_min_width(180.0);
+                if ui
+                    .button(crate::i18n::t("help_menu.documentation"))
+                    .clicked()
+                {
+                    action.show_documentation = true;
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button(crate::i18n::t("help_menu.settings")).clicked() {
+                    action.show_settings = true;
+                    ui.close();
+                }
+                ui.separator();
+                if ui
+                    .button(crate::i18n::t("help_menu.check_updates"))
+                    .clicked()
+                {
+                    action.check_for_updates = true;
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button(crate::i18n::t("help_menu.about")).clicked() {
+                    action.show_about = true;
+                    ui.close();
+                }
+            },
+        );
 
         if has_data {
             ui.add_space(4.0);
@@ -836,11 +967,23 @@ pub fn draw_toolbar(
             let old_mode = *search_mode;
             egui::ComboBox::from_id_salt("search_mode")
                 .width(75.0)
-                .selected_text(search_mode.label())
+                .selected_text(search_mode.label_t())
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(search_mode, SearchMode::Plain, "Plain");
-                    ui.selectable_value(search_mode, SearchMode::Wildcard, "Wildcard");
-                    ui.selectable_value(search_mode, SearchMode::Regex, "Regex");
+                    ui.selectable_value(
+                        search_mode,
+                        SearchMode::Plain,
+                        SearchMode::Plain.label_t(),
+                    );
+                    ui.selectable_value(
+                        search_mode,
+                        SearchMode::Wildcard,
+                        SearchMode::Wildcard.label_t(),
+                    );
+                    ui.selectable_value(
+                        search_mode,
+                        SearchMode::Regex,
+                        SearchMode::Regex.label_t(),
+                    );
                 });
             if *search_mode != old_mode {
                 action.search_changed = true;

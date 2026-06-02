@@ -96,11 +96,7 @@ impl OctaApp {
         let tab = &mut self.tabs[self.active_tab];
         // Require a successful prior SELECT so we have a source query.
         if tab.sql_last_query.trim().is_empty() {
-            tab.sql_error = Some(
-                "Run a SELECT first; the write-back dialog persists the result of the \
-                 last successful query."
-                    .to_string(),
-            );
+            tab.sql_error = Some(octa::i18n::t("dialog.swb_run_select_first"));
             return;
         }
         let hint = default_table_name_hint(&tab.sql_query);
@@ -122,7 +118,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
     let mut state = app.tabs[app.active_tab].sql_write_back.take().unwrap();
     let preview_sql = compose_preview(&state, &app.tabs[app.active_tab].sql_last_query);
 
-    egui::Window::new("Write SQL result to database")
+    egui::Window::new(octa::i18n::t("dialog.swb_title"))
         .collapsible(false)
         .resizable(false)
         .open(&mut open)
@@ -132,7 +128,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                 .num_columns(2)
                 .spacing(egui::vec2(12.0, 6.0))
                 .show(ui, |ui| {
-                    ui.label("Target file:");
+                    ui.label(octa::i18n::t("dialog.swb_target_file"));
                     ui.horizontal(|ui| {
                         let mut tmp = state.target_path.to_string_lossy().into_owned();
                         if ui
@@ -142,9 +138,9 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                             state.target_path = PathBuf::from(&tmp);
                             state.kind = WriteBackKind::from_path(&state.target_path);
                         }
-                        if ui.button("Browse...").clicked()
+                        if ui.button(octa::i18n::t("dialog.swb_browse")).clicked()
                             && let Some(p) = rfd::FileDialog::new()
-                                .set_title("Target database for write-back")
+                                .set_title(octa::i18n::t("dialog.swb_browse_title"))
                                 .add_filter(
                                     "DuckDB / SQLite",
                                     &["duckdb", "ddb", "sqlite", "db", "sqlite3"],
@@ -157,28 +153,40 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                     });
                     ui.end_row();
 
-                    ui.label("Format:");
+                    ui.label(octa::i18n::t("dialog.swb_format"));
                     ui.horizontal(|ui| {
                         ui.radio_value(&mut state.kind, WriteBackKind::DuckDb, "DuckDB");
                         ui.radio_value(&mut state.kind, WriteBackKind::Sqlite, "SQLite");
                     });
                     ui.end_row();
 
-                    ui.label("Schema:");
+                    ui.label(octa::i18n::t("dialog.swb_schema"));
                     ui.add_enabled_ui(state.kind == WriteBackKind::DuckDb, |ui| {
                         ui.add(egui::TextEdit::singleline(&mut state.schema).desired_width(200.0));
                     });
                     ui.end_row();
 
-                    ui.label("Table:");
+                    ui.label(octa::i18n::t("dialog.swb_table"));
                     ui.add(egui::TextEdit::singleline(&mut state.table).desired_width(200.0));
                     ui.end_row();
 
-                    ui.label("Mode:");
+                    ui.label(octa::i18n::t("dialog.swb_mode"));
                     ui.horizontal(|ui| {
-                        ui.radio_value(&mut state.mode, WriteBackMode::Create, "Create new");
-                        ui.radio_value(&mut state.mode, WriteBackMode::Replace, "Replace");
-                        ui.radio_value(&mut state.mode, WriteBackMode::Append, "Append");
+                        ui.radio_value(
+                            &mut state.mode,
+                            WriteBackMode::Create,
+                            octa::i18n::t("dialog.swb_mode_create"),
+                        );
+                        ui.radio_value(
+                            &mut state.mode,
+                            WriteBackMode::Replace,
+                            octa::i18n::t("dialog.swb_mode_replace"),
+                        );
+                        ui.radio_value(
+                            &mut state.mode,
+                            WriteBackMode::Append,
+                            octa::i18n::t("dialog.swb_mode_append"),
+                        );
                     });
                     ui.end_row();
 
@@ -186,14 +194,14 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                     ui.add_enabled_ui(state.kind == WriteBackKind::DuckDb, |ui| {
                         ui.checkbox(
                             &mut state.create_schema_if_missing,
-                            "Create schema if missing",
+                            octa::i18n::t("dialog.swb_create_schema"),
                         );
                     });
                     ui.end_row();
                 });
 
             ui.add_space(6.0);
-            ui.label(egui::RichText::new("Preview SQL").strong());
+            ui.label(egui::RichText::new(octa::i18n::t("dialog.swb_preview")).strong());
             ui.add_space(2.0);
             egui::ScrollArea::vertical()
                 .id_salt("sql_write_back_preview")
@@ -215,13 +223,16 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Cancel").clicked() {
+                if ui.button(octa::i18n::t("common.cancel")).clicked() {
                     do_cancel = true;
                 }
                 let enabled =
                     !state.target_path.as_os_str().is_empty() && !state.table.trim().is_empty();
                 if ui
-                    .add_enabled(enabled, egui::Button::new("Write"))
+                    .add_enabled(
+                        enabled,
+                        egui::Button::new(octa::i18n::t("dialog.swb_write")),
+                    )
                     .clicked()
                 {
                     do_write = true;
@@ -256,11 +267,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
             })
         };
         if collides {
-            state.error = Some(
-                "Use the regular Save to persist edits to this table; write-back is for \
-                 new tables only."
-                    .to_string(),
-            );
+            state.error = Some(octa::i18n::t("dialog.swb_err_collide"));
             app.tabs[app.active_tab].sql_write_back = Some(state);
             return;
         }
@@ -269,8 +276,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
             let ws = match tab.sql_workspace.as_mut() {
                 Some(w) => w,
                 None => {
-                    state.error =
-                        Some("SQL workspace is not initialised; run a query first.".into());
+                    state.error = Some(octa::i18n::t("dialog.swb_err_no_ws"));
                     tab.sql_write_back = Some(state);
                     return;
                 }
@@ -289,8 +295,11 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
             Ok(report) => {
                 app.status_message = Some((
                     format!(
-                        "Wrote {} row(s) to {}",
-                        report.rows_written, report.target_display
+                        "{} {} {} {}",
+                        octa::i18n::t("dialog.swb_wrote"),
+                        report.rows_written,
+                        octa::i18n::t("dialog.swb_rows_to"),
+                        report.target_display
                     ),
                     std::time::Instant::now(),
                 ));

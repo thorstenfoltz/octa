@@ -6,6 +6,7 @@ pub mod dbf_reader;
 pub mod duckdb_reader;
 pub mod epub_reader;
 pub mod excel_reader;
+pub mod fwf_reader;
 pub mod geojson_reader;
 pub mod gpkg_reader;
 pub mod hdf5_reader;
@@ -18,6 +19,7 @@ pub mod orc_reader;
 pub mod parquet_reader;
 pub mod rds_reader;
 pub mod sas_reader;
+pub mod sniff;
 pub mod spss_reader;
 pub mod sqlite_reader;
 pub mod stata_reader;
@@ -198,6 +200,7 @@ impl FormatRegistry {
         registry.register(Box::new(dbf_reader::DbfReader));
         registry.register(Box::new(rds_reader::RdsReader));
         registry.register(Box::new(netcdf_reader::NetCdfReader));
+        registry.register(Box::new(fwf_reader::FwfReader));
         registry.register(Box::new(text_reader::TextReader));
         registry
     }
@@ -222,10 +225,25 @@ impl FormatRegistry {
         {
             return Some(reader.as_ref());
         }
+        // No extension match (missing or unknown extension): try to identify
+        // the file by content before falling back to plain text. This catches
+        // extension-less files and lets a real format (Parquet, SQLite, ...)
+        // open through its proper reader.
+        if let Some(name) = sniff::sniff_format(path)
+            && let Some(reader) = self.reader_by_name(name)
+        {
+            return Some(reader);
+        }
         // Fallback: use Text reader for unknown/missing extensions
+        self.reader_by_name("Text")
+    }
+
+    /// Find a registered reader by its [`FormatReader::name`]. Used to map a
+    /// content-sniff result back to a concrete reader.
+    pub fn reader_by_name(&self, name: &str) -> Option<&dyn FormatReader> {
         self.readers
             .iter()
-            .find(|r| r.name() == "Text")
+            .find(|r| r.name() == name)
             .map(|r| r.as_ref())
     }
 

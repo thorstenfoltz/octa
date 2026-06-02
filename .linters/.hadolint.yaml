@@ -1,0 +1,17 @@
+# hadolint configuration for the headless Dockerfile.
+#
+# DL3006 (always tag the image): the runtime stage is
+# `gcr.io/distroless/cc-debian12`, and the distroless images publish no
+# semver tags - only floating `:latest` / `:nonroot` / `:debug`. Keeping it
+# untagged lets each build pull the newest patched distroless layer (the
+# shipped runtime), which is the security posture we want. The same finding
+# from trivy is suppressed in `.trivyignore` (DS-0001).
+#
+# DL3008 (pin apt versions): the builder installs GUI/X11 build dependencies
+# (libgtk-3-dev, libxcb-*, libfontconfig1-dev, ...) on `rust:1-bookworm`.
+# Pinning each to an exact version breaks the build the moment Debian rotates
+# a package out of the bookworm mirror, with no security benefit for a
+# throwaway builder stage. `--no-install-recommends` already bounds the set.
+ignored:
+  - DL3006
+  - DL3008

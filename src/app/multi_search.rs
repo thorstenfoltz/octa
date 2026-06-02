@@ -351,41 +351,53 @@ impl OctaApp {
 
                 ui.horizontal(|ui| {
                     ui.label(
-                        egui::RichText::new("Multi-search")
+                        egui::RichText::new(octa::i18n::t("multi_search.title"))
                             .strong()
                             .color(colors.text_primary),
                     );
                     ui.separator();
-                    ui.label("Scope:");
+                    ui.label(octa::i18n::t("multi_search.scope"));
                     let scope = &mut self.multi_search.scope;
                     egui::ComboBox::from_id_salt("multi_search_scope")
-                        .selected_text(scope.label())
+                        .selected_text(scope.label_t())
                         .show_ui(ui, |ui| {
                             ui.selectable_value(
                                 scope,
                                 MultiSearchScope::AllOpenTabs,
-                                MultiSearchScope::AllOpenTabs.label(),
+                                MultiSearchScope::AllOpenTabs.label_t(),
                             );
                             ui.selectable_value(
                                 scope,
                                 MultiSearchScope::Directory,
-                                MultiSearchScope::Directory.label(),
+                                MultiSearchScope::Directory.label_t(),
                             );
                         });
-                    ui.label("Mode:");
+                    ui.label(octa::i18n::t("multi_search.mode"));
                     let mode = &mut self.multi_search.mode;
                     egui::ComboBox::from_id_salt("multi_search_mode")
-                        .selected_text(mode.label())
+                        .selected_text(mode.label_t())
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(mode, SearchMode::Plain, "Plain");
-                            ui.selectable_value(mode, SearchMode::Wildcard, "Wildcard");
-                            ui.selectable_value(mode, SearchMode::Regex, "Regex");
+                            ui.selectable_value(
+                                mode,
+                                SearchMode::Plain,
+                                SearchMode::Plain.label_t(),
+                            );
+                            ui.selectable_value(
+                                mode,
+                                SearchMode::Wildcard,
+                                SearchMode::Wildcard.label_t(),
+                            );
+                            ui.selectable_value(
+                                mode,
+                                SearchMode::Regex,
+                                SearchMode::Regex.label_t(),
+                            );
                         });
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .small_button("×")
-                            .on_hover_text("Close multi-search panel")
+                            .on_hover_text(octa::i18n::t("multi_search.close_hint"))
                             .clicked()
                         {
                             close_clicked = true;
@@ -396,7 +408,7 @@ impl OctaApp {
                 ui.horizontal(|ui| {
                     let query_edit = egui::TextEdit::singleline(&mut self.multi_search.query)
                         .desired_width(ui.available_width() - 220.0)
-                        .hint_text("Search across all open tabs or a directory...");
+                        .hint_text(octa::i18n::t("multi_search.query_hint"));
                     let resp = ui.add(query_edit);
                     if std::mem::take(&mut self.multi_search.focus_query) {
                         resp.request_focus();
@@ -408,25 +420,28 @@ impl OctaApp {
                         run_clicked = true;
                     }
                     if running {
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(octa::i18n::t("common.cancel")).clicked() {
                             cancel_clicked = true;
                         }
-                    } else if ui.button("Search").clicked() {
+                    } else if ui.button(octa::i18n::t("multi_search.search")).clicked() {
                         run_clicked = true;
                     }
                 });
 
                 if self.multi_search.scope == MultiSearchScope::Directory {
                     ui.horizontal(|ui| {
-                        ui.label("Directory:");
+                        ui.label(octa::i18n::t("multi_search.directory"));
                         let label = self
                             .multi_search
                             .directory
                             .as_ref()
                             .map(|p| p.to_string_lossy().to_string())
-                            .unwrap_or_else(|| "(none picked)".to_string());
+                            .unwrap_or_else(|| octa::i18n::t("multi_search.none_picked"));
                         ui.label(egui::RichText::new(label).color(colors.text_secondary));
-                        if ui.button("Pick directory...").clicked() {
+                        if ui
+                            .button(octa::i18n::t("multi_search.pick_directory"))
+                            .clicked()
+                        {
                             pick_dir_clicked = true;
                         }
                     });
@@ -450,20 +465,33 @@ impl OctaApp {
                     if running && self.multi_search.scope == MultiSearchScope::Directory {
                         ui.add(egui::Spinner::new().size(12.0));
                         ui.label(format!(
-                            "Scanning {} / {} files - {} hit(s)",
-                            scanned, total, hit_count
+                            "{} {} / {} {} - {} {}",
+                            octa::i18n::t("multi_search.scanning"),
+                            scanned,
+                            total,
+                            octa::i18n::t("multi_search.files"),
+                            hit_count,
+                            octa::i18n::t("multi_search.hits"),
                         ));
                     } else if self.multi_search.scan_completed {
-                        ui.label(format!("{} hit(s)", hit_count));
+                        ui.label(format!(
+                            "{} {}",
+                            hit_count,
+                            octa::i18n::t("multi_search.hits")
+                        ));
                         if hit_count >= MAX_HITS_TOTAL {
                             ui.colored_label(
                                 colors.warning,
-                                format!("(capped at {})", MAX_HITS_TOTAL),
+                                format!(
+                                    "({} {})",
+                                    octa::i18n::t("multi_search.capped_at"),
+                                    MAX_HITS_TOTAL
+                                ),
                             );
                         }
                     } else {
                         ui.label(
-                            egui::RichText::new("Type a query and press Search.")
+                            egui::RichText::new(octa::i18n::t("multi_search.type_query"))
                                 .color(colors.text_secondary),
                         );
                     }
@@ -511,7 +539,11 @@ impl OctaApp {
             .show_header(ui, |ui| {
                 ui.colored_label(
                     colors.warning,
-                    format!("{} file(s) skipped - click to expand", skipped.len()),
+                    format!(
+                        "{} {}",
+                        skipped.len(),
+                        octa::i18n::t("multi_search.files_skipped")
+                    ),
                 );
             })
             .body(|ui| {
@@ -531,9 +563,10 @@ impl OctaApp {
                                     size_bytes,
                                     cap_bytes,
                                 } => format!(
-                                    "{} - {} MB exceeds {} MB cap",
+                                    "{} - {} MB ({} {} MB)",
                                     name,
                                     size_bytes / (1024 * 1024),
+                                    octa::i18n::t("multi_search.over_cap"),
                                     cap_bytes / (1024 * 1024),
                                 ),
                                 SkipReason::ParseError(msg) => {
