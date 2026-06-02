@@ -94,11 +94,24 @@ fn format_num(n: Option<f64>) -> String {
     }
 }
 
-fn yes_no(b: bool) -> &'static str {
-    if b { "Yes" } else { "No" }
+fn yes_no(b: bool) -> String {
+    octa::i18n::t(if b { "common.yes" } else { "common.no" })
 }
 
-const HEADERS: &[&str] = &["#", "Column", "Type", "Min", "Max", "Not Null", "Unique"];
+/// The seven inspector column headers, translated for the active language.
+/// `#` stays literal; Min / Max reuse the status-bar keys.
+fn headers() -> [String; 7] {
+    use octa::i18n::t;
+    [
+        "#".to_string(),
+        t("dialog.ci_h_column"),
+        t("dialog.ci_h_type"),
+        t("status_bar.min"),
+        t("status_bar.max"),
+        t("dialog.ci_h_not_null"),
+        t("dialog.ci_h_unique"),
+    ]
+}
 
 /// Build the seven cell strings for the inspector row at `display_pos`
 /// (1-indexed). Shared by the live row renderer, Ctrl+C / "Copy" (which join
@@ -119,8 +132,8 @@ fn stat_row_cells(s: &ColumnStat, display_pos: usize) -> [String; 7] {
         } else {
             String::new()
         },
-        yes_no(!s.has_null).to_string(),
-        yes_no(s.all_unique).to_string(),
+        yes_no(!s.has_null),
+        yes_no(s.all_unique),
     ]
 }
 
@@ -135,7 +148,7 @@ fn stat_row_to_tsv(s: &ColumnStat, display_pos: usize) -> String {
 /// including the header row.
 fn build_tsv(stats: &[ColumnStat], order: &[usize], selected: &HashSet<usize>) -> String {
     let mut lines = Vec::with_capacity(order.len() + 1);
-    lines.push(HEADERS.join("\t"));
+    lines.push(headers().join("\t"));
     let use_all = selected.is_empty();
     for (display_pos, &i) in order.iter().enumerate() {
         if use_all || selected.contains(&display_pos) {
@@ -283,7 +296,11 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Column Inspector").strong().size(16.0));
+                    ui.label(
+                        RichText::new(octa::i18n::t("dialog.ci_title"))
+                            .strong()
+                            .size(16.0),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
                             close_requested = true;
@@ -300,15 +317,18 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.button("Close").clicked() {
+                    if ui.button(octa::i18n::t("common.close")).clicked() {
                         close_requested = true;
                     }
                     ui.label(
                         RichText::new(format!(
-                            "{} columns | {} rows | {} selected",
+                            "{} {} | {} {} | {} {}",
                             stats.len(),
+                            octa::i18n::t("status_bar.columns"),
                             app.tabs[app.active_tab].table.row_count(),
-                            selected.len()
+                            octa::i18n::t("status_bar.rows"),
+                            selected.len(),
+                            octa::i18n::t("dialog.selected")
                         ))
                         .size(10.0)
                         .color(ui.visuals().weak_text_color()),
@@ -320,11 +340,23 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
             .frame(egui::Frame::default())
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Sort:");
+                    ui.label(octa::i18n::t("dialog.ci_sort"));
                     let prev_sort = sort;
-                    ui.selectable_value(&mut sort, ColumnInspectorSort::Default, "Default");
-                    ui.selectable_value(&mut sort, ColumnInspectorSort::Asc, "A -> Z");
-                    ui.selectable_value(&mut sort, ColumnInspectorSort::Desc, "Z -> A");
+                    ui.selectable_value(
+                        &mut sort,
+                        ColumnInspectorSort::Default,
+                        octa::i18n::t("dialog.ci_sort_default"),
+                    );
+                    ui.selectable_value(
+                        &mut sort,
+                        ColumnInspectorSort::Asc,
+                        octa::i18n::t("dialog.ci_az"),
+                    );
+                    ui.selectable_value(
+                        &mut sort,
+                        ColumnInspectorSort::Desc,
+                        octa::i18n::t("dialog.ci_za"),
+                    );
                     if sort != prev_sort {
                         // Sort changed - prior display-position selections no
                         // longer point at the same columns.
@@ -332,7 +364,7 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
                         anchor = None;
                     }
                     ui.label(
-                        RichText::new("(view-only - does not change the table)")
+                        RichText::new(octa::i18n::t("dialog.ci_view_only"))
                             .size(10.0)
                             .color(ui.visuals().weak_text_color()),
                     );
@@ -365,9 +397,9 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
                     .column(Column::initial(80.0).at_least(60.0))
                     .max_scroll_height(body_height)
                     .header(24.0, |mut header| {
-                        for h in HEADERS {
+                        for h in headers() {
                             header.col(|ui| {
-                                ui.label(RichText::new(*h).strong());
+                                ui.label(RichText::new(h).strong());
                             });
                         }
                     })
@@ -425,9 +457,15 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
                                             clicked =
                                                 Some((display_pos, egui::Modifiers::default()));
                                         }
-                                        ui.menu_button("Copy column", |ui| {
-                                            for (col_idx, header) in HEADERS.iter().enumerate() {
-                                                if ui.button(format!("Copy '{}'", header)).clicked()
+                                        ui.menu_button(octa::i18n::t("dialog.ci_copy"), |ui| {
+                                            for (col_idx, header) in headers().iter().enumerate() {
+                                                if ui
+                                                    .button(format!(
+                                                        "{} '{}'",
+                                                        octa::i18n::t("dialog.ci_copy"),
+                                                        header
+                                                    ))
+                                                    .clicked()
                                                 {
                                                     context_action = Some(
                                                         ContextAction::CopyInspectorColumn(col_idx),
@@ -437,20 +475,26 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
                                             }
                                         });
                                         ui.separator();
-                                        if ui.button("Copy").clicked() {
+                                        if ui.button(octa::i18n::t("dialog.ci_copy")).clicked() {
                                             context_action = Some(ContextAction::CopySelection);
                                             ui.close();
                                         }
-                                        if ui.button("Copy all rows").clicked() {
+                                        if ui
+                                            .button(octa::i18n::t("dialog.ci_copy_all_rows"))
+                                            .clicked()
+                                        {
                                             context_action = Some(ContextAction::CopyAll);
                                             ui.close();
                                         }
                                         ui.separator();
-                                        if ui.button("Select all").clicked() {
+                                        if ui.button(octa::i18n::t("dialog.select_all")).clicked() {
                                             context_action = Some(ContextAction::SelectAll);
                                             ui.close();
                                         }
-                                        if ui.button("Clear selection").clicked() {
+                                        if ui
+                                            .button(octa::i18n::t("dialog.ci_clear_selection"))
+                                            .clicked()
+                                        {
                                             context_action = Some(ContextAction::ClearSelection);
                                             ui.close();
                                         }
@@ -469,15 +513,30 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
                         ContextAction::CopySelection => {
                             copy_payload = Some(build_tsv(&stats, &order, &selected));
                             status_message = Some(if selected.is_empty() {
-                                format!("Copied {} columns", order.len())
+                                format!(
+                                    "{} {} {}",
+                                    octa::i18n::t("dialog.ci_copied"),
+                                    order.len(),
+                                    octa::i18n::t("status_bar.columns")
+                                )
                             } else {
-                                format!("Copied {} columns", selected.len())
+                                format!(
+                                    "{} {} {}",
+                                    octa::i18n::t("dialog.ci_copied"),
+                                    selected.len(),
+                                    octa::i18n::t("status_bar.columns")
+                                )
                             });
                         }
                         ContextAction::CopyAll => {
                             let empty = HashSet::new();
                             copy_payload = Some(build_tsv(&stats, &order, &empty));
-                            status_message = Some(format!("Copied {} columns", order.len()));
+                            status_message = Some(format!(
+                                "{} {} {}",
+                                octa::i18n::t("dialog.ci_copied"),
+                                order.len(),
+                                octa::i18n::t("status_bar.columns")
+                            ));
                         }
                         ContextAction::SelectAll => {
                             selected = (0..order.len()).collect();
@@ -491,9 +550,17 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
                             let (payload, count) =
                                 build_single_column_copy(&stats, &order, col_idx);
                             copy_payload = Some(payload);
-                            let header = HEADERS.get(col_idx).copied().unwrap_or("?");
-                            status_message =
-                                Some(format!("Copied {} value(s) from '{}'", count, header));
+                            let header = headers()
+                                .get(col_idx)
+                                .cloned()
+                                .unwrap_or_else(|| "?".to_string());
+                            status_message = Some(format!(
+                                "{} {} {} '{}'",
+                                octa::i18n::t("dialog.ci_copied"),
+                                count,
+                                octa::i18n::t("dialog.ci_values_from"),
+                                header
+                            ));
                         }
                     }
                 }
@@ -516,9 +583,19 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
     if copy_requested && copy_payload.is_none() {
         copy_payload = Some(build_tsv(&stats, &order, &selected));
         status_message = Some(if selected.is_empty() {
-            format!("Copied {} columns", order.len())
+            format!(
+                "{} {} {}",
+                octa::i18n::t("dialog.ci_copied"),
+                order.len(),
+                octa::i18n::t("status_bar.columns")
+            )
         } else {
-            format!("Copied {} columns", selected.len())
+            format!(
+                "{} {} {}",
+                octa::i18n::t("dialog.ci_copied"),
+                selected.len(),
+                octa::i18n::t("status_bar.columns")
+            )
         });
     }
 
@@ -550,9 +627,20 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
                 .map(|c| c.name.as_str())
                 .unwrap_or("?")
                 .to_string();
-            format!("Selected column '{}' in table", name)
+            format!(
+                "{} '{}' {}",
+                octa::i18n::t("dialog.ci_selected_col"),
+                name,
+                octa::i18n::t("dialog.ci_in_table")
+            )
         } else {
-            format!("Selected {} columns in table", n)
+            format!(
+                "{} {} {} {}",
+                octa::i18n::t("dialog.ci_selected"),
+                n,
+                octa::i18n::t("status_bar.columns"),
+                octa::i18n::t("dialog.ci_in_table")
+            )
         });
     }
     if let Some(msg) = status_message {

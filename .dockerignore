@@ -1,0 +1,9 @@
+# Keep the build context small and the image reproducible.
+target/
+.git/
+.github/
+site/
+docs/
+windows/
+assets/screenshots/
+*.log

@@ -126,6 +126,13 @@ impl BodyFont {
             Self::Monospace => "Monospace",
         }
     }
+
+    pub fn label_t(self) -> String {
+        crate::i18n::t(match self {
+            Self::Proportional => "enum.font_proportional",
+            Self::Monospace => "enum.font_monospace",
+        })
+    }
 }
 
 /// Bundle of font-related parameters for `apply_theme`.

@@ -39,6 +39,10 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     };
     octa::formats::set_initial_load_rows(initial_cap);
 
+    // Apply the UI language immediately so menus / dialogs re-translate without
+    // a restart.
+    octa::i18n::set_language(&app.settings.language);
+
     // Apply window-size / maximize changes immediately so the user sees the
     // effect without relaunching. `with_inner_size()` at startup is ignored
     // while the window is maximized, which was the source of "the setting

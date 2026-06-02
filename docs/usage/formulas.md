@@ -111,4 +111,6 @@ group-by, window functions, and more.
 
 - [SQL panel](sql.md) runs DuckDB queries against the
   loaded table.
+- [Date / Time calculation](date-time-calculation.md) derives a new
+  column from date, datetime, or duration values.
 - [Editing](editing.md) covers how Insert Column dialogs work.

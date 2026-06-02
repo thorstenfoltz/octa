@@ -91,7 +91,7 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
     let mut should_open = false;
     let mut should_cancel = false;
 
-    egui::Window::new("Parse in new tab")
+    egui::Window::new(octa::i18n::t("edit_menu.parse_in_new_tab"))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .resizable(false)
         .collapsible(false)
@@ -104,7 +104,7 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
             ui.add_space(6.0);
 
             ui.horizontal(|ui| {
-                ui.label("Parse as:");
+                ui.label(octa::i18n::t("dialog.pnt_parse_as"));
                 egui::ComboBox::from_id_salt("parse_format_combo")
                     .selected_text(PARSE_FORMATS[state.format_idx].0)
                     .show_ui(ui, |ui| {
@@ -119,7 +119,7 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
             let ext = PARSE_FORMATS[state.format_idx].1;
             if ext == "csv" || ext == "tsv" {
                 ui.horizontal(|ui| {
-                    ui.label("Delimiter:");
+                    ui.label(octa::i18n::t("dialog.pnt_delimiter"));
                     ui.add(
                         egui::TextEdit::singleline(&mut state.csv_delimiter).desired_width(48.0),
                     );
@@ -142,10 +142,13 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Open in new tab").clicked() {
+                if ui
+                    .button(octa::i18n::t("dialog.pnt_open_in_new_tab"))
+                    .clicked()
+                {
                     should_open = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(octa::i18n::t("common.cancel")).clicked() {
                     should_cancel = true;
                 }
             });
@@ -163,22 +166,13 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
 /// One-line hint under the format chooser explaining how the chosen
 /// scope's contents are combined. Helps the user predict what the new
 /// tab will look like before they click Open.
-fn scope_hint(scope: &ParseScope) -> &'static str {
-    match scope {
-        ParseScope::Cell { .. } => {
-            "Serialized as a 1x1 table with the source column name as header, \
-             then reopened in the chosen format. (Plain Text passes through verbatim.)"
-        }
-        ParseScope::Row { .. } => {
-            "Serialized as a single-row table with the source column names as headers, \
-             then reopened in the chosen format."
-        }
-        ParseScope::Column { .. } => {
-            "Serialized as a single-column table with the source column name as header, \
-             then reopened in the chosen format."
-        }
-        ParseScope::Table => "The whole table is serialized to the chosen format, then reopened.",
-    }
+fn scope_hint(scope: &ParseScope) -> String {
+    octa::i18n::t(match scope {
+        ParseScope::Cell { .. } => "dialog.pnt_hint_cell",
+        ParseScope::Row { .. } => "dialog.pnt_hint_row",
+        ParseScope::Column { .. } => "dialog.pnt_hint_column",
+        ParseScope::Table => "dialog.pnt_hint_table",
+    })
 }
 
 /// Build the input text for the parser based on scope + format, write it
@@ -194,7 +188,7 @@ fn execute_parse(app: &mut OctaApp, state: ParseModalState) {
             Ok(b) => b,
             Err(e) => {
                 app.status_message = Some((
-                    format!("Parse in new tab: {}", e),
+                    format!("{}: {}", octa::i18n::t("edit_menu.parse_in_new_tab"), e),
                     std::time::Instant::now(),
                 ));
                 return;
@@ -238,7 +232,11 @@ fn execute_parse(app: &mut OctaApp, state: ParseModalState) {
         Ok(t) => t,
         Err(e) => {
             app.status_message = Some((
-                format!("Parse in new tab: temp file: {}", e),
+                format!(
+                    "{}: temp file: {}",
+                    octa::i18n::t("edit_menu.parse_in_new_tab"),
+                    e
+                ),
                 std::time::Instant::now(),
             ));
             return;
@@ -246,7 +244,11 @@ fn execute_parse(app: &mut OctaApp, state: ParseModalState) {
     };
     if let Err(e) = tmp.write_all(&body) {
         app.status_message = Some((
-            format!("Parse in new tab: write: {}", e),
+            format!(
+                "{}: write: {}",
+                octa::i18n::t("edit_menu.parse_in_new_tab"),
+                e
+            ),
             std::time::Instant::now(),
         ));
         return;
@@ -269,10 +271,11 @@ fn execute_parse(app: &mut OctaApp, state: ParseModalState) {
         // Stash a friendly display name. The tab bar's tooltip uses
         // `source_path`, which we just cleared, so this matters less,
         // but the format-line stays informative.
+        let parsed = octa::i18n::t("dialog.pnt_parsed_from");
         if let Some(fmt) = tab.table.format_name.as_mut() {
-            *fmt = format!("{} (parsed from {})", format_name, label);
+            *fmt = format!("{} ({} {})", format_name, parsed, label);
         } else {
-            tab.table.format_name = Some(format!("{} (parsed from {})", format_name, label));
+            tab.table.format_name = Some(format!("{} ({} {})", format_name, parsed, label));
         }
     }
 }

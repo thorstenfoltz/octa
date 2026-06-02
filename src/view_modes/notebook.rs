@@ -7,13 +7,18 @@ use egui::{Align, Color32, Layout, RichText, Stroke};
 use ui::settings::NotebookOutputLayout;
 use ui::theme::ThemeMode;
 
-/// Render the Jupyter Notebook view. Handles Ctrl+X for copying all cells.
+/// Render the Jupyter Notebook view. Source cells are editable (unless
+/// `readonly`); edits flow through the normal table edit overlay
+/// (`tab.table.set`), so undo/redo, the modified marker, and Save all work.
+/// Output cells stay read-only. Handles Ctrl+X for copying all cells when no
+/// cell editor is focused.
 pub fn render_notebook_view(
     ctx: &egui::Context,
     ui: &mut egui::Ui,
-    tab: &TabState,
+    tab: &mut TabState,
     theme_mode: ThemeMode,
     output_layout: NotebookOutputLayout,
+    readonly: bool,
 ) {
     let colors = ui::theme::ThemeColors::for_mode(theme_mode);
     let is_dark = theme_mode.is_dark();
@@ -21,7 +26,7 @@ pub fn render_notebook_view(
     if tab.table.row_count() == 0 {
         ui.centered_and_justified(|ui| {
             ui.label(
-                RichText::new("Empty notebook")
+                RichText::new(octa::i18n::t("view.nb_empty"))
                     .size(16.0)
                     .color(ui.visuals().weak_text_color()),
             );
@@ -62,7 +67,7 @@ pub fn render_notebook_view(
                 ui.vertical(|ui| {
                     for row_idx in 0..tab.table.row_count() {
                         let cell_num = match tab.table.get(row_idx, 0) {
-                            Some(data::CellValue::Int(n)) => Some(n),
+                            Some(data::CellValue::Int(n)) => Some(*n),
                             _ => None,
                         };
                         let cell_type = match tab.table.get(row_idx, 1) {
@@ -179,7 +184,7 @@ pub fn render_notebook_view(
                                     });
                                 let copy_output = output.to_string();
                                 out_frame.response.context_menu(|ui| {
-                                    if ui.button("Copy output").clicked() {
+                                    if ui.button(octa::i18n::t("view.nb_copy_output")).clicked() {
                                         ui.ctx().copy_text(copy_output.clone());
                                         ui.close();
                                     }
@@ -224,64 +229,90 @@ pub fn render_notebook_view(
                                             build_line_numbers(line_count, line_num_color);
                                         ui.add(egui::Label::new(gutter_job).selectable(false));
                                         ui.add_space(8.0);
-                                        // Source text (selectable -- no line numbers).
-                                        // Code cells get syntect highlighting; we
-                                        // assume Python because that's overwhelmingly
-                                        // what `.ipynb` files contain. Falls back to
-                                        // plain monospace if Python isn't in the
-                                        // syntax set (it always is in the default
-                                        // bundle, but be defensive).
-                                        if is_code {
+                                        // Editable source. Code cells keep syntect
+                                        // highlighting while typing via a layouter (we
+                                        // assume Python -- overwhelmingly what `.ipynb`
+                                        // contains -- falling back to plain monospace if
+                                        // Python isn't in the syntax set). Edits write
+                                        // back through the table overlay so undo / save
+                                        // / the modified marker all work.
+                                        let mono =
+                                            egui::FontId::new(13.0, egui::FontFamily::Monospace);
+                                        let edit_id = egui::Id::new(("nb_src", row_idx));
+                                        let mut buf = source.clone();
+                                        let response = if is_code {
                                             let syntax = octa::ui::syntax::syntax_by_name("Python");
-                                            if let Some(syn) = syntax {
-                                                let theme =
-                                                    octa::ui::syntax::theme_for_mode(theme_mode);
-                                                let job = octa::ui::syntax::highlight_layout_job(
-                                                    &source,
-                                                    syn,
-                                                    theme,
-                                                    egui::FontId::new(
-                                                        13.0,
-                                                        egui::FontFamily::Monospace,
-                                                    ),
+                                            let theme =
+                                                octa::ui::syntax::theme_for_mode(theme_mode);
+                                            let mut layouter = move |ui: &egui::Ui,
+                                                                     text: &dyn egui::TextBuffer,
+                                                                     _wrap: f32| {
+                                                let font = egui::FontId::new(
+                                                    13.0,
+                                                    egui::FontFamily::Monospace,
                                                 );
-                                                ui.add(egui::Label::new(job).selectable(true));
-                                            } else {
-                                                ui.add(
-                                                    egui::Label::new(
-                                                        RichText::new(&source)
-                                                            .font(egui::FontId::new(
-                                                                13.0,
-                                                                egui::FontFamily::Monospace,
-                                                            ))
-                                                            .color(text_color),
-                                                    )
-                                                    .selectable(true),
-                                                );
-                                            }
+                                                let job = match syntax {
+                                                    Some(syn) => {
+                                                        octa::ui::syntax::highlight_layout_job(
+                                                            text.as_str(),
+                                                            syn,
+                                                            theme,
+                                                            font,
+                                                        )
+                                                    }
+                                                    None => {
+                                                        let mut j =
+                                                            egui::text::LayoutJob::default();
+                                                        j.wrap.max_width = f32::INFINITY;
+                                                        j.append(
+                                                            text.as_str(),
+                                                            0.0,
+                                                            egui::text::TextFormat {
+                                                                font_id: font,
+                                                                color: text_color,
+                                                                ..Default::default()
+                                                            },
+                                                        );
+                                                        j
+                                                    }
+                                                };
+                                                ui.fonts_mut(|f| f.layout_job(job))
+                                            };
+                                            ui.add(
+                                                egui::TextEdit::multiline(&mut buf)
+                                                    .id(edit_id)
+                                                    .font(mono.clone())
+                                                    .frame(egui::Frame::NONE)
+                                                    .desired_width(f32::INFINITY)
+                                                    .desired_rows(line_count.max(1))
+                                                    .interactive(!readonly)
+                                                    .layouter(&mut layouter),
+                                            )
                                         } else {
                                             ui.add(
-                                                egui::Label::new(
-                                                    RichText::new(&source)
-                                                        .font(egui::FontId::new(
-                                                            13.0,
-                                                            egui::FontFamily::Monospace,
-                                                        ))
-                                                        .color(text_color),
-                                                )
-                                                .selectable(true),
-                                            );
+                                                egui::TextEdit::multiline(&mut buf)
+                                                    .id(edit_id)
+                                                    .font(mono.clone())
+                                                    .text_color(text_color)
+                                                    .frame(egui::Frame::NONE)
+                                                    .desired_width(f32::INFINITY)
+                                                    .desired_rows(line_count.max(1))
+                                                    .interactive(!readonly),
+                                            )
+                                        };
+                                        if response.changed() && !readonly {
+                                            tab.table.set(row_idx, 2, data::CellValue::String(buf));
                                         }
                                     });
                                 });
                             let copy_source = source.clone();
                             let all_text = all_notebook_text.clone();
                             frame_response.response.context_menu(|ui| {
-                                if ui.button("Copy cell").clicked() {
+                                if ui.button(octa::i18n::t("view.nb_copy_cell")).clicked() {
                                     ui.ctx().copy_text(copy_source.clone());
                                     ui.close();
                                 }
-                                if ui.button("Copy all cells").clicked() {
+                                if ui.button(octa::i18n::t("view.nb_copy_all_cells")).clicked() {
                                     ui.ctx().copy_text(all_text.clone());
                                     ui.close();
                                 }
@@ -289,7 +320,7 @@ pub fn render_notebook_view(
 
                             // Output beside source (Beside layout)
                             if has_output && output_layout == NotebookOutputLayout::Beside {
-                                render_output(ui, cell_num.copied(), &output, border_color);
+                                render_output(ui, cell_num, &output, border_color);
                             }
                         });
 
@@ -298,7 +329,7 @@ pub fn render_notebook_view(
                             ui.horizontal(|ui| {
                                 // Indent to align under the source frame
                                 ui.add_space(label_width + 8.0);
-                                render_output(ui, cell_num.copied(), &output, border_color);
+                                render_output(ui, cell_num, &output, border_color);
                             });
                         }
 
@@ -311,8 +342,10 @@ pub fn render_notebook_view(
             });
         });
 
-    // Ctrl+X: cut (copy all notebook content -- notebook view is read-only)
-    if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::X)) {
+    // Ctrl+X: copy all notebook content -- but only when no source-cell editor
+    // is focused, so Ctrl+X inside a focused cell cuts that cell's text instead.
+    let editor_focused = ctx.memory(|m| m.focused().is_some());
+    if !editor_focused && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::X)) {
         ctx.copy_text(all_notebook_text);
     }
 }

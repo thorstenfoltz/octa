@@ -32,6 +32,13 @@ impl MultiSearchScope {
             Self::Directory => "Directory",
         }
     }
+
+    pub fn label_t(self) -> String {
+        crate::i18n::t(match self {
+            Self::AllOpenTabs => "enum2.scope_all_tabs",
+            Self::Directory => "enum2.scope_directory",
+        })
+    }
 }
 
 /// One match returned by a multi-search run.

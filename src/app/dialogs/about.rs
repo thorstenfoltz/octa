@@ -53,7 +53,7 @@ pub(crate) fn render_about_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     }
     let screen_center = ctx.content_rect().center();
     let default_pos = screen_center - egui::vec2(160.0, 100.0);
-    egui::Window::new("About Octa")
+    egui::Window::new(octa::i18n::t("dialog.about_title"))
         .resizable(false)
         .collapsible(false)
         .default_pos(default_pos)
@@ -73,9 +73,17 @@ pub(crate) fn render_about_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     ui.data_mut(|d| d.insert_temp(title_id, clicks));
                 }
                 ui.add_space(4.0);
-                ui.label(format!("Version {}", VERSION));
+                ui.label(format!(
+                    "{} {}",
+                    octa::i18n::t("dialog.about_version"),
+                    VERSION
+                ));
                 ui.add_space(8.0);
-                ui.label(format!("Author: {}", author_names(AUTHORS)));
+                ui.label(format!(
+                    "{} {}",
+                    octa::i18n::t("dialog.about_author"),
+                    author_names(AUTHORS)
+                ));
                 ui.add_space(4.0);
                 let email_link = ui
                     .add(egui::Link::new(EMAIL))
@@ -84,7 +92,10 @@ pub(crate) fn render_about_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     open_mailto(EMAIL);
                 }
                 ui.add_space(4.0);
-                if ui.hyperlink_to("GitHub Repository", REPOSITORY).clicked() {
+                if ui
+                    .hyperlink_to(octa::i18n::t("dialog.about_repo"), REPOSITORY)
+                    .clicked()
+                {
                     // egui opens the link automatically
                 }
                 if clicks >= 8 {
@@ -99,7 +110,7 @@ pub(crate) fn render_about_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     );
                 }
                 ui.add_space(12.0);
-                if ui.button("Close").clicked() {
+                if ui.button(octa::i18n::t("common.close")).clicked() {
                     app.show_about_dialog = false;
                     ui.data_mut(|d| d.remove::<u8>(title_id));
                 }

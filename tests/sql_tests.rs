@@ -60,6 +60,30 @@ fn test_select_all_returns_all_rows() {
 }
 
 #[test]
+fn test_timestamp_result_is_formatted_not_raw_epoch() {
+    // Regression: SQL results used to surface TIMESTAMP / DATE columns as the
+    // raw epoch integer (e.g. "1769975775172766") instead of a readable value.
+    let table = sample_table();
+    let result = run_query(
+        &table,
+        "SELECT TIMESTAMP '2026-02-01 19:56:15.172766' AS ts, DATE '2026-02-01' AS d",
+    )
+    .unwrap()
+    .table;
+    match result.get(0, 0) {
+        Some(CellValue::DateTime(s)) => {
+            assert!(s.starts_with("2026-02-01 19:56:15"), "got {s:?}");
+            assert!(!s.chars().all(|c| c.is_ascii_digit()), "raw epoch: {s:?}");
+        }
+        other => panic!("expected DateTime, got {other:?}"),
+    }
+    assert_eq!(
+        result.get(0, 1),
+        Some(&CellValue::Date("2026-02-01".into()))
+    );
+}
+
+#[test]
 fn test_count_returns_scalar() {
     let table = sample_table();
     let result = run_query(&table, "SELECT COUNT(*) AS n FROM data")

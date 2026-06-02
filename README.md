@@ -345,18 +345,6 @@ Settings are stored in:
 - **macOS:** `~/Library/Application Support/Octa/settings.toml`
 - **Windows:** `%APPDATA%\Octa\settings.toml`
 
-## Alternatives
-
-A factual feature comparison against tools in the adjacent space. "Yes" means the feature is available out of the box in the default free distribution; the columns are not a quality judgement and the list is not exhaustive.
-
-| Tool                | Native binary       | 20+ formats | MCP server | Chart view  | Map view | Free / OSS       |
-|---------------------|---------------------|-------------|------------|-------------|----------|------------------|
-| Octa                | yes                 | yes         | yes        | yes         | yes      | yes (MIT)        |
-| DBeaver (Community) | yes                 | no          | no         | no          | no       | yes (Apache 2.0) |
-| csvkit              | no (Python toolkit) | no          | no         | no          | no       | yes (MIT)        |
-| VisiData            | no (Python TUI)     | yes         | no         | yes (basic) | no       | yes (GPL-3.0)    |
-| TablePlus           | yes                 | no          | no         | no          | no       | no (proprietary) |
-
 ## License
 
 MIT

@@ -59,6 +59,8 @@ impl OctaApp {
             settings.initial_load_rows
         };
         octa::formats::set_initial_load_rows(initial_cap);
+        // Apply the persisted UI language before any frame renders.
+        octa::i18n::set_language(&settings.language);
         Self {
             tabs: vec![TabState::new(search_mode)],
             active_tab: 0,
@@ -104,6 +106,7 @@ impl OctaApp {
             pending_raw_perf_prompt: None,
             pending_date_warning: None,
             pending_trim_warning: None,
+            pending_file_repair: None,
             pending_round_save: None,
             pending_parse_modal: None,
             schema_export: None,

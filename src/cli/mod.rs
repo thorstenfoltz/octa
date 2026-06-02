@@ -20,11 +20,14 @@ use octa::data::schema_export::SchemaTarget;
 pub mod compare_schemas;
 pub mod convert;
 pub mod describe;
+pub mod diff;
 pub mod export_schema;
 pub mod head;
 pub mod output;
+pub mod sample;
 pub mod schema;
 pub mod sql;
+pub mod tail;
 pub mod unique_columns;
 pub mod validate_schema;
 
@@ -45,6 +48,10 @@ Examples:
     octa --head data.csv               # default 20 rows
     octa --head data.csv -n 5
     octa --head data.parquet -n 100 -f json
+
+  Last N rows / random sample:
+    octa --tail data.csv -n 5
+    octa --sample data.parquet -n 20 --seed 1
 
   Format conversion:
     octa --convert in.csv out.parquet
@@ -87,6 +94,10 @@ FROM data GROUP BY region' \
     octa --compare-schemas v1.parquet v2.parquet
     octa --compare-schemas a.sqlite b.sqlite --table-a users --table-b users -f json
 
+  Row-level data diff between two files:
+    octa --diff v1.csv v2.csv
+    octa --diff a.parquet b.parquet -f json
+
   Validate a file against a JSON Schema (CI-pipeable, exit 1 on drift):
     octa --validate-schema sales.parquet --expect-schema sales.schema.json
     octa --validate-schema data.csv --expect-schema schema.json -f json
@@ -117,6 +128,11 @@ Notes:
     so no row data is touched. The output is a four-column table:
     status / column / type_a / type_b. `status` is one of `common`,
     `only_in_a`, `only_in_b`, `type_mismatch`.
+  * --diff compares the two files' rows by whole-row content (every
+    column, positionally) and prints the rows unique to each side with
+    a leading `status` column (`only_in_a` / `only_in_b`); a summary
+    line (shared / only-in-A / only-in-B counts) is written to stderr.
+    The files should share the same column order to diff meaningfully.
   * --validate-schema checks FILE's columns against the JSON Schema in
     --expect-schema. Exit code is 0 when every column matches by name
     and type, 1 otherwise. JSON Schema `type` values the parser can't
@@ -128,10 +144,11 @@ Notes:
     `is_unique` is true only when no nulls AND every value distinct.
     Use --max-combo to also test column pairs / triples.
   * --mcp starts an MCP (Model Context Protocol) server on stdio. Tools:
-    read_table, schema, list_tables, count_rows, run_sql, convert,
-    export_schema, profile, find_duplicates, value_frequency, search,
-    compare_schemas, validate_against_schema, describe_file,
-    unique_columns. Default row + cell caps come from Settings -> MCP.
+    read_table, tail, sample, schema, list_tables, count_rows, run_sql,
+    convert, export_schema, profile, find_duplicates, value_frequency,
+    search, compare_schemas, diff_tables, validate_against_schema,
+    describe_file, unique_columns. Default row + cell caps come from
+    Settings -> MCP.
   * Action flags are mutually exclusive - pick one. Without any, Octa
     launches its GUI.
   * --rows overrides the initial-load row cap for this invocation
@@ -163,6 +180,15 @@ pub struct Cli {
     /// Print the first N rows of FILE (default 20, override with -n / --lines).
     #[arg(long, value_name = "FILE", group = "action")]
     pub head: Option<PathBuf>,
+
+    /// Print the last N rows of FILE (default 20, override with -n / --lines).
+    #[arg(long, value_name = "FILE", group = "action")]
+    pub tail: Option<PathBuf>,
+
+    /// Print a random N-row sample of FILE (default 20, override with
+    /// -n / --lines). Reproducible for a given --seed.
+    #[arg(long, value_name = "FILE", group = "action")]
+    pub sample: Option<PathBuf>,
 
     /// Convert IN to OUT. Format inferred from each path's extension.
     /// The output format must be writable.
@@ -240,6 +266,18 @@ pub struct Cli {
     )]
     pub compare_schemas: Vec<PathBuf>,
 
+    /// Row-level diff of two files. Prints rows present in only one side
+    /// (`status` = `only_in_a` / `only_in_b`) plus a shared-row count.
+    /// Columns are compared positionally, so the two files should share the
+    /// same column order for a meaningful result.
+    #[arg(
+        long = "diff",
+        value_names = ["FILE_A", "FILE_B"],
+        num_args = 2,
+        group = "action"
+    )]
+    pub diff: Vec<PathBuf>,
+
     /// Validate FILE's column schema against a JSON Schema. Pair with
     /// `--expect-schema SCHEMA.json` to point at the expected schema.
     /// Exit code is 0 on a clean match, 1 otherwise - CI-pipeable.
@@ -268,9 +306,13 @@ pub struct Cli {
     #[arg(long, group = "action")]
     pub mcp: bool,
 
-    /// Number of rows for --head.
+    /// Number of rows for --head / --tail / --sample.
     #[arg(short = 'n', long = "lines", default_value_t = 20, value_name = "N")]
     pub lines: usize,
+
+    /// Seed for --sample, for reproducible output. Default 0.
+    #[arg(long = "seed", default_value_t = 0, value_name = "N")]
+    pub seed: u64,
 
     /// SQL query string for --sql.
     #[arg(short = 'q', long = "query", value_name = "QUERY")]
@@ -349,6 +391,15 @@ pub enum Action {
         path: PathBuf,
         n: usize,
     },
+    Tail {
+        path: PathBuf,
+        n: usize,
+    },
+    Sample {
+        path: PathBuf,
+        n: usize,
+        seed: u64,
+    },
     Convert {
         input: PathBuf,
         output: PathBuf,
@@ -369,6 +420,10 @@ pub enum Action {
         path_b: PathBuf,
         table_a: Option<String>,
         table_b: Option<String>,
+    },
+    Diff {
+        path_a: PathBuf,
+        path_b: PathBuf,
     },
     ValidateSchema {
         path: PathBuf,
@@ -401,6 +456,19 @@ impl Cli {
             return Ok(Some(Action::Head {
                 path: p.clone(),
                 n: self.lines,
+            }));
+        }
+        if let Some(p) = &self.tail {
+            return Ok(Some(Action::Tail {
+                path: p.clone(),
+                n: self.lines,
+            }));
+        }
+        if let Some(p) = &self.sample {
+            return Ok(Some(Action::Sample {
+                path: p.clone(),
+                n: self.lines,
+                seed: self.seed,
             }));
         }
         if !self.convert.is_empty() {
@@ -460,6 +528,15 @@ impl Cli {
                 path_b: self.compare_schemas[1].clone(),
                 table_a: self.table_a.clone(),
                 table_b: self.table_b.clone(),
+            }));
+        }
+        if !self.diff.is_empty() {
+            if self.diff.len() != 2 {
+                return Err("--diff needs exactly two paths: --diff FILE_A FILE_B");
+            }
+            return Ok(Some(Action::Diff {
+                path_a: self.diff[0].clone(),
+                path_b: self.diff[1].clone(),
             }));
         }
         if let Some(p) = &self.validate_schema {
@@ -674,6 +751,8 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
     let result = match action {
         Action::Schema(path) => schema::run(path, format),
         Action::Head { path, n } => head::run(path, n, format),
+        Action::Tail { path, n } => tail::run(path, n, format),
+        Action::Sample { path, n, seed } => sample::run(path, n, seed, format),
         Action::Convert { input, output } => convert::run(input, output),
         Action::Sql {
             path,
@@ -689,6 +768,7 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             table_a,
             table_b,
         } => compare_schemas::run(path_a, path_b, table_a, table_b, format),
+        Action::Diff { path_a, path_b } => diff::run(path_a, path_b, format),
         Action::Describe {
             path,
             table,

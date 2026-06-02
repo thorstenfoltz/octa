@@ -32,7 +32,7 @@ pub(crate) fn render_find_duplicates_dialog(app: &mut OctaApp, ctx: &egui::Conte
     let mut close_requested = false;
     let mut run_requested = false;
 
-    egui::Window::new("Find duplicates")
+    egui::Window::new(octa::i18n::t("dialog.fd_title"))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .resizable(true)
         .collapsible(false)
@@ -41,28 +41,33 @@ pub(crate) fn render_find_duplicates_dialog(app: &mut OctaApp, ctx: &egui::Conte
         .min_width(320.0)
         .min_height(220.0)
         .show(ctx, |ui| {
-            ui.label(RichText::new("Key columns").strong().size(13.0));
             ui.label(
-                RichText::new(
-                    "Rows are flagged as duplicates when every checked column \
-                     has the same value as at least one other row.",
-                )
-                .size(10.0)
-                .color(ui.visuals().weak_text_color()),
+                RichText::new(octa::i18n::t("dialog.fd_key_columns"))
+                    .strong()
+                    .size(13.0),
+            );
+            ui.label(
+                RichText::new(octa::i18n::t("dialog.fd_key_desc"))
+                    .size(10.0)
+                    .color(ui.visuals().weak_text_color()),
             );
             ui.add_space(4.0);
 
             ui.horizontal(|ui| {
-                if ui.small_button("All").clicked() {
+                if ui.small_button(octa::i18n::t("dialog.sel_all")).clicked() {
                     key_cols = (0..col_names.len()).collect();
                 }
-                if ui.small_button("None").clicked() {
+                if ui.small_button(octa::i18n::t("dialog.sel_none")).clicked() {
                     key_cols.clear();
                 }
                 ui.label(
-                    RichText::new(format!("{} selected", key_cols.len()))
-                        .size(10.0)
-                        .color(ui.visuals().weak_text_color()),
+                    RichText::new(format!(
+                        "{} {}",
+                        key_cols.len(),
+                        octa::i18n::t("dialog.selected")
+                    ))
+                    .size(10.0)
+                    .color(ui.visuals().weak_text_color()),
                 );
             });
             ui.separator();
@@ -84,37 +89,38 @@ pub(crate) fn render_find_duplicates_dialog(app: &mut OctaApp, ctx: &egui::Conte
 
             ui.separator();
             ui.label(
-                RichText::new("What to do with duplicates")
+                RichText::new(octa::i18n::t("dialog.fd_what_to_do"))
                     .strong()
                     .size(13.0),
             );
             ui.radio_value(
                 &mut mode,
                 FindDuplicatesMode::Highlight,
-                "Highlight rows in place (Orange mark)",
+                octa::i18n::t("dialog.fd_highlight"),
             );
             ui.radio_value(
                 &mut mode,
                 FindDuplicatesMode::NewTab,
-                "Open duplicates in a new tab",
+                octa::i18n::t("dialog.fd_new_tab"),
             );
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let can_run = !key_cols.is_empty();
-                let run_btn = ui.add_enabled(can_run, egui::Button::new("Apply"));
+                let run_btn =
+                    ui.add_enabled(can_run, egui::Button::new(octa::i18n::t("common.apply")));
                 if run_btn.clicked() {
                     run_requested = true;
                 }
                 if !can_run {
                     ui.label(
-                        RichText::new("Select at least one key column")
+                        RichText::new(octa::i18n::t("dialog.fd_select_one"))
                             .size(10.0)
                             .color(ui.visuals().weak_text_color()),
                     );
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(octa::i18n::t("common.cancel")).clicked() {
                         close_requested = true;
                     }
                 });
@@ -151,7 +157,7 @@ pub(crate) fn render_find_duplicates_dialog(app: &mut OctaApp, ctx: &egui::Conte
 
     if dup_rows.is_empty() {
         app.status_message = Some((
-            "Find duplicates: no duplicate rows for that key".to_string(),
+            octa::i18n::t("dialog.fd_no_dups"),
             std::time::Instant::now(),
         ));
         app.tabs[app.active_tab].show_find_duplicates = false;
@@ -167,9 +173,11 @@ pub(crate) fn render_find_duplicates_dialog(app: &mut OctaApp, ctx: &egui::Conte
             }
             app.status_message = Some((
                 format!(
-                    "Marked {} duplicate row(s) orange. \
-                     Use Edit > Mark > Clear all marks to remove.",
-                    dup_count
+                    "{} {} {} {}",
+                    octa::i18n::t("dialog.fd_marked"),
+                    dup_count,
+                    octa::i18n::t("dialog.fd_dup_rows_orange"),
+                    octa::i18n::t("dialog.fd_marked_suffix")
                 ),
                 std::time::Instant::now(),
             ));
@@ -196,8 +204,12 @@ pub(crate) fn render_find_duplicates_dialog(app: &mut OctaApp, ctx: &egui::Conte
             app.active_tab = app.tabs.len() - 1;
             app.status_message = Some((
                 format!(
-                    "Opened {} duplicate row(s) in a new tab (key: {})",
-                    dup_count, key_summary
+                    "{} {} {} ({}: {})",
+                    octa::i18n::t("dialog.fd_opened"),
+                    dup_count,
+                    octa::i18n::t("dialog.fd_in_new_tab"),
+                    octa::i18n::t("dialog.fd_key_label"),
+                    key_summary
                 ),
                 std::time::Instant::now(),
             ));
@@ -218,7 +230,11 @@ fn build_duplicates_table(src: &DataTable, rows: &[usize], key_summary: &str) ->
         rows: Vec::with_capacity(rows.len()),
         edits: std::collections::HashMap::new(),
         source_path: None,
-        format_name: Some(format!("Duplicates by {}", key_summary)),
+        format_name: Some(format!(
+            "{} {}",
+            octa::i18n::t("dialog.fd_dup_by"),
+            key_summary
+        )),
         structural_changes: false,
         total_rows: None,
         row_offset: 0,

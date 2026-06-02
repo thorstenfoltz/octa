@@ -100,6 +100,35 @@ to truly return every row."
     }
 
     #[tool(
+        description = "Read a tabular data file and return its LAST N rows (the tail), same \
+response shape as `read_table`: `{schema, rows, row_count, ...}`. `limit` sets N (default the \
+server's configured row limit; 0 = the whole loaded window). For multi-table sources pass \
+`table`. Streaming readers load with the 5,000,000-row cap, so the tail reflects the end of \
+that window; pass `unlimited: true` to reach the true end of a very large file."
+    )]
+    async fn tail(
+        &self,
+        Parameters(p): Parameters<tools::tail::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::tail::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Read a tabular data file and return a random N-row sample (without \
+replacement, original row order preserved), same response shape as `read_table`. `limit` sets \
+the sample size (default the server's configured row limit; 0 = every row, no sampling). \
+`seed` makes the sample reproducible (default 0). For multi-table sources pass `table`; pass \
+`unlimited: true` so the sample is drawn from every row on disk rather than just the loaded \
+window."
+    )]
+    async fn sample(
+        &self,
+        Parameters(p): Parameters<tools::sample::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::sample::handle(self, p).await
+    }
+
+    #[tool(
         description = "Return the column schema (name + data type) of a tabular file. The response \
 contains only schema metadata - no rows are serialised - though the file is still loaded through \
 the standard reader (subject to the initial-load cap for streaming formats). Cheap to call as a \
@@ -265,6 +294,23 @@ type_mismatches }`."
     }
 
     #[tool(
+        description = "Row-level diff of two tabular files. Reads both files and compares rows \
+by whole-row content (every column, positionally), so the two files should share the same \
+column order for a meaningful result. Returns `only_in_a` and `only_in_b` (each a table \
+payload of the rows unique to that side: `{schema, rows, row_count, truncated, ...}`), plus \
+`only_in_a_count`, `only_in_b_count`, and `shared_keys` (distinct row keys present in both). \
+For multi-table sources pass `table_a` / `table_b`. `limit` caps rows returned per side (0 = \
+unlimited); `unlimited: true` also lifts the 5,000,000-row file-loader cap. Use \
+`compare_schemas` first if the column layouts might differ."
+    )]
+    async fn diff_tables(
+        &self,
+        Parameters(p): Parameters<tools::diff_tables::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::diff_tables::handle(self, p).await
+    }
+
+    #[tool(
         description = "Validate a tabular file's column schema against an expected JSON \
 Schema (typically one produced by `export_schema --target json-schema`). Returns `matches` \
 (true when every column lines up by name and type), `diff` (a full SchemaDiff with `common`, \
@@ -314,6 +360,43 @@ one distinct value. Pass `unlimited: true` to scan the full file."
     ) -> Result<CallToolResult, McpError> {
         tools::unique_columns::handle(self, p).await
     }
+
+    #[tool(
+        description = "Write model-supplied rows to a file in any writable format - the inverse \
+of `read_table`. Pick the format with the output extension (`.csv`, `.parquet`, `.json`, \
+`.xlsx`, ...); read-only formats (SAS, RDS, HDF5, NetCDF) cannot be a target. Supply `columns` \
+(name + optional Arrow `type`, defaulting to `Utf8`) and `rows` as an array-of-arrays lined up \
+positionally with the columns - the same shape `read_table` returns, so a read result \
+round-trips straight back in. `mode` is `create` (default; errors if the file exists), \
+`overwrite` (replace the whole file), or `append` (the file must exist and its column names \
+must match; the new rows are added to the end). Database files (`.sqlite` / `.duckdb`) are not \
+valid targets here - use `edit_table` or `run_sql` with `write_to`. Returns `rows_written`, \
+`cols_written`, `output`, and `mode`."
+    )]
+    async fn write_table(
+        &self,
+        Parameters(p): Parameters<tools::write_table::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::write_table::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Edit an existing tabular file in place and save it back through its native \
+writer. `set` updates individual cells (`row` is 0-based; `col` is a 0-based index or a column \
+name); `insert_rows` adds rows (`at` is the 0-based insertion index, omit to append; `values` \
+line up with the columns); `delete_rows` removes rows by 0-based index. SQLite / DuckDB sources \
+keep diff-based save semantics - only changed rows are UPDATE/INSERT/DELETE-d - so editing a \
+few cells does not rewrite the whole table. Column changes (rename / add / drop) are not \
+supported. Use `table` to pick the table on multi-table sources, and `unlimited: true` to load \
+the entire file before editing. Returns `cells_set`, `rows_inserted`, `rows_deleted`, and \
+`path`."
+    )]
+    async fn edit_table(
+        &self,
+        Parameters(p): Parameters<tools::edit_table::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::edit_table::handle(self, p).await
+    }
 }
 
 // `router = self.tool_router` tells the macro to dispatch via the pre-built
@@ -342,9 +425,10 @@ impl ServerHandler for OctaMcpServer {
              - `unlimited: true` - also lifts the streaming file-loader cap so the tool sees \
              every row on disk. Use both together to truly return every row.\n\
              Flags `truncated` / `cell_truncated` tell you when re-querying is worthwhile.\n\n\
-             Available tools: read_table, schema, list_tables, count_rows, run_sql, convert, \
-             export_schema, profile, find_duplicates, value_frequency, search, \
-             compare_schemas, validate_against_schema, describe_file, unique_columns."
+             Available tools: read_table, tail, sample, schema, list_tables, count_rows, \
+             run_sql, convert, export_schema, profile, find_duplicates, value_frequency, \
+             search, compare_schemas, diff_tables, validate_against_schema, describe_file, \
+             unique_columns."
         );
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::from_build_env())

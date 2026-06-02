@@ -45,21 +45,45 @@ picks between:
 - **Side-by-side** shows outputs to the right of the source cell
   (better use of wide screens, but compresses long outputs).
 
+## Editing cell source
+
+Cell **source is editable**. Click into any code or Markdown cell and
+type; code cells keep their syntax highlighting while you edit. The
+output blocks below each cell stay read-only.
+
+- Edits flow through the normal table machinery, so the **modified
+  marker**, **undo / redo** (`Ctrl+Z` / `Ctrl+Y`), and **Save** all
+  work exactly as in the table view.
+- **Read-only mode** (`F8`) disables editing, as it does everywhere
+  else in Octa.
+
+### Saving preserves outputs
+
+When you save an edited notebook, Octa reuses the original `.ipynb` as
+a template and rewrites only the cell **source** (and cell type),
+leaving each cell's **outputs**, **execution count**, and per-cell
+**metadata** intact, along with the notebook's top-level metadata
+(kernelspec, `nbformat`, etc.). Earlier versions rebuilt the file from
+scratch and dropped all outputs on save; that no longer happens.
+
+As in Jupyter, editing a cell does **not** re-run it, so an edited
+code cell keeps its previous (now possibly stale) output until you run
+it again in a kernel.
+
 ## What you can't do
 
-The notebook view is **read-only**. You can't:
+The notebook view still can't:
 
-- Run cells.
-- Edit cell content (use a Jupyter / VS Code instance for that, then
-  reload).
-- Add or delete cells.
+- Run cells (Octa has no kernel; use Jupyter / VS Code to execute).
+- Add or delete cells from the Notebook view itself.
 
 If you need to inspect the notebook's table-of-values structure
-(e.g. to filter all cells matching a pattern), switch to
-[**Table view**](../table-view.md). Each cell becomes a row with
-`cell_type`, `source`, `outputs`, etc. as columns. From there the
-[search bar](../search-and-filter.md) or
-[SQL panel](../sql.md) can filter the cells.
+(e.g. to filter all cells matching a pattern), or to add / delete
+cells, switch to [**Table view**](../table-view.md). Each cell becomes
+a row with `cell_type`, `source`, `outputs`, etc. as columns. From
+there the [search bar](../search-and-filter.md) or
+[SQL panel](../sql.md) can filter the cells, and the usual row
+insert / delete operations apply.
 
 ## Languages with syntax highlighting
 
@@ -81,7 +105,8 @@ Unknown languages fall back to plain monospace.
 ## Limitations
 
 - **No interactive widgets.** ipywidgets, Plotly, etc. don't render.
-- **No cell numbering edits.** Octa shows what's in the file.
+- **No cell execution.** Editing source does not run the cell or
+  refresh its output.
 - **No diffing**, though the [Compare view](compare.md) handles
   text-diffing two `.ipynb` files via the Table representation.
 

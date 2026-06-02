@@ -21,7 +21,8 @@ pub(crate) fn render_date_ambiguity_dialog(app: &mut OctaApp, ctx: &egui::Contex
         return;
     };
 
-    let title = format!("How should column '{}' be parsed?", state.col_name);
+    let title = octa::i18n::t("dialog.date_title");
+    let col_name = state.col_name.clone();
     let samples = state.samples.clone();
     let date_candidates = state.date_candidates.clone();
     let datetime_candidates = state.datetime_candidates.clone();
@@ -36,12 +37,17 @@ pub(crate) fn render_date_ambiguity_dialog(app: &mut OctaApp, ctx: &egui::Contex
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.label(
-                "These values can be read as more than one date format. \
-                 Pick the one that matches your data, or leave the column \
-                 as plain text.",
+                RichText::new(format!(
+                    "{}: '{}'",
+                    octa::i18n::t("dialog.date_column"),
+                    col_name
+                ))
+                .strong(),
             );
+            ui.add_space(4.0);
+            ui.label(octa::i18n::t("dialog.date_body"));
             ui.add_space(8.0);
-            ui.label(RichText::new("Sample values:").strong());
+            ui.label(RichText::new(octa::i18n::t("dialog.date_samples")).strong());
             for s in &samples {
                 ui.label(RichText::new(format!("  {s}")).monospace());
             }
@@ -60,7 +66,10 @@ pub(crate) fn render_date_ambiguity_dialog(app: &mut OctaApp, ctx: &egui::Contex
                 }
             }
             ui.add_space(8.0);
-            if ui.button("Leave as text").clicked() {
+            if ui
+                .button(octa::i18n::t("dialog.date_leave_as_text"))
+                .clicked()
+            {
                 choice = Some(Choice::Skip);
             }
         });

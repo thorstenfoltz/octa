@@ -16,14 +16,14 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
     if tab.delete_col_selection.len() != tab.table.col_count() {
         tab.delete_col_selection = vec![false; tab.table.col_count()];
     }
-    egui::Window::new("Delete Columns")
+    egui::Window::new(octa::i18n::t("dialog.delete_columns_title"))
         .open(&mut open)
         .resizable(true)
         .collapsible(false)
         .min_width(280.0)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
-            ui.label("Select columns to delete:");
+            ui.label(octa::i18n::t("dialog.delete_columns_prompt"));
             ui.add_space(6.0);
 
             let tab = &mut app.tabs[app.active_tab];
@@ -41,12 +41,12 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
 
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                if ui.small_button("All").clicked() {
+                if ui.small_button(octa::i18n::t("dialog.sel_all")).clicked() {
                     for v in &mut tab.delete_col_selection {
                         *v = true;
                     }
                 }
-                if ui.small_button("None").clicked() {
+                if ui.small_button(octa::i18n::t("dialog.sel_none")).clicked() {
                     for v in &mut tab.delete_col_selection {
                         *v = false;
                     }
@@ -58,12 +58,17 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
             ui.horizontal(|ui| {
                 let delete_btn = ui.add_enabled(
                     selected_count > 0,
-                    egui::Button::new(format!("Delete ({} selected)", selected_count)),
+                    egui::Button::new(format!(
+                        "{} ({} {})",
+                        octa::i18n::t("common.delete"),
+                        selected_count,
+                        octa::i18n::t("dialog.selected")
+                    )),
                 );
                 if delete_btn.clicked() {
                     should_delete = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(octa::i18n::t("common.cancel")).clicked() {
                     tab.show_delete_columns_dialog = false;
                 }
             });

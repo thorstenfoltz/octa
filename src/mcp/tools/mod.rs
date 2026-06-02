@@ -6,23 +6,28 @@ pub mod compare_schemas;
 pub mod convert;
 pub mod count_rows;
 pub mod describe_file;
+pub mod diff_tables;
+pub mod edit_table;
 pub mod export_schema;
 pub mod find_duplicates;
 pub mod list_tables;
 pub mod profile;
 pub mod read_table;
 pub mod run_sql;
+pub mod sample;
 pub mod schema;
 pub mod search;
+pub mod tail;
 pub mod unique_columns;
 pub mod validate_schema;
 pub mod value_frequency;
+pub mod write_table;
 
 use std::path::Path;
 
 use serde_json::{Map, Value};
 
-use octa::data::{CellValue, DataTable};
+use octa::data::{CellValue, ColumnInfo, DataTable};
 use octa::formats::FormatRegistry;
 
 /// Read a file with the registry. Honours `table` when the source supports
@@ -141,6 +146,104 @@ fn cell_to_json(cell: &CellValue, cell_byte_cap: usize) -> (Value, bool) {
     (Value::String(marker), true)
 }
 
+/// Convert a JSON value into a [`CellValue`], biased by the column's Arrow
+/// type string. Inverse of [`cell_to_json`]. JSON arrays / objects are stored
+/// verbatim as `Nested` (their serialized text). A string targeting a `Binary`
+/// column is hex-decoded when it is valid hex; otherwise it stays a `String`.
+pub fn cell_from_json(value: &Value, data_type: &str) -> CellValue {
+    match value {
+        Value::Null => CellValue::Null,
+        Value::Bool(b) => CellValue::Bool(*b),
+        Value::Number(n) => {
+            let wants_int = data_type.starts_with("Int") || data_type.starts_with("UInt");
+            // Int column + integral JSON -> Int. Otherwise prefer Float, then
+            // fall back to Int for big integers a column type didn't ask for.
+            if let Some(i) = n.as_i64().filter(|_| wants_int) {
+                CellValue::Int(i)
+            } else if let Some(f) = n.as_f64() {
+                CellValue::Float(f)
+            } else if let Some(i) = n.as_i64() {
+                CellValue::Int(i)
+            } else {
+                CellValue::String(n.to_string())
+            }
+        }
+        Value::String(s) => {
+            if data_type == "Date32" || data_type == "Date64" {
+                CellValue::Date(s.clone())
+            } else if data_type.starts_with("Timestamp") {
+                CellValue::DateTime(s.clone())
+            } else if data_type == "Binary" {
+                match hex_decode(s) {
+                    Some(bytes) => CellValue::Binary(bytes),
+                    None => CellValue::String(s.clone()),
+                }
+            } else {
+                CellValue::String(s.clone())
+            }
+        }
+        Value::Array(_) | Value::Object(_) => CellValue::Nested(value.to_string()),
+    }
+}
+
+/// Decode an even-length ASCII hex string into bytes. Returns `None` on any
+/// non-hex character or odd length.
+fn hex_decode(s: &str) -> Option<Vec<u8>> {
+    if !s.len().is_multiple_of(2) {
+        return None;
+    }
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(s.len() / 2);
+    for pair in bytes.chunks(2) {
+        let hi = (pair[0] as char).to_digit(16)?;
+        let lo = (pair[1] as char).to_digit(16)?;
+        out.push((hi * 16 + lo) as u8);
+    }
+    Some(out)
+}
+
+/// Build a fresh [`DataTable`] from a column spec (name + Arrow type) and
+/// positional rows (array-of-arrays, matching the shape `table_to_json`
+/// emits). Every row must have exactly `columns.len()` cells. `source_path`
+/// and `format_name` are left unset for the caller to fill if desired.
+pub fn build_data_table(
+    columns: &[(String, String)],
+    rows: &[Vec<Value>],
+) -> anyhow::Result<DataTable> {
+    if columns.is_empty() {
+        anyhow::bail!("at least one column is required");
+    }
+    let col_count = columns.len();
+    let column_infos: Vec<ColumnInfo> = columns
+        .iter()
+        .map(|(name, data_type)| ColumnInfo {
+            name: name.clone(),
+            data_type: data_type.clone(),
+        })
+        .collect();
+
+    let mut table_rows: Vec<Vec<CellValue>> = Vec::with_capacity(rows.len());
+    for (i, row) in rows.iter().enumerate() {
+        if row.len() != col_count {
+            anyhow::bail!(
+                "row {i} has {} cell(s) but the table has {col_count} column(s)",
+                row.len()
+            );
+        }
+        let cells: Vec<CellValue> = row
+            .iter()
+            .enumerate()
+            .map(|(c, v)| cell_from_json(v, &columns[c].1))
+            .collect();
+        table_rows.push(cells);
+    }
+
+    let mut table = DataTable::empty();
+    table.columns = column_infos;
+    table.rows = table_rows;
+    Ok(table)
+}
+
 /// Serialise a `DataTable`'s schema only (no rows).
 pub fn schema_to_json(table: &DataTable) -> Value {
     let schema: Vec<Value> = table
@@ -157,4 +260,87 @@ pub fn schema_to_json(table: &DataTable) -> Value {
     out.insert("columns".to_string(), Value::Array(schema));
     out.insert("column_count".to_string(), Value::from(table.col_count()));
     Value::Object(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn cell_from_json_coerces_by_type() {
+        assert_eq!(cell_from_json(&Value::Null, "Int64"), CellValue::Null);
+        assert_eq!(
+            cell_from_json(&json!(true), "Boolean"),
+            CellValue::Bool(true)
+        );
+        assert_eq!(cell_from_json(&json!(42), "Int64"), CellValue::Int(42));
+        // Integer JSON into a float column promotes to Float.
+        assert_eq!(
+            cell_from_json(&json!(42), "Float64"),
+            CellValue::Float(42.0)
+        );
+        assert_eq!(
+            cell_from_json(&json!(1.5), "Float64"),
+            CellValue::Float(1.5)
+        );
+        // Float JSON into an int column cannot be an int -> Float.
+        assert_eq!(cell_from_json(&json!(1.5), "Int64"), CellValue::Float(1.5));
+        assert_eq!(
+            cell_from_json(&json!("hi"), "Utf8"),
+            CellValue::String("hi".to_string())
+        );
+        assert_eq!(
+            cell_from_json(&json!("2024-01-02"), "Date32"),
+            CellValue::Date("2024-01-02".to_string())
+        );
+        assert_eq!(
+            cell_from_json(
+                &json!("2024-01-02T03:04:05"),
+                "Timestamp(Microsecond, None)"
+            ),
+            CellValue::DateTime("2024-01-02T03:04:05".to_string())
+        );
+    }
+
+    #[test]
+    fn cell_from_json_binary_hex_roundtrip() {
+        assert_eq!(
+            cell_from_json(&json!("00ff10"), "Binary"),
+            CellValue::Binary(vec![0x00, 0xff, 0x10])
+        );
+        // Non-hex falls back to a plain string rather than erroring.
+        assert_eq!(
+            cell_from_json(&json!("zzz"), "Binary"),
+            CellValue::String("zzz".to_string())
+        );
+    }
+
+    #[test]
+    fn cell_from_json_nested_for_containers() {
+        assert_eq!(
+            cell_from_json(&json!([1, 2]), "Utf8"),
+            CellValue::Nested("[1,2]".to_string())
+        );
+    }
+
+    #[test]
+    fn build_data_table_validates_arity() {
+        let cols = vec![
+            ("id".to_string(), "Int64".to_string()),
+            ("name".to_string(), "Utf8".to_string()),
+        ];
+        let rows = vec![vec![json!(1), json!("a")], vec![json!(2), json!("b")]];
+        let t = build_data_table(&cols, &rows).unwrap();
+        assert_eq!(t.row_count(), 2);
+        assert_eq!(t.col_count(), 2);
+        assert_eq!(t.get(0, 0), Some(&CellValue::Int(1)));
+        assert_eq!(t.get(1, 1), Some(&CellValue::String("b".to_string())));
+
+        // Wrong arity is rejected.
+        let bad = vec![vec![json!(1)]];
+        assert!(build_data_table(&cols, &bad).is_err());
+        // Empty columns rejected.
+        assert!(build_data_table(&[], &[]).is_err());
+    }
 }

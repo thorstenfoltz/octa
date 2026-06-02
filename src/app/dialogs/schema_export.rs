@@ -68,9 +68,13 @@ pub(crate) fn render_schema_export_dialog(app: &mut OctaApp, ctx: &egui::Context
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new(format!("Schema Export - {}", target.label()))
-                            .strong()
-                            .size(16.0),
+                        RichText::new(format!(
+                            "{} - {}",
+                            octa::i18n::t("dialog.se_title"),
+                            target.label()
+                        ))
+                        .strong()
+                        .size(16.0),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -88,19 +92,27 @@ pub(crate) fn render_schema_export_dialog(app: &mut OctaApp, ctx: &egui::Context
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.button("Close").clicked() {
+                    if ui.button(octa::i18n::t("common.close")).clicked() {
                         close_requested = true;
                     }
-                    if ui.button("Copy to clipboard").clicked() {
+                    if ui
+                        .button(octa::i18n::t("dialog.se_copy_clipboard"))
+                        .clicked()
+                    {
                         copy_payload = Some(rendered.clone());
                     }
-                    if ui.button("Save as...").clicked() {
+                    if ui.button(octa::i18n::t("common.save_as")).clicked() {
                         save_payload = Some((rendered.clone(), target.extension()));
                     }
                     ui.label(
-                        RichText::new(format!("{} columns from {}", columns.len(), table_name))
-                            .size(10.0)
-                            .color(ui.visuals().weak_text_color()),
+                        RichText::new(format!(
+                            "{} {} {}",
+                            columns.len(),
+                            octa::i18n::t("dialog.se_columns_from"),
+                            table_name
+                        ))
+                        .size(10.0)
+                        .color(ui.visuals().weak_text_color()),
                     );
                 });
             });
@@ -109,7 +121,7 @@ pub(crate) fn render_schema_export_dialog(app: &mut OctaApp, ctx: &egui::Context
             .frame(egui::Frame::default())
             .show_inside(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label("Target:");
+                    ui.label(octa::i18n::t("dialog.se_target"));
                     for &t in SchemaTarget::ALL {
                         if ui.selectable_label(t == target, t.label()).clicked() {
                             new_target = t;
@@ -133,10 +145,7 @@ pub(crate) fn render_schema_export_dialog(app: &mut OctaApp, ctx: &egui::Context
 
     if let Some(payload) = copy_payload {
         ctx.copy_text(payload);
-        app.status_message = Some((
-            format!("Copied {} schema to clipboard", target.label()),
-            std::time::Instant::now(),
-        ));
+        app.status_message = Some((octa::i18n::t("dialog.se_copied"), std::time::Instant::now()));
     }
 
     if let Some((payload, ext)) = save_payload {
@@ -190,7 +199,7 @@ fn save_to_disk(
         return;
     }
     app.status_message = Some((
-        format!("Saved {} schema to {}", target_label, path.display()),
+        format!("{} {}", octa::i18n::t("dialog.se_saved_to"), path.display()),
         std::time::Instant::now(),
     ));
 }
@@ -204,7 +213,7 @@ fn save_to_disk(
 pub(crate) fn open(app: &mut OctaApp) {
     if app.tabs[app.active_tab].table.col_count() == 0 {
         app.status_message = Some((
-            "Schema export: active tab has no columns".to_string(),
+            octa::i18n::t("dialog.se_no_columns"),
             std::time::Instant::now(),
         ));
         return;

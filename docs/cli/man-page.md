@@ -21,6 +21,8 @@ MCP server.
 octa [FILE...]
 octa --schema FILE [-f FORMAT] [--rows N|all]
 octa --head FILE [-n N] [-f FORMAT] [--rows N|all]
+octa --tail FILE [-n N] [-f FORMAT] [--rows N|all]
+octa --sample FILE [-n N] [--seed N] [-f FORMAT] [--rows N|all]
 octa --convert IN OUT [--rows N|all]
 octa --sql FILE -q QUERY [-f FORMAT] [--rows N|all]
      [--sql-table NAME=PATH ...] [--sql-attach ALIAS=PATH ...]
@@ -28,6 +30,7 @@ octa --sql FILE -q QUERY [-f FORMAT] [--rows N|all]
        [--sql-write-schema SCHEMA] [--sql-write-mode create|append|replace]]
 octa --export-schema FILE [-t TARGET]
 octa --compare-schemas FILE_A FILE_B [--table-a NAME] [--table-b NAME] [-f FORMAT]
+octa --diff FILE_A FILE_B [-f FORMAT]
 octa --describe FILE [--table NAME] [--sample-rows N] [-f FORMAT]
 octa --validate-schema FILE --expect-schema SCHEMA_FILE [--table NAME] [-f FORMAT]
 octa --unique-columns FILE [--table NAME] [--max-combo N] [-f FORMAT]
@@ -44,10 +47,10 @@ comparison.
 
 When invoked with no flags, it launches the graphical interface,
 optionally opening the supplied *FILE*(s) in tabs. When invoked
-with one of the action flags (`--schema`, `--head`, `--convert`,
-`--sql`, `--export-schema`, `--compare-schemas`, `--describe`,
-`--validate-schema`, `--unique-columns`, `--mcp`), it performs that
-action and exits.
+with one of the action flags (`--schema`, `--head`, `--tail`,
+`--sample`, `--convert`, `--sql`, `--export-schema`,
+`--compare-schemas`, `--diff`, `--describe`, `--validate-schema`,
+`--unique-columns`, `--mcp`), it performs that action and exits.
 
 Action flags are **mutually exclusive**. Trailing *FILE* arguments
 are ignored (with a warning) when an action flag is set.
@@ -66,6 +69,18 @@ are ignored (with a warning) when an action flag is set.
     defaults to 20 and is set with `-n` / `--lines`. For streaming
     formats, the reader stops at the initial-load cap and *N* is a
     slice off that. See [`octa --head`](head.md).
+
+`--tail FILE`
+:   Print the last *N* rows of *FILE*. *N* defaults to 20 (`-n` /
+    `--lines`). Streaming formats load with the initial-row cap, so
+    the tail reflects the end of the loaded window; raise `--rows` to
+    tail the true end of a very large file.
+
+`--sample FILE`
+:   Print a random *N*-row sample of *FILE* (without replacement,
+    original row order preserved). *N* defaults to 20 (`-n` /
+    `--lines`); the sample is reproducible for a given `--seed`
+    (default 0).
 
 `--convert IN OUT`
 :   Convert *IN* to *OUT*. Both formats are inferred from each
@@ -101,6 +116,15 @@ are ignored (with a warning) when an action flag is set.
     `--table-b` to pick a specific table on multi-table sources.
     See [`octa --compare-schemas`](compare-schemas.md).
 
+`--diff FILE_A FILE_B`
+:   Row-level diff of two files. Compares rows by whole-row content
+    (every column, positionally) and prints the rows present in only
+    one side, tagged by a leading `status` column (`only_in_a` /
+    `only_in_b`); a summary line (shared / only-in-A / only-in-B
+    counts) goes to standard error. The two files should share the
+    same column order. Complements `--compare-schemas`, which diffs
+    only the column metadata.
+
 `--describe FILE`
 :   Print a one-shot orientation snapshot of *FILE*: format, file
     size, row count, column schema, and a small sample of rows.
@@ -122,11 +146,13 @@ are ignored (with a warning) when an action flag is set.
 
 `--mcp`
 :   Start a Model Context Protocol (MCP) server on standard
-    input / output. Fifteen tools are exposed: `read_table`,
-    `schema`, `list_tables`, `count_rows`, `run_sql`, `convert`,
-    `export_schema`, `profile`, `find_duplicates`,
-    `value_frequency`, `search`, `compare_schemas`, `describe_file`,
-    `validate_against_schema`, `unique_columns`. Defaults for the
+    input / output. Twenty tools are exposed: `read_table`,
+    `tail`, `sample`, `schema`, `list_tables`, `count_rows`,
+    `run_sql`, `convert`, `export_schema`, `profile`,
+    `find_duplicates`, `value_frequency`, `search`,
+    `compare_schemas`, `diff_tables`, `describe_file`,
+    `validate_against_schema`, `unique_columns`, `write_table`,
+    `edit_table`. Defaults for the
     row limit and per-cell byte cap come from the user's Octa
     settings ([Settings → MCP](../reference/settings.md#mcp)). See
     the [MCP server guide](../mcp/index.md) for setup.
@@ -134,7 +160,10 @@ are ignored (with a warning) when an action flag is set.
 ## Options
 
 `-n N`, `--lines N`
-:   Row count for `--head`. Default **20**.
+:   Row count for `--head`, `--tail`, and `--sample`. Default **20**.
+
+`--seed N`
+:   Seed for `--sample`, for reproducible output. Default **0**.
 
 `-q QUERY`, `--query QUERY`
 :   SQL query string for `--sql`. Always reference the file's data
@@ -265,6 +294,13 @@ Print the first 5 rows of a CSV as JSON:
 octa --head data.csv -n 5 -f json
 ```
 
+Print the last rows / a reproducible random sample:
+
+```bash
+octa --tail data.csv -n 5
+octa --sample data.parquet -n 20 --seed 1
+```
+
 Convert formats:
 
 ```bash
@@ -332,6 +368,13 @@ Diff the schemas of two files:
 ```bash
 octa --compare-schemas v1.parquet v2.parquet
 octa --compare-schemas a.sqlite b.sqlite --table-a users --table-b users -f json
+```
+
+Diff two files' rows:
+
+```bash
+octa --diff v1.csv v2.csv
+octa --diff a.parquet b.parquet -f json
 ```
 
 One-shot file snapshot:
@@ -409,6 +452,10 @@ over JSON-RPC on stdin/stdout. Fifteen tools are exposed:
   checks a file against a JSON Schema.
 - [`unique_columns(path, table?, max_combo_size?, unlimited?)`](../mcp/tools/unique_columns.md)
   finds primary-key candidates.
+- [`write_table(path, columns, rows?, mode?, unlimited?)`](../mcp/tools/write_table.md)
+  writes inline rows to a new file (create / overwrite / append).
+- [`edit_table(path, table?, set?, insert_rows?, delete_rows?, unlimited?)`](../mcp/tools/edit_table.md)
+  edits an existing file in place (DB sources diff-saved).
 
 Defaults (the response row cap of 1000 rows, per-cell byte cap of
 64 KiB, and file-loader cap of 5,000,000 rows) are configurable

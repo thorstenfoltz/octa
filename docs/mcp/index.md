@@ -2,7 +2,7 @@
 
 Octa includes a built-in **MCP (Model Context Protocol) server**.
 Run `octa --mcp` and Octa speaks JSON-RPC over stdin/stdout,
-exposing eleven tools that let an MCP-aware client (Claude Desktop,
+exposing twenty tools that let an MCP-aware client (Claude Desktop,
 Claude Code, MCP Inspector, etc.) interact with your local data
 files.
 
@@ -24,21 +24,30 @@ Octa via stdio (the AI process spawns `octa --mcp` as a subprocess),
 and no network calls leave your machine for the data operations
 themselves. Your files stay on disk.
 
-## The eleven tools
+## The twenty tools
 
-| Tool              | What it does                                  | Reference                         |
-|-------------------|-----------------------------------------------|-----------------------------------|
-| `read_table`      | Load a file and return schema + rows as JSON  | [→ doc](tools/read_table.md)      |
-| `schema`          | Return column schema only (no rows)           | [→ doc](tools/schema.md)          |
-| `list_tables`     | List tables in a multi-table source           | [→ doc](tools/list_tables.md)     |
-| `count_rows`      | Count rows in a tabular file                  | [→ doc](tools/count_rows.md)      |
-| `run_sql`         | Run a DuckDB SQL query against a file         | [→ doc](tools/run_sql.md)         |
-| `convert`         | Convert a file from one format to another     | [→ doc](tools/convert.md)         |
-| `export_schema`   | Render the schema as DDL / a model / a struct | [→ doc](tools/export_schema.md)   |
-| `profile`         | Per-column statistics via `SUMMARIZE`         | [→ doc](tools/profile.md)         |
-| `find_duplicates` | Find rows sharing key-column values           | [→ doc](tools/find_duplicates.md) |
-| `value_frequency` | Count per-column values (`value_counts`)      | [→ doc](tools/value_frequency.md) |
-| `search`          | Match cells across every column               | [→ doc](tools/search.md)          |
+| Tool                       | What it does                                  | Reference                                |
+|----------------------------|-----------------------------------------------|------------------------------------------|
+| `read_table`               | Load a file and return schema + rows as JSON  | [→ doc](tools/read_table.md)             |
+| `tail`                     | Return the last N rows of a file              | [→ doc](tools/tail.md)                   |
+| `sample`                   | Reproducible random N-row sample              | [→ doc](tools/sample.md)                 |
+| `schema`                   | Return column schema only (no rows)           | [→ doc](tools/schema.md)                 |
+| `list_tables`              | List tables in a multi-table source           | [→ doc](tools/list_tables.md)            |
+| `count_rows`               | Count rows in a tabular file                  | [→ doc](tools/count_rows.md)             |
+| `run_sql`                  | Run a DuckDB SQL query against a file         | [→ doc](tools/run_sql.md)                |
+| `convert`                  | Convert a file from one format to another     | [→ doc](tools/convert.md)                |
+| `export_schema`            | Render the schema as DDL / a model / a struct | [→ doc](tools/export_schema.md)          |
+| `profile`                  | Per-column statistics via `SUMMARIZE`         | [→ doc](tools/profile.md)                |
+| `find_duplicates`          | Find rows sharing key-column values           | [→ doc](tools/find_duplicates.md)        |
+| `value_frequency`          | Count per-column values (`value_counts`)      | [→ doc](tools/value_frequency.md)        |
+| `search`                   | Match cells across every column               | [→ doc](tools/search.md)                 |
+| `compare_schemas`          | Diff the column metadata of two files         | [→ doc](tools/compare_schemas.md)        |
+| `diff_tables`              | Row-level diff of two files                   | [→ doc](tools/diff_tables.md)            |
+| `describe_file`            | One-shot orientation snapshot                 | [→ doc](tools/describe_file.md)          |
+| `validate_against_schema`  | Validate columns against a JSON Schema        | [→ doc](tools/validate_against_schema.md)|
+| `unique_columns`           | Unique columns / key candidates               | [→ doc](tools/unique_columns.md)         |
+| `write_table`              | Write inline rows to a new file               | [→ doc](tools/write_table.md)            |
+| `edit_table`               | Set cells / insert / delete rows in place     | [→ doc](tools/edit_table.md)             |
 
 Every tool that returns rows respects a configurable response
 row limit (default 1000) and cell byte cap (default 64 KiB),

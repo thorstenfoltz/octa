@@ -10,12 +10,15 @@ octa file1.csv file2.json       # launch GUI, open both files in tabs
 
 octa --schema data.parquet      # action: print schema
 octa --head data.csv -n 50      # action: first 50 rows
+octa --tail data.csv -n 50      # action: last 50 rows
+octa --sample data.csv -n 50 --seed 1   # reproducible random sample
 octa --convert in.csv out.parquet
 octa --sql data.parquet -q 'SELECT count(*) FROM data'
 octa --sql sales.parquet --sql-table customers=customers.csv \
      -q 'SELECT c.name, SUM(s.amount) FROM data s JOIN customers c ON s.cid=c.cid GROUP BY c.name'
 octa --export-schema data.parquet -t snowflake
 octa --compare-schemas v1.parquet v2.parquet
+octa --diff v1.parquet v2.parquet
 octa --describe data.parquet
 octa --validate-schema data.parquet --expect-schema expected.json
 octa --unique-columns users.csv --max-combo 2
@@ -42,10 +45,13 @@ self-contained bundle; invoke it directly:
 |-------------------------------------------------|-----------------------------------------------|---------------------------------------------|
 | `--schema FILE`                                 | Print column name + type as a table           | [→ `--schema`](schema.md)                   |
 | `--head FILE [-n N]`                            | Print the first N rows (default 20)           | [→ `--head`](head.md)                       |
+| `--tail FILE [-n N]`                            | Print the last N rows (default 20)            | [→ `--tail`](tail.md)                       |
+| `--sample FILE [-n N] [--seed S]`               | Print a reproducible random N-row sample      | [→ `--sample`](sample.md)                   |
 | `--convert IN OUT`                              | Convert between formats                       | [→ `--convert`](convert.md)                 |
 | `--sql FILE -q '<query>'`                       | Run a SQL query against a file                | [→ `--sql`](sql.md)                         |
 | `--export-schema FILE [-t T]`                   | Render the schema as DDL / model / struct     | [→ `--export-schema`](export-schema.md)     |
 | `--compare-schemas A B`                         | Diff the schemas of two files                 | [→ `--compare-schemas`](compare-schemas.md) |
+| `--diff A B`                                    | Row-level diff: rows unique to each file      | [→ `--diff`](diff.md)                       |
 | `--describe FILE`                               | One-shot snapshot: format + schema + sample   | [→ `--describe`](describe.md)               |
 | `--validate-schema FILE --expect-schema SCHEMA` | Validate against JSON Schema (exit 1 = drift) | [→ `--validate-schema`](validate-schema.md) |
 | `--unique-columns FILE`                         | Find PK candidates (singles + combos)         | [→ `--unique-columns`](unique-columns.md)   |
@@ -59,8 +65,9 @@ These apply across actions (where they make sense):
 
 | Flag                      | Applies to                                                                                                | Default     | Meaning                                                                                                                              |
 |---------------------------|-----------------------------------------------------------------------------------------------------------|-------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| `-f`, `--format` _FORMAT_ | `--schema`, `--head`, `--sql`, `--compare-schemas`, `--describe`, `--validate-schema`, `--unique-columns` | `tsv`       | Output format: `tsv`, `json`, or `csv`. Ignored by `--convert`, `--export-schema`, and `--mcp`.                                      |
-| `-n`, `--lines` _N_       | `--head`                                                                                                  | `20`        | Number of rows to print.                                                                                                             |
+| `-f`, `--format` _FORMAT_ | `--schema`, `--head`, `--tail`, `--sample`, `--sql`, `--compare-schemas`, `--diff`, `--describe`, `--validate-schema`, `--unique-columns` | `tsv`       | Output format: `tsv`, `json`, or `csv`. Ignored by `--convert`, `--export-schema`, and `--mcp`.                                      |
+| `-n`, `--lines` _N_       | `--head`, `--tail`, `--sample`                                                                            | `20`        | Number of rows to print / sample.                                                                                                    |
+| `--seed` _N_              | `--sample`                                                                                                | `0`         | RNG seed for `--sample`; same seed + file yields the same sample.                                                                    |
 | `-q`, `--query` _QUERY_   | `--sql`                                                                                                   | (required)  | Required for `--sql`. The query string; reference the file as `data`.                                                                |
 | `--sql-table NAME=PATH`   | `--sql`                                                                                                   | (none)      | Register an extra file as a workspace table named `NAME`. Repeatable. Any supported format.                                          |
 | `--sql-attach ALIAS=PATH` | `--sql`                                                                                                   | (none)      | `ATTACH` a DuckDB or SQLite database under `ALIAS`. Repeatable.                                                                      |

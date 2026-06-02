@@ -159,9 +159,10 @@ impl OctaApp {
                 view_modes::render_notebook_view(
                     ctx,
                     ui,
-                    &self.tabs[self.active_tab],
+                    &mut self.tabs[self.active_tab],
                     self.theme_mode,
                     self.settings.notebook_output_layout,
+                    self.readonly_mode,
                 );
                 return;
             }

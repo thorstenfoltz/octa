@@ -25,6 +25,13 @@ impl NotebookOutputLayout {
             Self::Beneath => "Beneath",
         }
     }
+
+    pub fn label_t(self) -> String {
+        crate::i18n::t(match self {
+            Self::Beside => "enum.nb_beside",
+            Self::Beneath => "enum.nb_beneath",
+        })
+    }
 }
 
 /// Where to dock the directory tree sidebar.
@@ -45,6 +52,13 @@ impl DirectoryTreePosition {
             Self::Left => "Left",
             Self::Right => "Right",
         }
+    }
+
+    pub fn label_t(self) -> String {
+        crate::i18n::t(match self {
+            Self::Left => "enum.pos_left",
+            Self::Right => "enum.pos_right",
+        })
     }
 }
 
@@ -72,6 +86,15 @@ impl SqlPanelPosition {
             Self::Left => "Left",
             Self::Right => "Right",
         }
+    }
+
+    pub fn label_t(self) -> String {
+        crate::i18n::t(match self {
+            Self::Bottom => "enum.pos_bottom",
+            Self::Top => "enum.pos_top",
+            Self::Left => "enum.pos_left",
+            Self::Right => "enum.pos_right",
+        })
     }
 }
 
@@ -105,6 +128,14 @@ impl SqlEditorFont {
             Self::SystemMonospace => "System monospace",
         }
     }
+
+    pub fn label_t(self) -> String {
+        crate::i18n::t(match self {
+            Self::JetBrainsMono => "enum.sef_jetbrains",
+            Self::MatchUiFont => "enum.sef_match_ui",
+            Self::SystemMonospace => "enum.sef_system_mono",
+        })
+    }
 }
 
 /// Display unit for the syntax-highlight size cap in the Settings dialog.
@@ -128,6 +159,14 @@ impl SyntaxSizeUnit {
             Self::Bytes => "Bytes",
             Self::KB => "KB",
             Self::MB => "MB",
+        }
+    }
+
+    pub fn label_t(self) -> String {
+        match self {
+            Self::Bytes => crate::i18n::t("enum.unit_bytes"),
+            Self::KB => "KB".to_string(),
+            Self::MB => "MB".to_string(),
         }
     }
 
@@ -617,10 +656,28 @@ pub struct AppSettings {
     /// handful of tables. Default 10.
     #[serde(default = "default_table_picker_visible_rows")]
     pub table_picker_visible_rows: usize,
+    /// UI language code (e.g. "en", "de", "fr"). Drives `octa::i18n`. Unknown
+    /// or unsupported codes fall back to English at apply time. Default "en".
+    #[serde(default = "default_language")]
+    pub language: String,
+    /// When a delimited text file (CSV / TSV) reads but looks malformed
+    /// (invalid encoding, a leading BOM, control characters, a delimiter that
+    /// disagrees with the extension, or wildly ragged rows), offer an
+    /// interactive repair prompt instead of failing or loading garbage. Off by
+    /// default so normal loads are never interrupted; opt in under
+    /// Settings -> Performance. The repair itself (lossy decode, delimiter
+    /// re-detection, BOM/control stripping) is only applied if the user
+    /// confirms it in the prompt.
+    #[serde(default)]
+    pub offer_repair_on_malformed: bool,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_language() -> String {
+    "en".to_string()
 }
 
 fn default_max_recent() -> usize {
@@ -738,6 +795,8 @@ impl Default for AppSettings {
             excel_max_auto_sheets: default_excel_max_auto_sheets(),
             trim_whitespace_on_load: true,
             warn_on_whitespace_trim: true,
+            offer_repair_on_malformed: false,
+            language: default_language(),
         }
     }
 }
@@ -928,7 +987,7 @@ pub fn draw_window_controls(ui: &mut egui::Ui, size: &mut DialogSize) -> bool {
     // Close - bold lowercase `x`.
     if ui
         .add(egui::Button::new(egui::RichText::new("x").size(15.0).strong()).min_size(btn_size))
-        .on_hover_text("Close")
+        .on_hover_text(crate::i18n::t("settings_hint.ctrl_close"))
         .clicked()
     {
         close = true;
@@ -941,7 +1000,11 @@ pub fn draw_window_controls(ui: &mut egui::Ui, size: &mut DialogSize) -> bool {
                 .selected(max_active)
                 .min_size(btn_size),
         )
-        .on_hover_text(if max_active { "Restore" } else { "Full size" })
+        .on_hover_text(if max_active {
+            crate::i18n::t("settings_hint.ctrl_restore")
+        } else {
+            crate::i18n::t("settings_hint.ctrl_full_size")
+        })
         .clicked()
     {
         *size = if max_active {
@@ -960,7 +1023,11 @@ pub fn draw_window_controls(ui: &mut egui::Ui, size: &mut DialogSize) -> bool {
                 .selected(min_active)
                 .min_size(btn_size),
         )
-        .on_hover_text(if min_active { "Restore" } else { "Minimise" })
+        .on_hover_text(if min_active {
+            crate::i18n::t("settings_hint.ctrl_restore")
+        } else {
+            crate::i18n::t("settings_hint.ctrl_minimise")
+        })
         .clicked()
     {
         *size = if min_active {

@@ -16,14 +16,14 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     }
     let mut open = true;
     let mut should_add = false;
-    egui::Window::new("Insert Column")
+    egui::Window::new(octa::i18n::t("dialog.add_column_title"))
         .open(&mut open)
         .resizable(false)
         .collapsible(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Name:");
+                ui.label(octa::i18n::t("dialog.field_name"));
                 ui.text_edit_singleline(&mut app.tabs[app.active_tab].new_col_name);
             });
             // Autofill: show existing column names that match what the user
@@ -45,7 +45,7 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 if !matches.is_empty() {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(
-                            RichText::new("Autofill:")
+                            RichText::new(octa::i18n::t("dialog.autofill"))
                                 .size(10.0)
                                 .color(ui.visuals().weak_text_color()),
                         );
@@ -58,7 +58,7 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 }
             }
             ui.horizontal(|ui| {
-                ui.label("Type:");
+                ui.label(octa::i18n::t("dialog.field_type"));
                 egui::ComboBox::from_id_salt("col_type_combo")
                     .selected_text(app.tabs[app.active_tab].new_col_type.as_str())
                     .show_ui(ui, |ui| {
@@ -73,7 +73,7 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             });
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label("Insert at position:");
+                ui.label(octa::i18n::t("dialog.insert_at_position"));
                 let col_count = app.tabs[app.active_tab].table.col_count();
                 // Plain text input instead of DragValue - DragValue draws
                 // hover spinner arrows that look out of place in this dialog
@@ -109,26 +109,25 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 ui.label(format!("/ {}", col_count + 1));
             });
             ui.horizontal(|ui| {
-                ui.label("Formula:");
+                ui.label(octa::i18n::t("dialog.field_formula"));
                 ui.add(
                     egui::TextEdit::singleline(&mut app.tabs[app.active_tab].new_col_formula)
-                        .hint_text("e.g. =A1+B1 or =A1*2"),
+                        .hint_text(octa::i18n::t("dialog.formula_hint")),
                 );
             });
             ui.label(
-                RichText::new(
-                    "Tip: click a column header to set insert position. \
-                     Formula uses Excel-style references (A1, B2, ...) with +, -, *, /.",
-                )
-                .size(10.0)
-                .color(ui.visuals().weak_text_color()),
+                RichText::new(octa::i18n::t("dialog.add_column_tip"))
+                    .size(10.0)
+                    .color(ui.visuals().weak_text_color()),
             );
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Add").clicked() && !app.tabs[app.active_tab].new_col_name.is_empty() {
+                if ui.button(octa::i18n::t("common.add")).clicked()
+                    && !app.tabs[app.active_tab].new_col_name.is_empty()
+                {
                     should_add = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(octa::i18n::t("common.cancel")).clicked() {
                     app.tabs[app.active_tab].show_add_column_dialog = false;
                 }
             });
@@ -183,11 +182,14 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     .map(|c| c.name.as_str())
                     .unwrap_or("?");
                 app.tabs[app.active_tab].parse_error_banner = Some(format!(
-                    "Formula skipped {} of {} row(s); first non-numeric reference: \
-                     column \"{}\" row {} = {:?}",
+                    "{} {}/{} {}; {} \"{}\" {} {} = {:?}",
+                    octa::i18n::t("dialog.formula_skipped"),
                     skipped,
                     row_count,
+                    octa::i18n::t("dialog.formula_rows"),
+                    octa::i18n::t("dialog.formula_first_ref"),
                     col_name,
+                    octa::i18n::t("dialog.formula_row"),
                     bad.row + 1,
                     bad.content
                 ));

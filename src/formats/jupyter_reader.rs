@@ -144,58 +144,140 @@ fn extract_outputs(value: Option<&Value>) -> String {
     parts.join("\n")
 }
 
+/// Encode a cell's source text as the notebook multiline form: one
+/// `"line\n"` string per line, with no trailing newline on the last line
+/// unless the source itself ended with one.
+fn source_to_array(source: &str) -> Value {
+    let mut lines: Vec<Value> = source
+        .lines()
+        .map(|l| Value::String(format!("{}\n", l)))
+        .collect();
+    if lines.is_empty() {
+        return Value::Array(vec![]);
+    }
+    if !source.ends_with('\n')
+        && let Some(Value::String(s)) = lines.last_mut()
+    {
+        s.pop(); // drop the trailing \n we added to the final line
+    }
+    Value::Array(lines)
+}
+
+/// Build a fresh cell object from scratch (used for tables not backed by an
+/// original notebook, and for rows appended past the original cell count).
+/// Code cells get an empty `outputs` + null `execution_count`.
+fn fresh_cell(cell_type: &str, source: &str) -> Value {
+    let mut cell_obj = serde_json::Map::new();
+    cell_obj.insert(
+        "cell_type".to_string(),
+        Value::String(cell_type.to_string()),
+    );
+    cell_obj.insert(
+        "metadata".to_string(),
+        Value::Object(serde_json::Map::new()),
+    );
+    cell_obj.insert("source".to_string(), source_to_array(source));
+    if cell_type == "code" {
+        cell_obj.insert("execution_count".to_string(), Value::Null);
+        cell_obj.insert("outputs".to_string(), Value::Array(vec![]));
+    }
+    Value::Object(cell_obj)
+}
+
+/// Read the `cell_type` (col 1) and `source` (col 2) for one table row.
+fn row_type_and_source(table: &DataTable, row: usize) -> (String, String) {
+    let cell_type = match table.get(row, 1) {
+        Some(CellValue::String(s)) => s.clone(),
+        _ => "code".to_string(),
+    };
+    let source = match table.get(row, 2) {
+        Some(CellValue::String(s)) => s.clone(),
+        Some(v) => v.to_string(),
+        None => String::new(),
+    };
+    (cell_type, source)
+}
+
 /// Write a DataTable back to a Jupyter Notebook (.ipynb) file.
+///
+/// When the table came from an `.ipynb` (its `source_path` still parses as a
+/// notebook), the original notebook is reused as the template: only each
+/// cell's `source` (and `cell_type`) is overwritten from the table, so cell
+/// **outputs**, `execution_count`, per-cell `metadata`, and the top-level
+/// `nbformat` / `metadata` survive the round trip. An edited cell keeps its
+/// prior (now-stale) output, matching Jupyter's behaviour when a cell is
+/// changed but not re-run. Tables not backed by a notebook (built from
+/// scratch, parse-in-new-tab) fall through to a from-scratch emit.
 fn write_notebook(path: &Path, table: &DataTable) -> Result<()> {
-    let mut cells = Vec::new();
+    let original = table
+        .source_path
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .filter(|v| v.get("cells").map(Value::is_array).unwrap_or(false));
+
+    let notebook = match original {
+        Some(orig) => merge_into_original(orig, table),
+        None => fresh_notebook(table),
+    };
+
+    let content = serde_json::to_string_pretty(&notebook)?;
+    std::fs::write(path, content)?;
+    Ok(())
+}
+
+/// Overwrite each original cell's source/type from the table, preserving
+/// everything else; append fresh cells for extra rows and truncate to the
+/// table's row count for deletions.
+fn merge_into_original(mut notebook: Value, table: &DataTable) -> Value {
+    let cells = notebook
+        .get("cells")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut out_cells: Vec<Value> = Vec::with_capacity(table.row_count());
 
     for row in 0..table.row_count() {
-        let cell_type = match table.get(row, 1) {
-            Some(CellValue::String(s)) => s.clone(),
-            _ => "code".to_string(),
-        };
-
-        let source = match table.get(row, 2) {
-            Some(CellValue::String(s)) => s.clone(),
-            Some(v) => v.to_string(),
-            None => String::new(),
-        };
-
-        let source_lines: Vec<Value> = source
-            .lines()
-            .map(|l| Value::String(format!("{}\n", l)))
-            .collect();
-        // Fix last line: don't add trailing newline if source didn't end with one
-        let source_array = if source_lines.is_empty() {
-            Value::Array(vec![])
-        } else {
-            let mut lines = source_lines;
-            if !source.ends_with('\n')
-                && let Some(last) = lines.last_mut()
-                && let Value::String(s) = last
-            {
-                // Remove the trailing \n we added
-                s.pop();
+        let (cell_type, source) = row_type_and_source(table, row);
+        match cells.get(row) {
+            Some(Value::Object(orig)) => {
+                let mut cell = orig.clone();
+                cell.insert("cell_type".to_string(), Value::String(cell_type.clone()));
+                cell.insert("source".to_string(), source_to_array(&source));
+                // Reconcile output-related keys with the (possibly changed)
+                // cell type: markdown cells must not carry code-only keys, and
+                // code cells need them present.
+                if cell_type == "code" {
+                    cell.entry("outputs")
+                        .or_insert_with(|| Value::Array(vec![]));
+                    cell.entry("execution_count").or_insert(Value::Null);
+                } else {
+                    cell.remove("outputs");
+                    cell.remove("execution_count");
+                }
+                out_cells.push(Value::Object(cell));
             }
-            Value::Array(lines)
-        };
-
-        let mut cell_obj = serde_json::Map::new();
-        cell_obj.insert("cell_type".to_string(), Value::String(cell_type.clone()));
-        cell_obj.insert(
-            "metadata".to_string(),
-            Value::Object(serde_json::Map::new()),
-        );
-        cell_obj.insert("source".to_string(), source_array);
-
-        if cell_type == "code" {
-            cell_obj.insert("execution_count".to_string(), Value::Null);
-            cell_obj.insert("outputs".to_string(), Value::Array(vec![]));
+            // Original entry missing or non-object: emit a fresh cell.
+            _ => out_cells.push(fresh_cell(&cell_type, &source)),
         }
-
-        cells.push(Value::Object(cell_obj));
     }
 
-    let notebook = serde_json::json!({
+    if let Some(obj) = notebook.as_object_mut() {
+        obj.insert("cells".to_string(), Value::Array(out_cells));
+    }
+    notebook
+}
+
+/// Emit a complete notebook from scratch (no original to preserve).
+fn fresh_notebook(table: &DataTable) -> Value {
+    let cells: Vec<Value> = (0..table.row_count())
+        .map(|row| {
+            let (cell_type, source) = row_type_and_source(table, row);
+            fresh_cell(&cell_type, &source)
+        })
+        .collect();
+
+    serde_json::json!({
         "nbformat": 4,
         "nbformat_minor": 5,
         "metadata": {
@@ -210,9 +292,124 @@ fn write_notebook(path: &Path, table: &DataTable) -> Result<()> {
             }
         },
         "cells": cells
-    });
+    })
+}
 
-    let content = serde_json::to_string_pretty(&notebook)?;
-    std::fs::write(path, content)?;
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    const NB: &str = r##"{
+ "nbformat": 4,
+ "nbformat_minor": 5,
+ "metadata": {"kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"}},
+ "cells": [
+  {"cell_type": "code", "execution_count": 7, "metadata": {"tags": ["keepme"]},
+   "source": ["print('hi')\n"],
+   "outputs": [{"output_type": "stream", "name": "stdout", "text": ["hi\n"]}]},
+  {"cell_type": "markdown", "metadata": {}, "source": ["# Title\n"]}
+ ]
+}"##;
+
+    fn write_temp(content: &str) -> tempfile::NamedTempFile {
+        let mut f = tempfile::Builder::new()
+            .suffix(".ipynb")
+            .tempfile()
+            .unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+        f.flush().unwrap();
+        f
+    }
+
+    #[test]
+    fn edit_preserves_outputs_and_metadata() {
+        let src = write_temp(NB);
+        let reader = JupyterReader;
+        let mut table = reader.read_file(src.path()).unwrap();
+
+        // Edit cell 0's source via the normal overlay.
+        table.set(0, 2, CellValue::String("print('bye')\n".to_string()));
+
+        let out = tempfile::Builder::new()
+            .suffix(".ipynb")
+            .tempfile()
+            .unwrap();
+        write_notebook(out.path(), &table).unwrap();
+
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(out.path()).unwrap()).unwrap();
+        let cells = written["cells"].as_array().unwrap();
+
+        // Edited source landed.
+        assert_eq!(cells[0]["source"][0].as_str().unwrap(), "print('bye')\n");
+        // ...but the output, execution_count and per-cell metadata survived.
+        assert_eq!(cells[0]["outputs"][0]["text"][0].as_str().unwrap(), "hi\n");
+        assert_eq!(cells[0]["execution_count"].as_i64().unwrap(), 7);
+        assert_eq!(cells[0]["metadata"]["tags"][0].as_str().unwrap(), "keepme");
+        // Top-level metadata preserved (the original kernelspec, not our default).
+        assert_eq!(
+            written["metadata"]["kernelspec"]["name"].as_str().unwrap(),
+            "python3"
+        );
+    }
+
+    #[test]
+    fn type_flip_to_markdown_drops_code_keys() {
+        let src = write_temp(NB);
+        let table = JupyterReader.read_file(src.path()).unwrap();
+
+        // No edits: code cell stays code with its output.
+        let out = tempfile::Builder::new()
+            .suffix(".ipynb")
+            .tempfile()
+            .unwrap();
+        write_notebook(out.path(), &table).unwrap();
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(out.path()).unwrap()).unwrap();
+        let cells = written["cells"].as_array().unwrap();
+        assert!(cells[0].get("outputs").is_some());
+        // Markdown cell carries no code-only keys.
+        assert!(cells[1].get("outputs").is_none());
+        assert!(cells[1].get("execution_count").is_none());
+    }
+
+    #[test]
+    fn no_source_path_emits_fresh_notebook() {
+        // A table not backed by a file falls through to the fresh path.
+        let mut table = DataTable::empty();
+        table.columns = vec![
+            ColumnInfo {
+                name: "Cell".into(),
+                data_type: "Int64".into(),
+            },
+            ColumnInfo {
+                name: "Type".into(),
+                data_type: "Utf8".into(),
+            },
+            ColumnInfo {
+                name: "Source".into(),
+                data_type: "Utf8".into(),
+            },
+            ColumnInfo {
+                name: "Output".into(),
+                data_type: "Utf8".into(),
+            },
+        ];
+        table.rows = vec![vec![
+            CellValue::Int(1),
+            CellValue::String("code".into()),
+            CellValue::String("x = 1".into()),
+            CellValue::String(String::new()),
+        ]];
+        let out = tempfile::Builder::new()
+            .suffix(".ipynb")
+            .tempfile()
+            .unwrap();
+        write_notebook(out.path(), &table).unwrap();
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(out.path()).unwrap()).unwrap();
+        assert_eq!(written["cells"][0]["source"][0].as_str().unwrap(), "x = 1");
+        assert_eq!(written["nbformat"].as_i64().unwrap(), 4);
+    }
 }

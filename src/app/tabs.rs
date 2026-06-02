@@ -62,6 +62,7 @@ impl TabState {
             insert_col_at_text: String::new(),
             show_delete_columns_dialog: false,
             delete_col_selection: Vec::new(),
+            time_calc: None,
             sql_query: String::new(),
             sql_result: None,
             sql_error: None,

@@ -21,7 +21,7 @@ pub(crate) fn render_value_frequency_picker_dialog(app: &mut OctaApp, ctx: &egui
     let mut chosen: Option<usize> = None;
     let mut cancel = false;
 
-    egui::Window::new("Value Frequency - choose a column")
+    egui::Window::new(octa::i18n::t("dialog.vfpick_title"))
         .open(&mut open)
         .resizable(true)
         .collapsible(false)
@@ -30,7 +30,7 @@ pub(crate) fn render_value_frequency_picker_dialog(app: &mut OctaApp, ctx: &egui
         .pivot(egui::Align2::CENTER_CENTER)
         .default_pos(ctx.content_rect().center())
         .show(ctx, |ui| {
-            ui.label("Pick a column to count values for:");
+            ui.label(octa::i18n::t("dialog.vfpick_prompt"));
             ui.add_space(6.0);
 
             let tab = &app.tabs[app.active_tab];
@@ -46,7 +46,7 @@ pub(crate) fn render_value_frequency_picker_dialog(app: &mut OctaApp, ctx: &egui
                 });
 
             ui.add_space(8.0);
-            if ui.button("Cancel").clicked() {
+            if ui.button(octa::i18n::t("common.cancel")).clicked() {
                 cancel = true;
             }
         });

@@ -127,14 +127,14 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
     let mut collapse_all = false;
 
     ui.horizontal(|ui| {
-        if ui.button("Expand All").clicked() {
+        if ui.button(octa::i18n::t("view.jt_expand")).clicked() {
             expand_all = true;
         }
-        if ui.button("Collapse All").clicked() {
+        if ui.button(octa::i18n::t("view.jt_collapse")).clicked() {
             collapse_all = true;
         }
         ui.separator();
-        ui.label("Depth:");
+        ui.label(octa::i18n::t("view.jt_depth"));
         let response = ui.add(
             egui::TextEdit::singleline(&mut tab.json_expand_depth_str)
                 .desired_width(30.0)
@@ -151,7 +151,7 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
         }
         ui.label(format!("/ {file_max_depth}"));
         let enter_pressed = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        if ui.button("Apply").clicked() || enter_pressed {
+        if ui.button(octa::i18n::t("common.apply")).clicked() || enter_pressed {
             apply_depth = Some(tab.json_expand_depth);
         }
     });
@@ -253,7 +253,10 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
                                         .color(colors.text_primary),
                                 );
                                 if *is_object
-                                    && ui.small_button("+").on_hover_text("Add key").clicked()
+                                    && ui
+                                        .small_button("+")
+                                        .on_hover_text(octa::i18n::t("view.jt_add_key"))
+                                        .clicked()
                                 {
                                     add_key_request = Some(row.path.clone());
                                 }
@@ -276,7 +279,7 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
                             {
                                 ui.add_space(8.0);
                                 ui.label(
-                                    RichText::new("new key:")
+                                    RichText::new(octa::i18n::t("view.jt_new_key"))
                                         .font(mono())
                                         .color(colors.text_muted),
                                 );

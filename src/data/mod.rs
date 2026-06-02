@@ -3,13 +3,16 @@ pub mod chart_export;
 pub mod compare_schemas;
 pub mod date_infer;
 pub mod describe;
+pub mod diff;
 pub mod duplicates;
 pub mod formulas;
 pub mod json_util;
 pub mod multi_search;
 pub mod num_format;
+pub mod sample;
 pub mod schema_export;
 pub mod search;
+pub mod time_calc;
 pub mod trim;
 pub mod unique_columns;
 pub mod validate_schema;
@@ -81,6 +84,13 @@ impl MapMode {
         }
     }
 
+    pub fn label_t(self) -> String {
+        crate::i18n::t(match self {
+            Self::Tiles => "enum.map_tiles",
+            Self::GeometryOnly => "enum.map_geometry",
+        })
+    }
+
     pub const ALL: &'static [Self] = &[Self::Tiles, Self::GeometryOnly];
 }
 
@@ -101,6 +111,13 @@ impl CompareMode {
             Self::TextDiff => "Text Diff",
             Self::RowHashDiff => "Row Hash Diff",
         }
+    }
+
+    pub fn label_t(self) -> String {
+        crate::i18n::t(match self {
+            Self::TextDiff => "enum2.compare_text_diff",
+            Self::RowHashDiff => "enum2.compare_row_hash",
+        })
     }
 }
 
@@ -137,6 +154,14 @@ impl SearchMode {
             Self::Regex => "Regex",
         }
     }
+
+    pub fn label_t(self) -> String {
+        crate::i18n::t(match self {
+            Self::Plain => "enum.search_plain",
+            Self::Wildcard => "enum.search_wildcard",
+            Self::Regex => "enum.search_regex",
+        })
+    }
 }
 
 /// How to display binary (`Vec<u8>`) cell values.
@@ -158,6 +183,14 @@ impl BinaryDisplayMode {
             Self::Hex => "Hex",
             Self::Text => "Text (UTF-8)",
         }
+    }
+
+    pub fn label_t(self) -> String {
+        crate::i18n::t(match self {
+            Self::Binary => "enum.bin_binary",
+            Self::Hex => "enum.bin_hex",
+            Self::Text => "enum.bin_text",
+        })
     }
 }
 
@@ -402,6 +435,25 @@ impl MarkColor {
             MarkColor::Blue => "Blue",
             MarkColor::Purple => "Purple",
         }
+    }
+
+    /// i18n key for this color's display name (`color.red`, ...). The English
+    /// fallback in `label()` is kept for non-UI uses; UI call sites use
+    /// [`label_t`](Self::label_t) so the name follows the chosen language.
+    pub fn label_key(&self) -> &'static str {
+        match self {
+            MarkColor::Red => "color.red",
+            MarkColor::Orange => "color.orange",
+            MarkColor::Yellow => "color.yellow",
+            MarkColor::Green => "color.green",
+            MarkColor::Blue => "color.blue",
+            MarkColor::Purple => "color.purple",
+        }
+    }
+
+    /// Translated display name for the active UI language.
+    pub fn label_t(&self) -> String {
+        crate::i18n::t(self.label_key())
     }
 
     /// Whether this mark needs dark text on top to stay readable. Yellow's

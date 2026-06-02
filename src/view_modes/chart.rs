@@ -21,6 +21,7 @@ use octa::data::chart::{
     XAxisKind, build_chart, format_days_as_date, format_seconds_as_datetime, has_numeric_column,
 };
 use octa::data::chart_export::{self, ExportOptions};
+use octa::i18n::t;
 
 /// Public entry point. Driven by `central_panel::render_central_panel` when
 /// the active tab's `view_mode == ViewMode::Chart` (or the tab is a chart tab).
@@ -32,15 +33,13 @@ pub fn render_chart_view(
 ) {
     if tab.table.col_count() == 0 {
         ui.centered_and_justified(|ui| {
-            ui.label(egui::RichText::new("Open a file with columns to chart it.").weak());
+            ui.label(egui::RichText::new(t("chart.empty_no_columns")).weak());
         });
         return;
     }
     if !has_numeric_column(&tab.table) {
         ui.centered_and_justified(|ui| {
-            ui.label(
-                egui::RichText::new("This table has no numeric columns - nothing to plot.").weak(),
-            );
+            ui.label(egui::RichText::new(t("chart.no_numeric")).weak());
         });
         return;
     }
@@ -71,23 +70,25 @@ pub fn render_chart_view(
                 if prep.used_rows < prep.total_rows {
                     ui.label(
                         egui::RichText::new(format!(
-                            "Sampled {} of {} rows",
+                            "{} {} / {} {}",
+                            t("chart.sampled"),
                             fmt_count(prep.used_rows),
-                            fmt_count(prep.total_rows)
+                            fmt_count(prep.total_rows),
+                            t("status_bar.rows")
                         ))
                         .small()
                         .color(colors.warning),
                     )
-                    .on_hover_text(
-                        "Plot evenly-spaces samples above 'Chart max points'. \
-                         Filter the table or raise the cap in Settings -> \
-                         Performance to plot every row.",
-                    );
+                    .on_hover_text(t("chart.sampled_hint"));
                 } else {
                     ui.label(
-                        egui::RichText::new(format!("{} rows", fmt_count(prep.total_rows)))
-                            .small()
-                            .weak(),
+                        egui::RichText::new(format!(
+                            "{} {}",
+                            fmt_count(prep.total_rows),
+                            t("status_bar.rows")
+                        ))
+                        .small()
+                        .weak(),
                     );
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -345,7 +346,7 @@ fn optional_f64_input(
         egui::TextEdit::singleline(buffer)
             .id_salt(id_salt)
             .desired_width(80.0)
-            .hint_text("Auto"),
+            .hint_text(t("chart.auto_placeholder")),
     );
     if response.changed() {
         let trimmed = buffer.trim();
@@ -369,7 +370,7 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
     // Row 1: kind + X/Y pickers + agg / bin picker.
     ui.horizontal_wrapped(|ui| {
         ui.label(
-            egui::RichText::new("Chart:")
+            egui::RichText::new(t("chart.chart_label"))
                 .color(colors.text_primary)
                 .strong(),
         );
@@ -386,7 +387,7 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
         }
 
         ui.separator();
-        ui.label("X:");
+        ui.label(t("chart.x"));
         let column_names: Vec<String> = tab.table.columns.iter().map(|c| c.name.clone()).collect();
         col_picker(
             ui,
@@ -397,14 +398,14 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
 
         if tab.chart_config.kind.needs_y() {
             ui.separator();
-            ui.label("Y:");
+            ui.label(t("chart.y"));
             y_picker(ui, &mut tab.chart_config.y_cols, &column_names);
         }
 
         match tab.chart_config.kind {
             ChartKind::Bar => {
                 ui.separator();
-                ui.label("Agg:");
+                ui.label(t("chart.agg"));
                 egui::ComboBox::from_id_salt("chart_agg_combo")
                     .selected_text(tab.chart_config.agg.label())
                     .show_ui(ui, |ui| {
@@ -415,15 +416,10 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
             }
             ChartKind::Histogram => {
                 ui.separator();
-                ui.label("Bins:").on_hover_text(
-                    "A histogram counts how many values fall into each \
-                     range. \"Bins\" is the number of those ranges - fewer \
-                     bins make a coarser shape, more bins reveal detail \
-                     but get noisy. \"Auto (Sturges)\" picks a count from \
-                     row count via ceil(1 + log2(n)) clamped to [5, 50].",
-                );
+                ui.label(t("dialog.vf_bins"))
+                    .on_hover_text(t("chart.bins_hint"));
                 let mut auto = tab.chart_config.hist_bins.is_none();
-                if ui.checkbox(&mut auto, "Auto (Sturges)").changed() {
+                if ui.checkbox(&mut auto, t("chart.auto_sturges")).changed() {
                     if auto {
                         tab.chart_config.hist_bins = None;
                         tab.chart_buffers.hist_bins.clear();
@@ -459,34 +455,34 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
     // gets more vertical real estate. `horizontal_wrapped` re-flows the
     // controls to the next line when the window is narrow, so the user
     // never has to scroll sideways.
-    egui::CollapsingHeader::new("Customise")
+    egui::CollapsingHeader::new(t("chart.customise"))
         .id_salt("chart_customize_collapsible")
         .default_open(false)
         .show(ui, |ui| {
             // Group A - Labels + legend + grid toggle. One row.
             ui.horizontal_wrapped(|ui| {
-                ui.label("Title:");
+                ui.label(t("chart.title"));
                 ui.add(
                     egui::TextEdit::singleline(&mut tab.chart_config.title)
                         .desired_width(160.0)
-                        .hint_text("(none)"),
+                        .hint_text(t("chart.placeholder_none")),
                 );
                 ui.separator();
-                ui.label("X label:");
+                ui.label(t("chart.x_label"));
                 ui.add(
                     egui::TextEdit::singleline(&mut tab.chart_config.x_label_override)
                         .desired_width(120.0)
-                        .hint_text("(auto)"),
+                        .hint_text(t("chart.placeholder_auto")),
                 );
                 ui.separator();
-                ui.label("Y label:");
+                ui.label(t("chart.y_label"));
                 ui.add(
                     egui::TextEdit::singleline(&mut tab.chart_config.y_label_override)
                         .desired_width(120.0)
-                        .hint_text("(auto)"),
+                        .hint_text(t("chart.placeholder_auto")),
                 );
                 ui.separator();
-                ui.label("Legend:");
+                ui.label(t("chart.legend"));
                 egui::ComboBox::from_id_salt("chart_legend_combo")
                     .selected_text(tab.chart_config.legend.label())
                     .show_ui(ui, |ui| {
@@ -495,7 +491,7 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
                         }
                     });
                 ui.separator();
-                ui.checkbox(&mut tab.chart_config.show_grid, "Show grid");
+                ui.checkbox(&mut tab.chart_config.show_grid, t("chart.show_grid"));
             });
 
             // Group B - X axis. One row, mirrors the Y axis controls below
@@ -503,14 +499,9 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
             // charts the bounds are interpreted as category indices.
             ui.add_space(2.0);
             ui.horizontal_wrapped(|ui| {
-                ui.label(egui::RichText::new("X axis:").strong());
-                ui.label("Min:").on_hover_text(
-                    "Lower bound on the X axis (original-data units). \
-                     Both Min and Max must be set for the bounds to take \
-                     effect - half-set is ignored. Leave blank for auto. \
-                     For Date / DateTime X axes the bound is in days / \
-                     seconds since the Unix epoch.",
-                );
+                ui.label(egui::RichText::new(t("chart.x_axis")).strong());
+                ui.label(t("chart.min"))
+                    .on_hover_text(t("chart.x_min_hint"));
                 optional_f64_input(
                     ui,
                     "chart_x_min",
@@ -518,7 +509,7 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
                     &mut tab.chart_config.x_min,
                     false,
                 );
-                ui.label("Max:");
+                ui.label(t("chart.max"));
                 optional_f64_input(
                     ui,
                     "chart_x_max",
@@ -526,10 +517,8 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
                     &mut tab.chart_config.x_max,
                     false,
                 );
-                ui.label("Step:").on_hover_text(
-                    "Custom X-axis grid step (original-data units). \
-                     Leave blank to let egui_plot pick.",
-                );
+                ui.label(t("chart.step"))
+                    .on_hover_text(t("chart.x_step_hint"));
                 optional_f64_input(
                     ui,
                     "chart_x_step",
@@ -542,12 +531,9 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
             // Group C - Y axis. One row.
             ui.add_space(2.0);
             ui.horizontal_wrapped(|ui| {
-                ui.label(egui::RichText::new("Y axis:").strong());
-                ui.label("Min:").on_hover_text(
-                    "Lower bound on the Y axis (original-data units). \
-                     Both Min and Max must be set for the bounds to take \
-                     effect - half-set is ignored. Leave blank for auto.",
-                );
+                ui.label(egui::RichText::new(t("chart.y_axis")).strong());
+                ui.label(t("chart.min"))
+                    .on_hover_text(t("chart.y_min_hint"));
                 optional_f64_input(
                     ui,
                     "chart_y_min",
@@ -555,7 +541,7 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
                     &mut tab.chart_config.y_min,
                     false,
                 );
-                ui.label("Max:");
+                ui.label(t("chart.max"));
                 optional_f64_input(
                     ui,
                     "chart_y_max",
@@ -563,10 +549,8 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
                     &mut tab.chart_config.y_max,
                     false,
                 );
-                ui.label("Step:").on_hover_text(
-                    "Custom Y-axis grid step (original-data units). \
-                     Leave blank to let egui_plot pick.",
-                );
+                ui.label(t("chart.step"))
+                    .on_hover_text(t("chart.y_step_hint"));
                 optional_f64_input(
                     ui,
                     "chart_y_step",
@@ -575,17 +559,13 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
                     true,
                 );
                 ui.separator();
-                ui.checkbox(&mut tab.chart_config.y_integer_only, "Integers only")
-                    .on_hover_text(
-                        "Format Y-axis ticks as whole numbers - useful for \
-                         counts where the default 1.0 / 2.0 reads oddly.",
-                    );
-                ui.checkbox(&mut tab.chart_config.y_log_scale, "Log scale")
-                    .on_hover_text(
-                        "Apply log10 to the Y values before plotting. \
-                         Non-positive values are dropped (log10 undefined). \
-                         The Y axis label gets a '(log10)' suffix.",
-                    );
+                ui.checkbox(
+                    &mut tab.chart_config.y_integer_only,
+                    t("chart.integers_only"),
+                )
+                .on_hover_text(t("chart.integers_hint"));
+                ui.checkbox(&mut tab.chart_config.y_log_scale, t("chart.log_scale"))
+                    .on_hover_text(t("chart.log_hint"));
             });
             // Group D - Series. Each Y-column gets a single horizontal
             // row (column name -> label override -> color picker). Wrapped
@@ -593,7 +573,7 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
             if tab.chart_config.kind.needs_y() && !tab.chart_config.y_cols.is_empty() {
                 ui.add_space(2.0);
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(egui::RichText::new("Series:").strong());
+                    ui.label(egui::RichText::new(t("chart.series")).strong());
                     let y_cols = tab.chart_config.y_cols.clone();
                     let column_names: Vec<String> =
                         tab.table.columns.iter().map(|c| c.name.clone()).collect();
@@ -615,7 +595,7 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
                         let mut on = style.color.is_some();
                         if ui
                             .checkbox(&mut on, "")
-                            .on_hover_text("Custom color")
+                            .on_hover_text(t("chart.custom_color"))
                             .changed()
                         {
                             style.color = if on {
@@ -680,22 +660,35 @@ fn draw_export_buttons(
     // The actual write happens on a click; the SVG/PNG/PDF byte buffer is
     // built lazily so a chart with thousands of points isn't re-encoded
     // every frame.
-    if ui.button("Export PDF").clicked() {
-        save_export("pdf", "Chart export (PDF)", &["pdf"], || {
-            let svg = chart_export::to_svg(prep, &opts);
-            chart_export::to_pdf(&svg)
-        });
+    if ui.button(t("chart.export_pdf")).clicked() {
+        save_export(
+            "pdf",
+            &format!("{} (PDF)", t("chart.export_dialog")),
+            &["pdf"],
+            || {
+                let svg = chart_export::to_svg(prep, &opts);
+                chart_export::to_pdf(&svg)
+            },
+        );
     }
-    if ui.button("Export PNG").clicked() {
-        save_export("png", "Chart export (PNG)", &["png"], || {
-            let svg = chart_export::to_svg(prep, &opts);
-            chart_export::to_png(&svg, 2.0)
-        });
+    if ui.button(t("chart.export_png")).clicked() {
+        save_export(
+            "png",
+            &format!("{} (PNG)", t("chart.export_dialog")),
+            &["png"],
+            || {
+                let svg = chart_export::to_svg(prep, &opts);
+                chart_export::to_png(&svg, 2.0)
+            },
+        );
     }
-    if ui.button("Export SVG").clicked() {
-        save_export("svg", "Chart export (SVG)", &["svg"], || {
-            Ok::<Vec<u8>, String>(chart_export::to_svg(prep, &opts).into_bytes())
-        });
+    if ui.button(t("chart.export_svg")).clicked() {
+        save_export(
+            "svg",
+            &format!("{} (SVG)", t("chart.export_dialog")),
+            &["svg"],
+            || Ok::<Vec<u8>, String>(chart_export::to_svg(prep, &opts).into_bytes()),
+        );
     }
 }
 
@@ -733,7 +726,7 @@ fn col_picker(
 ) {
     let current_label = selected
         .and_then(|i| column_names.get(i).cloned())
-        .unwrap_or_else(|| "(pick...)".to_string());
+        .unwrap_or_else(|| t("chart.pick"));
     egui::ComboBox::from_id_salt(id_salt)
         .selected_text(current_label)
         .show_ui(ui, |ui| {
@@ -745,9 +738,9 @@ fn col_picker(
 
 fn y_picker(ui: &mut egui::Ui, y_cols: &mut Vec<usize>, column_names: &[String]) {
     let label = match y_cols.len() {
-        0 => "(pick...)".to_string(),
+        0 => t("chart.pick"),
         1 => column_names.get(y_cols[0]).cloned().unwrap_or_default(),
-        n => format!("{n} columns"),
+        n => format!("{n} {}", t("status_bar.columns")),
     };
     egui::ComboBox::from_id_salt("chart_y_combo")
         .selected_text(label)
@@ -817,7 +810,7 @@ fn draw_plot_items(
                         .then(|| Bar::new(left + bin_width / 2.0, value).width(*bin_width * 0.95))
                 })
                 .collect();
-            let mut chart = BarChart::new("Count", bars);
+            let mut chart = BarChart::new(t("status_bar.count"), bars);
             if let Some(color) = series_color_override(cfg, 0) {
                 chart = chart.color(color);
             }
