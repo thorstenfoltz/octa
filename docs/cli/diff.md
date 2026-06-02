@@ -33,8 +33,8 @@ keys are equal. Two consequences follow:
 A table whose first column, `status`, tags each row, followed by the
 data columns:
 
-| `status`    | Meaning                                |
-|-------------|----------------------------------------|
+| `status`    | Meaning                                   |
+|-------------|-------------------------------------------|
 | `only_in_a` | The row appears in FILE_A but not FILE_B. |
 | `only_in_b` | The row appears in FILE_B but not FILE_A. |
 

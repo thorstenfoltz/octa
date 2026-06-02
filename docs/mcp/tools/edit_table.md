@@ -16,14 +16,14 @@ row counts.
 
 ## Input schema
 
-| Parameter      | Type   | Required? | Default      | Description                                                              |
-|----------------|--------|-----------|--------------|--------------------------------------------------------------------------|
-| `path`         | string | yes       | (no default) | File to edit, in place                                                   |
-| `table`        | string | no        | (no default) | For multi-table sources (SQLite, DuckDB, GeoPackage, Excel), which table |
-| `set`          | array  | no        | `[]`         | Cell edits: `{ "row": int, "col": int \| string, "value": any }`         |
-| `insert_rows`  | array  | no        | `[]`         | Rows to insert: `{ "at"?: int, "values": [...] }`                        |
-| `delete_rows`  | array  | no        | `[]`         | 0-based row indices to delete                                            |
-| `unlimited`    | bool   | no        | `false`      | Load the whole file before editing (and rewrite it in full for non-DB formats) |
+| Parameter     | Type   | Required? | Default      | Description                                                                    |
+|---------------|--------|-----------|--------------|--------------------------------------------------------------------------------|
+| `path`        | string | yes       | (no default) | File to edit, in place                                                         |
+| `table`       | string | no        | (no default) | For multi-table sources (SQLite, DuckDB, GeoPackage, Excel), which table       |
+| `set`         | array  | no        | `[]`         | Cell edits: `{ "row": int, "col": int \| string, "value": any }`               |
+| `insert_rows` | array  | no        | `[]`         | Rows to insert: `{ "at"?: int, "values": [...] }`                              |
+| `delete_rows` | array  | no        | `[]`         | 0-based row indices to delete                                                  |
+| `unlimited`   | bool   | no        | `false`      | Load the whole file before editing (and rewrite it in full for non-DB formats) |
 
 - `set[].col` is either a 0-based column **index** or a column **name**.
 - `set[].row` and `delete_rows[]` are 0-based indices into the loaded rows.
@@ -82,12 +82,12 @@ rejected before anything is written.
 
 ## Errors
 
-| Situation                          | Message                                                |
-|------------------------------------|--------------------------------------------------------|
-| Row/column index out of range      | `set: row N is out of range (table has M row(s))`      |
-| Unknown column name in `set`       | `set: no column named "..."`                           |
-| Insert row arity mismatch          | `insert_rows: row has N cell(s) but the table has M column(s)` |
-| Output format is read-only         | `format ... does not support writing - cannot edit ...` |
+| Situation                     | Message                                                        |
+|-------------------------------|----------------------------------------------------------------|
+| Row/column index out of range | `set: row N is out of range (table has M row(s))`              |
+| Unknown column name in `set`  | `set: no column named "..."`                                   |
+| Insert row arity mismatch     | `insert_rows: row has N cell(s) but the table has M column(s)` |
+| Output format is read-only    | `format ... does not support writing - cannot edit ...`        |
 
 ## See also
 

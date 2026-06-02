@@ -13,12 +13,12 @@ file happens to be sorted by).
 
 ## Input schema
 
-| Parameter   | Type   | Required? | Default               | Description                                                       |
-|-------------|--------|-----------|-----------------------|-------------------------------------------------------------------|
-| `path`      | string | yes       | (no default)          | Absolute or working-directory-relative path to the file           |
-| `limit`     | int    | no        | server default (1000) | Sample size. `0` = every row (no sampling)                        |
-| `seed`      | int    | no        | `0`                   | RNG seed. Same seed + file = same sample                          |
-| `table`     | string | no        | (no default)          | Specific table to read for multi-table sources                    |
+| Parameter   | Type   | Required? | Default               | Description                                                         |
+|-------------|--------|-----------|-----------------------|---------------------------------------------------------------------|
+| `path`      | string | yes       | (no default)          | Absolute or working-directory-relative path to the file             |
+| `limit`     | int    | no        | server default (1000) | Sample size. `0` = every row (no sampling)                          |
+| `seed`      | int    | no        | `0`                   | RNG seed. Same seed + file = same sample                            |
+| `table`     | string | no        | (no default)          | Specific table to read for multi-table sources                      |
 | `unlimited` | bool   | no        | `false`               | Lift the 5,000,000-row file-loader cap so the sample sees every row |
 
 ## Response shape

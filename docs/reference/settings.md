@@ -21,15 +21,15 @@ for missing keys; old versions ignore unknown keys).
 
 ## Appearance
 
-| Setting              | Default      | Notes                                                                                                                                        |
-|----------------------|--------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| Setting              | Default      | Notes                                                                                                                                         |
+|----------------------|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
 | **Language**         | English      | UI language for menus and dialogs. 13 Latin-script languages; switches live, no restart. See [Languages](languages.md). TOML key: `language`. |
-| **Font size**        | 13 pt        | Base font size. Applied to body / button / monospace text.                                                                                   |
-| **Default theme**    | Light        | `Light`, `Dark` and more. Applied at startup.                                                                                                |
-| **Body font**        | Proportional | `Proportional` or `Monospace`.                                                                                                               |
-| **Custom font path** | *(empty)*    | Optional path to a TTF/OTF font. Overrides Body font for proportional text.                                                                  |
-| **Icon variant**     | Rose         | Window icon colour. Several options.                                                                                                         |
-| **Custom title bar** | off          | Replaces the OS window frame with Octa's own title bar. Useful on tiling WMs that don't provide window controls. Takes effect after restart. |
+| **Font size**        | 13 pt        | Base font size. Applied to body / button / monospace text.                                                                                    |
+| **Default theme**    | Light        | `Light`, `Dark` and more. Applied at startup.                                                                                                 |
+| **Body font**        | Proportional | `Proportional` or `Monospace`.                                                                                                                |
+| **Custom font path** | *(empty)*    | Optional path to a TTF/OTF font. Overrides Body font for proportional text.                                                                   |
+| **Icon variant**     | Rose         | Window icon colour. Several options.                                                                                                          |
+| **Custom title bar** | off          | Replaces the OS window frame with Octa's own title bar. Useful on tiling WMs that don't provide window controls. Takes effect after restart.  |
 
 ## Table View
 
@@ -54,16 +54,16 @@ for missing keys; old versions ignore unknown keys).
 
 ## File-Specific
 
-| Setting                        | Default | Notes                                                                                                                                                    |
-|--------------------------------|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Colour aligned columns**     | on      | In [Raw view](../usage/view-modes/raw-text.md) of CSV/TSV files, tint each column with a subtle background.                                              |
-| **Warn on un-align reload**    | on      | Confirmation dialog when toggling **Align Columns** off (the buffer is re-loaded).                                                                       |
-| **Warn on date format change** | on      | One-shot banner when date inference promotes a non-ISO column.                                                                                           |
-| **Trim whitespace on load**    | on      | Strip leading/trailing whitespace from string cells and column titles when a file is opened (interior spaces kept). TOML key: `trim_whitespace_on_load`. |
-| **Warn on whitespace trim**    | on      | Banner listing which columns had whitespace trimmed on load. Independent of the trim setting. TOML key: `warn_on_whitespace_trim`.                       |
-| **Offer repair on malformed files** | off | Prompt to repair a CSV/TSV that reads but looks malformed (bad encoding, BOM, control chars, delimiter mismatch, ragged rows). The file on disk is never changed. See [Supported formats](../getting-started/supported-formats.md#repairing-malformed-csv-tsv-files). TOML key: `offer_repair_on_malformed`. |
-| **Read-only mode notice**      | on      | Show the read-only intro modal on **F8** the first time per session.                                                                                     |
-| **Notebook output layout**     | Beneath | Where notebook output cells render: `Below cell` or `Side-by-side`.                                                                                      |
+| Setting                             | Default | Notes                                                                                                                                                                                                                                                                                                        |
+|-------------------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Colour aligned columns**          | on      | In [Raw view](../usage/view-modes/raw-text.md) of CSV/TSV files, tint each column with a subtle background.                                                                                                                                                                                                  |
+| **Warn on un-align reload**         | on      | Confirmation dialog when toggling **Align Columns** off (the buffer is re-loaded).                                                                                                                                                                                                                           |
+| **Warn on date format change**      | on      | One-shot banner when date inference promotes a non-ISO column.                                                                                                                                                                                                                                               |
+| **Trim whitespace on load**         | on      | Strip leading/trailing whitespace from string cells and column titles when a file is opened (interior spaces kept). TOML key: `trim_whitespace_on_load`.                                                                                                                                                     |
+| **Warn on whitespace trim**         | on      | Banner listing which columns had whitespace trimmed on load. Independent of the trim setting. TOML key: `warn_on_whitespace_trim`.                                                                                                                                                                           |
+| **Offer repair on malformed files** | off     | Prompt to repair a CSV/TSV that reads but looks malformed (bad encoding, BOM, control chars, delimiter mismatch, ragged rows). The file on disk is never changed. See [Supported formats](../getting-started/supported-formats.md#repairing-malformed-csv-tsv-files). TOML key: `offer_repair_on_malformed`. |
+| **Read-only mode notice**           | on      | Show the read-only intro modal on **F8** the first time per session.                                                                                                                                                                                                                                         |
+| **Notebook output layout**          | Beneath | Where notebook output cells render: `Below cell` or `Side-by-side`.                                                                                                                                                                                                                                          |
 
 ## SQL
 

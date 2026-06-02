@@ -12,11 +12,11 @@ table.
 
 ## Input schema
 
-| Parameter   | Type   | Required? | Default               | Description                                                      |
-|-------------|--------|-----------|-----------------------|------------------------------------------------------------------|
-| `path`      | string | yes       | (no default)          | Absolute or working-directory-relative path to the file          |
-| `limit`     | int    | no        | server default (1000) | Number of trailing rows to return. `0` = the whole loaded window |
-| `table`     | string | no        | (no default)          | Specific table to read for multi-table sources                   |
+| Parameter   | Type   | Required? | Default               | Description                                                       |
+|-------------|--------|-----------|-----------------------|-------------------------------------------------------------------|
+| `path`      | string | yes       | (no default)          | Absolute or working-directory-relative path to the file           |
+| `limit`     | int    | no        | server default (1000) | Number of trailing rows to return. `0` = the whole loaded window  |
+| `table`     | string | no        | (no default)          | Specific table to read for multi-table sources                    |
 | `unlimited` | bool   | no        | `false`               | Lift the 5,000,000-row file-loader cap so the true end is reached |
 
 ## Response shape

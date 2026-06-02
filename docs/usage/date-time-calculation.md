@@ -20,12 +20,12 @@ the same way [Insert Column](editing.md#inserting-columns) and
 Pick one of five operations at the top of the dialog. The fields below
 it change to match.
 
-| Operation                       | Inputs                                  | Produces                                                          |
-|---------------------------------|-----------------------------------------|-------------------------------------------------------------------|
-| **Difference between two dates** | Two date/datetime columns + a result unit | The gap between them, as a number in the chosen unit.             |
-| **Add / subtract time**          | One date column + an amount + a unit      | The date shifted forward (or back) by that amount.                |
-| **Convert duration units**       | One numeric column + From / To units      | The same duration expressed in a different unit.                  |
-| **Extract a component**          | One date column + a component             | A single field (year, month, weekday, …) pulled out of the value. |
+| Operation                        | Inputs                                    | Produces                                                                          |
+|----------------------------------|-------------------------------------------|-----------------------------------------------------------------------------------|
+| **Difference between two dates** | Two date/datetime columns + a result unit | The gap between them, as a number in the chosen unit.                             |
+| **Add / subtract time**          | One date column + an amount + a unit      | The date shifted forward (or back) by that amount.                                |
+| **Convert duration units**       | One numeric column + From / To units      | The same duration expressed in a different unit.                                  |
+| **Extract a component**          | One date column + a component             | A single field (year, month, weekday, …) pulled out of the value.                 |
 | **Unix timestamp / date**        | One column + a direction + an epoch unit  | A Unix epoch number turned into a date/time, or a date turned into a Unix number. |
 
 ### Difference between two dates

@@ -9,21 +9,21 @@ Change it under **Settings → Appearance → Language**. The switch is
 
 ## Available languages
 
-| Code | Language    |
-|------|-------------|
-| `en` | English     |
-| `de` | Deutsch     |
-| `es` | Español     |
-| `fr` | Français    |
-| `it` | Italiano    |
-| `nl` | Nederlands  |
-| `pt` | Português   |
-| `pl` | Polski      |
-| `sv` | Svenska     |
-| `da` | Dansk       |
-| `no` | Norsk       |
-| `fi` | Suomi       |
-| `tr` | Türkçe      |
+| Code | Language   |
+|------|------------|
+| `en` | English    |
+| `de` | Deutsch    |
+| `es` | Español    |
+| `fr` | Français   |
+| `it` | Italiano   |
+| `nl` | Nederlands |
+| `pt` | Português  |
+| `pl` | Polski     |
+| `sv` | Svenska    |
+| `da` | Dansk      |
+| `no` | Norsk      |
+| `fi` | Suomi      |
+| `tr` | Türkçe     |
 
 The chosen code is stored as `language` in your
 [`settings.toml`](settings.md).

@@ -20,14 +20,14 @@ formats** (a CSV row matches the equivalent Parquet row).
 
 ## Input schema
 
-| Parameter   | Type   | Required? | Default               | Description                                                  |
-|-------------|--------|-----------|-----------------------|--------------------------------------------------------------|
-| `path_a`    | string | yes       | (no default)          | Path to the first file (side A)                              |
-| `path_b`    | string | yes       | (no default)          | Path to the second file (side B)                            |
-| `table_a`   | string | no        | (no default)          | Specific table to read from A (multi-table sources)         |
-| `table_b`   | string | no        | (no default)          | Specific table to read from B (multi-table sources)         |
-| `limit`     | int    | no        | server default (1000) | Max rows returned *per side*. `0` = unlimited               |
-| `unlimited` | bool   | no        | `false`               | Lift the 5,000,000-row file-loader cap for both files       |
+| Parameter   | Type   | Required? | Default               | Description                                           |
+|-------------|--------|-----------|-----------------------|-------------------------------------------------------|
+| `path_a`    | string | yes       | (no default)          | Path to the first file (side A)                       |
+| `path_b`    | string | yes       | (no default)          | Path to the second file (side B)                      |
+| `table_a`   | string | no        | (no default)          | Specific table to read from A (multi-table sources)   |
+| `table_b`   | string | no        | (no default)          | Specific table to read from B (multi-table sources)   |
+| `limit`     | int    | no        | server default (1000) | Max rows returned *per side*. `0` = unlimited         |
+| `unlimited` | bool   | no        | `false`               | Lift the 5,000,000-row file-loader cap for both files |
 
 ## Response shape
 

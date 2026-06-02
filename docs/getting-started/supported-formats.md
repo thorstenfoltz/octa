@@ -6,38 +6,38 @@ always open *something*.
 
 ## At-a-glance matrix
 
-| Format                        | Extensions                                | Read | Write |
-|-------------------------------|-------------------------------------------|:----:|:-----:|
-| **Parquet**                   | `.parquet`                                |  ✅   |   ✅   |
-| **CSV / TSV**                 | `.csv`, `.tsv`                            |  ✅   |   ✅   |
-| **JSON**                      | `.json`                                   |  ✅   |   ✅   |
-| **JSON Lines**                | `.jsonl`, `.ndjson`                       |  ✅   |   ✅   |
-| **Excel**                     | `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.xlm` |  ✅   |  ✅ *  |
-| **ODS**                       | `.ods`                                    |  ✅   |   ✅   |
-| **Arrow IPC / Feather**       | `.arrow`, `.feather`                      |  ✅   |   ✅   |
-| **Avro**                      | `.avro`                                   |  ✅   |   ✅   |
-| **ORC**                       | `.orc`                                    |  ✅   |   ✅   |
-| **HDF5**                      | `.h5`, `.hdf5`, `.hdf`                    |  ✅   |   ❌   |
-| **NetCDF v3**                 | `.nc`                                     |  ✅   |   ❌   |
-| **SQLite**                    | `.sqlite`, `.sqlite3`, `.db`              |  ✅   | ✅ **  |
-| **DuckDB**                    | `.duckdb`, `.ddb`                         |  ✅   | ✅ **  |
-| **GeoPackage**                | `.gpkg`                                   |  ✅   | ✅ **  |
-| **SAS**                       | `.sas7bdat`                               |  ✅   |   ❌   |
-| **SPSS**                      | `.sav`, `.zsav`                           |  ✅   |   ✅   |
-| **Stata**                     | `.dta`                                    |  ✅   |   ✅   |
-| **R Datasets**                | `.rds`, `.rdata`, `.rda`                  |  ✅   |   ❌   |
-| **DBF / dBase**               | `.dbf`                                    |  ✅   |   ✅   |
-| **XML**                       | `.xml`                                    |  ✅   |   ✅   |
-| **TOML**                      | `.toml`                                   |  ✅   |   ✅   |
-| **YAML**                      | `.yaml`, `.yml`                           |  ✅   |   ✅   |
-| **Jupyter notebook**          | `.ipynb`                                  |  ✅   |   ✅   |
-| **Markdown**                  | `.md`, `.markdown`, `.mdown`, `.mkd`      |  ✅   |   ✅   |
-| **EPUB**                      | `.epub`                                   |  ✅   |   ❌   |
-| **GeoJSON**                   | `.geojson`                                |  ✅   |   ❌   |
-| **Archive (zip / tar / tgz)** | `.zip`, `.tar`, `.tgz`                    |  ✅   |   ❌   |
-| **Fixed-width (FWF)**         | `.fwf`, `.prn`                            |  ✅   |   ❌   |
+| Format                        | Extensions                                         | Read | Write |
+|-------------------------------|----------------------------------------------------|:----:|:-----:|
+| **Parquet**                   | `.parquet`                                         |  ✅   |   ✅   |
+| **CSV / TSV**                 | `.csv`, `.tsv`                                     |  ✅   |   ✅   |
+| **JSON**                      | `.json`                                            |  ✅   |   ✅   |
+| **JSON Lines**                | `.jsonl`, `.ndjson`                                |  ✅   |   ✅   |
+| **Excel**                     | `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.xlm`          |  ✅   |  ✅ *  |
+| **ODS**                       | `.ods`                                             |  ✅   |   ✅   |
+| **Arrow IPC / Feather**       | `.arrow`, `.feather`                               |  ✅   |   ✅   |
+| **Avro**                      | `.avro`                                            |  ✅   |   ✅   |
+| **ORC**                       | `.orc`                                             |  ✅   |   ✅   |
+| **HDF5**                      | `.h5`, `.hdf5`, `.hdf`                             |  ✅   |   ❌   |
+| **NetCDF v3**                 | `.nc`                                              |  ✅   |   ❌   |
+| **SQLite**                    | `.sqlite`, `.sqlite3`, `.db`                       |  ✅   | ✅ **  |
+| **DuckDB**                    | `.duckdb`, `.ddb`                                  |  ✅   | ✅ **  |
+| **GeoPackage**                | `.gpkg`                                            |  ✅   | ✅ **  |
+| **SAS**                       | `.sas7bdat`                                        |  ✅   |   ❌   |
+| **SPSS**                      | `.sav`, `.zsav`                                    |  ✅   |   ✅   |
+| **Stata**                     | `.dta`                                             |  ✅   |   ✅   |
+| **R Datasets**                | `.rds`, `.rdata`, `.rda`                           |  ✅   |   ❌   |
+| **DBF / dBase**               | `.dbf`                                             |  ✅   |   ✅   |
+| **XML**                       | `.xml`                                             |  ✅   |   ✅   |
+| **TOML**                      | `.toml`                                            |  ✅   |   ✅   |
+| **YAML**                      | `.yaml`, `.yml`                                    |  ✅   |   ✅   |
+| **Jupyter notebook**          | `.ipynb`                                           |  ✅   |   ✅   |
+| **Markdown**                  | `.md`, `.markdown`, `.mdown`, `.mkd`               |  ✅   |   ✅   |
+| **EPUB**                      | `.epub`                                            |  ✅   |   ❌   |
+| **GeoJSON**                   | `.geojson`                                         |  ✅   |   ❌   |
+| **Archive (zip / tar / tgz)** | `.zip`, `.tar`, `.tgz`                             |  ✅   |   ❌   |
+| **Fixed-width (FWF)**         | `.fwf`, `.prn`                                     |  ✅   |   ❌   |
 | **Source code / config**      | `.py`, `.rs`, `.go`, `.ts`, `.js`, ... (see below) |  ✅   |   ✅   |
-| **Plain text**                | anything else                             |  ✅   |   ✅   |
+| **Plain text**                | anything else                                      |  ✅   |   ✅   |
 
 \* **Excel write** always produces `.xlsx` structure, because the
 writer uses `rust_xlsxwriter` which doesn't emit legacy `.xls` /
