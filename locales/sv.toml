@@ -572,6 +572,9 @@ rounding = "Avrundning:"
 preview = "Förhandsvisning:"
 done = "Klar"
 clear_format = "Rensa format"
+apply_to = "Tillämpa på kolumner:"
+select_all = "Alla"
+select_none = "Inga"
 
 [multi_search]
 title = "Multisökning"

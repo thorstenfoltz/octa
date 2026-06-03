@@ -569,6 +569,9 @@ rounding = "Rounding:"
 preview = "Preview:"
 done = "Done"
 clear_format = "Clear format"
+apply_to = "Apply to columns:"
+select_all = "All"
+select_none = "None"
 
 [multi_search]
 title = "Multi-search"

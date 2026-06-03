@@ -187,12 +187,12 @@ The dialog has no shortcut by default; it is menu and context only.
 The dialog header shows the scope picked up from the current selection.
 A scope decides what becomes the payload:
 
-| Scope           | What gets serialised                                                                                                              |
-|-----------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| **Cell**        | A synthetic 1×1 table with the source column name as the header and the cell value as the only data row.                          |
-| **Row**         | A synthetic single row table whose headers are the full source column names and whose values are the row's cells, all as strings. |
-| **Column**      | A synthetic single column table with the source column name as the header and every cell of that column as the data rows.         |
-| **Whole table** | The active table is serialised through the same format writer that **Save As** uses, so headers and types round trip exactly.     |
+| Scope           | What gets serialised                                                                                                                                                                                                                                                                           |
+|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Cell**        | A synthetic 1×1 table with the source column name as the header and the cell value as the only data row. If several cells are marked (Ctrl+click), the whole block is serialised instead: the bounding grid of the selected rows × columns, with any unselected cell in that block left blank. |
+| **Row**         | A synthetic single row table whose headers are the full source column names and whose values are the row's cells, all as strings.                                                                                                                                                              |
+| **Column**      | A synthetic single column table with the source column name as the header and every cell of that column as the data rows. With several columns selected, all of them are serialised together as a multi-column table.                                                                          |
+| **Whole table** | The active table is serialised through the same format writer that **Save As** uses, so headers and types round trip exactly.                                                                                                                                                                  |
 
 Synthetic cells are always typed as strings; let date inference or
 manual type changes promote them after the parse if you want typed

@@ -572,6 +572,9 @@ rounding = "Arrondi :"
 preview = "Aperçu :"
 done = "Terminé"
 clear_format = "Effacer le format"
+apply_to = "Appliquer aux colonnes :"
+select_all = "Toutes"
+select_none = "Aucune"
 
 [multi_search]
 title = "Recherche multiple"

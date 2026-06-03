@@ -572,6 +572,9 @@ rounding = "Yuvarlama:"
 preview = "Önizleme:"
 done = "Bitti"
 clear_format = "Biçimi temizle"
+apply_to = "Sütunlara uygula:"
+select_all = "Tümü"
+select_none = "Hiçbiri"
 
 [multi_search]
 title = "Çoklu arama"

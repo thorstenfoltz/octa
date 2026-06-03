@@ -572,6 +572,9 @@ rounding = "Zaokrąglanie:"
 preview = "Podgląd:"
 done = "Gotowe"
 clear_format = "Wyczyść format"
+apply_to = "Zastosuj do kolumn:"
+select_all = "Wszystkie"
+select_none = "Żadne"
 
 [multi_search]
 title = "Wyszukiwanie wielokrotne"

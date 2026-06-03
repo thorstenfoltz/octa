@@ -16,34 +16,49 @@ pub(crate) fn render_round_save_prompt_dialog(app: &mut OctaApp, ctx: &egui::Con
     let mut cancel = false;
     let mut open = true;
 
+    // Explicit, stable window id (not the title-derived default). The dialog
+    // shipped for a while as a fixed-size, non-resizable window, and egui
+    // persisted that locked size under the old key; bumping the suffix discards
+    // it so the new resizable defaults take effect.
     egui::Window::new(octa::i18n::t("dialog.round_title"))
+        .id(egui::Id::new("octa_round_save_dialog_v2"))
         .open(&mut open)
-        .resizable(false)
+        .resizable([true, true])
         .collapsible(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .default_width(380.0)
+        .default_height(160.0)
+        .min_width(300.0)
+        .min_height(120.0)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
         .show(ctx, |ui| {
-            ui.set_min_width(360.0);
-            ui.label(octa::i18n::t("dialog.round_body"));
-            ui.add_space(10.0);
-            ui.horizontal(|ui| {
-                if ui
-                    .button(octa::i18n::t("dialog.round_save_rounded"))
-                    .on_hover_text(octa::i18n::t("dialog.round_save_rounded_hint"))
-                    .clicked()
-                {
-                    decision = Some(true);
-                }
-                if ui
-                    .button(octa::i18n::t("dialog.round_save_full"))
-                    .on_hover_text(octa::i18n::t("dialog.round_save_full_hint"))
-                    .clicked()
-                {
-                    decision = Some(false);
-                }
-                if ui.button(octa::i18n::t("common.cancel")).clicked() {
-                    cancel = true;
-                }
-            });
+            // Fill the window in both axes so the resize handles drag freely
+            // instead of the window snapping back to content size.
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.label(octa::i18n::t("dialog.round_body"));
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(octa::i18n::t("dialog.round_save_rounded"))
+                            .on_hover_text(octa::i18n::t("dialog.round_save_rounded_hint"))
+                            .clicked()
+                        {
+                            decision = Some(true);
+                        }
+                        if ui
+                            .button(octa::i18n::t("dialog.round_save_full"))
+                            .on_hover_text(octa::i18n::t("dialog.round_save_full_hint"))
+                            .clicked()
+                        {
+                            decision = Some(false);
+                        }
+                        if ui.button(octa::i18n::t("common.cancel")).clicked() {
+                            cancel = true;
+                        }
+                    });
+                });
         });
 
     if let Some(round) = decision {

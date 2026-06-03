@@ -445,7 +445,13 @@ pub(crate) struct TabState {
     pub(crate) column_number_formats:
         std::collections::HashMap<usize, octa::data::num_format::NumberFormat>,
     /// Column index whose Number-format dialog is open. `None` = closed.
+    /// This is the "primary" column (drives the dialog title + preview); the
+    /// chosen format applies to every column in `column_format_cols`.
     pub(crate) column_format_col: Option<usize>,
+    /// All columns the Number-format dialog currently applies to. Seeded from
+    /// the selection when the dialog opens and editable in-dialog via a column
+    /// picker, so one configuration can round several columns at once.
+    pub(crate) column_format_cols: Vec<usize>,
     /// Text buffer backing the decimals input in the Number-format dialog.
     /// Seeded when the dialog opens; parsed live into `column_number_formats`.
     pub(crate) column_format_decimals_buf: String,

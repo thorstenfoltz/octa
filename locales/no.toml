@@ -572,6 +572,9 @@ rounding = "Avrunding:"
 preview = "Forhåndsvisning:"
 done = "Ferdig"
 clear_format = "Tøm format"
+apply_to = "Bruk på kolonner:"
+select_all = "Alle"
+select_none = "Ingen"
 
 [multi_search]
 title = "Multisøk"
