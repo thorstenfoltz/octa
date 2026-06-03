@@ -119,6 +119,11 @@ and resizable. Choose:
   e.g. `-2` rounds to the nearest 100.
 - **Rounding** - `Normal` (round half away from zero), `Up` (toward
   positive infinity), or `Down` (toward negative infinity).
+- **Apply to columns** - a checklist of every numeric column lets one
+  format configuration round several columns at once. Selecting multiple
+  columns before opening the dialog pre-checks them; **All** / **None**
+  toggle the whole list. Unchecking a column drops its format. Drag the
+  dialog taller to see more columns at a time.
 
 Number formats are display-only and per tab (session-only). When
 you **Save** a tab that has a rounding format, Octa asks whether the

@@ -572,6 +572,9 @@ rounding = "Pyöristys:"
 preview = "Esikatselu:"
 done = "Valmis"
 clear_format = "Tyhjennä muoto"
+apply_to = "Käytä sarakkeisiin:"
+select_all = "Kaikki"
+select_none = "Ei mitään"
 
 [multi_search]
 title = "Monihaku"

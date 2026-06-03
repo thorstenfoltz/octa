@@ -572,6 +572,9 @@ rounding = "Redondeo:"
 preview = "Vista previa:"
 done = "Listo"
 clear_format = "Borrar formato"
+apply_to = "Aplicar a columnas:"
+select_all = "Todas"
+select_none = "Ninguna"
 
 [multi_search]
 title = "Búsqueda múltiple"

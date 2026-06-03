@@ -26,6 +26,15 @@ pub(crate) fn render_column_format_dialog(app: &mut OctaApp, ctx: &egui::Context
 
     let column_name = app.tabs[app.active_tab].table.columns[col_idx].name.clone();
 
+    // Numeric columns the picker offers - rounding only applies to numbers.
+    let numeric_cols: Vec<(usize, String)> = {
+        let table = &app.tabs[app.active_tab].table;
+        (0..table.col_count())
+            .filter(|&c| octa::data::is_numeric_data_type(&table.columns[c].data_type))
+            .map(|c| (c, table.columns[c].name.clone()))
+            .collect()
+    };
+
     // Parse the persisted decimals buffer (empty / invalid = Auto). Negative
     // values round before the decimal point.
     let buf = app.tabs[app.active_tab].column_format_decimals_buf.clone();
@@ -39,6 +48,10 @@ pub(crate) fn render_column_format_dialog(app: &mut OctaApp, ctx: &egui::Context
         .unwrap_or_default();
     fmt.decimals = decimals;
 
+    // Columns the format applies to. Edited live by the in-dialog picker.
+    let prev_cols = app.tabs[app.active_tab].column_format_cols.clone();
+    let mut selected_cols = prev_cols.clone();
+
     let mut open = true;
     let mut close = false;
     let mut clear = false;
@@ -48,91 +61,152 @@ pub(crate) fn render_column_format_dialog(app: &mut OctaApp, ctx: &egui::Context
         "{} - {column_name}",
         octa::i18n::t("column_format.title")
     ))
+    // Explicit, stable id so egui doesn't restore a size persisted while the
+    // dialog was a smaller, fixed layout.
+    .id(egui::Id::new("octa_column_format_dialog_v2"))
     .open(&mut open)
-    .resizable(true)
+    .resizable([true, true])
     .collapsible(false)
-    .default_width(300.0)
+    .default_width(320.0)
+    .default_height(420.0)
+    .min_width(300.0)
+    .min_height(260.0)
     .pivot(egui::Align2::CENTER_CENTER)
     .default_pos(ctx.content_rect().center())
     .show(ctx, |ui| {
-        ui.set_min_width(280.0);
-
-        // Decimals: free-text signed integer. Empty = Auto.
-        ui.horizontal(|ui| {
-            ui.label(octa::i18n::t("column_format.decimals"));
-            ui.add(
-                egui::TextEdit::singleline(&mut new_buf)
-                    .desired_width(56.0)
-                    .hint_text(octa::i18n::t("column_format.auto")),
-            );
-        });
-        // Always-visible hint - the negative behaviour isn't obvious.
-        ui.label(
-            egui::RichText::new(octa::i18n::t("column_format.decimals_hint"))
-                .small()
-                .color(ui.visuals().weak_text_color()),
-        );
-
-        ui.add_space(4.0);
-        ui.add_enabled_ui(fmt.decimals.is_some(), |ui| {
+        // Footer first (bottom panel) so the buttons stay pinned and visible
+        // no matter how tall the column list grows.
+        egui::Panel::bottom("octa_column_format_footer").show_inside(ui, |ui| {
+            ui.add_space(6.0);
             ui.horizontal(|ui| {
-                ui.label(octa::i18n::t("column_format.rounding"));
-                for mode in octa::data::num_format::RoundingMode::ALL {
-                    ui.radio_value(&mut fmt.rounding, *mode, mode.label_t());
+                if ui.button(octa::i18n::t("column_format.done")).clicked() {
+                    close = true;
+                }
+                if ui
+                    .button(octa::i18n::t("column_format.clear_format"))
+                    .clicked()
+                {
+                    clear = true;
                 }
             });
         });
 
-        ui.add_space(8.0);
-        // Live preview against the first non-null numeric cell, falling
-        // back to a sample value so the user always sees something.
-        let sample = first_numeric_sample(app, col_idx).unwrap_or(CellValue::Float(1234.5678));
-        let preview = format_cell_number(
-            &sample,
-            Some(fmt),
-            app.settings.thousands_separators_in_cells,
-            app.settings.number_separator_style,
-        )
-        .unwrap_or_default();
-        ui.label(
-            egui::RichText::new(format!(
-                "{} {preview}",
-                octa::i18n::t("column_format.preview")
-            ))
-            .color(ui.visuals().weak_text_color()),
-        );
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            // Decimals: free-text signed integer. Empty = Auto.
+            ui.horizontal(|ui| {
+                ui.label(octa::i18n::t("column_format.decimals"));
+                ui.add(
+                    egui::TextEdit::singleline(&mut new_buf)
+                        .desired_width(56.0)
+                        .hint_text(octa::i18n::t("column_format.auto")),
+                );
+            });
+            // Always-visible hint - the negative behaviour isn't obvious.
+            ui.label(
+                egui::RichText::new(octa::i18n::t("column_format.decimals_hint"))
+                    .small()
+                    .color(ui.visuals().weak_text_color()),
+            );
 
-        ui.add_space(10.0);
-        ui.horizontal(|ui| {
-            if ui.button(octa::i18n::t("column_format.done")).clicked() {
-                close = true;
-            }
-            if ui
-                .button(octa::i18n::t("column_format.clear_format"))
-                .clicked()
-            {
-                clear = true;
-            }
+            ui.add_space(4.0);
+            ui.add_enabled_ui(fmt.decimals.is_some(), |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(octa::i18n::t("column_format.rounding"));
+                    for mode in octa::data::num_format::RoundingMode::ALL {
+                        ui.radio_value(&mut fmt.rounding, *mode, mode.label_t());
+                    }
+                });
+            });
+
+            ui.add_space(8.0);
+            // Live preview against the first non-null numeric cell, falling
+            // back to a sample value so the user always sees something.
+            let sample = first_numeric_sample(app, col_idx).unwrap_or(CellValue::Float(1234.5678));
+            let preview = format_cell_number(
+                &sample,
+                Some(fmt),
+                app.settings.thousands_separators_in_cells,
+                app.settings.number_separator_style,
+            )
+            .unwrap_or_default();
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} {preview}",
+                    octa::i18n::t("column_format.preview")
+                ))
+                .color(ui.visuals().weak_text_color()),
+            );
+
+            ui.separator();
+            ui.label(octa::i18n::t("column_format.apply_to"));
+            ui.horizontal(|ui| {
+                if ui
+                    .button(octa::i18n::t("column_format.select_all"))
+                    .clicked()
+                {
+                    selected_cols = numeric_cols.iter().map(|(c, _)| *c).collect();
+                }
+                if ui
+                    .button(octa::i18n::t("column_format.select_none"))
+                    .clicked()
+                {
+                    selected_cols.clear();
+                }
+            });
+            // Scrollable checkbox list of numeric columns; fills the
+            // resizable window so dragging it taller shows more columns.
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for (c, name) in &numeric_cols {
+                        let mut checked = selected_cols.contains(c);
+                        if ui.checkbox(&mut checked, name).changed() {
+                            if checked {
+                                if !selected_cols.contains(c) {
+                                    selected_cols.push(*c);
+                                }
+                            } else {
+                                selected_cols.retain(|x| x != c);
+                            }
+                        }
+                    }
+                });
         });
     });
+
+    selected_cols.sort_unstable();
+    selected_cols.dedup();
 
     let tab = &mut app.tabs[app.active_tab];
 
     if clear {
-        tab.column_number_formats.remove(&col_idx);
+        // Drop the format from every column this dialog touched.
+        for c in prev_cols.iter().chain(selected_cols.iter()) {
+            tab.column_number_formats.remove(c);
+        }
         tab.column_format_decimals_buf.clear();
+        tab.column_format_cols.clear();
         tab.column_format_col = None;
         return;
     }
 
-    // Persist the buffer and apply the format live.
+    // Persist the buffer and apply the format live to every selected column.
     tab.column_format_decimals_buf = new_buf;
-    if fmt == NumberFormat::default() {
-        // No-op format (Auto decimals, default rounding) - drop the entry.
-        tab.column_number_formats.remove(&col_idx);
-    } else {
-        tab.column_number_formats.insert(col_idx, fmt);
+    // Columns unchecked this frame lose their format.
+    for c in &prev_cols {
+        if !selected_cols.contains(c) {
+            tab.column_number_formats.remove(c);
+        }
     }
+    for c in &selected_cols {
+        if fmt == NumberFormat::default() {
+            // No-op format (Auto decimals, default rounding) - drop the entry.
+            tab.column_number_formats.remove(c);
+        } else {
+            tab.column_number_formats.insert(*c, fmt);
+        }
+    }
+    tab.column_format_cols = selected_cols;
 
     if close || !open {
         tab.column_format_col = None;

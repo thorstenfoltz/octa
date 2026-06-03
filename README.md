@@ -49,6 +49,8 @@ The same binary also speaks the Model Context Protocol over stdio (`octa --mcp`)
 | EPUB                      | yes  | no    | EPUB Reader view, chapter-by-chapter with embedded images.                                             |
 | GeoJSON (.geojson)        | yes  | no    | Map view with OSM tile rendering or geometry-only fallback.                                            |
 | Archive (zip / tar / tgz) | yes  | no    | Read-only listing; per-entry extract-and-open action.                                                  |
+| Fixed-width (FWF)         | yes  | no    | `.fwf` / `.prn`; read-only, best-effort column-boundary inference.                                     |
+| Source code / config      | yes  | yes   | `.py`, `.rs`, `.go`, `.ts`, ... opened with syntect highlighting in the Raw view.                      |
 | Plain Text                | yes  | yes   | Syntect highlighting for languages without a dedicated view.                                           |
 
 Unknown file extensions are opened as plain text.
@@ -137,10 +139,12 @@ Output format is selectable with `-f / --format {tsv|json|csv}` (TSV default). R
 
 ### MCP server
 
-`octa --mcp` starts a Model Context Protocol server on stdio. Eleven tools cover
-the CLI surface plus inspection helpers: `read_table`, `schema`, `list_tables`,
-`count_rows`, `run_sql`, `convert`, `export_schema`, `profile`,
-`find_duplicates`, `value_frequency`, `search`. Defaults (row limit + per-cell
+`octa --mcp` starts a Model Context Protocol server on stdio. A suite of tools
+covers the CLI surface plus inspection and write helpers: `read_table`, `tail`,
+`sample`, `schema`, `list_tables`, `count_rows`, `run_sql`, `convert`,
+`export_schema`, `profile`, `find_duplicates`, `value_frequency`, `search`,
+`compare_schemas`, `diff_tables`, `describe_file`, `validate_against_schema`,
+`unique_columns`, `write_table`, and `edit_table`. Defaults (row limit + per-cell
 byte cap) are configurable under **Settings → MCP**. Add it to any MCP client
 (Claude Desktop, Claude Code, MCP Inspector) and the model can answer questions
 about your local data files.
@@ -220,6 +224,34 @@ Defaults themselves live under **Settings → MCP** and **Settings → Performan
 
 `/path/to/octa` can be a system-installed binary (`/usr/local/bin/octa`), a user-local install (`~/.local/bin/octa`), or an AppImage path (`/home/you/Octa-x86_64.AppImage`).
 See [`docs/mcp/setup.md`](https://thorstenfoltz.github.io/octa/mcp/setup/) for Claude Code, MCP Inspector, and other clients.
+
+## Docker / Containers
+
+A headless container image ships the CLI actions and the `--mcp` server (no
+GUI, since the windowing libraries are never loaded on the headless paths). It
+is published to the GitHub Container Registry, so no Rust toolchain or local
+build is needed:
+
+```bash
+docker pull ghcr.io/thorstenfoltz/octa:latest
+```
+
+Mount a data directory and pass any CLI flag (the binary is the entrypoint):
+
+```bash
+docker run --rm -v "$PWD:/data" octa --schema /data/file.parquet
+```
+
+Run the MCP server over stdio with an interactive stdin (`-i`):
+
+```bash
+docker run --rm -i -v "$PWD:/data" octa --mcp
+```
+
+The same `Dockerfile` works with Podman (swap `docker` for `podman`). See
+[`docs/cli/docker.md`](https://thorstenfoltz.github.io/octa/cli/docker/) for
+building from source, writing output as a non-root user, and wiring the
+container into Claude Code.
 
 ## Installation
 

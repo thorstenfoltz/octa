@@ -205,9 +205,18 @@ fn execute_parse(app: &mut OctaApp, state: ParseModalState) {
             // Pass the cell text through verbatim and let the TextReader
             // render it as raw lines.
             if ext == "txt" {
-                cells.join("\n").into_bytes()
+                // Plain Text has no schema; emit one line per row. For a
+                // multi-column scope, tab-join the cells in each row so the
+                // columns stay aligned in the raw output.
+                let width = state.headers.len().max(1);
+                cells
+                    .chunks(width)
+                    .map(|row| row.join("\t"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    .into_bytes()
             } else {
-                match build_synthetic_payload(&state.scope, cells, &state.headers, ext) {
+                match build_synthetic_payload(cells, &state.headers, ext) {
                     Ok(b) => b,
                     Err(e) => {
                         app.status_message = Some((
@@ -298,21 +307,19 @@ fn scope_friendly_name(scope: &ParseScope, _fallback: &str) -> String {
 /// columns). Plain Text is short-circuited by the caller - it has no
 /// schema concept.
 ///
-/// Shapes:
+/// Shapes (all derived by chunking `cells` row-major into rows of
+/// `headers.len()` columns):
 /// * Cell scope: 1 row × 1 column, header from the source column.
 /// * Row scope: 1 row × N columns, headers from the source columns.
-/// * Column scope: N rows × 1 column, single header from the source column.
+/// * Column scope (single): N rows × 1 column.
+/// * Column scope (multi): N rows × M columns, headers from the selected columns.
 fn build_synthetic_payload(
-    scope: &ParseScope,
     cells: &[String],
     headers: &[String],
     ext: &str,
 ) -> Result<Vec<u8>, String> {
-    let rows: Vec<Vec<String>> = match scope {
-        ParseScope::Cell { .. } | ParseScope::Row { .. } => vec![cells.to_vec()],
-        ParseScope::Column { .. } => cells.iter().map(|c| vec![c.clone()]).collect(),
-        ParseScope::Table => unreachable!("Table scope uses serialize_active_table"),
-    };
+    let width = headers.len().max(1);
+    let rows: Vec<Vec<String>> = cells.chunks(width).map(|c| c.to_vec()).collect();
     let table = synthetic_table(headers, rows);
     serialize_table_bytes(&table, ext)
 }
@@ -396,6 +403,55 @@ pub(crate) fn build_modal_state(tab: &TabState, scope: ParseScope) -> Option<Par
     let bdm = octa::data::BinaryDisplayMode::default();
     match scope {
         ParseScope::Cell { row, col } => {
+            // If the user has marked several cells (Ctrl+click) and the
+            // targeted cell is part of that set, parse the whole block: the
+            // bounding grid of selected rows x selected columns, with cells
+            // outside the selection left blank. Otherwise fall back to the
+            // single targeted cell.
+            let selected = &tab.table_state.selected_cells;
+            if selected.len() > 1 && selected.contains(&(row, col)) {
+                let mut rows: Vec<usize> = selected
+                    .iter()
+                    .map(|(r, _)| *r)
+                    .filter(|r| *r < table.row_count())
+                    .collect();
+                rows.sort_unstable();
+                rows.dedup();
+                let mut cols: Vec<usize> = selected
+                    .iter()
+                    .map(|(_, c)| *c)
+                    .filter(|c| *c < table.col_count())
+                    .collect();
+                cols.sort_unstable();
+                cols.dedup();
+
+                let headers: Vec<String> = cols
+                    .iter()
+                    .map(|c| table.columns[*c].name.clone())
+                    .collect();
+                let mut cells: Vec<String> = Vec::with_capacity(rows.len() * cols.len());
+                for r in &rows {
+                    for c in &cols {
+                        let text = if selected.contains(&(*r, *c)) {
+                            table
+                                .get(*r, *c)
+                                .map(|v| v.display_with_binary_mode(bdm))
+                                .unwrap_or_default()
+                        } else {
+                            String::new()
+                        };
+                        cells.push(text);
+                    }
+                }
+                let label = format!(
+                    "{} cells ({} rows x {} cols)",
+                    selected.len(),
+                    rows.len(),
+                    cols.len()
+                );
+                return Some(ParseModalState::new(scope, label, Some(cells), headers));
+            }
+
             let value = table.get(row, col)?;
             let text = value.display_with_binary_mode(bdm);
             let col_name = table
@@ -427,18 +483,56 @@ pub(crate) fn build_modal_state(tab: &TabState, scope: ParseScope) -> Option<Par
             if col >= table.col_count() {
                 return None;
             }
-            let col_name = table.columns[col].name.clone();
-            let cells: Vec<String> = (0..table.row_count())
-                .filter_map(|r| table.get(r, col))
-                .map(|v| v.display_with_binary_mode(bdm))
+            // If the user has a multi-column selection that includes the
+            // targeted column, parse every selected column instead of just
+            // the one. Right-clicking a header outside the selection still
+            // parses only that column.
+            let selected = &tab.table_state.selected_cols;
+            let cols: Vec<usize> = if selected.len() > 1 && selected.contains(&col) {
+                let mut cs: Vec<usize> = selected
+                    .iter()
+                    .copied()
+                    .filter(|c| *c < table.col_count())
+                    .collect();
+                cs.sort_unstable();
+                cs
+            } else {
+                vec![col]
+            };
+
+            let headers: Vec<String> = cols
+                .iter()
+                .map(|c| table.columns[*c].name.clone())
                 .collect();
-            let label = format!("Column '{}' ({} cells)", col_name, cells.len());
-            Some(ParseModalState::new(
-                scope,
-                label,
-                Some(cells),
-                vec![col_name],
-            ))
+            // Cells captured row-major so `build_synthetic_payload` can
+            // chunk them back into N rows x M columns.
+            let row_count = table.row_count();
+            let mut cells: Vec<String> = Vec::with_capacity(row_count * cols.len());
+            for r in 0..row_count {
+                for c in &cols {
+                    let text = table
+                        .get(r, *c)
+                        .map(|v| v.display_with_binary_mode(bdm))
+                        .unwrap_or_default();
+                    cells.push(text);
+                }
+            }
+
+            let label = if cols.len() == 1 {
+                format!("Column '{}' ({} cells)", headers[0], row_count)
+            } else {
+                format!(
+                    "Columns {} ({} rows x {} cols)",
+                    headers
+                        .iter()
+                        .map(|h| format!("'{}'", h))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    row_count,
+                    cols.len()
+                )
+            };
+            Some(ParseModalState::new(scope, label, Some(cells), headers))
         }
         ParseScope::Table => {
             let label = format!(

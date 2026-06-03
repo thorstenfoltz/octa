@@ -46,6 +46,24 @@ octa --convert clean.csv clean.parquet
 rm clean.csv
 ```
 
+### Via MCP
+
+With Octa registered as an MCP server (`octa --mcp`), ask your client
+(Claude Desktop, Claude Code, MCP Inspector, ...) to convert the file
+and it calls the `convert` tool:
+
+```text
+convert(input="messy.csv", output="clean.parquet")
+```
+
+Type inference applies exactly as it does on the CLI: the CSV column
+types are inferred at read time and become the Parquet schema. For a
+SQL pre-process in the same step, use `run_sql` with a `write_to`
+target instead of a separate convert. See
+[MCP server](../mcp/index.md) and the
+[MCP setup guide](../mcp/setup.md) for registering the server and the
+full tool list.
+
 ## Open a huge file without blowing memory
 
 Octa's streaming readers (Parquet, CSV, TSV) load only the first

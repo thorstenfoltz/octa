@@ -91,6 +91,7 @@ impl TabState {
             value_frequency_pick: false,
             column_number_formats: std::collections::HashMap::new(),
             column_format_col: None,
+            column_format_cols: Vec::new(),
             column_format_decimals_buf: String::new(),
             show_find_duplicates: false,
             find_duplicates_key_cols: std::collections::HashSet::new(),
@@ -205,6 +206,7 @@ impl TabState {
             None => String::new(),
         };
         self.column_format_col = Some(col);
+        self.column_format_cols = vec![col];
     }
 
     pub(crate) fn title_display(&self) -> String {
@@ -271,7 +273,25 @@ impl OctaApp {
             ));
             return;
         }
+        // Pre-check every selected numeric column so a multi-column selection
+        // opens the dialog ready to round all of them at once.
+        let mut cols: Vec<usize> = tab
+            .table_state
+            .selected_cols
+            .iter()
+            .copied()
+            .filter(|&c| {
+                c < tab.table.col_count()
+                    && octa::data::is_numeric_data_type(&tab.table.columns[c].data_type)
+            })
+            .collect();
+        if !cols.contains(&col) {
+            cols.push(col);
+        }
+        cols.sort_unstable();
+        cols.dedup();
         tab.open_column_format(col);
+        tab.column_format_cols = cols;
     }
 
     pub(crate) fn open_chart_tab(&mut self) {

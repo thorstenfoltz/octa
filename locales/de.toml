@@ -572,6 +572,9 @@ rounding = "Rundung:"
 preview = "Vorschau:"
 done = "Fertig"
 clear_format = "Format löschen"
+apply_to = "Auf Spalten anwenden:"
+select_all = "Alle"
+select_none = "Keine"
 
 [multi_search]
 title = "Mehrfachsuche"

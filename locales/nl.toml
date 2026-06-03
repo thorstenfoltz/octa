@@ -572,6 +572,9 @@ rounding = "Afronden:"
 preview = "Voorbeeld:"
 done = "Klaar"
 clear_format = "Notatie wissen"
+apply_to = "Toepassen op kolommen:"
+select_all = "Alle"
+select_none = "Geen"
 
 [multi_search]
 title = "Multi-zoeken"
