@@ -762,6 +762,10 @@ pub(crate) struct OctaApp {
     /// worker. Initialised hidden; opened via **Search -> Multi-search...**
     /// or the `MultiSearch` keyboard shortcut.
     pub(crate) multi_search: super::multi_search::MultiSearchState,
+    /// In-GUI chat assistant panel state (conversation, input, provider
+    /// switching). Initialised hidden; opened via the toolbar Assistant
+    /// button or the `ToggleChatPanel` shortcut.
+    pub(crate) chat: super::chat_panel::ChatPanelState,
 }
 
 /// Snapshot of a read-only-toggle event used by the notice modal. Captures

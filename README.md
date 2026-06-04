@@ -4,13 +4,13 @@
   <img src="assets/octa-rose.svg" alt="Octa" width="128" height="128">
 </p>
 
-An application for viewing data files. Octa opens files in a spreadsheet-like table view with sorting, filtering, and search options. Writing is supported but limited. Octa is primarily a reader.
+An application for viewing data files. Octa opens files in a spreadsheet-like table view with sorting, filtering, and search options. Including CLI, MCP and a chat assistant within the GUI.
 
 📚 **Documentation:** <https://thorstenfoltz.github.io/octa/>
 
 ## Preview
 
-<!-- TODO: add screenshot -->
+![Open a file](../assets/screenshots/first-steps-file-menu.png)
 
 ## Why Octa?
 

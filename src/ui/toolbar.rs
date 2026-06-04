@@ -187,6 +187,9 @@ pub struct ToolbarAction {
     /// **Search -> Multi-search...** and the `MultiSearch` keyboard
     /// shortcut.
     pub toggle_multi_search: bool,
+    /// Toggle the in-GUI chat assistant panel. Fired by the toolbar Assistant
+    /// button, **View -> Assistant panel**, and the `ToggleChatPanel` shortcut.
+    pub toggle_chat_panel: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -916,6 +919,14 @@ pub fn draw_toolbar(
                             .clicked()
                         {
                             action.open_value_frequency = true;
+                            ui.close();
+                        }
+                        ui.separator();
+                        if ui
+                            .button(crate::i18n::t("analyse_menu.assistant"))
+                            .clicked()
+                        {
+                            action.toggle_chat_panel = true;
                             ui.close();
                         }
                     },

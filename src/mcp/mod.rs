@@ -55,16 +55,12 @@ pub struct OctaMcpServer {
 }
 
 impl OctaMcpServer {
-    /// Resolve the effective row cap for a single tool call. Precedence:
-    /// caller's `Some(0)` -> unlimited; caller's `Some(n)` -> that value;
-    /// caller omitted (None) -> fall back to the server's configured default
-    /// (None = unlimited there too).
-    pub fn resolve_row_cap(&self, requested: Option<usize>) -> Option<usize> {
-        match requested {
-            Some(0) => None,
-            Some(n) => Some(n),
-            None => self.default_row_limit,
-        }
+    /// Build a [`tools::ToolContext`] for one tool call. The MCP server has no
+    /// open GUI tabs, so the context carries only the configured caps; the
+    /// in-GUI chat agent builds a context with tab snapshots instead. Sharing
+    /// the type lets both surfaces call the same `tools::<name>::run`.
+    pub fn tool_context(&self) -> tools::ToolContext {
+        tools::ToolContext::for_mcp(self.default_row_limit, self.cell_byte_cap)
     }
 }
 

@@ -20,14 +20,22 @@ use octa::formats::FormatRegistry;
 
 use crate::mcp::OctaMcpServer;
 
-use super::{build_data_table, cell_from_json, read_with_registry};
+use super::{ToolContext, build_data_table, cell_from_json, read_with_registry};
 
-// Tool description lives inline at the `#[tool]` site in `src/mcp/mod.rs`.
+pub const DESCRIPTION: &str = "Write model-supplied rows to a file in any writable format - the inverse of `read_table`. \
+The output extension picks the format. Supply `columns` (name + optional Arrow `type`, default \
+`Utf8`) and `rows` (array-of-arrays). `mode` is `create` (default), `overwrite`, or `append`. \
+Database files are not valid targets - use `edit_table` or `run_sql` with `write_to`.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
     /// Path to the output file. Extension determines the write format.
     pub path: PathBuf,
+
+    /// Reserved: writing back into an open GUI tab is not supported in v1.
+    /// Setting this returns an error - save to a file path instead.
+    #[serde(default)]
+    pub open_tab: Option<String>,
 
     /// Column definitions, in order. `type` is an Arrow type name (e.g.
     /// `Int64`, `Float64`, `Boolean`, `Date32`, `Timestamp(Microsecond, None)`,
@@ -65,10 +73,16 @@ fn default_mode() -> String {
     "create".to_string()
 }
 
-pub async fn handle(_server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
-    let path = p.path.clone();
-    let mode = p.mode.clone();
-    let unlimited = p.unlimited;
+pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    if p.open_tab.is_some() {
+        anyhow::bail!(
+            "writing back to an open tab is not supported yet; save to a file path instead"
+        );
+    }
+    let _g = p
+        .unlimited
+        .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
+
     let columns: Vec<(String, String)> = p
         .columns
         .iter()
@@ -79,97 +93,97 @@ pub async fn handle(_server: &OctaMcpServer, p: Params) -> Result<CallToolResult
             )
         })
         .collect();
-    let rows = p.rows;
+    let rows = &p.rows;
+    // Confine chat writes to the export dir (no-op for MCP / CLI).
+    let path = ctx.resolve_write_path(&p.path)?;
+    let path = &path;
 
-    let (rows_written, cols_written, out_path, used_mode) =
-        tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-            let _g = unlimited.then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
+    let registry = FormatRegistry::new();
+    let out_reader = registry.reader_for_path(path).ok_or_else(|| {
+        anyhow::anyhow!(
+            "no reader available for output extension on {}",
+            path.display()
+        )
+    })?;
+    if !out_reader.supports_write() {
+        anyhow::bail!(
+            "format {} does not support writing - pick a different output extension",
+            out_reader.name()
+        );
+    }
 
-            let registry = FormatRegistry::new();
-            let out_reader = registry.reader_for_path(&path).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no reader available for output extension on {}",
-                    path.display()
-                )
-            })?;
-            if !out_reader.supports_write() {
+    let table = match p.mode.as_str() {
+        "create" => {
+            if path.exists() {
                 anyhow::bail!(
-                    "format {} does not support writing - pick a different output extension",
-                    out_reader.name()
+                    "{} already exists - use mode \"overwrite\" to replace it or \
+                     \"append\" to add rows",
+                    path.display()
                 );
             }
-
-            let table = match mode.as_str() {
-                "create" => {
-                    if path.exists() {
-                        anyhow::bail!(
-                            "{} already exists - use mode \"overwrite\" to replace it or \
-                             \"append\" to add rows",
-                            path.display()
-                        );
-                    }
-                    build_data_table(&columns, &rows)?
+            build_data_table(&columns, rows)?
+        }
+        "overwrite" => build_data_table(&columns, rows)?,
+        "append" => {
+            if !path.exists() {
+                anyhow::bail!(
+                    "{} does not exist - use mode \"create\" to make it",
+                    path.display()
+                );
+            }
+            let mut existing = read_with_registry(path, None)?;
+            let existing_names: Vec<&str> =
+                existing.columns.iter().map(|c| c.name.as_str()).collect();
+            let requested_names: Vec<&str> = columns.iter().map(|(n, _)| n.as_str()).collect();
+            if existing_names != requested_names {
+                anyhow::bail!(
+                    "append column mismatch: file has [{}] but request has [{}]",
+                    existing_names.join(", "),
+                    requested_names.join(", ")
+                );
+            }
+            for (i, row) in rows.iter().enumerate() {
+                if row.len() != existing.columns.len() {
+                    anyhow::bail!(
+                        "row {i} has {} cell(s) but the table has {} column(s)",
+                        row.len(),
+                        existing.columns.len()
+                    );
                 }
-                "overwrite" => build_data_table(&columns, &rows)?,
-                "append" => {
-                    if !path.exists() {
-                        anyhow::bail!(
-                            "{} does not exist - use mode \"create\" to make it",
-                            path.display()
-                        );
-                    }
-                    let mut existing = read_with_registry(&path, None)?;
-                    let existing_names: Vec<&str> =
-                        existing.columns.iter().map(|c| c.name.as_str()).collect();
-                    let requested_names: Vec<&str> =
-                        columns.iter().map(|(n, _)| n.as_str()).collect();
-                    if existing_names != requested_names {
-                        anyhow::bail!(
-                            "append column mismatch: file has [{}] but request has [{}]",
-                            existing_names.join(", "),
-                            requested_names.join(", ")
-                        );
-                    }
-                    for (i, row) in rows.iter().enumerate() {
-                        if row.len() != existing.columns.len() {
-                            anyhow::bail!(
-                                "row {i} has {} cell(s) but the table has {} column(s)",
-                                row.len(),
-                                existing.columns.len()
-                            );
-                        }
-                        let cells = row
-                            .iter()
-                            .enumerate()
-                            .map(|(c, v)| cell_from_json(v, &existing.columns[c].data_type))
-                            .collect();
-                        existing.rows.push(cells);
-                    }
-                    existing
-                }
-                other => anyhow::bail!(
-                    "unknown mode \"{other}\" - expected \"create\", \"overwrite\", or \"append\""
-                ),
-            };
+                let cells = row
+                    .iter()
+                    .enumerate()
+                    .map(|(c, v)| cell_from_json(v, &existing.columns[c].data_type))
+                    .collect();
+                existing.rows.push(cells);
+            }
+            existing
+        }
+        other => anyhow::bail!(
+            "unknown mode \"{other}\" - expected \"create\", \"overwrite\", or \"append\""
+        ),
+    };
 
-            out_reader.write_file(&path, &table)?;
-            Ok((
-                table.row_count(),
-                table.col_count(),
-                path.display().to_string(),
-                mode,
-            ))
-        })
+    out_reader.write_file(path, &table)?;
+
+    let mut out = Map::new();
+    out.insert("rows_written".to_string(), Value::from(table.row_count()));
+    out.insert("cols_written".to_string(), Value::from(table.col_count()));
+    out.insert(
+        "output".to_string(),
+        Value::String(path.display().to_string()),
+    );
+    out.insert("mode".to_string(), Value::String(p.mode.clone()));
+    Ok(Value::Object(out))
+}
+
+pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
+    let ctx = server.tool_context();
+    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
         .map_err(|e| McpError::invalid_params(format!("write_table failed: {e}"), None))?;
-
-    let mut out = Map::new();
-    out.insert("rows_written".to_string(), Value::from(rows_written));
-    out.insert("cols_written".to_string(), Value::from(cols_written));
-    out.insert("output".to_string(), Value::String(out_path));
-    out.insert("mode".to_string(), Value::String(used_mode));
     Ok(CallToolResult::success(vec![Content::text(
-        Value::Object(out).to_string(),
+        payload.to_string(),
     )]))
 }

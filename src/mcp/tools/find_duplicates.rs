@@ -12,14 +12,23 @@ use octa::data::{CellValue, DataTable};
 
 use crate::mcp::OctaMcpServer;
 
-use super::{read_with_registry, table_to_json};
+use super::{ToolContext, source_from, table_to_json};
 
-// Tool description lives inline at the `#[tool]` site in `src/mcp/mod.rs`.
+pub const DESCRIPTION: &str = "Find duplicate rows in a tabular file or open tab. `key_columns` lists the columns whose \
+combined value forms the duplicate key; every row sharing its key with another is returned. The \
+response carries `duplicate_row_count` and `result` (schema + duplicate rows). `limit` caps rows \
+(0 = unlimited).";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
-    /// Path to the file.
+    /// Path to the file. Omit when `open_tab` is set.
+    #[serde(default)]
     pub path: PathBuf,
+
+    /// Operate on an open GUI tab instead of a file. Pass the tab's name, or
+    /// `@active` for the currently active tab.
+    #[serde(default)]
+    pub open_tab: Option<String>,
 
     /// For multi-table sources, the specific table to scan.
     #[serde(default)]
@@ -41,57 +50,58 @@ pub struct Params {
     pub unlimited: bool,
 }
 
-pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
-    let row_cap = server.resolve_row_cap(p.limit);
-    let cell_cap = server.cell_byte_cap;
-    let path = p.path.clone();
-    let table_name = p.table.clone();
-    let key_columns = p.key_columns.clone();
-    let unlimited = p.unlimited;
-
-    let (sub, dup_count) = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-        let _g = unlimited.then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
-        if key_columns.is_empty() {
-            anyhow::bail!("key_columns must not be empty");
-        }
-        let dt = read_with_registry(&path, table_name.as_deref())?;
-        let mut key_idx = Vec::with_capacity(key_columns.len());
-        for name in &key_columns {
-            let idx = dt
-                .columns
-                .iter()
-                .position(|c| &c.name == name)
-                .ok_or_else(|| anyhow::anyhow!("no such column: {name}"))?;
-            key_idx.push(idx);
-        }
-        let dup_rows = find_duplicate_rows(&dt, &key_idx);
-        // Materialise the duplicate rows into a standalone table so the
-        // shared `table_to_json` can serialise + cap them.
-        let mut sub = DataTable::empty();
-        sub.columns = dt.columns.clone();
-        sub.rows = dup_rows
+pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    let _g = p
+        .unlimited
+        .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
+    if p.key_columns.is_empty() {
+        anyhow::bail!("key_columns must not be empty");
+    }
+    let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
+    let mut key_idx = Vec::with_capacity(p.key_columns.len());
+    for name in &p.key_columns {
+        let idx = dt
+            .columns
             .iter()
-            .map(|&r| {
-                (0..dt.col_count())
-                    .map(|c| dt.get(r, c).cloned().unwrap_or(CellValue::Null))
-                    .collect()
-            })
-            .collect();
-        Ok((sub, dup_rows.len()))
-    })
-    .await
-    .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-    .map_err(|e| McpError::invalid_params(format!("find_duplicates failed: {e}"), None))?;
+            .position(|c| &c.name == name)
+            .ok_or_else(|| anyhow::anyhow!("no such column: {name}"))?;
+        key_idx.push(idx);
+    }
+    let dup_rows = find_duplicate_rows(&dt, &key_idx);
+    // Materialise the duplicate rows into a standalone table so the shared
+    // `table_to_json` can serialise + cap them.
+    let mut sub = DataTable::empty();
+    sub.columns = dt.columns.clone();
+    sub.rows = dup_rows
+        .iter()
+        .map(|&r| {
+            (0..dt.col_count())
+                .map(|c| dt.get(r, c).cloned().unwrap_or(CellValue::Null))
+                .collect()
+        })
+        .collect();
 
-    let result = table_to_json(&sub, row_cap, cell_cap);
+    let result = table_to_json(&sub, ctx.resolve_row_cap(p.limit), ctx.cell_byte_cap);
     let mut out = Map::new();
     out.insert(
         "key_columns".to_string(),
-        Value::Array(p.key_columns.into_iter().map(Value::String).collect()),
+        Value::Array(p.key_columns.iter().cloned().map(Value::String).collect()),
     );
-    out.insert("duplicate_row_count".to_string(), Value::from(dup_count));
+    out.insert(
+        "duplicate_row_count".to_string(),
+        Value::from(dup_rows.len()),
+    );
     out.insert("result".to_string(), result);
+    Ok(Value::Object(out))
+}
+
+pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
+    let ctx = server.tool_context();
+    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+        .await
+        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("find_duplicates failed: {e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(
-        Value::Object(out).to_string(),
+        payload.to_string(),
     )]))
 }

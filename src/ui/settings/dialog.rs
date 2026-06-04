@@ -44,6 +44,15 @@ impl SettingsDialog {
             crate::ui::status_bar::format_number(current.table_picker_visible_rows);
         self.excel_max_auto_sheets_buf =
             crate::ui::status_bar::format_number(current.excel_max_auto_sheets);
+        self.chat_temperature_buf = format!("{:.2}", current.chat_temperature);
+        self.chat_max_iterations_buf = current.chat_max_tool_iterations.to_string();
+        self.chat_max_tokens_buf = crate::ui::status_bar::format_number(current.chat_max_tokens);
+        self.chat_unlimited_tokens = current.chat_max_tokens_unlimited;
+        self.chat_key_input_buf.clear();
+        self.chat_key_status_msg = None;
+        // Reset here; the chat panel re-sets it to true right after calling
+        // open() so the Chat section starts expanded only when launched there.
+        self.focus_chat_section = false;
         self.recording = None;
         self.shortcut_conflict = None;
         self.show_reset_confirm = false;
@@ -91,6 +100,11 @@ impl SettingsDialog {
         };
         let minimized = self.size == DialogSize::Minimized;
         window.show(ctx, |ui| {
+            // Labels in Settings are static captions, not selectable text - turn
+            // off egui's default label selection so hovering a row label (e.g.
+            // "Temperature") shows the normal pointer instead of the text I-beam.
+            // Input fields keep their own I-beam.
+            ui.style_mut().interaction.selectable_labels = false;
             // Custom title bar: logo + "Octa Settings" + three control
             // buttons. Stays rendered when minimized so the user can
             // restore from there.
@@ -183,6 +197,23 @@ impl SettingsDialog {
                             if let Ok(n) = parse_comma_number(&self.excel_max_auto_sheets_buf) {
                                 self.draft.excel_max_auto_sheets = n.max(1);
                             }
+                            // Chat temperature / iterations: parse + clamp;
+                            // invalid input keeps the existing draft value.
+                            if let Ok(t) = self.chat_temperature_buf.trim().parse::<f32>() {
+                                self.draft.chat_temperature = t.clamp(0.0, 2.0);
+                            }
+                            if let Ok(n) = self.chat_max_iterations_buf.trim().parse::<usize>() {
+                                self.draft.chat_max_tool_iterations = n.clamp(1, 30);
+                            }
+                            // Chat response-token cap: "Unlimited" overrides the
+                            // text input; otherwise parse the comma-separated
+                            // number (invalid input keeps the existing value).
+                            self.draft.chat_max_tokens_unlimited = self.chat_unlimited_tokens;
+                            if let Ok(n) = parse_comma_number(&self.chat_max_tokens_buf)
+                                && n >= 1
+                            {
+                                self.draft.chat_max_tokens = n;
+                            }
                             applied = Some(self.draft.clone());
                             self.open = false;
                         }
@@ -260,6 +291,11 @@ impl SettingsDialog {
             );
             self.mcp_cell_bytes_buf =
                 crate::ui::status_bar::format_number(self.draft.mcp_default_cell_bytes);
+            self.chat_temperature_buf = format!("{:.2}", self.draft.chat_temperature);
+            self.chat_max_iterations_buf = self.draft.chat_max_tool_iterations.to_string();
+            self.chat_max_tokens_buf =
+                crate::ui::status_bar::format_number(self.draft.chat_max_tokens);
+            self.chat_unlimited_tokens = self.draft.chat_max_tokens_unlimited;
             self.icon_changed = true;
             self.font_changed = true;
             self.theme_changed = true;
@@ -747,6 +783,244 @@ impl SettingsDialog {
                 });
         });
 
+        // ── Chat / Assistant ──
+        egui::CollapsingHeader::new(
+            egui::RichText::new(crate::i18n::t("settings.sec_chat"))
+                .strong()
+                .size(13.0),
+        )
+        .id_salt("settings_section_chat")
+        // Opens expanded only when launched from the chat panel's Settings
+        // button (consumes the one-shot flag).
+        .default_open(std::mem::take(&mut self.focus_chat_section))
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(crate::i18n::t("settings_hint.chat_intro"))
+                    .weak()
+                    .size(11.0),
+            );
+            ui.add_space(6.0);
+
+            egui::Grid::new("settings_chat")
+                .num_columns(2)
+                .spacing([16.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(crate::i18n::t("chat.provider"))
+                        .on_hover_text(crate::i18n::t("settings_hint.chat_provider"));
+                    egui::ComboBox::from_id_salt("settings_chat_provider")
+                        .selected_text(self.draft.chat_provider.label())
+                        .show_ui(ui, |ui| {
+                            for kind in ChatProviderKind::ALL {
+                                ui.selectable_value(
+                                    &mut self.draft.chat_provider,
+                                    *kind,
+                                    kind.label(),
+                                );
+                            }
+                        });
+                    ui.end_row();
+
+                    let provider = self.draft.chat_provider;
+                    ui.label(crate::i18n::t("chat.default_model"))
+                        .on_hover_text(crate::i18n::t("settings_hint.chat_model"));
+                    self.chat_model_picker(ui, provider);
+                    ui.end_row();
+
+                    if provider == ChatProviderKind::OpenAiCompatible {
+                        ui.label(crate::i18n::t("chat.base_url"))
+                            .on_hover_text(crate::i18n::t("settings_hint.chat_base_url"));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.draft.chat_base_url)
+                                .desired_width(280.0)
+                                .hint_text("https://openrouter.ai/api/v1"),
+                        );
+                        ui.end_row();
+                    }
+                    if provider == ChatProviderKind::Ollama {
+                        ui.label(crate::i18n::t("chat.ollama_url"))
+                            .on_hover_text(crate::i18n::t("settings_hint.chat_ollama_url"));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.draft.chat_ollama_url)
+                                .desired_width(280.0)
+                                .hint_text("http://localhost:11434"),
+                        );
+                        ui.end_row();
+                    }
+
+                    // Text inputs (not Slider/DragValue) so Settings never shows
+                    // the drag-resize cursor; parsed + clamped on Apply.
+                    ui.label(crate::i18n::t("chat.temperature"))
+                        .on_hover_text(crate::i18n::t("settings_hint.chat_temperature"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.chat_temperature_buf)
+                            .desired_width(100.0)
+                            .hint_text("0.0"),
+                    );
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("chat.max_iterations"))
+                        .on_hover_text(crate::i18n::t("settings_hint.chat_max_iterations"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.chat_max_iterations_buf)
+                            .desired_width(100.0)
+                            .hint_text("12"),
+                    );
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("chat.max_tokens"))
+                        .on_hover_text(crate::i18n::t("settings_hint.chat_max_tokens"));
+                    ui.horizontal(|ui| {
+                        let edit = egui::TextEdit::singleline(&mut self.chat_max_tokens_buf)
+                            .desired_width(100.0)
+                            .hint_text("16,384");
+                        ui.add_enabled(!self.chat_unlimited_tokens, edit);
+                        ui.checkbox(
+                            &mut self.chat_unlimited_tokens,
+                            crate::i18n::t("settings.unlimited"),
+                        );
+                    });
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("chat.position"))
+                        .on_hover_text(crate::i18n::t("settings_hint.chat_position"));
+                    egui::ComboBox::from_id_salt("settings_chat_position")
+                        .selected_text(self.draft.chat_panel_position.label_t())
+                        .show_ui(ui, |ui| {
+                            for option in ChatPanelPosition::ALL {
+                                ui.selectable_value(
+                                    &mut self.draft.chat_panel_position,
+                                    *option,
+                                    option.label_t(),
+                                );
+                            }
+                        });
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("chat.export_dir"))
+                        .on_hover_text(crate::i18n::t("settings_hint.chat_export_dir"));
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.draft.chat_export_dir)
+                                .desired_width(280.0),
+                        );
+                        if ui.button(crate::i18n::t("chat.browse")).clicked()
+                            && let Some(dir) = rfd::FileDialog::new().pick_folder()
+                        {
+                            self.draft.chat_export_dir = dir.to_string_lossy().into_owned();
+                        }
+                    });
+                    ui.end_row();
+                });
+
+            // API-key management for the active provider; keyless providers
+            // (Ollama) just show a note. Keyring writes are immediate; the
+            // plaintext fallback commits with the rest of the draft on Apply.
+            let provider = self.draft.chat_provider;
+            if provider.needs_api_key() {
+                ui.separator();
+                ui.label(crate::i18n::t("chat.api_key"))
+                    .on_hover_text(crate::i18n::t("settings_hint.chat_api_key"));
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.chat_key_input_buf)
+                            .password(true)
+                            .hint_text(crate::i18n::t("chat.api_key_hint"))
+                            .desired_width(220.0),
+                    );
+                    if ui.button(crate::i18n::t("chat.save_key")).clicked()
+                        && !self.chat_key_input_buf.trim().is_empty()
+                    {
+                        let key = self.chat_key_input_buf.trim().to_string();
+                        match secrets::set_api_key(provider, &key, &mut self.draft) {
+                            Ok(true) => {
+                                self.chat_key_status_msg =
+                                    Some(crate::i18n::t("chat.key_stored_keyring"));
+                            }
+                            Ok(false) => {
+                                self.chat_key_status_msg = Some(format!(
+                                    "{} {}",
+                                    crate::i18n::t("chat.key_stored_plaintext"),
+                                    secrets::plaintext_path().display()
+                                ));
+                            }
+                            Err(e) => self.chat_key_status_msg = Some(e),
+                        }
+                        self.chat_key_input_buf.clear();
+                    }
+                    if ui.button(crate::i18n::t("chat.clear_key")).clicked() {
+                        secrets::delete_api_key(provider, &mut self.draft);
+                        self.chat_key_status_msg = Some(crate::i18n::t("chat.key_cleared"));
+                    }
+                });
+                let where_msg = match secrets::storage_location(provider, &self.draft) {
+                    secrets::KeyStorage::Env(var) => {
+                        format!("{} {var}", crate::i18n::t("chat.key_source_env"))
+                    }
+                    secrets::KeyStorage::Keyring => crate::i18n::t("chat.key_source_keyring"),
+                    secrets::KeyStorage::Plaintext(path) => format!(
+                        "{} {}",
+                        crate::i18n::t("chat.key_source_plaintext"),
+                        path.display()
+                    ),
+                    secrets::KeyStorage::None => crate::i18n::t("chat.key_source_none"),
+                };
+                ui.label(format!("{} {where_msg}", crate::i18n::t("chat.key_source")));
+                if let Some(msg) = &self.chat_key_status_msg {
+                    ui.colored_label(egui::Color32::from_rgb(0x30, 0x80, 0x30), msg);
+                }
+                // Keys stored in the keyring take effect at once, but the
+                // plaintext fallback only commits with the rest of the dialog -
+                // tell the user to Apply.
+                ui.label(
+                    egui::RichText::new(crate::i18n::t("chat.key_apply_hint"))
+                        .weak()
+                        .size(11.0),
+                );
+            } else {
+                ui.separator();
+                ui.label(crate::i18n::t("chat.ollama_no_key"));
+            }
+
+            // Per-provider key overview, so the user can see at a glance which
+            // providers are configured (not just the selected one).
+            ui.separator();
+            ui.label(egui::RichText::new(crate::i18n::t("chat.key_status_title")).strong());
+            egui::Grid::new("settings_chat_keystatus")
+                .num_columns(2)
+                .spacing([16.0, 4.0])
+                .show(ui, |ui| {
+                    for kind in ChatProviderKind::ALL {
+                        ui.label(kind.label());
+                        if !kind.needs_api_key() {
+                            ui.weak(crate::i18n::t("chat.ollama_no_key_short"));
+                            ui.end_row();
+                            continue;
+                        }
+                        let (text, set) = match secrets::storage_location(*kind, &self.draft) {
+                            secrets::KeyStorage::Env(var) => (
+                                format!("{} ({var})", crate::i18n::t("chat.key_source_env")),
+                                true,
+                            ),
+                            secrets::KeyStorage::Keyring => {
+                                (crate::i18n::t("chat.key_source_keyring"), true)
+                            }
+                            secrets::KeyStorage::Plaintext(_) => {
+                                (crate::i18n::t("chat.key_source_plaintext_short"), true)
+                            }
+                            secrets::KeyStorage::None => {
+                                (crate::i18n::t("chat.key_source_none"), false)
+                            }
+                        };
+                        if set {
+                            ui.colored_label(egui::Color32::from_rgb(0x30, 0x80, 0x30), text);
+                        } else {
+                            ui.weak(text);
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
+
         // ── Map ──
         egui::CollapsingHeader::new(
             egui::RichText::new(crate::i18n::t("settings.sec_map"))
@@ -1021,6 +1295,64 @@ impl SettingsDialog {
                     ui.end_row();
                 });
         });
+    }
+
+    /// The model configured for `provider` in the draft, falling back to the
+    /// provider's built-in default.
+    fn chat_current_model(&self, provider: ChatProviderKind) -> String {
+        self.draft
+            .chat_models
+            .get(provider.id())
+            .filter(|m| !m.trim().is_empty())
+            .cloned()
+            .unwrap_or_else(|| provider.default_model().to_string())
+    }
+
+    /// Default-model picker for the Chat section: a preset dropdown (when the
+    /// provider has presets) stacked above a roomy free-text field, mirroring the
+    /// panel's quick-switch but writing into `draft.chat_models`.
+    fn chat_model_picker(&mut self, ui: &mut egui::Ui, provider: ChatProviderKind) {
+        let presets = provider.preset_models();
+        let mut model = self.chat_current_model(provider);
+        let mut changed = false;
+        const W: f32 = 320.0;
+
+        // Vertical so the free-text field gets its own line at a comfortable
+        // width instead of being squeezed next to the dropdown.
+        ui.vertical(|ui| {
+            if !presets.is_empty() {
+                egui::ComboBox::from_id_salt(("settings_chat_model_preset", provider.id()))
+                    .selected_text(if model.is_empty() {
+                        "(model)".to_string()
+                    } else {
+                        model.clone()
+                    })
+                    .width(W)
+                    .show_ui(ui, |ui| {
+                        for m in presets {
+                            if ui.selectable_label(model == *m, *m).clicked() {
+                                model = (*m).to_string();
+                                changed = true;
+                            }
+                        }
+                    });
+            }
+
+            let resp = ui.add(
+                egui::TextEdit::singleline(&mut model)
+                    .desired_width(W)
+                    .hint_text(provider.default_model()),
+            );
+            if resp.changed() {
+                changed = true;
+            }
+        });
+
+        if changed {
+            self.draft
+                .chat_models
+                .insert(provider.id().to_string(), model);
+        }
     }
 
     /// One grid row per [`ShortcutAction`]: name, current combo, Record/Clear/Reset.

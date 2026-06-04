@@ -17,14 +17,24 @@ use octa::data::validate_schema::{ValidationReport, validate_against_json_schema
 use crate::mcp::OctaMcpServer;
 
 use super::compare_schemas::diff_to_json;
-use super::read_with_registry;
+use super::{ToolContext, source_from};
 
-// Tool description lives inline at the `#[tool]` site in `src/mcp/mod.rs`.
+pub const DESCRIPTION: &str = "Validate a tabular source's column schema against an expected JSON Schema (typically one \
+from `export_schema --target json-schema`). Returns `matches`, a full `diff`, and \
+`unparsed_types`. Provide the expected schema via `schema_path` OR `schema_inline` (exactly \
+one).";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
-    /// Path to the file whose schema is being validated.
+    /// Path to the file whose schema is being validated. Omit when `open_tab`
+    /// is set.
+    #[serde(default)]
     pub path: PathBuf,
+
+    /// Operate on an open GUI tab instead of a file. Pass the tab's name, or
+    /// `@active` for the currently active tab.
+    #[serde(default)]
+    pub open_tab: Option<String>,
 
     /// For multi-table sources, the specific table to inspect.
     #[serde(default)]
@@ -42,35 +52,29 @@ pub struct Params {
     pub schema_inline: Option<String>,
 }
 
-pub async fn handle(_server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
+pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     if p.schema_path.is_some() == p.schema_inline.is_some() {
-        return Err(McpError::invalid_params(
-            "exactly one of `schema_path` or `schema_inline` must be provided",
-            None,
-        ));
+        anyhow::bail!("exactly one of `schema_path` or `schema_inline` must be provided");
     }
+    let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
+    let schema_text = match (&p.schema_path, &p.schema_inline) {
+        (Some(sp), None) => std::fs::read_to_string(sp)
+            .map_err(|e| anyhow::anyhow!("read schema_path {}: {e}", sp.display()))?,
+        (None, Some(s)) => s.clone(),
+        _ => unreachable!("xor checked above"),
+    };
+    let report = validate_against_json_schema(&dt.columns, &schema_text)?;
+    Ok(report_to_json(&report))
+}
 
-    let path = p.path.clone();
-    let table_name = p.table.clone();
-    let schema_path = p.schema_path.clone();
-    let schema_inline = p.schema_inline.clone();
-
-    let report = tokio::task::spawn_blocking(move || -> anyhow::Result<ValidationReport> {
-        let dt = read_with_registry(&path, table_name.as_deref())?;
-        let schema_text = match (schema_path, schema_inline) {
-            (Some(sp), None) => std::fs::read_to_string(&sp)
-                .map_err(|e| anyhow::anyhow!("read schema_path {}: {e}", sp.display()))?,
-            (None, Some(s)) => s,
-            _ => unreachable!("xor checked above"),
-        };
-        validate_against_json_schema(&dt.columns, &schema_text)
-    })
-    .await
-    .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-    .map_err(|e| McpError::invalid_params(format!("validate_schema failed: {e}"), None))?;
-
+pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
+    let ctx = server.tool_context();
+    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+        .await
+        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("validate_schema failed: {e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(
-        report_to_json(&report).to_string(),
+        payload.to_string(),
     )]))
 }
 

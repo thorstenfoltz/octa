@@ -61,7 +61,10 @@ impl OctaApp {
         octa::formats::set_initial_load_rows(initial_cap);
         // Apply the persisted UI language before any frame renders.
         octa::i18n::set_language(&settings.language);
+        // Build the chat panel state from settings before `settings` is moved.
+        let chat = super::chat_panel::ChatPanelState::new(&settings);
         Self {
+            chat,
             tabs: vec![TabState::new(search_mode)],
             active_tab: 0,
             pending_close_tab: None,

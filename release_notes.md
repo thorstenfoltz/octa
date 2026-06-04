@@ -1,69 +1,95 @@
 # Release notes
 
-A round of bug fixes and small usability improvements: parsing now
-respects multi-cell and multi-column selections, the Number format
-dialog can round several columns at once, and a few dialogs that were
-stuck at a fixed size are now resizable.
+This release adds the **Chat Assistant**: a docked panel where you ask
+questions about your data in plain language and a large language model answers
+by driving Octa's own tools (read, run SQL, profile, search, diff, chart, and
+more) against the tables you already have open. It is the in-application sibling
+of the MCP server, and it works with cloud models or a model running entirely
+on your own machine.
 
-## Parse in new tab: multi-cell and multi-column
+Open it from the **Analyse -> Assistant** menu or with
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>, and dock it to any edge of the
+window. See **Usage -> Chat Assistant** in the docs for the full guide.
 
-**Parse in new tab** now honours the full selection instead of a single
-target.
+## Bring your own model
 
-- **Cell scope** with several marked cells (Ctrl+click) serialises the
-  whole block: the bounding grid of the selected rows by columns, with
-  any unselected cell in that block left blank. A single selected cell
-  behaves as before.
-- **Column scope** with several selected columns serialises all of them
-  together as a multi-column table, rather than just the one column under
-  the cursor.
+The assistant talks to five kinds of backend, one at a time, and remembers the
+model you picked per provider:
 
-Previously both cases only ever opened a single cell or column in the new
-tab. The row-shaping is now unified, so Cell, Row, single-Column, and the
-new multi-selection cases all flow through one path and keep their
-headers.
+- **Ollama (local)**: open models running on your own machine, no key, nothing
+  leaves your computer.
+- **Anthropic (Claude)**, **OpenAI (GPT)**, **Google Gemini**.
+- **OpenAI-compatible**: any endpoint that speaks the OpenAI dialect
+  (OpenRouter, Groq, LM Studio, a self-hosted gateway) via a base URL.
 
-## Number format: round several columns at once
+Each provider has its own API key. Keys are kept in your operating system's
+secret store when one is available (the Secret Service on Linux, the Keychain on
+macOS, the Credential Manager on Windows), with an environment variable taking
+precedence and a clearly-labelled plaintext fallback when no keyring exists. A
+per-provider overview shows at a glance which providers are configured.
 
-The per-column **Number format** dialog (right-click a numeric header, or
-**Edit -> Number format...**) gained an **Apply to columns** checklist.
+## First-class Ollama
 
-- One decimals + rounding configuration can now be applied to several
-  numeric columns in a single pass. Selecting multiple columns before
-  opening the dialog pre-checks them; **All** / **None** toggle the whole
-  list.
-- Changes apply **live** to every checked column; unchecking a column
-  drops its format. The list scrolls, and the dialog is resizable, so
-  dragging it taller shows more columns at once.
+[Ollama](https://ollama.com) is built in. Pick **Ollama (local)** and Octa can:
 
-## Resizable dialogs
+- start the server for you (**Start Ollama**) and stop it (**Stop Ollama**),
+- list the models you have pulled and refresh that list on demand,
+- keep the running/stopped status up to date on its own.
 
-Three dialogs that were pinned to a fixed size now resize freely in both
-directions:
+When Octa starts the Ollama server, it also shuts it down (and the loaded model)
+when you close Octa, so nothing lingers in memory after you quit.
 
-- **Date/Time calculation** (**Edit -> Date/Time calculation...**).
-- **Number format**.
-- The **rounding-on-save** prompt.
+## Works on the data you have open
 
-The fix was twofold: the windows were re-centred every frame (which
-blocked the resize handles), and egui had persisted their old fixed size
-under the title-derived key. They now use stable window ids and the same
-body/footer layout the other resizable dialogs use. The Date/Time
-calculation dialog's column chooser also opens a tall dropdown, so long
-column lists no longer scroll three or four entries at a time.
+The assistant only sees and reads data you have **open in Octa**, so it never
+reaches into arbitrary files on your disk. Open tabs appear as **chips** in the
+panel header (the active one highlighted), each with a short handle (`#1`,
+`#2`, ...). Point the assistant at a specific table by clicking its chip, typing
+an `@` mention (`@#2`, a tab name, or `@column`), or just describing it. If a
+file is not open, the assistant tells you to open it first.
 
-## Documentation and README
+It can reach the other sheets or tables of an open Excel workbook or
+DuckDB/SQLite database, and it can run a single DuckDB query that **joins across
+several open tabs** at once.
 
-- The **README** gained a Fixed-width (FWF) format row, a Source code /
-  config row, a **Docker / Containers** section (pull, one-shot CLI run,
-  stdio `--mcp`, Podman), and the full current MCP tool list (the stale
-  "eleven tools" count is gone).
+## Beyond reading: write results and draw charts
 
-GitHub Pages (the mkdocs site) was updated to match:
+As well as reading, querying, profiling, searching, diffing, and exporting
+schemas, the assistant can:
 
-- **Tips & Recipes** "Convert a messy CSV to a clean Parquet" recipe
-  gained a **Via MCP** subsection alongside the GUI and CLI ones.
-- The **Table view** Number format section documents the new
-  multi-column **Apply to columns** checklist.
-- The **Editing -> Parse in new tab** scope table documents the
-  multi-cell and multi-column behaviour.
+- **Save results to a file** (CSV, TSV, Parquet, JSON, Excel, ...): a query
+  result, a transformed table, or a converted copy.
+- **Create a chart** (histogram, bar, line, scatter, box) and save it as PNG,
+  PDF, or SVG.
+
+Files it creates go to your configured **Export folder** (Settings -> Chat /
+Assistant; defaults to your Downloads folder) when you give just a filename, or
+to a specific path when you ask for one. The assistant never writes back into a
+tab you have open, so your in-tab edits are always yours.
+
+## In the panel
+
+- Replies stream in live; tool calls show as expandable rows with the exact
+  arguments and raw result, and failures are shown expanded so you see the
+  problem at once.
+- **Cancel** stops a turn immediately.
+- **Copy** any message with <kbd>Ctrl</kbd>+<kbd>C</kbd> or a right-click menu,
+  or copy the whole conversation from the header.
+- Conversations are saved automatically; reopen past chats from **History**,
+  start a fresh one with **New chat**.
+
+## Settings and localisation
+
+All of the assistant's settings live in Octa's main **Settings** dialog under
+**Chat / Assistant** (provider, model, temperature - default 0 for focused
+answers, response-length cap with an Unlimited option, panel position, export
+folder, and API keys). Every label has a hover hint, and the whole chat
+interface is translated into all of Octa's supported languages.
+
+## Privacy
+
+With a cloud provider, your prompts, a short description of your open tabs, and
+the results of any tools the assistant runs are sent to that provider; cell data
+leaves your machine only when a tool returns rows the model needs. Choose
+**Ollama** (or point the OpenAI-compatible provider at a local LM Studio model)
+to keep everything on your own machine.

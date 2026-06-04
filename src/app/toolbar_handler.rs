@@ -435,6 +435,9 @@ impl OctaApp {
         if action.toggle_multi_search {
             self.toggle_multi_search();
         }
+        if action.toggle_chat_panel {
+            self.toggle_chat_panel();
+        }
         if action.open_chart_tab {
             self.open_chart_tab();
         }

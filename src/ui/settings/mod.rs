@@ -1,4 +1,5 @@
 mod dialog;
+pub mod secrets;
 
 use std::path::PathBuf;
 
@@ -87,6 +88,144 @@ impl SqlPanelPosition {
             Self::Right => "Right",
         }
     }
+
+    pub fn label_t(self) -> String {
+        crate::i18n::t(match self {
+            Self::Bottom => "enum.pos_bottom",
+            Self::Top => "enum.pos_top",
+            Self::Left => "enum.pos_left",
+            Self::Right => "enum.pos_right",
+        })
+    }
+}
+
+/// Which LLM provider the in-GUI chat panel talks to. One wire dialect per
+/// variant; `OpenAiCompatible` reuses the OpenAI dialect against a
+/// user-supplied `base_url` (Ollama / OpenRouter / Groq / LM Studio / ...).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ChatProviderKind {
+    /// Anthropic Messages API (Claude).
+    #[default]
+    Anthropic,
+    /// OpenAI Chat Completions API.
+    OpenAi,
+    /// Any OpenAI-compatible endpoint reached via a configurable base URL.
+    OpenAiCompatible,
+    /// Google Gemini generateContent API.
+    Gemini,
+    /// Local Ollama server. Speaks the OpenAI dialect at `/v1`; Octa can
+    /// start it in the background and list the models installed locally.
+    Ollama,
+}
+
+impl ChatProviderKind {
+    pub const ALL: &[ChatProviderKind] = &[
+        Self::Ollama,
+        Self::Anthropic,
+        Self::OpenAi,
+        Self::OpenAiCompatible,
+        Self::Gemini,
+    ];
+
+    /// Stable identifier used as the key in `chat_models` / `chat_api_keys`
+    /// and in the keyring entry name. Never change these (they are persisted).
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Anthropic => "anthropic",
+            Self::OpenAi => "openai",
+            Self::OpenAiCompatible => "openai_compat",
+            Self::Gemini => "gemini",
+            Self::Ollama => "ollama",
+        }
+    }
+
+    /// Human-readable label for the provider picker.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Anthropic => "Anthropic (Claude)",
+            Self::OpenAi => "OpenAI",
+            Self::OpenAiCompatible => "OpenAI-compatible",
+            Self::Gemini => "Google Gemini",
+            Self::Ollama => "Ollama (local)",
+        }
+    }
+
+    /// The environment variable consulted first for this provider's key.
+    pub fn env_var(self) -> &'static str {
+        match self {
+            Self::Anthropic => "ANTHROPIC_API_KEY",
+            Self::OpenAi => "OPENAI_API_KEY",
+            Self::OpenAiCompatible => "OCTA_OPENAI_COMPAT_API_KEY",
+            Self::Gemini => "GEMINI_API_KEY",
+            Self::Ollama => "OLLAMA_API_KEY",
+        }
+    }
+
+    /// Whether this provider needs an API key. Ollama runs locally and does
+    /// not, so the panel treats it as always ready.
+    pub fn needs_api_key(self) -> bool {
+        !matches!(self, Self::Ollama)
+    }
+
+    /// A sensible default model when the user has not picked one yet.
+    pub fn default_model(self) -> &'static str {
+        match self {
+            Self::Anthropic => "claude-sonnet-4-6",
+            Self::OpenAi => "gpt-5.5",
+            Self::OpenAiCompatible => "llama3.1",
+            Self::Gemini => "gemini-3-flash-preview",
+            Self::Ollama => "llama3.2",
+        }
+    }
+
+    /// A short list of common / recent model names offered as quick picks in
+    /// the model dropdown. Not exhaustive and model names change often, so the
+    /// picker always keeps a free-text field for typing the exact current
+    /// model. Ollama is dynamic (its list comes from `/api/tags`) and
+    /// OpenAI-compatible depends on the endpoint, so both return an empty list.
+    pub fn preset_models(self) -> &'static [&'static str] {
+        match self {
+            Self::Anthropic => &[
+                "claude-sonnet-4-6",
+                "claude-opus-4-8",
+                "claude-haiku-4-5-20251001",
+            ],
+            Self::OpenAi => &[
+                "gpt-5.5",
+                "gpt-5.5-pro",
+                "gpt-5.4-mini",
+                "gpt-5.4-nano",
+                "gpt-5.2",
+            ],
+            Self::Gemini => &[
+                "gemini-3.1-pro-preview",
+                "gemini-3-flash-preview",
+                "gemini-3.1-flash-lite",
+                "gemini-2.5-pro",
+                "gemini-2.5-flash",
+            ],
+            Self::OpenAiCompatible | Self::Ollama => &[],
+        }
+    }
+}
+
+/// Where to dock the chat panel relative to the table view. Mirrors
+/// [`SqlPanelPosition`]; kept separate so the two panels can diverge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ChatPanelPosition {
+    /// To the right of the table (full height). The chat default.
+    #[default]
+    Right,
+    /// To the left of the table (full height).
+    Left,
+    /// Below the table (full width).
+    Bottom,
+    /// Above the table (full width).
+    Top,
+}
+
+impl ChatPanelPosition {
+    pub const ALL: &[ChatPanelPosition] = &[Self::Right, Self::Left, Self::Bottom, Self::Top];
 
     pub fn label_t(self) -> String {
         crate::i18n::t(match self {
@@ -670,10 +809,85 @@ pub struct AppSettings {
     /// confirms it in the prompt.
     #[serde(default)]
     pub offer_repair_on_malformed: bool,
+    /// The currently selected chat provider. Keys and per-provider model
+    /// choices are stored separately so switching providers never re-prompts.
+    #[serde(default)]
+    pub chat_provider: ChatProviderKind,
+    /// Last-used model name per provider, keyed by [`ChatProviderKind::id`].
+    /// Lets the panel restore each provider's model in one click.
+    #[serde(default)]
+    pub chat_models: std::collections::BTreeMap<String, String>,
+    /// Base URL for the OpenAI-compatible provider (OpenRouter / Groq /
+    /// LM Studio / a custom gateway). Ignored by the other providers.
+    /// Example: `https://openrouter.ai/api/v1`.
+    #[serde(default)]
+    pub chat_base_url: String,
+    /// Root URL of the local Ollama server (no `/v1` suffix). Octa appends
+    /// `/v1/chat/completions` for chat and `/api/tags` for the model list.
+    #[serde(default = "default_chat_ollama_url")]
+    pub chat_ollama_url: String,
+    /// Where to dock the chat panel. Default Right.
+    #[serde(default)]
+    pub chat_panel_position: ChatPanelPosition,
+    /// Sampling temperature passed to the provider. Default 0.7.
+    #[serde(default = "default_chat_temperature")]
+    pub chat_temperature: f32,
+    /// Maximum agentic tool-use iterations per turn before the loop stops.
+    /// Guards against runaway tool loops. Default 12.
+    #[serde(default = "default_chat_max_tool_iterations")]
+    pub chat_max_tool_iterations: usize,
+    /// Maximum response tokens requested from the provider per turn.
+    /// Default 16384. Ignored when `chat_max_tokens_unlimited` is set.
+    #[serde(default = "default_chat_max_tokens")]
+    pub chat_max_tokens: usize,
+    /// When `true`, no response-token cap is sent (providers use their own
+    /// default; Anthropic, which requires the field, substitutes a high value).
+    #[serde(default)]
+    pub chat_max_tokens_unlimited: bool,
+    /// Directory the chat assistant writes exported files into (new CSVs,
+    /// charts, ...) when the model gives a bare filename. The agent can only
+    /// write here or to an absolute path the user explicitly requests.
+    #[serde(default = "default_chat_export_dir")]
+    pub chat_export_dir: String,
+    /// Plaintext per-provider API keys, keyed by [`ChatProviderKind::id`].
+    /// Only populated when the OS keyring is unavailable; the keyring is
+    /// preferred. Storing a key here means it sits in `settings.toml` in the
+    /// clear, which the UI warns about explicitly.
+    #[serde(default)]
+    pub chat_api_keys: std::collections::BTreeMap<String, String>,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_chat_temperature() -> f32 {
+    0.0
+}
+
+fn default_chat_ollama_url() -> String {
+    "http://localhost:11434".to_string()
+}
+
+fn default_chat_max_tool_iterations() -> usize {
+    12
+}
+
+fn default_chat_max_tokens() -> usize {
+    16_384
+}
+
+/// Default chat export directory: the user's Downloads folder if it exists,
+/// otherwise the home directory. Empty string if neither resolves.
+fn default_chat_export_dir() -> String {
+    if let Some(home) = dirs_path_home() {
+        let downloads = home.join("Downloads");
+        if downloads.is_dir() {
+            return downloads.to_string_lossy().into_owned();
+        }
+        return home.to_string_lossy().into_owned();
+    }
+    String::new()
 }
 
 fn default_language() -> String {
@@ -797,6 +1011,17 @@ impl Default for AppSettings {
             warn_on_whitespace_trim: true,
             offer_repair_on_malformed: false,
             language: default_language(),
+            chat_provider: ChatProviderKind::default(),
+            chat_models: std::collections::BTreeMap::new(),
+            chat_base_url: String::new(),
+            chat_ollama_url: default_chat_ollama_url(),
+            chat_panel_position: ChatPanelPosition::default(),
+            chat_temperature: default_chat_temperature(),
+            chat_max_tool_iterations: default_chat_max_tool_iterations(),
+            chat_max_tokens: default_chat_max_tokens(),
+            chat_max_tokens_unlimited: false,
+            chat_export_dir: default_chat_export_dir(),
+            chat_api_keys: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -945,6 +1170,25 @@ pub struct SettingsDialog {
     table_picker_visible_rows_buf: String,
     /// Buffer backing the Excel max-auto-sheets input.
     excel_max_auto_sheets_buf: String,
+    /// Buffer backing the chat temperature input (text, not a slider, so
+    /// Settings shows no drag cursor). Parsed + clamped 0.0..=2.0 on Apply.
+    chat_temperature_buf: String,
+    /// Buffer backing the chat max-tool-iterations input. Parsed + clamped
+    /// 1..=30 on Apply.
+    chat_max_iterations_buf: String,
+    /// Buffer backing the chat max-response-tokens input. Comma-tolerant
+    /// integer; ignored when `chat_unlimited_tokens` is checked. Parsed on Apply.
+    chat_max_tokens_buf: String,
+    /// Mirrors `AppSettings.chat_max_tokens_unlimited`: when true the cap input
+    /// is greyed out and Apply writes the unlimited flag.
+    chat_unlimited_tokens: bool,
+    /// Masked API-key entry buffer for the chat provider, in the Chat section.
+    chat_key_input_buf: String,
+    /// Last "where the key was stored" status line after a Save/Clear.
+    chat_key_status_msg: Option<String>,
+    /// Set by the chat panel's Settings button so the Chat section opens
+    /// expanded; consumed (reset) once the dialog has honoured it.
+    pub focus_chat_section: bool,
     /// When the user clicks "Record" for a shortcut, the action is stored here
     /// and the next key press captures a new binding. `None` = not recording.
     recording: Option<ShortcutAction>,
@@ -1083,5 +1327,36 @@ mod tests {
         assert_eq!(parsed.default_theme, defaults.default_theme);
         assert_eq!(parsed.icon_variant, defaults.icon_variant);
         assert_eq!(parsed.start_maximized, defaults.start_maximized);
+        // Chat settings survive the round-trip too.
+        assert_eq!(parsed.chat_provider, defaults.chat_provider);
+        assert_eq!(parsed.chat_panel_position, defaults.chat_panel_position);
+        assert_eq!(parsed.chat_temperature, defaults.chat_temperature);
+        assert_eq!(
+            parsed.chat_max_tool_iterations,
+            defaults.chat_max_tool_iterations
+        );
+        assert_eq!(parsed.chat_max_tokens, defaults.chat_max_tokens);
+        assert_eq!(
+            parsed.chat_max_tokens_unlimited,
+            defaults.chat_max_tokens_unlimited
+        );
+        assert_eq!(parsed.chat_export_dir, defaults.chat_export_dir);
+        assert_eq!(parsed.chat_models, defaults.chat_models);
+        assert_eq!(parsed.chat_api_keys, defaults.chat_api_keys);
+    }
+
+    #[test]
+    fn chat_provider_ids_are_stable_and_distinct() {
+        // The ids key persisted maps and the keyring entry; they must stay
+        // unique and must not change silently.
+        let ids: Vec<&str> = ChatProviderKind::ALL.iter().map(|p| p.id()).collect();
+        assert_eq!(
+            ids,
+            ["ollama", "anthropic", "openai", "openai_compat", "gemini"]
+        );
+        let mut sorted = ids.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), ids.len(), "provider ids must be distinct");
     }
 }

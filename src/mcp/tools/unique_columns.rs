@@ -13,14 +13,22 @@ use octa::data::unique_columns::{UniqueAnalysis, find_unique_columns};
 
 use crate::mcp::OctaMcpServer;
 
-use super::read_with_registry;
+use super::{ToolContext, source_from};
 
-// Tool description lives inline at the `#[tool]` site in `src/mcp/mod.rs`.
+pub const DESCRIPTION: &str = "Find columns (or small combinations) whose values are unique across a tabular file or open \
+tab - primary-key reconnaissance. Returns `total_rows`, `single` (per-column results), and \
+`combos` (when `max_combo_size > 1`, clamped to [1,3]).";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
-    /// Path to the file.
+    /// Path to the file. Omit when `open_tab` is set.
+    #[serde(default)]
     pub path: PathBuf,
+
+    /// Operate on an open GUI tab instead of a file. Pass the tab's name, or
+    /// `@active` for the currently active tab.
+    #[serde(default)]
+    pub open_tab: Option<String>,
 
     /// For multi-table sources, the specific table to inspect.
     #[serde(default)]
@@ -37,23 +45,23 @@ pub struct Params {
     pub unlimited: bool,
 }
 
-pub async fn handle(_server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
-    let path = p.path.clone();
-    let table = p.table.clone();
-    let combo = p.max_combo_size.unwrap_or(1);
-    let unlimited = p.unlimited;
+pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    let _g = p
+        .unlimited
+        .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
+    let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
+    let analysis = find_unique_columns(&dt, p.max_combo_size.unwrap_or(1));
+    Ok(analysis_to_json(&analysis))
+}
 
-    let analysis = tokio::task::spawn_blocking(move || -> anyhow::Result<UniqueAnalysis> {
-        let _g = unlimited.then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
-        let dt = read_with_registry(&path, table.as_deref())?;
-        Ok(find_unique_columns(&dt, combo))
-    })
-    .await
-    .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-    .map_err(|e| McpError::invalid_params(format!("unique_columns failed: {e}"), None))?;
-
+pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
+    let ctx = server.tool_context();
+    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+        .await
+        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("unique_columns failed: {e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(
-        analysis_to_json(&analysis).to_string(),
+        payload.to_string(),
     )]))
 }
 

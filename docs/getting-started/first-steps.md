@@ -164,5 +164,7 @@ is on the [Keyboard shortcuts](../reference/shortcuts.md) page.
   feature set: editing, sorting, selecting.
 - [View modes overview](../usage/view-modes/overview.md) covers when
   Octa picks Notebook, Markdown, Map, or Raw automatically.
+- [Chat assistant](../usage/chatbot.md) lets you ask an LLM questions about
+  your data in plain language (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>).
 
 [Next: Supported formats :material-arrow-right:](supported-formats.md){ .md-button }

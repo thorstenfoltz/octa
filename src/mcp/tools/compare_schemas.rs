@@ -1,8 +1,8 @@
 //! MCP tool: `compare_schemas` - diff the column schemas of two files.
 //!
-//! Reads both files through the shared format registry, then delegates
-//! the actual comparison to `octa::data::compare_schemas`. No rows are
-//! serialised; the response is column metadata only.
+//! Reads both sources through the shared format registry (or open tabs),
+//! then delegates the actual comparison to `octa::data::compare_schemas`.
+//! No rows are serialised; the response is column metadata only.
 
 use std::path::PathBuf;
 
@@ -15,17 +15,29 @@ use octa::data::compare_schemas::{SchemaDiff, compare_schemas};
 
 use crate::mcp::OctaMcpServer;
 
-use super::read_with_registry;
+use super::{ToolContext, source_from};
 
-// Tool description lives inline at the `#[tool]` site in `src/mcp/mod.rs`.
+pub const DESCRIPTION: &str = "Compare the column schemas of two tabular sources (files or open tabs). Returns the four-way \
+diff: `common`, `only_in_a`, `only_in_b`, and `type_mismatches` (same name, different type), \
+plus `identical`. Address tabs via `open_tab_a` / `open_tab_b`.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
-    /// Path to the first file.
+    /// Path to the first file. Omit when `open_tab_a` is set.
+    #[serde(default)]
     pub path_a: PathBuf,
 
-    /// Path to the second file.
+    /// Path to the second file. Omit when `open_tab_b` is set.
+    #[serde(default)]
     pub path_b: PathBuf,
+
+    /// Operate on an open GUI tab for side A (name, or `@active`).
+    #[serde(default)]
+    pub open_tab_a: Option<String>,
+
+    /// Operate on an open GUI tab for side B (name, or `@active`).
+    #[serde(default)]
+    pub open_tab_b: Option<String>,
 
     /// For multi-table sources, the table name to read from file A.
     #[serde(default)]
@@ -36,23 +48,20 @@ pub struct Params {
     pub table_b: Option<String>,
 }
 
-pub async fn handle(_server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
-    let path_a = p.path_a.clone();
-    let path_b = p.path_b.clone();
-    let table_a = p.table_a.clone();
-    let table_b = p.table_b.clone();
+pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    let dt_a = ctx.resolve(&source_from(&p.open_tab_a, &p.path_a, &p.table_a))?;
+    let dt_b = ctx.resolve(&source_from(&p.open_tab_b, &p.path_b, &p.table_b))?;
+    Ok(diff_to_json(&compare_schemas(&dt_a.columns, &dt_b.columns)))
+}
 
-    let diff = tokio::task::spawn_blocking(move || -> anyhow::Result<SchemaDiff> {
-        let dt_a = read_with_registry(&path_a, table_a.as_deref())?;
-        let dt_b = read_with_registry(&path_b, table_b.as_deref())?;
-        Ok(compare_schemas(&dt_a.columns, &dt_b.columns))
-    })
-    .await
-    .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-    .map_err(|e| McpError::invalid_params(format!("compare_schemas failed: {e}"), None))?;
-
+pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
+    let ctx = server.tool_context();
+    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+        .await
+        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("compare_schemas failed: {e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(
-        diff_to_json(&diff).to_string(),
+        payload.to_string(),
     )]))
 }
 

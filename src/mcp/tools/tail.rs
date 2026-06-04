@@ -5,17 +5,26 @@ use std::path::PathBuf;
 use rmcp::ErrorData as McpError;
 use rmcp::model::{CallToolResult, Content};
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::mcp::OctaMcpServer;
 
-use super::{read_with_registry, table_to_json};
+use super::{ToolContext, source_from, table_to_json};
 
-// Tool description lives inline at the `#[tool]` site in `src/mcp/mod.rs`.
+pub const DESCRIPTION: &str = "Return the LAST N rows (the tail) of a tabular file or open tab, same response shape as \
+`read_table`. `limit` sets N (0 = the whole loaded window).";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
-    /// Absolute or working-directory-relative path to the file.
+    /// Absolute or working-directory-relative path to the file. Omit when
+    /// `open_tab` is set.
+    #[serde(default)]
     pub path: PathBuf,
+
+    /// Operate on an open GUI tab instead of a file. Pass the tab's name, or
+    /// `@active` for the currently active tab.
+    #[serde(default)]
+    pub open_tab: Option<String>,
 
     /// Number of trailing rows to return. Default is the server's configured
     /// limit. Pass 0 for unlimited (returns the whole loaded window).
@@ -32,23 +41,14 @@ pub struct Params {
     pub unlimited: bool,
 }
 
-pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
-    let row_cap = server.resolve_row_cap(p.limit);
-    let cell_cap = server.cell_byte_cap;
-    let path = p.path.clone();
-    let table_name = p.table.clone();
-    let unlimited = p.unlimited;
-
-    let mut dt = tokio::task::spawn_blocking(move || {
-        let _g = unlimited.then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
-        read_with_registry(&path, table_name.as_deref())
-    })
-    .await
-    .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-    .map_err(|e| McpError::invalid_params(format!("read failed: {e}"), None))?;
+pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    let _g = p
+        .unlimited
+        .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
+    let mut dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
 
     // Keep the last `row_cap` rows (None / 0 = keep all).
-    if let Some(n) = row_cap {
+    if let Some(n) = ctx.resolve_row_cap(p.limit) {
         let len = dt.row_count();
         if n > 0 && len > n {
             dt.rows.drain(0..len - n);
@@ -57,7 +57,15 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     }
 
     // Rows are already sliced to the tail; don't re-cap in table_to_json.
-    let payload = table_to_json(&dt, None, cell_cap);
+    Ok(table_to_json(&dt, None, ctx.cell_byte_cap))
+}
+
+pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
+    let ctx = server.tool_context();
+    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+        .await
+        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("tail failed: {e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(
         payload.to_string(),
     )]))
