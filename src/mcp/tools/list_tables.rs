@@ -11,7 +11,11 @@ use octa::formats::FormatRegistry;
 
 use crate::mcp::OctaMcpServer;
 
-// Tool description lives inline at the `#[tool]` site in `src/mcp/mod.rs`.
+use super::ToolContext;
+
+pub const DESCRIPTION: &str = "List the tables inside a multi-table container (SQLite, DuckDB, GeoPackage). Returns \
+`tables` as `{name, columns, row_count}` objects. Single-table formats return an empty list - \
+call `schema` or `read_table` directly instead.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
@@ -19,18 +23,12 @@ pub struct Params {
     pub path: PathBuf,
 }
 
-pub async fn handle(_server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
-    let path = p.path.clone();
-    let list = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-        let registry = FormatRegistry::new();
-        let reader = registry
-            .reader_for_path(&path)
-            .ok_or_else(|| anyhow::anyhow!("no reader available for {}", path.display()))?;
-        reader.list_tables(&path)
-    })
-    .await
-    .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-    .map_err(|e| McpError::invalid_params(format!("list_tables failed: {e}"), None))?;
+pub fn run(_ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    let registry = FormatRegistry::new();
+    let reader = registry
+        .reader_for_path(&p.path)
+        .ok_or_else(|| anyhow::anyhow!("no reader available for {}", p.path.display()))?;
+    let list = reader.list_tables(&p.path)?;
 
     let tables: Vec<Value> = list
         .unwrap_or_default()
@@ -59,7 +57,16 @@ pub async fn handle(_server: &OctaMcpServer, p: Params) -> Result<CallToolResult
 
     let mut out = Map::new();
     out.insert("tables".to_string(), Value::Array(tables));
+    Ok(Value::Object(out))
+}
+
+pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
+    let ctx = server.tool_context();
+    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+        .await
+        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("list_tables failed: {e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(
-        Value::Object(out).to_string(),
+        payload.to_string(),
     )]))
 }

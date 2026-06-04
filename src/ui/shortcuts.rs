@@ -321,6 +321,9 @@ pub enum ShortcutAction {
     /// Scroll the table viewport down by one full page and advance the
     /// selected cell by the same number of rows. See [`Self::ScrollPageUp`].
     ScrollPageDown,
+    /// Toggle the in-GUI chat assistant panel open / closed. Also reachable
+    /// via the toolbar Assistant button and **View -> Assistant panel**.
+    ToggleChatPanel,
 }
 
 impl ShortcutAction {
@@ -380,6 +383,7 @@ impl ShortcutAction {
             Self::OpenChart => "Open chart tab",
             Self::ScrollPageUp => "Scroll up one page",
             Self::ScrollPageDown => "Scroll down one page",
+            Self::ToggleChatPanel => "Toggle chat assistant panel",
         }
     }
 
@@ -451,6 +455,7 @@ impl ShortcutAction {
             // (Excel, LibreOffice) for paging through long tables.
             Self::ScrollPageUp => KeyCombo::ctrl(Key::PageUp),
             Self::ScrollPageDown => KeyCombo::ctrl(Key::PageDown),
+            Self::ToggleChatPanel => KeyCombo::ctrl_shift(Key::A),
         }
     }
 }

@@ -76,9 +76,17 @@ impl eframe::App for OctaApp {
         self.render_status_bar(ui, filtered_count, search_active);
         self.render_sql_panel(ui);
         self.render_multi_search_panel(ui);
+        self.render_chat_panel(ui);
         self.render_christmas_overlay(&ctx);
         self.render_central_panel(ui);
         self.render_confetti(&ctx);
         self.render_snowfall(&ctx);
+    }
+
+    /// Cleanup on shutdown: persist the live chat session and stop any Ollama
+    /// server Octa started (a user-launched server is left running).
+    fn on_exit(&mut self) {
+        self.persist_current_session();
+        self.chat.ollama.stop_server();
     }
 }

@@ -111,6 +111,7 @@ nav:
       - Archive Viewer: usage/archive-viewer.md
       - Chart: usage/chart.md
       - SQL Panel: usage/sql.md
+      - Chat Assistant: usage/chatbot.md
       - Saving: usage/saving.md
       - Tabs & Folder Sidebar: usage/tabs-and-sidebar.md
       - View Modes:

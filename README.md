@@ -4,13 +4,34 @@
   <img src="assets/octa-rose.svg" alt="Octa" width="128" height="128">
 </p>
 
-An application for viewing data files. Octa opens files in a spreadsheet-like table view with sorting, filtering, and search options. Writing is supported but limited. Octa is primarily a reader.
+An application for viewing data files. Octa opens files in a spreadsheet-like table view with sorting, filtering, and search options. Including CLI, MCP and a chat assistant within the GUI.
 
 📚 **Documentation:** <https://thorstenfoltz.github.io/octa/>
 
+## Contents
+
+- [Why Octa?](#why-octa)
+- [Supported Formats](#supported-formats)
+- [Features](#features)
+  - [Table View](#table-view)
+  - [Multiple View Modes](#multiple-view-modes)
+  - [Editing](#editing)
+  - [Inspecting data](#inspecting-data)
+  - [Archives](#archives)
+  - [Command-line](#command-line)
+  - [MCP server](#mcp-server)
+  - [Assistant (in-app chat)](#assistant-in-app-chat)
+  - [Settings](#settings)
+  - [Other](#other)
+- [CLI & MCP Server](#cli--mcp-server)
+- [Docker / Containers](#docker--containers)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [License](#license)
+
 ## Preview
 
-<!-- TODO: add screenshot -->
+![Open a file](docs/assets/screenshots/first-steps-file-menu.png)
 
 ## Why Octa?
 
@@ -148,6 +169,25 @@ covers the CLI surface plus inspection and write helpers: `read_table`, `tail`,
 byte cap) are configurable under **Settings → MCP**. Add it to any MCP client
 (Claude Desktop, Claude Code, MCP Inspector) and the model can answer questions
 about your local data files.
+
+### Assistant (in-app chat)
+
+A docked chat panel where you ask an LLM about your data in plain language and
+it answers by driving Octa's own tools (read, schema, profile, run SQL, find
+duplicates, search, diff, build a chart, and more) against the tabs you already
+have open. It is the in-application sibling of the MCP server, with no external
+client to set up, and it can save results back to a file.
+
+Open it from **Analyse → Assistant**, the **View** menu, or **Ctrl+Shift+A**;
+dock it left / right / top / bottom from Settings. It is local-first and
+provider-agnostic: use a cloud model (Anthropic Claude, OpenAI, Google Gemini,
+or any OpenAI-compatible endpoint such as OpenRouter / Groq / LM Studio) or run
+fully offline with [Ollama](https://ollama.com/) — Octa can start the local
+server and list your installed models. API keys are kept in your OS keyring
+(Secret Service on Linux) and everything is configured under
+**Settings → Chat / Assistant**. Reads are sandboxed to the files you have open
+and writes go to a configurable export directory. See
+[Chat Assistant](docs/usage/chatbot.md).
 
 ### Settings
 

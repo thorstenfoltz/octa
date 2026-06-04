@@ -9,14 +9,22 @@ use serde_json::{Map, Value};
 
 use crate::mcp::OctaMcpServer;
 
-use super::read_with_registry;
+use super::{ToolContext, source_from};
 
-// Tool description lives inline at the `#[tool]` site in `src/mcp/mod.rs`.
+pub const DESCRIPTION: &str = "Count the rows in a tabular file or open tab. For streaming formats the count is bounded by \
+Octa's 5,000,000-row initial-load cap; `initial_load_capped` flags when it may be short. Pass \
+`unlimited: true` for the true total.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
-    /// Path to the file.
+    /// Path to the file. Omit when `open_tab` is set.
+    #[serde(default)]
     pub path: PathBuf,
+
+    /// Operate on an open GUI tab instead of a file. Pass the tab's name, or
+    /// `@active` for the currently active tab.
+    #[serde(default)]
+    pub open_tab: Option<String>,
 
     /// For multi-table sources, the specific table to count.
     #[serde(default)]
@@ -29,24 +37,18 @@ pub struct Params {
     pub unlimited: bool,
 }
 
-pub async fn handle(_server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
-    let path = p.path.clone();
-    let table_name = p.table.clone();
-    let unlimited = p.unlimited;
-    let dt = tokio::task::spawn_blocking(move || {
-        let _g = unlimited.then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
-        read_with_registry(&path, table_name.as_deref())
-    })
-    .await
-    .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-    .map_err(|e| McpError::invalid_params(format!("read failed: {e}"), None))?;
+pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    let _g = p
+        .unlimited
+        .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
+    let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
     let row_count = dt.row_count();
-    let initial_load_cap = if unlimited {
+    let initial_load_cap = if p.unlimited {
         usize::MAX
     } else {
         octa::formats::initial_load_rows()
     };
-    let capped = !unlimited && row_count >= initial_load_cap;
+    let capped = !p.unlimited && row_count >= initial_load_cap;
     let mut out = Map::new();
     out.insert("row_count".to_string(), Value::from(row_count));
     out.insert("initial_load_capped".to_string(), Value::Bool(capped));
@@ -54,7 +56,16 @@ pub async fn handle(_server: &OctaMcpServer, p: Params) -> Result<CallToolResult
         "initial_load_cap".to_string(),
         Value::from(initial_load_cap),
     );
+    Ok(Value::Object(out))
+}
+
+pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
+    let ctx = server.tool_context();
+    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+        .await
+        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("count_rows failed: {e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(
-        Value::Object(out).to_string(),
+        payload.to_string(),
     )]))
 }

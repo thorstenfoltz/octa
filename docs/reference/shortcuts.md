@@ -113,6 +113,7 @@ same precedence Ctrl+M uses from the keyboard.
 | Cycle view mode       | <kbd>F4</kbd>                                 | Walks Table → Raw → Markdown → … skipping modes not applicable to the current file. |
 | Toggle read-only mode | <kbd>F8</kbd>                                 | Session-only; not persisted.                                                        |
 | Toggle SQL panel      | <kbd>Ctrl</kbd>+<kbd>J</kbd>                  | Same as **Analyse → SQL**. See [SQL panel](../usage/sql.md).                        |
+| Opens Chat Assistant  | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> |                                                                                     |
 | Auto-fit all columns  | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> | Same algorithm as double-clicking a column-header seam, applied to every column.    |
 | Compare selected tabs | <kbd>F9</kbd>                                 | Requires exactly one tab to be Ctrl-clicked in the multi-selection set.             |
 

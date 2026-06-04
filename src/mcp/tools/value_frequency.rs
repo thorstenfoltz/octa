@@ -11,14 +11,23 @@ use octa::data::value_frequency::{BinningMode, compute_value_frequency};
 
 use crate::mcp::OctaMcpServer;
 
-use super::read_with_registry;
+use super::{ToolContext, source_from};
 
-// Tool description lives inline at the `#[tool]` site in `src/mcp/mod.rs`.
+pub const DESCRIPTION: &str = "Count how often each value appears in one column of a tabular file or open tab (a \
+`value_counts()` equivalent). Returns `rows` (label + count, most frequent first) plus `nulls`, \
+`total_non_null`, and `unique_count`. Set `bin: true` to group a numeric column into Sturges \
+bins; use `top_n` to cap rows.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
-    /// Path to the file.
+    /// Path to the file. Omit when `open_tab` is set.
+    #[serde(default)]
     pub path: PathBuf,
+
+    /// Operate on an open GUI tab instead of a file. Pass the tab's name, or
+    /// `@active` for the currently active tab.
+    #[serde(default)]
+    pub open_tab: Option<String>,
 
     /// For multi-table sources, the specific table to scan.
     #[serde(default)]
@@ -43,32 +52,23 @@ pub struct Params {
     pub unlimited: bool,
 }
 
-pub async fn handle(_server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
-    let path = p.path.clone();
-    let table_name = p.table.clone();
-    let column = p.column.clone();
-    let top_n = p.top_n;
-    let unlimited = p.unlimited;
+pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    let _g = p
+        .unlimited
+        .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
     let binning = if p.bin {
         BinningMode::Sturges
     } else {
         BinningMode::None
     };
-
-    let vf = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-        let _g = unlimited.then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
-        let dt = read_with_registry(&path, table_name.as_deref())?;
-        let col_idx = dt
-            .columns
-            .iter()
-            .position(|c| c.name == column)
-            .ok_or_else(|| anyhow::anyhow!("no such column: {column}"))?;
-        compute_value_frequency(&dt, col_idx, top_n, binning)
-            .ok_or_else(|| anyhow::anyhow!("could not compute value frequency for `{column}`"))
-    })
-    .await
-    .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-    .map_err(|e| McpError::invalid_params(format!("value_frequency failed: {e}"), None))?;
+    let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
+    let col_idx = dt
+        .columns
+        .iter()
+        .position(|c| c.name == p.column)
+        .ok_or_else(|| anyhow::anyhow!("no such column: {}", p.column))?;
+    let vf = compute_value_frequency(&dt, col_idx, p.top_n, binning)
+        .ok_or_else(|| anyhow::anyhow!("could not compute value frequency for `{}`", p.column))?;
 
     let rows: Vec<Value> = vf
         .rows
@@ -88,7 +88,16 @@ pub async fn handle(_server: &OctaMcpServer, p: Params) -> Result<CallToolResult
     out.insert("total_non_null".to_string(), Value::from(vf.total_non_null));
     out.insert("unique_count".to_string(), Value::from(vf.unique_count));
     out.insert("rows".to_string(), Value::Array(rows));
+    Ok(Value::Object(out))
+}
+
+pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
+    let ctx = server.tool_context();
+    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+        .await
+        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("value_frequency failed: {e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(
-        Value::Object(out).to_string(),
+        payload.to_string(),
     )]))
 }

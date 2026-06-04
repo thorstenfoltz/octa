@@ -13,9 +13,11 @@ use octa::data::search::RowMatcher;
 
 use crate::mcp::OctaMcpServer;
 
-use super::read_with_registry;
+use super::{ToolContext, source_from};
 
-// Tool description lives inline at the `#[tool]` site in `src/mcp/mod.rs`.
+pub const DESCRIPTION: &str = "Search every cell of a tabular file or open tab for a query string. `mode` is `plain` \
+(case-insensitive substring, default), `wildcard` (`*`/`?`), or `regex`. Returns `hits` as \
+`{row, col, column_name, snippet}` plus `hit_count`. `limit` caps hits (0 = unlimited).";
 
 /// Snippet width for each hit. Matches the active-search default.
 const SNIPPET_CHARS: usize = 200;
@@ -45,8 +47,14 @@ impl Mode {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
-    /// Path to the file.
+    /// Path to the file. Omit when `open_tab` is set.
+    #[serde(default)]
     pub path: PathBuf,
+
+    /// Operate on an open GUI tab instead of a file. Pass the tab's name, or
+    /// `@active` for the currently active tab.
+    #[serde(default)]
+    pub open_tab: Option<String>,
 
     /// For multi-table sources, the specific table to search.
     #[serde(default)]
@@ -71,39 +79,22 @@ pub struct Params {
     pub unlimited: bool,
 }
 
-pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
-    let row_cap = server.resolve_row_cap(p.limit);
-    let path = p.path.clone();
-    let table_name = p.table.clone();
-    let query = p.query.clone();
-    let mode = p.mode.to_search_mode();
-    let unlimited = p.unlimited;
-
-    let hits = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-        let _g = unlimited.then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
-        if query.trim().is_empty() {
-            anyhow::bail!("query must not be empty");
-        }
-        let dt = read_with_registry(&path, table_name.as_deref())?;
-        let matcher = RowMatcher::new(&query, mode);
-        if matches!(matcher, RowMatcher::Invalid) {
-            anyhow::bail!("invalid regex / wildcard pattern: {query}");
-        }
-        Ok(search_table(
-            &dt,
-            &matcher,
-            "search",
-            None,
-            None,
-            SNIPPET_CHARS,
-        ))
-    })
-    .await
-    .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-    .map_err(|e| McpError::invalid_params(format!("search failed: {e}"), None))?;
+pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    let _g = p
+        .unlimited
+        .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
+    if p.query.trim().is_empty() {
+        anyhow::bail!("query must not be empty");
+    }
+    let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
+    let matcher = RowMatcher::new(&p.query, p.mode.to_search_mode());
+    if matches!(matcher, RowMatcher::Invalid) {
+        anyhow::bail!("invalid regex / wildcard pattern: {}", p.query);
+    }
+    let hits = search_table(&dt, &matcher, "search", None, None, SNIPPET_CHARS);
 
     let total = hits.len();
-    let emit = match row_cap {
+    let emit = match ctx.resolve_row_cap(p.limit) {
         None => total,
         Some(n) => n.min(total),
     };
@@ -130,7 +121,16 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     out.insert("returned".to_string(), Value::from(emit));
     out.insert("truncated".to_string(), Value::Bool(truncated));
     out.insert("hits".to_string(), Value::Array(hit_values));
+    Ok(Value::Object(out))
+}
+
+pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
+    let ctx = server.tool_context();
+    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+        .await
+        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("search failed: {e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(
-        Value::Object(out).to_string(),
+        payload.to_string(),
     )]))
 }

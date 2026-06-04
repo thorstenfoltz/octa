@@ -5,6 +5,8 @@
 pub mod compare_schemas;
 pub mod convert;
 pub mod count_rows;
+/// Chat-only (rendered from chat dispatch, not registered with the MCP server).
+pub mod create_chart;
 pub mod describe_file;
 pub mod diff_tables;
 pub mod edit_table;
@@ -23,12 +25,265 @@ pub mod validate_schema;
 pub mod value_frequency;
 pub mod write_table;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
 use octa::data::{CellValue, ColumnInfo, DataTable};
 use octa::formats::FormatRegistry;
+
+/// A snapshot of an open GUI tab's table. Handed to the in-GUI chat agent so
+/// tools can read in-memory (possibly edited) data from a worker thread
+/// without borrowing `TabState`. The MCP server always builds an empty list,
+/// so its behaviour is unchanged.
+#[derive(Clone)]
+pub struct TableSnapshot {
+    /// Stable handle for this tab within a turn (e.g. `"#1"`), so tabs that
+    /// share a display name are still unambiguously addressable.
+    pub handle: String,
+    /// Tab title shown in the GUI (used to address the tab by name).
+    pub display_name: String,
+    /// The file the tab was loaded from, if any (unsaved tabs have none).
+    pub source_path: Option<String>,
+    /// A clone of the tab's table with edits already materialised.
+    pub table: DataTable,
+}
+
+/// Where a tool should read its primary table from. File sources go through
+/// the format registry; tab sources clone an in-memory [`TableSnapshot`].
+pub enum Source {
+    /// A file on disk (optionally a named inner table for multi-table sources).
+    Path {
+        path: PathBuf,
+        table: Option<String>,
+    },
+    /// A specific open tab, addressed by its display name.
+    OpenTab(String),
+    /// Whichever tab is currently active.
+    ActiveTab,
+}
+
+/// Execution context shared by the MCP handlers and the in-GUI chat agent.
+/// Carries the open-tab snapshots (empty for MCP) plus the row / cell caps a
+/// tool applies to its response.
+pub struct ToolContext {
+    /// Snapshots of the open GUI tabs (empty when running under `--mcp`).
+    pub open_tabs: Vec<TableSnapshot>,
+    /// Index into `open_tabs` of the active tab, if any.
+    pub active_tab: Option<usize>,
+    /// Default response row cap when a call omits `limit` (None = unlimited).
+    pub default_row_limit: Option<usize>,
+    /// Per-cell byte cap for serialised responses (0 = unlimited).
+    pub cell_byte_cap: usize,
+    /// When set (the in-GUI chat agent), file access is sandboxed: reads are
+    /// limited to [`Self::allowed_read_paths`] and writes are routed through
+    /// [`Self::resolve_write_path`]. The MCP server / CLI leave this `false`.
+    pub restrict_filesystem: bool,
+    /// Canonicalised paths the chat agent may read from (the open tabs' source
+    /// files). Ignored unless `restrict_filesystem`.
+    pub allowed_read_paths: Vec<PathBuf>,
+    /// Directory the chat agent writes exports into when the caller gives a
+    /// bare/relative filename. `None` for MCP / CLI (no confinement).
+    pub export_dir: Option<PathBuf>,
+}
+
+impl ToolContext {
+    /// Context for the MCP server: no open tabs, caps from `AppSettings`, no
+    /// filesystem sandbox (the CLI / MCP client is trusted).
+    pub fn for_mcp(default_row_limit: Option<usize>, cell_byte_cap: usize) -> Self {
+        Self {
+            open_tabs: Vec::new(),
+            active_tab: None,
+            default_row_limit,
+            cell_byte_cap,
+            restrict_filesystem: false,
+            allowed_read_paths: Vec::new(),
+            export_dir: None,
+        }
+    }
+
+    /// Resolve a [`Source`] into a concrete [`DataTable`]. File sources read
+    /// through the format registry; tab sources clone the snapshot.
+    pub fn resolve(&self, source: &Source) -> anyhow::Result<DataTable> {
+        match source {
+            Source::Path { path, table } => {
+                if path.as_os_str().is_empty() {
+                    anyhow::bail!("no `path` or `open_tab` was provided");
+                }
+                // The model often addresses an open tab via `path` (its handle
+                // `#2`, its name, or its file name) instead of `open_tab`. When
+                // no specific inner table is requested, honor that and use the
+                // in-memory snapshot. (With an inner `table` we fall through so
+                // sibling sheets/tables of an open file still read from disk.)
+                if table.is_none()
+                    && let Some(snap) = self.snapshot_for_pathish(&path.to_string_lossy())
+                {
+                    return Ok(snap.table.clone());
+                }
+                self.ensure_readable(path)?;
+                read_with_registry(path, table.as_deref())
+            }
+            Source::ActiveTab => {
+                let idx = self
+                    .active_tab
+                    .ok_or_else(|| anyhow::anyhow!("there is no active tab"))?;
+                let snap = self
+                    .open_tabs
+                    .get(idx)
+                    .ok_or_else(|| anyhow::anyhow!("active tab index is out of range"))?;
+                Ok(snap.table.clone())
+            }
+            Source::OpenTab(name) => {
+                // Prefer the stable handle (e.g. "#2"), so tabs that share a
+                // display name stay addressable; fall back to a name match.
+                let snap = self
+                    .open_tabs
+                    .iter()
+                    .find(|t| t.handle == *name)
+                    .or_else(|| self.open_tabs.iter().find(|t| &t.display_name == name))
+                    .ok_or_else(|| anyhow::anyhow!("no open tab named \"{name}\""))?;
+                Ok(snap.table.clone())
+            }
+        }
+    }
+
+    /// Map a path-ish string - a tab handle (`#2`), a tab display name, or a
+    /// file name / full path - to an open tab, if one matches. Lets the agent
+    /// reach open data however the model phrases the reference (e.g. when it
+    /// puts the handle or filename in `path` instead of `open_tab`).
+    pub fn snapshot_for_pathish(&self, s: &str) -> Option<&TableSnapshot> {
+        let s = s.trim();
+        if s.is_empty() {
+            return None;
+        }
+        self.open_tabs.iter().find(|t| {
+            if t.handle == s || t.display_name == s {
+                return true;
+            }
+            match t.source_path.as_deref() {
+                Some(sp) => {
+                    sp == s
+                        || Path::new(sp)
+                            .file_name()
+                            .map(|n| n == std::ffi::OsStr::new(s))
+                            .unwrap_or(false)
+                }
+                None => false,
+            }
+        })
+    }
+
+    /// Enforce the read sandbox: when `restrict_filesystem`, a file path is
+    /// only readable if it is the source of an open tab (which also unlocks the
+    /// other sheets/tables of an open Excel / DuckDB / SQLite file). Returns a
+    /// user-facing error otherwise.
+    pub fn ensure_readable(&self, path: &Path) -> anyhow::Result<()> {
+        if !self.restrict_filesystem {
+            return Ok(());
+        }
+        let want = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        if self.allowed_read_paths.iter().any(|p| p == &want) {
+            return Ok(());
+        }
+        anyhow::bail!(
+            "The assistant can only read files that are open in Octa. \"{}\" is not open. If you \
+meant a tab that is open, pass it as `open_tab` (a handle like `#2`, `@active`, or the tab name), \
+not `path`. Otherwise ask the user to open it in Octa (File > Open). (For another sheet or table \
+of an open workbook/database, use list_tables then read_table with that open file's `path` and \
+the inner table name.)",
+            path.display()
+        )
+    }
+
+    /// Resolve the destination for a chat write. Without the sandbox, the path
+    /// is used as-is (MCP / CLI). With the sandbox: an absolute path is honored
+    /// (the user asked for a specific location); a bare/relative name is placed
+    /// in `export_dir` (basename only, no traversal). The export directory is
+    /// created if missing.
+    pub fn resolve_write_path(&self, requested: &Path) -> anyhow::Result<PathBuf> {
+        if !self.restrict_filesystem {
+            return Ok(requested.to_path_buf());
+        }
+        if requested.is_absolute() {
+            return Ok(requested.to_path_buf());
+        }
+        let dir = self.export_dir.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "no export directory is configured - set one in Settings > Chat, or give an \
+absolute path to write to"
+            )
+        })?;
+        let name = requested
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("a file name is required for the export"))?;
+        std::fs::create_dir_all(dir).ok();
+        Ok(dir.join(name))
+    }
+
+    /// Effective response row cap for one call. Precedence: caller's `Some(0)`
+    /// -> unlimited; `Some(n)` -> that value; `None` -> the configured default.
+    pub fn resolve_row_cap(&self, requested: Option<usize>) -> Option<usize> {
+        match requested {
+            Some(0) => None,
+            Some(n) => Some(n),
+            None => self.default_row_limit,
+        }
+    }
+
+    /// One JSON summary per open tab (name, active flag, path, row count,
+    /// schema) for the chat system prompt so the model knows what is loaded.
+    pub fn open_tab_summaries(&self) -> Vec<Value> {
+        self.open_tabs
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let cols: Vec<Value> = t
+                    .table
+                    .columns
+                    .iter()
+                    .map(|c| {
+                        let mut m = Map::new();
+                        m.insert("name".to_string(), Value::String(c.name.clone()));
+                        m.insert("type".to_string(), Value::String(c.data_type.clone()));
+                        Value::Object(m)
+                    })
+                    .collect();
+                let mut m = Map::new();
+                m.insert("handle".to_string(), Value::String(t.handle.clone()));
+                m.insert(
+                    "display_name".to_string(),
+                    Value::String(t.display_name.clone()),
+                );
+                m.insert(
+                    "active".to_string(),
+                    Value::Bool(self.active_tab == Some(i)),
+                );
+                m.insert(
+                    "source_path".to_string(),
+                    t.source_path.clone().map_or(Value::Null, Value::String),
+                );
+                m.insert("row_count".to_string(), Value::from(t.table.row_count()));
+                m.insert("column_count".to_string(), Value::from(t.table.col_count()));
+                m.insert("columns".to_string(), Value::Array(cols));
+                Value::Object(m)
+            })
+            .collect()
+    }
+}
+
+/// Build a [`Source`] from a tool's flat params. `"@active"` selects the
+/// active tab; any other `open_tab` value selects that named tab; absence of
+/// `open_tab` falls back to the file `path`.
+pub fn source_from(open_tab: &Option<String>, path: &Path, table: &Option<String>) -> Source {
+    match open_tab.as_deref() {
+        Some("@active") => Source::ActiveTab,
+        Some(name) => Source::OpenTab(name.to_string()),
+        None => Source::Path {
+            path: path.to_path_buf(),
+            table: table.clone(),
+        },
+    }
+}
 
 /// Read a file with the registry. Honours `table` when the source supports
 /// multi-table dispatch (SQLite, DuckDB, GeoPackage), otherwise falls back
@@ -266,6 +521,65 @@ pub fn schema_to_json(table: &DataTable) -> Value {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn sandbox_ctx(restrict: bool, allowed: &[&str], export: Option<&str>) -> ToolContext {
+        ToolContext {
+            open_tabs: Vec::new(),
+            active_tab: None,
+            default_row_limit: Some(100),
+            cell_byte_cap: 4096,
+            restrict_filesystem: restrict,
+            allowed_read_paths: allowed.iter().map(PathBuf::from).collect(),
+            export_dir: export.map(PathBuf::from),
+        }
+    }
+
+    #[test]
+    fn read_sandbox_allows_open_files_only() {
+        let c = sandbox_ctx(true, &["/nope/open.csv"], None);
+        assert!(c.ensure_readable(Path::new("/nope/open.csv")).is_ok());
+        let err = c
+            .ensure_readable(Path::new("/nope/secret.csv"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("only read files that are open"));
+    }
+
+    #[test]
+    fn read_unrestricted_allows_anything() {
+        let c = sandbox_ctx(false, &[], None);
+        assert!(c.ensure_readable(Path::new("/anywhere/x.csv")).is_ok());
+    }
+
+    #[test]
+    fn write_path_confined_to_export_dir() {
+        let export = std::env::temp_dir().join("octa_sandbox_test");
+        let c = sandbox_ctx(true, &[], export.to_str());
+        // Bare + nested-relative names land in the export dir (basename only).
+        assert_eq!(
+            c.resolve_write_path(Path::new("out.csv")).unwrap(),
+            export.join("out.csv")
+        );
+        assert_eq!(
+            c.resolve_write_path(Path::new("sub/dir/out.csv")).unwrap(),
+            export.join("out.csv")
+        );
+        // An absolute path is honored (user-explicit destination).
+        assert_eq!(
+            c.resolve_write_path(Path::new("/tmp/explicit.csv"))
+                .unwrap(),
+            PathBuf::from("/tmp/explicit.csv")
+        );
+    }
+
+    #[test]
+    fn write_path_unrestricted_passthrough() {
+        let c = sandbox_ctx(false, &[], None);
+        assert_eq!(
+            c.resolve_write_path(Path::new("rel.csv")).unwrap(),
+            PathBuf::from("rel.csv")
+        );
+    }
 
     #[test]
     fn cell_from_json_coerces_by_type() {

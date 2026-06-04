@@ -1,9 +1,9 @@
 //! MCP tool: `diff_tables` - row-level diff of two files.
 //!
-//! Reads both files through the shared registry and delegates to the pure
-//! `octa::data::diff::diff_rows`. The response carries the rows unique to each
-//! side (each as a `table_to_json` payload, so `limit` / cell caps apply) plus
-//! the shared-row count.
+//! Reads both sources through the shared registry (or open tabs) and
+//! delegates to the pure `octa::data::diff::diff_rows`. The response carries
+//! the rows unique to each side (each as a `table_to_json` payload, so
+//! `limit` / cell caps apply) plus the shared-row count.
 
 use std::path::PathBuf;
 
@@ -13,21 +13,34 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use octa::data::DataTable;
-use octa::data::diff::{RowDiff, diff_rows};
+use octa::data::diff::diff_rows;
 
 use crate::mcp::OctaMcpServer;
 
-use super::{read_with_registry, table_to_json};
+use super::{ToolContext, source_from, table_to_json};
 
-// Tool description lives inline at the `#[tool]` site in `src/mcp/mod.rs`.
+pub const DESCRIPTION: &str = "Row-level diff of two tabular sources (files or open tabs), comparing whole-row content \
+positionally. Returns `only_in_a` / `only_in_b` (table payloads of the rows unique to each \
+side), their counts, and `shared_keys`. `limit` caps rows per side (0 = unlimited). Run \
+`compare_schemas` first if the column layouts might differ.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
-    /// Path to the first file (side A).
+    /// Path to the first file (side A). Omit when `open_tab_a` is set.
+    #[serde(default)]
     pub path_a: PathBuf,
 
-    /// Path to the second file (side B).
+    /// Path to the second file (side B). Omit when `open_tab_b` is set.
+    #[serde(default)]
     pub path_b: PathBuf,
+
+    /// Operate on an open GUI tab for side A (name, or `@active`).
+    #[serde(default)]
+    pub open_tab_a: Option<String>,
+
+    /// Operate on an open GUI tab for side B (name, or `@active`).
+    #[serde(default)]
+    pub open_tab_b: Option<String>,
 
     /// For multi-table sources, the table name to read from file A.
     #[serde(default)]
@@ -48,27 +61,16 @@ pub struct Params {
     pub unlimited: bool,
 }
 
-pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
-    let row_cap = server.resolve_row_cap(p.limit);
-    let cell_cap = server.cell_byte_cap;
-    let path_a = p.path_a.clone();
-    let path_b = p.path_b.clone();
-    let table_a = p.table_a.clone();
-    let table_b = p.table_b.clone();
-    let unlimited = p.unlimited;
+pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    let _g = p
+        .unlimited
+        .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
+    let a = ctx.resolve(&source_from(&p.open_tab_a, &p.path_a, &p.table_a))?;
+    let b = ctx.resolve(&source_from(&p.open_tab_b, &p.path_b, &p.table_b))?;
+    let diff = diff_rows(&a, &b);
 
-    let (a, b, diff) =
-        tokio::task::spawn_blocking(move || -> anyhow::Result<(DataTable, DataTable, RowDiff)> {
-            let _g = unlimited.then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
-            let a = read_with_registry(&path_a, table_a.as_deref())?;
-            let b = read_with_registry(&path_b, table_b.as_deref())?;
-            let diff = diff_rows(&a, &b);
-            Ok((a, b, diff))
-        })
-        .await
-        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-        .map_err(|e| McpError::invalid_params(format!("diff_tables failed: {e}"), None))?;
-
+    let row_cap = ctx.resolve_row_cap(p.limit);
+    let cell_cap = ctx.cell_byte_cap;
     let a_sub = subset(&a, &diff.only_in_a);
     let b_sub = subset(&b, &diff.only_in_b);
 
@@ -90,9 +92,17 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
         Value::from(diff.only_in_b.len()),
     );
     out.insert("shared_keys".to_string(), Value::from(diff.shared_keys));
+    Ok(Value::Object(out))
+}
 
+pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
+    let ctx = server.tool_context();
+    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+        .await
+        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("diff_tables failed: {e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(
-        Value::Object(out).to_string(),
+        payload.to_string(),
     )]))
 }
 

@@ -10,16 +10,28 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use octa::data::CellValue;
+use octa::data::DataTable;
 use octa::data::describe::{FileDescription, describe_file};
 
 use crate::mcp::OctaMcpServer;
 
-// Tool description lives inline at the `#[tool]` site in `src/mcp/mod.rs`.
+use super::{Source, ToolContext, source_from};
+
+pub const DESCRIPTION: &str = "One-shot orientation snapshot of a tabular file or open tab. Collapses the \
+list_tables -> schema -> read_table dance into one call. Returns path, format, size, row count, \
+columns, and a small `sample_rows` (default 5, max 100). Use this first when meeting an \
+unfamiliar file.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
-    /// Path to the file.
+    /// Path to the file. Omit when `open_tab` is set.
+    #[serde(default)]
     pub path: PathBuf,
+
+    /// Operate on an open GUI tab instead of a file. Pass the tab's name, or
+    /// `@active` for the currently active tab.
+    #[serde(default)]
+    pub open_tab: Option<String>,
 
     /// For multi-table sources, the specific table to describe.
     #[serde(default)]
@@ -36,24 +48,105 @@ pub struct Params {
     pub unlimited: bool,
 }
 
+pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    let _g = p
+        .unlimited
+        .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
+    let source = source_from(&p.open_tab, &p.path, &p.table);
+    match &source {
+        Source::Path { path, table } => {
+            let d = describe_file(path, table.as_deref(), p.sample_rows)?;
+            Ok(description_to_json(&d, ctx.cell_byte_cap))
+        }
+        _ => {
+            // An open tab is already materialised; synthesise a description.
+            let name = match &source {
+                Source::ActiveTab => ctx
+                    .active_tab
+                    .and_then(|i| ctx.open_tabs.get(i))
+                    .map(|t| t.display_name.clone())
+                    .unwrap_or_else(|| "active tab".to_string()),
+                Source::OpenTab(n) => n.clone(),
+                Source::Path { .. } => unreachable!(),
+            };
+            let dt = ctx.resolve(&source)?;
+            Ok(tab_description_to_json(
+                &name,
+                &dt,
+                p.sample_rows,
+                ctx.cell_byte_cap,
+            ))
+        }
+    }
+}
+
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
-    let path = p.path.clone();
-    let table = p.table.clone();
-    let sample_rows = p.sample_rows;
-    let unlimited = p.unlimited;
-    let cell_cap = server.cell_byte_cap;
-
-    let description = tokio::task::spawn_blocking(move || -> anyhow::Result<FileDescription> {
-        let _g = unlimited.then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
-        describe_file(&path, table.as_deref(), sample_rows)
-    })
-    .await
-    .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-    .map_err(|e| McpError::invalid_params(format!("describe failed: {e}"), None))?;
-
+    let ctx = server.tool_context();
+    let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
+        .await
+        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("describe failed: {e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(
-        description_to_json(&description, cell_cap).to_string(),
+        payload.to_string(),
     )]))
+}
+
+/// Build the same response shape as the file path, from an in-memory tab.
+fn tab_description_to_json(
+    name: &str,
+    dt: &DataTable,
+    sample_rows: Option<usize>,
+    cell_cap: usize,
+) -> Value {
+    let n = sample_rows.unwrap_or(5).min(100);
+    let mut out = Map::new();
+    out.insert("path".to_string(), Value::String(name.to_string()));
+    out.insert(
+        "format_name".to_string(),
+        Value::String("Open tab".to_string()),
+    );
+    out.insert("file_size_bytes".to_string(), Value::Null);
+    out.insert("table".to_string(), Value::Null);
+    out.insert("row_count".to_string(), Value::from(dt.row_count()));
+    out.insert("initial_load_capped".to_string(), Value::Bool(false));
+    out.insert(
+        "initial_load_cap".to_string(),
+        Value::from(octa::formats::initial_load_rows()),
+    );
+
+    let columns: Vec<Value> = dt
+        .columns
+        .iter()
+        .map(|c| {
+            let mut m = Map::new();
+            m.insert("name".to_string(), Value::String(c.name.clone()));
+            m.insert("type".to_string(), Value::String(c.data_type.clone()));
+            Value::Object(m)
+        })
+        .collect();
+    out.insert("column_count".to_string(), Value::from(columns.len()));
+    out.insert("columns".to_string(), Value::Array(columns));
+
+    let mut cell_truncated = false;
+    let emit = n.min(dt.row_count());
+    let mut sample: Vec<Value> = Vec::with_capacity(emit);
+    for r in 0..emit {
+        let arr: Vec<Value> = (0..dt.col_count())
+            .map(|c| {
+                let (v, t) =
+                    super::cell_to_json(dt.get(r, c).unwrap_or(&CellValue::Null), cell_cap);
+                if t {
+                    cell_truncated = true;
+                }
+                v
+            })
+            .collect();
+        sample.push(Value::Array(arr));
+    }
+    out.insert("sample_rows".to_string(), Value::Array(sample));
+    out.insert("sample_row_count".to_string(), Value::from(emit));
+    out.insert("cell_truncated".to_string(), Value::Bool(cell_truncated));
+    Value::Object(out)
 }
 
 fn description_to_json(d: &FileDescription, cell_cap: usize) -> Value {
@@ -108,7 +201,7 @@ fn description_to_json(d: &FileDescription, cell_cap: usize) -> Value {
             let arr: Vec<Value> = row
                 .iter()
                 .map(|cell| {
-                    let (v, t) = cell_to_json(cell, cell_cap);
+                    let (v, t) = super::cell_to_json(cell, cell_cap);
                     if t {
                         cell_truncated = true;
                     }
@@ -125,44 +218,4 @@ fn description_to_json(d: &FileDescription, cell_cap: usize) -> Value {
     );
     out.insert("cell_truncated".to_string(), Value::Bool(cell_truncated));
     Value::Object(out)
-}
-
-/// Same cell-to-JSON conversion as `tools::table_to_json` (kept local
-/// so the describe tool can reuse it without re-running the full
-/// `table_to_json` machinery, which expects a `DataTable` we don't
-/// hold after passing the sample through).
-fn cell_to_json(cell: &CellValue, cell_byte_cap: usize) -> (Value, bool) {
-    let v = match cell {
-        CellValue::Null => Value::Null,
-        CellValue::Bool(b) => Value::Bool(*b),
-        CellValue::Int(i) => Value::from(*i),
-        CellValue::Float(f) => serde_json::Number::from_f64(*f).map_or(Value::Null, Value::Number),
-        CellValue::String(s)
-        | CellValue::Date(s)
-        | CellValue::DateTime(s)
-        | CellValue::Nested(s) => Value::String(s.clone()),
-        CellValue::Binary(b) => {
-            let mut s = String::with_capacity(b.len() * 2);
-            for byte in b {
-                use std::fmt::Write;
-                let _ = write!(&mut s, "{byte:02x}");
-            }
-            Value::String(s)
-        }
-    };
-    if cell_byte_cap == 0 {
-        return (v, false);
-    }
-    let Value::String(s) = &v else {
-        return (v, false);
-    };
-    if s.len() <= cell_byte_cap {
-        return (v, false);
-    }
-    let marker = format!(
-        "[truncated: {} bytes; cap {} bytes. Slice the value with --sql / run_sql to fetch the rest.]",
-        s.len(),
-        cell_byte_cap
-    );
-    (Value::String(marker), true)
 }

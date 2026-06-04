@@ -355,6 +355,18 @@ impl OctaApp {
             return;
         }
 
+        // Yield to in-chat text selection: when the pointer is over the visible
+        // chat panel, let the chat label's own copy stand instead of clobbering
+        // the clipboard with the table selection.
+        if self.chat.visible
+            && let Some(rect) = self.chat.panel_rect
+            && ctx
+                .input(|i| i.pointer.hover_pos())
+                .is_some_and(|p| rect.contains(p))
+        {
+            return;
+        }
+
         // Configurable shortcut path (e.g. user remapped Copy to Ctrl+Shift+C).
         let shortcuts = self.settings.shortcuts.clone();
         if ctx.input(|i| shortcuts.triggered(SA::Copy, i)) {

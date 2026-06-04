@@ -361,6 +361,9 @@ impl OctaApp {
             if action_fired(SA::MultiSearch) {
                 self.toggle_multi_search();
             }
+            if action_fired(SA::ToggleChatPanel) {
+                self.toggle_chat_panel();
+            }
             if action_fired(SA::OpenChart) {
                 self.open_chart_tab();
             }

@@ -45,7 +45,7 @@ quick-xml = "0.40"
 toml = "1"
 serde_yaml_ng = "0.10"
 resvg = "0.47"
-ureq = "3"
+ureq = { version = "3", features = ["json"] }
 flate2 = "1"
 tar = "0.4"
 zip = { version = "8", default-features = false, features = ["deflate"] }
@@ -135,3 +135,35 @@ svg2pdf = { version = "0.13", default-features = false, features = ["text"] }
 
 [build-dependencies]
 winresource = "0.1"
+
+# OS secret store for the in-GUI chat panel's API keys. Per-OS native backend.
+# On Linux we use the freedesktop Secret Service (GNOME Keyring / KWallet) via
+# the PURE-RUST `async-secret-service` (zbus, not the libdbus-backed
+# `sync-secret-service`) so keys persist across reboots while the release /
+# musl / distroless builds stay free of any C dependency. `crypto-rust`
+# supplies the session encryption in pure Rust (no OpenSSL). keyring's `Entry`
+# API stays synchronous (it blocks on zbus internally), so our secrets module
+# is unchanged. If no Secret Service is available at runtime the call is caught
+# and we fall back to the plaintext settings.toml store (see
+# `src/app/chat/secrets.rs`).
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", default-features = false, features = [
+    "async-secret-service",
+    "crypto-rust",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", default-features = false, features = [
+    "apple-native",
+] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", default-features = false, features = [
+    "windows-native",
+] }
+
+# Unix-only: setsid + process-group kill so stopping a locally-started Ollama
+# also terminates its `llama-server` model-runner child (otherwise orphaned and
+# leaking memory). Already in the tree transitively; MIT/Apache-2.0.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
