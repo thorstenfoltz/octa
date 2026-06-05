@@ -267,6 +267,12 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           path: artifacts
+          # Only the release artifacts from the build-* jobs this job needs
+          # (linux-release, linux-appimage, windows-release, macos-release).
+          # Without this, the blanket download also grabs the dockerbuild build
+          # record uploaded by the parallel docker-publish job (now also
+          # disabled there), which can still be mid-upload and fail the step.
+          pattern: "*-{release,appimage}"
 
       - name: Create release
         env:
@@ -417,6 +423,12 @@ jobs:
     # https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      # build-push-action otherwise uploads a "<repo>.dockerbuild" build-record
+      # artifact. The parallel `publish` job does a blanket download-artifact
+      # (no filter) and would grab that record mid-upload, failing with
+      # "Artifact download failed after 5 retries". We don't consume the record
+      # anywhere, so disable it outright.
+      DOCKER_BUILD_RECORD_UPLOAD: false
     steps:
       - uses: actions/checkout@v5
 
