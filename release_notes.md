@@ -3,8 +3,8 @@
 This release builds on the **Chat Assistant** shipped in 0.11.0. The assistant
 now also works on text, code, and Markdown files, its model list is hand-editable,
 and the **Assistant** entry is reachable from any view. Alongside that, Octa now
-reads non-UTF-8 text files, adds five more interface languages and a macOS Intel
-build, and brings a batch of editor and usability fixes.
+reads non-UTF-8 text files, adds five more interface languages, and brings a batch
+of editor and usability fixes.
 
 ## Assistant
 
@@ -34,11 +34,6 @@ garbled characters. Octa detects the encoding automatically and decodes to text.
 **Five more interface languages.** Added Indonesian, Vietnamese, Romanian,
 Hungarian, and Czech, bringing the total to 17 translated languages. Pick yours
 in Settings -> Appearance -> Language.
-
-## Platforms
-
-**A macOS Intel build.** Releases now include a separate `x86_64` macOS download
-alongside the Apple Silicon (`aarch64`) one.
 
 ## Editor and usability
 
