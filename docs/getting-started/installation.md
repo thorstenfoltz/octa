@@ -1,7 +1,7 @@
 # Installation
 
-Octa runs on **Linux**, **macOS** (Apple Silicon), and **Windows**,
-but it is primarily developed for Linux.
+Octa runs on **Linux**, **macOS** (Apple Silicon and Intel), and
+**Windows**, but it is primarily developed for Linux.
 Pre-built binaries are published on the
 [releases page](https://github.com/thorstenfoltz/octa/releases) for
 each platform. No installer is required to run Octa, since every
@@ -126,13 +126,16 @@ cargo build --release
 
 ## macOS
 
-The release artifact targets **Apple Silicon (arm64)** Macs.
+Releases ship **two** macOS builds: one for **Apple Silicon (arm64)** Macs and a
+separate **Intel (x86_64)** build. Pick the one matching your Mac (Apple menu ->
+About This Mac shows the chip).
 
 ### Pre-built `.app` bundle
 
-Download the macOS archive from the
-[releases page](https://github.com/thorstenfoltz/octa/releases), unzip
-it, and drag `Octa.app` into `/Applications` (or `~/Applications`).
+Download the macOS archive for your architecture from the
+[releases page](https://github.com/thorstenfoltz/octa/releases) (the Apple
+Silicon `aarch64` build or the Intel `x86_64` one), unzip it, and drag
+`Octa.app` into `/Applications` (or `~/Applications`).
 
 Octa is **ad-hoc signed but not notarized**, so macOS Gatekeeper
 will warn the first time you launch it with *"Octa.app cannot be

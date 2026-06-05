@@ -5,6 +5,7 @@ pub mod date_infer;
 pub mod describe;
 pub mod diff;
 pub mod duplicates;
+pub mod encoding;
 pub mod formulas;
 pub mod json_util;
 pub mod multi_search;

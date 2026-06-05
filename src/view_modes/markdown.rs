@@ -90,6 +90,22 @@ fn render_editor_pane(ui: &mut egui::Ui, tab: &mut TabState, readonly: bool, _wi
     let Some(buffer) = tab.raw_content.as_mut() else {
         return;
     };
+
+    // Line-number gutter, mirroring the Raw view editor
+    // (`raw_text::render_raw_view`). Numbers are right-aligned to the widest
+    // index and rendered in a non-interactive monospace TextEdit so they share
+    // the editor's line height and scroll position. Theme colours come from the
+    // active visuals so we needn't thread `theme_mode` through every caller.
+    let line_count = buffer.lines().count().max(1);
+    let line_num_text: String = (1..=line_count)
+        .map(|n| format!("{:>width$}", n, width = line_count.to_string().len()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let line_num_width = line_count.to_string().len() as f32 * 8.0 + 16.0;
+    let mono_font = egui::FontId::new(13.0, egui::FontFamily::Monospace);
+    let muted = ui.visuals().weak_text_color();
+    let border = ui.visuals().window_stroke().color;
+
     // `desired_width(f32::INFINITY)` disables auto-wrap so long lines extend
     // beyond the visible pane; the surrounding `ScrollArea::both` then
     // provides horizontal scrolling instead of clipping or word-wrapping.
@@ -97,14 +113,33 @@ fn render_editor_pane(ui: &mut egui::Ui, tab: &mut TabState, readonly: bool, _wi
         .id_salt("markdown_editor_scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            ui.add(
-                egui::TextEdit::multiline(buffer)
-                    .id(egui::Id::new("markdown_editor"))
-                    .font(egui::FontId::new(13.0, egui::FontFamily::Monospace))
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(20)
-                    .interactive(!readonly),
-            )
+            ui.horizontal_top(|ui| {
+                ui.add_sized(
+                    [line_num_width, ui.available_height()],
+                    egui::TextEdit::multiline(&mut line_num_text.clone())
+                        .font(mono_font.clone())
+                        .interactive(false)
+                        .desired_width(line_num_width)
+                        .text_color(muted)
+                        .frame(egui::Frame::NONE),
+                );
+                ui.add_space(2.0);
+                let sep_rect = egui::Rect::from_min_size(
+                    ui.cursor().left_top(),
+                    egui::vec2(1.0, ui.available_height()),
+                );
+                ui.painter().rect_filled(sep_rect, 0.0, border);
+                ui.add_space(4.0);
+                ui.add(
+                    egui::TextEdit::multiline(buffer)
+                        .id(egui::Id::new("markdown_editor"))
+                        .font(mono_font)
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(20)
+                        .interactive(!readonly),
+                )
+            })
+            .inner
         })
         .inner;
     if response.changed() && !readonly {

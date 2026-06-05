@@ -363,6 +363,21 @@ impl OctaApp {
             }
             if action_fired(SA::ToggleChatPanel) {
                 self.toggle_chat_panel();
+                // Consume the key so a focused TextEdit (e.g. the Markdown
+                // editor) doesn't also act on it - egui's select-all is Ctrl+A
+                // and ignores Shift, so the default Ctrl+Shift+A would otherwise
+                // select all text in the editor too.
+                let combo = self.settings.shortcuts.combo(SA::ToggleChatPanel);
+                if let Some(key) = combo.key {
+                    let modifiers = egui::Modifiers {
+                        alt: combo.alt,
+                        ctrl: combo.ctrl,
+                        shift: combo.shift,
+                        mac_cmd: false,
+                        command: combo.ctrl,
+                    };
+                    ctx.input_mut(|i| i.consume_key(modifiers, key));
+                }
             }
             if action_fired(SA::OpenChart) {
                 self.open_chart_tab();

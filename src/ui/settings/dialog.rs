@@ -50,6 +50,7 @@ impl SettingsDialog {
         self.chat_unlimited_tokens = current.chat_max_tokens_unlimited;
         self.chat_key_input_buf.clear();
         self.chat_key_status_msg = None;
+        self.chat_key_clear_confirm = None;
         // Reset here; the chat panel re-sets it to true right after calling
         // open() so the Chat section starts expanded only when launched there.
         self.focus_chat_section = false;
@@ -826,6 +827,26 @@ impl SettingsDialog {
                     self.chat_model_picker(ui, provider);
                     ui.end_row();
 
+                    // The preset model lists come from a hand-editable
+                    // models.toml beside settings.toml; let the user reload it
+                    // after editing without restarting.
+                    ui.label(crate::i18n::t("chat.models_file"));
+                    ui.vertical(|ui| {
+                        if ui.button(crate::i18n::t("chat.reload_models")).clicked() {
+                            crate::ui::settings::chat_models::reload();
+                        }
+                        ui.label(
+                            egui::RichText::new(
+                                crate::ui::settings::chat_models::path()
+                                    .display()
+                                    .to_string(),
+                            )
+                            .weak()
+                            .size(11.0),
+                        );
+                    });
+                    ui.end_row();
+
                     if provider == ChatProviderKind::OpenAiCompatible {
                         ui.label(crate::i18n::t("chat.base_url"))
                             .on_hover_text(crate::i18n::t("settings_hint.chat_base_url"));
@@ -948,10 +969,30 @@ impl SettingsDialog {
                         self.chat_key_input_buf.clear();
                     }
                     if ui.button(crate::i18n::t("chat.clear_key")).clicked() {
-                        secrets::delete_api_key(provider, &mut self.draft);
-                        self.chat_key_status_msg = Some(crate::i18n::t("chat.key_cleared"));
+                        // Don't wipe the key on a single click - arm a
+                        // confirmation row instead (rendered just below).
+                        self.chat_key_clear_confirm = Some(provider);
+                        self.chat_key_status_msg = None;
                     }
                 });
+                // Confirmation row: only an explicit second click deletes the
+                // saved key. Cancel disarms it.
+                if self.chat_key_clear_confirm == Some(provider) {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(crate::i18n::t("chat.clear_key_confirm"))
+                                .color(egui::Color32::from_rgb(0xd9, 0x53, 0x4f)),
+                        );
+                        if ui.button(crate::i18n::t("chat.clear_key_yes")).clicked() {
+                            secrets::delete_api_key(provider, &mut self.draft);
+                            self.chat_key_status_msg = Some(crate::i18n::t("chat.key_cleared"));
+                            self.chat_key_clear_confirm = None;
+                        }
+                        if ui.button(crate::i18n::t("chat.clear_key_cancel")).clicked() {
+                            self.chat_key_clear_confirm = None;
+                        }
+                    });
+                }
                 let where_msg = match secrets::storage_location(provider, &self.draft) {
                     secrets::KeyStorage::Env(var) => {
                         format!("{} {var}", crate::i18n::t("chat.key_source_env"))
@@ -1305,14 +1346,14 @@ impl SettingsDialog {
             .get(provider.id())
             .filter(|m| !m.trim().is_empty())
             .cloned()
-            .unwrap_or_else(|| provider.default_model().to_string())
+            .unwrap_or_else(|| crate::ui::settings::chat_models::default_model(provider))
     }
 
     /// Default-model picker for the Chat section: a preset dropdown (when the
     /// provider has presets) stacked above a roomy free-text field, mirroring the
     /// panel's quick-switch but writing into `draft.chat_models`.
     fn chat_model_picker(&mut self, ui: &mut egui::Ui, provider: ChatProviderKind) {
-        let presets = provider.preset_models();
+        let presets = crate::ui::settings::chat_models::preset_models(provider);
         let mut model = self.chat_current_model(provider);
         let mut changed = false;
         const W: f32 = 320.0;
@@ -1329,9 +1370,9 @@ impl SettingsDialog {
                     })
                     .width(W)
                     .show_ui(ui, |ui| {
-                        for m in presets {
-                            if ui.selectable_label(model == *m, *m).clicked() {
-                                model = (*m).to_string();
+                        for m in &presets {
+                            if ui.selectable_label(&model == m, m.as_str()).clicked() {
+                                model = m.clone();
                                 changed = true;
                             }
                         }
@@ -1341,7 +1382,7 @@ impl SettingsDialog {
             let resp = ui.add(
                 egui::TextEdit::singleline(&mut model)
                     .desired_width(W)
-                    .hint_text(provider.default_model()),
+                    .hint_text(crate::ui::settings::chat_models::default_model(provider)),
             );
             if resp.changed() {
                 changed = true;
@@ -1392,19 +1433,66 @@ impl SettingsDialog {
             ui.add_space(4.0);
         }
 
-        egui::Grid::new("settings_shortcuts_grid")
-            .num_columns(4)
-            .spacing([12.0, 4.0])
-            .show(ui, |ui| {
-                for action in ShortcutAction::iter() {
-                    ui.label(action.label());
+        // One section per group, in `ShortcutGroup::ALL` order. Rows use fixed
+        // column widths (`add_sized`) so the action / combo columns line up
+        // across *every* group, and each group gets a full-width highlighted
+        // header bar so the sections are easy to scan.
+        const LABEL_W: f32 = 250.0;
+        const COMBO_W: f32 = 160.0;
+        for group in crate::ui::shortcuts::ShortcutGroup::ALL {
+            let actions: Vec<ShortcutAction> = ShortcutAction::iter()
+                .filter(|a| a.group() == *group)
+                .collect();
+            if actions.is_empty() {
+                continue;
+            }
+            ui.add_space(8.0);
+            // Highlighted header bar spanning the panel width.
+            egui::Frame::NONE
+                .fill(ui.visuals().faint_bg_color)
+                .inner_margin(egui::Margin::symmetric(6, 3))
+                .corner_radius(4.0)
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(
+                        egui::RichText::new(crate::i18n::t(group.i18n_key()))
+                            .strong()
+                            .size(14.0)
+                            .color(ui.visuals().strong_text_color()),
+                    );
+                });
+            ui.add_space(2.0);
+            let row_h = ui.spacing().interact_size.y;
+            for action in actions {
+                ui.horizontal(|ui| {
+                    // Fixed-width columns kept for cross-row alignment, but the
+                    // action and combo text are left-aligned within them (a bare
+                    // `add_sized` centres its content).
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(LABEL_W, row_h),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.set_min_width(LABEL_W);
+                            ui.add(
+                                egui::Label::new(action.label())
+                                    .wrap_mode(egui::TextWrapMode::Truncate),
+                            );
+                        },
+                    );
                     let combo = self.draft.shortcuts.combo(action);
                     let label_text = if self.recording == Some(action) {
                         egui::RichText::new("Press any key...").italics()
                     } else {
                         egui::RichText::new(combo.label()).monospace()
                     };
-                    ui.label(label_text);
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(COMBO_W, row_h),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.set_min_width(COMBO_W);
+                            ui.add(egui::Label::new(label_text));
+                        },
+                    );
                     if self.recording == Some(action) {
                         if ui.button(crate::i18n::t("settings.sc_stop")).clicked() {
                             self.recording = None;
@@ -1412,17 +1500,15 @@ impl SettingsDialog {
                     } else if ui.button(crate::i18n::t("settings.sc_record")).clicked() {
                         self.recording = Some(action);
                     }
-                    ui.horizontal(|ui| {
-                        if ui.button(crate::i18n::t("settings.clear")).clicked() {
-                            self.draft.shortcuts.set(action, KeyCombo::UNBOUND);
-                        }
-                        if ui.button(crate::i18n::t("settings.reset")).clicked() {
-                            self.draft.shortcuts.reset(action);
-                        }
-                    });
-                    ui.end_row();
-                }
-            });
+                    if ui.button(crate::i18n::t("settings.clear")).clicked() {
+                        self.draft.shortcuts.set(action, KeyCombo::UNBOUND);
+                    }
+                    if ui.button(crate::i18n::t("settings.reset")).clicked() {
+                        self.draft.shortcuts.reset(action);
+                    }
+                });
+            }
+        }
     }
 }
 /// Result of a single-frame shortcut capture.

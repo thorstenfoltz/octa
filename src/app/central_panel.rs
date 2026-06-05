@@ -48,6 +48,7 @@ impl OctaApp {
             // dismisses it; the inference pass only sets it when the source
             // layout differs from the canonical ISO display.
             let mut dismiss_warning = false;
+            let mut keep_dates = false;
             if let Some(warning) = self
                 .pending_date_warning
                 .as_ref()
@@ -71,7 +72,26 @@ impl OctaApp {
                         .color(colors.warning)
                         .size(12.0),
                     );
-                    if ui.small_button("Dismiss").clicked() {
+                    // "Okay" accepts the date display and closes the banner;
+                    // "Dismiss" reverts the promoted columns back to text.
+                    if ui
+                        .small_button("Okay")
+                        .on_hover_text(
+                            "Keep showing these columns as dates (YYYY-MM-DD). \
+                             The original format is still written on save.",
+                        )
+                        .clicked()
+                    {
+                        keep_dates = true;
+                    }
+                    if ui
+                        .small_button("Dismiss")
+                        .on_hover_text(
+                            "Revert these columns to their original text - do not \
+                             treat them as dates.",
+                        )
+                        .clicked()
+                    {
                         dismiss_warning = true;
                     }
                     ui.label(
@@ -84,6 +104,8 @@ impl OctaApp {
             }
             if dismiss_warning {
                 self.revert_promoted_date_columns();
+            } else if keep_dates {
+                self.pending_date_warning = None;
             }
 
             // Whitespace-trim banner. Lists the columns whose string cells had
@@ -108,7 +130,18 @@ impl OctaApp {
                         .color(colors.warning)
                         .size(12.0),
                     );
-                    if ui.small_button("Dismiss").clicked() {
+                    // The trim already happened, so "Okay" and "Dismiss" both
+                    // just close the banner; "Okay" reads as an explicit accept.
+                    let trim_hint =
+                        "Close this notice. The whitespace was already trimmed on load.";
+                    if ui.small_button("Okay").on_hover_text(trim_hint).clicked() {
+                        dismiss_trim = true;
+                    }
+                    if ui
+                        .small_button("Dismiss")
+                        .on_hover_text(trim_hint)
+                        .clicked()
+                    {
                         dismiss_trim = true;
                     }
                     ui.label(

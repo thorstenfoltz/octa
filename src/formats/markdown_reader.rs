@@ -35,7 +35,8 @@ impl FormatReader for MarkdownReader {
     }
 
     fn read_file(&self, path: &Path) -> Result<DataTable> {
-        let content = std::fs::read_to_string(path)?;
+        // Auto-detect the encoding (see TextReader) so non-UTF-8 markdown opens.
+        let content = crate::data::encoding::read_to_string_detected(path)?;
         let lines: Vec<&str> = content.lines().collect();
 
         let columns = vec![ColumnInfo {

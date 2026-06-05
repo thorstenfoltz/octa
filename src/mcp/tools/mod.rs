@@ -15,6 +15,8 @@ pub mod find_duplicates;
 pub mod list_tables;
 pub mod profile;
 pub mod read_table;
+/// Chat-only (rendered from chat dispatch, not registered with the MCP server).
+pub mod read_text;
 pub mod run_sql;
 pub mod sample;
 pub mod schema;
@@ -24,6 +26,8 @@ pub mod unique_columns;
 pub mod validate_schema;
 pub mod value_frequency;
 pub mod write_table;
+/// Chat-only (rendered from chat dispatch, not registered with the MCP server).
+pub mod write_text;
 
 use std::path::{Path, PathBuf};
 

@@ -5,8 +5,9 @@ The chat assistant is a docked panel where you talk to a large language model
 Octa's own tools behind the scenes. It is the in-application sibling of the
 [MCP server](../mcp/index.md): it reuses the same data tools (read, schema,
 profile, run SQL, find duplicates, search, diff, and more), but here they run
-against the tables you already have open, with no external client to set up. It
-can also build a chart from your data and save results to a file.
+against the files you already have open, with no external client to set up. It
+can also build a chart from your data, save results to a file, and read or edit
+the [text, code, and Markdown files](#text-code-and-markdown-files) you have open.
 
 Everything is local-first and provider-agnostic: pick a cloud model (Claude,
 GPT, Gemini) or run a model entirely on your own machine with
@@ -45,6 +46,15 @@ model picker offers a dropdown of common models for the provider plus a
 free-text box, so you can always type the exact model name (model names change
 often). Octa remembers the last model you used per provider, so flipping
 between, say, Claude and a local Ollama model never makes you retype anything.
+
+The dropdown's preset list is **hand-editable**. It lives in a plain
+`models.toml` next to your `settings.toml` (`~/.config/octa/` on Linux,
+`~/Library/Application Support/Octa/` on macOS, `%APPDATA%\Octa\` on Windows),
+seeded on first run from Octa's built-in lists. Add or remove model names there
+and they show up without waiting for a new Octa release. After editing, click
+**Reload models.toml** in the Chat / Assistant settings to pick up the change
+without restarting. A missing or empty entry falls back to the built-in list, so
+a stray edit can never leave a provider with no usable model.
 
 !!! tip "Pick a tool-capable model"
     The assistant works by calling tools (run SQL, profile, search, ...). Very
@@ -199,6 +209,27 @@ schema, and list unique columns. Beyond reading, it can:
 It deliberately does not write back into an open tab. If you ask it to
 change a table you have open, it will say so and offer to save a new file
 instead, so your in-tab edits are never modified by the assistant.
+
+## Text, code, and Markdown files
+
+The assistant is not limited to tables. Plain-text, source-code, and Markdown
+files you have open (anything Octa loads into the Raw or Markdown view) are
+available to it as well. Open such a file and you can ask the assistant to:
+
+- read and summarise it, explain what a piece of code does, or answer questions
+  about its contents,
+- refactor, reformat, translate, or otherwise rewrite it.
+
+When it writes the result it either saves a **new file** in your
+[Export folder](#saving-results-and-charts) or, if you ask, writes the change
+**back to the open file on disk**. Octa's live editor does not refresh on its
+own in that case: reload the tab with <kbd>Ctrl</kbd>+<kbd>R</kbd> to see the new
+content.
+
+!!! note "It still cannot touch files you have not opened"
+    Just like with tables, the assistant only reaches files that are **open in
+    Octa**. Writing back to disk replaces the open file you pointed it at, never
+    an arbitrary path you did not open.
 
 ## Saving results and charts
 

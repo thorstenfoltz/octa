@@ -373,8 +373,9 @@ then **Run anyway**. Subsequent launches open without the prompt.
 ### macOS
 
 The simplest option is to **download the macOS `.app` bundle** from the
-[releases page](https://github.com/thorstenfoltz/octa/releases). The
-release artifact targets Apple Silicon. Drop `Octa.app` into
+[releases page](https://github.com/thorstenfoltz/octa/releases). There are
+two builds, one for Apple Silicon (`aarch64`) and one for Intel
+(`x86_64`); pick the one matching your Mac. Drop `Octa.app` into
 `/Applications` (or anywhere else) and double-click to launch.
 
 **First-launch unsigned-app warning:** Octa is not code-signed or

@@ -2,7 +2,7 @@
 
 Octa's interface, menus, dialogs, the status bar, the SQL and
 multi-search panels, the right-click menus, and the Settings dialog
-(including its hover tooltips), can be shown in any of 13 languages.
+(including its hover tooltips), can be shown in any of 17 languages.
 
 Change it under **Settings → Appearance → Language**. The switch is
 **live**: the interface updates on the next frame, with no restart.
@@ -24,6 +24,11 @@ Change it under **Settings → Appearance → Language**. The switch is
 | `no` | Norsk      |
 | `fi` | Suomi      |
 | `tr` | Türkçe     |
+| `id` | Indonesia  |
+| `vi` | Tiếng Việt |
+| `ro` | Română     |
+| `hu` | Magyar     |
+| `cs` | Čeština    |
 
 The chosen code is stored as `language` in your
 [`settings.toml`](settings.md).
@@ -34,6 +39,10 @@ The chosen code is stored as `language` in your
   machine-translated and may be refined over time. English is the
   master; anything not yet translated falls back to the English string
   rather than showing a blank or a key.
+- **Newest languages are core-UI first.** The five most recent additions
+  (Indonesian, Vietnamese, Romanian, Hungarian, Czech) cover the core
+  interface; a few long help paragraphs still fall back to English until
+  they are translated.
 - **What stays in English on purpose.** Technical identifiers are not
   translated, so they read the same in every language: format names
   (Parquet, JSON, …), database engine names, theme names (Nord,
