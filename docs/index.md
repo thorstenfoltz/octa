@@ -114,10 +114,10 @@ like Claude can answer questions about your local files.
 
     ---
 
-    The interface is available in 13 languages, English, German,
+    The interface is available in 17 languages, English, German,
     Spanish, French, and more, switchable live under
-    **Settings → Appearance**. CSV encodings, date formats, and number
-    separators are detected per file.
+    **Settings → Appearance**. Text-file encodings, date formats, and
+    number separators are detected per file.
 
     [:octicons-arrow-right-24: Languages](reference/languages.md)
 

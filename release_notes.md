@@ -1,95 +1,57 @@
 # Release notes
 
-This release adds the **Chat Assistant**: a docked panel where you ask
-questions about your data in plain language and a large language model answers
-by driving Octa's own tools (read, run SQL, profile, search, diff, chart, and
-more) against the tables you already have open. It is the in-application sibling
-of the MCP server, and it works with cloud models or a model running entirely
-on your own machine.
+This release builds on the **Chat Assistant** shipped in 0.11.0. The assistant
+now also works on text, code, and Markdown files, its model list is hand-editable,
+and the **Assistant** entry is reachable from any view. Alongside that, Octa now
+reads non-UTF-8 text files, adds five more interface languages and a macOS Intel
+build, and brings a batch of editor and usability fixes.
 
-Open it from the **Analyse -> Assistant** menu or with
-<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd>, and dock it to any edge of the
-window. See **Usage -> Chat Assistant** in the docs for the full guide.
+## Assistant
 
-## Bring your own model
+**Now helps with text, code, and Markdown.** Beyond tables, you can ask the
+assistant to read, summarise, explain, refactor, or edit the plain-text, source
+code, and Markdown files you have open. It writes changes either to a new file or
+back to the open file on disk (reload with <kbd>Ctrl</kbd>+<kbd>R</kbd> to see
+them in Octa).
 
-The assistant talks to five kinds of backend, one at a time, and remembers the
-model you picked per provider:
+**Hand-editable model list.** The provider model presets now live in a plain
+`models.toml` next to your settings file, so you can add or remove model names by
+hand without waiting for an update. A **Reload models.toml** button in Settings
+picks up your edits without a restart.
 
-- **Ollama (local)**: open models running on your own machine, no key, nothing
-  leaves your computer.
-- **Anthropic (Claude)**, **OpenAI (GPT)**, **Google Gemini**.
-- **OpenAI-compatible**: any endpoint that speaks the OpenAI dialect
-  (OpenRouter, Groq, LM Studio, a self-hosted gateway) via a base URL.
+**Always reachable.** The **Assistant** entry under the **Analyse** menu is now
+present whatever view you are in, not just on table views.
 
-Each provider has its own API key. Keys are kept in your operating system's
-secret store when one is available (the Secret Service on Linux, the Keychain on
-macOS, the Credential Manager on Windows), with an environment variable taking
-precedence and a clearly-labelled plaintext fallback when no keyring exists. A
-per-provider overview shows at a glance which providers are configured.
+## File support
 
-## First-class Ollama
+**Reads non-UTF-8 text files.** Text, code, and Markdown files saved in
+Windows-1252 / Latin-1 or UTF-16 (common on non-English Windows, and from
+Excel's "Unicode text" export) now open correctly instead of failing or showing
+garbled characters. Octa detects the encoding automatically and decodes to text.
 
-[Ollama](https://ollama.com) is built in. Pick **Ollama (local)** and Octa can:
+## Languages
 
-- start the server for you (**Start Ollama**) and stop it (**Stop Ollama**),
-- list the models you have pulled and refresh that list on demand,
-- keep the running/stopped status up to date on its own.
+**Five more interface languages.** Added Indonesian, Vietnamese, Romanian,
+Hungarian, and Czech, bringing the total to 17 translated languages. Pick yours
+in Settings -> Appearance -> Language.
 
-When Octa starts the Ollama server, it also shuts it down (and the loaded model)
-when you close Octa, so nothing lingers in memory after you quit.
+## Platforms
 
-## Works on the data you have open
+**A macOS Intel build.** Releases now include a separate `x86_64` macOS download
+alongside the Apple Silicon (`aarch64`) one.
 
-The assistant only sees and reads data you have **open in Octa**, so it never
-reaches into arbitrary files on your disk. Open tabs appear as **chips** in the
-panel header (the active one highlighted), each with a short handle (`#1`,
-`#2`, ...). Point the assistant at a specific table by clicking its chip, typing
-an `@` mention (`@#2`, a tab name, or `@column`), or just describing it. If a
-file is not open, the assistant tells you to open it first.
+## Editor and usability
 
-It can reach the other sheets or tables of an open Excel workbook or
-DuckDB/SQLite database, and it can run a single DuckDB query that **joins across
-several open tabs** at once.
-
-## Beyond reading: write results and draw charts
-
-As well as reading, querying, profiling, searching, diffing, and exporting
-schemas, the assistant can:
-
-- **Save results to a file** (CSV, TSV, Parquet, JSON, Excel, ...): a query
-  result, a transformed table, or a converted copy.
-- **Create a chart** (histogram, bar, line, scatter, box) and save it as PNG,
-  PDF, or SVG.
-
-Files it creates go to your configured **Export folder** (Settings -> Chat /
-Assistant; defaults to your Downloads folder) when you give just a filename, or
-to a specific path when you ask for one. The assistant never writes back into a
-tab you have open, so your in-tab edits are always yours.
-
-## In the panel
-
-- Replies stream in live; tool calls show as expandable rows with the exact
-  arguments and raw result, and failures are shown expanded so you see the
-  problem at once.
-- **Cancel** stops a turn immediately.
-- **Copy** any message with <kbd>Ctrl</kbd>+<kbd>C</kbd> or a right-click menu,
-  or copy the whole conversation from the header.
-- Conversations are saved automatically; reopen past chats from **History**,
-  start a fresh one with **New chat**.
-
-## Settings and localisation
-
-All of the assistant's settings live in Octa's main **Settings** dialog under
-**Chat / Assistant** (provider, model, temperature - default 0 for focused
-answers, response-length cap with an Unlimited option, panel position, export
-folder, and API keys). Every label has a hover hint, and the whole chat
-interface is translated into all of Octa's supported languages.
-
-## Privacy
-
-With a cloud provider, your prompts, a short description of your open tabs, and
-the results of any tools the assistant runs are sent to that provider; cell data
-leaves your machine only when a tool returns rows the model needs. Choose
-**Ollama** (or point the OpenAI-compatible provider at a local LM Studio model)
-to keep everything on your own machine.
+- **Line numbers in the Markdown editor.** The Markdown view's Edit and Split
+  panes now show a line-number gutter, matching the Raw and SQL editors.
+- **Grouped keyboard shortcuts.** Settings -> Shortcuts is now organised into
+  labelled sections (File, Tabs, Search, Navigation, and so on) with left-aligned
+  columns, so a binding is much easier to find.
+- **Clearer load banners.** The date-format and whitespace-trim banners now have
+  an explicit **Okay** button next to **Dismiss**, and hovering either explains
+  exactly what it does (on the date banner, Okay keeps the dates while Dismiss
+  reverts them to text).
+- **Confirm before deleting a key.** Clearing a saved chat API key now asks for
+  confirmation first, so a stray click can't wipe it.
+- <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> no longer selects all text when
+  you open the assistant from inside the Markdown editor.

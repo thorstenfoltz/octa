@@ -126,7 +126,7 @@ fn current_model(settings: &AppSettings, provider: ChatProviderKind) -> String {
         .get(provider.id())
         .filter(|m| !m.trim().is_empty())
         .cloned()
-        .unwrap_or_else(|| provider.default_model().to_string())
+        .unwrap_or_else(|| octa::ui::settings::chat_models::default_model(provider))
 }
 
 impl OctaApp {
@@ -355,7 +355,7 @@ impl OctaApp {
     /// can always be typed. The text field is the source of truth, stored as
     /// the per-provider default in `chat_models`.
     fn render_model_picker(&mut self, ui: &mut egui::Ui, provider: ChatProviderKind) {
-        let presets = provider.preset_models();
+        let presets = octa::ui::settings::chat_models::preset_models(provider);
         let mut model = current_model(&self.settings, provider);
         let mut changed = false;
 
@@ -368,9 +368,9 @@ impl OctaApp {
                 })
                 .width(200.0)
                 .show_ui(ui, |ui| {
-                    for m in presets {
-                        if ui.selectable_label(model == *m, *m).clicked() {
-                            model = (*m).to_string();
+                    for m in &presets {
+                        if ui.selectable_label(&model == m, m.as_str()).clicked() {
+                            model = m.clone();
                             changed = true;
                         }
                     }
@@ -380,7 +380,7 @@ impl OctaApp {
         let resp = ui.add(
             egui::TextEdit::singleline(&mut model)
                 .desired_width(200.0)
-                .hint_text(provider.default_model()),
+                .hint_text(octa::ui::settings::chat_models::default_model(provider)),
         );
         if resp.changed() {
             changed = true;
@@ -409,7 +409,9 @@ impl OctaApp {
             let resp = ui.add(
                 egui::TextEdit::singleline(&mut model)
                     .desired_width(140.0)
-                    .hint_text(ChatProviderKind::Ollama.default_model()),
+                    .hint_text(octa::ui::settings::chat_models::default_model(
+                        ChatProviderKind::Ollama,
+                    )),
             );
             if resp.changed() {
                 self.settings

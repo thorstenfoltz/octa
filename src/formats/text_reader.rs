@@ -118,7 +118,9 @@ impl FormatReader for TextReader {
 }
 
 fn read_text_file(path: &Path) -> Result<DataTable> {
-    let content = std::fs::read_to_string(path)?;
+    // Auto-detect the encoding so non-UTF-8 files (Windows-1252 / Latin-1 /
+    // UTF-16) open as readable text instead of failing on invalid UTF-8.
+    let content = crate::data::encoding::read_to_string_detected(path)?;
     let lines: Vec<&str> = content.lines().collect();
 
     let columns = vec![ColumnInfo {

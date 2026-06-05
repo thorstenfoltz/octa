@@ -258,8 +258,98 @@ jobs:
           name: macos-release
           path: octa-${{ env.VERSION }}-macos-aarch64.tar.gz
 
+  # Intel macOS build. macos-latest is Apple Silicon (arm64); macos-13 is the
+  # last Intel runner image, so it's the one that builds an x86_64 binary
+  # natively (no cross-toolchain needed for the bundled C deps: duckdb,
+  # rusqlite, ...). Mirrors build-macos otherwise.
+  build-macos-x86:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          sed -i '' "s/^version = .*/version = \"$VERSION\"/" Cargo.toml
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      # See linux comment: PR-time CI already covered tests on this commit.
+      - name: Build release binary
+        run: cargo build --release --target x86_64-apple-darwin
+
+      - name: Generate ICNS from PNG
+        run: |
+          ICONSET="assets/octa.iconset"
+          mkdir -p "$ICONSET"
+          for size in 16 32 64 128 256 512; do
+            sips -z $size $size assets/octa.png --out "$ICONSET/icon_${size}x${size}.png"
+            double=$((size * 2))
+            sips -z $double $double assets/octa.png --out "$ICONSET/icon_${size}x${size}@2x.png"
+          done
+          iconutil -c icns "$ICONSET" -o assets/octa.icns
+
+      - name: Build .app bundle
+        run: |
+          APP="Octa.app"
+          rm -rf "$APP"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp target/x86_64-apple-darwin/release/octa "$APP/Contents/MacOS/octa"
+          chmod +x "$APP/Contents/MacOS/octa"
+          cp assets/octa.icns "$APP/Contents/Resources/octa.icns"
+          cat > "$APP/Contents/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key><string>en</string>
+            <key>CFBundleDisplayName</key><string>Octa</string>
+            <key>CFBundleExecutable</key><string>octa</string>
+            <key>CFBundleIconFile</key><string>octa</string>
+            <key>CFBundleIdentifier</key><string>dev.octa.Octa</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+            <key>CFBundleName</key><string>Octa</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+            <key>CFBundleVersion</key><string>${VERSION}</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+            <key>NSPrincipalClass</key><string>NSApplication</string>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Ad-hoc codesign the bundle
+        run: |
+          # See build-macos: ad-hoc signing converts the "damaged" dead-end into
+          # the standard "unidentified developer" dialog.
+          codesign --force --sign - --timestamp=none \
+            --identifier dev.octa.Octa \
+            Octa.app/Contents/MacOS/octa
+          codesign --force --sign - --timestamp=none Octa.app
+          codesign --verify --verbose Octa.app
+
+      - name: Package macOS release
+        run: |
+          DIR="octa-${VERSION}-macos-x86_64"
+          mkdir -p "$DIR"
+          cp -R Octa.app "$DIR/"
+          cp pkg/README-macos.md "$DIR/README.md"
+          cp LICENSE "$DIR/" 2>/dev/null || true
+          tar czf "${DIR}.tar.gz" "$DIR/"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: macos-release-x86
+          path: octa-${{ env.VERSION }}-macos-x86_64.tar.gz
+
   publish:
-    needs: [build-linux, build-windows, build-macos]
+    needs: [build-linux, build-windows, build-macos, build-macos-x86]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -284,7 +374,8 @@ jobs:
             artifacts/linux-release/*.tar.gz \
             artifacts/linux-appimage/*.AppImage \
             artifacts/windows-release/*.zip \
-            artifacts/macos-release/*.tar.gz
+            artifacts/macos-release/*.tar.gz \
+            artifacts/macos-release-x86/*.tar.gz
 
   aur-publish:
     needs: [publish]
@@ -397,12 +488,15 @@ jobs:
           git commit -m "release $VERSION"
           git push
 
-  # Publish the headless image to GitHub Container Registry after the release is
-  # deployed. Built from source in-image (the Dockerfile's debian-12 builder
-  # produces a glibc-correct binary for the distroless runtime; reusing the
-  # ubuntu-24.04 build-linux artifact would risk a newer-glibc mismatch).
+  # Publish the headless image to GitHub Container Registry. Runs in PARALLEL
+  # with the build-* jobs (no `needs:`), not after `publish`: the Dockerfile
+  # builds from source in-image and never consumed the release artifacts, so the
+  # old `needs: [publish]` was pure ordering that tacked a ~20-min serial tail
+  # onto every release. The image push (version + latest) is independent of the
+  # GitHub Release. Built from source in-image (the Dockerfile's debian-12
+  # builder produces a glibc-correct binary for the distroless runtime; reusing
+  # the ubuntu-24.04 build-linux artifact would risk a newer-glibc mismatch).
   docker-publish:
-    needs: [publish]
     runs-on: ubuntu-latest
     permissions:
       contents: read

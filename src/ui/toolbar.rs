@@ -892,20 +892,20 @@ pub fn draw_toolbar(
                 },
             );
 
-            // --- Analyse group (SQL panel toggle + Open chart) ---
+            // --- Analyse group ---
             //
-            // Renders as a single dropdown labelled "Analyse" containing
-            // two entries: **SQL** (toggles the existing SQL panel - same
-            // behaviour as before, just lives here now) and **Chart**
-            // (opens a new tab dedicated to plotting). Independent: the
-            // user can open either without the other. Only shown on Table
-            // view tabs since neither makes sense in raw / json / etc.
-            if current_view_mode == ViewMode::Table {
-                top_menu_button(
-                    ui,
-                    RichText::new(crate::i18n::t("menu.analyse")).color(colors.text_primary),
-                    |ui| {
-                        ui.set_min_width(120.0);
+            // Always-visible dropdown labelled "Analyse". SQL / Chart / Value
+            // frequency act on a table, so they're shown only on Table-view
+            // tabs; the **Assistant** entry is always present (it works on any
+            // open tab, including non-tabular ones) so the panel stays
+            // discoverable everywhere, not just via the shortcut.
+            top_menu_button(
+                ui,
+                RichText::new(crate::i18n::t("menu.analyse")).color(colors.text_primary),
+                |ui| {
+                    ui.set_min_width(120.0);
+                    let table_actions = current_view_mode == ViewMode::Table;
+                    if table_actions {
                         if ui.button(crate::i18n::t("analyse_menu.sql")).clicked() {
                             action.toggle_sql_panel = true;
                             ui.close();
@@ -922,16 +922,16 @@ pub fn draw_toolbar(
                             ui.close();
                         }
                         ui.separator();
-                        if ui
-                            .button(crate::i18n::t("analyse_menu.assistant"))
-                            .clicked()
-                        {
-                            action.toggle_chat_panel = true;
-                            ui.close();
-                        }
-                    },
-                );
-            }
+                    }
+                    if ui
+                        .button(crate::i18n::t("analyse_menu.assistant"))
+                        .clicked()
+                    {
+                        action.toggle_chat_panel = true;
+                        ui.close();
+                    }
+                },
+            );
         }
 
         // --- Help menu (always visible, next to Search) ---

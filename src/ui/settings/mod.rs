@@ -1,3 +1,4 @@
+pub mod chat_models;
 mod dialog;
 pub mod secrets;
 
@@ -1186,6 +1187,10 @@ pub struct SettingsDialog {
     chat_key_input_buf: String,
     /// Last "where the key was stored" status line after a Save/Clear.
     chat_key_status_msg: Option<String>,
+    /// Set when the user clicks "Clear" on a chat API key: holds the provider
+    /// awaiting deletion confirmation. `None` = no pending confirmation. Guards
+    /// against an accidental one-click key wipe.
+    chat_key_clear_confirm: Option<ChatProviderKind>,
     /// Set by the chat panel's Settings button so the Chat section opens
     /// expanded; consumed (reset) once the dialog has honoured it.
     pub focus_chat_section: bool,

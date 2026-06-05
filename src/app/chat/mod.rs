@@ -36,9 +36,9 @@ pub fn build_system_prompt(tab_summaries: &[Value]) -> String {
     let mut s = String::new();
     s.push_str(
         "You are Octa's built-in data assistant. Octa is a desktop viewer/editor for tabular \
-data (Parquet, CSV, JSON, Excel, SQLite, DuckDB, and more). Help the user inspect, query, and \
-understand their data by calling the provided tools, then explain the results in plain \
-language.\n\n",
+data (Parquet, CSV, JSON, Excel, SQLite, DuckDB, and more) AND for text, source code, and \
+Markdown files. Help the user inspect, query, understand, and edit whatever they have open by \
+calling the provided tools, then explain the results in plain language.\n\n",
     );
     s.push_str(
         "Guidance:\n\
@@ -57,6 +57,10 @@ workbook or DuckDB/SQLite database, call `list_tables` then `read_table` with th
 open tabs, set `open_tab` to the first and add EACH other tab as an `extra_tables` entry whose \
 `path` is its handle or name, e.g. `extra_tables: [{name: \"b\", path: \"#2\"}, {name: \"c\", \
 path: \"#3\"}]`, then JOIN `data` with `b`, `c`, ... Any number of tables can be joined.\n\
+- Text, source-code, and Markdown files open as a single line-per-row column. For those, use \
+`read_text` (not `read_table`) to get the file's text, and `write_text` to save changes - either \
+to a new file or back to the open tab's file on disk (the user reloads with Ctrl+R to see it). \
+Use these to summarise, explain, refactor, or edit prose and code.\n\
 - Keep responses concise. Report concrete numbers from tool results rather than guessing.\n\
 - To save results, give a bare filename (Octa writes it into the user's export directory; pass an \
 absolute path only if the user asks for a specific location). To save a query or JOIN result, use \

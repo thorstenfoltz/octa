@@ -97,6 +97,8 @@ define_chat_tools! {
     "write_table"              => write_table,
     "edit_table"               => edit_table,
     "create_chart"             => create_chart,
+    "read_text"                => read_text,
+    "write_text"               => write_text,
 }
 
 #[cfg(test)]
@@ -265,6 +267,62 @@ mod tests {
         // Header + 2 data rows.
         assert_eq!(written.lines().count(), 3);
         assert!(written.contains("id"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A single "Line" column tab, the shape text/code/markdown files load as.
+    fn text_ctx(lines: &[&str], source_path: Option<&str>) -> ToolContext {
+        let mut table = DataTable::empty();
+        table.columns = vec![ColumnInfo {
+            name: "Line".into(),
+            data_type: "Utf8".into(),
+        }];
+        table.rows = lines
+            .iter()
+            .map(|l| vec![CellValue::String((*l).into())])
+            .collect();
+        ToolContext {
+            open_tabs: vec![TableSnapshot {
+                handle: "#1".into(),
+                display_name: "notes.md".into(),
+                source_path: source_path.map(|s| s.to_string()),
+                table,
+            }],
+            active_tab: Some(0),
+            default_row_limit: Some(1000),
+            cell_byte_cap: 65_536,
+            restrict_filesystem: false,
+            allowed_read_paths: Vec::new(),
+            export_dir: None,
+        }
+    }
+
+    #[test]
+    fn read_text_rejoins_lines() {
+        let ctx = text_ctx(&["# Title", "", "body line"], None);
+        let out = dispatch(
+            &ctx,
+            "read_text",
+            serde_json::json!({"open_tab": "@active"}),
+        )
+        .expect("read_text dispatch");
+        assert_eq!(out["text"], "# Title\n\nbody line");
+        assert_eq!(out["line_count"], 3);
+    }
+
+    #[test]
+    fn write_text_writes_file() {
+        let ctx = text_ctx(&["old"], None);
+        let path = std::env::temp_dir().join("octa_write_text_test.md");
+        let _ = std::fs::remove_file(&path);
+        let out = dispatch(
+            &ctx,
+            "write_text",
+            serde_json::json!({"content": "new content\n", "path": path.to_str().unwrap()}),
+        )
+        .expect("write_text dispatch");
+        assert_eq!(out["bytes_written"], serde_json::json!(12));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new content\n");
         let _ = std::fs::remove_file(&path);
     }
 

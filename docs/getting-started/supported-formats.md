@@ -181,6 +181,21 @@ extensions include:
 Any other unknown extension still opens through the plain-text reader,
 so you can always open *something*.
 
+### Text file encodings
+
+Text, source-code, and Markdown files do not have to be UTF-8. Octa
+detects the encoding automatically: it honours a byte-order mark (BOM),
+takes the UTF-8 fast path when the bytes are valid UTF-8, and otherwise
+falls back to character-set detection. Files saved as **Windows-1252 /
+Latin-1** or **UTF-16** (common on non-English Windows, and from Excel's
+"Unicode text" export) open correctly instead of failing or showing
+garbled characters. The detected text is decoded to UTF-8 in memory; your
+file on disk is untouched.
+
+CSV and TSV use their own streaming decoder and can additionally be
+re-decoded through the [malformed-file repair](#repairing-malformed-csv-tsv-files)
+prompt.
+
 ## Wrong or missing file extensions
 
 Octa does not rely on the extension alone. When a file's extension is

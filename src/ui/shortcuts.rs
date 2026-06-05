@@ -460,6 +460,124 @@ impl ShortcutAction {
     }
 }
 
+/// Categories used to group the shortcut list in the Settings dialog (and the
+/// docs reference page). Each [`ShortcutAction`] reports its group via
+/// [`ShortcutAction::group`]; the dialog renders one section per group in
+/// [`ShortcutGroup::ALL`] order. Adding a new action just picks a group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShortcutGroup {
+    File,
+    Tabs,
+    Search,
+    Navigation,
+    Selection,
+    Editing,
+    Clipboard,
+    Marking,
+    TextCase,
+    Zoom,
+    View,
+    SqlPanel,
+    Dialogs,
+}
+
+impl ShortcutGroup {
+    /// Display order for the Settings dialog. Mirrors `docs/reference/shortcuts.md`.
+    pub const ALL: &[ShortcutGroup] = &[
+        Self::File,
+        Self::Tabs,
+        Self::Search,
+        Self::Navigation,
+        Self::Selection,
+        Self::Editing,
+        Self::Clipboard,
+        Self::Marking,
+        Self::TextCase,
+        Self::Zoom,
+        Self::View,
+        Self::SqlPanel,
+        Self::Dialogs,
+    ];
+
+    /// i18n key for the group heading (resolved via `crate::i18n::t`).
+    pub fn i18n_key(self) -> &'static str {
+        match self {
+            Self::File => "shortcut_group.file",
+            Self::Tabs => "shortcut_group.tabs",
+            Self::Search => "shortcut_group.search",
+            Self::Navigation => "shortcut_group.navigation",
+            Self::Selection => "shortcut_group.selection",
+            Self::Editing => "shortcut_group.editing",
+            Self::Clipboard => "shortcut_group.clipboard",
+            Self::Marking => "shortcut_group.marking",
+            Self::TextCase => "shortcut_group.text_case",
+            Self::Zoom => "shortcut_group.zoom",
+            Self::View => "shortcut_group.view",
+            Self::SqlPanel => "shortcut_group.sql_panel",
+            Self::Dialogs => "shortcut_group.dialogs",
+        }
+    }
+}
+
+impl ShortcutAction {
+    /// Which Settings-dialog section this action belongs to. Mirrors the
+    /// grouping in `docs/reference/shortcuts.md`.
+    pub fn group(self) -> ShortcutGroup {
+        use ShortcutGroup as G;
+        match self {
+            Self::NewFile
+            | Self::OpenFile
+            | Self::SaveFile
+            | Self::SaveFileAs
+            | Self::ExportSchema
+            | Self::ReloadFile
+            | Self::CloseTab
+            | Self::ReopenLastClosedTab
+            | Self::QuitApp => G::File,
+            Self::NextTab | Self::PrevTab => G::Tabs,
+            Self::FocusSearch
+            | Self::ToggleFindReplace
+            | Self::OpenColumnFilter
+            | Self::FindDuplicates
+            | Self::MultiSearch
+            | Self::OpenChart => G::Search,
+            Self::GoToCell
+            | Self::JumpFirstRow
+            | Self::JumpLastRow
+            | Self::JumpFirstCol
+            | Self::JumpLastCol
+            | Self::ScrollPageUp
+            | Self::ScrollPageDown => G::Navigation,
+            Self::SelectAllRows
+            | Self::ExtendSelectionUp
+            | Self::ExtendSelectionDown
+            | Self::ExtendSelectionLeft
+            | Self::ExtendSelectionRight => G::Selection,
+            Self::EditCell
+            | Self::InsertRowBelow
+            | Self::DuplicateRow
+            | Self::DeleteRow
+            | Self::Undo
+            | Self::Redo => G::Editing,
+            Self::Copy | Self::Cut | Self::Paste => G::Clipboard,
+            Self::Mark => G::Marking,
+            Self::UppercaseSelection | Self::LowercaseSelection => G::TextCase,
+            Self::ZoomIn | Self::ZoomOut | Self::ZoomReset => G::Zoom,
+            Self::CycleViewMode
+            | Self::ToggleReadOnly
+            | Self::ToggleSqlPanel
+            | Self::ToggleChatPanel
+            | Self::FitAllColumns
+            | Self::CompareSelectedTabs => G::View,
+            Self::ExportSqlResult => G::SqlPanel,
+            Self::OpenDocumentation
+            | Self::OpenSettings
+            | Self::OpenColumnInspector
+            | Self::ColumnValueFrequency => G::Dialogs,
+        }
+    }
+}
+
 /// Map of action -> binding. Missing entries fall back to the default combo,
 /// so older settings files continue to pick up new actions automatically.
 #[derive(Debug, Clone, Serialize, Deserialize)]
