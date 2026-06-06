@@ -319,6 +319,24 @@ source. The script detects whether a pre-built `octa` binary is next to it
 and uses it; otherwise it builds from source, which requires the Rust
 toolchain (install from <https://rustup.rs/>).
 
+Download the script (if you don't already have the repo cloned):
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/thorstenfoltz/octa/master/install.sh
+```
+
+or
+
+```bash
+wget https://raw.githubusercontent.com/thorstenfoltz/octa/master/install.sh
+```
+
+Make the script executable:
+
+```bash
+chmod +x install.sh
+```
+
 System-wide (installs to /usr/local)
 
 ```bash
