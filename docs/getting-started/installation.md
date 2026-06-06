@@ -11,11 +11,36 @@ The platform-specific install scripts (`install.sh`, `install.bat`)
 are optional conveniences that wire Octa into your application
 launcher, Start Menu, etc.
 
-## Linux
+## Linux (and WSL)
+
+### Quick install (recommended)
+
+The fastest path: one command downloads the latest release, extracts it,
+and installs the binary, icon, desktop entry, and man page. This works the
+same under [WSL](https://learn.microsoft.com/windows/wsl/).
+
+```bash
+# User-local (no sudo, installs to ~/.local)
+curl -fsSL https://raw.githubusercontent.com/thorstenfoltz/octa/master/install.sh | bash -s -- ~/.local
+
+# System-wide (installs to /usr/local)
+curl -fsSL https://raw.githubusercontent.com/thorstenfoltz/octa/master/install.sh | sudo bash
+```
+
+After a user-local install, make sure `~/.local/bin` is on your `PATH`
+(it usually is on Ubuntu and most distributions). If `octa` is not found,
+add this to your `~/.bashrc` or `~/.zshrc`:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+`wget` works as a drop-in for `curl` if you prefer it; the script detects
+either to fetch the release.
 
 ### Pre-built binary
 
-Download the Linux archive from the
+If you would rather not pipe a script, download the Linux archive from the
 [releases page](https://github.com/thorstenfoltz/octa/releases) and
 extract it. The binary is portable, so drop it anywhere and run:
 
@@ -54,11 +79,11 @@ packages listed under [Build from source](#build-from-source).
     ./Octa-*-x86_64.AppImage --appimage-extract-and-run
     ```
 
-### Install via `install.sh` (recommended)
+### Install via `install.sh`
 
-If you want Octa to appear in your application launcher with an icon
-and file associations, run the install script after extracting the
-archive:
+The [Quick install](#quick-install-recommended) one-liner above pipes this
+same script straight from GitHub. If you have already downloaded and
+extracted a release archive, you can run it locally instead:
 
 ```bash
 # System-wide (installs to /usr/local, requires sudo)
@@ -73,13 +98,21 @@ The script installs:
 - the `octa` binary to `<prefix>/bin/`
 - the icon to `<prefix>/share/icons/hicolor/scalable/apps/octa.svg`
 - a desktop entry to `<prefix>/share/applications/octa.desktop`
-- the third-party license bundle (`THIRD_PARTY_LICENSES.md` +
+- the man page to `<prefix>/share/man/man1/octa.1`
+- the third-party licence bundle (`THIRD_PARTY_LICENSES.md` +
   `licenses/`) next to the binary, satisfying the Apache-2.0 / MIT /
   BSD / OFL attribution requirements.
 
-The script auto-detects whether a pre-built `octa` binary is next to
-it. If yes, it copies that. If not, it builds from source (requires
-the [Rust toolchain](#build-from-source), see below).
+The script resolves the `octa` binary in this order:
+
+1. a pre-built `octa` next to the script (a release archive), or
+2. a `target/release/octa` from a local source build, or
+3. otherwise it downloads the latest release from GitHub and installs that.
+
+So running it from a bare checkout, or piping it via `curl`, installs the
+latest release without needing the Rust toolchain. Building from source is
+only needed if you specifically want to compile Octa yourself (see
+[Build from source](#build-from-source)).
 
 ### Uninstall
 
