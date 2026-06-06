@@ -295,51 +295,101 @@ container into Claude Code.
 
 ## Installation
 
-### Linux
+### Linux (and WSL)
 
-The simplest option is to **download a pre-built binary** from the
-[releases page](https://github.com/thorstenfoltz/octa/releases) and run it
-directly — no installation step is required:
+The quickest way to install is a single command that downloads `get-octa.sh`
+and runs it. The script fetches the latest release from GitHub, extracts it,
+and installs the binary, icon, desktop entry, and man page.
 
-```bash
-chmod +x octa
-./octa                  # run from anywhere
-# or place it on your PATH, e.g. ~/.local/bin/octa
-```
-
-An [AppImage](https://appimage.org/) is also published alongside each
-release for users who prefer a single self-contained file:
-`chmod +x Octa-*-x86_64.AppImage && ./Octa-*-x86_64.AppImage`. See
-[Installation → AppImage](docs/getting-started/installation.md#appimage)
-for the FUSE-less fallback.
-
-Use `install.sh` only if you want Octa to appear in your application
-launcher with an icon and file associations, or if you want to build from
-source. The script detects whether a pre-built `octa` binary is next to it
-and uses it; otherwise it builds from source, which requires the Rust
-toolchain (install from <https://rustup.rs/>).
-
-System-wide (installs to /usr/local)
+User-local install with curl (no sudo needed, installs to `~/.local`):
 
 ```bash
-sudo ./install.sh
+curl -fsSL https://raw.githubusercontent.com/thorstenfoltz/octa/master/get-octa.sh | bash -s -- ~/.local
 ```
-User-local (no sudo needed)
+
+System-wide install with curl (installs to `/usr/local`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/thorstenfoltz/octa/master/get-octa.sh | sudo bash
+```
+
+The same with wget, user-local:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/thorstenfoltz/octa/master/get-octa.sh | bash -s -- ~/.local
+```
+
+And wget, system-wide:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/thorstenfoltz/octa/master/get-octa.sh | sudo bash
+```
+
+After a user-local install, make sure `~/.local/bin` is on your `PATH` (it
+usually is on Ubuntu and most other distributions). If `octa` is not found,
+add `export PATH="$HOME/.local/bin:$PATH"` to your `~/.bashrc` or `~/.zshrc`.
+
+Prefer not to pipe a script? Download the Linux tarball from the
+[releases page](https://github.com/thorstenfoltz/octa/releases) and extract it:
+
+```bash
+tar xzf octa-*-linux-x86_64.tar.gz
+```
+
+Run the binary in place without installing:
+
+```bash
+./octa-*-linux-x86_64/octa
+```
+
+Or install it system-wide from the extracted directory:
+
+```bash
+sudo ./octa-*-linux-x86_64/install.sh
+```
+
+An [AppImage](https://appimage.org/) is also published alongside each release
+for users who prefer a single portable file. Download `Octa-*-x86_64.AppImage`
+from the [releases page](https://github.com/thorstenfoltz/octa/releases) and
+make it executable:
+
+```bash
+chmod +x Octa-*-x86_64.AppImage
+```
+
+Then run it directly:
+
+```bash
+./Octa-*-x86_64.AppImage
+```
+
+See [Installation](https://thorstenfoltz.github.io/octa/getting-started/installation/)
+for the FUSE-less AppImage fallback and other options.
+
+#### Building from source
+
+Install the Rust toolchain from <https://rustup.rs/> and the native
+libraries (GTK 3, fontconfig, freetype, libssl, libxcb, libxkbcommon),
+then clone the repository:
+
+```bash
+git clone https://github.com/thorstenfoltz/octa.git && cd octa
+```
+
+Build a release binary:
+
+```bash
+cargo build --release
+```
+
+Then install the freshly built binary with the local `install.sh`:
 
 ```bash
 ./install.sh ~/.local
 ```
 
-`install.sh` also installs a man page to
-`$PREFIX/share/man/man1/octa.1`, so **`man octa`** works once the
-install finishes. Release tarballs ship a pre-rendered `octa.1`;
-source installs render it from `docs/cli/octa.1.adoc` on the fly if
-`asciidoctor` is on `PATH`.
-
-Building from source additionally requires a C compiler and the native
-libraries listed in `CLAUDE.md` (GTK, fontconfig, freetype, etc.).
-`asciidoctor` is optional but recommended (so the man page gets
-installed).
+Full dependency list and build notes are in the
+[documentation](https://thorstenfoltz.github.io/octa/getting-started/installation/).
 
 ### Arch Linux
 

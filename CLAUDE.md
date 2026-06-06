@@ -22,7 +22,7 @@ cargo fmt
 
 PRs to `master` run three jobs: `test` (fmt + clippy + cargo test, one shared `Swatinem/rust-cache@v2` target dir), `licenses` (`cargo deny check licenses`), and `megalinter` (shell/security/markdown via `ghcr.io/oxsecurity/megalinter-rust:v9`). Clippy/rustfmt live in `test`, not megalinter (no Rust cache there, ~1000s/PR).
 
-`release.yml` (`workflow_dispatch`) intentionally does **not** re-run `cargo test` (PR CI already validated the merged commit). Jobs: `build-linux` (+ AppImage), `build-windows`, `build-macos` (aarch64 only — no Intel/x86_64 build; that job was dropped as too slow), `publish` (needs all builds), `aur-publish`, and `docker-publish` (runs **in parallel** with the builds, no `needs:` — the Dockerfile builds from source so it never depended on the release artifacts; carries `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` because the `docker/*` actions still ship Node.js 20 JS).
+`release.yml` (`workflow_dispatch`) intentionally does **not** re-run `cargo test` (PR CI already validated the merged commit). Jobs: `build-linux` (+ AppImage), `build-windows`, `build-macos` (aarch64 only — no Intel/x86_64 build; that job was dropped as too slow), `publish` (needs all builds), `aur-publish`, and `docker-publish` (runs **in parallel** with the builds, no `needs:` — the Dockerfile builds from source so it never depended on the release artifacts; `docker/*` actions pinned to their first Node.js 24 majors — login@v4, metadata@v6, build-push@v7 — so no `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` opt-in is needed).
 
 ## CLI
 
