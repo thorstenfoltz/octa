@@ -319,11 +319,14 @@ source. The script detects whether a pre-built `octa` binary is next to it
 and uses it; otherwise it builds from source, which requires the Rust
 toolchain (install from <https://rustup.rs/>).
 
-```bash
-# System-wide (installs to /usr/local)
-sudo ./install.sh
+System-wide (installs to /usr/local)
 
-# User-local (no sudo needed)
+```bash
+sudo ./install.sh
+```
+User-local (no sudo needed)
+
+```bash
 ./install.sh ~/.local
 ```
 
