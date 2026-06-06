@@ -418,7 +418,7 @@ pub fn render_sql_view(
     let default_result_h = (total - default_editor_h).max(120.0);
     let mut editor_response: Option<egui::Response> = None;
 
-    let render_result_area = |ui: &mut egui::Ui, tab: &TabState| {
+    let render_result_area = |ui: &mut egui::Ui, tab: &mut TabState| {
         if let Some((loaded, total)) = partial_rows {
             ui.horizontal(|ui| {
                 ui.label(
@@ -440,8 +440,10 @@ pub fn render_sql_view(
             );
             ui.add_space(4.0);
         }
-        if let Some(result) = &tab.sql_result {
-            render_result_table(ui, result);
+        if let Some(result) = tab.sql_result.as_ref() {
+            // Disjoint field borrows: the result table (read) + its selection
+            // (write).
+            render_result_table(ui, result, &mut tab.sql_result_selected);
         } else if tab.sql_error.is_none() {
             ui.label(egui::RichText::new(octa::i18n::t("sql.run_to_see")).weak());
         }
@@ -570,6 +572,29 @@ pub fn render_sql_view(
     if !matches!(panel_position, SqlPanelPosition::Bottom) {
         ui.separator();
         render_result_area(ui, tab);
+    }
+
+    // Ctrl+C on a selected result cell. The editor only consumes the Copy event
+    // while it is focused; clicking a result cell moved focus to that cell, so
+    // here the event survives - copy the cell and consume it. When the editor is
+    // focused instead, it handled its own copy and there's nothing to do.
+    let editor_focused = ui.ctx().memory(|m| m.focused()) == Some(editor_id);
+    if !editor_focused && let Some((r, c)) = tab.sql_result_selected {
+        let want_copy = ui.input_mut(|i| {
+            let had = i
+                .events
+                .iter()
+                .any(|e| matches!(e, egui::Event::Copy | egui::Event::Cut));
+            i.events
+                .retain(|e| !matches!(e, egui::Event::Copy | egui::Event::Cut));
+            had
+        });
+        if want_copy
+            && let Some(result) = &tab.sql_result
+            && let Some(v) = result.get(r, c)
+        {
+            ui.ctx().copy_text(v.to_string());
+        }
     }
 
     action
@@ -1142,7 +1167,11 @@ fn render_workspace_inspector(
         });
 }
 
-fn render_result_table(ui: &mut egui::Ui, table: &octa::data::DataTable) {
+fn render_result_table(
+    ui: &mut egui::Ui,
+    table: &octa::data::DataTable,
+    selected: &mut Option<(usize, usize)>,
+) {
     use egui_extras::{Column, TableBuilder};
 
     if table.col_count() == 0 {
@@ -1174,13 +1203,65 @@ fn render_result_table(ui: &mut egui::Ui, table: &octa::data::DataTable) {
                             for c in 0..table.col_count() {
                                 row.col(|ui| {
                                     let v = table.get(r, c).cloned().unwrap_or(CellValue::Null);
-                                    ui.label(v.to_string());
+                                    let text = v.to_string();
+                                    // Click selects the whole cell (highlighted)
+                                    // like the main table, so Ctrl+C - handled in
+                                    // `render_sql_view` - copies exactly it. The
+                                    // context menu adds Copy cell / Copy all.
+                                    let is_sel = *selected == Some((r, c));
+                                    let resp = ui.selectable_label(is_sel, &text);
+                                    if resp.clicked() {
+                                        *selected = Some((r, c));
+                                        // Take keyboard focus from the editor so
+                                        // its TextEdit doesn't swallow Ctrl+C.
+                                        resp.request_focus();
+                                    }
+                                    resp.context_menu(|ui| {
+                                        if ui.button(octa::i18n::t("header.copy")).clicked() {
+                                            ui.ctx().copy_text(text.clone());
+                                            ui.close();
+                                        }
+                                        if ui.button(octa::i18n::t("view.copy_all")).clicked() {
+                                            ui.ctx().copy_text(result_to_tsv(table));
+                                            ui.close();
+                                        }
+                                    });
                                 });
                             }
                         });
                     }
                 });
         });
+}
+
+/// Serialise a result table to TSV (header row + one row per record, cells
+/// joined by tabs, rows by newlines) for the result table's "Copy all" action.
+fn result_to_tsv(table: &octa::data::DataTable) -> String {
+    let mut out = String::new();
+    out.push_str(
+        &table
+            .columns
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect::<Vec<_>>()
+            .join("\t"),
+    );
+    out.push('\n');
+    for r in 0..table.row_count() {
+        let line = (0..table.col_count())
+            .map(|c| {
+                table
+                    .get(r, c)
+                    .cloned()
+                    .unwrap_or(CellValue::Null)
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("\t");
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out
 }
 
 #[cfg(test)]

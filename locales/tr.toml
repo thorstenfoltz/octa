@@ -797,3 +797,7 @@ zoom = "Yakınlaştırma"
 view = "Görünüm"
 sql_panel = "SQL paneli"
 dialogs = "İnceleyici ve iletişim kutuları"
+
+[documentation]
+search = "Belgelerde ara..."
+no_matches = "Eşleşme yok"

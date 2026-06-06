@@ -10,7 +10,9 @@ use egui::RichText;
 use egui_extras::{Column, TableBuilder};
 
 use octa::data::{self, CellValue, is_numeric_data_type};
-use octa::ui::settings::{DialogSize, draw_window_controls};
+use octa::ui::settings::{
+    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+};
 
 use super::super::state::{ColumnInspectorSort, OctaApp};
 
@@ -268,19 +270,18 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
         }
     });
 
-    let mut window = egui::Window::new("Column Inspector")
+    let dialog_id = egui::Id::new("octa_column_inspector_dialog");
+    let build_size = size;
+    let window = egui::Window::new("Column Inspector")
         .title_bar(false)
         .collapsible(false);
-    window = match size {
-        DialogSize::Maximized => window.fixed_rect(ctx.content_rect().shrink(8.0)),
-        DialogSize::Minimized => window.resizable(false),
-        DialogSize::Normal => window
-            .resizable(true)
+    let window = size_dialog_window(ctx, dialog_id, build_size, window, |w| {
+        w.resizable(true)
             .default_width(dialog_width)
             .default_height(dialog_height)
             .min_width(380.0)
-            .min_height(180.0),
-    };
+            .min_height(180.0)
+    });
     let minimized = size == DialogSize::Minimized;
 
     let mut copy_payload: Option<String> = None;
@@ -291,7 +292,7 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
     let mut select_in_table: Option<Vec<usize>> = None;
     let mut double_clicked_outer: Option<usize> = None;
 
-    window.show(ctx, |ui| {
+    let inner = window.show(ctx, |ui| {
         egui::Panel::top("column_inspector_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show_inside(ui, |ui| {
@@ -566,6 +567,10 @@ pub(crate) fn render_column_inspector_dialog(app: &mut OctaApp, ctx: &egui::Cont
                 }
             });
     });
+
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, build_size, inner.response.rect);
+    }
 
     // Double-click on an inspector row jumps to that column in the
     // underlying table.

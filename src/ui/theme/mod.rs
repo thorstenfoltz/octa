@@ -447,5 +447,29 @@ fn apply_fonts(ctx: &egui::Context, font: &FontSettings) {
         FontFamily::Name(Arc::from("sql_mono")),
         vec!["sql_mono".into()],
     );
+
+    // Broad Unicode fallback faces so non-Latin data (CJK ideographs, Japanese
+    // kana, Korean hangul) and miscellaneous symbols render instead of tofu
+    // boxes. **Appended** (not prepended) to the families so Roboto stays the
+    // primary face for Latin text and these only fill the gaps. The CJK face is
+    // a `pyftsubset` cut of Noto Sans CJK SC (OFL-1.1, attributed in
+    // `licenses/OFL-1.1.txt`) trimmed to the common BMP CJK/kana/hangul ranges
+    // to keep it ~6.5 MB instead of 16 MB; ab_glyph reads its CFF outlines via
+    // ttf-parser. Rare CJK Ext-A/B, colour emoji, and full RTL shaping are out
+    // of scope - egui renders monochrome glyphs only.
+    static CJK_BYTES: &[u8] = include_bytes!("../../../assets/NotoSansCJK-subset.otf");
+    defs.font_data
+        .insert("cjk".into(), Arc::new(FontData::from_static(CJK_BYTES)));
+    static SYMBOLS_BYTES: &[u8] = include_bytes!("../../../assets/NotoSansSymbols2-Regular.ttf");
+    defs.font_data.insert(
+        "symbols".into(),
+        Arc::new(FontData::from_static(SYMBOLS_BYTES)),
+    );
+    for family in [FontFamily::Proportional, FontFamily::Monospace] {
+        let fam = defs.families.entry(family).or_default();
+        fam.push("cjk".into());
+        fam.push("symbols".into());
+    }
+
     ctx.set_fonts(defs);
 }

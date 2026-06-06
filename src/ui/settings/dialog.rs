@@ -84,23 +84,21 @@ impl SettingsDialog {
         // non-interactive area inside the window's drag region.
         let screen_center = ctx.content_rect().center();
         let default_pos = screen_center - egui::vec2(340.0, 290.0);
-        let mut window = egui::Window::new("Settings")
+        let dialog_id = egui::Id::new("octa_settings_dialog");
+        let size = self.size;
+        let window = egui::Window::new("Settings")
             .title_bar(false)
             .collapsible(false);
-        window = match self.size {
-            DialogSize::Maximized => window.fixed_rect(ctx.content_rect().shrink(8.0)),
-            // Minimized: no min sizing - let egui auto-shrink to the header.
-            DialogSize::Minimized => window.resizable(false).default_pos(default_pos),
-            DialogSize::Normal => window
-                .resizable(true)
+        let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+            w.resizable(true)
                 .default_pos(default_pos)
                 .min_width(640.0)
                 .default_width(680.0)
                 .default_height(580.0)
-                .min_height(360.0),
-        };
-        let minimized = self.size == DialogSize::Minimized;
-        window.show(ctx, |ui| {
+                .min_height(360.0)
+        });
+        let minimized = size == DialogSize::Minimized;
+        let inner = window.show(ctx, |ui| {
             // Labels in Settings are static captions, not selectable text - turn
             // off egui's default label selection so hovering a row label (e.g.
             // "Temperature") shows the normal pointer instead of the text I-beam.
@@ -242,6 +240,10 @@ impl SettingsDialog {
                         });
                 });
         });
+
+        if let Some(inner) = inner {
+            remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+        }
 
         applied
     }
@@ -1213,15 +1215,6 @@ impl SettingsDialog {
                     });
                     ui.end_row();
 
-                    ui.label(crate::i18n::t("settings.open_as_text"))
-                        .on_hover_text(crate::i18n::t("settings_hint.open_as_text"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.text_mode_extensions_buf)
-                            .desired_width(280.0)
-                            .hint_text("log4j, myproj, rawdata"),
-                    );
-                    ui.end_row();
-
                     ui.label(crate::i18n::t("settings.multi_search_cap"))
                         .on_hover_text(crate::i18n::t("settings_hint.multi_search_cap"));
                     ui.add(
@@ -1296,6 +1289,15 @@ impl SettingsDialog {
                                 );
                             }
                         });
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.open_as_text"))
+                        .on_hover_text(crate::i18n::t("settings_hint.open_as_text"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.text_mode_extensions_buf)
+                            .desired_width(280.0)
+                            .hint_text("log4j, myproj, rawdata"),
+                    );
                     ui.end_row();
                 });
         });

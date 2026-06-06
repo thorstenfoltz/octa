@@ -794,3 +794,7 @@ zoom = "Zoom"
 view = "View"
 sql_panel = "SQL panel"
 dialogs = "Inspector & dialogs"
+
+[documentation]
+search = "Search documentation..."
+no_matches = "No matches"

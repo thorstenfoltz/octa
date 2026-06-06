@@ -39,10 +39,6 @@ The chosen code is stored as `language` in your
   machine-translated and may be refined over time. English is the
   master; anything not yet translated falls back to the English string
   rather than showing a blank or a key.
-- **Newest languages are core-UI first.** The five most recent additions
-  (Indonesian, Vietnamese, Romanian, Hungarian, Czech) cover the core
-  interface; a few long help paragraphs still fall back to English until
-  they are translated.
 - **What stays in English on purpose.** Technical identifiers are not
   translated, so they read the same in every language: format names
   (Parquet, JSON, …), database engine names, theme names (Nord,
@@ -56,10 +52,16 @@ The chosen code is stored as `language` in your
 ## Scripts not yet offered
 
 Only Latin-script languages whose accented characters the bundled font
-already covers are available. Cyrillic, CJK (Chinese / Japanese /
-Korean), and right-to-left scripts (Arabic, Hebrew) are out of scope
-for now: they need bundled fonts and, for RTL, layout work that Octa
+already covers are available as **interface** languages. Cyrillic and
+right-to-left scripts (Arabic, Hebrew) are out of scope for the UI for
+now: they need translated catalogs and, for RTL, layout work that Octa
 does not yet do.
+
+This is separate from **displaying** non-Latin data: Octa bundles a Noto
+Sans CJK fallback face, so cell values containing Chinese, Japanese, or
+Korean text render correctly in the table even while the UI itself is in
+a Latin-script language. Colour emoji and full right-to-left shaping are
+not rendered.
 
 ## See also
 

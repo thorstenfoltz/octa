@@ -361,6 +361,10 @@ pub(crate) struct TabState {
     pub(crate) sql_query: String,
     pub(crate) sql_result: Option<DataTable>,
     pub(crate) sql_error: Option<String>,
+    /// Clicked cell in the SQL result grid (row, col), highlighted and used as
+    /// the Ctrl+C copy target - mirrors the main table's click-to-select-cell
+    /// behaviour so copy is predictable from the result view.
+    pub(crate) sql_result_selected: Option<(usize, usize)>,
     /// Whether the SQL panel is currently visible alongside the table view.
     pub(crate) sql_panel_open: bool,
     /// Autocomplete popup: currently highlighted suggestion index (clamped
@@ -647,6 +651,10 @@ pub(crate) struct OctaApp {
     /// Index of the active documentation section (sidebar selection). Reset
     /// to 0 each time the dialog opens.
     pub(crate) docs_active_section: usize,
+    /// Live filter text for the Documentation dialog's section search box.
+    /// Empty shows every section; otherwise the sidebar narrows to sections
+    /// whose title or body contains the query (case-insensitive).
+    pub(crate) docs_search_query: String,
     /// Show the Update dialog
     pub(crate) show_update_dialog: bool,
     /// Confirm before reloading the raw CSV/TSV file when un-aligning columns.
