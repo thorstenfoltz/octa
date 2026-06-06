@@ -26,6 +26,12 @@ An application for viewing data files. Octa opens files in a spreadsheet-like ta
 - [CLI & MCP Server](#cli--mcp-server)
 - [Docker / Containers](#docker--containers)
 - [Installation](#installation)
+  - [Linux (and WSL)](#linux-and-wsl)
+  - [Linux AppImage](#linux-appimage)
+  - [Linux (build from source)](#linux-build-from-source)
+  - [Arch Linux](#arch-linux)
+  - [Windows](#windows)
+  - [macOS](#macos)
 - [Configuration](#configuration)
 - [License](#license)
 
@@ -348,7 +354,9 @@ Or install it system-wide from the extracted directory:
 sudo ./octa-*-linux-x86_64/install.sh
 ```
 
-An [AppImage](https://appimage.org/) is also published alongside each release
+### Linux AppImage
+
+An [AppImage](https://appimage.org/) is published alongside each release
 for users who prefer a single portable file. Download `Octa-*-x86_64.AppImage`
 from the [releases page](https://github.com/thorstenfoltz/octa/releases) and
 make it executable:
@@ -366,7 +374,7 @@ Then run it directly:
 See [Installation](https://thorstenfoltz.github.io/octa/getting-started/installation/)
 for the FUSE-less AppImage fallback and other options.
 
-#### Building from source
+### Linux (build from source)
 
 Install the Rust toolchain from <https://rustup.rs/> and the native
 libraries (GTK 3, fontconfig, freetype, libssl, libxcb, libxkbcommon),
