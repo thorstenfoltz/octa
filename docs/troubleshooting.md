@@ -108,6 +108,58 @@ The binary isn't on your `PATH` after install. Three options:
 
 On Windows, the `install.bat` script adds Octa to your user `PATH`.
 
+### Command not found until you restart the shell
+
+Octa installed into a directory that *is* on your `PATH` (for example
+`/usr/local/bin`), yet `octa` is "command not found" until you open a
+new terminal. This is not an Octa bug: your running shell keeps a cache
+of where each command lives (and of commands it has failed to find), so
+a brand-new binary is invisible to that session until the cache is
+cleared. Refresh it without a full restart:
+
+```bash
+hash -r     # bash
+rehash      # zsh
+```
+
+Either of those, or simply opening a new shell, makes `octa` resolve.
+
+### WSL: libEGL / Mesa warnings on launch
+
+On WSL, launching the GUI prints a few warnings to the terminal:
+
+```
+libEGL warning: failed to get driver name for fd -1
+libEGL warning: MESA-LOADER: failed to retrieve device information
+MESA: error: ZINK: failed to choose pdev
+libEGL warning: failed to create dri2 screen
+```
+
+These come from **Mesa** (the Linux OpenGL stack underneath Octa's
+`eframe`/`egui` renderer), not from Octa itself. WSL exposes no native
+OpenGL GPU, so Mesa fails to bring up its hardware-accelerated **Zink**
+(OpenGL-on-Vulkan) path and falls back to software rendering
+(llvmpipe). The warnings are cosmetic; Octa runs correctly, and for a
+2D data-table application software rendering is plenty fast.
+
+To silence the noise, force software rendering up front so Mesa never
+attempts the Zink/DRI path:
+
+```bash
+LIBGL_ALWAYS_SOFTWARE=1 octa file.parquet
+```
+
+To make it permanent, add it to your shell's rc file:
+
+```bash
+echo 'export LIBGL_ALWAYS_SOFTWARE=1' >> ~/.bashrc   # or ~/.zshrc
+```
+
+(`GALLIUM_DRIVER=llvmpipe` has the same effect.) If you would rather
+have real GPU acceleration, that requires a working WSLg GPU
+passthrough: a recent Windows 11, up-to-date GPU drivers, and the
+`libgl1-mesa-dri` package installed inside the distribution.
+
 ## Opening files
 
 ### No reader available

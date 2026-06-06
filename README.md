@@ -335,6 +335,31 @@ After a user-local install, make sure `~/.local/bin` is on your `PATH` (it
 usually is on Ubuntu and most other distributions). If `octa` is not found,
 add `export PATH="$HOME/.local/bin:$PATH"` to your `~/.bashrc` or `~/.zshrc`.
 
+If `octa` is still "command not found" right after installing even though it
+landed in a directory already on your `PATH` (e.g. `/usr/local/bin`), your
+running shell has a stale command-lookup cache. Refresh it with `hash -r`
+(bash) or `rehash` (zsh), or just open a new shell. That is why a shell
+restart "fixes" the install.
+
+On WSL you may see harmless warnings on launch such as:
+
+```
+libEGL warning: failed to get driver name for fd -1
+MESA: error: ZINK: failed to choose pdev
+libEGL warning: failed to create dri2 screen
+```
+
+These come from Mesa, not Octa: WSL has no native OpenGL GPU, so Mesa fails to
+initialise its Zink/DRI hardware path and falls back to software rendering
+(llvmpipe). Octa still runs correctly and fast. To silence the noise, force
+software rendering up front:
+
+```bash
+LIBGL_ALWAYS_SOFTWARE=1 octa file.parquet
+# or make it permanent for the shell:
+echo 'export LIBGL_ALWAYS_SOFTWARE=1' >> ~/.bashrc   # or ~/.zshrc
+```
+
 Prefer not to pipe a script? Download the Linux tarball from the
 [releases page](https://github.com/thorstenfoltz/octa/releases) and extract it:
 
