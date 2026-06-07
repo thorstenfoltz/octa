@@ -47,6 +47,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Screenshots under docs/assets/ are stored in Git LFS. Without
+          # this, checkout leaves them as LFS pointer text files, mkdocs
+          # bundles those into ./site, and every image on the published
+          # Pages site renders broken.
+          lfs: true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
