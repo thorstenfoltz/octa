@@ -22,7 +22,14 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
+      # lfs: true is mandatory: assets/ (octa.png, the .ttf/.otf fonts that
+      # src/ui/theme embeds via include_bytes!) is tracked in git LFS. Without
+      # it checkout fetches only the LFS pointer stubs: the binary compiles but
+      # ships tofu fonts, and the Windows magick step errors "improper image
+      # header".
       - uses: actions/checkout@v5
+        with:
+          lfs: true
 
       - name: Set version
         env:
@@ -98,7 +105,7 @@ jobs:
           # transitively through eframe at runtime); set it explicitly to
           # match the libgtk-3-dev we install above.
           DEPLOY_GTK_VERSION: "3"
-        # APPIMAGE_EXTRACT_AND_RUN sidesteps FUSE — ubuntu-latest (24.04) no
+        # APPIMAGE_EXTRACT_AND_RUN sidesteps FUSE: ubuntu-latest (24.04) no
         # longer ships libfuse2 by default, and running AppImages without it
         # otherwise fails with "dlopen(): error loading libfuse.so.2".
         run: |
@@ -131,7 +138,11 @@ jobs:
     # outputs:
     #   unsigned-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
     steps:
+      # lfs: true: see build-linux. The Generate ICO step below feeds
+      # assets/octa.png (an LFS object) to magick.
       - uses: actions/checkout@v5
+        with:
+          lfs: true
 
       - name: Set version
         env:
@@ -173,7 +184,10 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
+      # lfs: true: see build-linux. sips/iconutil below consume assets/octa.png.
       - uses: actions/checkout@v5
+        with:
+          lfs: true
 
       - name: Set version
         env:
@@ -234,7 +248,7 @@ jobs:
       - name: Ad-hoc codesign the bundle
         run: |
           # Sign the inner binary first, then seal the bundle. Ad-hoc (`-`) is
-          # not Developer ID — Gatekeeper still warns — but it converts the
+          # not Developer ID: Gatekeeper still warns — but it converts the
           # "Octa.app is damaged" dead-end into the standard "unidentified
           # developer" dialog, where right-click → Open works.
           codesign --force --sign - --timestamp=none \
@@ -428,7 +442,12 @@ jobs:
       # anywhere, so disable it outright.
       DOCKER_BUILD_RECORD_UPLOAD: false
     steps:
+      # lfs: true: the Dockerfile's `COPY assets ./assets` + in-image cargo
+      # build embeds the LFS-tracked fonts via include_bytes!; pointer stubs
+      # would build a binary with tofu fonts.
       - uses: actions/checkout@v5
+        with:
+          lfs: true
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
