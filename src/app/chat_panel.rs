@@ -90,6 +90,11 @@ pub(crate) struct ChatPanelState {
     pub visible: bool,
     pub input: String,
     pub focus_input: bool,
+    /// `@`-mention autocomplete popup is open (a partial `@token` is at the
+    /// caret). Reset when the token clears or the user dismisses it.
+    pub ac_visible: bool,
+    /// Highlighted suggestion index in the `@`-mention popup.
+    pub ac_selected: usize,
     pub session: Arc<Mutex<ChatSessionState>>,
     pub session_list_open: bool,
     /// Message count at the last autosave, to debounce per-turn saves.
@@ -110,6 +115,8 @@ impl ChatPanelState {
             visible: false,
             input: String::new(),
             focus_input: false,
+            ac_visible: false,
+            ac_selected: 0,
             session: Arc::new(Mutex::new(ChatSessionState::new(provider.id(), model))),
             session_list_open: false,
             last_saved_len: 0,
@@ -658,8 +665,13 @@ impl OctaApp {
         let running = self.chat.session.lock().unwrap().is_running();
         let ready = self.provider_ready();
 
+        let input_id = egui::Id::new("octa_chat_input");
+        // `@`-mention suggestions: open-tab handles/names + column names.
+        let mention_suggestions = self.build_mention_suggestions();
+
         ui.add_space(4.0);
         let mut send_now = false;
+        let mut input_resp: Option<egui::Response> = None;
         ui.horizontal(|ui| {
             if running {
                 if ui.button(t("chat.cancel")).clicked() {
@@ -676,6 +688,7 @@ impl OctaApp {
                 let resp = ui.add_enabled(
                     !running,
                     egui::TextEdit::multiline(&mut self.chat.input)
+                        .id(input_id)
                         .desired_rows(2)
                         .desired_width(f32::INFINITY)
                         .hint_text(t("chat.input_hint")),
@@ -684,7 +697,9 @@ impl OctaApp {
                     resp.request_focus();
                     self.chat.focus_input = false;
                 }
-                // Enter sends; Shift+Enter inserts a newline.
+                // Enter sends; Shift+Enter inserts a newline. (Like the SQL
+                // editor, Enter is left to the editor even when the mention
+                // popup is open - Tab / click accept a suggestion instead.)
                 if resp.has_focus()
                     && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift)
                     && ready
@@ -692,14 +707,166 @@ impl OctaApp {
                 {
                     send_now = true;
                 }
+                input_resp = Some(resp);
             });
         });
         ui.add_space(4.0);
+
+        // --- @-mention autocomplete -------------------------------------
+        let resp = input_resp.expect("chat input always renders");
+        let focused = ui.ctx().memory(|m| m.focused() == Some(input_id));
+        let mut filtered: Vec<(String, String)> = Vec::new();
+        let mut at_start = 0usize;
+        let mut at_token_len = 0usize; // bytes of "@partial"
+        if focused && !running {
+            let cursor_byte = egui::TextEdit::load_state(ui.ctx(), input_id)
+                .and_then(|s| s.cursor.char_range())
+                .map(|r| {
+                    self.chat
+                        .input
+                        .char_indices()
+                        .nth(r.primary.index)
+                        .map(|(i, _)| i)
+                        .unwrap_or(self.chat.input.len())
+                })
+                .unwrap_or(self.chat.input.len());
+            if let Some((start, partial)) = current_at_prefix(&self.chat.input, cursor_byte) {
+                at_start = start;
+                at_token_len = partial.len() + 1; // include the '@'
+                let q = partial.to_lowercase();
+                filtered = mention_suggestions
+                    .into_iter()
+                    .filter(|(disp, ins)| {
+                        q.is_empty()
+                            || disp.to_lowercase().contains(&q)
+                            || ins.to_lowercase().contains(&q)
+                    })
+                    .take(8)
+                    .collect();
+                if !filtered.is_empty() {
+                    self.chat.ac_visible = true;
+                }
+            } else {
+                self.chat.ac_visible = false;
+            }
+        } else {
+            self.chat.ac_visible = false;
+        }
+
+        let popup_active = self.chat.ac_visible && !filtered.is_empty();
+        if self.chat.ac_selected >= filtered.len() {
+            self.chat.ac_selected = 0;
+        }
+
+        let mut apply: Option<String> = None;
+        if popup_active {
+            let mut sel = self.chat.ac_selected;
+            let len = filtered.len();
+            let mut dismiss = false;
+            ui.input_mut(|i| {
+                if i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowDown) {
+                    sel = (sel + 1) % len;
+                }
+                if i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowUp) {
+                    sel = if sel == 0 { len - 1 } else { sel - 1 };
+                }
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::Tab) {
+                    apply = filtered.get(sel).map(|(_, ins)| ins.clone());
+                }
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                    dismiss = true;
+                }
+            });
+            self.chat.ac_selected = sel;
+            if dismiss {
+                self.chat.ac_visible = false;
+            }
+
+            let popup_id = ui.make_persistent_id("octa_chat_mention_popup");
+            egui::Popup::from_response(&resp)
+                .id(popup_id)
+                .open(self.chat.ac_visible)
+                .align(egui::RectAlign::TOP_START)
+                .close_behavior(egui::PopupCloseBehavior::IgnoreClicks)
+                .show(|ui| {
+                    ui.set_min_width(200.0);
+                    let strong = if ui.visuals().dark_mode {
+                        egui::Color32::WHITE
+                    } else {
+                        ui.visuals().strong_text_color()
+                    };
+                    for (idx, (disp, ins)) in filtered.iter().enumerate() {
+                        let selected = idx == self.chat.ac_selected;
+                        let label = if selected {
+                            egui::RichText::new(disp).color(strong).strong()
+                        } else {
+                            egui::RichText::new(disp)
+                        };
+                        let r = ui.selectable_label(selected, label);
+                        if r.clicked() {
+                            apply = Some(ins.clone());
+                        }
+                        if r.hovered() {
+                            self.chat.ac_selected = idx;
+                        }
+                    }
+                });
+        }
+
+        // Apply the chosen mention: replace the "@partial" token with the
+        // insert text (tab handle keeps its '@', a column name drops it) plus a
+        // trailing space, then move the caret past it.
+        if let Some(ins) = apply {
+            let end = at_start + at_token_len;
+            if end <= self.chat.input.len() {
+                let mut piece = ins;
+                piece.push(' ');
+                self.chat.input.replace_range(at_start..end, &piece);
+                if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), input_id) {
+                    let new_char_idx = self.chat.input[..at_start + piece.len()].chars().count();
+                    let cc = egui::text::CCursor::new(new_char_idx);
+                    state
+                        .cursor
+                        .set_char_range(Some(egui::text::CCursorRange::one(cc)));
+                    state.store(ui.ctx(), input_id);
+                }
+                resp.request_focus();
+            }
+            self.chat.ac_visible = false;
+        }
 
         if send_now && !self.chat.input.trim().is_empty() {
             let ctx = ui.ctx().clone();
             self.send_chat_message(&ctx);
         }
+    }
+
+    /// Build the `@`-mention autocomplete list from the open tabs: one entry per
+    /// non-chart tab (`#N name` -> inserts `@#N`) followed by every distinct
+    /// column name (inserts the bare name). Returned as `(display, insert)`.
+    fn build_mention_suggestions(&self) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        let mut n = 0usize;
+        for (i, tab) in self.tabs.iter().enumerate() {
+            if tab.is_chart_tab {
+                continue;
+            }
+            n += 1;
+            let name = tab_display_name(tab, i);
+            out.push((format!("#{n} {name}"), format!("@#{n}")));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for tab in self.tabs.iter() {
+            if tab.is_chart_tab {
+                continue;
+            }
+            for col in &tab.table.columns {
+                if seen.insert(col.name.clone()) {
+                    out.push((col.name.clone(), col.name.clone()));
+                }
+            }
+        }
+        out
     }
 
     /// Whether the active provider can run: local providers (Ollama) are always
@@ -1028,6 +1195,21 @@ fn tab_display_name(tab: &super::state::TabState, index: usize) -> String {
                 .map(|n| n.to_string_lossy().to_string())
         })
         .unwrap_or_else(|| format!("Untitled {}", index + 1))
+}
+
+/// If the caret sits inside an `@`-prefixed token (no whitespace since the
+/// `@`), return the byte offset of the `@` and the partial text after it.
+/// `cursor_byte` must be a char boundary. Returns `None` otherwise.
+fn current_at_prefix(text: &str, cursor_byte: usize) -> Option<(usize, String)> {
+    let upto = &text[..cursor_byte.min(text.len())];
+    let token_start = upto.rfind(char::is_whitespace).map(|i| i + 1).unwrap_or(0);
+    let token = &upto[token_start..];
+    let stripped = token.strip_prefix('@')?;
+    // A second '@' means we are past a completed mention - don't re-trigger.
+    if stripped.contains('@') {
+        return None;
+    }
+    Some((token_start, stripped.to_string()))
 }
 
 /// Render one persisted message as bubbles + tool disclosure rows.

@@ -10,7 +10,9 @@ use std::collections::{BTreeSet, HashSet};
 use eframe::egui;
 use egui::RichText;
 
-use octa::ui::settings::{DialogSize, draw_window_controls};
+use octa::ui::settings::{
+    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+};
 
 use super::super::state::OctaApp;
 
@@ -79,22 +81,21 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
     let mut clear_requested = false;
     let mut switch_col: Option<usize> = None;
 
-    let mut window = egui::Window::new("Column Filter")
+    let dialog_id = egui::Id::new("octa_column_filter_dialog");
+    let build_size = size;
+    let window = egui::Window::new("Column Filter")
         .title_bar(false)
         .collapsible(false);
-    window = match size {
-        DialogSize::Maximized => window.fixed_rect(ctx.content_rect().shrink(8.0)),
-        DialogSize::Minimized => window.resizable(false),
-        DialogSize::Normal => window
-            .resizable(true)
+    let window = size_dialog_window(ctx, dialog_id, build_size, window, |w| {
+        w.resizable(true)
             .default_width(460.0)
             .default_height(540.0)
             .min_width(320.0)
-            .min_height(240.0),
-    };
+            .min_height(240.0)
+    });
     let minimized = size == DialogSize::Minimized;
 
-    window.show(ctx, |ui| {
+    let inner = window.show(ctx, |ui| {
         egui::Panel::top("column_filter_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show_inside(ui, |ui| {
@@ -239,6 +240,10 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                     });
             });
     });
+
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, build_size, inner.response.rect);
+    }
 
     // --- Persist back. The order of branches matters: apply/clear/switch
     // mutate `column_filters`; close discards; the fallthrough just keeps

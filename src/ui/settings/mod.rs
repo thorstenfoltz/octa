@@ -1288,6 +1288,59 @@ pub fn draw_window_controls(ui: &mut egui::Ui, size: &mut DialogSize) -> bool {
     close
 }
 
+/// Configure a dialog's `egui::Window` for the given [`DialogSize`], restoring
+/// the pre-maximize size when the user un-maximizes.
+///
+/// egui persists a window's rect by id, so once a dialog is shown with
+/// `fixed_rect(full_screen)` (Maximized) the stored rect stays full size and a
+/// plain switch back to a resizable builder leaves the window stuck large -
+/// the user "can't reduce it". This forces the remembered pre-maximize rect
+/// for the single frame after un-maximizing, which overwrites egui's stored
+/// rect; the window is resizable again from the next frame.
+///
+/// `id` must be stable per dialog and match the value passed to
+/// [`remember_dialog_rect`]. `normal` applies the dialog's own Normal-size
+/// builder settings (resizable, min/default size, default pos).
+pub fn size_dialog_window<'a>(
+    ctx: &egui::Context,
+    id: egui::Id,
+    size: DialogSize,
+    window: egui::Window<'a>,
+    normal: impl FnOnce(egui::Window<'a>) -> egui::Window<'a>,
+) -> egui::Window<'a> {
+    let prev_key = id.with("octa_dlg_prev_size");
+    let rect_key = id.with("octa_dlg_normal_rect");
+    // Track the previous frame's size so we can detect the Maximized -> Normal
+    // transition that needs the one-frame restore.
+    let prev = ctx.data_mut(|d| {
+        let p = d.get_temp::<DialogSize>(prev_key);
+        d.insert_temp(prev_key, size);
+        p
+    });
+    match size {
+        DialogSize::Maximized => window.fixed_rect(ctx.content_rect().shrink(8.0)),
+        DialogSize::Minimized => window.resizable(false),
+        DialogSize::Normal => {
+            if prev == Some(DialogSize::Maximized)
+                && let Some(rect) = ctx.data(|d| d.get_temp::<egui::Rect>(rect_key))
+            {
+                normal(window).fixed_rect(rect)
+            } else {
+                normal(window)
+            }
+        }
+    }
+}
+
+/// Record a dialog window's current rect so a later un-maximize can restore it.
+/// Call after `Window::show` with the inner response's rect. Only the Normal
+/// mode's rect is remembered (the Maximized/Minimized rects are derived).
+pub fn remember_dialog_rect(ctx: &egui::Context, id: egui::Id, size: DialogSize, rect: egui::Rect) {
+    if size == DialogSize::Normal {
+        ctx.data_mut(|d| d.insert_temp(id.with("octa_dlg_normal_rect"), rect));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

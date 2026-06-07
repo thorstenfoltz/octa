@@ -8,7 +8,9 @@ mod content;
 use eframe::egui;
 
 use octa::ui;
-use octa::ui::settings::{DialogSize, draw_window_controls};
+use octa::ui::settings::{
+    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+};
 
 use content::*;
 
@@ -69,16 +71,16 @@ pub(crate) fn render_documentation_dialog(app: &mut OctaApp, ctx: &egui::Context
     if !app.show_documentation_dialog {
         return;
     }
-    let mut window = egui::Window::new("Documentation")
+    let dialog_id = egui::Id::new("octa_documentation_dialog");
+    let size = app.documentation_size;
+    let window = egui::Window::new("Documentation")
         .title_bar(false)
         .collapsible(false);
-    window = match app.documentation_size {
-        DialogSize::Maximized => window.fixed_rect(ctx.content_rect().shrink(8.0)),
-        DialogSize::Minimized => window.resizable(false),
-        DialogSize::Normal => window.resizable(true).default_size([900.0, 600.0]),
-    };
-    let minimized = app.documentation_size == DialogSize::Minimized;
-    window.show(ctx, |ui| {
+    let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+        w.resizable(true).default_size([900.0, 600.0])
+    });
+    let minimized = size == DialogSize::Minimized;
+    let inner = window.show(ctx, |ui| {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Documentation").strong().size(16.0));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -98,6 +100,25 @@ pub(crate) fn render_documentation_dialog(app: &mut OctaApp, ctx: &egui::Context
             app.docs_active_section = 0;
         }
 
+        // Indices of sections matching the search box (title or body,
+        // case-insensitive). With an empty query every section matches.
+        let query = app.docs_search_query.trim().to_lowercase();
+        let matches: Vec<usize> = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, (title, body))| {
+                query.is_empty()
+                    || title.to_lowercase().contains(&query)
+                    || body.to_lowercase().contains(&query)
+            })
+            .map(|(idx, _)| idx)
+            .collect();
+        // Keep the active section valid: if it dropped out of the filtered set,
+        // jump to the first match so the content pane always shows a hit.
+        if !matches.is_empty() && !matches.contains(&app.docs_active_section) {
+            app.docs_active_section = matches[0];
+        }
+
         ui.horizontal_top(|ui| {
             // --- Sidebar nav ---
             ui.allocate_ui_with_layout(
@@ -105,12 +126,22 @@ pub(crate) fn render_documentation_dialog(app: &mut OctaApp, ctx: &egui::Context
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
                     ui.set_width(SIDEBAR_WIDTH);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut app.docs_search_query)
+                            .desired_width(SIDEBAR_WIDTH)
+                            .hint_text(octa::i18n::t("documentation.search")),
+                    );
+                    ui.add_space(4.0);
                     egui::ScrollArea::vertical()
                         .id_salt("docs_sidebar_scroll")
                         .show(ui, |ui| {
-                            for (idx, (title, _)) in entries.iter().enumerate() {
+                            if matches.is_empty() {
+                                ui.weak(octa::i18n::t("documentation.no_matches"));
+                            }
+                            for &idx in &matches {
+                                let title = entries[idx].0;
                                 let is_active = idx == app.docs_active_section;
-                                let resp = ui.selectable_label(is_active, *title);
+                                let resp = ui.selectable_label(is_active, title);
                                 if resp.clicked() {
                                     app.docs_active_section = idx;
                                 }
@@ -132,4 +163,7 @@ pub(crate) fn render_documentation_dialog(app: &mut OctaApp, ctx: &egui::Context
             });
         });
     });
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+    }
 }

@@ -90,6 +90,27 @@ process).
 See [Limits & truncation](../mcp/limits-and-truncation.md) for the
 full semantics.
 
+## Chat / Assistant
+
+Settings for the in-GUI [Assistant](../usage/chatbot.md) panel. All live
+in the main Settings dialog under the **Chat / Assistant** section.
+
+| Setting                 | Default                  | Notes                                                                                                                                                                                |
+|-------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Provider**            | Anthropic                | LLM backend: `Anthropic`, `OpenAI`, `OpenAI-compatible`, `Gemini`, or `Ollama` (local). TOML key: `chat_provider`.                                                                   |
+| **Model**               | per-provider default     | Model id for the active provider. A dropdown of presets (from `models.toml`) plus a free-text field for any model. Stored per provider. TOML key: `chat_models`.                     |
+| **Base URL**            | *(empty)*                | Endpoint override for the OpenAI-compatible provider. TOML key: `chat_base_url`.                                                                                                     |
+| **Ollama URL**          | `http://localhost:11434` | Base URL of the local Ollama server. TOML key: `chat_ollama_url`.                                                                                                                    |
+| **Panel position**      | Right                    | Where the chat panel docks: `Right` / `Left` / `Bottom`. TOML key: `chat_panel_position`.                                                                                            |
+| **Temperature**         | 0.0                      | Sampling temperature passed to the model. TOML key: `chat_temperature`.                                                                                                              |
+| **Max tool iterations** | 12                       | How many tool-call rounds the agent runs per turn before stopping. TOML key: `chat_max_tool_iterations`.                                                                             |
+| **Max tokens**          | 16,384                   | Cap on the model's response length. **Unlimited** omits the field (Anthropic substitutes a high value). TOML keys: `chat_max_tokens`, `chat_max_tokens_unlimited`.                   |
+| **Export directory**    | `~/Downloads`            | Where the assistant writes files (charts, exports, `write_text`). TOML key: `chat_export_dir`.                                                                                       |
+| **API key**             | *(none)*                 | Per-provider key. Resolved **env → OS keyring → plaintext `settings.toml`**. **Clear API key** needs a second click to confirm. TOML key: `chat_api_keys` (plaintext fallback only). |
+
+See [Assistant](../usage/chatbot.md) for the full workflow, tool list,
+and the filesystem sandbox.
+
 ## Map
 
 | Setting                  | Default                                          | Notes                                                                                                                                              |
@@ -123,7 +144,6 @@ The full list of actions lives on the
 |--------------------------------|-----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Initial-load row cap**       | 5,000,000 | Max rows loaded into memory on first open for streaming readers (Parquet, CSV, TSV). Additional rows stream in the background. Numeric input accepts comma separators (`5,000,000`).                                                                                                 |
 | **Syntax-highlight size cap**  | 1 MB      | Files larger than this fall back to plain monospace in the [Raw view](../usage/view-modes/raw-text.md) (syntect tokenisation gets laggy on huge files). Unit picker: Bytes / KB / MB. `0` disables highlighting entirely.                                                            |
-| **Open as text**               | *(empty)* | Comma- or space-separated list of file extensions that should always open as plain text. Useful for unusual config or log extensions Octa doesn't ship a dedicated reader for.                                                                                                       |
 | **Multi-search file cap (MB)** | 50        | Per-file size cap for the directory scope of the [Multi-search panel](../usage/search-and-filter.md#multi-search). Files larger than this are skipped silently during the scan. `0` disables the cap. TOML key: `grep_max_file_size_mb`.                                             |
 | **Chart max points**           | 100,000   | Maximum rows the [Chart tab](../usage/chart.md) will plot before evenly-spaced downsampling kicks in (Histogram, Line, Scatter). Bar always aggregates the full input; Box computes the 5-number summary over the full input. `0` disables sampling. TOML key: `chart_max_points`.   |
 | **Chart max categories**       | 250       | Maximum distinct X categories a [Bar chart](../usage/chart.md#categorical-x-axes) will accept before refusing to draw. Filter or aggregate the table before charting if you exceed this. TOML key: `chart_max_categories`.                                                           |
@@ -132,9 +152,10 @@ The full list of actions lives on the
 
 ## Files
 
-| Setting              | Default | Notes                                                |
-|----------------------|---------|------------------------------------------------------|
-| **Max recent files** | 10      | How many entries to show in **File → Recent Files**. |
+| Setting              | Default   | Notes                                                                                                                                                                          |
+|----------------------|-----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Max recent files** | 10        | How many entries to show in **File → Recent Files**.                                                                                                                           |
+| **Open as text**     | *(empty)* | Comma- or space-separated list of file extensions that should always open as plain text. Useful for unusual config or log extensions Octa doesn't ship a dedicated reader for. |
 
 ## Window
 
@@ -160,3 +181,5 @@ A confirmation dialog protects against misfires.
   guide to the Raw CSV/TSV view's quote/escape combos.
 - [Date inference](date-inference.md) explains what the inference
   pass detects and when the ambiguity dialog appears.
+- [Assistant](../usage/chatbot.md) is the full guide to the in-GUI chat
+  panel whose settings are listed above.

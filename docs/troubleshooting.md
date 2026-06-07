@@ -169,7 +169,7 @@ doesn't recognise the extension. Three things to try:
 
 - Check the extension spelling. `.parquet`, not `.parq`. `.csv`,
   not `.csv.txt`.
-- Add the extension to [**Settings → Performance → Open as text**](reference/settings.md#performance)
+- Add the extension to [**Settings → Files → Open as text**](reference/settings.md#files)
   for log / config files Octa doesn't ship a reader for.
 - Force open as text: rename the file with a `.txt` extension, or
   open via the [Raw view](usage/view-modes/raw-text.md)

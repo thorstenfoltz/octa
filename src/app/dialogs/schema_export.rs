@@ -13,7 +13,9 @@ use eframe::egui;
 use egui::RichText;
 
 use octa::data::schema_export::SchemaTarget;
-use octa::ui::settings::{DialogSize, draw_window_controls};
+use octa::ui::settings::{
+    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+};
 
 use super::super::state::{OctaApp, SchemaExportState};
 
@@ -47,22 +49,21 @@ pub(crate) fn render_schema_export_dialog(app: &mut OctaApp, ctx: &egui::Context
     let mut copy_payload: Option<String> = None;
     let mut save_payload: Option<(String, &'static str)> = None;
 
-    let mut window = egui::Window::new("Schema Export")
+    let dialog_id = egui::Id::new("octa_schema_export_dialog");
+    let build_size = size;
+    let window = egui::Window::new("Schema Export")
         .title_bar(false)
         .collapsible(false);
-    window = match size {
-        DialogSize::Maximized => window.fixed_rect(ctx.content_rect().shrink(8.0)),
-        DialogSize::Minimized => window.resizable(false),
-        DialogSize::Normal => window
-            .resizable(true)
+    let window = size_dialog_window(ctx, dialog_id, build_size, window, |w| {
+        w.resizable(true)
             .default_width(720.0)
             .default_height(520.0)
             .min_width(420.0)
-            .min_height(260.0),
-    };
+            .min_height(260.0)
+    });
     let minimized = size == DialogSize::Minimized;
 
-    window.show(ctx, |ui| {
+    let inner = window.show(ctx, |ui| {
         egui::Panel::top("schema_export_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show_inside(ui, |ui| {
@@ -150,6 +151,10 @@ pub(crate) fn render_schema_export_dialog(app: &mut OctaApp, ctx: &egui::Context
 
     if let Some((payload, ext)) = save_payload {
         save_to_disk(app, &payload, ext, &table_name, target.label());
+    }
+
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, build_size, inner.response.rect);
     }
 
     // Apply target switch / window-size change after the closure so the

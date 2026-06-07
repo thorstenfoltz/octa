@@ -66,6 +66,7 @@ impl TabState {
             sql_query: String::new(),
             sql_result: None,
             sql_error: None,
+            sql_result_selected: None,
             sql_panel_open: false,
             sql_ac_selected: 0,
             sql_ac_visible: true,
@@ -243,53 +244,49 @@ impl OctaApp {
     /// No-ops with a status message when there's no active table or the
     /// table has no numeric columns - charting either is useless and the
     /// rfd dialog cost would be wasted.
-    /// Open the per-column Number-format dialog for the column implied by the
-    /// current selection: the first selected column, else the selected cell's
-    /// column. No-ops (with a status hint) when the target isn't numeric.
+    /// Open the per-column Number-format dialog. Pre-selects every numeric
+    /// column implied by the current selection (selected columns, plus the
+    /// selected cell's column); with no numeric selection it still opens,
+    /// seeded on the first numeric column so the user can pick targets from the
+    /// dialog's "Apply to" list. Only no-ops (with a status hint) when the
+    /// table has no numeric columns at all - rounding applies to numbers only.
     pub(crate) fn open_column_format_for_selection(&mut self) {
         let tab = &mut self.tabs[self.active_tab];
         if tab.table.col_count() == 0 {
             return;
         }
-        let col = tab
-            .table_state
-            .selected_cols
-            .iter()
-            .min()
-            .copied()
-            .or_else(|| tab.table_state.selected_cell.map(|(_, c)| c))
-            .filter(|&c| c < tab.table.col_count());
-        let Some(col) = col else {
-            self.status_message = Some((
-                "Select a numeric column first.".to_string(),
-                std::time::Instant::now(),
-            ));
-            return;
-        };
-        if !octa::data::is_numeric_data_type(&tab.table.columns[col].data_type) {
-            self.status_message = Some((
-                "Number format applies to numeric columns only.".to_string(),
-                std::time::Instant::now(),
-            ));
-            return;
-        }
-        // Pre-check every selected numeric column so a multi-column selection
-        // opens the dialog ready to round all of them at once.
+        // Numeric columns currently selected (a cell selection counts as its
+        // column). The dialog only formats numeric columns.
         let mut cols: Vec<usize> = tab
             .table_state
             .selected_cols
             .iter()
             .copied()
+            .chain(tab.table_state.selected_cell.map(|(_, c)| c))
             .filter(|&c| {
                 c < tab.table.col_count()
                     && octa::data::is_numeric_data_type(&tab.table.columns[c].data_type)
             })
             .collect();
-        if !cols.contains(&col) {
-            cols.push(col);
-        }
         cols.sort_unstable();
         cols.dedup();
+        // Seed column: the first selected numeric column, else fall back to the
+        // first numeric column in the table so the dialog opens even with
+        // nothing (or a non-numeric column) selected.
+        let col = cols.first().copied().or_else(|| {
+            (0..tab.table.col_count())
+                .find(|&c| octa::data::is_numeric_data_type(&tab.table.columns[c].data_type))
+        });
+        let Some(col) = col else {
+            self.status_message = Some((
+                "Number format applies to numeric columns only.".to_string(),
+                std::time::Instant::now(),
+            ));
+            return;
+        };
+        if cols.is_empty() {
+            cols.push(col);
+        }
         tab.open_column_format(col);
         tab.column_format_cols = cols;
     }

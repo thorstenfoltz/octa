@@ -1,52 +1,55 @@
 # Release notes
 
-This release builds on the **Chat Assistant** shipped in 0.11.0. The assistant
-now also works on text, code, and Markdown files, its model list is hand-editable,
-and the **Assistant** entry is reachable from any view. Alongside that, Octa now
-reads non-UTF-8 text files, adds five more interface languages, and brings a batch
-of editor and usability fixes.
+A batch of display, dialog, SQL, and assistant improvements, plus broader
+non-Latin text rendering and finished translations for the five newest languages.
+
+## Data display
+
+**Non-Latin text now renders.** Cell values containing Chinese, Japanese, or
+Korean characters previously showed as empty boxes. Octa now bundles a Noto Sans
+CJK fallback face, so that text displays correctly in the table even while the
+interface itself is in a Latin-script language. (Colour emoji and right-to-left
+scripts such as Arabic and Hebrew are still not rendered.)
+
+## Windows and dialogs
+
+**Maximise button now restores the previous size.** Clicking the maximise
+button a second time in the Settings, Documentation, Column Inspector, Column
+Filter, Value Frequency, and Schema Export windows now shrinks the window back
+to the size it had before, instead of staying full-size.
+
+**Number format opens without picking a column first.** **Edit -> Number
+format...** now opens straight away (as long as the table has at least one
+numeric column); you choose which columns to format from the dialog's "Apply to"
+list. Previously it refused to open unless you had selected a numeric column
+beforehand.
+
+## SQL
+
+**Copy from the result grid.** Click a cell in the SQL result to select it and
+copy it with <kbd>Ctrl</kbd>+<kbd>C</kbd>, just like the main table. Right-click
+a result cell for **Copy cell** or **Copy all** (the whole result as TSV).
 
 ## Assistant
 
-**Now helps with text, code, and Markdown.** Beyond tables, you can ask the
-assistant to read, summarise, explain, refactor, or edit the plain-text, source
-code, and Markdown files you have open. It writes changes either to a new file or
-back to the open file on disk (reload with <kbd>Ctrl</kbd>+<kbd>R</kbd> to see
-them in Octa).
+**`@`-mention autocomplete.** Typing `@` in the chat input now shows a
+suggestion popup of your open tabs (by handle and name) and their column names,
+so referencing a specific tab or column is quicker. Use <kbd>Tab</kbd> or click
+to accept, <kbd>Esc</kbd> to dismiss.
 
-**Hand-editable model list.** The provider model presets now live in a plain
-`models.toml` next to your settings file, so you can add or remove model names by
-hand without waiting for an update. A **Reload models.toml** button in Settings
-picks up your edits without a restart.
+## Documentation and settings
 
-**Always reachable.** The **Assistant** entry under the **Analyse** menu is now
-present whatever view you are in, not just on table views.
+**Searchable in-app documentation.** The built-in Documentation window
+(**Help -> Documentation**) now has a search box that filters the section list
+as you type.
 
-## File support
-
-**Reads non-UTF-8 text files.** Text, code, and Markdown files saved in
-Windows-1252 / Latin-1 or UTF-16 (common on non-English Windows, and from
-Excel's "Unicode text" export) now open correctly instead of failing or showing
-garbled characters. Octa detects the encoding automatically and decodes to text.
+**"Open as text" moved to Files.** The "Open as text" extension list now lives
+under **Settings -> Files** instead of Performance, where it fits better. The
+Chat / Assistant settings are now also documented in the online settings
+reference.
 
 ## Languages
 
-**Five more interface languages.** Added Indonesian, Vietnamese, Romanian,
-Hungarian, and Czech, bringing the total to 17 translated languages. Pick yours
-in Settings -> Appearance -> Language.
-
-## Editor and usability
-
-- **Line numbers in the Markdown editor.** The Markdown view's Edit and Split
-  panes now show a line-number gutter, matching the Raw and SQL editors.
-- **Grouped keyboard shortcuts.** Settings -> Shortcuts is now organised into
-  labelled sections (File, Tabs, Search, Navigation, and so on) with left-aligned
-  columns, so a binding is much easier to find.
-- **Clearer load banners.** The date-format and whitespace-trim banners now have
-  an explicit **Okay** button next to **Dismiss**, and hovering either explains
-  exactly what it does (on the date banner, Okay keeps the dates while Dismiss
-  reverts them to text).
-- **Confirm before deleting a key.** Clearing a saved chat API key now asks for
-  confirmation first, so a stray click can't wipe it.
-- <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> no longer selects all text when
-  you open the assistant from inside the Markdown editor.
+**Finished translations for the five newest languages.** The remaining
+interface strings for Indonesian, Vietnamese, Romanian, Hungarian, and Czech are
+now translated rather than falling back to English.

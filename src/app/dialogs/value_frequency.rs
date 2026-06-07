@@ -16,7 +16,9 @@ use egui_extras::{Column, TableBuilder};
 
 use octa::data::is_numeric_data_type;
 use octa::data::value_frequency::{BinningMode, compute_value_frequency};
-use octa::ui::settings::{DialogSize, draw_window_controls};
+use octa::ui::settings::{
+    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+};
 
 use super::super::state::OctaApp;
 
@@ -55,22 +57,21 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
         (col.name.clone(), is_numeric_data_type(&col.data_type))
     };
 
-    let mut window = egui::Window::new("Value Frequency")
+    let dialog_id = egui::Id::new("octa_value_frequency_dialog");
+    let build_size = size;
+    let window = egui::Window::new("Value Frequency")
         .title_bar(false)
         .collapsible(false);
-    window = match size {
-        DialogSize::Maximized => window.fixed_rect(ctx.content_rect().shrink(8.0)),
-        DialogSize::Minimized => window.resizable(false),
-        DialogSize::Normal => window
-            .resizable(true)
+    let window = size_dialog_window(ctx, dialog_id, build_size, window, |w| {
+        w.resizable(true)
             .default_width(520.0)
             .default_height(520.0)
             .min_width(360.0)
-            .min_height(220.0),
-    };
+            .min_height(220.0)
+    });
     let minimized = size == DialogSize::Minimized;
 
-    window.show(ctx, |ui| {
+    let inner = window.show(ctx, |ui| {
         egui::Panel::top("value_frequency_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show_inside(ui, |ui| {
@@ -278,6 +279,10 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
                     });
             });
     });
+
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, build_size, inner.response.rect);
+    }
 
     if let Some(payload) = copy_payload {
         ctx.copy_text(payload);

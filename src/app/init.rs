@@ -88,6 +88,7 @@ impl OctaApp {
             show_documentation_dialog: false,
             documentation_size: octa::ui::settings::DialogSize::Normal,
             docs_active_section: 0,
+            docs_search_query: String::new(),
             show_update_dialog: false,
             show_unalign_confirm: false,
             update_state: Arc::new(Mutex::new(UpdateState::Idle)),
