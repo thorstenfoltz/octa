@@ -110,6 +110,26 @@ pub(crate) struct DateWarning {
     pub(crate) entries: Vec<DatePromotionInfo>,
 }
 
+/// One column that looked date-shaped but could not be promoted because some
+/// values failed to parse. `samples` holds a few of the offending raw values.
+#[derive(Debug, Clone)]
+pub(crate) struct DateParseFailure {
+    pub(crate) column_name: String,
+    pub(crate) source_label: &'static str,
+    pub(crate) parsed: usize,
+    pub(crate) total: usize,
+    pub(crate) samples: Vec<String>,
+}
+
+/// Aggregate set of near-miss date columns surfaced as a single dismissible
+/// banner above the table, explaining why they were left as text. `None` when
+/// no such banner is pending.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DateParseWarning {
+    pub(crate) tab_idx: usize,
+    pub(crate) entries: Vec<DateParseFailure>,
+}
+
 /// Pending whitespace-trim notice surfaced as a dismissible banner above the
 /// table. Lists the columns where leading/trailing whitespace was stripped on
 /// load. Set by `apply_loaded_table` when `trim_whitespace_on_load` and
@@ -118,6 +138,9 @@ pub(crate) struct DateWarning {
 pub(crate) struct TrimWarning {
     pub(crate) tab_idx: usize,
     pub(crate) columns: Vec<String>,
+    /// Pre-trim values for the affected titles/cells. Lets the banner's
+    /// "Dismiss" button undo the trim and restore the original whitespace.
+    pub(crate) undo: octa::data::trim::TrimUndo,
 }
 
 /// Pending interactive repair prompt for a malformed delimited file. Raised
@@ -708,6 +731,9 @@ pub(crate) struct OctaApp {
     /// Set by `run_date_inference_pass` whenever one or more columns are
     /// promoted with a non-ISO source layout. `None` once dismissed.
     pub(crate) pending_date_warning: Option<DateWarning>,
+    /// Pending near-miss date banner: columns that looked date-shaped but had
+    /// unparseable values, so they were left as text. `None` once dismissed.
+    pub(crate) pending_date_parse_warning: Option<DateParseWarning>,
     /// Pending whitespace-trim banner: the columns that had leading/trailing
     /// whitespace stripped on load. `None` once dismissed.
     pub(crate) pending_trim_warning: Option<TrimWarning>,

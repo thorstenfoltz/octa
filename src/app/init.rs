@@ -109,6 +109,7 @@ impl OctaApp {
             pending_date_pickers: std::collections::VecDeque::new(),
             pending_raw_perf_prompt: None,
             pending_date_warning: None,
+            pending_date_parse_warning: None,
             pending_trim_warning: None,
             pending_file_repair: None,
             pending_round_save: None,

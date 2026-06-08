@@ -2,7 +2,7 @@
 
 Octa's interface, menus, dialogs, the status bar, the SQL and
 multi-search panels, the right-click menus, and the Settings dialog
-(including its hover tooltips), can be shown in any of 17 languages.
+(including its hover tooltips), can be shown in any of 22 languages.
 
 Change it under **Settings → Appearance → Language**. The switch is
 **live**: the interface updates on the next frame, with no restart.
@@ -29,6 +29,11 @@ Change it under **Settings → Appearance → Language**. The switch is
 | `ro` | Română     |
 | `hu` | Magyar     |
 | `cs` | Čeština    |
+| `el` | Ελληνικά   |
+| `ru` | Русский    |
+| `ja` | 日本語     |
+| `ko` | 한국어        |
+| `zh` | 中文       |
 
 The chosen code is stored as `language` in your
 [`settings.toml`](settings.md).
@@ -51,17 +56,15 @@ The chosen code is stored as `language` in your
 
 ## Scripts not yet offered
 
-Only Latin-script languages whose accented characters the bundled font
-already covers are available as **interface** languages. Cyrillic and
-right-to-left scripts (Arabic, Hebrew) are out of scope for the UI for
-now: they need translated catalogs and, for RTL, layout work that Octa
-does not yet do.
+The interface now covers Latin, Greek, Cyrillic, and CJK (Chinese,
+Japanese, Korean) scripts. Right-to-left scripts (Arabic, Hebrew) remain
+out of scope for the UI for now: beyond translated catalogs they need
+layout work that Octa does not yet do.
 
 This is separate from **displaying** non-Latin data: Octa bundles a Noto
 Sans CJK fallback face, so cell values containing Chinese, Japanese, or
-Korean text render correctly in the table even while the UI itself is in
-a Latin-script language. Colour emoji and full right-to-left shaping are
-not rendered.
+Korean text render correctly in the table regardless of the UI language.
+Colour emoji and full right-to-left shaping are not rendered.
 
 ## See also
 

@@ -77,7 +77,7 @@ fn read_compound_dataset(
     // Read every record into a flat Vec<u8> via a one-off H5Type wrapper,
     // then slice each field from its byte offset using the declared layout.
     let array = dataset.read_array::<CompoundRow>()?;
-    let record_size = dtype_element_size(dataset.dtype());
+    let record_size = dtype_element_size(dataset.dtype())?;
 
     let mut rows = Vec::with_capacity(array.len());
     for row_bytes in array.iter() {
@@ -85,7 +85,7 @@ fn read_compound_dataset(
         let mut row: Vec<CellValue> = Vec::with_capacity(fields.len());
         for field in fields {
             let offset = field.byte_offset as usize;
-            let size = dtype_element_size(&field.datatype);
+            let size = dtype_element_size(&field.datatype)?;
             let slice = if offset + size <= bytes.len() {
                 &bytes[offset..offset + size]
             } else {
@@ -131,7 +131,7 @@ impl hdf5_reader::H5Type for CompoundRow {
     }
 
     fn from_bytes(bytes: &[u8], dtype: &hdf5_reader::Datatype) -> hdf5_reader::error::Result<Self> {
-        let n = hdf5_reader::dtype_element_size(dtype);
+        let n = hdf5_reader::dtype_element_size(dtype)?;
         let mut buf = vec![0u8; n];
         let take = bytes.len().min(n);
         buf[..take].copy_from_slice(&bytes[..take]);
@@ -139,7 +139,9 @@ impl hdf5_reader::H5Type for CompoundRow {
     }
 
     fn element_size(dtype: &hdf5_reader::Datatype) -> usize {
-        hdf5_reader::dtype_element_size(dtype)
+        // 0.6 made this fallible; the H5Type trait still wants a plain usize,
+        // so fall back to 0 on the (unexpected) error path.
+        hdf5_reader::dtype_element_size(dtype).unwrap_or(0)
     }
 }
 

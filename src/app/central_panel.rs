@@ -65,8 +65,7 @@ impl OctaApp {
                     ui.add_space(8.0);
                     ui.label(
                         egui::RichText::new(format!(
-                            "Detected dates in {}; showing as YYYY-MM-DD. \
-                             Source format kept on save.",
+                            "Detected dates in {}; shown as YYYY-MM-DD.",
                             summary
                         ))
                         .color(colors.warning)
@@ -76,10 +75,7 @@ impl OctaApp {
                     // "Dismiss" reverts the promoted columns back to text.
                     if ui
                         .small_button("Okay")
-                        .on_hover_text(
-                            "Keep showing these columns as dates (YYYY-MM-DD). \
-                             The original format is still written on save.",
-                        )
+                        .on_hover_text("Keep showing these columns as dates (YYYY-MM-DD).")
                         .clicked()
                     {
                         keep_dates = true;
@@ -108,10 +104,63 @@ impl OctaApp {
                 self.pending_date_warning = None;
             }
 
+            // Near-miss date banner. Lists columns that looked date-shaped but
+            // had values that could not be parsed, so they stayed text. This
+            // explains *why* a column the user expected to be a date is still
+            // text. Dismiss-only - nothing was changed.
+            let mut dismiss_date_parse = false;
+            if let Some(warning) = self
+                .pending_date_parse_warning
+                .as_ref()
+                .filter(|w| w.tab_idx == self.active_tab && !w.entries.is_empty())
+            {
+                let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
+                let summary = warning
+                    .entries
+                    .iter()
+                    .map(|e| {
+                        let samples = e.samples.join(", ");
+                        format!(
+                            "{} (looks like {}, {} of {} values parsed; e.g. {})",
+                            e.column_name, e.source_label, e.parsed, e.total, samples
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Left as text - some values could not be parsed as dates: {}.",
+                            summary
+                        ))
+                        .color(colors.warning)
+                        .size(12.0),
+                    );
+                    if ui
+                        .small_button("Dismiss")
+                        .on_hover_text("Close this notice.")
+                        .clicked()
+                    {
+                        dismiss_date_parse = true;
+                    }
+                    ui.label(
+                        egui::RichText::new("(disable in Settings -> File-Specific)")
+                            .color(colors.text_muted)
+                            .size(11.0),
+                    );
+                });
+                ui.add_space(4.0);
+            }
+            if dismiss_date_parse {
+                self.pending_date_parse_warning = None;
+            }
+
             // Whitespace-trim banner. Lists the columns whose string cells had
             // leading/trailing whitespace stripped on load. Dismiss-only - the
             // trimming itself already happened.
             let mut dismiss_trim = false;
+            let mut undo_trim = false;
             if let Some(warning) = self
                 .pending_trim_warning
                 .as_ref()
@@ -130,19 +179,22 @@ impl OctaApp {
                         .color(colors.warning)
                         .size(12.0),
                     );
-                    // The trim already happened, so "Okay" and "Dismiss" both
-                    // just close the banner; "Okay" reads as an explicit accept.
-                    let trim_hint =
-                        "Close this notice. The whitespace was already trimmed on load.";
-                    if ui.small_button("Okay").on_hover_text(trim_hint).clicked() {
+                    // "Okay" accepts the trim and closes the banner; "Dismiss"
+                    // undoes it, restoring the original leading/trailing
+                    // whitespace.
+                    if ui
+                        .small_button("Okay")
+                        .on_hover_text("Keep the trimmed values.")
+                        .clicked()
+                    {
                         dismiss_trim = true;
                     }
                     if ui
                         .small_button("Dismiss")
-                        .on_hover_text(trim_hint)
+                        .on_hover_text("Undo the trim and restore the original whitespace.")
                         .clicked()
                     {
-                        dismiss_trim = true;
+                        undo_trim = true;
                     }
                     ui.label(
                         egui::RichText::new("(disable in Settings -> File-Specific)")
@@ -152,7 +204,9 @@ impl OctaApp {
                 });
                 ui.add_space(4.0);
             }
-            if dismiss_trim {
+            if undo_trim {
+                self.revert_trimmed_columns();
+            } else if dismiss_trim {
                 self.pending_trim_warning = None;
             }
 
@@ -454,6 +508,36 @@ impl OctaApp {
                 col.data_type = "Utf8".to_string();
             }
         }
+        tab.filter_dirty = true;
+        tab.table_state.invalidate_row_heights();
+    }
+
+    /// Undo the load-time whitespace trim, restoring the original column titles
+    /// and cell whitespace recorded in the trim banner's undo log. Called from
+    /// the "Dismiss" button on the whitespace-trim banner.
+    fn revert_trimmed_columns(&mut self) {
+        use octa::data::CellValue;
+        let Some(warning) = self.pending_trim_warning.take() else {
+            return;
+        };
+        let Some(tab) = self.tabs.get_mut(warning.tab_idx) else {
+            return;
+        };
+        for (col_idx, title) in &warning.undo.titles {
+            if let Some(col) = tab.table.columns.get_mut(*col_idx) {
+                col.name = title.clone();
+            }
+        }
+        for (col_idx, cells) in &warning.undo.cells {
+            for (row_idx, value) in cells {
+                if *row_idx < tab.table.row_count() && *col_idx < tab.table.col_count() {
+                    tab.table.rows[*row_idx][*col_idx] = CellValue::String(value.clone());
+                }
+            }
+        }
+        // Restoring whitespace is an in-place change; re-sync the DB diff-save
+        // baseline so it isn't later seen as an edit / schema change.
+        super::file_io::resync_db_meta_baseline(tab);
         tab.filter_dirty = true;
         tab.table_state.invalidate_row_heights();
     }

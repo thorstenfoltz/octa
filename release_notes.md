@@ -1,55 +1,38 @@
 # Release notes
 
-A batch of display, dialog, SQL, and assistant improvements, plus broader
-non-Latin text rendering and finished translations for the five newest languages.
+Improvements to date detection on load, the whitespace-trim notice, five new
+interface languages, and a seasonal touch.
 
-## Data display
+## Date detection
 
-**Non-Latin text now renders.** Cell values containing Chinese, Japanese, or
-Korean characters previously showed as empty boxes. Octa now bundles a Noto Sans
-CJK fallback face, so that text displays correctly in the table even while the
-interface itself is in a Latin-script language. (Colour emoji and right-to-left
-scripts such as Arabic and Hebrew are still not rendered.)
+**Date inference now runs on every format.** Columns of date-shaped text are
+promoted to a proper Date/DateTime display regardless of which format the file
+came from. Previously this pass only ran on text-style formats (CSV, TSV, JSON,
+Excel, XML, TOML, YAML, Markdown, DBF). Binary formats that already carry typed
+dates (Parquet, Arrow, SQLite, DuckDB, and the rest) are unaffected: the check
+only ever inspects plain text columns, so reader-provided Date/Timestamp
+columns are left exactly as they were.
 
-## Windows and dialogs
+**"Looks like a date but stayed text" notice.** When a column looks
+date-shaped, most of its values parse as a date, yet a few cannot, Octa now
+leaves the column as text and shows a banner explaining why, naming the column,
+the layout it matched, how many values parsed, and a few of the offending
+values. This makes it clear why a column you expected to become a date is still
+text. The notice is dismiss-only; nothing is changed. You can turn it off under
+**Settings -> File-Specific**.
 
-**Maximise button now restores the previous size.** Clicking the maximise
-button a second time in the Settings, Documentation, Column Inspector, Column
-Filter, Value Frequency, and Schema Export windows now shrinks the window back
-to the size it had before, instead of staying full-size.
+## Whitespace trim
 
-**Number format opens without picking a column first.** **Edit -> Number
-format...** now opens straight away (as long as the table has at least one
-numeric column); you choose which columns to format from the dialog's "Apply to"
-list. Previously it refused to open unless you had selected a numeric column
-beforehand.
-
-## SQL
-
-**Copy from the result grid.** Click a cell in the SQL result to select it and
-copy it with <kbd>Ctrl</kbd>+<kbd>C</kbd>, just like the main table. Right-click
-a result cell for **Copy cell** or **Copy all** (the whole result as TSV).
-
-## Assistant
-
-**`@`-mention autocomplete.** Typing `@` in the chat input now shows a
-suggestion popup of your open tabs (by handle and name) and their column names,
-so referencing a specific tab or column is quicker. Use <kbd>Tab</kbd> or click
-to accept, <kbd>Esc</kbd> to dismiss.
-
-## Documentation and settings
-
-**Searchable in-app documentation.** The built-in Documentation window
-(**Help -> Documentation**) now has a search box that filters the section list
-as you type.
-
-**"Open as text" moved to Files.** The "Open as text" extension list now lives
-under **Settings -> Files** instead of Performance, where it fits better. The
-Chat / Assistant settings are now also documented in the online settings
-reference.
+**"Dismiss" now undoes the trim.** On the load-time whitespace-trim banner,
+**Okay** keeps the trimmed values (as before) and **Dismiss** now restores the
+original leading and trailing whitespace instead of just closing the notice.
+The revert touches only the cells and titles that were actually trimmed, and
+keeps database diff-saves correct.
 
 ## Languages
 
-**Finished translations for the five newest languages.** The remaining
-interface strings for Indonesian, Vietnamese, Romanian, Hungarian, and Czech are
-now translated rather than falling back to English.
+**Five new interface languages.** The interface can now be shown in Greek,
+Russian, Japanese, Korean, and Chinese, bringing the total to 22 languages.
+Change it under **Settings -> Appearance -> Language**; the switch is live.
+Monospace text (such as the SQL editor and its gutter) now renders Greek and
+Cyrillic correctly as well, instead of showing empty boxes.

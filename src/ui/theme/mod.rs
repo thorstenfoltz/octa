@@ -465,6 +465,14 @@ fn apply_fonts(ctx: &egui::Context, font: &FontSettings) {
         "symbols".into(),
         Arc::new(FontData::from_static(SYMBOLS_BYTES)),
     );
+    // The bundled monospace face is Latin-only, and neither the CJK nor the
+    // symbols face covers Greek or Cyrillic. Append Roboto Medium to the
+    // monospace fallback chain so localized monospace text (e.g. Greek /
+    // Russian in the SQL editor or gutter) renders instead of tofu - it only
+    // fills glyphs the mono face lacks, so ASCII stays monospaced.
+    if let Some(mono) = defs.families.get_mut(&FontFamily::Monospace) {
+        mono.push("medium".into());
+    }
     for family in [FontFamily::Proportional, FontFamily::Monospace] {
         let fam = defs.families.entry(family).or_default();
         fam.push("cjk".into());
