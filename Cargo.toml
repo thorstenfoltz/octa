@@ -54,8 +54,8 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 regex = "1"
 regex-syntax = "0.8"
 orc-rust = { version = "0.8.0", default-features = false }
-hdf5-reader = "0.5"
-rusqlite = { version = "0.39", features = ["bundled"] }
+hdf5-reader = "0.6"
+rusqlite = { version = "0.40", features = ["bundled"] }
 duckdb = { version = "1", features = ["bundled"] }
 rand = "0.10"
 sas7bdat = { version = "0.2", default-features = false, features = ["time"] }

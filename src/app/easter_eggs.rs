@@ -351,6 +351,15 @@ pub(crate) fn is_christmas_window() -> bool {
     today.month() == 12 && (24..=26).contains(&today.day())
 }
 
+/// Local date check: is today New Year's Eve (Dec 31) or New Year's Day
+/// (Jan 1)? Drives the passive fireworks overlay, mirroring the Christmas
+/// window. Returns `false` if the local clock can't be read (unlikely).
+pub(crate) fn is_new_year_window() -> bool {
+    use chrono::Datelike;
+    let today = chrono::Local::now().date_naive();
+    (today.month() == 12 && today.day() == 31) || (today.month() == 1 && today.day() == 1)
+}
+
 impl OctaApp {
     /// Register a click on the welcome-screen logo. When three clicks land
     /// within `WELCOME_LOGO_CLICK_WINDOW`, kicks off a `SNOWFALL_DURATION_S`
@@ -427,6 +436,118 @@ impl OctaApp {
         });
         // Animation only progresses if we keep asking for frames.
         ctx.request_repaint();
+    }
+
+    /// Paint the passive New Year fireworks overlay if today is Dec 31 or
+    /// Jan 1. Several staggered shells rise and burst into fading radial
+    /// sparks, driven by wall-clock time. Painted in a `Foreground` Area so
+    /// the bursts float over the table without intercepting clicks.
+    pub(crate) fn render_new_year_overlay(&mut self, ctx: &egui::Context) {
+        if !is_new_year_window() {
+            return;
+        }
+        let is_dark = self.theme_mode.is_dark();
+        let t = ctx.input(|i| i.time) as f32;
+        let area = egui::Area::new(egui::Id::new("octa_new_year"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(0.0, 0.0))
+            .interactable(false);
+        area.show(ctx, |ui| {
+            let screen = ctx.content_rect();
+            paint_fireworks(ui.painter(), screen, is_dark, t);
+        });
+        ctx.request_repaint();
+    }
+}
+
+/// Deterministic fireworks: a handful of shells, each on its own repeating
+/// cycle, rise from the bottom edge and burst into a fading ring of radial
+/// sparks that droop under gravity. Every shell and spark is seeded so the
+/// show is reproducible across frames with no per-frame allocation. Driven by
+/// wall-clock `t`.
+fn paint_fireworks(painter: &egui::Painter, screen: egui::Rect, is_dark: bool, t: f32) {
+    use std::f32::consts::TAU;
+
+    const SHELLS: usize = 7; // concurrent shells
+    const CYCLE: f32 = 3.4; // seconds for one launch+burst+rest cycle
+    const RISE: f32 = 1.0; // seconds rising before the burst
+    const BURST_LIFE: f32 = 1.9; // seconds the burst stays visible
+    const PARTICLES: usize = 30; // sparks per burst
+    const GRAVITY: f32 = 90.0; // downward droop (px over burst lifetime)
+
+    // Bright festive palette; one base hue per shell.
+    const PALETTE: [Color32; 6] = [
+        Color32::from_rgb(255, 90, 90),   // red
+        Color32::from_rgb(255, 200, 70),  // gold
+        Color32::from_rgb(120, 200, 255), // sky
+        Color32::from_rgb(170, 130, 255), // violet
+        Color32::from_rgb(120, 255, 160), // green
+        Color32::from_rgb(255, 130, 220), // pink
+    ];
+    // A faint white core reads better on light themes.
+    let alpha_scale = if is_dark { 1.0 } else { 0.82 };
+
+    for s in 0..SHELLS {
+        let seed = (s as u32).wrapping_mul(2654435761) ^ 0xf1e2_0a7b;
+        // Stagger each shell so they don't all fire together.
+        let offset = (s as f32 / SHELLS as f32) * CYCLE + ((seed & 0xff) as f32 / 255.0) * 0.7;
+        let local = (t + offset).rem_euclid(CYCLE);
+
+        let x_seed = ((seed >> 8) & 0xffff) as f32 / 65535.0;
+        let y_seed = ((seed >> 5) & 0xff) as f32 / 255.0;
+        let burst_x = screen.left() + (0.1 + 0.8 * x_seed) * screen.width();
+        let burst_y = screen.top() + (0.16 + 0.32 * y_seed) * screen.height();
+        let base = PALETTE[(seed as usize >> 13) % PALETTE.len()];
+
+        if local < RISE {
+            // Rising rocket: a bright dot climbing from the bottom edge,
+            // easing to a stop at the burst point, with a short fading trail.
+            let p = local / RISE;
+            let ease = 1.0 - (1.0 - p) * (1.0 - p); // ease-out
+            let y = screen.bottom() + (burst_y - screen.bottom()) * ease;
+            let a = (200.0 * alpha_scale) as u8;
+            let head = Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), a);
+            painter.line_segment(
+                [egui::pos2(burst_x, y + 14.0), egui::pos2(burst_x, y)],
+                Stroke::new(
+                    1.6,
+                    Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), a / 3),
+                ),
+            );
+            painter.circle_filled(egui::pos2(burst_x, y), 2.0, head);
+        } else {
+            let bt = local - RISE;
+            if bt > BURST_LIFE {
+                continue;
+            }
+            let prog = bt / BURST_LIFE;
+            let fade = (1.0 - prog).clamp(0.0, 1.0);
+            let ring = 14.0 + prog * 120.0; // sparks fly outward over time
+            for pi in 0..PARTICLES {
+                let pseed = (pi as u32).wrapping_mul(40503) ^ seed;
+                let ang = (pi as f32 / PARTICLES as f32) * TAU
+                    + ((pseed & 0xf) as f32 / 15.0 - 0.5) * 0.2;
+                let jitter = 0.7 + ((pseed >> 4) & 0xff) as f32 / 255.0 * 0.6;
+                let r = ring * jitter;
+                let px = burst_x + ang.cos() * r;
+                let py = burst_y + ang.sin() * r + GRAVITY * prog * prog;
+                let a = (230.0 * fade * alpha_scale) as u8;
+                if a == 0 {
+                    continue;
+                }
+                let color = Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), a);
+                painter.circle_filled(egui::pos2(px, py), 1.6 + fade * 1.4, color);
+            }
+            // A soft flash at the burst centre early on.
+            if prog < 0.25 {
+                let a = (180.0 * (1.0 - prog / 0.25) * alpha_scale) as u8;
+                painter.circle_filled(
+                    egui::pos2(burst_x, burst_y),
+                    3.0,
+                    Color32::from_rgba_unmultiplied(255, 255, 245, a),
+                );
+            }
+        }
     }
 }
 

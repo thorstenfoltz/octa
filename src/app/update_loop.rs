@@ -81,6 +81,7 @@ impl eframe::App for OctaApp {
         self.render_central_panel(ui);
         self.render_confetti(&ctx);
         self.render_snowfall(&ctx);
+        self.render_new_year_overlay(&ctx);
     }
 
     /// Cleanup on shutdown: persist the live chat session and stop any Ollama

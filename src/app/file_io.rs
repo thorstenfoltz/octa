@@ -99,26 +99,26 @@ fn snapshot_column_strings(table: &octa::data::DataTable, col_idx: usize) -> Vec
     out
 }
 
-/// Whether the post-load date-inference pass should run for a given format.
-/// Binary formats with their own typed-date support (Parquet, Arrow, SQLite,
-/// DuckDB, SAS, Stata, SPSS, RDS, ORC, Avro, HDF5, GeoPackage) are
-/// authoritative - re-typing their columns from string content would only
-/// confuse users. Inference runs on text-style formats whose readers leave
-/// non-ISO dates as plain strings.
-fn date_inference_runs_on(format_name: Option<&str>) -> bool {
-    matches!(
-        format_name,
-        Some("CSV")
-            | Some("TSV")
-            | Some("JSON")
-            | Some("JSON Lines")
-            | Some("Excel")
-            | Some("XML")
-            | Some("TOML")
-            | Some("YAML")
-            | Some("Markdown")
-            | Some("DBF")
-    )
+/// Re-sync a DB-backed table's diff-save baseline from its current rows and
+/// column names, so an in-place normalization (whitespace trim, date revert,
+/// etc.) isn't later mistaken for user edits or a schema change. No-op for
+/// non-DB tables.
+pub(crate) fn resync_db_meta_baseline(tab: &mut TabState) {
+    if tab.table.db_meta.is_none() {
+        return;
+    }
+    let rows = tab.table.rows.clone();
+    let col_names: Vec<String> = tab.table.columns.iter().map(|c| c.name.clone()).collect();
+    if let Some(meta) = tab.table.db_meta.as_mut() {
+        for (row_idx, tag) in meta.row_tags.iter().enumerate() {
+            if let Some(t) = tag
+                && let Some(row) = rows.get(row_idx)
+            {
+                meta.original.insert(*t, row.clone());
+            }
+        }
+        meta.original_columns = col_names;
+    }
 }
 
 /// Shift cell references in a formula to target a specific row. The formula
@@ -934,9 +934,11 @@ impl OctaApp {
         // a value like " 2024-01-02 " can still be recognised as a date.
         self.run_trim_pass(self.active_tab);
 
-        // Promote string columns that are uniformly date-shaped. Runs on
-        // text-style formats; binary formats already carry typed dates from
-        // the reader and would only confuse users by being re-typed here.
+        // Promote string columns that are uniformly date-shaped. Runs for
+        // every format - the candidate check (`date_infer::column_is_candidate`)
+        // only ever touches `Utf8` string columns, so typed Date/Timestamp
+        // columns produced by binary readers (Parquet, Arrow, SQLite, ...) are
+        // left untouched; only genuine text columns get promoted.
         self.run_date_inference_pass(self.active_tab);
     }
 
@@ -951,31 +953,19 @@ impl OctaApp {
             return;
         }
         let tab = &mut self.tabs[tab_idx];
-        let trimmed = octa::data::trim::trim_string_columns(&mut tab.table);
+        let (trimmed, undo) = octa::data::trim::trim_string_columns_tracked(&mut tab.table);
         if trimmed.is_empty() {
             return;
         }
         // Re-sync the DB diff-save baseline so trimming (cells or titles)
         // isn't seen as edits / a schema change.
-        if tab.table.db_meta.is_some() {
-            let rows = tab.table.rows.clone();
-            let col_names: Vec<String> = tab.table.columns.iter().map(|c| c.name.clone()).collect();
-            if let Some(meta) = tab.table.db_meta.as_mut() {
-                for (row_idx, tag) in meta.row_tags.iter().enumerate() {
-                    if let Some(t) = tag
-                        && let Some(row) = rows.get(row_idx)
-                    {
-                        meta.original.insert(*t, row.clone());
-                    }
-                }
-                meta.original_columns = col_names;
-            }
-        }
+        resync_db_meta_baseline(tab);
         tab.filter_dirty = true;
         if self.settings.warn_on_whitespace_trim {
             self.pending_trim_warning = Some(super::state::TrimWarning {
                 tab_idx,
                 columns: trimmed,
+                undo,
             });
         }
     }
@@ -988,14 +978,11 @@ impl OctaApp {
         if tab_idx >= self.tabs.len() {
             return;
         }
-        let format_name = self.tabs[tab_idx].table.format_name.clone();
-        if !date_inference_runs_on(format_name.as_deref()) {
-            return;
-        }
 
         use octa::data::date_infer;
         let col_count = self.tabs[tab_idx].table.col_count();
         let mut format_changes: Vec<super::state::DatePromotionInfo> = Vec::new();
+        let mut parse_failures: Vec<super::state::DateParseFailure> = Vec::new();
         for col_idx in 0..col_count {
             let table = &self.tabs[tab_idx].table;
             if !date_infer::column_is_candidate(table, col_idx) {
@@ -1095,6 +1082,26 @@ impl OctaApp {
                             datetime_candidates: candidates,
                         });
                 }
+                date_infer::InferOutcome::Failed {
+                    label,
+                    parsed,
+                    total,
+                    failures,
+                } => {
+                    let col_name = self.tabs[tab_idx]
+                        .table
+                        .columns
+                        .get(col_idx)
+                        .map(|c| c.name.clone())
+                        .unwrap_or_default();
+                    parse_failures.push(super::state::DateParseFailure {
+                        column_name: col_name,
+                        source_label: label,
+                        parsed,
+                        total,
+                        samples: failures,
+                    });
+                }
             }
         }
 
@@ -1102,6 +1109,12 @@ impl OctaApp {
             self.pending_date_warning = Some(super::state::DateWarning {
                 tab_idx,
                 entries: format_changes,
+            });
+        }
+        if !parse_failures.is_empty() && self.settings.warn_on_date_format_change {
+            self.pending_date_parse_warning = Some(super::state::DateParseWarning {
+                tab_idx,
+                entries: parse_failures,
             });
         }
     }

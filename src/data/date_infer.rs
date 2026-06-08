@@ -268,6 +268,17 @@ pub enum InferOutcome {
         candidates: Vec<DateTimeLayout>,
         samples: Vec<String>,
     },
+    /// No single layout matches every value, but the closest date/datetime
+    /// layout matches *most* of them - the column looks date-shaped yet some
+    /// values cannot be parsed, so it stays text. Carries the closest layout's
+    /// label, how many of `total` non-null values parsed, and a few offending
+    /// raw values so the UI can explain why promotion was skipped.
+    Failed {
+        label: &'static str,
+        parsed: usize,
+        total: usize,
+        failures: Vec<String>,
+    },
 }
 
 /// Inspect a column of strings and report what date/datetime layout - if any
@@ -305,12 +316,65 @@ pub fn infer_column(values: &[Option<&str>]) -> InferOutcome {
         .collect();
 
     match dt_passing.len() {
-        0 => InferOutcome::Skip,
+        0 => best_near_miss(&non_null),
         1 => InferOutcome::PromotedDateTime(dt_passing[0]),
         _ => InferOutcome::AmbiguousDateTime {
             candidates: dt_passing,
             samples: sample_values(&non_null),
         },
+    }
+}
+
+/// When no layout matches every value, find the layout that matches the most
+/// and decide whether the column is a "near miss" worth flagging. Returns
+/// [`InferOutcome::Failed`] when the best layout parses a majority (> 50%) but
+/// not all of the non-null values; otherwise [`InferOutcome::Skip`] (the column
+/// just isn't a date). Up to five offending values are captured for the notice.
+fn best_near_miss(non_null: &[&str]) -> InferOutcome {
+    let total = non_null.len();
+    if total == 0 {
+        return InferOutcome::Skip;
+    }
+    let mut best_label = "";
+    let mut best_parsed = 0usize;
+    let mut best_failures: Vec<String> = Vec::new();
+
+    {
+        let mut consider = |label: &'static str, parses: &dyn Fn(&str) -> bool| {
+            let mut parsed = 0usize;
+            let mut failures: Vec<String> = Vec::new();
+            for v in non_null {
+                if parses(v) {
+                    parsed += 1;
+                } else if failures.len() < 5 {
+                    failures.push((*v).to_string());
+                }
+            }
+            if parsed > best_parsed {
+                best_parsed = parsed;
+                best_label = label;
+                best_failures = failures;
+            }
+        };
+
+        for layout in DateLayout::ALL {
+            consider(layout.label(), &|s| layout.parse(s).is_some());
+        }
+        for layout in DateTimeLayout::ALL {
+            consider(layout.label(), &|s| layout.parse(s).is_some());
+        }
+    }
+
+    // Majority match but not unanimous: looks like dates, some values bad.
+    if best_parsed * 2 > total && best_parsed < total {
+        InferOutcome::Failed {
+            label: best_label,
+            parsed: best_parsed,
+            total,
+            failures: best_failures,
+        }
+    } else {
+        InferOutcome::Skip
     }
 }
 
@@ -493,6 +557,42 @@ mod tests {
     #[test]
     fn null_only_skip() {
         let strings: Vec<Option<&str>> = vec![None, None];
+        assert!(matches!(infer_column(&strings), InferOutcome::Skip));
+    }
+
+    #[test]
+    fn near_miss_reports_failed() {
+        // Three of four parse as YYYY-MM-DD; one is junk -> Failed, not Skip.
+        let strings = vec![
+            Some("2024-03-15"),
+            Some("2024-04-01"),
+            Some("2024-05-20"),
+            Some("not-a-date"),
+        ];
+        match infer_column(&strings) {
+            InferOutcome::Failed {
+                parsed,
+                total,
+                failures,
+                ..
+            } => {
+                assert_eq!(parsed, 3);
+                assert_eq!(total, 4);
+                assert_eq!(failures, vec!["not-a-date".to_string()]);
+            }
+            other => panic!("expected Failed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn half_match_is_skip_not_failed() {
+        // Exactly 50% parse -> not a majority -> Skip (avoids false alarms).
+        let strings = vec![
+            Some("hello"),
+            Some("world"),
+            Some("2024-03-15"),
+            Some("foo"),
+        ];
         assert!(matches!(infer_column(&strings), InferOutcome::Skip));
     }
 
