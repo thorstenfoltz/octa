@@ -47,37 +47,37 @@ The same binary also speaks the Model Context Protocol over stdio (`octa --mcp`)
 
 ## Supported Formats
 
-| Format                    | Read | Write | Notes                                                                                                  |
-|---------------------------|------|-------|--------------------------------------------------------------------------------------------------------|
-| Parquet                   | yes  | yes   | Lazy row loading for very large files                                                                  |
-| CSV/TSV                   | yes  | yes   | Auto-detected delimiter                                                                                |
-| JSON/JSON Lines           | yes  | yes   | Collapsible JSON Tree view with inline key / value editing.                                            |
-| Excel                     | yes  | yes   | Opens every sheet as a tab.                                                                            |
-| ODS                       | yes  | yes   |                                                                                                        |
-| Arrow IPC / Feather       | yes  | yes   |                                                                                                        |
-| Avro                      | yes  | yes   |                                                                                                        |
-| ORC                       | yes  | yes   |                                                                                                        |
-| HDF5                      | yes  | no    |                                                                                                        |
-| NetCDF v3 (.nc)           | yes  | no    |                                                                                                        |
-| SQLite                    | yes  | yes   | Multi-table picker; diff-based writes via rowid identity.                                              |
-| DuckDB                    | yes  | yes   | Multi-table picker; SQL Query view exposes the file as `data`.                                         |
-| GeoPackage (.gpkg)        | yes  | yes   | Multi-table picker.                                                                                    |
-| SAS (.sas7bdat)           | yes  | no    |                                                                                                        |
-| SPSS (.sav, .zsav)        | yes  | yes   |                                                                                                        |
-| Stata (.dta)              | yes  | yes   |                                                                                                        |
-| R (.rds, .rdata)          | yes  | no    |                                                                                                        |
-| DBF/dBase (.dbf)          | yes  | yes   |                                                                                                        |
-| XML                       | yes  | yes   |                                                                                                        |
-| TOML                      | yes  | yes   |                                                                                                        |
-| YAML                      | yes  | yes   | Collapsible YAML Tree view (mirrors JSON Tree).                                                        |
-| Jupyter Notebook          | yes  | yes   | Notebook view renders code + markdown cells with syntect highlighting.                                 |
-| Markdown                  | yes  | yes   | Rendered preview, Split, and Edit modes.                                                               |
-| EPUB                      | yes  | no    | EPUB Reader view, chapter-by-chapter with embedded images.                                             |
-| GeoJSON (.geojson)        | yes  | no    | Map view with OSM tile rendering or geometry-only fallback.                                            |
-| Archive (zip / tar / tgz) | yes  | no    | Read-only listing; per-entry extract-and-open action.                                                  |
-| Fixed-width (FWF)         | yes  | no    | `.fwf` / `.prn`; read-only, best-effort column-boundary inference.                                     |
-| Source code / config      | yes  | yes   | `.py`, `.rs`, `.go`, `.ts`, ... opened with syntect highlighting in the Raw view.                      |
-| Plain Text                | yes  | yes   |                                                                                                        |
+| Format                    | Read | Write | Notes                                                                             |
+|---------------------------|------|-------|-----------------------------------------------------------------------------------|
+| Parquet                   | yes  | yes   | Lazy row loading for very large files                                             |
+| CSV/TSV                   | yes  | yes   | Auto-detected delimiter                                                           |
+| JSON/JSON Lines           | yes  | yes   | Collapsible JSON Tree view with inline key / value editing.                       |
+| Excel                     | yes  | yes   | Opens every sheet as a tab.                                                       |
+| ODS                       | yes  | yes   |                                                                                   |
+| Arrow IPC / Feather       | yes  | yes   |                                                                                   |
+| Avro                      | yes  | yes   |                                                                                   |
+| ORC                       | yes  | yes   |                                                                                   |
+| HDF5                      | yes  | no    |                                                                                   |
+| NetCDF v3 (.nc)           | yes  | no    |                                                                                   |
+| SQLite                    | yes  | yes   | Multi-table picker; diff-based writes via rowid identity.                         |
+| DuckDB                    | yes  | yes   | Multi-table picker; SQL Query view exposes the file as `data`.                    |
+| GeoPackage (.gpkg)        | yes  | yes   | Multi-table picker.                                                               |
+| SAS (.sas7bdat)           | yes  | no    |                                                                                   |
+| SPSS (.sav, .zsav)        | yes  | yes   |                                                                                   |
+| Stata (.dta)              | yes  | yes   |                                                                                   |
+| R (.rds, .rdata)          | yes  | no    |                                                                                   |
+| DBF/dBase (.dbf)          | yes  | yes   |                                                                                   |
+| XML                       | yes  | yes   |                                                                                   |
+| TOML                      | yes  | yes   |                                                                                   |
+| YAML                      | yes  | yes   | Collapsible YAML Tree view (mirrors JSON Tree).                                   |
+| Jupyter Notebook          | yes  | yes   | Notebook view renders code + markdown cells with syntect highlighting.            |
+| Markdown                  | yes  | yes   | Rendered preview, Split, and Edit modes.                                          |
+| EPUB                      | yes  | no    | EPUB Reader view, chapter-by-chapter with embedded images.                        |
+| GeoJSON (.geojson)        | yes  | no    | Map view with OSM tile rendering or geometry-only fallback.                       |
+| Archive (zip / tar / tgz) | yes  | no    | Read-only listing; per-entry extract-and-open action.                             |
+| Fixed-width (FWF)         | yes  | no    | `.fwf` / `.prn`; read-only, best-effort column-boundary inference.                |
+| Source code / config      | yes  | yes   | `.py`, `.rs`, `.go`, `.ts`, ... opened with syntect highlighting in the Raw view. |
+| Plain Text                | yes  | yes   |                                                                                   |
 
 Unknown file extensions are opened as plain text.
 
@@ -164,7 +164,8 @@ Output format is selectable with `-f / --format {tsv|json|csv}` (TSV default). R
 
 ### MCP server
 
-`octa --mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io/) server on stdio that exposes Octa's reading, inspection, and write capabilities as MCP tools. Point any MCP client (Claude Desktop, Claude Code, MCP Inspector, or any compatible client) at the same binary and the model can query your local data files directly, no scripting in between.
+`octa --mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io/) server on stdio that exposes Octa's reading, inspection, and write capabilities as MCP tools. Point any MCP client (Claude Desktop, Claude Code,
+MCP Inspector, or any compatible client) at the same binary and the model can query your local data files directly, no scripting in between.
 
 ### Assistant (in-app chat)
 

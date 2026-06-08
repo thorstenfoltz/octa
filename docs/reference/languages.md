@@ -31,9 +31,9 @@ Change it under **Settings → Appearance → Language**. The switch is
 | `cs` | Čeština    |
 | `el` | Ελληνικά   |
 | `ru` | Русский    |
-| `ja` | 日本語      |
-| `ko` | 한국어      |
-| `zh` | 中文        |
+| `ja` | 日本語     |
+| `ko` | 한국어        |
+| `zh` | 中文       |
 
 The chosen code is stored as `language` in your
 [`settings.toml`](settings.md).
