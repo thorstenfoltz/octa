@@ -272,7 +272,11 @@ impl OctaApp {
         if action_fired(SA::ToggleSqlPanel)
             && self.tabs[self.active_tab].view_mode == ViewMode::Table
         {
-            self.tabs[self.active_tab].sql_panel_open = !self.tabs[self.active_tab].sql_panel_open;
+            let tab = &mut self.tabs[self.active_tab];
+            tab.sql_panel_open = !tab.sql_panel_open;
+            if tab.sql_panel_open {
+                tab.sql_editor_focus_pending = true;
+            }
         }
 
         // Undo / Redo / Mark / OpenSettings / OpenDocumentation - gated on no

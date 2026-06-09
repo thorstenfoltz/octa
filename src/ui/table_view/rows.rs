@@ -537,13 +537,47 @@ pub(super) fn draw_data_row_direct(
         colors.row_number_bg
     };
     painter.rect_filled(rn_rect, 0.0, rn_bg);
-    painter.text(
-        rn_rect.center(),
-        Align2::CENTER_CENTER,
-        format_number(actual_row + 1 + table.row_offset),
-        egui::FontId::new((font_size * 0.85).round(), egui::FontFamily::Monospace),
-        colors.row_number_text,
-    );
+    let rn_font = egui::FontId::new((font_size * 0.85).round(), egui::FontFamily::Monospace);
+    let seq_w = state.seq_number_width;
+    if seq_w > 0.0 {
+        // Two sub-columns: original row number (left) | sequential 1..N (right).
+        let orig_w = (rn_rect.width() - seq_w).max(0.0);
+        let orig_rect = egui::Rect::from_min_size(rn_rect.min, Vec2::new(orig_w, rn_rect.height()));
+        let seq_rect = egui::Rect::from_min_size(
+            egui::pos2(rn_rect.left() + orig_w, rn_rect.top()),
+            Vec2::new(seq_w, rn_rect.height()),
+        );
+        painter.text(
+            orig_rect.center(),
+            Align2::CENTER_CENTER,
+            format_number(actual_row + 1 + table.row_offset),
+            rn_font.clone(),
+            colors.row_number_text,
+        );
+        // Thin separator between the two numbers.
+        painter.line_segment(
+            [
+                egui::pos2(seq_rect.left(), rn_rect.top() + 2.0),
+                egui::pos2(seq_rect.left(), rn_rect.bottom() - 2.0),
+            ],
+            egui::Stroke::new(1.0, colors.border),
+        );
+        painter.text(
+            seq_rect.center(),
+            Align2::CENTER_CENTER,
+            format_number(display_idx + 1),
+            rn_font,
+            colors.text_muted,
+        );
+    } else {
+        painter.text(
+            rn_rect.center(),
+            Align2::CENTER_CENTER,
+            format_number(actual_row + 1 + table.row_offset),
+            rn_font,
+            colors.row_number_text,
+        );
+    }
 
     // Row number click interaction
     if rn_rect.intersects(panel_rect) {

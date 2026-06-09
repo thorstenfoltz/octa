@@ -1,39 +1,72 @@
-//! `octa --diff FILE_A FILE_B` - row-level diff of two files.
+//! `octa --diff FILE_A FILE_B [--diff-mode MODE] [--diff-on COLS]` - data
+//! comparison of two files.
 //!
-//! Reads both files through the format registry, delegates to the pure
-//! `octa::data::diff::diff_rows`, and prints the rows unique to each side as a
-//! single table (a leading `status` column tags each row `only_in_a` /
-//! `only_in_b`). A one-line summary (`shared`, `only_in_a`, `only_in_b`
-//! counts) goes to stderr so stdout stays a clean, parseable table.
+//! Three modes (see [`octa::data::compare::CompareMode`]):
+//! * `set` (default) - whole-row membership via `octa::data::diff::diff_rows`;
+//!   prints rows unique to each side tagged `only_in_a` / `only_in_b`.
+//! * `ordered` - positional row-by-row comparison; prints rows unique to the
+//!   longer side plus paired `changed_a` / `changed_b` rows for matched rows
+//!   whose cells differ.
+//! * `join` - matches rows on the `--diff-on` key column(s) and prints
+//!   added / removed / changed rows.
+//!
+//! A one-line summary goes to stderr so stdout stays a clean, parseable table.
 
 use std::path::PathBuf;
 
+use octa::data::compare::{self, CompareMode};
 use octa::data::diff::diff_rows;
 use octa::data::{CellValue, ColumnInfo, DataTable};
 
 use super::OutputFormat;
 use super::output::write_table;
 
-pub fn run(path_a: PathBuf, path_b: PathBuf, format: OutputFormat) -> anyhow::Result<()> {
+pub fn run(
+    path_a: PathBuf,
+    path_b: PathBuf,
+    mode: CompareMode,
+    on: Vec<String>,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
     let a = super::read_table(&path_a)?;
     let b = super::read_table(&path_b)?;
-    let diff = diff_rows(&a, &b);
 
-    let out = build_diff_table(&a, &b, &diff.only_in_a, &diff.only_in_b);
-    write_table(&out, format)?;
-
-    eprintln!(
-        "shared {} row(s) - only in A: {} - only in B: {}",
-        diff.shared_keys,
-        diff.only_in_a.len(),
-        diff.only_in_b.len()
-    );
+    match mode {
+        CompareMode::Set => {
+            let diff = diff_rows(&a, &b);
+            let out = build_set_table(&a, &b, &diff.only_in_a, &diff.only_in_b);
+            write_table(&out, format)?;
+            eprintln!(
+                "mode set - shared {} row(s) - only in A: {} - only in B: {}",
+                diff.shared_keys,
+                diff.only_in_a.len(),
+                diff.only_in_b.len()
+            );
+        }
+        CompareMode::Ordered | CompareMode::Join => {
+            let result = match mode {
+                CompareMode::Ordered => compare::compare_ordered(&a, &b),
+                CompareMode::Join => compare::compare_join(&a, &b, &on)?,
+                CompareMode::Set => unreachable!(),
+            };
+            let out = compare::build_compare_table(&a, &b, &result);
+            write_table(&out, format)?;
+            eprintln!(
+                "mode {} - unchanged: {} - changed: {} - only in A: {} - only in B: {}",
+                mode.as_str(),
+                result.unchanged,
+                result.changed.len(),
+                result.only_in_a.len(),
+                result.only_in_b.len()
+            );
+        }
+    }
     Ok(())
 }
 
-/// One table tagging each differing row with its origin. Columns are
+/// One table tagging each differing row with its origin (set mode). Columns are
 /// `status` + the canonical side's column names (A's, or B's when A has none).
-fn build_diff_table(
+fn build_set_table(
     a: &DataTable,
     b: &DataTable,
     only_in_a: &[usize],

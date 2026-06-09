@@ -33,24 +33,25 @@ for missing keys; old versions ignore unknown keys).
 
 ## Table View
 
-| Setting                     | Default | Notes                                                                                                                                                                                  |
-|-----------------------------|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Show row numbers**        | on      | Hide the grey row-number gutter on the left.                                                                                                                                           |
-| **Alternating row colours** | on      | Subtle zebra striping.                                                                                                                                                                 |
-| **Negative numbers in red** | on      | Colour negative numeric cells red.                                                                                                                                                     |
-| **Thousand separators**     | on      | Render numeric cells with thousand separators (e.g. `1,234,567.89`). Display only, saved data is unchanged. TOML key: `thousands_separators_in_cells`.                                 |
-| **Number style**            | English | Grouping + decimal marks for numeric cells: English (`1,234.56`) or European (`1.234,56`). The decimal mark follows this even with separators off. TOML key: `number_separator_style`. |
-| **Highlight edited cells**  | off     | Background colour for cells with unsaved edits.                                                                                                                                        |
-| **Cell line breaks**        | off     | Render `\n` inside cells as actual line breaks. Rows have variable height when on.                                                                                                     |
-| **Binary display mode**     | Binary  | How `Binary` columns render: `Binary` (010101…), `Hex` (`0xab`), or `Text` (UTF-8 if printable, fallback to hex).                                                                      |
-| **Default mark colour**     | Green   | Colour used by the `Mark` shortcut (Ctrl+M).                                                                                                                                           |
+| Setting                     | Default | Notes                                                                                                                                                                                                                                                            |
+|-----------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Show row numbers**        | on      | Hide the grey row-number gutter on the left.                                                                                                                                                                                                                     |
+| **Show sequential numbers** | on      | While a filter is active, add a second gutter column numbering the *visible* rows from 1 (the first column keeps the original data row numbers). Only appears when filtered, off it would just duplicate the originals. TOML key: `show_sequential_row_numbers`. |
+| **Alternating row colours** | on      | Subtle zebra striping.                                                                                                                                                                                                                                           |
+| **Negative numbers in red** | on      | Colour negative numeric cells red.                                                                                                                                                                                                                               |
+| **Thousand separators**     | on      | Render numeric cells with thousand separators (e.g. `1,234,567.89`). Display only, saved data is unchanged. TOML key: `thousands_separators_in_cells`.                                                                                                           |
+| **Number style**            | English | Grouping + decimal marks for numeric cells: English (`1,234.56`) or European (`1.234,56`). The decimal mark follows this even with separators off. TOML key: `number_separator_style`.                                                                           |
+| **Highlight edited cells**  | off     | Background colour for cells with unsaved edits.                                                                                                                                                                                                                  |
+| **Cell line breaks**        | off     | Render `\n` inside cells as actual line breaks. Rows have variable height when on.                                                                                                                                                                               |
+| **Binary display mode**     | Binary  | How `Binary` columns render: `Binary` (010101…), `Hex` (`0xab`), or `Text` (UTF-8 if printable, fallback to hex).                                                                                                                                                |
+| **Default mark colour**     | Green   | Colour used by the `Mark` shortcut (Ctrl+M).                                                                                                                                                                                                                     |
 
 ## Search & Editor
 
-| Setting                 | Default | Notes                                                            |
-|-------------------------|---------|------------------------------------------------------------------|
-| **Default search mode** | Plain   | Initial mode for the toolbar search: Plain / Wildcard / Regex.   |
-| **Tab size**            | 4       | Number of spaces inserted when pressing Tab inside text editors. |
+| Setting                 | Default | Notes                                                                                                                                                                    |
+|-------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Default search mode** | Plain   | Initial mode for the toolbar search: Plain / Wildcard / Regex.                                                                                                           |
+| **Tab size**            | 4       | Number of spaces inserted when pressing Tab inside text editors (the Raw text editor and the Markdown Edit/Split editor; Tab indents in place rather than moving focus). |
 
 ## File-Specific
 

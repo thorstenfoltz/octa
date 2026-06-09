@@ -19,7 +19,12 @@ fn content_hash(s: &str) -> u64 {
 /// Render the Markdown view with a Preview / Split / Edit segmented toggle.
 /// In Split mode the left pane is a TextEdit bound to `tab.raw_content`;
 /// edits are reflected in the right-pane preview every frame.
-pub fn render_markdown_view(ui: &mut egui::Ui, tab: &mut TabState, readonly: bool) {
+pub fn render_markdown_view(
+    ui: &mut egui::Ui,
+    tab: &mut TabState,
+    readonly: bool,
+    tab_size: usize,
+) {
     let Some(content_owned) = tab.raw_content.clone() else {
         ui.centered_and_justified(|ui| {
             ui.label(
@@ -68,7 +73,7 @@ pub fn render_markdown_view(ui: &mut egui::Ui, tab: &mut TabState, readonly: boo
             render_preview_pane(ui, tab, &content_owned);
         }
         MarkdownLayout::Edit => {
-            render_editor_pane(ui, tab, readonly, ui.available_width());
+            render_editor_pane(ui, tab, readonly, tab_size, ui.available_width());
         }
         MarkdownLayout::Split => {
             // 50/50 split. The left SidePanel hosts the editor; the central
@@ -79,14 +84,20 @@ pub fn render_markdown_view(ui: &mut egui::Ui, tab: &mut TabState, readonly: boo
                 .min_size(150.0)
                 .default_size(editor_width)
                 .show_inside(ui, |ui| {
-                    render_editor_pane(ui, tab, readonly, ui.available_width());
+                    render_editor_pane(ui, tab, readonly, tab_size, ui.available_width());
                 });
             render_preview_pane(ui, tab, &tab.raw_content.clone().unwrap_or_default());
         }
     }
 }
 
-fn render_editor_pane(ui: &mut egui::Ui, tab: &mut TabState, readonly: bool, _width: f32) {
+fn render_editor_pane(
+    ui: &mut egui::Ui,
+    tab: &mut TabState,
+    readonly: bool,
+    tab_size: usize,
+    _width: f32,
+) {
     let Some(buffer) = tab.raw_content.as_mut() else {
         return;
     };
@@ -130,19 +141,46 @@ fn render_editor_pane(ui: &mut egui::Ui, tab: &mut TabState, readonly: bool, _wi
                 );
                 ui.painter().rect_filled(sep_rect, 0.0, border);
                 ui.add_space(4.0);
-                ui.add(
-                    egui::TextEdit::multiline(buffer)
-                        .id(egui::Id::new("markdown_editor"))
-                        .font(mono_font)
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(20)
-                        .interactive(!readonly),
-                )
+                // `lock_focus(true)` keeps Tab inside the editor (it would
+                // otherwise move focus to the next widget); we then expand any
+                // literal \t egui inserts into `tab_size` spaces, matching the
+                // Raw view editor (`raw_text::render_raw_view`).
+                let mut output = egui::TextEdit::multiline(buffer)
+                    .id(egui::Id::new("markdown_editor"))
+                    .font(mono_font)
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(20)
+                    .lock_focus(true)
+                    .interactive(!readonly)
+                    .show(ui);
+
+                // Replace any inserted \t with spaces and re-anchor the cursor
+                // to account for the expansion. Skipped under read-only since
+                // `interactive(false)` blocks new insertions.
+                let had_tabs = !readonly && buffer.contains('\t');
+                if had_tabs {
+                    let cursor_idx = output.cursor_range.map(|r| r.primary.index).unwrap_or(0);
+                    let tabs_before = buffer[..cursor_idx.min(buffer.len())]
+                        .chars()
+                        .filter(|&c| c == '\t')
+                        .count();
+                    let spaces = " ".repeat(tab_size);
+                    *buffer = buffer.replace('\t', &spaces);
+                    let new_idx = cursor_idx + tabs_before * tab_size.saturating_sub(1);
+                    let new_cursor = egui::text::CCursor::new(new_idx);
+                    output
+                        .state
+                        .cursor
+                        .set_char_range(Some(egui::text::CCursorRange::one(new_cursor)));
+                    output.state.store(ui.ctx(), output.response.id);
+                }
+                (output.response, had_tabs)
             })
             .inner
         })
         .inner;
-    if response.changed() && !readonly {
+    let (response, had_tabs) = response;
+    if (response.changed() || had_tabs) && !readonly {
         tab.raw_content_modified = true;
         tab.markdown_render_cache = None;
     }

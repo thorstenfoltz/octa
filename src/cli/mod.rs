@@ -95,7 +95,9 @@ FROM data GROUP BY region' \
     octa --compare-schemas a.sqlite b.sqlite --table-a users --table-b users -f json
 
   Row-level data diff between two files:
-    octa --diff v1.csv v2.csv
+    octa --diff v1.csv v2.csv                       # whole-row set diff (default)
+    octa --diff v1.csv v2.csv --diff-mode ordered   # positional, cell-level
+    octa --diff v1.csv v2.csv --diff-mode join --diff-on id
     octa --diff a.parquet b.parquet -f json
 
   Validate a file against a JSON Schema (CI-pipeable, exit 1 on drift):
@@ -128,11 +130,17 @@ Notes:
     so no row data is touched. The output is a four-column table:
     status / column / type_a / type_b. `status` is one of `common`,
     `only_in_a`, `only_in_b`, `type_mismatch`.
-  * --diff compares the two files' rows by whole-row content (every
-    column, positionally) and prints the rows unique to each side with
-    a leading `status` column (`only_in_a` / `only_in_b`); a summary
-    line (shared / only-in-A / only-in-B counts) is written to stderr.
-    The files should share the same column order to diff meaningfully.
+  * --diff compares two files. --diff-mode picks the strategy:
+      set     (default) whole-row membership; prints rows unique to each
+              side tagged `only_in_a` / `only_in_b`.
+      ordered positional row-by-row; prints unique trailing rows plus
+              paired `changed_a` / `changed_b` rows (with a
+              `changed_columns` column naming the differing fields).
+      join    matches rows on --diff-on KEY[,KEY...] and prints
+              added / removed / changed rows.
+    A summary line (per-mode counts) is written to stderr. For set and
+    ordered the files should share the same column order; join matches
+    columns by name.
   * --validate-schema checks FILE's columns against the JSON Schema in
     --expect-schema. Exit code is 0 when every column matches by name
     and type, 1 otherwise. JSON Schema `type` values the parser can't
@@ -277,6 +285,17 @@ pub struct Cli {
         group = "action"
     )]
     pub diff: Vec<PathBuf>,
+
+    /// Comparison strategy for `--diff`. `set` (default) reports whole rows
+    /// unique to each side. `ordered` compares row-by-row in order and reports
+    /// the differing cells. `join` matches rows on the `--diff-on` key
+    /// column(s) and reports added / removed / changed rows.
+    #[arg(long = "diff-mode", value_name = "MODE", default_value = "set")]
+    pub diff_mode: String,
+
+    /// Key column(s) for `--diff-mode join` (comma-separated or repeated).
+    #[arg(long = "diff-on", value_name = "COLS", value_delimiter = ',')]
+    pub diff_on: Vec<String>,
 
     /// Validate FILE's column schema against a JSON Schema. Pair with
     /// `--expect-schema SCHEMA.json` to point at the expected schema.
@@ -424,6 +443,8 @@ pub enum Action {
     Diff {
         path_a: PathBuf,
         path_b: PathBuf,
+        mode: octa::data::compare::CompareMode,
+        on: Vec<String>,
     },
     ValidateSchema {
         path: PathBuf,
@@ -534,9 +555,16 @@ impl Cli {
             if self.diff.len() != 2 {
                 return Err("--diff needs exactly two paths: --diff FILE_A FILE_B");
             }
+            let mode = octa::data::compare::CompareMode::parse(&self.diff_mode)
+                .ok_or("--diff-mode must be one of: set, ordered, join")?;
+            if matches!(mode, octa::data::compare::CompareMode::Join) && self.diff_on.is_empty() {
+                return Err("--diff-mode join requires --diff-on COL[,COL...]");
+            }
             return Ok(Some(Action::Diff {
                 path_a: self.diff[0].clone(),
                 path_b: self.diff[1].clone(),
+                mode,
+                on: self.diff_on.clone(),
             }));
         }
         if let Some(p) = &self.validate_schema {
@@ -768,7 +796,12 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             table_a,
             table_b,
         } => compare_schemas::run(path_a, path_b, table_a, table_b, format),
-        Action::Diff { path_a, path_b } => diff::run(path_a, path_b, format),
+        Action::Diff {
+            path_a,
+            path_b,
+            mode,
+            on,
+        } => diff::run(path_a, path_b, mode, on, format),
         Action::Describe {
             path,
             table,

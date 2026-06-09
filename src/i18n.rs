@@ -45,6 +45,15 @@ const LOCALE_SOURCES: &[(&str, &str)] = &[
     ("ja", include_str!("../locales/ja.toml")),
     ("ko", include_str!("../locales/ko.toml")),
     ("zh", include_str!("../locales/zh.toml")),
+    ("uk", include_str!("../locales/uk.toml")),
+    ("bg", include_str!("../locales/bg.toml")),
+    ("sr", include_str!("../locales/sr.toml")),
+    ("hr", include_str!("../locales/hr.toml")),
+    ("sl", include_str!("../locales/sl.toml")),
+    ("sk", include_str!("../locales/sk.toml")),
+    ("lt", include_str!("../locales/lt.toml")),
+    ("lv", include_str!("../locales/lv.toml")),
+    ("et", include_str!("../locales/et.toml")),
 ];
 
 /// User-facing list of supported UI languages: (code, native name). Drives the
@@ -73,6 +82,15 @@ pub const LANGUAGES: &[(&str, &str)] = &[
     ("ja", "日本語"),
     ("ko", "한국어"),
     ("zh", "中文"),
+    ("uk", "Українська"),
+    ("bg", "Български"),
+    ("sr", "Српски"),
+    ("hr", "Hrvatski"),
+    ("sl", "Slovenščina"),
+    ("sk", "Slovenčina"),
+    ("lt", "Lietuvių"),
+    ("lv", "Latviešu"),
+    ("et", "Eesti"),
 ];
 
 type LangMap = HashMap<String, HashMap<String, String>>;

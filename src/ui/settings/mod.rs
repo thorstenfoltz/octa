@@ -581,6 +581,11 @@ pub struct AppSettings {
     /// Whether to show row numbers in the table view.
     #[serde(default = "default_true")]
     pub show_row_numbers: bool,
+    /// When a filter is active, show a second row-number column counting the
+    /// visible rows from 1 (alongside the original row numbers). Only appears
+    /// while filtered; redundant otherwise.
+    #[serde(default = "default_true")]
+    pub show_sequential_row_numbers: bool,
     /// Whether to use alternating row background colors.
     #[serde(default = "default_true")]
     pub alternating_row_colors: bool,
@@ -966,6 +971,7 @@ impl Default for AppSettings {
             icon_variant: IconVariant::Rose,
             default_search_mode: SearchMode::Plain,
             show_row_numbers: true,
+            show_sequential_row_numbers: true,
             alternating_row_colors: true,
             negative_numbers_red: true,
             thousands_separators_in_cells: true,
@@ -1358,6 +1364,10 @@ mod tests {
         assert_eq!(settings.default_theme, defaults.default_theme);
         assert_eq!(settings.icon_variant, defaults.icon_variant);
         assert_eq!(settings.show_row_numbers, defaults.show_row_numbers);
+        assert_eq!(
+            settings.show_sequential_row_numbers,
+            defaults.show_sequential_row_numbers
+        );
         assert_eq!(
             settings.sql_default_row_limit,
             defaults.sql_default_row_limit

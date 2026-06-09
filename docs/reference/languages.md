@@ -2,38 +2,47 @@
 
 Octa's interface, menus, dialogs, the status bar, the SQL and
 multi-search panels, the right-click menus, and the Settings dialog
-(including its hover tooltips), can be shown in any of 22 languages.
+(including its hover tooltips), can be shown in any of 31 languages.
 
 Change it under **Settings → Appearance → Language**. The switch is
 **live**: the interface updates on the next frame, with no restart.
 
 ## Available languages
 
-| Code | Language   |
-|------|------------|
-| `en` | English    |
-| `de` | Deutsch    |
-| `es` | Español    |
-| `fr` | Français   |
-| `it` | Italiano   |
-| `nl` | Nederlands |
-| `pt` | Português  |
-| `pl` | Polski     |
-| `sv` | Svenska    |
-| `da` | Dansk      |
-| `no` | Norsk      |
-| `fi` | Suomi      |
-| `tr` | Türkçe     |
-| `id` | Indonesia  |
-| `vi` | Tiếng Việt |
-| `ro` | Română     |
-| `hu` | Magyar     |
-| `cs` | Čeština    |
-| `el` | Ελληνικά   |
-| `ru` | Русский    |
-| `ja` | 日本語     |
-| `ko` | 한국어        |
-| `zh` | 中文       |
+| Code | Language    |
+|------|-------------|
+| `en` | English     |
+| `de` | Deutsch     |
+| `es` | Español     |
+| `fr` | Français    |
+| `it` | Italiano    |
+| `nl` | Nederlands  |
+| `pt` | Português   |
+| `pl` | Polski      |
+| `sv` | Svenska     |
+| `da` | Dansk       |
+| `no` | Norsk       |
+| `fi` | Suomi       |
+| `tr` | Türkçe      |
+| `id` | Indonesia   |
+| `vi` | Tiếng Việt  |
+| `ro` | Română      |
+| `hu` | Magyar      |
+| `cs` | Čeština     |
+| `el` | Ελληνικά    |
+| `ru` | Русский     |
+| `ja` | 日本語      |
+| `ko` | 한국어         |
+| `zh` | 中文        |
+| `uk` | Українська  |
+| `bg` | Български   |
+| `sr` | Српски      |
+| `hr` | Hrvatski    |
+| `sl` | Slovenščina |
+| `sk` | Slovenčina  |
+| `lt` | Lietuvių    |
+| `lv` | Latviešu    |
+| `et` | Eesti       |
 
 The chosen code is stored as `language` in your
 [`settings.toml`](settings.md).

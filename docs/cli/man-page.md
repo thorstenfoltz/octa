@@ -30,7 +30,7 @@ octa --sql FILE -q QUERY [-f FORMAT] [--rows N|all]
        [--sql-write-schema SCHEMA] [--sql-write-mode create|append|replace]]
 octa --export-schema FILE [-t TARGET]
 octa --compare-schemas FILE_A FILE_B [--table-a NAME] [--table-b NAME] [-f FORMAT]
-octa --diff FILE_A FILE_B [-f FORMAT]
+octa --diff FILE_A FILE_B [--diff-mode MODE] [--diff-on COLS] [-f FORMAT]
 octa --describe FILE [--table NAME] [--sample-rows N] [-f FORMAT]
 octa --validate-schema FILE --expect-schema SCHEMA_FILE [--table NAME] [-f FORMAT]
 octa --unique-columns FILE [--table NAME] [--max-combo N] [-f FORMAT]
@@ -117,13 +117,24 @@ are ignored (with a warning) when an action flag is set.
     See [`octa --compare-schemas`](compare-schemas.md).
 
 `--diff FILE_A FILE_B`
-:   Row-level diff of two files. Compares rows by whole-row content
-    (every column, positionally) and prints the rows present in only
-    one side, tagged by a leading `status` column (`only_in_a` /
-    `only_in_b`); a summary line (shared / only-in-A / only-in-B
-    counts) goes to standard error. The two files should share the
-    same column order. Complements `--compare-schemas`, which diffs
-    only the column metadata.
+:   Compare two files. `--diff-mode` selects the strategy; the output
+    is a table tagged by a leading `status` column, and a summary line
+    (per-mode counts) goes to standard error. Complements
+    `--compare-schemas`, which diffs only the column metadata.
+
+`--diff-mode MODE`
+:   Comparison strategy for `--diff` (default `set`): `set` compares
+    rows by whole-row content (every column, positionally) and prints
+    rows unique to each side (`only_in_a` / `only_in_b`). `ordered`
+    lines up row *i* of A with row *i* of B and prints matched rows
+    that differ as `changed` (with a `changed_columns` column) plus
+    any trailing `only_in_a` / `only_in_b` rows. `join` matches rows on
+    the `--diff-on` key column(s) and prints added / removed / changed
+    rows.
+
+`--diff-on COLS`
+:   Key column(s) for `--diff-mode join`, comma-separated (matched by
+    name). Required when the mode is `join`; ignored otherwise.
 
 `--describe FILE`
 :   Print a one-shot orientation snapshot of *FILE*: format, file
@@ -374,6 +385,8 @@ Diff two files' rows:
 
 ```bash
 octa --diff v1.csv v2.csv
+octa --diff v1.csv v2.csv --diff-mode ordered
+octa --diff v1.csv v2.csv --diff-mode join --diff-on id
 octa --diff a.parquet b.parquet -f json
 ```
 

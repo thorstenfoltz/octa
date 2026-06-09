@@ -38,6 +38,11 @@ content: the tab shows `*` when modified, and **Ctrl+S**
 back to the original `.md` file. The preview is for display only;
 the disk content matches the editor pane.
 
+Pressing **Tab** in the editor inserts spaces (it indents in place
+rather than jumping to the next control), using the
+[**Tab size**](../../reference/settings.md#search-editor) setting, the
+same as the Raw text editor.
+
 ## Limitations
 
 - **No images yet.** `![]()` references aren't rendered as actual

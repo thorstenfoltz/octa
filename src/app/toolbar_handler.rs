@@ -236,6 +236,9 @@ impl OctaApp {
         if action.toggle_sql_panel {
             let tab = &mut self.tabs[self.active_tab];
             tab.sql_panel_open = !tab.sql_panel_open;
+            if tab.sql_panel_open {
+                tab.sql_editor_focus_pending = true;
+            }
         }
 
         if action.toggle_readonly {

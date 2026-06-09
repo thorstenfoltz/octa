@@ -376,28 +376,30 @@ pub fn render_sql_view(
         tab.sql_ac_selected = 0;
     }
 
-    // Consume only the popup-specific keys (Tab accepts, Escape dismisses,
-    // Alt+Up / Alt+Down navigate the suggestion list). Enter and bare arrow
-    // keys are deliberately *not* consumed so they keep their normal editor
-    // behaviour - Enter always inserts a newline, arrows always move the
-    // caret, regardless of whether the popup is visible. Without this, the
-    // popup grabbed Enter and arrows whenever the caret sat at the end of a
-    // word, which made the editor feel like it lost basic typing keys.
+    // Consume the popup-specific keys *only while the popup is visible*
+    // (`popup_active`): Up/Down move the selection, Enter or Tab accepts the
+    // highlighted suggestion, Escape dismisses. Because consumption is gated on
+    // `popup_active`, these keys keep their normal editor behaviour whenever the
+    // popup is closed - Enter inserts a newline, arrows move the caret. The
+    // popup only opens after the user types (`resp.changed()` sets
+    // `sql_ac_visible`) and closes on Escape, so plain typing never loses keys.
     let popup_active = editor_focused && tab.sql_ac_visible && !suggestions.is_empty();
     let mut apply_suggestion: Option<String> = None;
     if popup_active {
         ui.input_mut(|i| {
-            if i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowDown) {
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown) {
                 tab.sql_ac_selected = (tab.sql_ac_selected + 1) % suggestions.len();
             }
-            if i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowUp) {
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp) {
                 tab.sql_ac_selected = if tab.sql_ac_selected == 0 {
                     suggestions.len() - 1
                 } else {
                     tab.sql_ac_selected - 1
                 };
             }
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::Tab) {
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                || i.consume_key(egui::Modifiers::NONE, egui::Key::Tab)
+            {
                 apply_suggestion = suggestions.get(tab.sql_ac_selected).cloned();
             }
             if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
@@ -646,6 +648,12 @@ fn draw_sql_editor(
                         .lock_focus(true)
                         .hint_text(hint.as_str()),
                 );
+                // Grab keyboard focus the frame after the panel opens so the
+                // user can start typing immediately without clicking first.
+                if tab.sql_editor_focus_pending {
+                    resp.request_focus();
+                    tab.sql_editor_focus_pending = false;
+                }
                 if resp.has_focus()
                     && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter))
                 {

@@ -478,6 +478,11 @@ impl SettingsDialog {
                     ui.checkbox(&mut self.draft.show_row_numbers, "");
                     ui.end_row();
 
+                    ui.label(crate::i18n::t("settings.show_sequential_rows"))
+                        .on_hover_text(crate::i18n::t("settings_hint.show_sequential_rows"));
+                    ui.checkbox(&mut self.draft.show_sequential_row_numbers, "");
+                    ui.end_row();
+
                     ui.label(crate::i18n::t("settings.alternating_rows"))
                         .on_hover_text(crate::i18n::t("settings_hint.alternating_rows"));
                     ui.checkbox(&mut self.draft.alternating_row_colors, "");
