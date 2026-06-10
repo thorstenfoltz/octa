@@ -59,6 +59,7 @@ find_duplicates = "Znajdź duplikaty..."
 multi_search = "Wyszukiwanie wielokrotne..."
 
 [analyse_menu]
+describe = "Podsumowanie..."
 assistant = "Assistant"
 sql = "SQL"
 chart = "Wykres"
@@ -342,6 +343,8 @@ second = "Sekunda"
 weekday = "Dzień tygodnia (1=Pon..7=Niedz)"
 
 [enum]
+search_result_filter = "Filtruj"
+search_result_highlight = "Podswietl"
 nb_beside = "Obok"
 nb_beneath = "Poniżej"
 pos_left = "Lewo"
@@ -423,6 +426,7 @@ modified = "Zmodyfikowano"
 no_file = "Nie załadowano pliku"
 
 [settings]
+search_result_mode = "Wyswietlanie wynikow wyszukiwania:"
 title = "Ustawienia"
 language = "Język"
 window_title = "Ustawienia Octa"
@@ -552,6 +556,8 @@ move_left = "Przenieś w lewo"
 move_right = "Przenieś w prawo"
 
 [context_menu]
+freeze_to_here = "Zablokuj kolumny do tego miejsca"
+unfreeze = "Odblokuj wszystkie kolumny"
 sec_clipboard = "Schowek"
 sec_row = "Wiersz"
 sec_column = "Kolumna"
@@ -641,6 +647,7 @@ extra_tables = "dodatkowych tabel"
 attached_dbs = "dołączonych baz"
 
 [settings_hint]
+search_result_mode = "Filtrowanie ukrywa niepasujace wiersze; Podswietlanie zachowuje wszystkie wiersze i podswietla dopasowania"
 language = "Język menu i okien dialogowych aplikacji. Działa natychmiast. Tłumaczenia są generowane maszynowo i mogą być dopracowane."
 font_size = "Bazowy rozmiar czcionki dla całego tekstu w aplikacji"
 default_theme = "Motyw stosowany przy uruchomieniu aplikacji"
@@ -803,3 +810,9 @@ dialogs = "Inspektor i okna dialogowe"
 [documentation]
 search = "Szukaj w dokumentacji..."
 no_matches = "Brak wyników"
+
+[search]
+mode_toggle_hint = "Przelaczaj miedzy filtrowaniem wierszy a podswietlaniem dopasowan"
+no_matches = "Brak dopasowan"
+next_match = "Nastepne dopasowanie"
+prev_match = "Poprzednie dopasowanie"

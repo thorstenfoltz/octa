@@ -59,6 +59,7 @@ find_duplicates = "Buscar duplicados..."
 multi_search = "Búsqueda múltiple..."
 
 [analyse_menu]
+describe = "Resumen..."
 assistant = "Assistant"
 sql = "SQL"
 chart = "Gráfico"
@@ -342,6 +343,8 @@ second = "Segundo"
 weekday = "Día de la semana (1=Lun..7=Dom)"
 
 [enum]
+search_result_filter = "Filtrar"
+search_result_highlight = "Resaltar"
 nb_beside = "Al lado"
 nb_beneath = "Debajo"
 pos_left = "Izquierda"
@@ -423,6 +426,7 @@ modified = "Modificado"
 no_file = "Ningún archivo cargado"
 
 [settings]
+search_result_mode = "Mostrar resultados de busqueda:"
 title = "Configuración"
 language = "Idioma"
 window_title = "Configuración de Octa"
@@ -552,6 +556,8 @@ move_left = "Mover a la izquierda"
 move_right = "Mover a la derecha"
 
 [context_menu]
+freeze_to_here = "Inmovilizar columnas hasta aquí"
+unfreeze = "Movilizar todas las columnas"
 sec_clipboard = "Portapapeles"
 sec_row = "Fila"
 sec_column = "Columna"
@@ -641,6 +647,7 @@ extra_tables = "tablas adicionales"
 attached_dbs = "BD adjuntas"
 
 [settings_hint]
+search_result_mode = "Filtrar oculta las filas que no coinciden; Resaltar mantiene todas las filas y resalta las coincidencias"
 language = "Idioma de los menús y diálogos de la aplicación. Surte efecto de inmediato. Las traducciones se generan automáticamente y pueden refinarse."
 font_size = "Tamaño de fuente base para todo el texto de la aplicación"
 default_theme = "Tema aplicado al iniciar la aplicación"
@@ -803,3 +810,9 @@ dialogs = "Inspector y diálogos"
 [documentation]
 search = "Buscar en la documentación..."
 no_matches = "Sin coincidencias"
+
+[search]
+mode_toggle_hint = "Alternar entre filtrar filas y resaltar coincidencias"
+no_matches = "Sin coincidencias"
+next_match = "Coincidencia siguiente"
+prev_match = "Coincidencia anterior"

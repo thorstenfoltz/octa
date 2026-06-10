@@ -66,6 +66,7 @@ find_duplicates = "Rasti dublikatus..."
 multi_search = "Daugybinė paieška..."
 
 [analyse_menu]
+describe = "Santrauka..."
 assistant = "Asistentas"
 sql = "SQL"
 chart = "Diagrama"
@@ -339,6 +340,8 @@ second = "Sekundė"
 weekday = "Savaitės diena (1=Pr..7=Sk)"
 
 [enum]
+search_result_filter = "Filtruoti"
+search_result_highlight = "Paryskinti"
 nb_beside = "Šalia"
 nb_beneath = "Apačioje"
 pos_left = "Kairė"
@@ -420,6 +423,7 @@ modified = "Pakeista"
 no_file = "Failas neįkeltas"
 
 [settings]
+search_result_mode = "Paieskos rezultatu rodymas:"
 title = "Nustatymai"
 language = "Kalba"
 window_title = "Octa nustatymai"
@@ -549,6 +553,8 @@ move_left = "Perkelti kairėn"
 move_right = "Perkelti dešinėn"
 
 [context_menu]
+freeze_to_here = "Užfiksuoti stulpelius iki čia"
+unfreeze = "Atlaisvinti visus stulpelius"
 sec_clipboard = "Iškarpinė"
 sec_row = "Eilutė"
 sec_column = "Stulpelis"
@@ -638,6 +644,7 @@ extra_tables = "papildomos lentelės"
 attached_dbs = "prijungtos DB"
 
 [settings_hint]
+search_result_mode = "Filtravimas paslepia neatitinkancias eilutes; Paryskinimas islaiko visas eilutes ir paryskina atitikmenis"
 language = "Programos meniu ir dialogų kalba. Įsigalioja iškart. Vertimai sugeneruoti automatiškai ir gali būti tobulinami."
 font_size = "Pagrindinis šrifto dydis visam programos tekstui"
 default_theme = "Tema, taikoma paleidžiant programą"
@@ -800,3 +807,9 @@ dialogs = "Inspektorius ir dialogai"
 [documentation]
 search = "Ieškoti dokumentacijoje..."
 no_matches = "Nėra atitikmenų"
+
+[search]
+mode_toggle_hint = "Perjungti tarp eiluciu filtravimo ir atitikmenu paryskinimo"
+no_matches = "Atitikmenu nera"
+next_match = "Kitas atitikmuo"
+prev_match = "Ankstesnis atitikmuo"

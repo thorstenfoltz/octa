@@ -66,6 +66,7 @@ find_duplicates = "Знайти дублікати..."
 multi_search = "Багатопошук..."
 
 [analyse_menu]
+describe = "Зведення..."
 assistant = "Помічник"
 sql = "SQL"
 chart = "Діаграма"
@@ -339,6 +340,8 @@ second = "Секунда"
 weekday = "День тижня (1=Пн..7=Нд)"
 
 [enum]
+search_result_filter = "Filtr"
+search_result_highlight = "Pidsvitka"
 nb_beside = "Поруч"
 nb_beneath = "Знизу"
 pos_left = "Ліворуч"
@@ -420,6 +423,7 @@ modified = "Змінено"
 no_file = "Файл не завантажено"
 
 [settings]
+search_result_mode = "Vidobrazhennia rezultativ poshuku:"
 title = "Налаштування"
 language = "Мова"
 window_title = "Налаштування Octa"
@@ -549,6 +553,8 @@ move_left = "Перемістити ліворуч"
 move_right = "Перемістити праворуч"
 
 [context_menu]
+freeze_to_here = "Закріпити стовпці до цього місця"
+unfreeze = "Відкріпити всі стовпці"
 sec_clipboard = "Буфер обміну"
 sec_row = "Рядок"
 sec_column = "Стовпець"
@@ -638,6 +644,7 @@ extra_tables = "додаткових таблиць"
 attached_dbs = "приєднаних БД"
 
 [settings_hint]
+search_result_mode = "Filtr prykhovuie nevidpovidni riadky; pidsvitka zberihaie vsi riadky i pidsvichuie zbihy"
 language = "Мова для меню та діалогів застосунку. Набуває чинності негайно. Переклади згенеровано машинно та можуть бути уточнені."
 font_size = "Базовий розмір шрифту для всього тексту в застосунку"
 default_theme = "Тема, що застосовується під час запуску застосунку"
@@ -800,3 +807,9 @@ dialogs = "Інспектор і діалоги"
 [documentation]
 search = "Шукати в документації..."
 no_matches = "Немає збігів"
+
+[search]
+mode_toggle_hint = "Peremykannia mizh filtruvanniam riadkiv i pidsvichuvanniam zbihiv"
+no_matches = "Nemaie zbihiv"
+next_match = "Nastupnyi zbih"
+prev_match = "Poperednii zbih"

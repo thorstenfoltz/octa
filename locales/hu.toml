@@ -70,6 +70,7 @@ find_duplicates = "Duplikátumok keresése..."
 multi_search = "Többszörös keresés..."
 
 [analyse_menu]
+describe = "Összegzés..."
 assistant = "Asszisztens"
 sql = "SQL"
 chart = "Diagram"
@@ -343,6 +344,8 @@ second = "Másodperc"
 weekday = "Hétköznap (1=Hét..7=Vas)"
 
 [enum]
+search_result_filter = "Szures"
+search_result_highlight = "Kiemeles"
 nb_beside = "Mellette"
 nb_beneath = "Alatta"
 pos_left = "Bal"
@@ -424,6 +427,7 @@ modified = "Módosítva"
 no_file = "Nincs betöltött fájl"
 
 [settings]
+search_result_mode = "Talalatok megjelenitese:"
 title = "Beállítások"
 language = "Nyelv"
 window_title = "Octa beállítások"
@@ -553,6 +557,8 @@ move_left = "Balra"
 move_right = "Jobbra"
 
 [context_menu]
+freeze_to_here = "Oszlopok rögzítése eddig"
+unfreeze = "Összes oszlop feloldása"
 sec_clipboard = "Vágólap"
 sec_row = "Sor"
 sec_column = "Oszlop"
@@ -642,6 +648,7 @@ extra_tables = "extra táblák"
 attached_dbs = "csatolt adatbázisok"
 
 [settings_hint]
+search_result_mode = "A szures elrejti a nem egyezo sorokat; a kiemeles minden sort megtart es kiemeli a talalatokat"
 language = "Az alkalmazás menüinek és párbeszédeinek nyelve. Azonnal érvénybe lép. A fordítások gépi úton készültek és finomíthatók."
 font_size = "Alap betűméret az alkalmazás minden szövegéhez"
 default_theme = "Az alkalmazás indításakor alkalmazott téma"
@@ -804,3 +811,9 @@ dialogs = "Vizsgáló és párbeszédek"
 [documentation]
 search = "Keresés a dokumentációban..."
 no_matches = "Nincs találat"
+
+[search]
+mode_toggle_hint = "Valtas a sorok szurese es a talalatok kiemelese kozott"
+no_matches = "Nincs talalat"
+next_match = "Kovetkezo talalat"
+prev_match = "Elozo talalat"

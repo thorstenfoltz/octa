@@ -37,23 +37,27 @@ pub fn is_local_url(base: &str) -> bool {
 /// Best-effort stop of a locally-running `ollama serve` even when Octa does not
 /// hold its [`Child`] handle (e.g. the server was already running, or Octa was
 /// restarted). Explicit user action via the Stop button, so terminating the
-/// local server is the intent. Unix uses `pkill`, Windows `taskkill`.
+/// local server is the intent. Unix uses `pkill`, Windows `taskkill`. The
+/// patterns are anchored to the full command line so a process that merely
+/// mentions "ollama serve" in its arguments is never matched.
 pub fn stop_local_server() {
     #[cfg(unix)]
     {
         // SIGTERM the server first so ollama can tear down its model runner
         // cleanly, then SIGKILL anything still standing - both the server and
         // the `llama-server` runner (which holds the model in RAM; leaving it
-        // alive leaks memory until OOM).
+        // alive leaks memory until OOM). `-x` with `-f` matches the whole
+        // command line exactly; the optional path prefix still catches a
+        // server started as e.g. /usr/local/bin/ollama serve.
         let _ = Command::new("pkill")
-            .args(["-TERM", "-f", "ollama serve"])
+            .args(["-TERM", "-fx", "([^ ]*/)?ollama serve"])
             .status();
         std::thread::sleep(Duration::from_millis(800));
         let _ = Command::new("pkill")
-            .args(["-KILL", "-f", "ollama serve"])
+            .args(["-KILL", "-fx", "([^ ]*/)?ollama serve"])
             .status();
         let _ = Command::new("pkill")
-            .args(["-KILL", "-f", "llama-server"])
+            .args(["-KILL", "-f", "^([^ ]*/)?llama-server( |$)"])
             .status();
     }
     #[cfg(windows)]

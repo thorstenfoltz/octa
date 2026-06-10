@@ -66,6 +66,7 @@ find_duplicates = "Pronađi duplikate..."
 multi_search = "Višestruko pretraživanje..."
 
 [analyse_menu]
+describe = "Sažetak..."
 assistant = "Asistent"
 sql = "SQL"
 chart = "Grafikon"
@@ -339,6 +340,8 @@ second = "Sekunda"
 weekday = "Dan u tjednu (1=Pon..7=Ned)"
 
 [enum]
+search_result_filter = "Filtriraj"
+search_result_highlight = "Istakni"
 nb_beside = "Pokraj"
 nb_beneath = "Ispod"
 pos_left = "Lijevo"
@@ -420,6 +423,7 @@ modified = "Izmijenjeno"
 no_file = "Nema učitane datoteke"
 
 [settings]
+search_result_mode = "Prikaz rezultata pretrage:"
 title = "Postavke"
 language = "Jezik"
 window_title = "Postavke Octa"
@@ -549,6 +553,8 @@ move_left = "Pomakni lijevo"
 move_right = "Pomakni desno"
 
 [context_menu]
+freeze_to_here = "Zamrzni stupce do ovdje"
+unfreeze = "Odmrzni sve stupce"
 sec_clipboard = "Međuspremnik"
 sec_row = "Redak"
 sec_column = "Stupac"
@@ -638,6 +644,7 @@ extra_tables = "dodatnih tablica"
 attached_dbs = "priključenih BP"
 
 [settings_hint]
+search_result_mode = "Filtriranje skriva retke koji se ne podudaraju; Isticanje zadrzava sve retke i istice podudaranja"
 language = "Jezik za izbornike i dijaloge aplikacije. Stupa na snagu odmah. Prijevodi su strojno generirani i mogu se doraditi."
 font_size = "Osnovna veličina fonta za sav tekst u aplikaciji"
 default_theme = "Tema koja se primjenjuje pri pokretanju aplikacije"
@@ -800,3 +807,9 @@ dialogs = "Inspektor i dijalozi"
 [documentation]
 search = "Pretraži dokumentaciju..."
 no_matches = "Nema podudaranja"
+
+[search]
+mode_toggle_hint = "Prebaci izmedju filtriranja redaka i isticanja podudaranja"
+no_matches = "Nema podudaranja"
+next_match = "Sljedece podudaranje"
+prev_match = "Prethodno podudaranje"

@@ -70,6 +70,7 @@ find_duplicates = "Găsește duplicate..."
 multi_search = "Căutare multiplă..."
 
 [analyse_menu]
+describe = "Rezumat..."
 assistant = "Asistent"
 sql = "SQL"
 chart = "Grafic"
@@ -343,6 +344,8 @@ second = "Secundă"
 weekday = "Zi a săptămânii (1=Lun..7=Dum)"
 
 [enum]
+search_result_filter = "Filtreaza"
+search_result_highlight = "Evidentiaza"
 nb_beside = "Alături"
 nb_beneath = "Dedesubt"
 pos_left = "Stânga"
@@ -424,6 +427,7 @@ modified = "Modificat"
 no_file = "Niciun fișier încărcat"
 
 [settings]
+search_result_mode = "Afisarea rezultatelor cautarii:"
 title = "Setări"
 language = "Limbă"
 window_title = "Setări Octa"
@@ -553,6 +557,8 @@ move_left = "Mută la stânga"
 move_right = "Mută la dreapta"
 
 [context_menu]
+freeze_to_here = "Îngheață coloanele până aici"
+unfreeze = "Dezgheață toate coloanele"
 sec_clipboard = "Clipboard"
 sec_row = "Rând"
 sec_column = "Coloană"
@@ -642,6 +648,7 @@ extra_tables = "tabele suplimentare"
 attached_dbs = "BD atașate"
 
 [settings_hint]
+search_result_mode = "Filtrarea ascunde randurile care nu se potrivesc; Evidentierea pastreaza toate randurile si evidentiaza potrivirile"
 language = "Limba pentru meniurile și dialogurile aplicației. Are efect imediat. Traducerile sunt generate automat și pot fi rafinate."
 font_size = "Dimensiunea de bază a fontului pentru tot textul din aplicație"
 default_theme = "Tema aplicată la pornirea aplicației"
@@ -804,3 +811,9 @@ dialogs = "Inspector și dialoguri"
 [documentation]
 search = "Caută în documentație..."
 no_matches = "Niciun rezultat"
+
+[search]
+mode_toggle_hint = "Comuta intre filtrarea randurilor si evidentierea potrivirilor"
+no_matches = "Nicio potrivire"
+next_match = "Potrivirea urmatoare"
+prev_match = "Potrivirea anterioara"

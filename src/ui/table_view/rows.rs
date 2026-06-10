@@ -41,8 +41,15 @@ pub(super) fn draw_data_row_direct(
     thousands_separators: bool,
     separator_style: crate::data::num_format::SeparatorStyle,
     column_number_formats: &std::collections::HashMap<usize, crate::data::num_format::NumberFormat>,
+    frozen_cols: usize,
+    frozen_width: f32,
+    search_matches: &HashSet<(usize, usize)>,
+    current_match: Option<(usize, usize)>,
 ) {
     let is_multi_selected_row = state.selected_rows.contains(&actual_row);
+    // Highlight-search backgrounds derived from the theme (translucent so the
+    // cell text / row tint stay legible). Only consulted when there are matches.
+    let (search_bg, search_bg_active) = crate::ui::search_highlight::highlight_colors(colors);
 
     let row_bg = if is_multi_selected_row {
         colors.bg_selected
@@ -58,13 +65,22 @@ pub(super) fn draw_data_row_direct(
     );
 
     let data_area_left = left_x + state.row_number_width;
-    let col_clip = egui::Rect::from_min_max(
+    let frozen_right = data_area_left + frozen_width;
+    // Frozen columns paint inside the fixed band at the left edge of the
+    // data area; scrolled columns are clipped to start after it so they
+    // slide underneath. With no frozen band both clips collapse to the
+    // original single clip.
+    let frozen_clip = egui::Rect::from_min_max(
         egui::pos2(data_area_left, panel_rect.top() + HEADER_HEIGHT + 1.0),
+        egui::pos2(frozen_right, panel_rect.bottom()),
+    );
+    let scrolled_clip = egui::Rect::from_min_max(
+        egui::pos2(frozen_right, panel_rect.top() + HEADER_HEIGHT + 1.0),
         panel_rect.max,
     );
-    let col_painter = painter.with_clip_rect(col_clip);
 
-    let mut x = data_area_left - state.scroll_x;
+    let mut x_frozen = data_area_left;
+    let mut x_scrolled = data_area_left + frozen_width - state.scroll_x;
     let row_count = table.row_count();
     let col_count = table.col_count();
 
@@ -73,6 +89,19 @@ pub(super) fn draw_data_row_direct(
             // Hidden column: zero width, no paint, no x advance.
             continue;
         }
+        let is_frozen = col_idx < frozen_cols;
+        let x = if is_frozen { x_frozen } else { x_scrolled };
+        let col_clip = if is_frozen {
+            frozen_clip
+        } else {
+            scrolled_clip
+        };
+        let col_painter = painter.with_clip_rect(col_clip);
+        let region_left = if is_frozen {
+            data_area_left
+        } else {
+            frozen_right
+        };
         let w = state
             .col_widths
             .get(col_idx)
@@ -81,7 +110,7 @@ pub(super) fn draw_data_row_direct(
 
         let rect = egui::Rect::from_min_size(egui::pos2(x, row_y), Vec2::new(w, row_height));
 
-        if rect.right() >= data_area_left && rect.left() <= panel_rect.right() {
+        if rect.right() >= region_left && rect.left() <= col_clip.right() {
             let is_editing = state
                 .editing_cell
                 .as_ref()
@@ -98,6 +127,9 @@ pub(super) fn draw_data_row_direct(
             let mark_color = table.get_mark_color(actual_row, col_idx);
             let is_any_selected =
                 is_selected || is_multi_selected_row || is_col_selected || is_multi_cell;
+            let is_search_match =
+                !search_matches.is_empty() && search_matches.contains(&(actual_row, col_idx));
+            let is_current_match = current_match == Some((actual_row, col_idx));
             let cell_bg = if is_editing {
                 colors.bg_primary
             } else if is_any_selected {
@@ -110,6 +142,18 @@ pub(super) fn draw_data_row_direct(
                 row_bg
             };
             col_painter.rect_filled(rect, 0.0, cell_bg);
+            // Highlight-search overlay: translucent so the underlying row tint,
+            // mark or edit colour still shows through. Suppressed under an
+            // active selection (the selection colour already marks the cell,
+            // e.g. the current match becomes selected after a jump).
+            if is_search_match && !is_editing && !is_any_selected {
+                let overlay = if is_current_match {
+                    search_bg_active
+                } else {
+                    search_bg
+                };
+                col_painter.rect_filled(rect, 0.0, overlay);
+            }
 
             col_painter.line_segment(
                 [rect.right_top(), rect.right_bottom()],
@@ -524,7 +568,11 @@ pub(super) fn draw_data_row_direct(
             }
         }
 
-        x += w;
+        if is_frozen {
+            x_frozen += w;
+        } else {
+            x_scrolled += w;
+        }
     }
 
     // Row number (pinned) - clickable for row selection

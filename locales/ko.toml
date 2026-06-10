@@ -59,6 +59,7 @@ find_duplicates = "중복 찾기..."
 multi_search = "다중 검색..."
 
 [analyse_menu]
+describe = "요약..."
 assistant = "어시스턴트"
 sql = "SQL"
 chart = "차트"
@@ -332,6 +333,8 @@ second = "초"
 weekday = "요일 (1=월..7=일)"
 
 [enum]
+search_result_filter = "pilteo"
+search_result_highlight = "gangjo"
 nb_beside = "옆"
 nb_beneath = "아래"
 pos_left = "왼쪽"
@@ -413,6 +416,7 @@ modified = "수정됨"
 no_file = "불러온 파일 없음"
 
 [settings]
+search_result_mode = "geomsaek gyeolgwa pyosi:"
 title = "설정"
 language = "언어"
 window_title = "Octa 설정"
@@ -542,6 +546,8 @@ move_left = "왼쪽으로 이동"
 move_right = "오른쪽으로 이동"
 
 [context_menu]
+freeze_to_here = "여기까지 열 고정"
+unfreeze = "모든 열 고정 해제"
 sec_clipboard = "클립보드"
 sec_row = "행"
 sec_column = "열"
@@ -631,6 +637,7 @@ extra_tables = "개 추가 테이블"
 attached_dbs = "개 연결된 DB"
 
 [settings_hint]
+search_result_mode = "pilteoneun ilchihaji anneun haengeul sumgimnida; gangjoneun modeun haengeul yujihago ilchireul gangjohamnida"
 language = "애플리케이션 메뉴와 대화 상자의 언어. 즉시 적용됩니다. 번역은 기계 생성이며 개선될 수 있습니다."
 font_size = "애플리케이션의 모든 텍스트에 대한 기본 글꼴 크기"
 default_theme = "애플리케이션 시작 시 적용되는 테마"
@@ -791,3 +798,9 @@ dialogs = "검사기 및 대화 상자"
 [documentation]
 search = "문서 검색..."
 no_matches = "일치 항목 없음"
+
+[search]
+mode_toggle_hint = "haeng pilteowa ilchi gangjo saie jeonhwan"
+no_matches = "ilchi eopseum"
+next_match = "daeum ilchi"
+prev_match = "ijeon ilchi"

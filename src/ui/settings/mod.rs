@@ -2,7 +2,7 @@ pub mod chat_models;
 mod dialog;
 pub mod secrets;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -168,13 +168,15 @@ impl ChatProviderKind {
         !matches!(self, Self::Ollama)
     }
 
-    /// A sensible default model when the user has not picked one yet.
+    /// A sensible default model when the user has not picked one yet. Cheap
+    /// models on purpose: a first chat should not surprise anyone on cost,
+    /// and the dropdown makes the bigger models one click away.
     pub fn default_model(self) -> &'static str {
         match self {
-            Self::Anthropic => "claude-sonnet-4-6",
-            Self::OpenAi => "gpt-5.5",
+            Self::Anthropic => "claude-haiku-4-5-20251001",
+            Self::OpenAi => "gpt-5.4-mini",
             Self::OpenAiCompatible => "llama3.1",
-            Self::Gemini => "gemini-3-flash-preview",
+            Self::Gemini => "gemini-2.5-flash",
             Self::Ollama => "llama3.2",
         }
     }
@@ -187,6 +189,7 @@ impl ChatProviderKind {
     pub fn preset_models(self) -> &'static [&'static str] {
         match self {
             Self::Anthropic => &[
+                "claude-fable-5",
                 "claude-sonnet-4-6",
                 "claude-opus-4-8",
                 "claude-haiku-4-5-20251001",
@@ -199,6 +202,7 @@ impl ChatProviderKind {
                 "gpt-5.2",
             ],
             Self::Gemini => &[
+                "gemini-3.5-flash",
                 "gemini-3.1-pro-preview",
                 "gemini-3-flash-preview",
                 "gemini-3.1-flash-lite",
@@ -602,6 +606,12 @@ pub struct AppSettings {
     /// even when `thousands_separators_in_cells` is off. Default English.
     #[serde(default)]
     pub number_separator_style: crate::data::num_format::SeparatorStyle,
+    /// Default search behaviour: `Filter` hides non-matching rows (table only),
+    /// `Highlight` keeps every row and highlights matches in place. The
+    /// search-bar toggle overrides this per session. Text/tree views always
+    /// highlight regardless.
+    #[serde(default)]
+    pub search_result_mode: crate::data::SearchResultMode,
     /// Whether edited cells are highlighted with a background color.
     #[serde(default)]
     pub highlight_edits: bool,
@@ -976,6 +986,7 @@ impl Default for AppSettings {
             negative_numbers_red: true,
             thousands_separators_in_cells: true,
             number_separator_style: crate::data::num_format::SeparatorStyle::default(),
+            search_result_mode: crate::data::SearchResultMode::default(),
             highlight_edits: false,
             cell_line_breaks: false,
             binary_display_mode: BinaryDisplayMode::default(),
@@ -1095,16 +1106,51 @@ impl AppSettings {
         }
     }
 
-    /// Persist settings to disk.
+    /// Persist settings to disk. The file may carry plaintext API keys (the
+    /// keyring fallback), so it is restricted to the owning user.
     pub fn save(&self) {
         if let Some(path) = Self::config_path() {
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
+            // Narrow the window: clamp an existing file before rewriting it.
+            if path.exists() {
+                restrict_file_to_owner(&path);
+            }
             if let Ok(contents) = toml::to_string_pretty(self) {
-                let _ = std::fs::write(path, contents);
+                let _ = std::fs::write(&path, contents);
+                restrict_file_to_owner(&path);
             }
         }
+    }
+}
+
+/// Best-effort chmod 0600: only the owning user may read files that can hold
+/// secrets (plaintext API keys in `settings.toml`, chat transcripts). No-op on
+/// non-Unix platforms, where ACLs already scope `%APPDATA%` to the user.
+pub fn restrict_file_to_owner(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+}
+
+/// Best-effort chmod 0700 for directories holding sensitive files. See
+/// [`restrict_file_to_owner`].
+pub fn restrict_dir_to_owner(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
     }
 }
 
@@ -1411,6 +1457,36 @@ mod tests {
         assert_eq!(parsed.chat_export_dir, defaults.chat_export_dir);
         assert_eq!(parsed.chat_models, defaults.chat_models);
         assert_eq!(parsed.chat_api_keys, defaults.chat_api_keys);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restrict_file_to_owner_sets_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("secrets.toml");
+        std::fs::write(&path, "x = 1\n").expect("write");
+        restrict_file_to_owner(&path);
+        let mode = std::fs::metadata(&path)
+            .expect("metadata")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restrict_dir_to_owner_sets_0700() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sub = dir.path().join("chat_sessions");
+        std::fs::create_dir_all(&sub).expect("create dir");
+        restrict_dir_to_owner(&sub);
+        let mode = std::fs::metadata(&sub)
+            .expect("metadata")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o700);
     }
 
     #[test]

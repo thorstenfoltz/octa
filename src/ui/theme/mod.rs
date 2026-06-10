@@ -145,7 +145,6 @@ pub struct FontSettings<'a> {
 }
 
 /// Color palette for the application
-#[allow(dead_code)]
 pub struct ThemeColors {
     // Backgrounds
     pub bg_primary: Color32,

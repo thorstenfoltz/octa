@@ -62,8 +62,8 @@ path: \"#3\"}]`, then JOIN `data` with `b`, `c`, ... Any number of tables can be
 to a new file or back to the open tab's file on disk (the user reloads with Ctrl+R to see it). \
 Use these to summarise, explain, refactor, or edit prose and code.\n\
 - Keep responses concise. Report concrete numbers from tool results rather than guessing.\n\
-- To save results, give a bare filename (Octa writes it into the user's export directory; pass an \
-absolute path only if the user asks for a specific location). To save a query or JOIN result, use \
+- To save results, give a bare filename; Octa writes it into the user's export directory (all \
+file writes are confined there). To save a query or JOIN result, use \
 `run_sql` with `write_to` (the extension picks the format: csv / parquet / xlsx / ... or \
 duckdb / sqlite). Use `write_table` for inline data, `convert` to transcode a whole source, and \
 `create_chart` for charts. Writing changes back into an open tab is not supported; `edit_table` \

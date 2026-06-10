@@ -66,6 +66,7 @@ find_duplicates = "Najdi dvojnike..."
 multi_search = "Večkratno iskanje..."
 
 [analyse_menu]
+describe = "Povzetek..."
 assistant = "Pomočnik"
 sql = "SQL"
 chart = "Grafikon"
@@ -339,6 +340,8 @@ second = "Sekunda"
 weekday = "Dan v tednu (1=Pon..7=Ned)"
 
 [enum]
+search_result_filter = "Filtriraj"
+search_result_highlight = "Oznaci"
 nb_beside = "Ob strani"
 nb_beneath = "Spodaj"
 pos_left = "Levo"
@@ -420,6 +423,7 @@ modified = "Spremenjeno"
 no_file = "Ni naložene datoteke"
 
 [settings]
+search_result_mode = "Prikaz rezultatov iskanja:"
 title = "Nastavitve"
 language = "Jezik"
 window_title = "Nastavitve Octa"
@@ -549,6 +553,8 @@ move_left = "Premakni levo"
 move_right = "Premakni desno"
 
 [context_menu]
+freeze_to_here = "Zamrzni stolpce do tukaj"
+unfreeze = "Odmrzni vse stolpce"
 sec_clipboard = "Odložišče"
 sec_row = "Vrstica"
 sec_column = "Stolpec"
@@ -638,6 +644,7 @@ extra_tables = "dodatnih tabel"
 attached_dbs = "priključenih PB"
 
 [settings_hint]
+search_result_mode = "Filtriranje skrije neujemajoce vrstice; Oznacevanje ohrani vse vrstice in oznaci zadetke"
 language = "Jezik za menije in pogovorna okna aplikacije. Začne veljati takoj. Prevodi so strojno ustvarjeni in jih je mogoče izboljšati."
 font_size = "Osnovna velikost pisave za vse besedilo v aplikaciji"
 default_theme = "Tema, uporabljena ob zagonu aplikacije"
@@ -800,3 +807,9 @@ dialogs = "Pregledovalnik in pogovorna okna"
 [documentation]
 search = "Išči po dokumentaciji..."
 no_matches = "Ni zadetkov"
+
+[search]
+mode_toggle_hint = "Preklop med filtriranjem vrstic in oznacevanjem zadetkov"
+no_matches = "Ni zadetkov"
+next_match = "Naslednji zadetek"
+prev_match = "Prejsnji zadetek"

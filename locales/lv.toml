@@ -66,6 +66,7 @@ find_duplicates = "Atrast dublikātus..."
 multi_search = "Vairākkārtēja meklēšana..."
 
 [analyse_menu]
+describe = "Kopsavilkums..."
 assistant = "Asistents"
 sql = "SQL"
 chart = "Diagramma"
@@ -339,6 +340,8 @@ second = "Sekunde"
 weekday = "Nedēļas diena (1=Pr..7=Sv)"
 
 [enum]
+search_result_filter = "Filtret"
+search_result_highlight = "Izcelt"
 nb_beside = "Blakus"
 nb_beneath = "Apakšā"
 pos_left = "Pa kreisi"
@@ -420,6 +423,7 @@ modified = "Mainīts"
 no_file = "Nav ielādēts fails"
 
 [settings]
+search_result_mode = "Meklesanas rezultatu attelojums:"
 title = "Iestatījumi"
 language = "Valoda"
 window_title = "Octa iestatījumi"
@@ -549,6 +553,8 @@ move_left = "Pārvietot pa kreisi"
 move_right = "Pārvietot pa labi"
 
 [context_menu]
+freeze_to_here = "Iesaldēt kolonnas līdz šejienei"
+unfreeze = "Atsaldēt visas kolonnas"
 sec_clipboard = "Starpliktuve"
 sec_row = "Rinda"
 sec_column = "Kolonna"
@@ -638,6 +644,7 @@ extra_tables = "papildu tabulas"
 attached_dbs = "pievienotās DB"
 
 [settings_hint]
+search_result_mode = "Filtresana paslepj neatbilstosas rindas; Izceltsana saglaba visas rindas un izcel atbilstibas"
 language = "Lietotnes izvēlņu un dialogu valoda. Stājas spēkā nekavējoties. Tulkojumi ir mašīnģenerēti un var tikt uzlaboti."
 font_size = "Pamata fonta izmērs visam tekstam lietotnē"
 default_theme = "Tēma, kas tiek lietota, kad lietotne sākas"
@@ -800,3 +807,9 @@ dialogs = "Inspektors un dialogi"
 [documentation]
 search = "Meklēt dokumentācijā..."
 no_matches = "Nav atbilstību"
+
+[search]
+mode_toggle_hint = "Parslegties starp rindu filtresanu un atbilstibu izcelsanu"
+no_matches = "Nav atbilstibu"
+next_match = "Nakama atbilstiba"
+prev_match = "Iepriekseja atbilstiba"

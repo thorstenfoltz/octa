@@ -10,7 +10,9 @@ use octa::data::{self, DataTable, ViewMode};
 use octa::ui;
 use octa::ui::table_view::TableViewState;
 
-use super::state::{ColumnInspectorSort, OctaApp, RawCsvEscape, RawCsvQuote, TabState};
+use super::state::{
+    ColumnInspectorSort, OctaApp, RawCsvEscape, RawCsvQuote, SearchNavState, TabState,
+};
 
 impl TabState {
     pub(crate) fn new(search_mode: data::SearchMode) -> Self {
@@ -23,6 +25,8 @@ impl TabState {
             replace_text: String::new(),
             filtered_rows: Vec::new(),
             filter_dirty: true,
+            search_nav: SearchNavState::default(),
+            search_cell_matches: Vec::new(),
             view_mode: ViewMode::Table,
             raw_content: None,
             raw_content_modified: false,
@@ -102,6 +106,7 @@ impl TabState {
             pinned: false,
             is_chart_tab: false,
             chart_tab_label: None,
+            custom_tab_label: None,
             column_filters: std::collections::HashMap::new(),
             show_column_filter: false,
             column_filter_size: octa::ui::settings::DialogSize::default(),
@@ -217,6 +222,9 @@ impl TabState {
                 .chart_tab_label
                 .clone()
                 .unwrap_or_else(|| "Chart".to_string());
+        }
+        if let Some(label) = &self.custom_tab_label {
+            return label.clone();
         }
         let name = if let Some(ref path) = self.table.source_path {
             std::path::Path::new(path)
@@ -336,6 +344,57 @@ impl OctaApp {
         new_tab.chart_tab_label = Some(chart_label);
         new_tab.view_mode = octa::data::ViewMode::Chart;
 
+        self.tabs.push(new_tab);
+        self.active_tab = self.tabs.len() - 1;
+    }
+
+    /// Open a Summary tab for the active table: one row per source column
+    /// with min / max / approximate uniques / average / quartiles / null
+    /// percentage, computed by DuckDB's `SUMMARIZE` over a snapshot that
+    /// includes unsaved edits. Triggered by **Analyse -> Summary...**.
+    ///
+    /// The result is an ordinary detached table tab (sortable, filterable,
+    /// exportable via Save As); it has no source path so it can never be
+    /// saved over the original file by accident.
+    pub(crate) fn open_describe_tab(&mut self) {
+        let Some(source) = self.tabs.get(self.active_tab) else {
+            return;
+        };
+        if source.table.col_count() == 0 {
+            self.status_message = Some((
+                "Open a file with columns before summarising.".to_string(),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        let mut snap = source.table.clone();
+        snap.apply_edits();
+        let source_label = source
+            .table
+            .source_path
+            .as_ref()
+            .and_then(|p| {
+                std::path::Path::new(p)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| source.title_display());
+
+        let outcome = match octa::sql::run_query(&snap, "SUMMARIZE data") {
+            Ok(o) => o,
+            Err(e) => {
+                self.status_message =
+                    Some((format!("Summary failed: {e}"), std::time::Instant::now()));
+                return;
+            }
+        };
+
+        let default_search_mode = self.settings.default_search_mode;
+        let mut new_tab = super::state::TabState::new(default_search_mode);
+        new_tab.table = outcome.table;
+        new_tab.table.source_path = None;
+        new_tab.table.format_name = None;
+        new_tab.custom_tab_label = Some(format!("Summary - {source_label}"));
         self.tabs.push(new_tab);
         self.active_tab = self.tabs.len() - 1;
     }

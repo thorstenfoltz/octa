@@ -290,6 +290,53 @@ pub(crate) enum UpdateState {
     Error(String),
 }
 
+/// Direction for next/previous match navigation in highlight search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NavDir {
+    Next,
+    Prev,
+}
+
+/// Views where filtering free text or collapsing nodes is meaningless, so the
+/// search always highlights in place regardless of the Filter/Highlight toggle.
+pub(crate) fn view_is_text_or_tree(vm: ViewMode) -> bool {
+    matches!(
+        vm,
+        ViewMode::Notebook
+            | ViewMode::Raw
+            | ViewMode::Markdown
+            | ViewMode::JsonTree
+            | ViewMode::YamlTree
+    )
+}
+
+/// Whether the active view highlights matches (vs filtering rows): true when
+/// the session mode is `Highlight` or the view is a text/tree view.
+pub(crate) fn effective_highlight(vm: ViewMode, mode: data::SearchResultMode) -> bool {
+    mode == data::SearchResultMode::Highlight || view_is_text_or_tree(vm)
+}
+
+/// Per-tab transient state for highlight-search navigation. `match_count` and
+/// `current` are recomputed by the active view each frame; `pending_jump` is a
+/// one-shot request set by the search-bar buttons / Enter keys and consumed by
+/// the view that owns the matches.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SearchNavState {
+    pub(crate) match_count: usize,
+    pub(crate) current: usize,
+    pub(crate) pending_jump: Option<NavDir>,
+}
+
+impl SearchNavState {
+    /// Reset to the empty state (no matches, no pending jump). Called whenever
+    /// the query, search mode, view mode, or file changes.
+    pub(crate) fn reset(&mut self) {
+        self.match_count = 0;
+        self.current = 0;
+        self.pending_jump = None;
+    }
+}
+
 pub(crate) struct TabState {
     pub(crate) table: DataTable,
     pub(crate) table_state: TableViewState,
@@ -299,6 +346,12 @@ pub(crate) struct TabState {
     pub(crate) replace_text: String,
     pub(crate) filtered_rows: Vec<usize>,
     pub(crate) filter_dirty: bool,
+    /// Highlight-search navigation state (count, current index, pending jump).
+    pub(crate) search_nav: SearchNavState,
+    /// In Highlight mode, the (data-row, col) cells whose value matches the
+    /// query, in display order. Empty in Filter mode. Recomputed by
+    /// `recompute_filter`.
+    pub(crate) search_cell_matches: Vec<(usize, usize)>,
     pub(crate) view_mode: ViewMode,
     pub(crate) raw_content: Option<String>,
     pub(crate) raw_content_modified: bool,
@@ -517,6 +570,10 @@ pub(crate) struct TabState {
     /// tab strip can show e.g. "Chart - sales.parquet". Ignored on
     /// non-chart tabs.
     pub(crate) chart_tab_label: Option<String>,
+    /// Optional fixed label for derived non-chart tabs (e.g.
+    /// "Summary - sales.parquet"). When set it overrides the
+    /// source-path-based title; `None` keeps the normal behaviour.
+    pub(crate) custom_tab_label: Option<String>,
     /// Excel-style per-column value-set filters. Keys are column indices;
     /// values are the set of cell `to_string()` representations that should
     /// remain visible. Absent key = no filter on that column. Empty set is
@@ -644,6 +701,11 @@ pub(crate) struct OctaApp {
     pub(crate) pending_close_tab: Option<usize>,
     pub(crate) registry: FormatRegistry,
     pub(crate) theme_mode: ThemeMode,
+    /// Session search behaviour (Filter vs Highlight). Seeded from
+    /// `settings.search_result_mode`; the search-bar toggle edits this without
+    /// persisting. Governs the table view only; text/tree views always
+    /// highlight.
+    pub(crate) search_result_mode: data::SearchResultMode,
     pub(crate) settings: AppSettings,
     /// The concrete icon variant in use for this session. Equals
     /// `settings.icon_variant` for non-Random; for Random, holds the

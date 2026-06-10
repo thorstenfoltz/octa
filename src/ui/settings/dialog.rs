@@ -5,7 +5,7 @@
 use egui;
 
 use super::*;
-use crate::data::{BinaryDisplayMode, MapMode, MarkColor, SearchMode};
+use crate::data::{BinaryDisplayMode, MapMode, MarkColor, SearchMode, SearchResultMode};
 use crate::ui::shortcuts::{KeyCombo, ShortcutAction};
 use crate::ui::theme::{BodyFont, ThemeMode};
 
@@ -597,6 +597,24 @@ impl SettingsDialog {
                                 &mut self.draft.default_search_mode,
                                 SearchMode::Regex,
                                 crate::i18n::t("enum.search_regex"),
+                            );
+                        });
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.search_result_mode"))
+                        .on_hover_text(crate::i18n::t("settings_hint.search_result_mode"));
+                    egui::ComboBox::from_id_salt("search_result_mode_combo")
+                        .selected_text(self.draft.search_result_mode.label_t())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.draft.search_result_mode,
+                                SearchResultMode::Filter,
+                                crate::i18n::t("enum.search_result_filter"),
+                            );
+                            ui.selectable_value(
+                                &mut self.draft.search_result_mode,
+                                SearchResultMode::Highlight,
+                                crate::i18n::t("enum.search_result_highlight"),
                             );
                         });
                     ui.end_row();

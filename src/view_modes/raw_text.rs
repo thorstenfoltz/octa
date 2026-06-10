@@ -1,5 +1,6 @@
-use crate::app::state::{RawCsvEscape, RawCsvQuote, TabState};
+use crate::app::state::{NavDir, RawCsvEscape, RawCsvQuote, TabState};
 use crate::ui;
+use octa::data::search::RowMatcher;
 
 use eframe::egui;
 use egui::RichText;
@@ -233,6 +234,60 @@ pub fn render_raw_view(
         let layouter_quote = tab.raw_csv_quote;
         let layouter_escape = tab.raw_csv_escape;
 
+        // Highlight search (always on for the raw editor): byte ranges of every
+        // match in the buffer, the toolbar count, and a pending next/previous
+        // jump. Computed once per frame and captured (cloned) into the editor
+        // layouters so painting composes with syntect / column colouring.
+        let matcher = (!tab.search_text.is_empty())
+            .then(|| RowMatcher::new(&tab.search_text, tab.search_mode));
+        let (hl_normal, hl_active) = ui::search_highlight::highlight_colors(&colors);
+        let match_ranges: Vec<std::ops::Range<usize>> = matcher
+            .as_ref()
+            .map(|m| m.find_ranges(content))
+            .unwrap_or_default();
+        tab.search_nav.match_count = match_ranges.len();
+        if tab.search_nav.current >= match_ranges.len() {
+            tab.search_nav.current = 0;
+        }
+        let jump_dir = tab.search_nav.pending_jump.take();
+        if let Some(dir) = jump_dir
+            && !match_ranges.is_empty()
+        {
+            let n = match_ranges.len();
+            tab.search_nav.current = match dir {
+                NavDir::Next => (tab.search_nav.current + 1) % n,
+                NavDir::Prev => (tab.search_nav.current + n - 1) % n,
+            };
+        }
+        let current_range: Option<std::ops::Range<usize>> =
+            match_ranges.get(tab.search_nav.current).cloned();
+        let do_scroll = jump_dir.is_some() && current_range.is_some();
+
+        // Plain (no syntect, no column colours) editor layouter that paints the
+        // highlight. Kept separate from `nowrap_layouter` so the line-number
+        // gutter never highlights matching digits.
+        let plain_hl_ranges = match_ranges.clone();
+        let plain_hl_current = current_range.clone();
+        let plain_text_color = colors.text_primary;
+        let plain_highlight_layouter =
+            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap_width: f32| {
+                let mut job = egui::text::LayoutJob::simple(
+                    text.as_str().to_owned(),
+                    egui::FontId::new(13.0, egui::FontFamily::Monospace),
+                    plain_text_color,
+                    f32::INFINITY,
+                );
+                job.wrap.max_width = f32::INFINITY;
+                ui::search_highlight::apply_highlight(
+                    &mut job,
+                    &plain_hl_ranges,
+                    plain_hl_current.as_ref(),
+                    hl_normal,
+                    hl_active,
+                );
+                ui.fonts_mut(|f| f.layout_job(job))
+            };
+
         // Syntect-based syntax highlighting for known languages. Only kicks
         // in when:
         //   - We're NOT doing CSV/TSV column coloring (those keep their own palette).
@@ -257,17 +312,28 @@ pub fn render_raw_view(
             })
             .flatten();
         let syntect_theme = octa::ui::syntax::theme_for_mode(theme_mode);
+        let syntect_hl_ranges = match_ranges.clone();
+        let syntect_hl_current = current_range.clone();
         let syntect_layouter =
             move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap_width: f32| {
-                let job = octa::ui::syntax::highlight_layout_job(
+                let mut job = octa::ui::syntax::highlight_layout_job(
                     text.as_str(),
                     syntect_syntax.expect("syntect_layouter only used when syntax is Some"),
                     syntect_theme,
                     egui::FontId::new(13.0, egui::FontFamily::Monospace),
                 );
+                ui::search_highlight::apply_highlight(
+                    &mut job,
+                    &syntect_hl_ranges,
+                    syntect_hl_current.as_ref(),
+                    hl_normal,
+                    hl_active,
+                );
                 ui.fonts_mut(|f| f.layout_job(job))
             };
 
+        let colored_hl_ranges = match_ranges.clone();
+        let colored_hl_current = current_range.clone();
         let colored_layouter = move |ui: &egui::Ui,
                                      text: &dyn egui::TextBuffer,
                                      _wrap_width: f32| {
@@ -315,6 +381,13 @@ pub fn render_raw_view(
                     );
                 }
             }
+            ui::search_highlight::apply_highlight(
+                &mut job,
+                &colored_hl_ranges,
+                colored_hl_current.as_ref(),
+                hl_normal,
+                hl_active,
+            );
             ui.fonts_mut(|f| f.layout_job(job))
         };
 
@@ -380,7 +453,7 @@ pub fn render_raw_view(
                             .lock_focus(true)
                             .interactive(!readonly)
                             .text_color(colors.text_primary)
-                            .layouter(&mut nowrap_layouter.clone())
+                            .layouter(&mut plain_highlight_layouter.clone())
                             .show(ui)
                     };
 
@@ -405,11 +478,33 @@ pub fn render_raw_view(
                         let new_cursor = egui::text::CCursor::new(new_idx);
                         let new_range = egui::text::CCursorRange::one(new_cursor);
                         output.state.cursor.set_char_range(Some(new_range));
-                        output.state.store(ui.ctx(), output.response.id);
+                        // Clone before storing so `output.state` stays available
+                        // for the highlight-search jump handling below.
+                        output.state.clone().store(ui.ctx(), output.response.id);
                         tab.raw_content_modified = true;
                     }
                     if output.response.changed() && !had_tabs && !readonly {
                         tab.raw_content_modified = true;
+                    }
+
+                    // Highlight-search jump: place the cursor on the current
+                    // match and scroll it into view.
+                    if do_scroll && let Some(r) = current_range.as_ref() {
+                        let start_chars = content[..r.start].chars().count();
+                        let end_chars = content[..r.end].chars().count();
+                        let ccur_start = egui::text::CCursor::new(start_chars);
+                        let ccur_end = egui::text::CCursor::new(end_chars);
+                        output
+                            .state
+                            .cursor
+                            .set_char_range(Some(egui::text::CCursorRange::two(
+                                ccur_start, ccur_end,
+                            )));
+                        output.state.store(ui.ctx(), output.response.id);
+                        let crect = output.galley.pos_from_cursor(ccur_start);
+                        let screen = crect.translate(output.galley_pos.to_vec2());
+                        ui.scroll_to_rect(screen, Some(egui::Align::Center));
+                        output.response.request_focus();
                     }
                 });
             });

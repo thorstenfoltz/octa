@@ -70,6 +70,10 @@ pub struct TableViewState {
     /// Pending request from the `FitAllColumns` shortcut. Drained on the next
     /// `draw_table` call, where a `Ui` is available for font measurement.
     pub fit_all_columns_requested: bool,
+    /// Number of leading columns pinned to the left edge while scrolling
+    /// horizontally (Excel-style freeze). 0 = nothing frozen. Set from the
+    /// column-header context menu; session-only, like column widths.
+    pub frozen_cols: usize,
 }
 
 const DEFAULT_ROW_HEIGHT: f32 = 26.0;
@@ -110,26 +114,97 @@ fn scroll_row_into_view(
     state.scroll_y = state.scroll_y.clamp(0.0, max_scroll_y);
 }
 
-/// Scroll horizontally so the given column index stays visible.
+/// Scroll horizontally so the given column index stays visible. Frozen
+/// columns are always visible, so they never move the scroll; for the rest
+/// the visible window starts after the frozen band.
 fn scroll_col_into_view(
     state: &mut TableViewState,
     col_idx: usize,
     view_width: f32,
     max_scroll_x: f32,
+    frozen_cols: usize,
+    frozen_width: f32,
 ) {
-    let col_left: f32 = state.col_widths[..col_idx].iter().sum();
+    if col_idx < frozen_cols {
+        state.scroll_x = state.scroll_x.clamp(0.0, max_scroll_x);
+        return;
+    }
+    let col_left: f32 = state.col_widths[frozen_cols.min(col_idx)..col_idx]
+        .iter()
+        .sum();
     let col_right = col_left
         + state
             .col_widths
             .get(col_idx)
             .copied()
             .unwrap_or(DEFAULT_COL_WIDTH);
+    let window = view_width - state.row_number_width - frozen_width;
     if col_left < state.scroll_x {
         state.scroll_x = col_left;
-    } else if col_right > state.scroll_x + (view_width - state.row_number_width) {
-        state.scroll_x = col_right - (view_width - state.row_number_width);
+    } else if col_right > state.scroll_x + window {
+        state.scroll_x = col_right - window;
     }
     state.scroll_x = state.scroll_x.clamp(0.0, max_scroll_x);
+}
+
+/// Width of the frozen band: the effective painted widths (hidden columns
+/// count 0) of the first `frozen_cols` columns.
+fn frozen_band_width(
+    col_widths: &[f32],
+    hidden_columns: &HashSet<usize>,
+    frozen_cols: usize,
+) -> f32 {
+    col_widths
+        .iter()
+        .enumerate()
+        .take(frozen_cols)
+        .map(|(i, w)| if hidden_columns.contains(&i) { 0.0 } else { *w })
+        .sum()
+}
+
+/// Map a pointer x (relative to the data-area origin, i.e. just right of the
+/// row-number gutter) to the drag-drop target column, honouring the frozen
+/// band: frozen columns sit at fixed positions, scrolled ones shift by
+/// `scroll_x`. Uses the same midpoint rule the drag-reorder code always used;
+/// with `frozen_cols == 0` it reproduces the original arithmetic exactly.
+fn drag_target_at_x(
+    rel_x: f32,
+    col_widths: &[f32],
+    frozen_cols: usize,
+    frozen_width: f32,
+    scroll_x: f32,
+) -> usize {
+    let n = col_widths.len();
+    if n == 0 {
+        return 0;
+    }
+    let frozen_cols = frozen_cols.min(n);
+    if frozen_cols > 0 && rel_x < frozen_width {
+        let mut acc = 0.0f32;
+        let mut target = frozen_cols - 1;
+        for (i, &cw) in col_widths.iter().enumerate().take(frozen_cols) {
+            if rel_x < acc + cw / 2.0 {
+                target = i;
+                break;
+            }
+            acc += cw;
+            target = i;
+        }
+        return target;
+    }
+    // Content-space x measured from the first scrolled column's left edge.
+    let content_x = rel_x - frozen_width + scroll_x;
+    let mut acc = 0.0f32;
+    let mut target = n - 1;
+    for (i, &cw) in col_widths.iter().enumerate().skip(frozen_cols) {
+        if content_x < acc + cw / 2.0 {
+            target = i;
+            break;
+        }
+        acc += cw;
+        target = i;
+    }
+    target
 }
 
 /// Binary search in prefix-sum array to find the row containing a given scroll offset.
@@ -399,6 +474,11 @@ pub fn draw_table(
     separator_style: crate::data::num_format::SeparatorStyle,
     // Per-column display number formats (decimals + rounding). Display-only.
     column_number_formats: &std::collections::HashMap<usize, crate::data::num_format::NumberFormat>,
+    // Cells to highlight in highlight-search mode (data-row, col). Empty in
+    // filter mode, so zero overhead there.
+    search_matches: &HashSet<(usize, usize)>,
+    // The single match the user has navigated to, painted more prominently.
+    current_match: Option<(usize, usize)>,
 ) -> TableInteraction {
     let colors = ThemeColors::for_mode(theme_mode);
     let row_height = (font_size * 2.0).max(DEFAULT_ROW_HEIGHT);
@@ -504,6 +584,18 @@ pub fn draw_table(
     let available_rect = ui.available_rect_before_wrap();
     let view_width = available_rect.width();
     let view_height = available_rect.height();
+
+    // Effective frozen band for this frame. Clamped to the column count and
+    // shrunk until at least ~100 px of scrollable viewport remains, so a
+    // narrow window (or deep zoom) never leaves the table unscrollable; the
+    // stored `state.frozen_cols` is untouched, so enlarging the window
+    // restores the full band.
+    let mut frozen_cols = state.frozen_cols.min(table.col_count());
+    let mut frozen_width = frozen_band_width(&state.col_widths, hidden_columns, frozen_cols);
+    while frozen_cols > 0 && frozen_width > (view_width - state.row_number_width - 100.0).max(0.0) {
+        frozen_cols -= 1;
+        frozen_width = frozen_band_width(&state.col_widths, hidden_columns, frozen_cols);
+    }
 
     let total_data_height = if cell_line_breaks {
         ensure_row_y_offsets(
@@ -683,7 +775,14 @@ pub fn draw_table(
             state.selected_cells.insert((cur_row, cur_col));
             state.selected_cells.insert((cur_row, new_col));
             state.selected_cell = Some((cur_row, new_col));
-            scroll_col_into_view(state, new_col, view_width, max_scroll_x);
+            scroll_col_into_view(
+                state,
+                new_col,
+                view_width,
+                max_scroll_x,
+                frozen_cols,
+                frozen_width,
+            );
             handled = true;
         }
 
@@ -733,7 +832,14 @@ pub fn draw_table(
                 state.selected_cols.insert(new_col);
                 let row = state.selected_cell.map(|(r, _)| r).unwrap_or(0);
                 state.selected_cell = Some((row, new_col));
-                scroll_col_into_view(state, new_col, view_width, max_scroll_x);
+                scroll_col_into_view(
+                    state,
+                    new_col,
+                    view_width,
+                    max_scroll_x,
+                    frozen_cols,
+                    frozen_width,
+                );
                 handled = true;
             }
         }
@@ -822,7 +928,14 @@ pub fn draw_table(
                         data_area_height,
                         max_scroll_y,
                     );
-                    scroll_col_into_view(state, new_col, view_width, max_scroll_x);
+                    scroll_col_into_view(
+                        state,
+                        new_col,
+                        view_width,
+                        max_scroll_x,
+                        frozen_cols,
+                        frozen_width,
+                    );
                 }
             }
         }
@@ -870,6 +983,8 @@ pub fn draw_table(
         filtered_columns,
         hidden_columns,
         num_fmt_ctx,
+        frozen_cols,
+        frozen_width,
     );
 
     // Header bottom border
@@ -944,10 +1059,27 @@ pub fn draw_table(
                 thousands_separators,
                 separator_style,
                 column_number_formats,
+                frozen_cols,
+                frozen_width,
+                search_matches,
+                current_match,
             );
         }
 
         current_y += actual_row_height;
+    }
+
+    // Separator at the frozen-band boundary so the pinned columns read as a
+    // distinct region while the rest scrolls underneath.
+    if frozen_cols > 0 {
+        let sep_x = panel_rect.left() + state.row_number_width + frozen_width;
+        painter.line_segment(
+            [
+                egui::pos2(sep_x, panel_rect.top()),
+                egui::pos2(sep_x, data_area_bottom),
+            ],
+            egui::Stroke::new(2.0, colors.border),
+        );
     }
 
     // --- Vertical scrollbar ---
@@ -1129,4 +1261,101 @@ fn mark_submenu(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The original (pre-freeze) drag-target arithmetic, kept verbatim as the
+    /// no-regression oracle for `drag_target_at_x` with `frozen_cols == 0`.
+    fn original_drag_target(rel_x: f32, col_widths: &[f32], scroll_x: f32) -> usize {
+        let pointer_x = rel_x + scroll_x;
+        let mut acc = 0.0f32;
+        let mut target = col_widths.len().saturating_sub(1);
+        for (i, &cw) in col_widths.iter().enumerate() {
+            if pointer_x < acc + cw / 2.0 {
+                target = i;
+                break;
+            }
+            acc += cw;
+            target = i;
+        }
+        target
+    }
+
+    #[test]
+    fn drag_target_matches_original_when_nothing_is_frozen() {
+        let widths = [100.0, 80.0, 120.0, 60.0];
+        for scroll_x in [0.0, 50.0, 173.0] {
+            for rel_x in [-20.0, 0.0, 10.0, 99.0, 150.0, 250.0, 400.0, 1000.0] {
+                assert_eq!(
+                    drag_target_at_x(rel_x, &widths, 0, 0.0, scroll_x),
+                    original_drag_target(rel_x, &widths, scroll_x),
+                    "rel_x={rel_x} scroll_x={scroll_x}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn drag_target_resolves_frozen_band_positions_ignoring_scroll() {
+        // Two frozen columns of 100 + 80 px; scrolled hard to the right.
+        let widths = [100.0, 80.0, 120.0, 60.0];
+        let frozen_width = 180.0;
+        let scroll = 500.0;
+        // Inside the frozen band the scroll offset is irrelevant.
+        assert_eq!(drag_target_at_x(10.0, &widths, 2, frozen_width, scroll), 0);
+        assert_eq!(drag_target_at_x(120.0, &widths, 2, frozen_width, scroll), 1);
+        // Just right of the band: content coordinate = rel - band + scroll.
+        // rel_x 190 -> content 510 -> past both scrolled columns' midpoints.
+        assert_eq!(drag_target_at_x(190.0, &widths, 2, frozen_width, scroll), 3);
+        // With no scroll, just right of the band is the first scrolled column.
+        assert_eq!(drag_target_at_x(190.0, &widths, 2, frozen_width, 0.0), 2);
+    }
+
+    #[test]
+    fn frozen_band_width_skips_hidden_columns() {
+        let widths = vec![100.0, 80.0, 120.0];
+        let mut hidden = HashSet::new();
+        assert_eq!(frozen_band_width(&widths, &hidden, 0), 0.0);
+        assert_eq!(frozen_band_width(&widths, &hidden, 2), 180.0);
+        assert_eq!(frozen_band_width(&widths, &hidden, 99), 300.0);
+        hidden.insert(1);
+        assert_eq!(frozen_band_width(&widths, &hidden, 2), 100.0);
+    }
+
+    #[test]
+    fn scroll_col_into_view_is_unchanged_with_no_frozen_band() {
+        let mut state = TableViewState {
+            col_widths: vec![100.0, 100.0, 100.0, 100.0],
+            row_number_width: 60.0,
+            ..Default::default()
+        };
+        // Viewport fits two columns beside the gutter; bring column 3 in.
+        scroll_col_into_view(&mut state, 3, 260.0, 1000.0, 0, 0.0);
+        // col 3 right edge = 400; window = 260 - 60 = 200 -> scroll_x = 200.
+        assert_eq!(state.scroll_x, 200.0);
+        // Scrolling back to column 0 returns to the origin.
+        scroll_col_into_view(&mut state, 0, 260.0, 1000.0, 0, 0.0);
+        assert_eq!(state.scroll_x, 0.0);
+    }
+
+    #[test]
+    fn scroll_col_into_view_accounts_for_the_frozen_band() {
+        let mut state = TableViewState {
+            col_widths: vec![100.0, 100.0, 100.0, 100.0],
+            row_number_width: 60.0,
+            ..Default::default()
+        };
+        // One frozen column: the scrollable window shrinks by its width and
+        // offsets are measured from the first scrolled column.
+        scroll_col_into_view(&mut state, 3, 360.0, 1000.0, 1, 100.0);
+        // cols 1..3 left = 200, right = 300; window = 360 - 60 - 100 = 200
+        // -> scroll_x = 300 - 200 = 100.
+        assert_eq!(state.scroll_x, 100.0);
+        // A frozen column never changes the scroll.
+        scroll_col_into_view(&mut state, 0, 360.0, 1000.0, 1, 100.0);
+        assert_eq!(state.scroll_x, 100.0);
+    }
 }

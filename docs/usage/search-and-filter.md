@@ -63,6 +63,43 @@ A dropdown next to the search box switches between three modes:
 The default mode is set under
 [**Settings → Search & Editor → Default search mode**](../reference/settings.md#search-editor).
 
+## Filter or highlight
+
+A toggle button beside the search box controls how matches are shown:
+
+- **Filter** (the default): rows that do not match are hidden, exactly as
+  Octa has always behaved.
+- **Highlight**: every row stays visible and the matching cells are
+  highlighted in place. Nothing is hidden.
+
+Set the default under
+[**Settings → Search & Editor → Search result display**](../reference/settings.md#search-editor);
+the toggle overrides it for the current session.
+
+The **table** view honours the toggle. The text and tree views always
+highlight, regardless of the toggle, because hiding free text or collapsing
+tree nodes is not meaningful there:
+
+- Jupyter notebooks
+- JSON and YAML trees
+- Markdown (preview and editor)
+- the raw text editor
+
+This means the search box now works in those views too, where previously it
+had no effect.
+
+### Match count and navigation
+
+When matches are highlighted, the search bar shows a count (`current / total`)
+and two buttons to step through them. While the search box is focused:
+
+- **Enter** jumps to the next match.
+- **Shift+Enter** jumps to the previous match.
+
+The view scrolls the current match into view and emphasises it. In a table the
+current match cell is selected; in text views the cursor moves to it; in trees
+and notebooks the relevant node or cell scrolls into view.
+
 ## What the search matches against
 
 Every column's textual value, joined into one string per row. This

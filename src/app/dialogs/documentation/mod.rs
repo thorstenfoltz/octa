@@ -7,6 +7,7 @@ mod content;
 
 use eframe::egui;
 
+use octa::data::search::RowMatcher;
 use octa::ui;
 use octa::ui::settings::{
     DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
@@ -158,7 +159,18 @@ pub(crate) fn render_documentation_dialog(app: &mut OctaApp, ctx: &egui::Context
                         let body = &entries[app.docs_active_section].1;
                         let cap = ui.available_width().clamp(200.0, 900.0);
                         ui.set_max_width(cap);
-                        render_pulldown(ui, body);
+                        // Highlight occurrences of the search query in the
+                        // rendered content pane (sidebar filtering above is
+                        // unchanged). `query` is already trimmed + lowercased;
+                        // RowMatcher's Plain mode matches case-insensitively.
+                        let docs_hl: Option<(RowMatcher, egui::Color32)> = (!query.is_empty())
+                            .then(|| {
+                                (
+                                    RowMatcher::new(&query, octa::data::SearchMode::Plain),
+                                    egui::Color32::from_rgba_premultiplied(150, 130, 0, 110),
+                                )
+                            });
+                        render_pulldown(ui, body, docs_hl.as_ref());
                     });
             });
         });

@@ -21,6 +21,10 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     app.settings = new_settings;
     app.settings.save();
 
+    // Re-seed the session search behaviour from the (possibly changed) default
+    // so the search-bar toggle reflects the new preference immediately.
+    app.search_result_mode = app.settings.search_result_mode;
+
     // Truncate the recent-files list if the user lowered `max_recent_files`.
     // Without this the menu keeps showing the old (longer) list until a new
     // file is opened - confusing because the setting appears to do nothing.

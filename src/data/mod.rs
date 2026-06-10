@@ -166,6 +166,38 @@ impl SearchMode {
     }
 }
 
+/// How the search query affects the display.
+///
+/// `Filter` is the original behaviour: rows that do not match are hidden.
+/// `Highlight` keeps every row visible and paints the matching cells instead.
+/// The toggle only governs the **table** view; text-like and tree views
+/// (Notebook, Raw, Markdown, JSON/YAML tree) always highlight because hiding
+/// free text or collapsing tree nodes is meaningless.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SearchResultMode {
+    /// Hide non-matching rows (table only).
+    #[default]
+    Filter,
+    /// Keep all rows; highlight matches in place.
+    Highlight,
+}
+
+impl SearchResultMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Filter => "Filter",
+            Self::Highlight => "Highlight",
+        }
+    }
+
+    pub fn label_t(self) -> String {
+        crate::i18n::t(match self {
+            Self::Filter => "enum.search_result_filter",
+            Self::Highlight => "enum.search_result_highlight",
+        })
+    }
+}
+
 /// How to display binary (`Vec<u8>`) cell values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum BinaryDisplayMode {
@@ -1608,7 +1640,6 @@ impl DataTable {
 }
 
 /// Check if a single CellValue can be converted to the target data type.
-#[allow(dead_code)]
 pub fn can_convert_value(val: &CellValue, target_type: &str) -> bool {
     match val {
         CellValue::Null => true, // Null converts to anything

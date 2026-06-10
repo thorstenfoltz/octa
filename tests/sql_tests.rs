@@ -337,3 +337,34 @@ fn test_insert_mutates_base_table() {
         Some(&CellValue::String("Dana".into()))
     );
 }
+
+/// DuckDB's SUMMARIZE backs the GUI's Analyse > Summary tab: one result row
+/// per source column, with the column names in a `column_name` column.
+#[test]
+fn test_summarize_returns_one_row_per_column() {
+    let table = sample_table();
+    let result = run_query(&table, "SUMMARIZE data").expect("SUMMARIZE should work");
+    assert_eq!(result.kind, QueryKind::Select);
+    assert_eq!(
+        result.table.row_count(),
+        table.columns.len(),
+        "one summary row per source column"
+    );
+    let name_col = result
+        .table
+        .columns
+        .iter()
+        .position(|c| c.name == "column_name")
+        .expect("SUMMARIZE result has a column_name column");
+    let mut names: Vec<String> = (0..result.table.row_count())
+        .map(|r| {
+            result
+                .table
+                .get(r, name_col)
+                .map(|c| c.to_string())
+                .unwrap_or_default()
+        })
+        .collect();
+    names.sort();
+    assert_eq!(names, vec!["id", "name", "score"]);
+}

@@ -59,6 +59,7 @@ find_duplicates = "Yinelenenleri bul..."
 multi_search = "Çoklu arama..."
 
 [analyse_menu]
+describe = "Özet..."
 assistant = "Assistant"
 sql = "SQL"
 chart = "Grafik"
@@ -342,6 +343,8 @@ second = "Saniye"
 weekday = "Haftanın günü (1=Pzt..7=Paz)"
 
 [enum]
+search_result_filter = "Filtrele"
+search_result_highlight = "Vurgula"
 nb_beside = "Yanında"
 nb_beneath = "Altında"
 pos_left = "Sol"
@@ -423,6 +426,7 @@ modified = "Değiştirildi"
 no_file = "Dosya yüklenmedi"
 
 [settings]
+search_result_mode = "Arama sonucu gosterimi:"
 title = "Ayarlar"
 language = "Dil"
 window_title = "Octa Ayarları"
@@ -552,6 +556,8 @@ move_left = "Sola taşı"
 move_right = "Sağa taşı"
 
 [context_menu]
+freeze_to_here = "Sütunları buraya kadar dondur"
+unfreeze = "Tüm sütunların dondurmasını kaldır"
 sec_clipboard = "Pano"
 sec_row = "Satır"
 sec_column = "Sütun"
@@ -641,6 +647,7 @@ extra_tables = "ek tablo"
 attached_dbs = "ekli veritabanı"
 
 [settings_hint]
+search_result_mode = "Filtrele eslesmeyen satirlari gizler; Vurgula tum satirlari korur ve eslesmeleri vurgular"
 language = "Uygulamanın menüleri ve iletişim kutuları için dil. Hemen etkili olur. Çeviriler makine tarafından oluşturulur ve iyileştirilebilir."
 font_size = "Uygulamadaki tüm metin için temel yazı tipi boyutu"
 default_theme = "Uygulama başladığında uygulanan tema"
@@ -803,3 +810,9 @@ dialogs = "İnceleyici ve iletişim kutuları"
 [documentation]
 search = "Belgelerde ara..."
 no_matches = "Eşleşme yok"
+
+[search]
+mode_toggle_hint = "Satirlari filtreleme ile eslesmeleri vurgulama arasinda gecis yap"
+no_matches = "Eslesme yok"
+next_match = "Sonraki eslesme"
+prev_match = "Onceki eslesme"

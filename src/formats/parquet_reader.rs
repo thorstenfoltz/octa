@@ -2,7 +2,10 @@ use crate::data::{CellValue, ColumnInfo, DataTable};
 use crate::formats::FormatReader;
 use anyhow::{Result, anyhow};
 use arrow::array::*;
-use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
+use arrow::datatypes::{
+    ArrowPrimitiveType, DataType, Field, Int8Type, Int16Type, Int32Type, Int64Type, Schema,
+    TimeUnit, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
+};
 use parquet::arrow::ArrowWriter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use std::collections::{HashMap, HashSet};
@@ -522,6 +525,12 @@ pub fn arrow_value_to_cell(array: &dyn Array, idx: usize) -> CellValue {
 }
 
 /// Map a DataTable data_type string back to an Arrow DataType.
+///
+/// Invariant shared with [`build_arrow_array`]: every `DataType` this can
+/// return must have a matching builder arm there, because `write_parquet`
+/// (and the Arrow IPC writer) derive the schema from this function and the
+/// arrays from that one; `RecordBatch::try_new` rejects any disagreement.
+/// Unknown names fall back to `Utf8` in both, so the pair stays consistent.
 pub fn data_type_from_string(s: &str) -> DataType {
     match s.to_lowercase().as_str() {
         "boolean" | "bool" => DataType::Boolean,
@@ -577,7 +586,77 @@ fn write_parquet(path: &Path, table: &DataTable) -> Result<()> {
     Ok(())
 }
 
+/// Outcome of coercing one cell to `f64` for the float builders.
+enum FloatCell {
+    Value(f64),
+    Null,
+}
+
+fn float_cell(table: &DataTable, row: usize, col_idx: usize) -> FloatCell {
+    match table.get(row, col_idx) {
+        Some(CellValue::Float(v)) => FloatCell::Value(*v),
+        Some(CellValue::Int(v)) => FloatCell::Value(*v as f64),
+        Some(CellValue::Null) | None => FloatCell::Null,
+        Some(v) => match v.to_string().parse::<f64>() {
+            Ok(f) => FloatCell::Value(f),
+            Err(_) => FloatCell::Null,
+        },
+    }
+}
+
+/// Width-correct signed integer array: cells are read as `i64` (the
+/// `CellValue::Int` payload) and narrowed with `try_from`; values that do not
+/// fit the target width become null, mirroring the parse-failure convention.
+fn signed_int_array<T>(table: &DataTable, col_idx: usize, num_rows: usize) -> Arc<dyn Array>
+where
+    T: ArrowPrimitiveType,
+    T::Native: TryFrom<i64>,
+{
+    let mut builder = PrimitiveBuilder::<T>::with_capacity(num_rows);
+    for row in 0..num_rows {
+        let wide: Option<i64> = match table.get(row, col_idx) {
+            Some(CellValue::Int(v)) => Some(*v),
+            Some(CellValue::Float(v)) => Some(*v as i64),
+            Some(CellValue::Null) | None => None,
+            Some(v) => v.to_string().parse::<i64>().ok(),
+        };
+        match wide.and_then(|v| T::Native::try_from(v).ok()) {
+            Some(v) => builder.append_value(v),
+            None => builder.append_null(),
+        }
+    }
+    Arc::new(builder.finish())
+}
+
+/// Width-correct unsigned integer array; negative or oversized values become
+/// null rather than wrapping.
+fn unsigned_int_array<T>(table: &DataTable, col_idx: usize, num_rows: usize) -> Arc<dyn Array>
+where
+    T: ArrowPrimitiveType,
+    T::Native: TryFrom<u64>,
+{
+    let mut builder = PrimitiveBuilder::<T>::with_capacity(num_rows);
+    for row in 0..num_rows {
+        let wide: Option<u64> = match table.get(row, col_idx) {
+            Some(CellValue::Int(v)) => u64::try_from(*v).ok(),
+            Some(CellValue::Float(v)) if *v >= 0.0 => Some(*v as u64),
+            Some(CellValue::Null) | None => None,
+            Some(v) => v.to_string().parse::<u64>().ok(),
+        };
+        match wide.and_then(|v| T::Native::try_from(v).ok()) {
+            Some(v) => builder.append_value(v),
+            None => builder.append_null(),
+        }
+    }
+    Arc::new(builder.finish())
+}
+
 /// Build an Arrow array from a column of the DataTable.
+///
+/// Must cover every `DataType` that [`data_type_from_string`] can produce
+/// with an array of exactly that type; see the invariant note there. The
+/// final `Utf8` fallback is only reached for type names that fall back to
+/// `Utf8` in `data_type_from_string` too, so schema and array always agree.
 pub fn build_arrow_array(
     arrow_type: &DataType,
     table: &DataTable,
@@ -603,47 +682,45 @@ pub fn build_arrow_array(
             }
             Arc::new(builder.finish())
         }
-        DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 => {
-            let mut builder = Int64Builder::with_capacity(num_rows);
+        // Signed integers get width-correct arrays so the array type always
+        // matches the schema `write_parquet` builds from the same type name
+        // (`RecordBatch::try_new` validates the two against each other).
+        // Out-of-range values become null, mirroring the parse-failure
+        // convention below.
+        DataType::Int8 => signed_int_array::<Int8Type>(table, col_idx, num_rows),
+        DataType::Int16 => signed_int_array::<Int16Type>(table, col_idx, num_rows),
+        DataType::Int32 => signed_int_array::<Int32Type>(table, col_idx, num_rows),
+        DataType::Int64 => signed_int_array::<Int64Type>(table, col_idx, num_rows),
+        DataType::UInt8 => unsigned_int_array::<UInt8Type>(table, col_idx, num_rows),
+        DataType::UInt16 => unsigned_int_array::<UInt16Type>(table, col_idx, num_rows),
+        DataType::UInt32 => unsigned_int_array::<UInt32Type>(table, col_idx, num_rows),
+        DataType::UInt64 => unsigned_int_array::<UInt64Type>(table, col_idx, num_rows),
+        DataType::Float16 => {
+            let mut builder = Float16Builder::with_capacity(num_rows);
             for row in 0..num_rows {
-                match table.get(row, col_idx) {
-                    Some(CellValue::Int(v)) => builder.append_value(*v),
-                    Some(CellValue::Float(v)) => builder.append_value(*v as i64),
-                    Some(CellValue::Null) | None => builder.append_null(),
-                    Some(v) => match v.to_string().parse::<i64>() {
-                        Ok(i) => builder.append_value(i),
-                        Err(_) => builder.append_null(),
-                    },
+                match float_cell(table, row, col_idx) {
+                    FloatCell::Value(f) => builder.append_value(half::f16::from_f64(f)),
+                    FloatCell::Null => builder.append_null(),
                 }
             }
             Arc::new(builder.finish())
         }
-        DataType::UInt8 | DataType::UInt16 | DataType::UInt32 | DataType::UInt64 => {
-            let mut builder = UInt64Builder::with_capacity(num_rows);
+        DataType::Float32 => {
+            let mut builder = Float32Builder::with_capacity(num_rows);
             for row in 0..num_rows {
-                match table.get(row, col_idx) {
-                    Some(CellValue::Int(v)) => builder.append_value(*v as u64),
-                    Some(CellValue::Float(v)) => builder.append_value(*v as u64),
-                    Some(CellValue::Null) | None => builder.append_null(),
-                    Some(v) => match v.to_string().parse::<u64>() {
-                        Ok(i) => builder.append_value(i),
-                        Err(_) => builder.append_null(),
-                    },
+                match float_cell(table, row, col_idx) {
+                    FloatCell::Value(f) => builder.append_value(f as f32),
+                    FloatCell::Null => builder.append_null(),
                 }
             }
             Arc::new(builder.finish())
         }
-        DataType::Float16 | DataType::Float32 | DataType::Float64 => {
+        DataType::Float64 => {
             let mut builder = Float64Builder::with_capacity(num_rows);
             for row in 0..num_rows {
-                match table.get(row, col_idx) {
-                    Some(CellValue::Float(v)) => builder.append_value(*v),
-                    Some(CellValue::Int(v)) => builder.append_value(*v as f64),
-                    Some(CellValue::Null) | None => builder.append_null(),
-                    Some(v) => match v.to_string().parse::<f64>() {
-                        Ok(f) => builder.append_value(f),
-                        Err(_) => builder.append_null(),
-                    },
+                match float_cell(table, row, col_idx) {
+                    FloatCell::Value(f) => builder.append_value(f),
+                    FloatCell::Null => builder.append_null(),
                 }
             }
             Arc::new(builder.finish())
@@ -663,6 +740,31 @@ pub fn build_arrow_array(
                     }
                     Some(CellValue::Null) | None => builder.append_null(),
                     _ => builder.append_null(),
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        DataType::Date64 => {
+            let mut builder = Date64Builder::with_capacity(num_rows);
+            for row in 0..num_rows {
+                let millis = match table.get(row, col_idx) {
+                    Some(CellValue::Date(s)) => chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                        .ok()
+                        .and_then(|d| d.and_hms_opt(0, 0, 0))
+                        .map(|dt| dt.and_utc().timestamp_millis()),
+                    Some(CellValue::DateTime(s)) => {
+                        chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.3f")
+                            .or_else(|_| {
+                                chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
+                            })
+                            .ok()
+                            .map(|dt| dt.and_utc().timestamp_millis())
+                    }
+                    _ => None,
+                };
+                match millis {
+                    Some(ms) => builder.append_value(ms),
+                    None => builder.append_null(),
                 }
             }
             Arc::new(builder.finish())
@@ -690,12 +792,36 @@ pub fn build_arrow_array(
             }
             Arc::new(builder.finish())
         }
-        DataType::LargeUtf8 | DataType::LargeBinary => {
+        DataType::LargeUtf8 => {
             let mut builder = LargeStringBuilder::with_capacity(num_rows, num_rows * 32);
             for row in 0..num_rows {
                 match table.get(row, col_idx) {
                     Some(CellValue::Null) | None => builder.append_null(),
                     Some(v) => builder.append_value(v.to_string()),
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        // Binary columns round-trip their bytes exactly; non-binary cells in a
+        // binary column (e.g. a hand-typed edit) are stored as their UTF-8.
+        DataType::Binary => {
+            let mut builder = BinaryBuilder::with_capacity(num_rows, num_rows * 32);
+            for row in 0..num_rows {
+                match table.get(row, col_idx) {
+                    Some(CellValue::Binary(b)) => builder.append_value(b),
+                    Some(CellValue::Null) | None => builder.append_null(),
+                    Some(v) => builder.append_value(v.to_string().as_bytes()),
+                }
+            }
+            Arc::new(builder.finish())
+        }
+        DataType::LargeBinary => {
+            let mut builder = LargeBinaryBuilder::with_capacity(num_rows, num_rows * 32);
+            for row in 0..num_rows {
+                match table.get(row, col_idx) {
+                    Some(CellValue::Binary(b)) => builder.append_value(b),
+                    Some(CellValue::Null) | None => builder.append_null(),
+                    Some(v) => builder.append_value(v.to_string().as_bytes()),
                 }
             }
             Arc::new(builder.finish())

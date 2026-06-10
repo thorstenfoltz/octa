@@ -1,6 +1,7 @@
-use crate::app::state::TabState;
+use crate::app::state::{NavDir, TabState};
 use crate::ui;
 use octa::data::json_util;
+use octa::data::search::RowMatcher;
 
 use eframe::egui;
 use egui::{Color32, RichText};
@@ -195,6 +196,41 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
         &mut rows,
     );
 
+    // Highlight search (always on for tree views): find the rows whose key or
+    // leaf value matches, drive the toolbar count, and let the user step
+    // through them. Rows are flattened in full above even though the ScrollArea
+    // virtualizes painting, so the match set covers the whole tree.
+    let matcher =
+        (!tab.search_text.is_empty()).then(|| RowMatcher::new(&tab.search_text, tab.search_mode));
+    let (hl_normal, hl_active) = ui::search_highlight::highlight_colors(&colors);
+    let match_indices: Vec<usize> = match matcher.as_ref() {
+        Some(m) => rows
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| json_row_matches(r, m))
+            .map(|(i, _)| i)
+            .collect(),
+        None => Vec::new(),
+    };
+    tab.search_nav.match_count = match_indices.len();
+    if tab.search_nav.current >= tab.search_nav.match_count {
+        tab.search_nav.current = 0;
+    }
+    let mut scroll_to_offset: Option<f32> = None;
+    if let Some(dir) = tab.search_nav.pending_jump.take()
+        && !match_indices.is_empty()
+    {
+        let n = match_indices.len();
+        tab.search_nav.current = match dir {
+            NavDir::Next => (tab.search_nav.current + 1) % n,
+            NavDir::Prev => (tab.search_nav.current + n - 1) % n,
+        };
+        let target = match_indices[tab.search_nav.current];
+        scroll_to_offset = Some(8.0 + target as f32 * JSON_ROW_HEIGHT);
+    }
+    let current_target: Option<usize> = match_indices.get(tab.search_nav.current).copied();
+    let match_set: std::collections::HashSet<usize> = match_indices.into_iter().collect();
+
     let mut toggle_path: Option<String> = None;
     let mut edit_request: Option<(String, String)> = None;
     let mut key_edit_request: Option<(String, String)> = None;
@@ -206,13 +242,28 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
     let mut add_key_commit = false;
     let mut add_key_cancel = false;
 
-    egui::ScrollArea::both()
-        .auto_shrink([false, false])
-        .show_rows(ui, JSON_ROW_HEIGHT, rows.len(), |ui, range| {
-            ui.add_space(8.0);
-            for i in range {
-                let row = &rows[i];
-                let comma = if row.is_last { "" } else { "," };
+    let mut scroll_area = egui::ScrollArea::both().auto_shrink([false, false]);
+    if let Some(off) = scroll_to_offset {
+        scroll_area = scroll_area.vertical_scroll_offset(off);
+    }
+    scroll_area.show_rows(ui, JSON_ROW_HEIGHT, rows.len(), |ui, range| {
+        ui.add_space(8.0);
+        for i in range {
+            let row = &rows[i];
+            let comma = if row.is_last { "" } else { "," };
+            // Highlight background for this node when its key/value matches.
+            // Painted as a zero-margin Frame fill so it sits behind the row
+            // text without touching the per-label render helpers.
+            let row_hl: Color32 = if match_set.contains(&i) {
+                if current_target == Some(i) {
+                    hl_active
+                } else {
+                    hl_normal
+                }
+            } else {
+                Color32::TRANSPARENT
+            };
+            egui::Frame::NONE.fill(row_hl).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.add_space(16.0 + row.depth as f32 * 20.0);
                     match &row.kind {
@@ -355,8 +406,9 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
                         }
                     }
                 });
-            }
-        });
+            });
+        }
+    });
 
     if tab.json_edit_path.is_some() {
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -597,6 +649,20 @@ fn render_key_or_edit(
     }
     ui.add_space(4.0);
     request
+}
+
+/// Whether a flattened tree row matches the search query (key text or, for a
+/// leaf, its unquoted value). Drives the always-on highlight in tree views.
+fn json_row_matches(row: &JsonRow, m: &RowMatcher) -> bool {
+    if let Some(k) = &row.key
+        && m.matches(k)
+    {
+        return true;
+    }
+    if let JsonRowKind::Leaf { value } = &row.kind {
+        return m.matches(&leaf_edit_text(value));
+    }
+    false
 }
 
 fn leaf_display(value: &serde_json::Value, comma: &str) -> String {

@@ -327,6 +327,34 @@ mod tests {
     }
 
     #[test]
+    fn write_text_outside_export_dir_is_refused_when_sandboxed() {
+        let export = tempfile::tempdir().expect("tempdir");
+        let mut ctx = text_ctx(&["old"], None);
+        ctx.restrict_filesystem = true;
+        ctx.export_dir = Some(export.path().to_path_buf());
+        let err = dispatch(
+            &ctx,
+            "write_text",
+            serde_json::json!({"content": "x", "path": "/tmp/escape.md"}),
+        )
+        .unwrap_err();
+        assert!(err.contains("confined"), "{err}");
+        // A bare name still works and lands in the export dir.
+        let out = dispatch(
+            &ctx,
+            "write_text",
+            serde_json::json!({"content": "x", "path": "ok.md"}),
+        )
+        .expect("bare name allowed");
+        let written = out["path"].as_str().expect("path in response");
+        assert!(
+            std::path::Path::new(written)
+                .starts_with(std::fs::canonicalize(export.path()).expect("canonical export dir")),
+            "{written}"
+        );
+    }
+
+    #[test]
     fn unknown_tool_errors_cleanly() {
         let ctx = sample_ctx();
         let err = dispatch(&ctx, "nope", serde_json::json!({})).unwrap_err();

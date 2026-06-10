@@ -107,6 +107,7 @@ nav:
       - Colour Marking: usage/colour-marking.md
       - Column Inspector: usage/column-inspector.md
       - Value Frequency: usage/value-frequency.md
+      - Summary: usage/summary.md
       - Schema Export: usage/schema-export.md
       - Archive Viewer: usage/archive-viewer.md
       - Chart: usage/chart.md

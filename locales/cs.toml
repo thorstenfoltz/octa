@@ -70,6 +70,7 @@ find_duplicates = "Najít duplicity..."
 multi_search = "Vícenásobné hledání..."
 
 [analyse_menu]
+describe = "Souhrn..."
 assistant = "Asistent"
 sql = "SQL"
 chart = "Graf"
@@ -343,6 +344,8 @@ second = "Sekunda"
 weekday = "Den v týdnu (1=Po..7=Ne)"
 
 [enum]
+search_result_filter = "Filtrovat"
+search_result_highlight = "Zvyraznit"
 nb_beside = "Vedle"
 nb_beneath = "Pod"
 pos_left = "Vlevo"
@@ -424,6 +427,7 @@ modified = "Změněno"
 no_file = "Není načten žádný soubor"
 
 [settings]
+search_result_mode = "Zobrazeni vysledku hledani:"
 title = "Nastavení"
 language = "Jazyk"
 window_title = "Nastavení Octa"
@@ -553,6 +557,8 @@ move_left = "Vlevo"
 move_right = "Vpravo"
 
 [context_menu]
+freeze_to_here = "Ukotvit sloupce až sem"
+unfreeze = "Uvolnit všechny sloupce"
 sec_clipboard = "Schránka"
 sec_row = "Řádek"
 sec_column = "Sloupec"
@@ -642,6 +648,7 @@ extra_tables = "další tabulky"
 attached_dbs = "připojené DB"
 
 [settings_hint]
+search_result_mode = "Filtrovani skryje neodpovidajici radky; Zvyrazneni zachova vsechny radky a zvyrazni shody"
 language = "Jazyk nabídek a dialogů aplikace. Projeví se ihned. Překlady jsou strojově generované a mohou být upřesněny."
 font_size = "Základní velikost písma pro veškerý text v aplikaci"
 default_theme = "Motiv použitý při spuštění aplikace"
@@ -804,3 +811,9 @@ dialogs = "Inspektor a dialogy"
 [documentation]
 search = "Hledat v dokumentaci..."
 no_matches = "Žádné výsledky"
+
+[search]
+mode_toggle_hint = "Prepinat mezi filtrovanim radku a zvyraznovanim shod"
+no_matches = "Zadne shody"
+next_match = "Dalsi shoda"
+prev_match = "Predchozi shoda"

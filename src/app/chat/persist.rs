@@ -61,10 +61,14 @@ pub fn snapshot(state: &ChatSessionState) -> SavedSession {
 pub fn save(session: &SavedSession) -> Result<(), String> {
     let dir = sessions_dir().ok_or_else(|| "no config directory".to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    // Transcripts can quote sensitive data; keep them owner-only.
+    crate::ui::settings::restrict_dir_to_owner(&dir);
     let path = dir.join(format!("{}.json", sanitize_id(&session.id)));
     let json =
         serde_json::to_string_pretty(session).map_err(|e| format!("serialise session: {e}"))?;
-    std::fs::write(&path, json).map_err(|e| format!("write {}: {e}", path.display()))
+    std::fs::write(&path, json).map_err(|e| format!("write {}: {e}", path.display()))?;
+    crate::ui::settings::restrict_file_to_owner(&path);
+    Ok(())
 }
 
 /// Load a session by id.

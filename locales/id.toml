@@ -70,6 +70,7 @@ find_duplicates = "Cari duplikat..."
 multi_search = "Pencarian-ganda..."
 
 [analyse_menu]
+describe = "Ringkasan..."
 assistant = "Asisten"
 sql = "SQL"
 chart = "Grafik"
@@ -343,6 +344,8 @@ second = "Detik"
 weekday = "Hari (1=Sen..7=Min)"
 
 [enum]
+search_result_filter = "Saring"
+search_result_highlight = "Sorot"
 nb_beside = "Di samping"
 nb_beneath = "Di bawah"
 pos_left = "Kiri"
@@ -424,6 +427,7 @@ modified = "Diubah"
 no_file = "Tidak ada berkas dimuat"
 
 [settings]
+search_result_mode = "Tampilan hasil pencarian:"
 title = "Pengaturan"
 language = "Bahasa"
 window_title = "Pengaturan Octa"
@@ -553,6 +557,8 @@ move_left = "Pindah ke Kiri"
 move_right = "Pindah ke Kanan"
 
 [context_menu]
+freeze_to_here = "Bekukan kolom hingga di sini"
+unfreeze = "Lepaskan semua kolom"
 sec_clipboard = "Papan klip"
 sec_row = "Baris"
 sec_column = "Kolom"
@@ -642,6 +648,7 @@ extra_tables = "tabel tambahan"
 attached_dbs = "DB terlampir"
 
 [settings_hint]
+search_result_mode = "Saring menyembunyikan baris yang tidak cocok; Sorot mempertahankan semua baris dan menyorot kecocokan"
 language = "Bahasa untuk menu dan dialog aplikasi. Berlaku segera. Terjemahan dibuat oleh mesin dan dapat disempurnakan."
 font_size = "Ukuran font dasar untuk semua teks di aplikasi"
 default_theme = "Tema yang diterapkan saat aplikasi dimulai"
@@ -804,3 +811,9 @@ dialogs = "Inspektur & dialog"
 [documentation]
 search = "Cari dokumentasi..."
 no_matches = "Tidak ada hasil"
+
+[search]
+mode_toggle_hint = "Beralih antara menyaring baris dan menyorot kecocokan"
+no_matches = "Tidak ada kecocokan"
+next_match = "Kecocokan berikutnya"
+prev_match = "Kecocokan sebelumnya"

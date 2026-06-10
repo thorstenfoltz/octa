@@ -70,6 +70,7 @@ find_duplicates = "Tìm bản trùng..."
 multi_search = "Tìm kiếm đa tệp..."
 
 [analyse_menu]
+describe = "Tóm tắt..."
 assistant = "Trợ lý"
 sql = "SQL"
 chart = "Biểu đồ"
@@ -343,6 +344,8 @@ second = "Giây"
 weekday = "Thứ (1=T2..7=CN)"
 
 [enum]
+search_result_filter = "Loc"
+search_result_highlight = "Danh dau"
 nb_beside = "Bên cạnh"
 nb_beneath = "Bên dưới"
 pos_left = "Trái"
@@ -424,6 +427,7 @@ modified = "Đã sửa"
 no_file = "Chưa nạp tệp"
 
 [settings]
+search_result_mode = "Hien thi ket qua tim kiem:"
 title = "Cài đặt"
 language = "Ngôn ngữ"
 window_title = "Cài đặt Octa"
@@ -553,6 +557,8 @@ move_left = "Sang trái"
 move_right = "Sang phải"
 
 [context_menu]
+freeze_to_here = "Cố định các cột đến đây"
+unfreeze = "Bỏ cố định tất cả các cột"
 sec_clipboard = "Bộ nhớ tạm"
 sec_row = "Hàng"
 sec_column = "Cột"
@@ -642,6 +648,7 @@ extra_tables = "bảng bổ sung"
 attached_dbs = "DB đính kèm"
 
 [settings_hint]
+search_result_mode = "Loc se an cac hang khong khop; Danh dau giu lai tat ca cac hang va danh dau ket qua"
 language = "Ngôn ngữ cho menu và hộp thoại của ứng dụng. Có hiệu lực ngay. Bản dịch do máy tạo và có thể được tinh chỉnh."
 font_size = "Cỡ chữ cơ bản cho mọi văn bản trong ứng dụng"
 default_theme = "Chủ đề áp dụng khi ứng dụng khởi động"
@@ -804,3 +811,9 @@ dialogs = "Trình kiểm tra & hộp thoại"
 [documentation]
 search = "Tìm trong tài liệu..."
 no_matches = "Không có kết quả"
+
+[search]
+mode_toggle_hint = "Chuyen doi giua loc hang va danh dau ket qua"
+no_matches = "Khong co ket qua"
+next_match = "Ket qua tiep theo"
+prev_match = "Ket qua truoc"

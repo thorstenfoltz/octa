@@ -200,28 +200,53 @@ the inner table name.)",
     }
 
     /// Resolve the destination for a chat write. Without the sandbox, the path
-    /// is used as-is (MCP / CLI). With the sandbox: an absolute path is honored
-    /// (the user asked for a specific location); a bare/relative name is placed
-    /// in `export_dir` (basename only, no traversal). The export directory is
-    /// created if missing.
+    /// is used as-is (MCP / CLI). With the sandbox, writes are confined to
+    /// `export_dir`: a bare/relative name is placed there (basename only, no
+    /// traversal), and an absolute path is accepted only when it already
+    /// points inside the export directory. The export directory is created if
+    /// missing. (In-place writes to open tabs go through `ensure_readable`
+    /// instead and are unaffected.)
     pub fn resolve_write_path(&self, requested: &Path) -> anyhow::Result<PathBuf> {
         if !self.restrict_filesystem {
             return Ok(requested.to_path_buf());
         }
-        if requested.is_absolute() {
-            return Ok(requested.to_path_buf());
-        }
         let dir = self.export_dir.as_ref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "no export directory is configured - set one in Settings > Chat, or give an \
-absolute path to write to"
-            )
+            anyhow::anyhow!("no export directory is configured - set one in Settings > Chat")
         })?;
+        std::fs::create_dir_all(dir)
+            .map_err(|e| anyhow::anyhow!("creating export directory {}: {e}", dir.display()))?;
+        let canon_dir = std::fs::canonicalize(dir)
+            .map_err(|e| anyhow::anyhow!("resolving export directory {}: {e}", dir.display()))?;
+        let confined_err = || {
+            anyhow::anyhow!(
+                "Writes are confined to the export directory \"{}\". Give a bare file name and \
+Octa will write it there; the user can change the directory in Settings > Chat.",
+                canon_dir.display()
+            )
+        };
+        if requested.is_absolute() {
+            // Honoured only when it already points inside the export dir.
+            let parent = requested.parent().ok_or_else(confined_err)?;
+            let canon_parent = std::fs::canonicalize(parent).map_err(|_| confined_err())?;
+            if canon_parent != canon_dir {
+                return Err(confined_err());
+            }
+        }
         let name = requested
             .file_name()
             .ok_or_else(|| anyhow::anyhow!("a file name is required for the export"))?;
-        std::fs::create_dir_all(dir).ok();
-        Ok(dir.join(name))
+        let candidate = canon_dir.join(name);
+        // A pre-existing symlink at the target must not redirect the write
+        // outside the export directory.
+        if let Ok(meta) = std::fs::symlink_metadata(&candidate)
+            && meta.file_type().is_symlink()
+        {
+            let resolved = std::fs::canonicalize(&candidate).map_err(|_| confined_err())?;
+            if !resolved.starts_with(&canon_dir) {
+                return Err(confined_err());
+            }
+        }
+        Ok(candidate)
     }
 
     /// Effective response row cap for one call. Precedence: caller's `Some(0)`
@@ -557,9 +582,11 @@ mod tests {
 
     #[test]
     fn write_path_confined_to_export_dir() {
-        let export = std::env::temp_dir().join("octa_sandbox_test");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let export = std::fs::canonicalize(tmp.path()).expect("canonical export dir");
         let c = sandbox_ctx(true, &[], export.to_str());
-        // Bare + nested-relative names land in the export dir (basename only).
+        // Bare + nested-relative names land in the export dir (basename only,
+        // which also neutralises `..` components).
         assert_eq!(
             c.resolve_write_path(Path::new("out.csv")).unwrap(),
             export.join("out.csv")
@@ -568,11 +595,50 @@ mod tests {
             c.resolve_write_path(Path::new("sub/dir/out.csv")).unwrap(),
             export.join("out.csv")
         );
-        // An absolute path is honored (user-explicit destination).
         assert_eq!(
-            c.resolve_write_path(Path::new("/tmp/explicit.csv"))
-                .unwrap(),
-            PathBuf::from("/tmp/explicit.csv")
+            c.resolve_write_path(Path::new("../escape.csv")).unwrap(),
+            export.join("escape.csv")
+        );
+        // An absolute path inside the export dir is accepted.
+        assert_eq!(
+            c.resolve_write_path(&export.join("explicit.csv")).unwrap(),
+            export.join("explicit.csv")
+        );
+        // Any other absolute path is refused: writes are confined.
+        let err = c
+            .resolve_write_path(Path::new("/tmp/explicit.csv"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("confined"), "{err}");
+        let err = c
+            .resolve_write_path(Path::new("/etc/passwd"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("confined"), "{err}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_path_rejects_symlink_escape() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let export = std::fs::canonicalize(tmp.path()).expect("canonical export dir");
+        let outside = tempfile::tempdir().expect("outside dir");
+        let target = outside.path().join("victim.csv");
+        std::fs::write(&target, "x").expect("write victim");
+        std::os::unix::fs::symlink(&target, export.join("link.csv")).expect("symlink");
+        let c = sandbox_ctx(true, &[], export.to_str());
+        let err = c
+            .resolve_write_path(Path::new("link.csv"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("confined"), "{err}");
+        // A symlink that stays inside the export dir is fine.
+        std::fs::write(export.join("inside.csv"), "y").expect("write inside");
+        std::os::unix::fs::symlink(export.join("inside.csv"), export.join("ok.csv"))
+            .expect("symlink inside");
+        assert_eq!(
+            c.resolve_write_path(Path::new("ok.csv")).unwrap(),
+            export.join("ok.csv")
         );
     }
 

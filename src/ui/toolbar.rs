@@ -88,6 +88,12 @@ pub struct ToolbarAction {
     pub save_file_as: bool,
     pub toggle_theme: bool,
     pub search_changed: bool,
+    /// The Filter/Highlight search-behaviour toggle was flipped this frame.
+    pub search_result_mode_changed: bool,
+    /// Jump to the next highlight-search match (`>` button or Enter).
+    pub find_next: bool,
+    /// Jump to the previous highlight-search match (`<` button or Shift+Enter).
+    pub find_prev: bool,
     pub add_row: bool,
     pub delete_row: bool,
     pub add_column: bool,
@@ -136,6 +142,9 @@ pub struct ToolbarAction {
     /// Open the Value Frequency column picker (no column context). Fired by
     /// **Analyse -> Value frequency...**.
     pub open_value_frequency: bool,
+    /// Open a Summary tab (per-column statistics via DuckDB SUMMARIZE) for
+    /// the active table. Fired by **Analyse -> Summary...**.
+    pub open_describe_tab: bool,
     /// Open the per-column Number-format dialog for the selected column.
     /// Fired by **Edit -> Number format...**.
     pub open_column_format: bool,
@@ -198,6 +207,18 @@ pub fn draw_toolbar(
     theme_mode: ThemeMode,
     search_text: &mut String,
     search_mode: &mut SearchMode,
+    // Session search behaviour (Filter vs Highlight). Edited in place by the
+    // search-bar toggle; the table respects it, text/tree views always
+    // highlight.
+    search_result_mode: &mut crate::data::SearchResultMode,
+    // Whether matches are highlighted (rather than filtered) for the active
+    // tab's view: true when `search_result_mode == Highlight` OR the view is a
+    // text/tree view. Drives whether the count + next/prev controls show.
+    search_highlight_active: bool,
+    // Highlight-search match count and current 1-based position for the active
+    // tab (computed by the view on the previous frame).
+    search_match_count: usize,
+    search_match_current: usize,
     search_focus_requested: bool,
     show_replace_bar: bool,
     replace_text: &mut String,
@@ -921,6 +942,10 @@ pub fn draw_toolbar(
                             action.open_value_frequency = true;
                             ui.close();
                         }
+                        if ui.button(crate::i18n::t("analyse_menu.describe")).clicked() {
+                            action.open_describe_tab = true;
+                            ui.close();
+                        }
                         ui.separator();
                     }
                     if ui
@@ -1016,6 +1041,66 @@ pub fn draw_toolbar(
             }
             if search_focus_requested {
                 response.request_focus();
+            }
+
+            // Enter / Shift+Enter while the search box is focused step through
+            // matches (highlight mode only). Re-grab focus so repeated presses
+            // keep navigating instead of dropping focus after the first Enter.
+            if search_highlight_active && !search_text.is_empty() {
+                let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if enter && (response.lost_focus() || response.has_focus()) {
+                    if ui.input(|i| i.modifiers.shift) {
+                        action.find_prev = true;
+                    } else {
+                        action.find_next = true;
+                    }
+                    response.request_focus();
+                }
+            }
+
+            // Filter / Highlight behaviour toggle. Switches the active search
+            // display mode for the session; the table honours it, text/tree
+            // views always highlight regardless.
+            if ui
+                .button(search_result_mode.label_t())
+                .on_hover_text(crate::i18n::t("search.mode_toggle_hint"))
+                .clicked()
+            {
+                *search_result_mode = match *search_result_mode {
+                    crate::data::SearchResultMode::Filter => {
+                        crate::data::SearchResultMode::Highlight
+                    }
+                    crate::data::SearchResultMode::Highlight => {
+                        crate::data::SearchResultMode::Filter
+                    }
+                };
+                action.search_result_mode_changed = true;
+            }
+
+            // Match count + next/previous controls, shown only when matches are
+            // highlighted in place (so the user can step through them).
+            if search_highlight_active && !search_text.is_empty() {
+                let count_label = if search_match_count == 0 {
+                    crate::i18n::t("search.no_matches")
+                } else {
+                    format!("{} / {}", search_match_current, search_match_count)
+                };
+                ui.label(RichText::new(count_label).color(colors.text_secondary));
+                let has_matches = search_match_count > 0;
+                if ui
+                    .add_enabled(has_matches, egui::Button::new("<"))
+                    .on_hover_text(crate::i18n::t("search.prev_match"))
+                    .clicked()
+                {
+                    action.find_prev = true;
+                }
+                if ui
+                    .add_enabled(has_matches, egui::Button::new(">"))
+                    .on_hover_text(crate::i18n::t("search.next_match"))
+                    .clicked()
+                {
+                    action.find_next = true;
+                }
             }
 
             if show_replace_bar {

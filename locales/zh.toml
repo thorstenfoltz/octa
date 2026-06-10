@@ -59,6 +59,7 @@ find_duplicates = "查找重复项..."
 multi_search = "多重搜索..."
 
 [analyse_menu]
+describe = "摘要..."
 assistant = "助手"
 sql = "SQL"
 chart = "图表"
@@ -332,6 +333,8 @@ second = "秒"
 weekday = "星期 (1=周一..7=周日)"
 
 [enum]
+search_result_filter = "筛选"
+search_result_highlight = "高亮"
 nb_beside = "旁边"
 nb_beneath = "下方"
 pos_left = "左"
@@ -413,6 +416,7 @@ modified = "已修改"
 no_file = "未加载文件"
 
 [settings]
+search_result_mode = "搜索结果显示:"
 title = "设置"
 language = "语言"
 window_title = "Octa 设置"
@@ -542,6 +546,8 @@ move_left = "左移"
 move_right = "右移"
 
 [context_menu]
+freeze_to_here = "冻结到此列"
+unfreeze = "取消冻结所有列"
 sec_clipboard = "剪贴板"
 sec_row = "行"
 sec_column = "列"
@@ -631,6 +637,7 @@ extra_tables = "个额外表"
 attached_dbs = "个附加数据库"
 
 [settings_hint]
+search_result_mode = "筛选会隐藏不匹配的行;高亮会保留所有行并高亮匹配项"
 language = "应用程序菜单和对话框的语言。立即生效。翻译为机器生成，可能会改进。"
 font_size = "应用程序中所有文本的基础字体大小"
 default_theme = "应用程序启动时应用的主题"
@@ -791,3 +798,9 @@ dialogs = "检查器与对话框"
 [documentation]
 search = "搜索文档..."
 no_matches = "无匹配项"
+
+[search]
+mode_toggle_hint = "在筛选行和高亮匹配项之间切换"
+no_matches = "无匹配"
+next_match = "下一个匹配"
+prev_match = "上一个匹配"

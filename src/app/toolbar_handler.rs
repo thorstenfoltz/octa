@@ -24,11 +24,23 @@ impl OctaApp {
                 self.ensure_logo_textures(ctx);
 
                 let tab = &mut self.tabs[self.active_tab];
+                let highlight_active =
+                    super::state::effective_highlight(tab.view_mode, self.search_result_mode);
+                let match_count = tab.search_nav.match_count;
+                let match_current = if match_count == 0 {
+                    0
+                } else {
+                    tab.search_nav.current.min(match_count - 1) + 1
+                };
                 let action = ui::toolbar::draw_toolbar(
                     ui,
                     self.theme_mode,
                     &mut tab.search_text,
                     &mut tab.search_mode,
+                    &mut self.search_result_mode,
+                    highlight_active,
+                    match_count,
+                    match_current,
                     self.search_focus_requested,
                     tab.show_replace_bar,
                     &mut tab.replace_text,
@@ -216,7 +228,20 @@ impl OctaApp {
                 .invalidate_row_heights();
         }
         if action.search_changed {
+            self.tabs[self.active_tab].search_nav.reset();
             self.tabs[self.active_tab].filter_dirty = true;
+        }
+        if action.search_result_mode_changed {
+            // Switching Filter<->Highlight changes whether rows are hidden, so
+            // the table filter must be recomputed; reset match navigation too.
+            self.tabs[self.active_tab].search_nav.reset();
+            self.tabs[self.active_tab].filter_dirty = true;
+        }
+        if action.find_next {
+            self.tabs[self.active_tab].search_nav.pending_jump = Some(super::state::NavDir::Next);
+        }
+        if action.find_prev {
+            self.tabs[self.active_tab].search_nav.pending_jump = Some(super::state::NavDir::Prev);
         }
         if action.toggle_replace_bar {
             self.tabs[self.active_tab].show_replace_bar =
@@ -449,6 +474,9 @@ impl OctaApp {
             if tab.table.col_count() > 0 {
                 tab.value_frequency_pick = true;
             }
+        }
+        if action.open_describe_tab {
+            self.open_describe_tab();
         }
         if action.open_column_format {
             self.open_column_format_for_selection();

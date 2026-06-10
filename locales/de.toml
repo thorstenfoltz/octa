@@ -59,6 +59,7 @@ find_duplicates = "Duplikate finden..."
 multi_search = "Mehrfachsuche..."
 
 [analyse_menu]
+describe = "Zusammenfassung..."
 assistant = "Assistant"
 sql = "SQL"
 chart = "Diagramm"
@@ -342,6 +343,8 @@ second = "Sekunde"
 weekday = "Wochentag (1=Mo..7=So)"
 
 [enum]
+search_result_filter = "Filtern"
+search_result_highlight = "Hervorheben"
 nb_beside = "Recht daneben"
 nb_beneath = "Darunter"
 pos_left = "Links"
@@ -423,6 +426,7 @@ modified = "Geändert"
 no_file = "Keine Datei geladen"
 
 [settings]
+search_result_mode = "Suchergebnis-Anzeige:"
 title = "Einstellungen"
 language = "Sprache"
 window_title = "Octa-Einstellungen"
@@ -552,6 +556,8 @@ move_left = "Nach links verschieben"
 move_right = "Nach rechts verschieben"
 
 [context_menu]
+freeze_to_here = "Spalten bis hier fixieren"
+unfreeze = "Spaltenfixierung aufheben"
 sec_clipboard = "Zwischenablage"
 sec_row = "Zeile"
 sec_column = "Spalte"
@@ -641,6 +647,7 @@ extra_tables = "zusätzliche Tabellen"
 attached_dbs = "angehängte DBs"
 
 [settings_hint]
+search_result_mode = "Filtern blendet nicht passende Zeilen aus; Hervorheben behaelt alle Zeilen und hebt Treffer hervor"
 language = "Sprache für die Menüs und Dialoge der Anwendung. Wird sofort wirksam. Übersetzungen sind maschinell erzeugt und können verbessert werden."
 font_size = "Grundschriftgröße für den gesamten Text in der Anwendung"
 default_theme = "Theme, das beim Start der Anwendung angewendet wird"
@@ -803,3 +810,9 @@ dialogs = "Inspektor & Dialoge"
 [documentation]
 search = "Dokumentation durchsuchen..."
 no_matches = "Keine Treffer"
+
+[search]
+mode_toggle_hint = "Zwischen Filtern und Hervorheben der Treffer umschalten"
+no_matches = "Keine Treffer"
+next_match = "Naechster Treffer"
+prev_match = "Vorheriger Treffer"

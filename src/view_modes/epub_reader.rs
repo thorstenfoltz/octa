@@ -63,7 +63,7 @@ pub fn render_epub_view(ctx: &egui::Context, ui: &mut egui::Ui, tab: &mut TabSta
                 egui::vec2(target, 0.0),
                 egui::Layout::top_down(egui::Align::LEFT),
                 |ui| {
-                    super::markdown::render_pulldown(ui, &chapter_md);
+                    super::markdown::render_pulldown(ui, &chapter_md, None);
                     render_chapter_images(ctx, ui, tab, chapter_idx);
                 },
             );

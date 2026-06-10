@@ -63,6 +63,12 @@ ambers = "0.4"
 # `ambers` (SPSS reader) still depends on arrow ^57 — keep arrow57 as an alias
 # alongside the main arrow 58 until ambers ships an arrow 58–compatible release.
 arrow57 = { package = "arrow", version = "57", default-features = false }
+# Float16 values for width-correct Arrow array building (already an arrow
+# dependency, so this adds no new code to the tree).
+half = { version = "2", default-features = false }
+# SHA-256 verification of downloaded release archives against the published
+# SHA256SUMS file (already in the tree transitively).
+sha2 = "0.10"
 dta = "0.6"
 dbase = "0.7"
 rds2rust = "0.1.41"

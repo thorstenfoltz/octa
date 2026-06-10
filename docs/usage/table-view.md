@@ -192,6 +192,20 @@ multi-cell (Ctrl+Arrow) first, then row selections, then column
 selections. A single-cell selection keeps the existing Cell / Type
 info pill instead.
 
+## Freeze columns
+
+Right-click a column header and pick **Freeze columns up to here** to pin
+that column and every column left of it, exactly like freezing panes in a
+spreadsheet. The pinned columns stay visible at the left edge while the
+rest of the table scrolls horizontally underneath, so an ID or name column
+never scrolls out of sight in a wide table. A thin separator marks the
+boundary; **Unfreeze all columns** in the same menu reverts.
+
+The freeze is per tab and session-only, like column widths. If the window
+gets too narrow to keep the whole frozen band and still scroll, Octa
+temporarily pins fewer columns and restores the full band when there is
+room again.
+
 ## Hide and show columns
 
 Right-click any column header and pick **Hide column** to drop it
