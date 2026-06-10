@@ -48,11 +48,11 @@ for missing keys; old versions ignore unknown keys).
 
 ## Search & Editor
 
-| Setting                 | Default | Notes                                                                                                                                                                    |
-|-------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Default search mode** | Plain   | Initial mode for the toolbar search: Plain / Wildcard / Regex.                                                                                                           |
-| **Search result display** | Filter | How search results show in the table: **Filter** hides non-matching rows; **Highlight** keeps every row and highlights matches in place (with a count and next/previous navigation). The search-bar toggle overrides this per session. Text and tree views always highlight. |
-| **Tab size**            | 4       | Number of spaces inserted when pressing Tab inside text editors (the Raw text editor and the Markdown Edit/Split editor; Tab indents in place rather than moving focus). |
+| Setting                   | Default | Notes                                                                                                                                                                                                                                                                        |
+|---------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Default search mode**   | Plain   | Initial mode for the toolbar search: Plain / Wildcard / Regex.                                                                                                                                                                                                               |
+| **Search result display** | Filter  | How search results show in the table: **Filter** hides non-matching rows; **Highlight** keeps every row and highlights matches in place (with a count and next/previous navigation). The search-bar toggle overrides this per session. Text and tree views always highlight. |
+| **Tab size**              | 4       | Number of spaces inserted when pressing Tab inside text editors (the Raw text editor and the Markdown Edit/Split editor; Tab indents in place rather than moving focus).                                                                                                     |
 
 ## File-Specific
 
