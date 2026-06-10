@@ -46,6 +46,7 @@ fn sections(shortcuts: &ui::shortcuts::Shortcuts) -> Vec<(&'static str, String)>
         ("Column Tools", COLUMN_TOOLS.to_string()),
         ("Value Frequency", VALUE_FREQUENCY.to_string()),
         ("Find Duplicates", FIND_DUPLICATES.to_string()),
+        ("Summary", SUMMARY.to_string()),
         ("Schema Export", SCHEMA_EXPORT.to_string()),
         ("Archive Viewer", ARCHIVE_VIEWER.to_string()),
         ("Selection Stats", SELECTION_STATS.to_string()),
