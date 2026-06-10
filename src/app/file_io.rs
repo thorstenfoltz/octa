@@ -898,6 +898,7 @@ impl OctaApp {
             tab.sql_error = None;
             tab.sql_panel_open =
                 self.settings.sql_panel_default_open && tab.view_mode == ViewMode::Table;
+            tab.sql_editor_focus_pending = tab.sql_panel_open;
 
             tab.parse_error_banner = None;
             tab.json_value = None;

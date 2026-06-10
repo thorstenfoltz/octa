@@ -68,6 +68,7 @@ impl TabState {
             sql_error: None,
             sql_result_selected: None,
             sql_panel_open: false,
+            sql_editor_focus_pending: false,
             sql_ac_selected: 0,
             sql_ac_visible: true,
             sql_workspace: None,

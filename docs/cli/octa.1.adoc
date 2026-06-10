@@ -28,7 +28,7 @@ octa - multi-format tabular data viewer, editor, CLI tool, and MCP server
 
 *octa* *--compare-schemas* _FILE_A_ _FILE_B_ [*--table-a* _NAME_] [*--table-b* _NAME_] [*-f* _FORMAT_]
 
-*octa* *--diff* _FILE_A_ _FILE_B_ [*-f* _FORMAT_]
+*octa* *--diff* _FILE_A_ _FILE_B_ [*--diff-mode* _MODE_] [*--diff-on* _COLS_] [*-f* _FORMAT_]
 
 *octa* *--describe* _FILE_ [*--table* _NAME_] [*--sample-rows* _N_] [*-f* _FORMAT_]
 
@@ -112,13 +112,25 @@ ignored (with a warning) when an action flag is set.
   *--table-b*.
 
 *--diff* _FILE_A_ _FILE_B_::
-  Row-level diff of two files. Compares rows by whole-row content
-  (every column, positionally) and prints the rows present in only one
-  side, tagged by a leading *status* column (*only_in_a* /
-  *only_in_b*); a summary line (shared / only-in-A / only-in-B counts)
-  is written to standard error. The two files should share the same
-  column order for the diff to be meaningful. Complements
+  Compare two files. *--diff-mode* selects the strategy; the output is a
+  table tagged by a leading *status* column, and a summary line
+  (per-mode counts) is written to standard error. Complements
   *--compare-schemas*, which diffs only the column metadata.
+
+*--diff-mode* _MODE_::
+  Comparison strategy for *--diff* (default *set*):
+  *set* compares rows by whole-row content (every column, positionally)
+  and prints rows unique to each side (*only_in_a* / *only_in_b*); the
+  files should share the same column order.
+  *ordered* lines up row _i_ of A with row _i_ of B, prints matched rows
+  that differ as *changed* (with a *changed_columns* column) plus any
+  trailing *only_in_a* / *only_in_b* rows.
+  *join* matches rows on the *--diff-on* key column(s) and prints
+  added (*only_in_b*), removed (*only_in_a*), and *changed* rows.
+
+*--diff-on* _COLS_::
+  Key column(s) for *--diff-mode join*, comma-separated (matched by
+  name). Required when the mode is *join*; ignored otherwise.
 
 *--describe* _FILE_::
   Print a one-shot orientation snapshot of _FILE_: format, file
@@ -374,6 +386,8 @@ Diff two files' rows::
 [source,sh]
 ----
 octa --diff v1.csv v2.csv
+octa --diff v1.csv v2.csv --diff-mode ordered
+octa --diff v1.csv v2.csv --diff-mode join --diff-on id
 octa --diff a.parquet b.parquet -f json
 ----
 

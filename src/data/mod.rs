@@ -1,5 +1,6 @@
 pub mod chart;
 pub mod chart_export;
+pub mod compare;
 pub mod compare_schemas;
 pub mod date_infer;
 pub mod describe;

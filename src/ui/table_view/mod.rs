@@ -52,8 +52,14 @@ pub struct TableViewState {
     pub editing_col_name: Option<(usize, String)>,
     /// Whether the column name edit widget needs initial focus.
     pub edit_col_needs_focus: bool,
-    /// Dynamic row number column width (computed from total row count).
+    /// Dynamic row number column width (computed from total row count). When
+    /// the sequential column is shown this is the *total* gutter width
+    /// (original + sequential); `seq_number_width` holds just the sequential
+    /// sub-column.
     pub row_number_width: f32,
+    /// Width of the sequential (1..N) sub-column inside the row-number gutter,
+    /// or 0.0 when it isn't shown. Always <= `row_number_width`.
+    pub seq_number_width: f32,
     /// Cached prefix sums of row heights when cell_line_breaks is on.
     /// `[i]` = Y offset of display row i; `[row_count]` = total data height.
     row_y_offsets: Vec<f32>,
@@ -367,6 +373,9 @@ pub fn draw_table(
     filtered_rows: &[usize],
     os_clipboard_has_content: bool,
     show_row_numbers: bool,
+    // When true (filter active + setting on), draw a second row-number column
+    // counting the visible rows from 1, beside the original row numbers.
+    show_sequential_numbers: bool,
     alternating_row_colors: bool,
     negative_numbers_red: bool,
     highlight_edits: bool,
@@ -418,12 +427,24 @@ pub fn draw_table(
         );
     }
 
-    // Compute row number column width based on the largest row number
+    // Compute row number column width based on the largest row number. When
+    // the sequential column is shown, the gutter holds two numbers side by
+    // side (original | 1..N); size each from its own largest value and sum.
     if show_row_numbers {
         let max_row_num = table.row_offset + filtered_rows.len();
-        let formatted_len = format_number(max_row_num).len() as f32;
-        state.row_number_width = (formatted_len * 8.0 + 16.0).max(MIN_ROW_NUMBER_WIDTH);
+        let orig_len = format_number(max_row_num).len() as f32;
+        let orig_width = (orig_len * 8.0 + 16.0).max(MIN_ROW_NUMBER_WIDTH);
+        if show_sequential_numbers {
+            let seq_len = format_number(filtered_rows.len()).len() as f32;
+            let seq_width = (seq_len * 8.0 + 12.0).max(MIN_ROW_NUMBER_WIDTH);
+            state.seq_number_width = seq_width;
+            state.row_number_width = orig_width + seq_width;
+        } else {
+            state.seq_number_width = 0.0;
+            state.row_number_width = orig_width;
+        }
     } else {
+        state.seq_number_width = 0.0;
         state.row_number_width = 0.0;
     }
 

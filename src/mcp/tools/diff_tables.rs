@@ -1,9 +1,13 @@
-//! MCP tool: `diff_tables` - row-level diff of two files.
+//! MCP tool: `diff_tables` - data comparison of two files.
 //!
-//! Reads both sources through the shared registry (or open tabs) and
-//! delegates to the pure `octa::data::diff::diff_rows`. The response carries
-//! the rows unique to each side (each as a `table_to_json` payload, so
-//! `limit` / cell caps apply) plus the shared-row count.
+//! Reads both sources through the shared registry (or open tabs) and compares
+//! them in one of three modes (`set`, `ordered`, `join`):
+//! * `set` (default) delegates to `octa::data::diff::diff_rows` (whole-row
+//!   membership). Response carries `only_in_a` / `only_in_b` + `shared_keys`.
+//! * `ordered` / `join` use `octa::data::compare`. Response additionally
+//!   carries `changed_a` / `changed_b` (the differing rows, parallel order),
+//!   a `changed` array naming the differing columns per matched pair, and
+//!   `changed_count` / `unchanged_count`.
 
 use std::path::PathBuf;
 
@@ -12,17 +16,20 @@ use rmcp::model::{CallToolResult, Content};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use octa::data::DataTable;
+use octa::data::compare::{self, CompareMode};
 use octa::data::diff::diff_rows;
 
 use crate::mcp::OctaMcpServer;
 
 use super::{ToolContext, source_from, table_to_json};
 
-pub const DESCRIPTION: &str = "Row-level diff of two tabular sources (files or open tabs), comparing whole-row content \
-positionally. Returns `only_in_a` / `only_in_b` (table payloads of the rows unique to each \
-side), their counts, and `shared_keys`. `limit` caps rows per side (0 = unlimited). Run \
-`compare_schemas` first if the column layouts might differ.";
+pub const DESCRIPTION: &str = "Compare two tabular sources (files or open tabs). `mode` picks the strategy: \
+`set` (default) reports whole rows unique to each side (`only_in_a`/`only_in_b` + `shared_keys`); \
+`ordered` compares row-by-row in order and reports cell-level changes; `join` matches rows on the \
+`on` key column(s) and reports added/removed/changed rows. For `ordered`/`join` the response also \
+carries `changed_a`/`changed_b` (the differing rows, parallel order), a `changed` array naming the \
+differing columns per pair, and `changed_count`/`unchanged_count`. `limit` caps rows per side \
+(0 = unlimited). Run `compare_schemas` first if the column layouts might differ.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
@@ -50,6 +57,14 @@ pub struct Params {
     #[serde(default)]
     pub table_b: Option<String>,
 
+    /// Comparison mode: `set` (default), `ordered`, or `join`.
+    #[serde(default)]
+    pub mode: Option<String>,
+
+    /// Key column(s) for `mode: "join"` (matched by name).
+    #[serde(default)]
+    pub on: Option<Vec<String>>,
+
     /// Maximum rows to return *per side*. Default is the server's configured
     /// limit. Pass 0 for unlimited.
     #[serde(default)]
@@ -67,31 +82,104 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
     let a = ctx.resolve(&source_from(&p.open_tab_a, &p.path_a, &p.table_a))?;
     let b = ctx.resolve(&source_from(&p.open_tab_b, &p.path_b, &p.table_b))?;
-    let diff = diff_rows(&a, &b);
+
+    let mode = match p.mode.as_deref() {
+        None => CompareMode::Set,
+        Some(s) => CompareMode::parse(s)
+            .ok_or_else(|| anyhow::anyhow!("mode must be one of: set, ordered, join"))?,
+    };
 
     let row_cap = ctx.resolve_row_cap(p.limit);
     let cell_cap = ctx.cell_byte_cap;
-    let a_sub = subset(&a, &diff.only_in_a);
-    let b_sub = subset(&b, &diff.only_in_b);
 
     let mut out = Map::new();
-    out.insert(
-        "only_in_a".to_string(),
-        table_to_json(&a_sub, row_cap, cell_cap),
-    );
-    out.insert(
-        "only_in_b".to_string(),
-        table_to_json(&b_sub, row_cap, cell_cap),
-    );
-    out.insert(
-        "only_in_a_count".to_string(),
-        Value::from(diff.only_in_a.len()),
-    );
-    out.insert(
-        "only_in_b_count".to_string(),
-        Value::from(diff.only_in_b.len()),
-    );
-    out.insert("shared_keys".to_string(), Value::from(diff.shared_keys));
+    out.insert("mode".to_string(), Value::from(mode.as_str()));
+
+    match mode {
+        CompareMode::Set => {
+            let diff = diff_rows(&a, &b);
+            let a_sub = compare::subset(&a, &diff.only_in_a);
+            let b_sub = compare::subset(&b, &diff.only_in_b);
+            out.insert(
+                "only_in_a".to_string(),
+                table_to_json(&a_sub, row_cap, cell_cap),
+            );
+            out.insert(
+                "only_in_b".to_string(),
+                table_to_json(&b_sub, row_cap, cell_cap),
+            );
+            out.insert(
+                "only_in_a_count".to_string(),
+                Value::from(diff.only_in_a.len()),
+            );
+            out.insert(
+                "only_in_b_count".to_string(),
+                Value::from(diff.only_in_b.len()),
+            );
+            out.insert("shared_keys".to_string(), Value::from(diff.shared_keys));
+        }
+        CompareMode::Ordered | CompareMode::Join => {
+            let result = match mode {
+                CompareMode::Ordered => compare::compare_ordered(&a, &b),
+                CompareMode::Join => {
+                    let on = p.on.clone().unwrap_or_default();
+                    compare::compare_join(&a, &b, &on)?
+                }
+                CompareMode::Set => unreachable!(),
+            };
+            let a_only = compare::subset(&a, &result.only_in_a);
+            let b_only = compare::subset(&b, &result.only_in_b);
+            let a_changed_idx: Vec<usize> = result.changed.iter().map(|c| c.row_a).collect();
+            let b_changed_idx: Vec<usize> = result.changed.iter().map(|c| c.row_b).collect();
+            let a_changed = compare::subset(&a, &a_changed_idx);
+            let b_changed = compare::subset(&b, &b_changed_idx);
+
+            out.insert(
+                "only_in_a".to_string(),
+                table_to_json(&a_only, row_cap, cell_cap),
+            );
+            out.insert(
+                "only_in_b".to_string(),
+                table_to_json(&b_only, row_cap, cell_cap),
+            );
+            out.insert(
+                "changed_a".to_string(),
+                table_to_json(&a_changed, row_cap, cell_cap),
+            );
+            out.insert(
+                "changed_b".to_string(),
+                table_to_json(&b_changed, row_cap, cell_cap),
+            );
+            let changed: Vec<Value> = result
+                .changed
+                .iter()
+                .map(|c| {
+                    let mut m = Map::new();
+                    m.insert("row_a".to_string(), Value::from(c.row_a));
+                    m.insert("row_b".to_string(), Value::from(c.row_b));
+                    m.insert(
+                        "changed_columns".to_string(),
+                        Value::from(c.changed_columns.clone()),
+                    );
+                    Value::Object(m)
+                })
+                .collect();
+            out.insert("changed".to_string(), Value::Array(changed));
+            out.insert(
+                "only_in_a_count".to_string(),
+                Value::from(result.only_in_a.len()),
+            );
+            out.insert(
+                "only_in_b_count".to_string(),
+                Value::from(result.only_in_b.len()),
+            );
+            out.insert(
+                "changed_count".to_string(),
+                Value::from(result.changed.len()),
+            );
+            out.insert("unchanged_count".to_string(), Value::from(result.unchanged));
+        }
+    }
     Ok(Value::Object(out))
 }
 
@@ -104,25 +192,4 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     Ok(CallToolResult::success(vec![Content::text(
         payload.to_string(),
     )]))
-}
-
-/// Materialise `indices` from `table` into a new `DataTable` (columns cloned),
-/// so `table_to_json` can serialise just the differing rows.
-fn subset(table: &DataTable, indices: &[usize]) -> DataTable {
-    let mut out = DataTable::empty();
-    out.columns = table.columns.clone();
-    out.rows = indices
-        .iter()
-        .map(|&r| {
-            (0..table.col_count())
-                .map(|c| {
-                    table
-                        .get(r, c)
-                        .cloned()
-                        .unwrap_or(octa::data::CellValue::Null)
-                })
-                .collect()
-        })
-        .collect();
-    out
 }

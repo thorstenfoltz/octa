@@ -390,6 +390,10 @@ pub(crate) struct TabState {
     pub(crate) sql_result_selected: Option<(usize, usize)>,
     /// Whether the SQL panel is currently visible alongside the table view.
     pub(crate) sql_panel_open: bool,
+    /// Set to `true` when the SQL panel is opened so the editor grabs keyboard
+    /// focus on the next frame (the user can start typing immediately without
+    /// clicking). Consumed (cleared) by `draw_sql_editor`.
+    pub(crate) sql_editor_focus_pending: bool,
     /// Autocomplete popup: currently highlighted suggestion index (clamped
     /// to the live suggestion list each frame).
     pub(crate) sql_ac_selected: usize,

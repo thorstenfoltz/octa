@@ -258,6 +258,7 @@ impl OctaApp {
                     ui,
                     &mut self.tabs[self.active_tab],
                     self.readonly_mode,
+                    self.settings.tab_size,
                 );
                 return;
             }
@@ -342,6 +343,11 @@ impl OctaApp {
             let filtered = tab.filtered_rows.clone();
             let filtered_cols: std::collections::HashSet<usize> =
                 tab.column_filters.keys().copied().collect();
+            // The sequential 1..N row column only adds information when the
+            // displayed rows are a filtered subset; otherwise it duplicates the
+            // original numbers. Show it only while a filter is active.
+            let filter_active = !tab.search_text.is_empty() || !tab.column_filters.is_empty();
+            let show_sequential = self.settings.show_sequential_row_numbers && filter_active;
             let hidden_cols = tab.hidden_columns.clone();
             let col_number_formats = tab.column_number_formats.clone();
             let os_has_clip = tab.table_state.clipboard.is_some() || os_has_clipboard;
@@ -353,6 +359,7 @@ impl OctaApp {
                 &filtered,
                 os_has_clip,
                 self.settings.show_row_numbers,
+                show_sequential,
                 self.settings.alternating_row_colors,
                 self.settings.negative_numbers_red,
                 self.settings.highlight_edits,

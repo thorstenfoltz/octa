@@ -40,8 +40,15 @@ The editor is a multi-line `TextEdit` with:
 
 When the caret sits at the end of a word token, Octa shows a row of
 chip-style suggestions beneath the editor, listing matching column
-names and SQL keywords. Click a chip to insert. Disable under
+names and SQL keywords. Click a chip to insert, or drive the popup from
+the keyboard: **Up / Down** move the highlight, **Enter** or **Tab**
+accept the highlighted suggestion, **Esc** dismisses it. These keys are
+only intercepted while the popup is open, so with no suggestions
+showing Enter and the arrows behave normally. Disable under
 [**Settings → SQL → Autocomplete**](../reference/settings.md#sql).
+
+The editor also takes keyboard focus the moment the panel opens, so you
+can start typing immediately without clicking into it first.
 
 ## Running a query
 

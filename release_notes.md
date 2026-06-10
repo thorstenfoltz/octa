@@ -1,38 +1,46 @@
 # Release notes
 
-Improvements to date detection on load, the whitespace-trim notice, five new
-interface languages, and a seasonal touch.
+Editor and SQL-panel polish, richer file comparison in the CLI and MCP server,
+a sequential row-number column for filtered tables, and nine more interface
+languages.
 
-## Date detection
+## Editor
 
-**Date inference now runs on every format.** Columns of date-shaped text are
-promoted to a proper Date/DateTime display regardless of which format the file
-came from. Previously this pass only ran on text-style formats (CSV, TSV, JSON,
-Excel, XML, TOML, YAML, Markdown, DBF). Binary formats that already carry typed
-dates (Parquet, Arrow, SQLite, DuckDB, and the rest) are unaffected: the check
-only ever inspects plain text columns, so reader-provided Date/Timestamp
-columns are left exactly as they were.
+**Tab indents in the Markdown editor.** Pressing Tab in the Markdown Edit or
+Split editor now inserts spaces (honouring your **Tab size** setting) instead
+of jumping focus to the next control, matching the Raw text editor.
 
-**"Looks like a date but stayed text" notice.** When a column looks
-date-shaped, most of its values parse as a date, yet a few cannot, Octa now
-leaves the column as text and shows a banner explaining why, naming the column,
-the layout it matched, how many values parsed, and a few of the offending
-values. This makes it clear why a column you expected to become a date is still
-text. The notice is dismiss-only; nothing is changed. You can turn it off under
-**Settings -> File-Specific**.
+## SQL panel
 
-## Whitespace trim
+**Keyboard-driven autocomplete.** While the suggestion popup is open, Up and
+Down move the highlight and Enter or Tab accepts it (Esc dismisses). The keys
+are only intercepted while the popup is showing, so ordinary typing keeps Enter
+and the arrow keys behaving normally.
 
-**"Dismiss" now undoes the trim.** On the load-time whitespace-trim banner,
-**Okay** keeps the trimmed values (as before) and **Dismiss** now restores the
-original leading and trailing whitespace instead of just closing the notice.
-The revert touches only the cells and titles that were actually trimmed, and
-keeps database diff-saves correct.
+**Focus on open.** The SQL editor now takes keyboard focus the moment the panel
+opens, so you can start typing straight away without clicking into it first.
+
+## File comparison
+
+**Ordered and join diffs.** `octa --diff` and the MCP `diff_tables` tool gain a
+mode selector. The original whole-row `set` diff stays the default; `ordered`
+lines rows up positionally and reports exactly which cells changed; `join`
+matches rows on a key column (`--diff-on` on the CLI, `on` over MCP) and reports
+added, removed, and changed rows. Changed rows carry the names of the differing
+columns, so you see precisely what moved rather than just which whole rows are
+unique to each side.
+
+## Table view
+
+**Sequential row numbers when filtered.** Filtering a table now adds a second
+row-number column counting the visible rows from 1, alongside the original data
+row numbers, so you can see both the source position and the filtered position
+at a glance. It only appears while a filter is active and can be turned off
+under **Settings -> Table View**.
 
 ## Languages
 
-**Five new interface languages.** The interface can now be shown in Greek,
-Russian, Japanese, Korean, and Chinese, bringing the total to 22 languages.
-Change it under **Settings -> Appearance -> Language**; the switch is live.
-Monospace text (such as the SQL editor and its gutter) now renders Greek and
-Cyrillic correctly as well, instead of showing empty boxes.
+**Nine new interface languages.** The interface can now be shown in Ukrainian,
+Bulgarian, Serbian, Croatian, Slovenian, Slovak, Lithuanian, Latvian, and
+Estonian, bringing the total to 31 languages. Change it under
+**Settings -> Appearance -> Language**; the switch is live.
