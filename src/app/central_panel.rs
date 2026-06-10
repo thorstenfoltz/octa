@@ -337,10 +337,17 @@ impl OctaApp {
             // entry without leaving the table.
             self.render_archive_action_bar(ui);
 
+            // Highlight-search next/previous jump (table view): select and
+            // scroll to the current match before drawing.
+            self.apply_table_search_jump();
+
             let os_has_clipboard = self.os_clipboard_has_text();
             let readonly = self.readonly_mode;
             let tab = &mut self.tabs[self.active_tab];
             let filtered = tab.filtered_rows.clone();
+            let search_matches: std::collections::HashSet<(usize, usize)> =
+                tab.search_cell_matches.iter().copied().collect();
+            let current_match = tab.search_cell_matches.get(tab.search_nav.current).copied();
             let filtered_cols: std::collections::HashSet<usize> =
                 tab.column_filters.keys().copied().collect();
             // The sequential 1..N row column only adds information when the
@@ -374,6 +381,8 @@ impl OctaApp {
                 self.settings.thousands_separators_in_cells,
                 self.settings.number_separator_style,
                 &col_number_formats,
+                &search_matches,
+                current_match,
             );
 
             let welcome_logo_clicked = interaction.welcome_logo_clicked;

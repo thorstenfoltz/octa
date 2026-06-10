@@ -59,6 +59,7 @@ find_duplicates = "Trouver les doublons..."
 multi_search = "Recherche multiple..."
 
 [analyse_menu]
+describe = "Résumé..."
 assistant = "Assistant"
 sql = "SQL"
 chart = "Graphique"
@@ -342,6 +343,8 @@ second = "Seconde"
 weekday = "Jour de la semaine (1=Lun..7=Dim)"
 
 [enum]
+search_result_filter = "Filtrer"
+search_result_highlight = "Surligner"
 nb_beside = "À côté"
 nb_beneath = "En dessous"
 pos_left = "Gauche"
@@ -423,6 +426,7 @@ modified = "Modifié"
 no_file = "Aucun fichier chargé"
 
 [settings]
+search_result_mode = "Affichage des resultats de recherche:"
 title = "Paramètres"
 language = "Langue"
 window_title = "Paramètres d'Octa"
@@ -552,6 +556,8 @@ move_left = "Déplacer à gauche"
 move_right = "Déplacer à droite"
 
 [context_menu]
+freeze_to_here = "Figer les colonnes jusqu'ici"
+unfreeze = "Libérer toutes les colonnes"
 sec_clipboard = "Presse-papiers"
 sec_row = "Ligne"
 sec_column = "Colonne"
@@ -641,6 +647,7 @@ extra_tables = "tables supplémentaires"
 attached_dbs = "BD attachées"
 
 [settings_hint]
+search_result_mode = "Filtrer masque les lignes non correspondantes; Surligner conserve toutes les lignes et surligne les correspondances"
 language = "Langue des menus et boîtes de dialogue de l'application. Prend effet immédiatement. Les traductions sont générées automatiquement et peuvent être affinées."
 font_size = "Taille de police de base pour tout le texte de l'application"
 default_theme = "Thème appliqué au démarrage de l'application"
@@ -803,3 +810,9 @@ dialogs = "Inspecteur et boîtes de dialogue"
 [documentation]
 search = "Rechercher dans la documentation..."
 no_matches = "Aucun résultat"
+
+[search]
+mode_toggle_hint = "Basculer entre filtrer les lignes et surligner les correspondances"
+no_matches = "Aucune correspondance"
+next_match = "Correspondance suivante"
+prev_match = "Correspondance precedente"

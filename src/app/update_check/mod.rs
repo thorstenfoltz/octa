@@ -17,6 +17,91 @@ const UPDATE_BODY_LIMIT: u64 = 512 * 1024 * 1024;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Hex SHA-256 of a byte slice.
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    let mut out = String::with_capacity(64);
+    for b in digest {
+        use std::fmt::Write;
+        let _ = write!(out, "{b:02x}");
+    }
+    out
+}
+
+/// Parse a `sha256sum`-style SHA256SUMS file: one `<hex>  <name>` line per
+/// artifact. Tolerates the `*name` binary-mode marker and skips junk lines.
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
+fn parse_sha256sums(text: &str) -> std::collections::BTreeMap<String, String> {
+    let mut out = std::collections::BTreeMap::new();
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        let (Some(hex), Some(name)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        if hex.len() != 64 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+        let name = name.trim_start_matches('*');
+        out.insert(name.to_string(), hex.to_ascii_lowercase());
+    }
+    out
+}
+
+/// Fetch the SHA256SUMS file attached to a release. `None` on any failure:
+/// releases published before checksums shipped do not have one.
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn fetch_sha256sums(new_version: &str) -> Option<String> {
+    let url =
+        format!("https://github.com/thorstenfoltz/octa/releases/download/{new_version}/SHA256SUMS");
+    ureq::get(&url)
+        .header("User-Agent", &format!("octa/{}", VERSION))
+        .call()
+        .ok()?
+        .body_mut()
+        .with_config()
+        // Checksum files are tiny; anything bigger is wrong.
+        .limit(1024 * 1024)
+        .read_to_string()
+        .ok()
+}
+
+/// Verify a downloaded release archive against the release's SHA256SUMS.
+/// When the file is absent (older releases) the update proceeds with a
+/// logged warning; when it is present, a missing entry or a hash mismatch
+/// aborts the update - a wrong checksum is exactly the tamper signal.
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn verify_archive_checksum(
+    new_version: &str,
+    archive_name: &str,
+    bytes: &[u8],
+) -> Result<(), String> {
+    let Some(text) = fetch_sha256sums(new_version) else {
+        eprintln!(
+            "octa: SHA256SUMS not found for release {new_version}; skipping checksum verification."
+        );
+        return Ok(());
+    };
+    let sums = parse_sha256sums(&text);
+    let Some(expected) = sums.get(archive_name) else {
+        return Err(format!(
+            "Checksum verification failed: \"{archive_name}\" is not listed in the release's \
+SHA256SUMS. Aborting update."
+        ));
+    };
+    let got = sha256_hex(bytes);
+    if &got != expected {
+        return Err(format!(
+            "Checksum verification failed for {archive_name}: expected {expected}, got {got}. \
+Aborting update."
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) enum UpdateOutcome {
     Installed,
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -130,9 +215,9 @@ impl OctaApp {
 
         #[cfg(target_os = "linux")]
         {
+            let archive_name = format!("octa-{new_version}-linux-x86_64.tar.gz");
             let url = format!(
-                "https://github.com/thorstenfoltz/octa/releases/download/{0}/octa-{0}-linux-x86_64.tar.gz",
-                new_version
+                "https://github.com/thorstenfoltz/octa/releases/download/{new_version}/{archive_name}"
             );
 
             let bytes = ureq::get(&url)
@@ -144,6 +229,8 @@ impl OctaApp {
                 .limit(UPDATE_BODY_LIMIT)
                 .read_to_vec()
                 .map_err(|e| format!("Read failed: {}", e))?;
+
+            verify_archive_checksum(new_version, &archive_name, &bytes)?;
 
             let staging_path = std::env::temp_dir().join(format!(
                 "octa-update-{}-{}",
@@ -207,9 +294,9 @@ impl OctaApp {
 
         #[cfg(target_os = "windows")]
         {
+            let archive_name = format!("octa-{new_version}-windows-x86_64.zip");
             let url = format!(
-                "https://github.com/thorstenfoltz/octa/releases/download/{0}/octa-{0}-windows-x86_64.zip",
-                new_version
+                "https://github.com/thorstenfoltz/octa/releases/download/{new_version}/{archive_name}"
             );
 
             let bytes = ureq::get(&url)
@@ -221,6 +308,8 @@ impl OctaApp {
                 .limit(UPDATE_BODY_LIMIT)
                 .read_to_vec()
                 .map_err(|e| format!("Read failed: {}", e))?;
+
+            verify_archive_checksum(new_version, &archive_name, &bytes)?;
 
             let cursor = std::io::Cursor::new(bytes);
             let mut archive =
@@ -276,5 +365,52 @@ impl OctaApp {
         }
 
         Ok(UpdateOutcome::Installed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sha256_hex_matches_known_vector() {
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            sha256_hex(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn parse_sha256sums_accepts_plain_and_binary_marked_lines() {
+        let text = "\
+0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  octa-1.0-linux-x86_64.tar.gz
+fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210 *octa-1.0-windows-x86_64.zip
+not a checksum line
+deadbeef  too_short_hash.txt
+";
+        let sums = parse_sha256sums(text);
+        assert_eq!(sums.len(), 2);
+        assert_eq!(
+            sums.get("octa-1.0-linux-x86_64.tar.gz").map(String::as_str),
+            Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+        );
+        assert_eq!(
+            sums.get("octa-1.0-windows-x86_64.zip").map(String::as_str),
+            Some("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210")
+        );
+    }
+
+    #[test]
+    fn parse_sha256sums_lowercases_hashes() {
+        let text = "ABC3456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF  x.zip\n";
+        let sums = parse_sha256sums(text);
+        assert_eq!(
+            sums.get("x.zip").map(String::as_str),
+            Some("abc3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+        );
     }
 }

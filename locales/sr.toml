@@ -66,6 +66,7 @@ find_duplicates = "Пронађи дупликате..."
 multi_search = "Вишеструка претрага..."
 
 [analyse_menu]
+describe = "Сажетак..."
 assistant = "Асистент"
 sql = "SQL"
 chart = "Графикон"
@@ -339,6 +340,8 @@ second = "Секунда"
 weekday = "Дан у недељи (1=Пон..7=Нед)"
 
 [enum]
+search_result_filter = "Filter"
+search_result_highlight = "Istakni"
 nb_beside = "Поред"
 nb_beneath = "Испод"
 pos_left = "Лево"
@@ -420,6 +423,7 @@ modified = "Измењено"
 no_file = "Нема учитане датотеке"
 
 [settings]
+search_result_mode = "Prikaz rezultata pretrage:"
 title = "Подешавања"
 language = "Језик"
 window_title = "Подешавања Octa"
@@ -549,6 +553,8 @@ move_left = "Помери лево"
 move_right = "Помери десно"
 
 [context_menu]
+freeze_to_here = "Закључај колоне до овде"
+unfreeze = "Откључај све колоне"
 sec_clipboard = "Клипборд"
 sec_row = "Ред"
 sec_column = "Колона"
@@ -638,6 +644,7 @@ extra_tables = "додатних табела"
 attached_dbs = "прикачених БП"
 
 [settings_hint]
+search_result_mode = "Filter sakriva redove koji se ne poklapaju; Istakni zadrzava sve redove i istice poklapanja"
 language = "Језик за меније и дијалоге апликације. Ступа на снагу одмах. Преводи су машински генерисани и могу бити дорађени."
 font_size = "Основна величина фонта за сав текст у апликацији"
 default_theme = "Тема која се примењује при покретању апликације"
@@ -800,3 +807,9 @@ dialogs = "Инспектор и дијалози"
 [documentation]
 search = "Претражи документацију..."
 no_matches = "Нема подударања"
+
+[search]
+mode_toggle_hint = "Prebaci izmedju filtriranja redova i isticanja poklapanja"
+no_matches = "Nema poklapanja"
+next_match = "Sledece poklapanje"
+prev_match = "Prethodno poklapanje"

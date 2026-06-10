@@ -59,6 +59,7 @@ find_duplicates = "Trova duplicati..."
 multi_search = "Ricerca multipla..."
 
 [analyse_menu]
+describe = "Riepilogo..."
 assistant = "Assistant"
 sql = "SQL"
 chart = "Grafico"
@@ -342,6 +343,8 @@ second = "Secondo"
 weekday = "Giorno della settimana (1=Lun..7=Dom)"
 
 [enum]
+search_result_filter = "Filtra"
+search_result_highlight = "Evidenzia"
 nb_beside = "Accanto"
 nb_beneath = "Sotto"
 pos_left = "Sinistra"
@@ -423,6 +426,7 @@ modified = "Modificato"
 no_file = "Nessun file caricato"
 
 [settings]
+search_result_mode = "Visualizzazione risultati ricerca:"
 title = "Impostazioni"
 language = "Lingua"
 window_title = "Impostazioni di Octa"
@@ -552,6 +556,8 @@ move_left = "Sposta a sinistra"
 move_right = "Sposta a destra"
 
 [context_menu]
+freeze_to_here = "Blocca colonne fino a qui"
+unfreeze = "Sblocca tutte le colonne"
 sec_clipboard = "Appunti"
 sec_row = "Riga"
 sec_column = "Colonna"
@@ -641,6 +647,7 @@ extra_tables = "tabelle aggiuntive"
 attached_dbs = "DB allegati"
 
 [settings_hint]
+search_result_mode = "Filtra nasconde le righe non corrispondenti; Evidenzia mantiene tutte le righe ed evidenzia le corrispondenze"
 language = "Lingua dei menu e delle finestre di dialogo dell'applicazione. Ha effetto immediato. Le traduzioni sono generate automaticamente e possono essere perfezionate."
 font_size = "Dimensione di base del carattere per tutto il testo dell'applicazione"
 default_theme = "Tema applicato all'avvio dell'applicazione"
@@ -803,3 +810,9 @@ dialogs = "Ispettore e finestre"
 [documentation]
 search = "Cerca nella documentazione..."
 no_matches = "Nessun risultato"
+
+[search]
+mode_toggle_hint = "Alterna tra filtrare le righe ed evidenziare le corrispondenze"
+no_matches = "Nessuna corrispondenza"
+next_match = "Corrispondenza successiva"
+prev_match = "Corrispondenza precedente"

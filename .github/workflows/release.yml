@@ -288,6 +288,20 @@ jobs:
           # disabled there), which can still be mid-upload and fail the step.
           pattern: "*-{release,appimage}"
 
+      - name: Generate SHA256SUMS
+        # The in-app updater downloads SHA256SUMS from the release and
+        # refuses an archive whose hash does not match, so every published
+        # artifact must be listed here.
+        run: |
+          mkdir -p dist
+          cp artifacts/linux-release/*.tar.gz \
+             artifacts/linux-appimage/*.AppImage \
+             artifacts/windows-release/*.zip \
+             artifacts/macos-release/*.tar.gz \
+             dist/
+          (cd dist && sha256sum -- *.tar.gz *.AppImage *.zip > SHA256SUMS)
+          cat dist/SHA256SUMS
+
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -301,10 +315,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "Octa $VERSION" \
             $NOTES_ARGS \
-            artifacts/linux-release/*.tar.gz \
-            artifacts/linux-appimage/*.AppImage \
-            artifacts/windows-release/*.zip \
-            artifacts/macos-release/*.tar.gz
+            dist/*
 
   aur-publish:
     needs: [publish]

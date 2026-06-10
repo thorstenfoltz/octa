@@ -797,6 +797,7 @@ impl OctaApp {
             }
             tab.first_row_is_header = true;
             tab.search_text.clear();
+            tab.search_nav.reset();
             tab.filter_dirty = true;
             if tab.table.total_rows.is_some() {
                 let loaded = tab.table.row_count();
@@ -1423,6 +1424,7 @@ impl OctaApp {
         tab.empty_file_placeholder = true;
         tab.view_mode = ViewMode::Table;
         tab.search_text.clear();
+        tab.search_nav.reset();
         tab.filter_dirty = true;
         self.status_message = Some((
             format!(

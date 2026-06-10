@@ -1,6 +1,7 @@
-use crate::app::state::TabState;
+use crate::app::state::{NavDir, TabState};
 use crate::ui;
 use octa::data;
+use octa::data::search::RowMatcher;
 
 use eframe::egui;
 use egui::{Align, Color32, Layout, RichText, Stroke};
@@ -53,6 +54,61 @@ pub fn render_notebook_view(
             );
         }
         job
+    };
+
+    // Highlight search (always on): count matches across every cell's source
+    // and output, drive the toolbar count, and on a pending next/previous jump
+    // scroll to the cell holding the current match. Matches are highlighted in
+    // place; navigation is at cell granularity.
+    let matcher =
+        (!tab.search_text.is_empty()).then(|| RowMatcher::new(&tab.search_text, tab.search_mode));
+    let (hl_normal, hl_active) = ui::search_highlight::highlight_colors(&colors);
+    let row_match_counts: Vec<usize> = match matcher.as_ref() {
+        Some(m) => (0..tab.table.row_count())
+            .map(|r| {
+                let src = match tab.table.get(r, 2) {
+                    Some(data::CellValue::String(s)) => s.clone(),
+                    Some(v) => v.to_string(),
+                    None => String::new(),
+                };
+                let out = match tab.table.get(r, 3) {
+                    Some(data::CellValue::String(s)) => s.clone(),
+                    Some(v) => v.to_string(),
+                    None => String::new(),
+                };
+                m.find_ranges(&src).len() + m.find_ranges(&out).len()
+            })
+            .collect(),
+        None => Vec::new(),
+    };
+    let total_matches: usize = row_match_counts.iter().sum();
+    tab.search_nav.match_count = total_matches;
+    if tab.search_nav.current >= total_matches {
+        tab.search_nav.current = 0;
+    }
+    let jump_dir = tab.search_nav.pending_jump.take();
+    if let Some(dir) = jump_dir
+        && total_matches > 0
+    {
+        tab.search_nav.current = match dir {
+            NavDir::Next => (tab.search_nav.current + 1) % total_matches,
+            NavDir::Prev => (tab.search_nav.current + total_matches - 1) % total_matches,
+        };
+    }
+    // Map the current match ordinal to the cell that contains it.
+    let scroll_target_row: Option<usize> = if jump_dir.is_some() && total_matches > 0 {
+        let mut acc = 0usize;
+        let mut found = None;
+        for (r, c) in row_match_counts.iter().enumerate() {
+            if tab.search_nav.current < acc + c {
+                found = Some(r);
+                break;
+            }
+            acc += c;
+        }
+        found
+    } else {
+        None
     };
 
     // Collect all cell text for Ctrl+C on the whole notebook
@@ -137,13 +193,18 @@ pub fn render_notebook_view(
                         let label_width = 80.0;
 
                         let has_output = is_code && !output.is_empty();
+                        let output_hl = matcher
+                            .as_ref()
+                            .map(|m| m.matches(&output))
+                            .unwrap_or(false);
 
                         // Helper closure to render the output frame
                         let render_output =
                             |ui: &mut egui::Ui,
                              cell_num: Option<i64>,
                              output: &str,
-                             border_color: Color32| {
+                             border_color: Color32,
+                             highlight: bool| {
                                 let out_bg = if is_dark {
                                     Color32::from_rgb(25, 28, 35)
                                 } else {
@@ -170,17 +231,16 @@ pub fn render_notebook_view(
                                                     .color(colors.error),
                                             );
                                         });
-                                        ui.add(
-                                            egui::Label::new(
-                                                RichText::new(output)
-                                                    .font(egui::FontId::new(
-                                                        13.0,
-                                                        egui::FontFamily::Monospace,
-                                                    ))
-                                                    .color(colors.text_secondary),
-                                            )
-                                            .selectable(true),
-                                        );
+                                        let mut out_rt = RichText::new(output)
+                                            .font(egui::FontId::new(
+                                                13.0,
+                                                egui::FontFamily::Monospace,
+                                            ))
+                                            .color(colors.text_secondary);
+                                        if highlight {
+                                            out_rt = out_rt.background_color(hl_normal);
+                                        }
+                                        ui.add(egui::Label::new(out_rt).selectable(true));
                                     });
                                 let copy_output = output.to_string();
                                 out_frame.response.context_menu(|ui| {
@@ -240,10 +300,15 @@ pub fn render_notebook_view(
                                             egui::FontId::new(13.0, egui::FontFamily::Monospace);
                                         let edit_id = egui::Id::new(("nb_src", row_idx));
                                         let mut buf = source.clone();
+                                        let src_ranges: Vec<std::ops::Range<usize>> = matcher
+                                            .as_ref()
+                                            .map(|m| m.find_ranges(&source))
+                                            .unwrap_or_default();
                                         let response = if is_code {
                                             let syntax = octa::ui::syntax::syntax_by_name("Python");
                                             let theme =
                                                 octa::ui::syntax::theme_for_mode(theme_mode);
+                                            let code_ranges = src_ranges.clone();
                                             let mut layouter = move |ui: &egui::Ui,
                                                                      text: &dyn egui::TextBuffer,
                                                                      _wrap: f32| {
@@ -251,7 +316,7 @@ pub fn render_notebook_view(
                                                     13.0,
                                                     egui::FontFamily::Monospace,
                                                 );
-                                                let job = match syntax {
+                                                let mut job = match syntax {
                                                     Some(syn) => {
                                                         octa::ui::syntax::highlight_layout_job(
                                                             text.as_str(),
@@ -276,6 +341,13 @@ pub fn render_notebook_view(
                                                         j
                                                     }
                                                 };
+                                                ui::search_highlight::apply_highlight(
+                                                    &mut job,
+                                                    &code_ranges,
+                                                    None,
+                                                    hl_normal,
+                                                    hl_active,
+                                                );
                                                 ui.fonts_mut(|f| f.layout_job(job))
                                             };
                                             ui.add(
@@ -289,15 +361,43 @@ pub fn render_notebook_view(
                                                     .layouter(&mut layouter),
                                             )
                                         } else {
+                                            let md_ranges = src_ranges.clone();
+                                            let mut md_layouter = move |ui: &egui::Ui,
+                                                                        text: &dyn egui::TextBuffer,
+                                                                        _wrap: f32| {
+                                                let font = egui::FontId::new(
+                                                    13.0,
+                                                    egui::FontFamily::Monospace,
+                                                );
+                                                let mut job = egui::text::LayoutJob::default();
+                                                job.wrap.max_width = f32::INFINITY;
+                                                job.append(
+                                                    text.as_str(),
+                                                    0.0,
+                                                    egui::text::TextFormat {
+                                                        font_id: font,
+                                                        color: text_color,
+                                                        ..Default::default()
+                                                    },
+                                                );
+                                                ui::search_highlight::apply_highlight(
+                                                    &mut job,
+                                                    &md_ranges,
+                                                    None,
+                                                    hl_normal,
+                                                    hl_active,
+                                                );
+                                                ui.fonts_mut(|f| f.layout_job(job))
+                                            };
                                             ui.add(
                                                 egui::TextEdit::multiline(&mut buf)
                                                     .id(edit_id)
                                                     .font(mono.clone())
-                                                    .text_color(text_color)
                                                     .frame(egui::Frame::NONE)
                                                     .desired_width(f32::INFINITY)
                                                     .desired_rows(line_count.max(1))
-                                                    .interactive(!readonly),
+                                                    .interactive(!readonly)
+                                                    .layouter(&mut md_layouter),
                                             )
                                         };
                                         if response.changed() && !readonly {
@@ -320,7 +420,15 @@ pub fn render_notebook_view(
 
                             // Output beside source (Beside layout)
                             if has_output && output_layout == NotebookOutputLayout::Beside {
-                                render_output(ui, cell_num, &output, border_color);
+                                render_output(ui, cell_num, &output, border_color, output_hl);
+                            }
+
+                            // Highlight-search jump: scroll to the cell holding
+                            // the current match.
+                            if scroll_target_row == Some(row_idx) {
+                                frame_response
+                                    .response
+                                    .scroll_to_me(Some(egui::Align::Center));
                             }
                         });
 
@@ -329,7 +437,7 @@ pub fn render_notebook_view(
                             ui.horizontal(|ui| {
                                 // Indent to align under the source frame
                                 ui.add_space(label_width + 8.0);
-                                render_output(ui, cell_num, &output, border_color);
+                                render_output(ui, cell_num, &output, border_color, output_hl);
                             });
                         }
 

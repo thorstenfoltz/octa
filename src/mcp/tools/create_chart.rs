@@ -20,8 +20,8 @@ use super::{ToolContext, source_from};
 pub const DESCRIPTION: &str = "Render a chart from an open tab (or an open file) and save it as an image (png), pdf, or svg. \
 Set `kind` (histogram, bar, line, scatter, box), `x_col` (column name), and `y_cols` (column \
 names; bar/line/scatter need at least one, histogram/box use them as the summarised columns, \
-histogram needs only x_col). The file goes to the export directory unless `output` is an \
-absolute path. Returns the output path.";
+histogram needs only x_col). The file is written into the export directory (give a bare file \
+name). Returns the output path.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
@@ -49,7 +49,7 @@ pub struct Params {
     /// Output format: "png" (default), "pdf", or "svg".
     #[serde(default)]
     pub format: Option<String>,
-    /// Output file name (written into the export dir) or an absolute path.
+    /// Output file name; written into the export directory.
     pub output: PathBuf,
 }
 
@@ -118,8 +118,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         other => anyhow::bail!("unknown format \"{other}\" - use png, pdf, or svg"),
     };
 
-    // Force the chosen extension, then confine to the export dir (or honor an
-    // absolute path).
+    // Force the chosen extension, then confine to the export dir.
     let mut requested = p.output.clone();
     requested.set_extension(ext);
     let out = ctx.resolve_write_path(&requested)?;

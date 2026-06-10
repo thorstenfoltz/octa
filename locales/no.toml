@@ -59,6 +59,7 @@ find_duplicates = "Finn duplikater..."
 multi_search = "Multisøk..."
 
 [analyse_menu]
+describe = "Sammendrag..."
 assistant = "Assistant"
 sql = "SQL"
 chart = "Diagram"
@@ -342,6 +343,8 @@ second = "Sekund"
 weekday = "Ukedag (1=Man..7=Søn)"
 
 [enum]
+search_result_filter = "Filtrer"
+search_result_highlight = "Uthev"
 nb_beside = "Ved siden av"
 nb_beneath = "Nedenfor"
 pos_left = "Venstre"
@@ -423,6 +426,7 @@ modified = "Endret"
 no_file = "Ingen fil lastet inn"
 
 [settings]
+search_result_mode = "Visning av sokeresultater:"
 title = "Innstillinger"
 language = "Språk"
 window_title = "Octa-innstillinger"
@@ -552,6 +556,8 @@ move_left = "Flytt til venstre"
 move_right = "Flytt til høyre"
 
 [context_menu]
+freeze_to_here = "Frys kolonner til hit"
+unfreeze = "Frigi alle kolonner"
 sec_clipboard = "Utklippstavle"
 sec_row = "Rad"
 sec_column = "Kolonne"
@@ -641,6 +647,7 @@ extra_tables = "ekstra tabeller"
 attached_dbs = "tilkoblede DB-er"
 
 [settings_hint]
+search_result_mode = "Filtrer skjuler rader som ikke samsvarer; Uthev beholder alle rader og uthever treff"
 language = "Språk for programmets menyer og dialoger. Trer i kraft umiddelbart. Oversettelser genereres maskinelt og kan forbedres."
 font_size = "Grunnleggende skriftstørrelse for all tekst i programmet"
 default_theme = "Tema som brukes når programmet starter"
@@ -803,3 +810,9 @@ dialogs = "Inspektør og dialoger"
 [documentation]
 search = "Søk i dokumentasjonen..."
 no_matches = "Ingen treff"
+
+[search]
+mode_toggle_hint = "Veksle mellom a filtrere rader og utheve treff"
+no_matches = "Ingen treff"
+next_match = "Neste treff"
+prev_match = "Forrige treff"

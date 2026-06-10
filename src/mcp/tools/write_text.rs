@@ -13,8 +13,8 @@ use super::ToolContext;
 
 pub const DESCRIPTION: &str = "Write plain text (prose, source code, or Markdown) to a file. Give `content` plus either \
 `open_tab` (a handle like \"#2\", \"@active\", or the tab name) to overwrite that tab's file on \
-disk, or `path` (a bare file name writes into the export directory; an absolute path writes \
-there). Overwriting an open tab's file does NOT refresh the live editor - tell the user to reload \
+disk, or `path` (a bare file name; it is written into the export directory, where all new files \
+go). Overwriting an open tab's file does NOT refresh the live editor - tell the user to reload \
 (Ctrl+R) to see it. Returns the path written and the byte count.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -26,7 +26,7 @@ pub struct Params {
     #[serde(default)]
     pub open_tab: Option<String>,
     /// Destination when not targeting an open tab. A bare name lands in the
-    /// export directory; an absolute path is honoured.
+    /// export directory; writes are confined there.
     #[serde(default)]
     pub path: PathBuf,
 }

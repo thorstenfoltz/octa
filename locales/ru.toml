@@ -59,6 +59,7 @@ find_duplicates = "Найти дубликаты..."
 multi_search = "Множественный поиск..."
 
 [analyse_menu]
+describe = "Сводка..."
 assistant = "Ассистент"
 sql = "SQL"
 chart = "Диаграмма"
@@ -332,6 +333,8 @@ second = "Секунда"
 weekday = "День недели (1=Пн..7=Вс)"
 
 [enum]
+search_result_filter = "Filtr"
+search_result_highlight = "Podsvetka"
 nb_beside = "Рядом"
 nb_beneath = "Снизу"
 pos_left = "Слева"
@@ -413,6 +416,7 @@ modified = "Изменено"
 no_file = "Файл не загружен"
 
 [settings]
+search_result_mode = "Otobrazhenie rezultatov poiska:"
 title = "Настройки"
 language = "Язык"
 window_title = "Настройки Octa"
@@ -542,6 +546,8 @@ move_left = "Переместить влево"
 move_right = "Переместить вправо"
 
 [context_menu]
+freeze_to_here = "Закрепить столбцы до этого места"
+unfreeze = "Открепить все столбцы"
 sec_clipboard = "Буфер обмена"
 sec_row = "Строка"
 sec_column = "Столбец"
@@ -631,6 +637,7 @@ extra_tables = "доп. таблиц"
 attached_dbs = "подключённых БД"
 
 [settings_hint]
+search_result_mode = "Filtr skryvaet nesovpadayushchie stroki; podsvetka sokhranyaet vse stroki i podsvechivaet sovpadeniya"
 language = "Язык для меню и диалогов приложения. Применяется немедленно. Переводы созданы машинно и могут быть улучшены."
 font_size = "Базовый размер шрифта для всего текста в приложении"
 default_theme = "Тема, применяемая при запуске приложения"
@@ -791,3 +798,9 @@ dialogs = "Инспектор и диалоги"
 [documentation]
 search = "Поиск по документации..."
 no_matches = "Совпадений нет"
+
+[search]
+mode_toggle_hint = "Pereklyuchenie mezhdu filtraciej strok i podsvetkoj sovpadenij"
+no_matches = "Net sovpadenij"
+next_match = "Sleduyushchee sovpadenie"
+prev_match = "Predydushchee sovpadenie"

@@ -48,6 +48,7 @@ impl OctaApp {
     ) -> Self {
         let theme_mode = settings.default_theme;
         let search_mode = settings.default_search_mode;
+        let search_result_mode = settings.search_result_mode;
         let recent_files = Self::load_recent_files();
         // Push the configured first-load row cap into the streaming readers
         // (Parquet, CSV, TSV) which consult a process-wide atomic instead of
@@ -70,6 +71,7 @@ impl OctaApp {
             pending_close_tab: None,
             registry: octa::formats::FormatRegistry::new(),
             theme_mode,
+            search_result_mode,
             settings,
             resolved_icon,
             settings_dialog: SettingsDialog::default(),

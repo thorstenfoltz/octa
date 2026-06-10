@@ -59,6 +59,7 @@ find_duplicates = "Encontrar duplicatas..."
 multi_search = "Pesquisa múltipla..."
 
 [analyse_menu]
+describe = "Resumo..."
 assistant = "Assistant"
 sql = "SQL"
 chart = "Gráfico"
@@ -342,6 +343,8 @@ second = "Segundo"
 weekday = "Dia da semana (1=Seg..7=Dom)"
 
 [enum]
+search_result_filter = "Filtrar"
+search_result_highlight = "Realcar"
 nb_beside = "Ao lado"
 nb_beneath = "Abaixo"
 pos_left = "Esquerda"
@@ -423,6 +426,7 @@ modified = "Modificado"
 no_file = "Nenhum arquivo carregado"
 
 [settings]
+search_result_mode = "Exibicao dos resultados da pesquisa:"
 title = "Configurações"
 language = "Idioma"
 window_title = "Configurações do Octa"
@@ -552,6 +556,8 @@ move_left = "Mover para a esquerda"
 move_right = "Mover para a direita"
 
 [context_menu]
+freeze_to_here = "Congelar colunas até aqui"
+unfreeze = "Descongelar todas as colunas"
 sec_clipboard = "Área de transferência"
 sec_row = "Linha"
 sec_column = "Coluna"
@@ -641,6 +647,7 @@ extra_tables = "tabelas adicionais"
 attached_dbs = "BDs anexados"
 
 [settings_hint]
+search_result_mode = "Filtrar oculta as linhas que nao correspondem; Realcar mantem todas as linhas e realca as correspondencias"
 language = "Idioma dos menus e diálogos da aplicação. Tem efeito imediato. As traduções são geradas automaticamente e podem ser refinadas."
 font_size = "Tamanho de fonte base para todo o texto da aplicação"
 default_theme = "Tema aplicado ao iniciar a aplicação"
@@ -803,3 +810,9 @@ dialogs = "Inspetor e diálogos"
 [documentation]
 search = "Pesquisar na documentação..."
 no_matches = "Nenhum resultado"
+
+[search]
+mode_toggle_hint = "Alternar entre filtrar linhas e realcar correspondencias"
+no_matches = "Nenhuma correspondencia"
+next_match = "Proxima correspondencia"
+prev_match = "Correspondencia anterior"

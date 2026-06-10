@@ -66,6 +66,7 @@ find_duplicates = "Leia duplikaadid..."
 multi_search = "Mitmikotsing..."
 
 [analyse_menu]
+describe = "Kokkuvõte..."
 assistant = "Assistent"
 sql = "SQL"
 chart = "Diagramm"
@@ -339,6 +340,8 @@ second = "Sekund"
 weekday = "Nädalapäev (1=E..7=P)"
 
 [enum]
+search_result_filter = "Filtreeri"
+search_result_highlight = "Toosta esile"
 nb_beside = "Kõrval"
 nb_beneath = "All"
 pos_left = "Vasakul"
@@ -420,6 +423,7 @@ modified = "Muudetud"
 no_file = "Faili pole laaditud"
 
 [settings]
+search_result_mode = "Otsingutulemuste kuvamine:"
 title = "Seaded"
 language = "Keel"
 window_title = "Octa seaded"
@@ -549,6 +553,8 @@ move_left = "Liiguta vasakule"
 move_right = "Liiguta paremale"
 
 [context_menu]
+freeze_to_here = "Külmuta veerud siiani"
+unfreeze = "Vabasta kõik veerud"
 sec_clipboard = "Lõikelaud"
 sec_row = "Rida"
 sec_column = "Veerg"
@@ -638,6 +644,7 @@ extra_tables = "lisatabelid"
 attached_dbs = "lisatud andmebaasid"
 
 [settings_hint]
+search_result_mode = "Filtreerimine peidab mittevastavad read; esiletostmine sailitab koik read ja toostab vasted esile"
 language = "Rakenduse menüüde ja dialoogide keel. Jõustub kohe. Tõlked on masinaga loodud ja neid võidakse täiustada."
 font_size = "Põhifondi suurus kogu rakenduse teksti jaoks"
 default_theme = "Teema, mida rakendatakse rakenduse käivitamisel"
@@ -800,3 +807,9 @@ dialogs = "Kontroll ja dialoogid"
 [documentation]
 search = "Otsi dokumentatsioonist..."
 no_matches = "Vasteid pole"
+
+[search]
+mode_toggle_hint = "Luliti ridade filtreerimise ja vastete esiletostmise vahel"
+no_matches = "Vasteid pole"
+next_match = "Jargmine vaste"
+prev_match = "Eelmine vaste"

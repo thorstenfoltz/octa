@@ -137,12 +137,30 @@ Division by zero leaves the cell empty.
 
 pub(super) const SEARCH: &str = r#"# Search & Replace
 
-The toolbar search box filters rows in real time. Only rows containing a
-match are shown. Three modes (selectable in the dropdown next to the box):
+The toolbar search box matches rows in real time. Three modes (selectable in
+the dropdown next to the box):
 
 - **Plain**: case-insensitive substring.
 - **Wildcard**: `*` matches any sequence, `?` matches one character.
 - **Regex**: full regular expression syntax.
+
+## Filter or highlight
+
+A toggle button beside the search box switches how matches are shown:
+
+- **Filter** (the default): non-matching rows are hidden, as before.
+- **Highlight**: every row stays visible and the matching cells are
+  highlighted in place.
+
+The default is set in **Settings -> Search result display**. The table view
+honours the toggle. Text and tree views (Jupyter notebooks, the JSON and YAML
+trees, Markdown and the raw text editor) always highlight, because hiding free
+text or collapsing tree nodes makes no sense there.
+
+When matches are highlighted, the search bar shows a **count** (current / total)
+and two buttons to step through matches. **Enter** jumps to the next match and
+**Shift+Enter** to the previous one while the search box is focused; the view
+scrolls the current match into view.
 
 **Ctrl+F** focuses the search box from anywhere; **Ctrl+H** opens the
 **Find & Replace** bar above the table:

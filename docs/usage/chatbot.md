@@ -236,9 +236,10 @@ content.
 When the assistant writes a file (a new CSV, a chart, a converted copy) it
 writes into your configured **Export folder** (Settings -> Chat / Assistant;
 the default is your Downloads folder). Give the assistant just a filename and it
-lands there; ask it to save to a specific absolute path and it honours that
-instead. This keeps the assistant from scattering files across your disk while
-still letting you choose a destination when you want one.
+lands there. Writes anywhere else on disk are refused: the export folder is the
+only place the assistant can create files, and writing back to a file you have
+open in a tab is the only exception. Change the export folder in Settings if
+you want new files somewhere else.
 
 Examples of things you can ask:
 

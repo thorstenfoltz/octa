@@ -59,6 +59,7 @@ find_duplicates = "Etsi kaksoiskappaleet..."
 multi_search = "Monihaku..."
 
 [analyse_menu]
+describe = "Yhteenveto..."
 assistant = "Assistant"
 sql = "SQL"
 chart = "Kaavio"
@@ -342,6 +343,8 @@ second = "Sekunti"
 weekday = "Viikonpäivä (1=Ma..7=Su)"
 
 [enum]
+search_result_filter = "Suodata"
+search_result_highlight = "Korosta"
 nb_beside = "Vierellä"
 nb_beneath = "Alla"
 pos_left = "Vasen"
@@ -423,6 +426,7 @@ modified = "Muokattu"
 no_file = "Ei tiedostoa ladattu"
 
 [settings]
+search_result_mode = "Hakutulosten naytto:"
 title = "Asetukset"
 language = "Kieli"
 window_title = "Octan asetukset"
@@ -552,6 +556,8 @@ move_left = "Siirrä vasemmalle"
 move_right = "Siirrä oikealle"
 
 [context_menu]
+freeze_to_here = "Kiinnitä sarakkeet tähän asti"
+unfreeze = "Vapauta kaikki sarakkeet"
 sec_clipboard = "Leikepöytä"
 sec_row = "Rivi"
 sec_column = "Sarake"
@@ -641,6 +647,7 @@ extra_tables = "lisätaulukkoa"
 attached_dbs = "liitettyä tietokantaa"
 
 [settings_hint]
+search_result_mode = "Suodata piilottaa rivit jotka eivat tasmaa; Korosta sailyttaa kaikki rivit ja korostaa osumat"
 language = "Sovelluksen valikoiden ja valintaikkunoiden kieli. Tulee voimaan heti. Käännökset ovat koneellisesti tuotettuja ja niitä voidaan hioa."
 font_size = "Sovelluksen kaiken tekstin peruskirjasinkoko"
 default_theme = "Sovelluksen käynnistyessä käytettävä teema"
@@ -803,3 +810,9 @@ dialogs = "Tarkastelu ja valintaikkunat"
 [documentation]
 search = "Hae ohjeesta..."
 no_matches = "Ei osumia"
+
+[search]
+mode_toggle_hint = "Vaihda rivien suodatuksen ja osumien korostuksen valilla"
+no_matches = "Ei osumia"
+next_match = "Seuraava osuma"
+prev_match = "Edellinen osuma"

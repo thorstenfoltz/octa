@@ -59,6 +59,7 @@ find_duplicates = "Hitta dubbletter..."
 multi_search = "Multisökning..."
 
 [analyse_menu]
+describe = "Sammanfattning..."
 assistant = "Assistant"
 sql = "SQL"
 chart = "Diagram"
@@ -342,6 +343,8 @@ second = "Sekund"
 weekday = "Veckodag (1=Mån..7=Sön)"
 
 [enum]
+search_result_filter = "Filtrera"
+search_result_highlight = "Markera"
 nb_beside = "Bredvid"
 nb_beneath = "Under"
 pos_left = "Vänster"
@@ -423,6 +426,7 @@ modified = "Ändrad"
 no_file = "Ingen fil inläst"
 
 [settings]
+search_result_mode = "Visning av sokresultat:"
 title = "Inställningar"
 language = "Språk"
 window_title = "Octa-inställningar"
@@ -552,6 +556,8 @@ move_left = "Flytta vänster"
 move_right = "Flytta höger"
 
 [context_menu]
+freeze_to_here = "Lås kolumner till hit"
+unfreeze = "Lås upp alla kolumner"
 sec_clipboard = "Urklipp"
 sec_row = "Rad"
 sec_column = "Kolumn"
@@ -641,6 +647,7 @@ extra_tables = "extra tabeller"
 attached_dbs = "anslutna DB:er"
 
 [settings_hint]
+search_result_mode = "Filtrera doljer rader som inte matchar; Markera behaller alla rader och markerar traffar"
 language = "Språk för programmets menyer och dialoger. Träder i kraft direkt. Översättningar genereras maskinellt och kan förbättras."
 font_size = "Grundläggande teckenstorlek för all text i programmet"
 default_theme = "Tema som tillämpas när programmet startar"
@@ -803,3 +810,9 @@ dialogs = "Inspektör och dialoger"
 [documentation]
 search = "Sök i dokumentationen..."
 no_matches = "Inga träffar"
+
+[search]
+mode_toggle_hint = "Vaxla mellan att filtrera rader och markera traffar"
+no_matches = "Inga traffar"
+next_match = "Nasta traff"
+prev_match = "Foregaende traff"

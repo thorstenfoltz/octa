@@ -41,25 +41,31 @@ impl OctaApp {
     }
 
     pub(crate) fn recompute_filter(&mut self) {
+        let mode = self.search_result_mode;
         let tab = &mut self.tabs[self.active_tab];
         let matcher = (!tab.search_text.is_empty())
             .then(|| RowMatcher::new(&tab.search_text, tab.search_mode));
         let has_column_filters = !tab.column_filters.is_empty();
+        // In highlight mode the text search no longer hides rows; it only paints
+        // matches. Excel-style column filters still hide rows in both modes.
+        let highlight = super::state::effective_highlight(tab.view_mode, mode);
+        let text_hides_rows = matcher.is_some() && !highlight;
 
-        if matcher.is_none() && !has_column_filters {
+        if !text_hides_rows && !has_column_filters {
             tab.filtered_rows = (0..tab.table.row_count()).collect();
         } else {
             tab.filtered_rows = (0..tab.table.row_count())
                 .filter(|&row_idx| {
-                    // 1. Text search: any cell in the row must match.
-                    let text_ok = matcher.as_ref().is_none_or(|m| {
-                        (0..tab.table.col_count()).any(|col_idx| {
-                            tab.table
-                                .get(row_idx, col_idx)
-                                .map(|v| m.matches(&v.to_string()))
-                                .unwrap_or(false)
-                        })
-                    });
+                    // 1. Text search (filter mode only): any cell must match.
+                    let text_ok = !text_hides_rows
+                        || matcher.as_ref().is_none_or(|m| {
+                            (0..tab.table.col_count()).any(|col_idx| {
+                                tab.table
+                                    .get(row_idx, col_idx)
+                                    .map(|v| m.matches(&v.to_string()))
+                                    .unwrap_or(false)
+                            })
+                        });
                     if !text_ok {
                         return false;
                     }
@@ -75,8 +81,56 @@ impl OctaApp {
                 })
                 .collect();
         }
+
+        // Highlight matches are a table-view concern; text/tree views compute
+        // their own match count each frame, so only touch the nav bookkeeping
+        // when the table is the active view.
+        tab.search_cell_matches.clear();
+        if tab.view_mode == octa::data::ViewMode::Table {
+            if highlight && let Some(m) = matcher.as_ref() {
+                tab.search_cell_matches = octa::ui::search_highlight::cell_matches(
+                    &tab.table,
+                    m,
+                    &tab.filtered_rows,
+                    tab.table.col_count(),
+                );
+            }
+            tab.search_nav.match_count = tab.search_cell_matches.len();
+            if tab.search_nav.current >= tab.search_nav.match_count {
+                tab.search_nav.current = 0;
+            }
+        }
+
         tab.filter_dirty = false;
         tab.table_state.invalidate_row_heights();
+    }
+
+    /// Consume a pending highlight-search jump for the table view: advance the
+    /// current match (wrapping), select that cell and scroll it into view.
+    /// No-op when there is no pending jump or no matches. Mirrors the cell-jump
+    /// path used by the status-bar navigation box.
+    pub(crate) fn apply_table_search_jump(&mut self) {
+        let row_height =
+            (self.settings.font_size * self.zoom_percent as f32 / 100.0 * 2.0).max(26.0);
+        let tab = &mut self.tabs[self.active_tab];
+        let Some(dir) = tab.search_nav.pending_jump.take() else {
+            return;
+        };
+        let count = tab.search_cell_matches.len();
+        if count == 0 {
+            return;
+        }
+        tab.search_nav.current = match dir {
+            super::state::NavDir::Next => (tab.search_nav.current + 1) % count,
+            super::state::NavDir::Prev => (tab.search_nav.current + count - 1) % count,
+        };
+        let (row, col) = tab.search_cell_matches[tab.search_nav.current];
+        tab.table_state.selected_cell = Some((row, col));
+        tab.table_state.selected_rows.clear();
+        tab.table_state.selected_cols.clear();
+        tab.table_state.set_scroll_y(row as f32 * row_height);
+        let col_left: f32 = tab.table_state.col_widths[..col].iter().sum();
+        tab.table_state.set_scroll_x(col_left);
     }
 
     /// Replace the next matching cell value (starting after the current selection).

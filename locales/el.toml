@@ -59,6 +59,7 @@ find_duplicates = "Εύρεση διπλότυπων..."
 multi_search = "Πολλαπλή αναζήτηση..."
 
 [analyse_menu]
+describe = "Σύνοψη..."
 assistant = "Βοηθός"
 sql = "SQL"
 chart = "Γράφημα"
@@ -332,6 +333,8 @@ second = "Δευτερόλεπτο"
 weekday = "Ημέρα εβδομάδας (1=Δευ..7=Κυρ)"
 
 [enum]
+search_result_filter = "Filtro"
+search_result_highlight = "Episimansi"
 nb_beside = "Δίπλα"
 nb_beneath = "Από κάτω"
 pos_left = "Αριστερά"
@@ -413,6 +416,7 @@ modified = "Τροποποιήθηκε"
 no_file = "Δεν φορτώθηκε αρχείο"
 
 [settings]
+search_result_mode = "Provoli apotelesmaton anazitisis:"
 title = "Ρυθμίσεις"
 language = "Γλώσσα"
 window_title = "Ρυθμίσεις Octa"
@@ -542,6 +546,8 @@ move_left = "Μετακίνηση αριστερά"
 move_right = "Μετακίνηση δεξιά"
 
 [context_menu]
+freeze_to_here = "Σταθεροποίηση στηλών μέχρι εδώ"
+unfreeze = "Αποσταθεροποίηση όλων των στηλών"
 sec_clipboard = "Πρόχειρο"
 sec_row = "Γραμμή"
 sec_column = "Στήλη"
@@ -631,6 +637,7 @@ extra_tables = "επιπλέον πίνακες"
 attached_dbs = "συνδεδεμένες ΒΔ"
 
 [settings_hint]
+search_result_mode = "To filtro apokryptei tis grammes pou den tairiazoun; i episimansi diatirei oles tis grammes kai episimainei ta apotelesmata"
 language = "Γλώσσα για τα μενού και τους διαλόγους της εφαρμογής. Τίθεται σε ισχύ αμέσως. Οι μεταφράσεις είναι μηχανικά παραγόμενες και ενδέχεται να βελτιωθούν."
 font_size = "Βασικό μέγεθος γραμματοσειράς για όλο το κείμενο στην εφαρμογή"
 default_theme = "Θέμα που εφαρμόζεται κατά την εκκίνηση της εφαρμογής"
@@ -791,3 +798,9 @@ dialogs = "Επιθεωρητής & διάλογοι"
 [documentation]
 search = "Αναζήτηση στην τεκμηρίωση..."
 no_matches = "Δεν υπάρχουν αντιστοιχίσεις"
+
+[search]
+mode_toggle_hint = "Enallagi metaxy filtrarismatos grammon kai episimansis apotelesmaton"
+no_matches = "Kanena apotelesma"
+next_match = "Epomeno apotelesma"
+prev_match = "Proigoumeno apotelesma"

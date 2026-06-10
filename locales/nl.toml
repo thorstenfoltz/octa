@@ -59,6 +59,7 @@ find_duplicates = "Duplicaten zoeken..."
 multi_search = "Multi-zoeken..."
 
 [analyse_menu]
+describe = "Samenvatting..."
 assistant = "Assistant"
 sql = "SQL"
 chart = "Grafiek"
@@ -342,6 +343,8 @@ second = "Seconde"
 weekday = "Weekdag (1=ma..7=zo)"
 
 [enum]
+search_result_filter = "Filteren"
+search_result_highlight = "Markeren"
 nb_beside = "Ernaast"
 nb_beneath = "Eronder"
 pos_left = "Links"
@@ -423,6 +426,7 @@ modified = "Gewijzigd"
 no_file = "Geen bestand geladen"
 
 [settings]
+search_result_mode = "Weergave zoekresultaten:"
 title = "Instellingen"
 language = "Taal"
 window_title = "Octa-instellingen"
@@ -552,6 +556,8 @@ move_left = "Naar links verplaatsen"
 move_right = "Naar rechts verplaatsen"
 
 [context_menu]
+freeze_to_here = "Kolommen tot hier blokkeren"
+unfreeze = "Alle kolommen vrijgeven"
 sec_clipboard = "Klembord"
 sec_row = "Rij"
 sec_column = "Kolom"
@@ -641,6 +647,7 @@ extra_tables = "extra tabellen"
 attached_dbs = "gekoppelde DB's"
 
 [settings_hint]
+search_result_mode = "Filteren verbergt niet-overeenkomende rijen; Markeren behoudt alle rijen en markeert treffers"
 language = "Taal voor de menu's en dialoogvensters van de toepassing. Wordt direct toegepast. Vertalingen worden automatisch gegenereerd en kunnen worden verfijnd."
 font_size = "Basislettergrootte voor alle tekst in de toepassing"
 default_theme = "Thema dat wordt toegepast bij het starten van de toepassing"
@@ -803,3 +810,9 @@ dialogs = "Inspector en dialoogvensters"
 [documentation]
 search = "Documentatie doorzoeken..."
 no_matches = "Geen resultaten"
+
+[search]
+mode_toggle_hint = "Schakelen tussen rijen filteren en treffers markeren"
+no_matches = "Geen treffers"
+next_match = "Volgende treffer"
+prev_match = "Vorige treffer"

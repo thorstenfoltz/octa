@@ -252,19 +252,50 @@ fn classify_path(path: &str, is_dir: bool) -> String {
     }
 }
 
+/// Hard ceiling for a single extracted entry. Archive headers are
+/// attacker-controlled (a zip can claim any size; a tiny gzip stream can
+/// inflate without bound), so extraction is capped rather than trusted.
+/// 512 MiB matches the app's existing large-file scale (the raw-text
+/// fallback already refuses files over 500 MB).
+const MAX_EXTRACT_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Cap for the pre-allocation hint taken from the (untrusted) zip header:
+/// a forged multi-gigabyte size must not allocate up front.
+const MAX_PREALLOC_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Defence in depth: entry names with `..`, a root, or a drive prefix are
+/// never legitimate inside an archive we extract from. Listing keeps showing
+/// them; extraction refuses them.
+fn entry_path_escapes(path: &str) -> bool {
+    use std::path::Component;
+    Path::new(path).components().any(|c| {
+        matches!(
+            c,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    })
+}
+
 /// Extract one entry by path into a `BufRead`-friendly `Vec<u8>`.
-/// Returns `Err` when the entry doesn't exist. Public so the binary
-/// side can re-open it from a tempfile.
+/// Returns `Err` when the entry doesn't exist, names an escaping path,
+/// or inflates past [`MAX_EXTRACT_BYTES`]. Public so the binary side
+/// can re-open it from a tempfile.
 pub fn extract_entry_bytes(archive_path: &Path, entry_path: &str) -> Result<Vec<u8>> {
+    if entry_path_escapes(entry_path) {
+        bail!(
+            "entry \"{}\" names a path outside the archive; refusing to extract",
+            entry_path
+        );
+    }
     let kind = detect_kind(archive_path)?;
     match kind {
-        ArchiveKind::Zip => extract_zip_entry(archive_path, entry_path),
-        ArchiveKind::Tar => extract_tar_entry(archive_path, entry_path, false),
-        ArchiveKind::Tgz => extract_tar_entry(archive_path, entry_path, true),
+        ArchiveKind::Zip => extract_zip_entry(archive_path, entry_path, MAX_EXTRACT_BYTES),
+        ArchiveKind::Tar => extract_tar_entry(archive_path, entry_path, false, MAX_EXTRACT_BYTES),
+        ArchiveKind::Tgz => extract_tar_entry(archive_path, entry_path, true, MAX_EXTRACT_BYTES),
     }
 }
 
-fn extract_zip_entry(archive_path: &Path, entry_path: &str) -> Result<Vec<u8>> {
+fn extract_zip_entry(archive_path: &Path, entry_path: &str, cap: u64) -> Result<Vec<u8>> {
     let file =
         File::open(archive_path).with_context(|| format!("opening {}", archive_path.display()))?;
     let mut archive = zip::ZipArchive::new(BufReader::new(file))?;
@@ -278,25 +309,35 @@ fn extract_zip_entry(archive_path: &Path, entry_path: &str) -> Result<Vec<u8>> {
     if entry.is_dir() {
         bail!("entry \"{}\" is a directory, not a file", entry_path);
     }
-    let mut out = Vec::with_capacity(entry.size() as usize);
-    entry
+    // The declared size is untrusted: clamp the allocation hint and cap the
+    // actual read one byte past the limit so an overrun is detectable.
+    let mut out = Vec::with_capacity(entry.size().min(MAX_PREALLOC_BYTES) as usize);
+    (&mut entry)
+        .take(cap + 1)
         .read_to_end(&mut out)
         .context("reading zip entry body")?;
+    if out.len() as u64 > cap {
+        bail!(
+            "entry \"{}\" exceeds the {} byte extraction limit",
+            entry_path,
+            cap
+        );
+    }
     Ok(out)
 }
 
-fn extract_tar_entry(archive_path: &Path, entry_path: &str, gz: bool) -> Result<Vec<u8>> {
+fn extract_tar_entry(archive_path: &Path, entry_path: &str, gz: bool, cap: u64) -> Result<Vec<u8>> {
     let file =
         File::open(archive_path).with_context(|| format!("opening {}", archive_path.display()))?;
     let buf = BufReader::new(file);
     if gz {
-        find_in_tar(flate2::read::GzDecoder::new(buf), entry_path)
+        find_in_tar(flate2::read::GzDecoder::new(buf), entry_path, cap)
     } else {
-        find_in_tar(buf, entry_path)
+        find_in_tar(buf, entry_path, cap)
     }
 }
 
-fn find_in_tar<R: Read>(reader: R, entry_path: &str) -> Result<Vec<u8>> {
+fn find_in_tar<R: Read>(reader: R, entry_path: &str, cap: u64) -> Result<Vec<u8>> {
     let mut archive = tar::Archive::new(reader);
     for entry in archive.entries().context("reading tar entries")? {
         let mut entry = entry.context("reading tar entry header")?;
@@ -310,11 +351,20 @@ fn find_in_tar<R: Read>(reader: R, entry_path: &str) -> Result<Vec<u8>> {
                 bail!("entry \"{}\" is a directory, not a file", entry_path);
             }
             let mut out = Vec::new();
-            // Streaming read - tar entries don't store size separately
-            // from the payload, so we just drain.
-            entry
+            // Streaming read, capped one byte past the limit so an
+            // oversized (or maliciously stretched) payload errors instead
+            // of exhausting memory.
+            (&mut entry)
+                .take(cap + 1)
                 .read_to_end(&mut out)
                 .context("reading tar entry body")?;
+            if out.len() as u64 > cap {
+                bail!(
+                    "entry \"{}\" exceeds the {} byte extraction limit",
+                    entry_path,
+                    cap
+                );
+            }
             return Ok(out);
         }
     }
@@ -341,5 +391,61 @@ mod tests {
         assert_eq!(classify_path("noext", false), "file");
         assert_eq!(classify_path("a/b/", true), "dir");
         assert_eq!(classify_path("CAPS.JSON", false), "json");
+    }
+
+    #[test]
+    fn escaping_entry_paths_are_detected() {
+        assert!(entry_path_escapes("../x"));
+        assert!(entry_path_escapes("a/../../x"));
+        assert!(entry_path_escapes("/abs/path"));
+        assert!(!entry_path_escapes("a/b.csv"));
+        assert!(!entry_path_escapes("plain.txt"));
+        // `a/../b` normalises inside the archive but still carries a
+        // ParentDir component; refusing it is the conservative call.
+        assert!(entry_path_escapes("a/../b"));
+    }
+
+    fn tiny_zip(dir: &Path, payload: &[u8]) -> std::path::PathBuf {
+        let path = dir.join("t.zip");
+        let file = File::create(&path).expect("create zip");
+        let mut zip = zip::ZipWriter::new(file);
+        let opts: zip::write::FileOptions<'_, ()> =
+            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        zip.start_file("data.bin", opts).expect("start entry");
+        std::io::Write::write_all(&mut zip, payload).expect("write entry");
+        zip.finish().expect("finish zip");
+        path
+    }
+
+    #[test]
+    fn zip_extraction_respects_the_byte_cap() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = tiny_zip(dir.path(), &[7u8; 64]);
+        // Under the cap: full payload comes back.
+        let ok = extract_zip_entry(&path, "data.bin", 64).expect("within cap");
+        assert_eq!(ok.len(), 64);
+        // Over the cap: hard error, not a truncated read.
+        let err = extract_zip_entry(&path, "data.bin", 63).unwrap_err();
+        assert!(err.to_string().contains("extraction limit"), "{err}");
+    }
+
+    #[test]
+    fn tar_extraction_respects_the_byte_cap() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("t.tar");
+        let file = File::create(&path).expect("create tar");
+        let mut tar = tar::Builder::new(file);
+        let payload = [9u8; 64];
+        let mut header = tar::Header::new_gnu();
+        header.set_size(payload.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar.append_data(&mut header, "data.bin", payload.as_slice())
+            .expect("append");
+        tar.finish().expect("finish tar");
+        let ok = extract_tar_entry(&path, "data.bin", false, 64).expect("within cap");
+        assert_eq!(ok.len(), 64);
+        let err = extract_tar_entry(&path, "data.bin", false, 63).unwrap_err();
+        assert!(err.to_string().contains("extraction limit"), "{err}");
     }
 }

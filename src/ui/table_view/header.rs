@@ -32,6 +32,8 @@ pub(super) fn draw_header_direct(
     filtered_columns: &HashSet<usize>,
     hidden_columns: &HashSet<usize>,
     num_fmt: NumFmtCtx<'_>,
+    frozen_cols: usize,
+    frozen_width: f32,
 ) {
     let rn_rect = egui::Rect::from_min_size(
         egui::pos2(left_x, top_y),
@@ -42,16 +44,56 @@ pub(super) fn draw_header_direct(
         egui::pos2(panel_rect.right(), top_y + HEADER_HEIGHT),
     );
 
-    let mut x = left_x + state.row_number_width - state.scroll_x;
+    let data_left = left_x + state.row_number_width;
+    let frozen_right = data_left + frozen_width;
     let col_clip = egui::Rect::from_min_max(
-        egui::pos2(left_x + state.row_number_width, top_y),
+        egui::pos2(data_left, top_y),
         egui::pos2(panel_rect.right(), top_y + HEADER_HEIGHT),
     );
     let col_painter = painter.with_clip_rect(col_clip);
+    // Frozen columns paint inside the fixed band at the left edge; scrolled
+    // columns are clipped to start after it so they slide underneath. With
+    // no frozen band these reduce to the original single clip.
+    let frozen_clip = egui::Rect::from_min_max(
+        egui::pos2(data_left, top_y),
+        egui::pos2(frozen_right, top_y + HEADER_HEIGHT),
+    );
+    let scrolled_clip = egui::Rect::from_min_max(
+        egui::pos2(frozen_right, top_y),
+        egui::pos2(panel_rect.right(), top_y + HEADER_HEIGHT),
+    );
+    // Interaction clamps: frozen columns only react inside their band, and
+    // scrolled columns must not steal clicks from under it. With no frozen
+    // band the scrolled clamp stays the full panel, as before.
+    let frozen_interact = egui::Rect::from_min_max(
+        egui::pos2(data_left, panel_rect.top()),
+        egui::pos2(frozen_right, panel_rect.bottom()),
+    );
+    let scrolled_interact = if frozen_cols > 0 {
+        egui::Rect::from_min_max(egui::pos2(frozen_right, panel_rect.top()), panel_rect.max)
+    } else {
+        panel_rect
+    };
 
     let mut col_starts: Vec<f32> = Vec::with_capacity(table.col_count());
 
+    let mut x_frozen = data_left;
+    let mut x_scrolled = data_left + frozen_width - state.scroll_x;
+
     for (col_idx, col) in table.columns.iter().enumerate() {
+        let is_frozen = col_idx < frozen_cols;
+        let x = if is_frozen { x_frozen } else { x_scrolled };
+        let region_clip = if is_frozen {
+            frozen_clip
+        } else {
+            scrolled_clip
+        };
+        let interact_clip = if is_frozen {
+            frozen_interact
+        } else {
+            scrolled_interact
+        };
+        let region_painter = painter.with_clip_rect(region_clip);
         // Hidden columns collapse to zero width and skip every paint /
         // interaction inside this loop. col_idx arithmetic is otherwise
         // unchanged so col_widths, marks, edits, sort arrows, selected_cols
@@ -93,7 +135,7 @@ pub(super) fn draw_header_direct(
             colors.bg_header
         };
 
-        col_painter.rect_filled(rect, 0.0, header_bg);
+        region_painter.rect_filled(rect, 0.0, header_bg);
 
         // --- Column index letter + number at top ---
         let index_text = format!("{} ({})", col_index_letter(col_idx), col_idx + 1);
@@ -106,7 +148,7 @@ pub(super) fn draw_header_direct(
             egui::pos2(rect.left() + 4.0, rect.top()),
             egui::pos2(rect.right() - 4.0, rect.top() + COL_INDEX_HEIGHT),
         )
-        .intersect(col_clip);
+        .intersect(region_clip);
         painter.with_clip_rect(index_clip).galley(
             egui::pos2(rect.left() + 6.0, rect.top() + 1.0),
             index_galley,
@@ -125,7 +167,7 @@ pub(super) fn draw_header_direct(
             egui::pos2(rect.left() + 4.0, content_top),
             egui::pos2(name_clip_right.max(rect.left() + 4.0), rect.bottom()),
         )
-        .intersect(col_clip);
+        .intersect(region_clip);
 
         // --- Column name: inline edit or label ---
         let is_editing_name = state
@@ -139,7 +181,7 @@ pub(super) fn draw_header_direct(
                 egui::pos2(rect.left() + 4.0, content_top),
                 egui::pos2(name_clip_right.max(rect.left() + 40.0), content_top + 18.0),
             )
-            .intersect(col_clip);
+            .intersect(region_clip);
             if name_edit_rect.width() > 10.0 {
                 let edit_id = ui.id().with(("col_name_edit", col_idx));
                 if let Some((_, ref mut buf)) = state.editing_col_name {
@@ -216,9 +258,9 @@ pub(super) fn draw_header_direct(
         );
 
         // Up arrow (sort ascending)
-        if asc_rect.intersects(col_clip) {
+        if asc_rect.intersects(region_clip) {
             let asc_response = ui.interact(
-                asc_rect.intersect(col_clip),
+                asc_rect.intersect(region_clip),
                 ui.id().with(("sort_asc", col_idx)),
                 Sense::click(),
             );
@@ -230,7 +272,7 @@ pub(super) fn draw_header_direct(
             let cx = asc_rect.center().x;
             let cy = asc_rect.center().y;
             let s = 4.0;
-            col_painter.add(egui::Shape::convex_polygon(
+            region_painter.add(egui::Shape::convex_polygon(
                 vec![
                     egui::pos2(cx, cy - s),
                     egui::pos2(cx + s, cy + s),
@@ -245,9 +287,9 @@ pub(super) fn draw_header_direct(
         }
 
         // Down arrow (sort descending)
-        if desc_rect.intersects(col_clip) {
+        if desc_rect.intersects(region_clip) {
             let desc_response = ui.interact(
-                desc_rect.intersect(col_clip),
+                desc_rect.intersect(region_clip),
                 ui.id().with(("sort_desc", col_idx)),
                 Sense::click(),
             );
@@ -259,7 +301,7 @@ pub(super) fn draw_header_direct(
             let cx = desc_rect.center().x;
             let cy = desc_rect.center().y;
             let s = 4.0;
-            col_painter.add(egui::Shape::convex_polygon(
+            region_painter.add(egui::Shape::convex_polygon(
                 vec![
                     egui::pos2(cx, cy + s),
                     egui::pos2(cx + s, cy - s),
@@ -274,7 +316,7 @@ pub(super) fn draw_header_direct(
         }
 
         // Right border
-        col_painter.line_segment(
+        region_painter.line_segment(
             [rect.right_top(), rect.right_bottom()],
             egui::Stroke::new(0.5, colors.border_subtle),
         );
@@ -291,8 +333,8 @@ pub(super) fn draw_header_direct(
             Vec2::new((arrows_x - x).max(0.0), HEADER_HEIGHT),
         );
 
-        if header_interact_rect.width() > 0.0 && header_interact_rect.intersects(panel_rect) {
-            let visible_interact = header_interact_rect.intersect(panel_rect);
+        if header_interact_rect.width() > 0.0 && header_interact_rect.intersects(interact_clip) {
+            let visible_interact = header_interact_rect.intersect(interact_clip);
             let header_response = ui.interact(
                 visible_interact,
                 ui.id().with(("col_header", col_idx)),
@@ -424,6 +466,19 @@ pub(super) fn draw_header_direct(
                     ui.close();
                 }
                 if ui
+                    .button(crate::i18n::t("context_menu.freeze_to_here"))
+                    .clicked()
+                {
+                    state.frozen_cols = col_idx + 1;
+                    ui.close();
+                }
+                if state.frozen_cols > 0
+                    && ui.button(crate::i18n::t("context_menu.unfreeze")).clicked()
+                {
+                    state.frozen_cols = 0;
+                    ui.close();
+                }
+                if ui
                     .button(crate::i18n::t("header.copy_column_names"))
                     .clicked()
                 {
@@ -517,18 +572,13 @@ pub(super) fn draw_header_direct(
             if header_response.dragged() {
                 ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
                 if let Some(pointer_pos) = header_response.interact_pointer_pos() {
-                    let pointer_x =
-                        pointer_pos.x + state.scroll_x - (left_x + state.row_number_width);
-                    let mut acc = 0.0f32;
-                    let mut target = table.col_count().saturating_sub(1);
-                    for (i, &cw) in state.col_widths.iter().enumerate() {
-                        if pointer_x < acc + cw / 2.0 {
-                            target = i;
-                            break;
-                        }
-                        acc += cw;
-                        target = i;
-                    }
+                    let target = super::drag_target_at_x(
+                        pointer_pos.x - data_left,
+                        &state.col_widths,
+                        frozen_cols,
+                        frozen_width,
+                        state.scroll_x,
+                    );
                     state.drag_drop_target = Some(target);
                 }
             }
@@ -545,9 +595,9 @@ pub(super) fn draw_header_direct(
         }
 
         // Resize handle interaction
-        if resize_rect.intersects(panel_rect) {
+        if resize_rect.intersects(interact_clip) {
             let resize_response = ui.interact(
-                resize_rect.intersect(panel_rect),
+                resize_rect.intersect(interact_clip),
                 ui.id().with(("col_resize", col_idx)),
                 Sense::click_and_drag(),
             );
@@ -597,14 +647,18 @@ pub(super) fn draw_header_direct(
             }
         }
 
-        x += w;
+        if is_frozen {
+            x_frozen += w;
+        } else {
+            x_scrolled += w;
+        }
     }
 
     // Drop indicator line
     if let (Some(from), Some(to)) = (state.dragging_col, state.drag_drop_target)
         && from != to
     {
-        let target_x = col_starts.get(to).copied().unwrap_or(x);
+        let target_x = col_starts.get(to).copied().unwrap_or(x_scrolled);
         let indicator_x = if to > from {
             target_x
                 + state

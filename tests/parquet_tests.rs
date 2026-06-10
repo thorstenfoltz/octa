@@ -280,3 +280,172 @@ fn test_parquet_strips_default_pandas_index_name_without_metadata() {
     assert_eq!(read.row_count(), 2);
     assert_eq!(read.get(1, 0), Some(&CellValue::Int(2)));
 }
+
+// --- every-declared-type round-trip ---
+
+/// One-column DataTable with a value row and a null row.
+fn one_col_table(type_name: &str, value: CellValue) -> DataTable {
+    DataTable {
+        columns: vec![ColumnInfo {
+            name: "col".into(),
+            data_type: type_name.into(),
+        }],
+        rows: vec![vec![value], vec![CellValue::Null]],
+        edits: HashMap::new(),
+        source_path: None,
+        format_name: None,
+        structural_changes: false,
+        total_rows: None,
+        row_offset: 0,
+        marks: HashMap::new(),
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+        db_meta: None,
+    }
+}
+
+/// Every type name `data_type_from_string` maps must write without error and
+/// read back with the value intact (narrow ints widen to `CellValue::Int` on
+/// read; that is the documented expectation). Before the width-correct
+/// builder arms in `build_arrow_array`, most of these failed at write time
+/// with a schema/array mismatch from `RecordBatch::try_new`.
+#[test]
+fn test_parquet_round_trip_every_declared_type() {
+    let cases: Vec<(&str, CellValue, CellValue)> = vec![
+        ("boolean", CellValue::Bool(true), CellValue::Bool(true)),
+        ("int8", CellValue::Int(7), CellValue::Int(7)),
+        ("int16", CellValue::Int(-300), CellValue::Int(-300)),
+        ("int32", CellValue::Int(100_000), CellValue::Int(100_000)),
+        ("int64", CellValue::Int(1), CellValue::Int(1)),
+        ("uint8", CellValue::Int(255), CellValue::Int(255)),
+        ("uint16", CellValue::Int(65_535), CellValue::Int(65_535)),
+        (
+            "uint32",
+            CellValue::Int(4_000_000),
+            CellValue::Int(4_000_000),
+        ),
+        ("uint64", CellValue::Int(42), CellValue::Int(42)),
+        // 1.5 / 2.5 are exactly representable in f16/f32.
+        ("float16", CellValue::Float(1.5), CellValue::Float(1.5)),
+        ("float32", CellValue::Float(2.5), CellValue::Float(2.5)),
+        ("float64", CellValue::Float(3.25), CellValue::Float(3.25)),
+        (
+            "utf8",
+            CellValue::String("hi".into()),
+            CellValue::String("hi".into()),
+        ),
+        (
+            "largeutf8",
+            CellValue::String("big".into()),
+            CellValue::String("big".into()),
+        ),
+        (
+            "binary",
+            CellValue::Binary(vec![1, 2, 3]),
+            CellValue::Binary(vec![1, 2, 3]),
+        ),
+        (
+            "largebinary",
+            CellValue::Binary(vec![4, 5]),
+            CellValue::Binary(vec![4, 5]),
+        ),
+        (
+            "date32",
+            CellValue::Date("2024-01-15".into()),
+            CellValue::Date("2024-01-15".into()),
+        ),
+        (
+            "date64",
+            CellValue::Date("2024-01-15".into()),
+            CellValue::Date("2024-01-15".into()),
+        ),
+        (
+            "datetime",
+            CellValue::DateTime("2024-01-02 03:04:05".into()),
+            CellValue::DateTime("2024-01-02 03:04:05.000".into()),
+        ),
+    ];
+
+    for (type_name, write_value, expect) in cases {
+        let table = one_col_table(type_name, write_value);
+        let f = tempfile::NamedTempFile::with_suffix(".parquet").unwrap();
+        ParquetReader
+            .write_file(f.path(), &table)
+            .unwrap_or_else(|e| panic!("writing a {type_name} column failed: {e}"));
+        let read = ParquetReader
+            .read_file(f.path())
+            .unwrap_or_else(|e| panic!("reading a {type_name} column back failed: {e}"));
+        assert_eq!(read.row_count(), 2, "{type_name}: row count");
+        assert_eq!(
+            read.get(0, 0),
+            Some(&expect),
+            "{type_name}: value did not survive the round-trip"
+        );
+        assert_eq!(
+            read.get(1, 0),
+            Some(&CellValue::Null),
+            "{type_name}: null did not survive the round-trip"
+        );
+    }
+}
+
+/// Values that do not fit the declared width become null instead of failing
+/// the write or wrapping silently.
+#[test]
+fn test_parquet_out_of_range_narrow_int_becomes_null() {
+    let table = one_col_table("int8", CellValue::Int(300));
+    let f = tempfile::NamedTempFile::with_suffix(".parquet").unwrap();
+    ParquetReader.write_file(f.path(), &table).unwrap();
+    let read = ParquetReader.read_file(f.path()).unwrap();
+    assert_eq!(read.get(0, 0), Some(&CellValue::Null));
+
+    let table = one_col_table("uint8", CellValue::Int(-1));
+    let f = tempfile::NamedTempFile::with_suffix(".parquet").unwrap();
+    ParquetReader.write_file(f.path(), &table).unwrap();
+    let read = ParquetReader.read_file(f.path()).unwrap();
+    assert_eq!(read.get(0, 0), Some(&CellValue::Null));
+}
+
+/// The Arrow IPC writer shares `data_type_from_string` and
+/// `build_arrow_array`, so a multi-typed table must round-trip there too.
+#[test]
+fn test_arrow_ipc_round_trip_narrow_types() {
+    use octa::formats::arrow_ipc_reader::ArrowIpcReader;
+    let table = DataTable {
+        columns: vec![
+            ColumnInfo {
+                name: "small".into(),
+                data_type: "Int32".into(),
+            },
+            ColumnInfo {
+                name: "ratio".into(),
+                data_type: "Float32".into(),
+            },
+            ColumnInfo {
+                name: "blob".into(),
+                data_type: "Binary".into(),
+            },
+        ],
+        rows: vec![vec![
+            CellValue::Int(123),
+            CellValue::Float(0.5),
+            CellValue::Binary(vec![9, 8, 7]),
+        ]],
+        edits: HashMap::new(),
+        source_path: None,
+        format_name: None,
+        structural_changes: false,
+        total_rows: None,
+        row_offset: 0,
+        marks: HashMap::new(),
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+        db_meta: None,
+    };
+    let f = tempfile::NamedTempFile::with_suffix(".arrow").unwrap();
+    ArrowIpcReader.write_file(f.path(), &table).unwrap();
+    let read = ArrowIpcReader.read_file(f.path()).unwrap();
+    assert_eq!(read.get(0, 0), Some(&CellValue::Int(123)));
+    assert_eq!(read.get(0, 1), Some(&CellValue::Float(0.5)));
+    assert_eq!(read.get(0, 2), Some(&CellValue::Binary(vec![9, 8, 7])));
+}

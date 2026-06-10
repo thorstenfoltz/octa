@@ -59,6 +59,7 @@ find_duplicates = "Find dubletter..."
 multi_search = "Multisøgning..."
 
 [analyse_menu]
+describe = "Sammendrag..."
 assistant = "Assistant"
 sql = "SQL"
 chart = "Diagram"
@@ -342,6 +343,8 @@ second = "Sekund"
 weekday = "Ugedag (1=Man..7=Søn)"
 
 [enum]
+search_result_filter = "Filtrer"
+search_result_highlight = "Fremhaev"
 nb_beside = "Ved siden af"
 nb_beneath = "Nedenunder"
 pos_left = "Venstre"
@@ -423,6 +426,7 @@ modified = "Ændret"
 no_file = "Ingen fil indlæst"
 
 [settings]
+search_result_mode = "Visning af sogeresultater:"
 title = "Indstillinger"
 language = "Sprog"
 window_title = "Octa-indstillinger"
@@ -552,6 +556,8 @@ move_left = "Flyt til venstre"
 move_right = "Flyt til højre"
 
 [context_menu]
+freeze_to_here = "Frys kolonner til her"
+unfreeze = "Frigør alle kolonner"
 sec_clipboard = "Udklipsholder"
 sec_row = "Række"
 sec_column = "Kolonne"
@@ -641,6 +647,7 @@ extra_tables = "ekstra tabeller"
 attached_dbs = "tilknyttede DB'er"
 
 [settings_hint]
+search_result_mode = "Filtrer skjuler raekker der ikke matcher; Fremhaev beholder alle raekker og fremhaever traf"
 language = "Sprog for programmets menuer og dialoger. Træder i kraft med det samme. Oversættelser genereres maskinelt og kan forfines."
 font_size = "Grundlæggende skriftstørrelse for al tekst i programmet"
 default_theme = "Tema der anvendes når programmet starter"
@@ -803,3 +810,9 @@ dialogs = "Inspektør og dialoger"
 [documentation]
 search = "Søg i dokumentationen..."
 no_matches = "Ingen resultater"
+
+[search]
+mode_toggle_hint = "Skift mellem at filtrere raekker og fremhaeve traf"
+no_matches = "Ingen traf"
+next_match = "Naeste traf"
+prev_match = "Forrige traf"

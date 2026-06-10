@@ -59,6 +59,7 @@ find_duplicates = "重複を検索..."
 multi_search = "マルチ検索..."
 
 [analyse_menu]
+describe = "概要..."
 assistant = "アシスタント"
 sql = "SQL"
 chart = "チャート"
@@ -332,6 +333,8 @@ second = "秒"
 weekday = "曜日 (1=月..7=日)"
 
 [enum]
+search_result_filter = "filter"
+search_result_highlight = "highlight"
 nb_beside = "横"
 nb_beneath = "下"
 pos_left = "左"
@@ -413,6 +416,7 @@ modified = "変更済み"
 no_file = "ファイルが読み込まれていません"
 
 [settings]
+search_result_mode = "kensaku kekka no hyouji:"
 title = "設定"
 language = "言語"
 window_title = "Octa 設定"
@@ -542,6 +546,8 @@ move_left = "左へ移動"
 move_right = "右へ移動"
 
 [context_menu]
+freeze_to_here = "ここまでの列を固定"
+unfreeze = "すべての列の固定を解除"
 sec_clipboard = "クリップボード"
 sec_row = "行"
 sec_column = "列"
@@ -631,6 +637,7 @@ extra_tables = "件の追加テーブル"
 attached_dbs = "件のアタッチ済み DB"
 
 [settings_hint]
+search_result_mode = "filter wa icchi shinai gyou wo hihyouji ni shimasu; highlight wa subete no gyou wo nokoshi icchi wo kyouchou shimasu"
 language = "アプリケーションのメニューとダイアログの言語。すぐに反映されます。翻訳は機械生成であり、今後改善される可能性があります。"
 font_size = "アプリケーション内のすべてのテキストの基本フォントサイズ"
 default_theme = "アプリケーション起動時に適用されるテーマ"
@@ -791,3 +798,9 @@ dialogs = "インスペクターとダイアログ"
 [documentation]
 search = "ドキュメントを検索..."
 no_matches = "一致なし"
+
+[search]
+mode_toggle_hint = "gyou no filter to icchi no kyouchou wo kirikae"
+no_matches = "icchi nashi"
+next_match = "tsugi no icchi"
+prev_match = "mae no icchi"

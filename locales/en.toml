@@ -66,6 +66,7 @@ find_duplicates = "Find duplicates..."
 multi_search = "Multi-search..."
 
 [analyse_menu]
+describe = "Summary..."
 assistant = "Assistant"
 sql = "SQL"
 chart = "Chart"
@@ -339,6 +340,8 @@ second = "Second"
 weekday = "Weekday (1=Mon..7=Sun)"
 
 [enum]
+search_result_filter = "Filter"
+search_result_highlight = "Highlight"
 nb_beside = "Beside"
 nb_beneath = "Beneath"
 pos_left = "Left"
@@ -420,6 +423,7 @@ modified = "Modified"
 no_file = "No file loaded"
 
 [settings]
+search_result_mode = "Search result display:"
 title = "Settings"
 language = "Language"
 window_title = "Octa Settings"
@@ -549,6 +553,8 @@ move_left = "Move Left"
 move_right = "Move Right"
 
 [context_menu]
+freeze_to_here = "Freeze columns up to here"
+unfreeze = "Unfreeze all columns"
 sec_clipboard = "Clipboard"
 sec_row = "Row"
 sec_column = "Column"
@@ -638,6 +644,7 @@ extra_tables = "extra tables"
 attached_dbs = "attached DBs"
 
 [settings_hint]
+search_result_mode = "Filter hides non-matching rows; Highlight keeps every row and highlights matches in place"
 language = "Language for the application's menus and dialogs. Takes effect immediately. Translations are machine-generated and may be refined."
 font_size = "Base font size for all text in the application"
 default_theme = "Theme applied when the application starts"
@@ -800,3 +807,9 @@ dialogs = "Inspector & dialogs"
 [documentation]
 search = "Search documentation..."
 no_matches = "No matches"
+
+[search]
+mode_toggle_hint = "Toggle between filtering rows and highlighting matches"
+no_matches = "No matches"
+next_match = "Next match"
+prev_match = "Previous match"

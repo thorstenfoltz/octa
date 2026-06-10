@@ -33,6 +33,35 @@ impl RowMatcher {
         }
     }
 
+    /// Byte ranges of every non-overlapping match in `text`, in order.
+    ///
+    /// Used by the highlight search to paint matches in place. For `Plain`
+    /// matching we go through a case-insensitive regex (same reasoning as
+    /// `replace`: a direct byte-offset map between `to_lowercase()` and the
+    /// original is unsafe for characters whose lowercase form differs in byte
+    /// length, e.g. Turkish dotted-I). Zero-width matches are skipped so a
+    /// pathological regex like `a*` cannot loop forever.
+    pub fn find_ranges(&self, text: &str) -> Vec<std::ops::Range<usize>> {
+        let re = match self {
+            RowMatcher::Plain(q) => {
+                if q.is_empty() {
+                    return Vec::new();
+                }
+                let escaped = regex::escape(q);
+                match regex::Regex::new(&format!("(?i){escaped}")) {
+                    Ok(re) => re,
+                    Err(_) => return Vec::new(),
+                }
+            }
+            RowMatcher::Regex(re) => re.clone(),
+            RowMatcher::Invalid => return Vec::new(),
+        };
+        re.find_iter(text)
+            .filter(|m| m.end() > m.start())
+            .map(|m| m.start()..m.end())
+            .collect()
+    }
+
     /// Replace matching portion(s) in `text` with `replacement`.
     pub fn replace(&self, text: &str, replacement: &str) -> String {
         match self {

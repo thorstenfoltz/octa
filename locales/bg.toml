@@ -66,6 +66,7 @@ find_duplicates = "Намиране на дубликати..."
 multi_search = "Множествено търсене..."
 
 [analyse_menu]
+describe = "Обобщение..."
 assistant = "Асистент"
 sql = "SQL"
 chart = "Диаграма"
@@ -339,6 +340,8 @@ second = "Секунда"
 weekday = "Ден от седмицата (1=Пн..7=Нд)"
 
 [enum]
+search_result_filter = "Filtar"
+search_result_highlight = "Osvetliavane"
 nb_beside = "Отстрани"
 nb_beneath = "Отдолу"
 pos_left = "Ляво"
@@ -420,6 +423,7 @@ modified = "Променен"
 no_file = "Няма зареден файл"
 
 [settings]
+search_result_mode = "Pokazvane na rezultatite ot tarseneto:"
 title = "Настройки"
 language = "Език"
 window_title = "Настройки на Octa"
@@ -549,6 +553,8 @@ move_left = "Преместване наляво"
 move_right = "Преместване надясно"
 
 [context_menu]
+freeze_to_here = "Фиксиране на колоните до тук"
+unfreeze = "Освобождаване на всички колони"
 sec_clipboard = "Клипборд"
 sec_row = "Ред"
 sec_column = "Колона"
@@ -638,6 +644,7 @@ extra_tables = "допълнителни таблици"
 attached_dbs = "прикачени БД"
 
 [settings_hint]
+search_result_mode = "Filtarat skriva nesavpadashtite redove; osvetliavaneto zapazva vsichki redove i osvetliava savpadeniyata"
 language = "Език за менютата и диалозите на приложението. Влиза в сила незабавно. Преводите са машинно генерирани и може да бъдат подобрени."
 font_size = "Базов размер на шрифта за целия текст в приложението"
 default_theme = "Тема, прилагана при стартиране на приложението"
@@ -800,3 +807,9 @@ dialogs = "Инспектор и диалози"
 [documentation]
 search = "Търсене в документацията..."
 no_matches = "Няма съвпадения"
+
+[search]
+mode_toggle_hint = "Prevkliuchvane mezhdu filtrirane na redove i osvetliavane na savpadeniya"
+no_matches = "Nyama savpadeniya"
+next_match = "Sledvashto savpadenie"
+prev_match = "Predishno savpadenie"

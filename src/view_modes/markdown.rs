@@ -1,8 +1,28 @@
-use crate::app::state::TabState;
+use crate::app::state::{NavDir, TabState};
 use octa::data::MarkdownLayout;
+use octa::data::search::RowMatcher;
 
 use eframe::egui;
-use egui::RichText;
+use egui::{Color32, RichText};
+
+/// Translucent highlight backgrounds for Markdown search matches. Fixed rather
+/// than theme-derived because the Markdown renderer works from `ui.visuals()`
+/// and isn't handed a `ThemeMode`; these read acceptably on light and dark.
+const MD_HL_NORMAL: Color32 = Color32::from_rgba_premultiplied(150, 130, 0, 90);
+const MD_HL_ACTIVE: Color32 = Color32::from_rgba_premultiplied(170, 100, 0, 150);
+
+/// Apply the Markdown search highlight to an already-built inline `LayoutJob`.
+/// `full_text` must equal the job's concatenated text (matching byte offsets).
+fn highlight_md_job(
+    job: &mut egui::text::LayoutJob,
+    full_text: &str,
+    hl: Option<&(RowMatcher, Color32)>,
+) {
+    if let Some((matcher, bg)) = hl {
+        let ranges = matcher.find_ranges(full_text);
+        crate::ui::search_highlight::apply_highlight(job, &ranges, None, *bg, *bg);
+    }
+}
 
 /// Cheap content hash so we can invalidate `tab.markdown_render_cache` only
 /// when the buffer actually changes. Uses `DefaultHasher` for simplicity -
@@ -68,12 +88,51 @@ pub fn render_markdown_view(
     });
     ui.add_space(4.0);
 
+    // Highlight search (always on for this text view): match ranges over the
+    // source, the toolbar count, and a pending next/previous jump for the
+    // editor pane. The preview pane highlights occurrences via render_pulldown.
+    let matcher =
+        (!tab.search_text.is_empty()).then(|| RowMatcher::new(&tab.search_text, tab.search_mode));
+    let match_ranges: Vec<std::ops::Range<usize>> = matcher
+        .as_ref()
+        .map(|m| m.find_ranges(&content_owned))
+        .unwrap_or_default();
+    tab.search_nav.match_count = match_ranges.len();
+    if tab.search_nav.current >= match_ranges.len() {
+        tab.search_nav.current = 0;
+    }
+    let jump_dir = tab.search_nav.pending_jump.take();
+    if let Some(dir) = jump_dir
+        && !match_ranges.is_empty()
+    {
+        let n = match_ranges.len();
+        tab.search_nav.current = match dir {
+            NavDir::Next => (tab.search_nav.current + 1) % n,
+            NavDir::Prev => (tab.search_nav.current + n - 1) % n,
+        };
+    }
+    let current_range: Option<std::ops::Range<usize>> =
+        match_ranges.get(tab.search_nav.current).cloned();
+    let editor_search = EditorSearch {
+        ranges: &match_ranges,
+        current: current_range.as_ref(),
+        do_scroll: jump_dir.is_some() && current_range.is_some(),
+    };
+    let preview_hl: Option<(RowMatcher, Color32)> = matcher.map(|m| (m, MD_HL_NORMAL));
+
     match tab.markdown_layout {
         MarkdownLayout::Preview => {
-            render_preview_pane(ui, tab, &content_owned);
+            render_preview_pane(ui, tab, &content_owned, preview_hl.as_ref());
         }
         MarkdownLayout::Edit => {
-            render_editor_pane(ui, tab, readonly, tab_size, ui.available_width());
+            render_editor_pane(
+                ui,
+                tab,
+                readonly,
+                tab_size,
+                ui.available_width(),
+                &editor_search,
+            );
         }
         MarkdownLayout::Split => {
             // 50/50 split. The left SidePanel hosts the editor; the central
@@ -84,11 +143,31 @@ pub fn render_markdown_view(
                 .min_size(150.0)
                 .default_size(editor_width)
                 .show_inside(ui, |ui| {
-                    render_editor_pane(ui, tab, readonly, tab_size, ui.available_width());
+                    render_editor_pane(
+                        ui,
+                        tab,
+                        readonly,
+                        tab_size,
+                        ui.available_width(),
+                        &editor_search,
+                    );
                 });
-            render_preview_pane(ui, tab, &tab.raw_content.clone().unwrap_or_default());
+            render_preview_pane(
+                ui,
+                tab,
+                &tab.raw_content.clone().unwrap_or_default(),
+                preview_hl.as_ref(),
+            );
         }
     }
+}
+
+/// Highlight-search data threaded into the Markdown editor pane: byte ranges of
+/// every match, the current (navigated) match, and whether a jump is pending.
+struct EditorSearch<'a> {
+    ranges: &'a [std::ops::Range<usize>],
+    current: Option<&'a std::ops::Range<usize>>,
+    do_scroll: bool,
 }
 
 fn render_editor_pane(
@@ -97,6 +176,7 @@ fn render_editor_pane(
     readonly: bool,
     tab_size: usize,
     _width: f32,
+    search: &EditorSearch<'_>,
 ) {
     let Some(buffer) = tab.raw_content.as_mut() else {
         return;
@@ -145,6 +225,25 @@ fn render_editor_pane(
                 // otherwise move focus to the next widget); we then expand any
                 // literal \t egui inserts into `tab_size` spaces, matching the
                 // Raw view editor (`raw_text::render_raw_view`).
+                let ed_ranges = search.ranges.to_vec();
+                let ed_current = search.current.cloned();
+                let mut layouter = move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _w: f32| {
+                    let mut job = egui::text::LayoutJob::simple(
+                        text.as_str().to_owned(),
+                        egui::FontId::new(13.0, egui::FontFamily::Monospace),
+                        ui.visuals().text_color(),
+                        f32::INFINITY,
+                    );
+                    job.wrap.max_width = f32::INFINITY;
+                    crate::ui::search_highlight::apply_highlight(
+                        &mut job,
+                        &ed_ranges,
+                        ed_current.as_ref(),
+                        MD_HL_NORMAL,
+                        MD_HL_ACTIVE,
+                    );
+                    ui.fonts_mut(|f| f.layout_job(job))
+                };
                 let mut output = egui::TextEdit::multiline(buffer)
                     .id(egui::Id::new("markdown_editor"))
                     .font(mono_font)
@@ -152,6 +251,7 @@ fn render_editor_pane(
                     .desired_rows(20)
                     .lock_focus(true)
                     .interactive(!readonly)
+                    .layouter(&mut layouter)
                     .show(ui);
 
                 // Replace any inserted \t with spaces and re-anchor the cursor
@@ -172,7 +272,28 @@ fn render_editor_pane(
                         .state
                         .cursor
                         .set_char_range(Some(egui::text::CCursorRange::one(new_cursor)));
-                    output.state.store(ui.ctx(), output.response.id);
+                    // Clone before store so `output.state` stays usable below.
+                    output.state.clone().store(ui.ctx(), output.response.id);
+                }
+
+                // Highlight-search jump: place the cursor on the current match
+                // and scroll it into view.
+                if search.do_scroll
+                    && let Some(r) = search.current
+                {
+                    let start_chars = buffer[..r.start].chars().count();
+                    let end_chars = buffer[..r.end].chars().count();
+                    let ccur_start = egui::text::CCursor::new(start_chars);
+                    let ccur_end = egui::text::CCursor::new(end_chars);
+                    output
+                        .state
+                        .cursor
+                        .set_char_range(Some(egui::text::CCursorRange::two(ccur_start, ccur_end)));
+                    output.state.clone().store(ui.ctx(), output.response.id);
+                    let crect = output.galley.pos_from_cursor(ccur_start);
+                    let screen = crect.translate(output.galley_pos.to_vec2());
+                    ui.scroll_to_rect(screen, Some(egui::Align::Center));
+                    output.response.request_focus();
                 }
                 (output.response, had_tabs)
             })
@@ -186,7 +307,12 @@ fn render_editor_pane(
     }
 }
 
-fn render_preview_pane(ui: &mut egui::Ui, tab: &mut TabState, raw_content: &str) {
+fn render_preview_pane(
+    ui: &mut egui::Ui,
+    tab: &mut TabState,
+    raw_content: &str,
+    hl: Option<&(RowMatcher, Color32)>,
+) {
     // CRLF normalization for consistent line handling - pulldown_cmark
     // accepts both, but `\r`-only line endings interact poorly with our
     // event-driven renderer's break heuristics.
@@ -230,7 +356,7 @@ fn render_preview_pane(ui: &mut egui::Ui, tab: &mut TabState, raw_content: &str)
             ui.vertical(|ui| {
                 let cap = ui.available_width().clamp(200.0, 900.0);
                 ui.set_max_width(cap);
-                render_pulldown(ui, &raw_normalized);
+                render_pulldown(ui, &raw_normalized, hl);
             });
         });
     });
@@ -239,7 +365,7 @@ fn render_preview_pane(ui: &mut egui::Ui, tab: &mut TabState, raw_content: &str)
 /// Custom markdown renderer using `pulldown_cmark`. `**bold**` runs use the
 /// bundled `FontFamily::Name("bold")` family (registered in `apply_fonts`)
 /// instead of egui's color-only `RichText::strong()`.
-pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str) {
+pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str, hl: Option<&(RowMatcher, Color32)>) {
     let bold_body = false;
     use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
@@ -323,21 +449,45 @@ pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str) {
             },
             Event::End(end) => match end {
                 TagEnd::Paragraph => {
-                    flush_block(ui, &mut buf, block_kind, &list_stack, body_size, bold_body);
+                    flush_block(
+                        ui,
+                        &mut buf,
+                        block_kind,
+                        &list_stack,
+                        body_size,
+                        bold_body,
+                        hl,
+                    );
                     ui.add_space(6.0);
                 }
                 TagEnd::Heading(_) => {
-                    flush_block(ui, &mut buf, block_kind, &list_stack, body_size, bold_body);
+                    flush_block(
+                        ui,
+                        &mut buf,
+                        block_kind,
+                        &list_stack,
+                        body_size,
+                        bold_body,
+                        hl,
+                    );
                     ui.add_space(8.0);
                     block_kind = BlockKind::Paragraph;
                 }
                 TagEnd::BlockQuote(_) => {
-                    flush_block(ui, &mut buf, block_kind, &list_stack, body_size, bold_body);
+                    flush_block(
+                        ui,
+                        &mut buf,
+                        block_kind,
+                        &list_stack,
+                        body_size,
+                        bold_body,
+                        hl,
+                    );
                     ui.add_space(4.0);
                     block_kind = BlockKind::Paragraph;
                 }
                 TagEnd::CodeBlock => {
-                    render_code_block(ui, &code_block_buf, body_size);
+                    render_code_block(ui, &code_block_buf, body_size, hl);
                     code_block_buf.clear();
                     ui.add_space(6.0);
                     block_kind = BlockKind::Paragraph;
@@ -353,6 +503,7 @@ pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str) {
                         &list_stack,
                         body_size,
                         bold_body,
+                        hl,
                     );
                     if let Some(top) = list_stack.last_mut() {
                         top.next_num += 1;
@@ -424,14 +575,30 @@ pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str) {
                 }
             }
             Event::Rule => {
-                flush_block(ui, &mut buf, block_kind, &list_stack, body_size, bold_body);
+                flush_block(
+                    ui,
+                    &mut buf,
+                    block_kind,
+                    &list_stack,
+                    body_size,
+                    bold_body,
+                    hl,
+                );
                 ui.separator();
                 ui.add_space(4.0);
             }
             _ => {}
         }
     }
-    flush_block(ui, &mut buf, block_kind, &list_stack, body_size, bold_body);
+    flush_block(
+        ui,
+        &mut buf,
+        block_kind,
+        &list_stack,
+        body_size,
+        bold_body,
+        hl,
+    );
 }
 
 #[derive(Default, Clone)]
@@ -496,6 +663,7 @@ fn flush_block(
     list_stack: &[ListInfo],
     body_size: f32,
     bold_body: bool,
+    hl: Option<&(RowMatcher, Color32)>,
 ) {
     if buf.is_empty() {
         return;
@@ -511,10 +679,10 @@ fn flush_block(
                 4 => body_size * 1.15,
                 _ => body_size * 1.05,
             };
-            render_runs(ui, &runs, size, /* force_bold */ true);
+            render_runs(ui, &runs, size, /* force_bold */ true, hl);
         }
         BlockKind::Paragraph => {
-            render_runs(ui, &runs, body_size, bold_body);
+            render_runs(ui, &runs, body_size, bold_body, hl);
         }
         BlockKind::Quote => {
             ui.horizontal_wrapped(|ui| {
@@ -522,7 +690,7 @@ fn flush_block(
                 let muted = ui.visuals().weak_text_color();
                 ui.label(RichText::new("\u{2503}").color(muted));
                 ui.add_space(6.0);
-                render_runs(ui, &runs, body_size, bold_body);
+                render_runs(ui, &runs, body_size, bold_body, hl);
             });
         }
         BlockKind::ListItem => {
@@ -539,7 +707,7 @@ fn flush_block(
                     egui::FontFamily::Proportional
                 };
                 ui.label(RichText::new(bullet).font(egui::FontId::new(body_size, bullet_family)));
-                render_runs(ui, &runs, body_size, bold_body);
+                render_runs(ui, &runs, body_size, bold_body, hl);
             });
         }
         BlockKind::CodeBlock => { /* handled separately */ }
@@ -550,7 +718,13 @@ fn flush_block(
 /// `Label`. Bold runs use the bundled `FontFamily::Name("bold")` family;
 /// italics use egui's runtime skew; code uses Monospace + a tinted bg.
 /// `force_bold` is set by headings and by callers that opted into bold body.
-fn render_runs(ui: &mut egui::Ui, runs: &[(String, RunStyle)], size: f32, force_bold: bool) {
+fn render_runs(
+    ui: &mut egui::Ui,
+    runs: &[(String, RunStyle)],
+    size: f32,
+    force_bold: bool,
+    hl: Option<&(RowMatcher, Color32)>,
+) {
     use egui::text::{LayoutJob, TextFormat};
     let mut job = LayoutJob::default();
     job.wrap.max_width = ui.available_width();
@@ -587,6 +761,9 @@ fn render_runs(ui: &mut egui::Ui, runs: &[(String, RunStyle)], size: f32, force_
         }
         job.append(text, 0.0, fmt);
     }
+
+    let full_text: String = runs.iter().map(|(t, _)| t.as_str()).collect();
+    highlight_md_job(&mut job, &full_text, hl);
 
     ui.add(egui::Label::new(job).wrap());
 }
@@ -781,7 +958,12 @@ fn render_cell_runs(
     ui.add(egui::Label::new(job).halign(halign).wrap());
 }
 
-fn render_code_block(ui: &mut egui::Ui, content: &str, size: f32) {
+fn render_code_block(
+    ui: &mut egui::Ui,
+    content: &str,
+    size: f32,
+    hl: Option<&(RowMatcher, Color32)>,
+) {
     let bg = ui.visuals().code_bg_color;
     let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
     egui::Frame::new()
@@ -790,12 +972,17 @@ fn render_code_block(ui: &mut egui::Ui, content: &str, size: f32) {
         .corner_radius(4.0)
         .inner_margin(egui::Margin::symmetric(8, 6))
         .show(ui, |ui| {
-            ui.add(
-                egui::Label::new(
-                    RichText::new(content.trim_end_matches('\n'))
-                        .font(egui::FontId::new(size, egui::FontFamily::Monospace)),
-                )
-                .selectable(true),
+            let text = content.trim_end_matches('\n');
+            let mut job = egui::text::LayoutJob::single_section(
+                text.to_string(),
+                egui::text::TextFormat {
+                    font_id: egui::FontId::new(size, egui::FontFamily::Monospace),
+                    color: ui.visuals().text_color(),
+                    ..Default::default()
+                },
             );
+            job.wrap.max_width = ui.available_width();
+            highlight_md_job(&mut job, text, hl);
+            ui.add(egui::Label::new(job).selectable(true));
         });
 }

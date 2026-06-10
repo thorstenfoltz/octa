@@ -66,6 +66,7 @@ find_duplicates = "Nájsť duplikáty..."
 multi_search = "Viacnásobné hľadanie..."
 
 [analyse_menu]
+describe = "Súhrn..."
 assistant = "Asistent"
 sql = "SQL"
 chart = "Graf"
@@ -339,6 +340,8 @@ second = "Sekunda"
 weekday = "Deň v týždni (1=Po..7=Ne)"
 
 [enum]
+search_result_filter = "Filtrovat"
+search_result_highlight = "Zvyraznit"
 nb_beside = "Vedľa"
 nb_beneath = "Pod"
 pos_left = "Vľavo"
@@ -420,6 +423,7 @@ modified = "Zmenené"
 no_file = "Žiadny načítaný súbor"
 
 [settings]
+search_result_mode = "Zobrazenie vysledkov hladania:"
 title = "Nastavenia"
 language = "Jazyk"
 window_title = "Nastavenia Octa"
@@ -549,6 +553,8 @@ move_left = "Posunúť doľava"
 move_right = "Posunúť doprava"
 
 [context_menu]
+freeze_to_here = "Ukotviť stĺpce až sem"
+unfreeze = "Uvoľniť všetky stĺpce"
 sec_clipboard = "Schránka"
 sec_row = "Riadok"
 sec_column = "Stĺpec"
@@ -638,6 +644,7 @@ extra_tables = "ďalších tabuliek"
 attached_dbs = "pripojených DB"
 
 [settings_hint]
+search_result_mode = "Filtrovanie skryje nezhodne riadky; Zvyraznenie zachova vsetky riadky a zvyrazni zhody"
 language = "Jazyk pre menu a dialógy aplikácie. Nadobúda účinnosť okamžite. Preklady sú strojovo generované a môžu byť vylepšené."
 font_size = "Základná veľkosť písma pre všetok text v aplikácii"
 default_theme = "Téma použitá pri spustení aplikácie"
@@ -800,3 +807,9 @@ dialogs = "Inšpektor a dialógy"
 [documentation]
 search = "Hľadať v dokumentácii..."
 no_matches = "Žiadne zhody"
+
+[search]
+mode_toggle_hint = "Prepinanie medzi filtrovanim riadkov a zvyraznovanim zhod"
+no_matches = "Ziadne zhody"
+next_match = "Dalsia zhoda"
+prev_match = "Predchadzajuca zhoda"

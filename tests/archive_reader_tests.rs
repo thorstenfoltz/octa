@@ -174,6 +174,18 @@ fn extract_missing_entry_errors() {
 }
 
 #[test]
+fn extract_traversal_entry_path_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.zip");
+    write_zip(&path, &[("a.txt", b"x")]);
+    for evil in ["../evil.txt", "a/../../evil.txt", "/etc/passwd"] {
+        let err = extract_entry_bytes(&path, evil).unwrap_err();
+        let msg = format!("{}", err);
+        assert!(msg.contains("outside the archive"), "{evil}: got {msg}");
+    }
+}
+
+#[test]
 fn unsupported_extension_errors() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("blob.bin");
