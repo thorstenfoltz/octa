@@ -303,6 +303,21 @@ copy the header text to the clipboard. If you have multiple columns
 selected (Ctrl-click their headers) and right-click one of them, all
 selected names are joined with newlines. Useful for building SQL
 SELECT lists or scripts from Octa's view of the file.
+
+## Freeze columns
+
+Right-click a column header and pick **Freeze columns up to here** to
+pin that column and every column to its left, exactly like freezing
+panes in a spreadsheet. The pinned columns stay visible at the left
+edge while the rest of the table scrolls horizontally underneath, so
+an ID or name column never scrolls out of sight in a wide table. A
+thin separator marks the boundary; **Unfreeze all columns** in the
+same menu reverts.
+
+The freeze is per tab and session-only, like column widths. If the
+window gets too narrow to keep the whole frozen band and still scroll,
+Octa temporarily pins fewer columns and restores the full band when
+there is room again.
 "#;
 
 pub(super) const VALUE_FREQUENCY: &str = r#"# Value Frequency
@@ -389,6 +404,43 @@ Notes:
 The dialog seeds the key with whatever column is currently selected,
 so Ctrl+Shift+D -> Apply is the fastest path for a one-column dedupe
 check.
+"#;
+
+pub(super) const SUMMARY: &str = r#"# Summary
+
+The Summary tab answers "what does this table look like?" in one click.
+It is the GUI counterpart of the CLI's `octa --describe` and of pandas'
+`df.describe()`: one row of statistics per column of the active table.
+
+## Opening it
+
+**Analyse > Summary...** opens a new tab named `Summary - <file>` for
+the active table. Unsaved cell edits are included: the statistics
+describe the table as you currently see it, not the file on disk.
+
+## What it shows
+
+The statistics come from DuckDB's `SUMMARIZE`, so the exact column set
+can vary slightly between DuckDB releases. Typical columns:
+
+- `column_name` - the source column this row describes.
+- `column_type` - the SQL type DuckDB inferred for it.
+- `min` / `max` - smallest and largest value (lexicographic for text).
+- `approx_unique` - approximate count of distinct values.
+- `avg` / `std` - mean and standard deviation (numeric columns only).
+- `q25` / `q50` / `q75` - quartiles (numeric columns only).
+- `count` - number of non-null values.
+- `null_percentage` - share of null values in the column.
+
+## Working with the result
+
+The Summary tab is an ordinary table tab: you can sort it, filter it,
+copy cells, and export it via **File > Save As**. It is a detached
+snapshot with no source path, so it can never overwrite the original
+file. Re-run **Analyse > Summary...** after further edits to get a
+fresh snapshot.
+
+For a deeper look at a single column, use Value Frequency instead.
 "#;
 
 pub(super) const SCHEMA_EXPORT: &str = r#"# Schema Export
