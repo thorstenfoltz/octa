@@ -98,10 +98,16 @@ pub fn cell_matches(
     matcher: &RowMatcher,
     rows: &[usize],
     col_count: usize,
+    scope_col: Option<usize>,
 ) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
+    // Honour a single-column search scope; otherwise scan every column.
+    let (lo, hi) = match scope_col {
+        Some(c) if c < col_count => (c, c + 1),
+        _ => (0, col_count),
+    };
     for &row in rows {
-        for col in 0..col_count {
+        for col in lo..hi {
             if let Some(v) = table.get(row, col)
                 && matcher.matches(&v.to_string())
             {
@@ -206,6 +212,6 @@ mod tests {
         ];
         let m = RowMatcher::new("foo", SearchMode::Plain);
         let rows: Vec<usize> = vec![0, 1];
-        assert_eq!(cell_matches(&t, &m, &rows, 2), vec![(0, 0), (1, 1)]);
+        assert_eq!(cell_matches(&t, &m, &rows, 2, None), vec![(0, 0), (1, 1)]);
     }
 }

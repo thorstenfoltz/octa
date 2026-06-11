@@ -44,7 +44,7 @@ fn main() -> ExitCode {
             // it needs a tokio runtime - the GUI path never builds one and
             // we don't want to pay the cost there.
             if matches!(action, cli::Action::Mcp) {
-                return run_mcp();
+                return run_mcp(cli.mcp_read_only);
             }
             // Resolve `--rows N|all` into an optional cap. Invalid input
             // fails fast before the action runs.
@@ -133,6 +133,13 @@ fn main() -> ExitCode {
                     custom_path: Some(settings.custom_font_path.as_str()),
                 },
             );
+            // Suppress egui's id-clash warning (the red outline it paints
+            // around widgets in debug builds). The virtual table briefly
+            // reuses a widget id at a new rect during a search/filter reflow;
+            // it's benign (interaction stays correct) but the red flash is
+            // distracting. This is a no-op in release builds, where the
+            // warning is already off (`warn_on_id_clash = cfg!(debug_assertions)`).
+            cc.egui_ctx.options_mut(|o| o.warn_on_id_clash = false);
             Ok(Box::new(OctaApp::new(
                 initial_files,
                 settings,
@@ -153,7 +160,7 @@ fn main() -> ExitCode {
 /// they launch `octa --mcp`. Builds a single-thread tokio runtime so we don't
 /// drag the multi-thread scheduler in for what is fundamentally a one-client
 /// stdio loop. Logs to stderr - JSON-RPC traffic owns stdout.
-fn run_mcp() -> ExitCode {
+fn run_mcp(read_only: bool) -> ExitCode {
     let settings = AppSettings::load();
     let row_limit = settings.mcp_default_row_limit;
     let cell_cap = settings.mcp_default_cell_bytes;
@@ -188,7 +195,7 @@ fn run_mcp() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match rt.block_on(mcp::run(row_limit, cell_cap)) {
+    match rt.block_on(mcp::run(row_limit, cell_cap, read_only)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: MCP server exited with error: {e}");

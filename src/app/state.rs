@@ -76,6 +76,90 @@ pub(crate) struct SchemaExportState {
     pub(crate) size: ui::settings::DialogSize,
 }
 
+/// Draft state for the "Save SQL snippet" dialog: the editable name and
+/// description plus the captured query text.
+pub(crate) struct SqlSnippetDraft {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) query: String,
+}
+
+/// Pivot vs Unpivot (long<->wide reshape) for the Pivot dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PivotKind {
+    /// Long -> wide: spread one column's distinct values into new columns,
+    /// aggregating a value column.
+    Pivot,
+    /// Wide -> long: melt several columns into a name/value pair.
+    Unpivot,
+}
+
+/// Aggregate function used by a Pivot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PivotAgg {
+    Sum,
+    Count,
+    Avg,
+    Min,
+    Max,
+}
+
+impl PivotAgg {
+    pub(crate) const ALL: &'static [PivotAgg] = &[
+        PivotAgg::Sum,
+        PivotAgg::Count,
+        PivotAgg::Avg,
+        PivotAgg::Min,
+        PivotAgg::Max,
+    ];
+    pub(crate) fn sql_fn(self) -> &'static str {
+        match self {
+            PivotAgg::Sum => "sum",
+            PivotAgg::Count => "count",
+            PivotAgg::Avg => "avg",
+            PivotAgg::Min => "min",
+            PivotAgg::Max => "max",
+        }
+    }
+}
+
+/// State for the Pivot / Unpivot dialog. Column references are indices into the
+/// active table's `columns`.
+pub(crate) struct PivotState {
+    pub(crate) kind: PivotKind,
+    /// Pivot: the column whose distinct values become new columns.
+    pub(crate) on_col: Option<usize>,
+    /// Pivot: the column aggregated under each new column.
+    pub(crate) value_col: Option<usize>,
+    pub(crate) agg: PivotAgg,
+    /// Pivot: the identity columns kept as rows (empty = DuckDB infers).
+    pub(crate) group_cols: Vec<usize>,
+    /// Unpivot: the columns melted into name/value pairs.
+    pub(crate) unpivot_cols: Vec<usize>,
+    /// Unpivot: name of the generated key column (buffer).
+    pub(crate) name_col: String,
+    /// Unpivot: name of the generated value column (buffer).
+    pub(crate) value_name: String,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl Default for PivotState {
+    fn default() -> Self {
+        Self {
+            kind: PivotKind::Pivot,
+            on_col: None,
+            value_col: None,
+            agg: PivotAgg::Sum,
+            group_cols: Vec::new(),
+            unpivot_cols: Vec::new(),
+            name_col: "name".to_string(),
+            value_name: "value".to_string(),
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
 /// One-shot per-file prompt shown after loading a CSV/TSV whose size is
 /// likely to make column coloring or column alignment laggy. The user can
 /// either keep the slow features on (we honor their choice and don't ask
@@ -342,6 +426,15 @@ pub(crate) struct TabState {
     pub(crate) table_state: TableViewState,
     pub(crate) search_text: String,
     pub(crate) search_mode: data::SearchMode,
+    /// Case-sensitive search toggle (`Aa` button in the search bar). When off,
+    /// matching is case-insensitive across all modes. Session-only, per tab.
+    pub(crate) search_case_sensitive: bool,
+    /// Whole-word search toggle. When on, matches are bounded by word
+    /// boundaries (`\b`). Session-only, per tab.
+    pub(crate) search_whole_word: bool,
+    /// Which columns the search applies to. `None` = whole table; `Some(col)`
+    /// restricts matching to one column. Session-only, per tab.
+    pub(crate) search_scope_col: Option<usize>,
     pub(crate) show_replace_bar: bool,
     pub(crate) replace_text: String,
     pub(crate) filtered_rows: Vec<usize>,
@@ -462,6 +555,15 @@ pub(crate) struct TabState {
     /// Last successfully executed SELECT, kept verbatim so the write-back
     /// dialog has a source query to compose `CREATE TABLE AS ...` from.
     pub(crate) sql_last_query: String,
+    /// Recent executed queries for this tab (most-recent first), session-only.
+    /// Surfaced in the SQL panel's History dropdown. Capped in `run_workspace_query`.
+    pub(crate) sql_history: Vec<String>,
+    /// Cells/rows temporarily marked to show what the last SQL mutation
+    /// changed; cleared once `sql_diff_highlight_until` passes.
+    pub(crate) sql_diff_marks: Vec<data::MarkKey>,
+    /// When the post-mutation row-diff highlight expires. `None` when no
+    /// highlight is active.
+    pub(crate) sql_diff_highlight_until: Option<std::time::Instant>,
     /// Toggle for the collapsible Workspace section at the top of the SQL
     /// panel. Off by default to keep the panel compact for users who only
     /// query `data`.
@@ -528,6 +630,15 @@ pub(crate) struct TabState {
     /// before applying rounding to the written values.
     pub(crate) column_number_formats:
         std::collections::HashMap<usize, octa::data::num_format::NumberFormat>,
+    /// Conditional-formatting rules colouring cells whose value matches a
+    /// predicate. Evaluated against every visible cell; the first matching
+    /// rule wins (see `octa::data::conditional_format`). Session-only, like
+    /// `column_number_formats` and manual marks.
+    pub(crate) conditional_format_rules: Vec<octa::data::conditional_format::CondRule>,
+    /// Whether the "Conditional formatting..." dialog is open on this tab.
+    pub(crate) show_conditional_format: bool,
+    /// Conditional-formatting dialog window sizing (Normal/Maximized/Minimized).
+    pub(crate) conditional_format_size: ui::settings::DialogSize,
     /// Column index whose Number-format dialog is open. `None` = closed.
     /// This is the "primary" column (drives the dialog title + preview); the
     /// chosen format applies to every column in `column_format_cols`.
@@ -706,6 +817,17 @@ pub(crate) struct OctaApp {
     /// persisting. Governs the table view only; text/tree views always
     /// highlight.
     pub(crate) search_result_mode: data::SearchResultMode,
+    /// Recent search queries (most-recent first), persisted across sessions to
+    /// `<config_dir>/search_history.json`. Surfaced in the search-box history
+    /// dropdown; capped at `settings.search_history_limit`.
+    pub(crate) search_history: Vec<String>,
+    /// Saved SQL snippets (named query library), persisted to
+    /// `<config_dir>/sql_snippets.json`. Offered in the SQL panel's Snippets
+    /// dropdown.
+    pub(crate) sql_snippets: Vec<super::sql_snippets::SqlSnippet>,
+    /// Active "Save SQL snippet" dialog (name + description buffers + the query
+    /// being saved), or `None` when closed.
+    pub(crate) sql_snippet_save: Option<SqlSnippetDraft>,
     pub(crate) settings: AppSettings,
     /// The concrete icon variant in use for this session. Equals
     /// `settings.icon_variant` for non-Random; for Random, holds the
@@ -819,6 +941,10 @@ pub(crate) struct OctaApp {
     /// the dialog isn't open. Switching targets while the dialog is up
     /// mutates `target` in place; closing the dialog clears the field.
     pub(crate) schema_export: Option<SchemaExportState>,
+    /// Active Pivot / Unpivot dialog state, or `None` when closed. Operates on
+    /// the active tab; running it builds a DuckDB PIVOT/UNPIVOT query and lands
+    /// the result in a new detached tab (see `src/app/dialogs/pivot.rs`).
+    pub(crate) pivot_dialog: Option<PivotState>,
     /// Currently opened directory tree sidebar (`None` = sidebar hidden).
     pub(crate) directory_tree: Option<ui::directory_tree::DirectoryTreeState>,
     /// How many key presses of the Konami sequence have been matched so far.

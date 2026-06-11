@@ -61,6 +61,7 @@ impl eframe::App for OctaApp {
         self.update_easter_egg_inputs(&ctx);
         self.drain_background_rows(&ctx);
         self.drain_pending_open_queue();
+        self.expire_sql_diff_highlights(&ctx);
 
         if self.tabs[self.active_tab].filter_dirty {
             self.recompute_filter();

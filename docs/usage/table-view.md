@@ -47,6 +47,13 @@ The active selection drives clipboard operations:
 is selected (single cell, multi-row block, multi-column block, or
 a free multi-cell selection) as tab-separated values.
 
+To copy the same selection as a **GitHub-flavoured Markdown table**
+instead, including the column headers, use **Edit -> Copy as Markdown
+table** or the **Copy as Markdown table** entry in the cell / row
+right-click menu. Pipe characters and line breaks in cell values are
+escaped so the table stays well-formed. This is handy for pasting a
+slice of data straight into a pull request, issue, or Markdown doc.
+
 ## Sorting
 
 Click a column header to sort by that column **ascending**. Click

@@ -33,6 +33,10 @@ pub struct TurnRequest {
     pub cancel: Arc<std::sync::atomic::AtomicBool>,
     /// Per-turn running flag (also stored on the session as `running`).
     pub running: Arc<std::sync::atomic::AtomicBool>,
+    /// `Some(session_id)` when the tool-call audit log is enabled; each tool
+    /// call is then appended to `<config_dir>/chat_audit/<id>.jsonl`. `None`
+    /// disables auditing for the turn.
+    pub audit_session: Option<String>,
 }
 
 /// Spawn the worker thread for one user turn. The caller has already appended
@@ -67,6 +71,7 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
         max_iterations,
         cancel,
         running: _running,
+        audit_session,
     } = req;
 
     for _iteration in 0..max_iterations.max(1) {
@@ -175,10 +180,26 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
             if cancel.load(Ordering::Relaxed) {
                 return;
             }
+            let args_bytes = input.to_string().len();
+            let started = std::time::Instant::now();
             let (content, is_error) = match super::tools::dispatch(&tool_ctx, &name, input) {
                 Ok(v) => (truncate_for_model(&v.to_string()), false),
                 Err(e) => (e, true),
             };
+            // Audit log (opt-in): one JSON line per tool call.
+            if let Some(ref sid) = audit_session {
+                super::audit::record(
+                    sid,
+                    &super::audit::AuditEntry {
+                        ts_unix: super::audit::now_unix(),
+                        tool: name.clone(),
+                        args_bytes,
+                        result_bytes: content.len(),
+                        duration_ms: started.elapsed().as_millis(),
+                        is_error,
+                    },
+                );
+            }
             ctx.request_repaint();
 
             result_blocks.push(ContentBlock::ToolResult {

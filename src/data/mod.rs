@@ -2,6 +2,7 @@ pub mod chart;
 pub mod chart_export;
 pub mod compare;
 pub mod compare_schemas;
+pub mod conditional_format;
 pub mod date_infer;
 pub mod describe;
 pub mod diff;
@@ -105,6 +106,13 @@ pub enum CompareMode {
     /// Hash the user-picked columns per row and report uniques + duplicates
     /// across both files. Cross-format because only cell text is hashed.
     RowHashDiff,
+    /// Positional row-by-row cell comparison (`compare_ordered`): row N on the
+    /// left versus row N on the right, naming the columns that differ.
+    Ordered,
+    /// Key-matched comparison (`compare_join`): rows paired by user-picked key
+    /// column(s), reporting added / removed / changed rows and which columns
+    /// changed.
+    Join,
 }
 
 impl CompareMode {
@@ -112,6 +120,8 @@ impl CompareMode {
         match self {
             Self::TextDiff => "Text Diff",
             Self::RowHashDiff => "Row Hash Diff",
+            Self::Ordered => "Ordered",
+            Self::Join => "Join (by key)",
         }
     }
 
@@ -119,6 +129,8 @@ impl CompareMode {
         crate::i18n::t(match self {
             Self::TextDiff => "enum2.compare_text_diff",
             Self::RowHashDiff => "enum2.compare_row_hash",
+            Self::Ordered => "enum2.compare_ordered",
+            Self::Join => "enum2.compare_join",
         })
     }
 }

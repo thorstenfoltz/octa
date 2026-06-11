@@ -67,6 +67,9 @@ impl OctaApp {
             let tab = &self.tabs[self.active_tab];
             workspace_snapshot(tab)
         };
+        // Cloned up front so the render closure (which mutably borrows `tab`)
+        // can hold a reference without fighting the `&mut self.tabs` borrow.
+        let sql_snippets_owned = self.sql_snippets.clone();
 
         let tab = &mut self.tabs[self.active_tab];
         let partial_rows = tab.table.total_rows.and_then(|total| {
@@ -103,6 +106,7 @@ impl OctaApp {
                     editor_font,
                     workspace_tables: &workspace_rows,
                     workspace_attachments: &workspace_attachments,
+                    sql_snippets: &sql_snippets_owned,
                     inspector_selection: inspector_selection_owned.as_ref(),
                     inspector_entry: inspector_entry_owned.as_ref(),
                 },
@@ -202,6 +206,33 @@ impl OctaApp {
         if let Some(q) = sql_action.run_qualified {
             self.run_select_for_inspector(&q, ctx);
         }
+        if let Some(q) = sql_action.recall_query {
+            self.tabs[self.active_tab].sql_query = q;
+            self.tabs[self.active_tab].sql_editor_focus_pending = true;
+        }
+        if let Some(q) = sql_action.insert_snippet {
+            self.tabs[self.active_tab].sql_query = q;
+            self.tabs[self.active_tab].sql_editor_focus_pending = true;
+        }
+        if sql_action.save_snippet {
+            let query = self.tabs[self.active_tab].sql_query.trim().to_string();
+            if !query.is_empty() {
+                self.sql_snippet_save = Some(super::state::SqlSnippetDraft {
+                    name: String::new(),
+                    description: String::new(),
+                    query,
+                });
+            } else {
+                self.status_message = Some((
+                    octa::i18n::t("sql.snippet_empty"),
+                    std::time::Instant::now(),
+                ));
+            }
+        }
+        if let Some(name) = sql_action.delete_snippet {
+            self.sql_snippets.retain(|s| s.name != name);
+            super::sql_snippets::save(&self.sql_snippets);
+        }
     }
 
     fn workspace_select_inspector(&mut self, sel: Option<InspectorTarget>) {
@@ -269,7 +300,35 @@ impl OctaApp {
         self.run_workspace_query(ctx);
     }
 
+    /// Per-frame: clear any post-mutation row-diff highlight whose timer has
+    /// elapsed, and keep repainting while one is active so it fades on time.
+    pub(crate) fn expire_sql_diff_highlights(&mut self, ctx: &egui::Context) {
+        let now = std::time::Instant::now();
+        let mut any_active = false;
+        for tab in &mut self.tabs {
+            let Some(until) = tab.sql_diff_highlight_until else {
+                continue;
+            };
+            if now >= until {
+                for key in tab.sql_diff_marks.drain(..) {
+                    tab.table.clear_mark(key);
+                }
+                tab.sql_diff_highlight_until = None;
+            } else {
+                any_active = true;
+            }
+        }
+        if any_active {
+            // Ensure the timer fires even without other input.
+            ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        }
+    }
+
     fn run_workspace_query(&mut self, ctx: &egui::Context) {
+        // Captured before the `tab` borrow; used by the post-mutation row-diff
+        // highlight below.
+        let diff_enabled = self.settings.sql_row_diff_highlight_enabled;
+        let diff_secs = self.settings.sql_row_diff_highlight_secs;
         let tab = &mut self.tabs[self.active_tab];
         let query = tab.sql_query.clone();
         // Refresh `data` from the live edited table on every run so the
@@ -290,6 +349,7 @@ impl OctaApp {
                 octa::sql::QueryKind::Select => {
                     tab.sql_result = Some(qo.table);
                     tab.sql_error = None;
+                    record_sql_history(tab, &query);
                     tab.sql_last_query = query;
                 }
                 octa::sql::QueryKind::Mutation => {
@@ -314,6 +374,9 @@ impl OctaApp {
                             original_columns: meta.original_columns.clone(),
                         });
                     }
+                    record_sql_history(tab, &query);
+                    // Briefly highlight the cells/rows the mutation changed.
+                    apply_sql_diff_highlight(tab, &snapshot, &mut mutated, diff_enabled, diff_secs);
                     tab.table = mutated;
                     tab.table_state = TableViewState::default();
                     tab.filter_dirty = true;
@@ -595,6 +658,63 @@ fn workspace_snapshot(tab: &TabState) -> (Vec<WorkspaceRow>, Vec<WorkspaceAttach
 /// Construct the per-tab SQL workspace on first use, registering the tab's
 /// current table as `data`. Errors leave `tab.sql_workspace` as None and
 /// surface through `tab.sql_error`.
+/// Record an executed query in the tab's session history (most-recent first,
+/// de-duplicated, capped). Skips blank queries.
+fn record_sql_history(tab: &mut TabState, query: &str) {
+    const SQL_HISTORY_CAP: usize = 30;
+    let q = query.trim();
+    if q.is_empty() {
+        return;
+    }
+    tab.sql_history.retain(|h| h != q);
+    tab.sql_history.insert(0, q.to_string());
+    tab.sql_history.truncate(SQL_HISTORY_CAP);
+}
+
+/// Mark the cells/rows that a SQL mutation changed (positional diff of the
+/// pre/post tables via `compare_ordered`) so the user can see the effect, and
+/// arm the timed clear. Cells that differ get a cell mark; rows that only exist
+/// in the new table (inserts / longer result) get a row mark. No-op when the
+/// feature is off or nothing changed.
+fn apply_sql_diff_highlight(
+    tab: &mut TabState,
+    before: &octa::data::DataTable,
+    after: &mut octa::data::DataTable,
+    enabled: bool,
+    secs: u32,
+) {
+    use octa::data::{MarkColor, MarkKey};
+    // Clear any still-pending highlight from a previous mutation first.
+    for key in tab.sql_diff_marks.drain(..) {
+        after.clear_mark(key);
+    }
+    tab.sql_diff_highlight_until = None;
+    if !enabled {
+        return;
+    }
+    let result = octa::data::compare::compare_ordered(before, after);
+    let mut keys: Vec<MarkKey> = Vec::new();
+    for change in &result.changed {
+        for name in &change.changed_columns {
+            if let Some(col) = after.columns.iter().position(|c| &c.name == name) {
+                keys.push(MarkKey::Cell(change.row_b, col));
+            }
+        }
+    }
+    for &row in &result.only_in_b {
+        keys.push(MarkKey::Row(row));
+    }
+    if keys.is_empty() {
+        return;
+    }
+    for key in &keys {
+        after.set_mark(key.clone(), MarkColor::Green);
+    }
+    tab.sql_diff_marks = keys;
+    tab.sql_diff_highlight_until =
+        Some(std::time::Instant::now() + std::time::Duration::from_secs(secs.max(1) as u64));
+}
+
 fn ensure_workspace(tab: &mut TabState) {
     if tab.sql_workspace.is_some() {
         return;

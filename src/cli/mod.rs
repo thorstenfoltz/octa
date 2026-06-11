@@ -325,6 +325,11 @@ pub struct Cli {
     #[arg(long, group = "action")]
     pub mcp: bool,
 
+    /// With `--mcp`, omit the file-writing tools (`write_table`, `edit_table`,
+    /// `convert`) so the server exposes a read-only surface.
+    #[arg(long, requires = "mcp")]
+    pub mcp_read_only: bool,
+
     /// Number of rows for --head / --tail / --sample.
     #[arg(short = 'n', long = "lines", default_value_t = 20, value_name = "N")]
     pub lines: usize,

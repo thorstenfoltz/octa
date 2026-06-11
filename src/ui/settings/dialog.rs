@@ -44,10 +44,13 @@ impl SettingsDialog {
             crate::ui::status_bar::format_number(current.table_picker_visible_rows);
         self.excel_max_auto_sheets_buf =
             crate::ui::status_bar::format_number(current.excel_max_auto_sheets);
+        self.search_history_limit_buf = current.search_history_limit.to_string();
         self.chat_temperature_buf = format!("{:.2}", current.chat_temperature);
         self.chat_max_iterations_buf = current.chat_max_tool_iterations.to_string();
         self.chat_max_tokens_buf = crate::ui::status_bar::format_number(current.chat_max_tokens);
         self.chat_unlimited_tokens = current.chat_max_tokens_unlimited;
+        self.chat_audit_warn_mb_buf =
+            (current.chat_audit_log_warn_bytes / (1024 * 1024)).to_string();
         self.chat_key_input_buf.clear();
         self.chat_key_status_msg = None;
         self.chat_key_clear_confirm = None;
@@ -196,6 +199,10 @@ impl SettingsDialog {
                             if let Ok(n) = parse_comma_number(&self.excel_max_auto_sheets_buf) {
                                 self.draft.excel_max_auto_sheets = n.max(1);
                             }
+                            // Search history size: 0 is valid (disables history).
+                            if let Ok(n) = parse_comma_number(&self.search_history_limit_buf) {
+                                self.draft.search_history_limit = n;
+                            }
                             // Chat temperature / iterations: parse + clamp;
                             // invalid input keeps the existing draft value.
                             if let Ok(t) = self.chat_temperature_buf.trim().parse::<f32>() {
@@ -212,6 +219,10 @@ impl SettingsDialog {
                                 && n >= 1
                             {
                                 self.draft.chat_max_tokens = n;
+                            }
+                            // Audit-log warning threshold (MB -> bytes).
+                            if let Ok(mb) = parse_comma_number(&self.chat_audit_warn_mb_buf) {
+                                self.draft.chat_audit_log_warn_bytes = (mb as u64) * 1024 * 1024;
                             }
                             applied = Some(self.draft.clone());
                             self.open = false;
@@ -619,6 +630,15 @@ impl SettingsDialog {
                         });
                     ui.end_row();
 
+                    ui.label(crate::i18n::t("settings.search_history_limit"))
+                        .on_hover_text(crate::i18n::t("settings_hint.search_history_limit"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.search_history_limit_buf)
+                            .desired_width(120.0)
+                            .hint_text("5"),
+                    );
+                    ui.end_row();
+
                     ui.label(crate::i18n::t("settings.tab_size"))
                         .on_hover_text(crate::i18n::t("settings_hint.tab_size"));
                     egui::ComboBox::from_id_salt("tab_size_combo")
@@ -761,6 +781,31 @@ impl SettingsDialog {
                                 );
                             }
                         });
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.sql_diff_highlight"))
+                        .on_hover_text(crate::i18n::t("settings_hint.sql_diff_highlight"));
+                    ui.checkbox(&mut self.draft.sql_row_diff_highlight_enabled, "");
+                    ui.end_row();
+
+                    ui.add_enabled_ui(self.draft.sql_row_diff_highlight_enabled, |ui| {
+                        ui.label(crate::i18n::t("settings.sql_diff_secs"))
+                            .on_hover_text(crate::i18n::t("settings_hint.sql_diff_secs"));
+                    });
+                    ui.add_enabled_ui(self.draft.sql_row_diff_highlight_enabled, |ui| {
+                        egui::ComboBox::from_id_salt("sql_diff_secs_combo")
+                            .selected_text(format!("{}", self.draft.sql_row_diff_highlight_secs))
+                            .width(56.0)
+                            .show_ui(ui, |ui| {
+                                for n in [1u32, 2, 3, 4, 5, 8, 10, 15] {
+                                    ui.selectable_value(
+                                        &mut self.draft.sql_row_diff_highlight_secs,
+                                        n,
+                                        n.to_string(),
+                                    );
+                                }
+                            });
+                    });
                     ui.end_row();
                 });
         });
@@ -954,6 +999,25 @@ impl SettingsDialog {
                         {
                             self.draft.chat_export_dir = dir.to_string_lossy().into_owned();
                         }
+                    });
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("chat.audit_log"))
+                        .on_hover_text(crate::i18n::t("settings_hint.chat_audit_log"));
+                    ui.checkbox(&mut self.draft.chat_audit_log_enabled, "");
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("chat.audit_warn"))
+                        .on_hover_text(crate::i18n::t("settings_hint.chat_audit_warn"));
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.draft.chat_audit_log_warn_enabled, "");
+                        ui.add_enabled_ui(self.draft.chat_audit_log_warn_enabled, |ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.chat_audit_warn_mb_buf)
+                                    .desired_width(56.0),
+                            );
+                            ui.label(crate::i18n::t("chat.audit_warn_mb"));
+                        });
                     });
                     ui.end_row();
                 });

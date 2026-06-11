@@ -1,7 +1,6 @@
 use crate::app::state::{NavDir, TabState};
 use crate::ui;
 use octa::data;
-use octa::data::search::RowMatcher;
 
 use eframe::egui;
 use egui::{Align, Color32, Layout, RichText, Stroke};
@@ -60,8 +59,7 @@ pub fn render_notebook_view(
     // and output, drive the toolbar count, and on a pending next/previous jump
     // scroll to the cell holding the current match. Matches are highlighted in
     // place; navigation is at cell granularity.
-    let matcher =
-        (!tab.search_text.is_empty()).then(|| RowMatcher::new(&tab.search_text, tab.search_mode));
+    let matcher = (!tab.search_text.is_empty()).then(|| tab.search_matcher());
     let (hl_normal, hl_active) = ui::search_highlight::highlight_colors(&colors);
     let row_match_counts: Vec<usize> = match matcher.as_ref() {
         Some(m) => (0..tab.table.row_count())

@@ -84,6 +84,93 @@ impl OctaApp {
         }
     }
 
+    /// Build a GitHub-flavoured Markdown table from the current selection,
+    /// including the column header row. Same selection precedence as
+    /// [`copy_selection_to_string`](Self::copy_selection_to_string). Returns
+    /// `None` when nothing is selected.
+    pub(crate) fn copy_selection_as_markdown(&self) -> Option<String> {
+        let tab = &self.tabs[self.active_tab];
+        let state = &tab.table_state;
+        let table = &tab.table;
+
+        // Resolve which columns and rows the selection covers.
+        let (cols, rows): (Vec<usize>, Vec<usize>) = if !state.selected_rows.is_empty() {
+            let mut rows: Vec<usize> = state.selected_rows.iter().copied().collect();
+            rows.sort();
+            ((0..table.col_count()).collect(), rows)
+        } else if !state.selected_cols.is_empty() {
+            let mut cols: Vec<usize> = state.selected_cols.iter().copied().collect();
+            cols.sort();
+            (cols, (0..table.row_count()).collect())
+        } else if !state.selected_cells.is_empty() {
+            let cells = &state.selected_cells;
+            let min_row = cells.iter().map(|(r, _)| *r).min().unwrap();
+            let max_row = cells.iter().map(|(r, _)| *r).max().unwrap();
+            let min_col = cells.iter().map(|(_, c)| *c).min().unwrap();
+            let max_col = cells.iter().map(|(_, c)| *c).max().unwrap();
+            ((min_col..=max_col).collect(), (min_row..=max_row).collect())
+        } else if let Some((row, col)) = state.selected_cell {
+            (vec![col], vec![row])
+        } else {
+            return None;
+        };
+        if cols.is_empty() || rows.is_empty() {
+            return None;
+        }
+
+        // Only with a disjoint multi-cell selection do out-of-set cells render
+        // blank; otherwise every cell in the rectangle is included.
+        let mask = !state.selected_cells.is_empty();
+        let cell = |r: usize, c: usize| -> String {
+            if mask && !state.selected_cells.contains(&(r, c)) {
+                return String::new();
+            }
+            md_escape(&table.get(r, c).map(|v| v.to_string()).unwrap_or_default())
+        };
+
+        let mut out = String::new();
+        // Header.
+        let headers: Vec<String> = cols
+            .iter()
+            .map(|&c| {
+                md_escape(
+                    table
+                        .columns
+                        .get(c)
+                        .map(|ci| ci.name.as_str())
+                        .unwrap_or(""),
+                )
+            })
+            .collect();
+        out.push_str("| ");
+        out.push_str(&headers.join(" | "));
+        out.push_str(" |\n|");
+        for _ in &cols {
+            out.push_str(" --- |");
+        }
+        out.push('\n');
+        // Body.
+        for &r in &rows {
+            out.push_str("| ");
+            let row_cells: Vec<String> = cols.iter().map(|&c| cell(r, c)).collect();
+            out.push_str(&row_cells.join(" | "));
+            out.push_str(" |\n");
+        }
+        Some(out)
+    }
+
+    /// Copy the current selection to the OS clipboard as a Markdown table.
+    pub(crate) fn do_copy_markdown(&mut self) {
+        if let Some(text) = self.copy_selection_as_markdown() {
+            self.tabs[self.active_tab].table_state.clipboard = Some(text.clone());
+            if let Some(ref cb) = self.os_clipboard
+                && let Ok(mut cb) = cb.lock()
+            {
+                let _ = cb.set_text(&text);
+            }
+        }
+    }
+
     /// Paste tab-separated text into the table at the current selection.
     pub(crate) fn paste_text_into_table(&mut self, text: &str) {
         let parsed_rows: Vec<Vec<&str>> = text
@@ -201,4 +288,13 @@ impl OctaApp {
             },
         );
     }
+}
+
+/// Escape a cell value for a Markdown table cell: pipes break the column
+/// structure and newlines break the row, so neutralise both.
+fn md_escape(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('|', "\\|")
+        .replace('\r', "")
+        .replace('\n', "<br>")
 }

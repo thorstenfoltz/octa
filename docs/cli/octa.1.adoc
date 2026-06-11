@@ -161,6 +161,10 @@ ignored (with a warning) when an action flag is set.
   *edit_table*. Defaults for the row limit and per-cell byte cap come
   from the user's Octa settings (Settings → MCP).
 
+*--mcp-read-only*::
+  Only valid with *--mcp*. Omits the file-writing tools (*write_table*,
+  *edit_table*, *convert*) so the server exposes a read-only surface.
+
 == Options
 
 *-n* _N_, *--lines* _N_::

@@ -66,6 +66,14 @@ pub struct SqlAction {
     /// User toggled the open/closed state of an attached schema group.
     /// String is the tree key (`alias` or `alias::schema`).
     pub toggle_tree_key: Option<String>,
+    /// User picked a recent query from the History dropdown (the query text).
+    pub recall_query: Option<String>,
+    /// User picked a saved snippet (the snippet's query text) to load.
+    pub insert_snippet: Option<String>,
+    /// User clicked **Save current query as snippet...**.
+    pub save_snippet: bool,
+    /// User deleted a saved snippet by name.
+    pub delete_snippet: Option<String>,
 }
 
 /// Persistent id of the SQL editor TextEdit. Exposed so the global keyboard
@@ -236,6 +244,8 @@ pub struct SqlViewContext<'a> {
     pub editor_font: octa::ui::settings::SqlEditorFont,
     pub workspace_tables: &'a [WorkspaceRow],
     pub workspace_attachments: &'a [WorkspaceAttachment],
+    /// Saved SQL snippets for the Snippets dropdown.
+    pub sql_snippets: &'a [crate::app::sql_snippets::SqlSnippet],
     /// Currently selected inspector target. Drives both the highlight in the
     /// workspace tree on the left and the detail pane on the right.
     pub inspector_selection: Option<&'a crate::app::sql_panel::InspectorTarget>,
@@ -261,6 +271,7 @@ pub fn render_sql_view(
         editor_font,
         workspace_tables,
         workspace_attachments,
+        sql_snippets,
         inspector_selection,
         inspector_entry,
     } = ctx_args;
@@ -280,6 +291,64 @@ pub fn render_sql_view(
         if ui.button(octa::i18n::t("sql.clear_result")).clicked() {
             action.clear = true;
         }
+
+        // History: recent queries run in this tab (session-only).
+        if !tab.sql_history.is_empty() {
+            ui.menu_button(octa::i18n::t("sql.history"), |ui| {
+                ui.set_min_width(220.0);
+                for q in &tab.sql_history {
+                    // One-line preview; full query on hover.
+                    let preview = q.replace('\n', " ");
+                    let preview = if preview.len() > 60 {
+                        format!("{}...", &preview[..57])
+                    } else {
+                        preview
+                    };
+                    if ui.button(preview).on_hover_text(q).clicked() {
+                        action.recall_query = Some(q.clone());
+                        ui.close();
+                    }
+                }
+            })
+            .response
+            .on_hover_text(octa::i18n::t("sql.history_hint"));
+        }
+
+        // Snippets: persistent named query library.
+        ui.menu_button(octa::i18n::t("sql.snippets"), |ui| {
+            ui.set_min_width(240.0);
+            if ui.button(octa::i18n::t("sql.snippet_save")).clicked() {
+                action.save_snippet = true;
+                ui.close();
+            }
+            if !sql_snippets.is_empty() {
+                ui.separator();
+                for snip in sql_snippets {
+                    ui.horizontal(|ui| {
+                        let hover = if snip.description.is_empty() {
+                            snip.query.clone()
+                        } else {
+                            format!("{}\n\n{}", snip.description, snip.query)
+                        };
+                        if ui.button(&snip.name).on_hover_text(hover).clicked() {
+                            action.insert_snippet = Some(snip.query.clone());
+                            ui.close();
+                        }
+                        if ui
+                            .small_button("\u{00d7}")
+                            .on_hover_text(octa::i18n::t("sql.snippet_delete"))
+                            .clicked()
+                        {
+                            action.delete_snippet = Some(snip.name.clone());
+                            ui.close();
+                        }
+                    });
+                }
+            }
+        })
+        .response
+        .on_hover_text(octa::i18n::t("sql.snippets_hint"));
+
         let has_result = tab.sql_result.as_ref().is_some_and(|t| t.col_count() > 0);
         ui.add_enabled_ui(has_result, |ui| {
             if ui

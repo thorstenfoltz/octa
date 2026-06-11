@@ -88,6 +88,9 @@ pub struct ToolbarAction {
     pub save_file_as: bool,
     pub toggle_theme: bool,
     pub search_changed: bool,
+    /// The search box lost focus with a non-empty query: record it in the
+    /// persistent search history.
+    pub commit_search_history: bool,
     /// The Filter/Highlight search-behaviour toggle was flipped this frame.
     pub search_result_mode_changed: bool,
     /// Jump to the next highlight-search match (`>` button or Enter).
@@ -145,9 +148,18 @@ pub struct ToolbarAction {
     /// Open a Summary tab (per-column statistics via DuckDB SUMMARIZE) for
     /// the active table. Fired by **Analyse -> Summary...**.
     pub open_describe_tab: bool,
+    /// Open the Pivot / Unpivot dialog for the active table.
+    /// Fired by **Analyse -> Pivot / Unpivot...**.
+    pub open_pivot: bool,
+    /// Copy the current selection to the clipboard as a Markdown table.
+    /// Fired by **Edit -> Copy as Markdown table**.
+    pub copy_as_markdown: bool,
     /// Open the per-column Number-format dialog for the selected column.
     /// Fired by **Edit -> Number format...**.
     pub open_column_format: bool,
+    /// Open the Conditional formatting dialog for the active table.
+    /// Fired by **Edit -> Conditional formatting...**.
+    pub open_conditional_format: bool,
     /// Toggle "first row is header" for the active table.
     pub toggle_first_row_header: bool,
     /// Apply a color mark to a set of keys (cell/row/column).
@@ -207,6 +219,15 @@ pub fn draw_toolbar(
     theme_mode: ThemeMode,
     search_text: &mut String,
     search_mode: &mut SearchMode,
+    // Search-bar toggles: case-sensitive (`Aa`), whole-word, and the column
+    // scope (`None` = whole table, `Some(col)` = one column). Edited in place.
+    search_case_sensitive: &mut bool,
+    search_whole_word: &mut bool,
+    search_scope_col: &mut Option<usize>,
+    // Column names for the scope dropdown (in table order).
+    column_names: &[String],
+    // Recent search queries (most-recent first) for the history dropdown.
+    search_history: &[String],
     // Session search behaviour (Filter vs Highlight). Edited in place by the
     // search-bar toggle; the table respects it, text/tree views always
     // highlight.
@@ -428,6 +449,14 @@ pub fn draw_toolbar(
                         action.fit_all_columns = true;
                         ui.close();
                     }
+                    if ui
+                        .button(crate::i18n::t("edit_menu.copy_markdown"))
+                        .on_hover_text(crate::i18n::t("edit_menu.copy_markdown_hint"))
+                        .clicked()
+                    {
+                        action.copy_as_markdown = true;
+                        ui.close();
+                    }
                     ui.separator();
 
                     // Row operations
@@ -551,6 +580,15 @@ pub fn draw_toolbar(
                         .clicked()
                     {
                         action.open_column_format = true;
+                        ui.close();
+                    }
+
+                    if ui
+                        .button(crate::i18n::t("edit_menu.conditional_format"))
+                        .on_hover_text(crate::i18n::t("edit_menu.conditional_format_hint"))
+                        .clicked()
+                    {
+                        action.open_conditional_format = true;
                         ui.close();
                     }
 
@@ -946,6 +984,10 @@ pub fn draw_toolbar(
                             action.open_describe_tab = true;
                             ui.close();
                         }
+                        if ui.button(crate::i18n::t("analyse_menu.pivot")).clicked() {
+                            action.open_pivot = true;
+                            ui.close();
+                        }
                         ui.separator();
                     }
                     if ui
@@ -1039,8 +1081,87 @@ pub fn draw_toolbar(
             if response.changed() {
                 action.search_changed = true;
             }
+            // Record a completed query when the box loses focus.
+            if response.lost_focus() && !search_text.is_empty() {
+                action.commit_search_history = true;
+            }
             if search_focus_requested {
                 response.request_focus();
+            }
+
+            // Case-sensitive (`Aa`) and whole-word toggles.
+            if ui
+                .selectable_label(*search_case_sensitive, "Aa")
+                .on_hover_text(crate::i18n::t("search.case_sensitive"))
+                .clicked()
+            {
+                *search_case_sensitive = !*search_case_sensitive;
+                action.search_changed = true;
+            }
+            if ui
+                .selectable_label(*search_whole_word, "W")
+                .on_hover_text(crate::i18n::t("search.whole_word"))
+                .clicked()
+            {
+                *search_whole_word = !*search_whole_word;
+                action.search_changed = true;
+            }
+
+            // Scope selector: whole table or a single column. A visible chip so
+            // the user always knows what the search covers.
+            let scope_label = match *search_scope_col {
+                None => crate::i18n::t("search.scope_all"),
+                Some(c) => column_names
+                    .get(c)
+                    .cloned()
+                    .unwrap_or_else(|| crate::i18n::t("search.scope_all")),
+            };
+            egui::ComboBox::from_id_salt("search_scope")
+                .width(110.0)
+                .selected_text(scope_label)
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(
+                            search_scope_col.is_none(),
+                            crate::i18n::t("search.scope_all"),
+                        )
+                        .clicked()
+                    {
+                        *search_scope_col = None;
+                        action.search_changed = true;
+                    }
+                    for (c, name) in column_names.iter().enumerate() {
+                        if ui
+                            .selectable_label(*search_scope_col == Some(c), name)
+                            .clicked()
+                        {
+                            *search_scope_col = Some(c);
+                            action.search_changed = true;
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(crate::i18n::t("search.scope_hint"));
+
+            // Recent-queries dropdown. Picking one fills the search box.
+            if !search_history.is_empty() {
+                ui.menu_button(crate::i18n::t("search.history_btn"), |ui| {
+                    ui.set_min_width(160.0);
+                    ui.label(
+                        RichText::new(crate::i18n::t("search.history"))
+                            .size(10.0)
+                            .color(colors.text_secondary),
+                    );
+                    for entry in search_history {
+                        if ui.button(entry).clicked() {
+                            *search_text = entry.clone();
+                            action.search_changed = true;
+                            ui.close();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(crate::i18n::t("search.history_hint"));
             }
 
             // Enter / Shift+Enter while the search box is focused step through

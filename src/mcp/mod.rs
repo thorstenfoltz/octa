@@ -66,11 +66,19 @@ impl OctaMcpServer {
 
 #[tool_router]
 impl OctaMcpServer {
-    pub fn new(default_row_limit: Option<usize>, cell_byte_cap: usize) -> Self {
+    pub fn new(default_row_limit: Option<usize>, cell_byte_cap: usize, read_only: bool) -> Self {
+        let mut tool_router = Self::tool_router();
+        if read_only {
+            // Read-only mode: drop every tool that mutates a file so the
+            // server can be wired into agent frameworks with no write surface.
+            for name in ["write_table", "edit_table", "convert"] {
+                tool_router.remove_route(name);
+            }
+        }
         Self {
             default_row_limit,
             cell_byte_cap,
-            tool_router: Self::tool_router(),
+            tool_router,
         }
     }
 
@@ -434,8 +442,13 @@ impl ServerHandler for OctaMcpServer {
 }
 
 /// Run the MCP server over stdio. Blocks until the client disconnects.
-/// `default_row_limit` and `cell_byte_cap` come from `AppSettings`.
-pub async fn run(default_row_limit: Option<usize>, cell_byte_cap: usize) -> anyhow::Result<()> {
+/// `default_row_limit` and `cell_byte_cap` come from `AppSettings`;
+/// `read_only` (from `--mcp-read-only`) drops the file-writing tools.
+pub async fn run(
+    default_row_limit: Option<usize>,
+    cell_byte_cap: usize,
+    read_only: bool,
+) -> anyhow::Result<()> {
     let row_str = default_row_limit.map_or_else(|| "unlimited".to_string(), |n| n.to_string());
     let cell_str = if cell_byte_cap == 0 {
         "unlimited".to_string()
@@ -448,12 +461,43 @@ pub async fn run(default_row_limit: Option<usize>, cell_byte_cap: usize) -> anyh
     } else {
         format!("{file_cap}")
     };
+    let mode_str = if read_only {
+        " [read-only: write_table/edit_table/convert disabled]"
+    } else {
+        ""
+    };
     eprintln!(
-        "octa --mcp ready (default response row limit: {row_str}, cell cap: {cell_str}, \
+        "octa --mcp ready{mode_str} (default response row limit: {row_str}, cell cap: {cell_str}, \
          file-loader cap: {file_cap_str}; override per-call via `limit` / `unlimited`)"
     );
-    let server = OctaMcpServer::new(default_row_limit, cell_byte_cap);
+    let server = OctaMcpServer::new(default_row_limit, cell_byte_cap, read_only);
     let service = server.serve(stdio()).await?;
     service.waiting().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod read_only_tests {
+    use super::*;
+
+    #[test]
+    fn read_only_drops_write_tools() {
+        let ro = OctaMcpServer::new(Some(1000), 65536, true);
+        for name in ["write_table", "edit_table", "convert"] {
+            assert!(
+                !ro.tool_router.has_route(name),
+                "read-only server should not expose `{name}`"
+            );
+        }
+        // A read tool is still present.
+        assert!(ro.tool_router.has_route("read_table"));
+    }
+
+    #[test]
+    fn default_keeps_write_tools() {
+        let rw = OctaMcpServer::new(Some(1000), 65536, false);
+        for name in ["write_table", "edit_table", "convert", "read_table"] {
+            assert!(rw.tool_router.has_route(name), "`{name}` should be present");
+        }
+    }
 }

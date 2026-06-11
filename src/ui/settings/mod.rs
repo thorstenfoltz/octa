@@ -612,6 +612,10 @@ pub struct AppSettings {
     /// highlight regardless.
     #[serde(default)]
     pub search_result_mode: crate::data::SearchResultMode,
+    /// How many recent search queries to remember across sessions (the search
+    /// box history dropdown). 0 disables the history. Default 20.
+    #[serde(default = "default_search_history_limit")]
+    pub search_history_limit: usize,
     /// Whether edited cells are highlighted with a background color.
     #[serde(default)]
     pub highlight_edits: bool,
@@ -662,6 +666,14 @@ pub struct AppSettings {
     /// proportional face while reading SQL in monospace.
     #[serde(default)]
     pub sql_editor_font: SqlEditorFont,
+    /// Briefly highlight the cells a SQL mutation (INSERT/UPDATE/DELETE)
+    /// changed, so the effect of a query is visible. Default on.
+    #[serde(default = "default_true")]
+    pub sql_row_diff_highlight_enabled: bool,
+    /// How long (seconds) the post-mutation row-diff highlight stays before
+    /// fading. Default 4.
+    #[serde(default = "default_sql_row_diff_secs")]
+    pub sql_row_diff_highlight_secs: u32,
     /// Where to dock the directory tree sidebar when a folder is open.
     #[serde(default)]
     pub directory_tree_position: DirectoryTreePosition,
@@ -865,6 +877,17 @@ pub struct AppSettings {
     /// write here or to an absolute path the user explicitly requests.
     #[serde(default = "default_chat_export_dir")]
     pub chat_export_dir: String,
+    /// Record every assistant tool call to `<config_dir>/chat_audit/`. Off by
+    /// default. See `src/app/chat/audit.rs`.
+    #[serde(default)]
+    pub chat_audit_log_enabled: bool,
+    /// Warn at startup when the total size of the chat audit logs exceeds this
+    /// many bytes. Default 10 MB.
+    #[serde(default = "default_chat_audit_warn_bytes")]
+    pub chat_audit_log_warn_bytes: u64,
+    /// Whether the audit-log size warning is shown at all. Default on.
+    #[serde(default = "default_true")]
+    pub chat_audit_log_warn_enabled: bool,
     /// Plaintext per-provider API keys, keyed by [`ChatProviderKind::id`].
     /// Only populated when the OS keyring is unavailable; the keyring is
     /// preferred. Storing a key here means it sits in `settings.toml` in the
@@ -895,6 +918,10 @@ fn default_chat_max_tokens() -> usize {
 
 /// Default chat export directory: the user's Downloads folder if it exists,
 /// otherwise the home directory. Empty string if neither resolves.
+fn default_chat_audit_warn_bytes() -> u64 {
+    10 * 1024 * 1024
+}
+
 fn default_chat_export_dir() -> String {
     if let Some(home) = dirs_path_home() {
         let downloads = home.join("Downloads");
@@ -912,6 +939,14 @@ fn default_language() -> String {
 
 fn default_max_recent() -> usize {
     5
+}
+
+fn default_search_history_limit() -> usize {
+    5
+}
+
+fn default_sql_row_diff_secs() -> u32 {
+    4
 }
 
 fn default_tab_size() -> usize {
@@ -987,6 +1022,7 @@ impl Default for AppSettings {
             thousands_separators_in_cells: true,
             number_separator_style: crate::data::num_format::SeparatorStyle::default(),
             search_result_mode: crate::data::SearchResultMode::default(),
+            search_history_limit: default_search_history_limit(),
             highlight_edits: false,
             cell_line_breaks: false,
             binary_display_mode: BinaryDisplayMode::default(),
@@ -1002,6 +1038,8 @@ impl Default for AppSettings {
             sql_default_row_limit: 100,
             sql_autocomplete: true,
             sql_editor_font: SqlEditorFont::default(),
+            sql_row_diff_highlight_enabled: true,
+            sql_row_diff_highlight_secs: default_sql_row_diff_secs(),
             directory_tree_position: DirectoryTreePosition::default(),
             warn_raw_align_reload: true,
             warn_on_date_format_change: true,
@@ -1039,6 +1077,9 @@ impl Default for AppSettings {
             chat_max_tokens: default_chat_max_tokens(),
             chat_max_tokens_unlimited: false,
             chat_export_dir: default_chat_export_dir(),
+            chat_audit_log_enabled: false,
+            chat_audit_log_warn_bytes: default_chat_audit_warn_bytes(),
+            chat_audit_log_warn_enabled: true,
             chat_api_keys: std::collections::BTreeMap::new(),
         }
     }
@@ -1223,6 +1264,9 @@ pub struct SettingsDialog {
     table_picker_visible_rows_buf: String,
     /// Buffer backing the Excel max-auto-sheets input.
     excel_max_auto_sheets_buf: String,
+    /// Buffer backing the search-history-size input (text, not a DragValue, so
+    /// Settings shows no horizontal-drag cursor). Parsed on Apply.
+    search_history_limit_buf: String,
     /// Buffer backing the chat temperature input (text, not a slider, so
     /// Settings shows no drag cursor). Parsed + clamped 0.0..=2.0 on Apply.
     chat_temperature_buf: String,
@@ -1235,6 +1279,9 @@ pub struct SettingsDialog {
     /// Mirrors `AppSettings.chat_max_tokens_unlimited`: when true the cap input
     /// is greyed out and Apply writes the unlimited flag.
     chat_unlimited_tokens: bool,
+    /// Audit-log size-warning threshold in MB (text buffer; parsed on Apply
+    /// into `chat_audit_log_warn_bytes`).
+    chat_audit_warn_mb_buf: String,
     /// Masked API-key entry buffer for the chat provider, in the Chat section.
     chat_key_input_buf: String,
     /// Last "where the key was stored" status line after a Save/Clear.

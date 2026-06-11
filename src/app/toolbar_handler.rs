@@ -32,11 +32,18 @@ impl OctaApp {
                 } else {
                     tab.search_nav.current.min(match_count - 1) + 1
                 };
+                let search_col_names: Vec<String> =
+                    tab.table.columns.iter().map(|c| c.name.clone()).collect();
                 let action = ui::toolbar::draw_toolbar(
                     ui,
                     self.theme_mode,
                     &mut tab.search_text,
                     &mut tab.search_mode,
+                    &mut tab.search_case_sensitive,
+                    &mut tab.search_whole_word,
+                    &mut tab.search_scope_col,
+                    &search_col_names,
+                    &self.search_history,
                     &mut self.search_result_mode,
                     highlight_active,
                     match_count,
@@ -230,6 +237,14 @@ impl OctaApp {
         if action.search_changed {
             self.tabs[self.active_tab].search_nav.reset();
             self.tabs[self.active_tab].filter_dirty = true;
+        }
+        if action.commit_search_history {
+            let query = self.tabs[self.active_tab].search_text.clone();
+            super::search_history::record(
+                &mut self.search_history,
+                &query,
+                self.settings.search_history_limit,
+            );
         }
         if action.search_result_mode_changed {
             // Switching Filter<->Highlight changes whether rows are hidden, so
@@ -480,6 +495,18 @@ impl OctaApp {
         }
         if action.open_column_format {
             self.open_column_format_for_selection();
+        }
+        if action.open_conditional_format {
+            let tab = &mut self.tabs[self.active_tab];
+            if tab.table.col_count() > 0 {
+                tab.show_conditional_format = true;
+            }
+        }
+        if action.open_pivot && self.tabs[self.active_tab].table.col_count() > 0 {
+            self.pivot_dialog = Some(crate::app::state::PivotState::default());
+        }
+        if action.copy_as_markdown {
+            self.do_copy_markdown();
         }
         if action.show_find_duplicates {
             let tab = &mut self.tabs[self.active_tab];

@@ -77,8 +77,7 @@ impl ThemeMode {
     }
 
     /// Convenience toggle between the basic Light and Dark presets used by
-    /// the toolbar quick-toggle button. Custom presets toggle to their
-    /// brightness opposite (basic Light or Dark).
+    /// the toolbar quick-toggle button.
     pub fn toggle(&self) -> Self {
         if self.is_dark() {
             Self::Light

@@ -12,6 +12,7 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let Some(new_settings) = app.settings_dialog.show(ctx, app.logo_texture.as_ref()) else {
         return;
     };
+
     let icon_changed = app.settings_dialog.icon_changed;
     let font_changed = app.settings_dialog.font_changed;
     let theme_changed = app.settings_dialog.theme_changed;

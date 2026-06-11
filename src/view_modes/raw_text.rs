@@ -238,8 +238,16 @@ pub fn render_raw_view(
         // match in the buffer, the toolbar count, and a pending next/previous
         // jump. Computed once per frame and captured (cloned) into the editor
         // layouters so painting composes with syntect / column colouring.
-        let matcher = (!tab.search_text.is_empty())
-            .then(|| RowMatcher::new(&tab.search_text, tab.search_mode));
+        // Field-level access (not the `tab.search_matcher()` helper) so this
+        // coexists with the `&mut tab.raw_content` borrow held by `content`.
+        let matcher = (!tab.search_text.is_empty()).then(|| {
+            RowMatcher::with_options(
+                &tab.search_text,
+                tab.search_mode,
+                tab.search_case_sensitive,
+                tab.search_whole_word,
+            )
+        });
         let (hl_normal, hl_active) = ui::search_highlight::highlight_colors(&colors);
         let match_ranges: Vec<std::ops::Range<usize>> = matcher
             .as_ref()

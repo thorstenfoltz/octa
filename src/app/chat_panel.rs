@@ -1089,6 +1089,12 @@ impl OctaApp {
         // New `Arc`s (not just `store(false)`) so a previous cancelled turn that
         // is still blocked on a network read can't resume into this session.
         let session = self.chat.session.clone();
+        // Capture the session id for the (opt-in) tool-call audit log.
+        let audit_session = if self.settings.chat_audit_log_enabled {
+            Some(session.lock().unwrap().id.clone())
+        } else {
+            None
+        };
         let cancel = Arc::new(AtomicBool::new(false));
         let running = Arc::new(AtomicBool::new(true));
         {
@@ -1115,6 +1121,7 @@ impl OctaApp {
                 max_iterations,
                 cancel,
                 running,
+                audit_session,
             },
             ctx.clone(),
         );

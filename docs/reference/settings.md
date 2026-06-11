@@ -25,7 +25,7 @@ for missing keys; old versions ignore unknown keys).
 |----------------------|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
 | **Language**         | English      | UI language for menus and dialogs. 13 Latin-script languages; switches live, no restart. See [Languages](languages.md). TOML key: `language`. |
 | **Font size**        | 13 pt        | Base font size. Applied to body / button / monospace text.                                                                                    |
-| **Default theme**    | Light        | `Light`, `Dark` and more. Applied at startup.                                                                                                 |
+| **Default theme**    | Light        | `Light`, `Dark` and more. Applied when you press **Apply**, and at startup.                                                                   |
 | **Body font**        | Proportional | `Proportional` or `Monospace`.                                                                                                                |
 | **Custom font path** | *(empty)*    | Optional path to a TTF/OTF font. Overrides Body font for proportional text.                                                                   |
 | **Icon variant**     | Rose         | Window icon colour. Several options.                                                                                                          |
@@ -52,6 +52,7 @@ for missing keys; old versions ignore unknown keys).
 |---------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Default search mode**   | Plain   | Initial mode for the toolbar search: Plain / Wildcard / Regex.                                                                                                                                                                                                               |
 | **Search result display** | Filter  | How search results show in the table: **Filter** hides non-matching rows; **Highlight** keeps every row and highlights matches in place (with a count and next/previous navigation). The search-bar toggle overrides this per session. Text and tree views always highlight. |
+| **Search history size**   | 5       | How many recent search queries to remember across sessions (the **Recent** dropdown beside the search box). `0` disables the history. Stored in `search_history.json`. TOML key: `search_history_limit`.                                                                     |
 | **Tab size**              | 4       | Number of spaces inserted when pressing Tab inside text editors (the Raw text editor and the Markdown Edit/Split editor; Tab indents in place rather than moving focus).                                                                                                     |
 
 ## File-Specific
@@ -69,13 +70,15 @@ for missing keys; old versions ignore unknown keys).
 
 ## SQL
 
-| Setting                       | Default        | Notes                                                                   |
-|-------------------------------|----------------|-------------------------------------------------------------------------|
-| **Open SQL panel by default** | off            | Auto-open the [SQL panel](../usage/sql.md) when opening a tabular file. |
-| **Panel position**            | Bottom         | Where the SQL panel docks: `Bottom` / `Top` / `Left` / `Right`.         |
-| **Default row limit**         | 100            | Placeholder query is `SELECT * FROM data LIMIT N`.                      |
-| **Autocomplete**              | on             | Show keyword + column-name suggestion chips under the editor.           |
-| **Editor font**               | JetBrains Mono | `JetBrainsMono` (bundled), `MatchUiFont`, or `SystemMonospace`.         |
+| Setting                       | Default        | Notes                                                                                                                               |
+|-------------------------------|----------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| **Open SQL panel by default** | off            | Auto-open the [SQL panel](../usage/sql.md) when opening a tabular file.                                                             |
+| **Panel position**            | Bottom         | Where the SQL panel docks: `Bottom` / `Top` / `Left` / `Right`.                                                                     |
+| **Default row limit**         | 100            | Placeholder query is `SELECT * FROM data LIMIT N`.                                                                                  |
+| **Autocomplete**              | on             | Show keyword + column-name suggestion chips under the editor.                                                                       |
+| **Editor font**               | JetBrains Mono | `JetBrainsMono` (bundled), `MatchUiFont`, or `SystemMonospace`.                                                                     |
+| **Highlight SQL changes**     | on             | After an `INSERT`/`UPDATE`/`DELETE`, briefly mark the changed cells and new rows green. TOML key: `sql_row_diff_highlight_enabled`. |
+| **Highlight duration**        | 4 s            | How long the mutation highlight stays before clearing. TOML key: `sql_row_diff_highlight_secs`.                                     |
 
 ## MCP
 
@@ -97,18 +100,20 @@ full semantics.
 Settings for the in-GUI [Assistant](../usage/chatbot.md) panel. All live
 in the main Settings dialog under the **Chat / Assistant** section.
 
-| Setting                 | Default                  | Notes                                                                                                                                                                                |
-|-------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Provider**            | Anthropic                | LLM backend: `Anthropic`, `OpenAI`, `OpenAI-compatible`, `Gemini`, or `Ollama` (local). TOML key: `chat_provider`.                                                                   |
-| **Model**               | per-provider default     | Model id for the active provider. A dropdown of presets (from `models.toml`) plus a free-text field for any model. Stored per provider. TOML key: `chat_models`.                     |
-| **Base URL**            | *(empty)*                | Endpoint override for the OpenAI-compatible provider. TOML key: `chat_base_url`.                                                                                                     |
-| **Ollama URL**          | `http://localhost:11434` | Base URL of the local Ollama server. TOML key: `chat_ollama_url`.                                                                                                                    |
-| **Panel position**      | Right                    | Where the chat panel docks: `Right` / `Left` / `Bottom`. TOML key: `chat_panel_position`.                                                                                            |
-| **Temperature**         | 0.0                      | Sampling temperature passed to the model. TOML key: `chat_temperature`.                                                                                                              |
-| **Max tool iterations** | 12                       | How many tool-call rounds the agent runs per turn before stopping. TOML key: `chat_max_tool_iterations`.                                                                             |
-| **Max tokens**          | 16,384                   | Cap on the model's response length. **Unlimited** omits the field (Anthropic substitutes a high value). TOML keys: `chat_max_tokens`, `chat_max_tokens_unlimited`.                   |
-| **Export directory**    | `~/Downloads`            | Where the assistant writes files (charts, exports, `write_text`). TOML key: `chat_export_dir`.                                                                                       |
-| **API key**             | *(none)*                 | Per-provider key. Resolved **env → OS keyring → plaintext `settings.toml`**. **Clear API key** needs a second click to confirm. TOML key: `chat_api_keys` (plaintext fallback only). |
+| Setting                   | Default                  | Notes                                                                                                                                                                                                                                  |
+|---------------------------|--------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Provider**              | Anthropic                | LLM backend: `Anthropic`, `OpenAI`, `OpenAI-compatible`, `Gemini`, or `Ollama` (local). TOML key: `chat_provider`.                                                                                                                     |
+| **Model**                 | per-provider default     | Model id for the active provider. A dropdown of presets (from `models.toml`) plus a free-text field for any model. Stored per provider. TOML key: `chat_models`.                                                                       |
+| **Base URL**              | *(empty)*                | Endpoint override for the OpenAI-compatible provider. TOML key: `chat_base_url`.                                                                                                                                                       |
+| **Ollama URL**            | `http://localhost:11434` | Base URL of the local Ollama server. TOML key: `chat_ollama_url`.                                                                                                                                                                      |
+| **Panel position**        | Right                    | Where the chat panel docks: `Right` / `Left` / `Bottom`. TOML key: `chat_panel_position`.                                                                                                                                              |
+| **Temperature**           | 0.0                      | Sampling temperature passed to the model. TOML key: `chat_temperature`.                                                                                                                                                                |
+| **Max tool iterations**   | 12                       | How many tool-call rounds the agent runs per turn before stopping. TOML key: `chat_max_tool_iterations`.                                                                                                                               |
+| **Max tokens**            | 16,384                   | Cap on the model's response length. **Unlimited** omits the field (Anthropic substitutes a high value). TOML keys: `chat_max_tokens`, `chat_max_tokens_unlimited`.                                                                     |
+| **Export directory**      | `~/Downloads`            | Where the assistant writes files (charts, exports, `write_text`). TOML key: `chat_export_dir`.                                                                                                                                         |
+| **Tool-call audit log**   | off                      | Record every assistant tool call (name, arg/result byte counts, duration) to `chat_audit/<session>.jsonl` in the config dir. TOML key: `chat_audit_log_enabled`. See [Assistant → audit log](../usage/chatbot.md#tool-call-audit-log). |
+| **Warn when logs exceed** | 10 MB (on)               | Show a one-time startup warning when the audit logs grow past this size. TOML keys: `chat_audit_log_warn_enabled`, `chat_audit_log_warn_bytes`.                                                                                        |
+| **API key**               | *(none)*                 | Per-provider key. Resolved **env → OS keyring → plaintext `settings.toml`**. **Clear API key** needs a second click to confirm. TOML key: `chat_api_keys` (plaintext fallback only).                                                   |
 
 See [Assistant](../usage/chatbot.md) for the full workflow, tool list,
 and the filesystem sandbox.

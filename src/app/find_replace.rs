@@ -1,7 +1,6 @@
 //! Search / filter recomputation and Replace-next / Replace-all.
 
 use octa::data;
-use octa::data::search::RowMatcher;
 
 use super::state::OctaApp;
 
@@ -42,24 +41,34 @@ impl OctaApp {
 
     pub(crate) fn recompute_filter(&mut self) {
         let mode = self.search_result_mode;
+        // Build the matcher under an immutable borrow that ends before the
+        // mutable one below (the matcher is owned, so no borrow lingers).
+        let matcher = {
+            let tab = &self.tabs[self.active_tab];
+            (!tab.search_text.is_empty()).then(|| tab.search_matcher())
+        };
         let tab = &mut self.tabs[self.active_tab];
-        let matcher = (!tab.search_text.is_empty())
-            .then(|| RowMatcher::new(&tab.search_text, tab.search_mode));
         let has_column_filters = !tab.column_filters.is_empty();
         // In highlight mode the text search no longer hides rows; it only paints
         // matches. Excel-style column filters still hide rows in both modes.
         let highlight = super::state::effective_highlight(tab.view_mode, mode);
         let text_hides_rows = matcher.is_some() && !highlight;
+        // Column range the text search scans (one column, or all).
+        let col_count = tab.table.col_count();
+        let (scope_lo, scope_hi) = match tab.search_scope_col {
+            Some(c) if c < col_count => (c, c + 1),
+            _ => (0, col_count),
+        };
 
         if !text_hides_rows && !has_column_filters {
             tab.filtered_rows = (0..tab.table.row_count()).collect();
         } else {
             tab.filtered_rows = (0..tab.table.row_count())
                 .filter(|&row_idx| {
-                    // 1. Text search (filter mode only): any cell must match.
+                    // 1. Text search (filter mode only): any in-scope cell must match.
                     let text_ok = !text_hides_rows
                         || matcher.as_ref().is_none_or(|m| {
-                            (0..tab.table.col_count()).any(|col_idx| {
+                            (scope_lo..scope_hi).any(|col_idx| {
                                 tab.table
                                     .get(row_idx, col_idx)
                                     .map(|v| m.matches(&v.to_string()))
@@ -93,6 +102,7 @@ impl OctaApp {
                     m,
                     &tab.filtered_rows,
                     tab.table.col_count(),
+                    tab.search_scope_col,
                 );
             }
             tab.search_nav.match_count = tab.search_cell_matches.len();
@@ -139,7 +149,7 @@ impl OctaApp {
         if tab.search_text.is_empty() {
             return;
         }
-        let matcher = RowMatcher::new(&tab.search_text, tab.search_mode);
+        let matcher = tab.search_matcher();
         let row_count = tab.table.row_count();
         let col_count = tab.table.col_count();
         if row_count == 0 || col_count == 0 {
@@ -196,7 +206,7 @@ impl OctaApp {
         if tab.search_text.is_empty() {
             return;
         }
-        let matcher = RowMatcher::new(&tab.search_text, tab.search_mode);
+        let matcher = tab.search_matcher();
         let replace_text = tab.replace_text.clone();
         let row_count = tab.table.row_count();
         let col_count = tab.table.col_count();

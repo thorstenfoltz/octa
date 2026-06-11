@@ -267,6 +267,23 @@ your config directory:
 - macOS: `~/Library/Application Support/Octa/chat_sessions/`
 - Windows: `%APPDATA%\Octa\chat_sessions\`
 
+## Tool-call audit log
+
+For auditing, you can record **every tool the assistant runs**. Turn on
+**Settings -> Chat / Assistant -> Tool-call audit log** (off by default).
+While on, each tool call appends one JSON line (tool name, argument and
+result byte counts, duration, error flag, timestamp) to a per-session file:
+
+- Linux: `~/.config/octa/chat_audit/<session-id>.jsonl`
+- macOS: `~/Library/Application Support/Octa/chat_audit/<session-id>.jsonl`
+- Windows: `%APPDATA%\Octa\chat_audit\<session-id>.jsonl`
+
+The log only records *that* a tool ran and how big its input/output were, not
+the cell contents themselves. Because it grows over time, Octa shows a
+one-time warning at startup once the audit files exceed a size limit
+(**Warn when logs exceed**, default 10 MB; the warning can be turned off).
+Delete the files in `chat_audit/` to reset.
+
 ## Privacy
 
 The assistant sends your prompts, a short description of your open tabs (names,

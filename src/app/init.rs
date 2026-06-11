@@ -62,6 +62,25 @@ impl OctaApp {
         octa::formats::set_initial_load_rows(initial_cap);
         // Apply the persisted UI language before any frame renders.
         octa::i18n::set_language(&settings.language);
+        // Warn once at startup if the chat audit logs have grown past the
+        // configured limit (so they don't accumulate unnoticed).
+        let audit_warning = if settings.chat_audit_log_warn_enabled {
+            let total = super::chat::audit::total_size_bytes();
+            if total > settings.chat_audit_log_warn_bytes {
+                Some((
+                    format!(
+                        "{} ({:.1} MB)",
+                        octa::i18n::t("chat.audit_size_warning"),
+                        total as f64 / (1024.0 * 1024.0),
+                    ),
+                    std::time::Instant::now(),
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         // Build the chat panel state from settings before `settings` is moved.
         let chat = super::chat_panel::ChatPanelState::new(&settings);
         Self {
@@ -72,6 +91,9 @@ impl OctaApp {
             registry: octa::formats::FormatRegistry::new(),
             theme_mode,
             search_result_mode,
+            search_history: super::search_history::load(),
+            sql_snippets: super::sql_snippets::load(),
+            sql_snippet_save: None,
             settings,
             resolved_icon,
             settings_dialog: SettingsDialog::default(),
@@ -94,7 +116,7 @@ impl OctaApp {
             show_update_dialog: false,
             show_unalign_confirm: false,
             update_state: Arc::new(Mutex::new(UpdateState::Idle)),
-            status_message: None,
+            status_message: audit_warning,
             recent_files,
             zoom_percent: 100,
             nav_input: String::new(),
@@ -117,6 +139,7 @@ impl OctaApp {
             pending_round_save: None,
             pending_parse_modal: None,
             schema_export: None,
+            pivot_dialog: None,
             directory_tree: None,
             konami_index: 0,
             confetti_until: None,

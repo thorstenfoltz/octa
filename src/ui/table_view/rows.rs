@@ -45,6 +45,7 @@ pub(super) fn draw_data_row_direct(
     frozen_width: f32,
     search_matches: &HashSet<(usize, usize)>,
     current_match: Option<(usize, usize)>,
+    conditional_format_rules: &[crate::data::conditional_format::CondRule],
 ) {
     let is_multi_selected_row = state.selected_rows.contains(&actual_row);
     // Highlight-search backgrounds derived from the theme (translucent so the
@@ -124,7 +125,23 @@ pub(super) fn draw_data_row_direct(
             let is_col_selected = state.selected_cols.contains(&col_idx);
             let is_multi_cell = state.selected_cells.contains(&(actual_row, col_idx));
 
-            let mark_color = table.get_mark_color(actual_row, col_idx);
+            // Explicit manual marks win; otherwise a matching conditional-
+            // formatting rule colours the cell. Both feed the same downstream
+            // background / text-contrast logic, so a conditional colour looks
+            // and behaves like a manual mark.
+            let mark_color = table.get_mark_color(actual_row, col_idx).or_else(|| {
+                if conditional_format_rules.is_empty() {
+                    None
+                } else {
+                    table.get(actual_row, col_idx).and_then(|v| {
+                        crate::data::conditional_format::match_color(
+                            conditional_format_rules,
+                            col_idx,
+                            &v.to_string(),
+                        )
+                    })
+                }
+            });
             let is_any_selected =
                 is_selected || is_multi_selected_row || is_col_selected || is_multi_cell;
             let is_search_match =
@@ -408,6 +425,13 @@ pub(super) fn draw_data_row_direct(
                         interaction.ctx_copy = true;
                         ui.close();
                     }
+                    if ui
+                        .button(crate::i18n::t("context_menu.copy_markdown"))
+                        .clicked()
+                    {
+                        interaction.ctx_copy_markdown = true;
+                        ui.close();
+                    }
                     if ui.button(crate::i18n::t("header.cut")).clicked() {
                         interaction.ctx_cut = true;
                         ui.close();
@@ -687,6 +711,13 @@ pub(super) fn draw_data_row_direct(
             );
             if ui.button(crate::i18n::t("header.copy")).clicked() {
                 interaction.ctx_copy = true;
+                ui.close();
+            }
+            if ui
+                .button(crate::i18n::t("context_menu.copy_markdown"))
+                .clicked()
+            {
+                interaction.ctx_copy_markdown = true;
                 ui.close();
             }
             if ui.button(crate::i18n::t("header.cut")).clicked() {

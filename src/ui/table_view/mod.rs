@@ -390,6 +390,8 @@ pub struct TableInteraction {
     pub ctx_move_col_right: bool,
     /// Copy/Cut/Paste signals
     pub ctx_copy: bool,
+    /// Copy the current selection to the clipboard as a Markdown table.
+    pub ctx_copy_markdown: bool,
     pub ctx_cut: bool,
     pub ctx_paste: bool,
     /// Text received from OS clipboard via Ctrl+V / Paste event
@@ -479,6 +481,9 @@ pub fn draw_table(
     search_matches: &HashSet<(usize, usize)>,
     // The single match the user has navigated to, painted more prominently.
     current_match: Option<(usize, usize)>,
+    // Conditional-formatting rules colouring cells whose value matches a
+    // predicate. Empty in the common case, so zero overhead there.
+    conditional_format_rules: &[crate::data::conditional_format::CondRule],
 ) -> TableInteraction {
     let colors = ThemeColors::for_mode(theme_mode);
     let row_height = (font_size * 2.0).max(DEFAULT_ROW_HEIGHT);
@@ -1063,6 +1068,7 @@ pub fn draw_table(
                 frozen_width,
                 search_matches,
                 current_match,
+                conditional_format_rules,
             );
         }
 

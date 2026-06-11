@@ -92,6 +92,16 @@ Structural edits:
 - **Double-click a column header** to rename it inline.
 - **Right-click a column header** to change the column data type.
 
+## Copying
+
+**Ctrl+C** copies the current selection (single cell, row block, column
+block, or free multi-cell selection) as tab-separated values. To copy the
+same selection as a **GitHub-flavoured Markdown table** with column
+headers, use **Edit > Copy as Markdown table** or the **Copy as Markdown
+table** entry in the cell / row right-click menu. Pipes and line breaks in
+cells are escaped so the table stays well-formed - handy for pasting into a
+pull request or Markdown document.
+
 ## Number display
 
 Numeric columns show **thousand separators** by default
@@ -143,6 +153,30 @@ the dropdown next to the box):
 - **Plain**: case-insensitive substring.
 - **Wildcard**: `*` matches any sequence, `?` matches one character.
 - **Regex**: full regular expression syntax.
+
+## Case, whole word, and scope
+
+Three controls beside the search box refine matching:
+
+- **Aa** toggles **case-sensitive** matching. Off (the default) matches
+  regardless of capitalisation in every mode.
+- **W** toggles **whole-word** matching, so `cat` matches the word "cat"
+  but not "category" or "scatter".
+- The **scope** dropdown limits the search to a single column or, by
+  default, **All columns**. The dropdown always shows the current scope so
+  you can see at a glance whether you are searching one column or the whole
+  table.
+
+These apply to the table filter and to the in-place highlight.
+
+## Search history
+
+Recent search queries are remembered across sessions. When there is
+history, a **Recent** dropdown appears beside the search box; pick an
+entry to re-run it. How many queries are kept is set by **Search history
+size** under **Settings -> Search & Editor** (default 5; set it to 0 to
+turn the history off). The list is stored in `search_history.json` in
+Octa's config directory.
 
 ## Filter or highlight
 
@@ -303,6 +337,21 @@ copy the header text to the clipboard. If you have multiple columns
 selected (Ctrl-click their headers) and right-click one of them, all
 selected names are joined with newlines. Useful for building SQL
 SELECT lists or scripts from Octa's view of the file.
+
+## Freeze columns
+
+Right-click a column header and pick **Freeze columns up to here** to
+pin that column and every column to its left, exactly like freezing
+panes in a spreadsheet. The pinned columns stay visible at the left
+edge while the rest of the table scrolls horizontally underneath, so
+an ID or name column never scrolls out of sight in a wide table. A
+thin separator marks the boundary; **Unfreeze all columns** in the
+same menu reverts.
+
+The freeze is per tab and session-only, like column widths. If the
+window gets too narrow to keep the whole frozen band and still scroll,
+Octa temporarily pins fewer columns and restores the full band when
+there is room again.
 "#;
 
 pub(super) const VALUE_FREQUENCY: &str = r#"# Value Frequency
@@ -389,6 +438,77 @@ Notes:
 The dialog seeds the key with whatever column is currently selected,
 so Ctrl+Shift+D -> Apply is the fastest path for a one-column dedupe
 check.
+"#;
+
+pub(super) const SUMMARY: &str = r#"# Summary
+
+The Summary tab answers "what does this table look like?" in one click.
+It is the GUI counterpart of the CLI's `octa --describe` and of pandas'
+`df.describe()`: one row of statistics per column of the active table.
+
+## Opening it
+
+**Analyse > Summary...** opens a new tab named `Summary - <file>` for
+the active table. Unsaved cell edits are included: the statistics
+describe the table as you currently see it, not the file on disk.
+
+## What it shows
+
+The statistics come from DuckDB's `SUMMARIZE`, so the exact column set
+can vary slightly between DuckDB releases. Typical columns:
+
+- `column_name` - the source column this row describes.
+- `column_type` - the SQL type DuckDB inferred for it.
+- `min` / `max` - smallest and largest value (lexicographic for text).
+- `approx_unique` - approximate count of distinct values.
+- `avg` / `std` - mean and standard deviation (numeric columns only).
+- `q25` / `q50` / `q75` - quartiles (numeric columns only).
+- `count` - number of non-null values.
+- `null_percentage` - share of null values in the column.
+
+## Working with the result
+
+The Summary tab is an ordinary table tab: you can sort it, filter it,
+copy cells, and export it via **File > Save As**. It is a detached
+snapshot with no source path, so it can never overwrite the original
+file. Re-run **Analyse > Summary...** after further edits to get a
+fresh snapshot.
+
+For a deeper look at a single column, use Value Frequency instead.
+"#;
+
+pub(super) const PIVOT: &str = r#"# Pivot / Unpivot
+
+Reshape a table between **long** and **wide** form, the way a spreadsheet
+pivot table does. Open it via **Analyse > Pivot / Unpivot...**. The result
+always opens in a **new detached tab** - your original table is never
+changed. It runs on the table as you currently see it, including unsaved
+edits.
+
+## Pivot (long to wide)
+
+Pivot spreads one column's distinct values into new columns. Pick:
+
+- **Spread column** - the column whose values become the new column
+  headers (e.g. `month`, producing one column per month).
+- **Aggregate** - how to combine the values that fall into each new cell:
+  `sum`, `count`, `avg`, `min`, or `max`.
+- **of** - the value column being aggregated (e.g. `sales`).
+- **Group by** - the identity columns kept as rows (e.g. `region`). Leave
+  this empty to let DuckDB use every remaining column.
+
+Example: spread `month`, aggregate `sum` of `sales`, group by `region`
+turns a long sales log into a region-by-month grid of totals.
+
+## Unpivot (wide to long)
+
+Unpivot is the reverse: it melts several columns into two columns, a name
+and a value. Pick the **columns to unpivot** (at least two), then name the
+generated **name column** and **value column**. A wide `region, jan, feb,
+mar` table becomes a long `region, name, value` table with one row per
+region-month.
+
+Powered by DuckDB's `PIVOT` / `UNPIVOT`, so it works on any open table.
 "#;
 
 pub(super) const SCHEMA_EXPORT: &str = r#"# Schema Export
@@ -521,6 +641,40 @@ Mark precedence: cell > row > column. To clear a mark, right-click and choose
 **Clear Mark**.
 "#;
 
+pub(super) const CONDITIONAL_FORMAT: &str = r#"# Conditional Formatting
+
+Where colour marking is something you apply by hand, conditional formatting
+colours cells **automatically** based on their value, like the feature of the
+same name in a spreadsheet. Open it via **Edit > Conditional formatting...**.
+
+## Rules
+
+The dialog holds a list of rules. Each rule has four parts:
+
+- **Column** - a specific column, or `(any column)` to test every cell.
+- **Operator** - `equals`, `does not equal`, `contains`, `does not contain`,
+  `greater than`, `less than`, `greater or equal`, `less or equal`,
+  `is empty`, `is not empty`.
+- **Value** - the text or number to compare against (ignored by the two
+  `empty` operators).
+- **Colour** - which of the six mark colours to paint matching cells.
+
+Tick **Aa** on a rule to make its text comparison case-sensitive. The
+comparison is numeric when both the cell and the value look like numbers
+(so `greater than 100` works as you'd expect), otherwise it compares text.
+
+## How rules combine
+
+Rules are checked from top to bottom and the **first** one that matches a
+cell wins, so put your most specific rules first. A manual colour mark on a
+cell always takes priority over a conditional rule.
+
+Rules apply live as you edit them and update instantly when you change cell
+values. They are **per tab and session-only** - they are not saved with the
+file and do not change the data, only how it is shown. **Add rule** appends a
+new row; the **x** button removes one; **Clear all** removes them all.
+"#;
+
 pub(super) const VIEW_MODES: &str = r#"# View Modes
 
 Switch via the **View** menu. Only modes applicable to the current file are
@@ -564,7 +718,7 @@ Compare two files side-by-side. Triggered in three ways:
 - The **Compare selected tabs** shortcut (default **F9**, remappable) when
   exactly one tab is **Ctrl-clicked** as the right side.
 
-Two sub-modes toggle in the Compare toolbar:
+Four sub-modes toggle in the Compare toolbar:
 
 - **Text Diff**: git-style line-by-line diff of the raw text content,
   rendered with `+` / `-` / `~` markers. Has a 500 ms timeout against
@@ -574,9 +728,23 @@ Two sub-modes toggle in the Compare toolbar:
   Each bucket is expandable and shows the actual cell content (capped at
   50 rows displayed per bucket). With no columns picked, every column is
   hashed; only the first 8 columns are shown to keep rendering snappy.
+- **Ordered**: positional row-by-row comparison. Row 1 on the left is
+  compared with row 1 on the right, row 2 with row 2, and so on, naming
+  exactly which columns differ in each row. Rows past the end of the
+  shorter table are reported as only-on-one-side. Use this when both
+  files are in the same order and you want a cell-level diff.
+- **Join (by key)**: match rows by one or more **key columns** you tick
+  (e.g. an ID column), then report which rows were added, which were
+  removed, and which changed - listing the changed columns for each pair.
+  The same key column name must exist on both sides. This is the
+  "same record, what changed?" comparison, regardless of row order.
 
-Cross-format comparison works because hashing sees only the textual
-representation of each cell.
+The Ordered and Join modes share the exact logic used by the command-line
+`octa --diff` and the assistant's diff tool, so all three agree. Their
+result is shown as one table: a **status** column (`only_in_a`,
+`only_in_b`, `changed_a`, `changed_b`), a **changed_columns** column, and
+the data columns. Cross-format comparison works throughout because only the
+textual representation of each cell is compared.
 "#;
 
 pub(super) const EPUB_VIEW: &str = r#"# EPUB Reader
@@ -744,6 +912,28 @@ query under the cursor.
 - The panel can be docked Bottom (default), Top, Left, or Right via
   **Settings > SQL > Panel position**.
 
+## History and snippets
+
+Two dropdowns sit on the SQL toolbar:
+
+- **History** lists the recent queries you have run in this tab (most
+  recent first). Pick one to load it back into the editor. The history
+  is per tab and lasts for the session only.
+- **Snippets** is a saved library of named queries that persists across
+  sessions. Use **Save current query as snippet...** to store the editor
+  content under a **name** and an optional **description**; pick a snippet
+  from the list to load it (the description shows on hover), or use the
+  **x** beside it to delete it. Snippets live in `sql_snippets.json` in
+  Octa's config directory.
+
+## Mutation highlight
+
+After a mutation query (`INSERT` / `UPDATE` / `DELETE`) that changes the
+table, Octa briefly marks the changed cells and any new rows in green so
+you can see what the query did. Turn this off, or change how long it stays
+(in seconds), under **Settings -> SQL** (**Highlight SQL changes** /
+**Highlight duration**). The marks clear themselves automatically.
+
 Each query opens a fresh connection; there is no persistent SQL state
 between runs.
 "#;
@@ -787,6 +977,57 @@ unlimited) and surfaces `truncated` / `total_rows_available` /
 Add Octa as an MCP server to any compatible client (Claude Desktop,
 Claude Code, MCP Inspector) pointing the `command` at the `octa`
 binary with `--mcp` as the argument.
+
+Add `--mcp-read-only` alongside `--mcp` for a read-only server: the
+file-writing tools (`write_table`, `edit_table`, `convert`) are
+dropped, so an agent can read and query but not modify files.
+"#;
+
+pub(super) const ASSISTANT: &str = r#"# Assistant
+
+A built-in chat assistant can drive Octa's tools over your open tabs.
+Toggle the docked chat panel from **Analyse > Assistant**, the **View**
+menu, or **Ctrl+Shift+A**. It is GUI-only.
+
+## Providers
+
+Pick a provider and model in the panel header. Supported backends:
+Anthropic, OpenAI, Google Gemini, any OpenAI-compatible endpoint, and
+local **Ollama** (no API key needed). Cloud providers need an API key,
+entered under **Settings > Chat / Assistant**; keys are read from the
+environment, then the OS keyring, then `settings.toml` (in that order).
+
+## What it can access
+
+The assistant sees only your **open tabs** (and the other sheets/tables
+of an open workbook or database). It cannot read arbitrary files. Writes
+are confined to the export directory (**Settings > Chat / Assistant >
+Export directory**, default ~/Downloads) unless you give an absolute
+path. It can read, query (SQL), profile, convert, chart, and write data
+through the same tools the MCP server exposes.
+
+## Sessions
+
+Conversations are saved automatically as JSON under `chat_sessions/` in
+your config directory. Use **New chat** to start fresh and **History**
+to reopen or delete past conversations.
+
+## Tool-call audit log
+
+Turn on **Settings > Chat / Assistant > Tool-call audit log** (off by
+default) to record every tool the assistant runs - one JSON line per
+call (tool name, argument and result byte counts, duration, error flag,
+timestamp) appended to `chat_audit/<session>.jsonl` in the config
+directory. It records that a tool ran and how big its input/output were,
+not the cell contents. Octa warns once at startup when these logs exceed
+a size limit (**Warn when logs exceed**, default 10 MB; can be turned
+off). Delete the files in `chat_audit/` to reset.
+
+## Privacy
+
+Prompts, a short description of your open tabs, and any tool results are
+sent to the provider you chose. To keep everything local, use Ollama or
+point the OpenAI-compatible provider at a local model.
 "#;
 
 pub(super) const SAVING: &str = r#"# Saving
@@ -812,17 +1053,19 @@ pub(super) const SETTINGS_REFERENCE: &str = r#"# Settings Reference
 Open **Help > Settings** (default **F3**). Categories are collapsible:
 
 - **Appearance**: font size and family, theme, icon variant, custom font
-  path, custom title bar.
+  path, custom title bar. The chosen theme applies when you press **Apply**.
 - **Table View**: row numbers, alternating row colors, negative-number
   highlight, thousand separators + number style (English / European)
   for numeric cells, edit highlight, default mark color, line breaks,
   binary display mode (Binary / Hex / Text).
-- **Search & Editor**: default search mode, tab size.
+- **Search & Editor**: default search mode, search result display, search
+  history size, tab size.
 - **File-Specific**: column coloring for raw CSV/TSV, "warn before
   un-aligning" guard, "warn on date format change" banner, "trim
   whitespace on load" + "warn on whitespace trim" toggles, "read-only
   mode notice" toggle, notebook output layout.
-- **SQL**: panel position, default row limit, autocomplete, editor font
+- **SQL**: panel position, default row limit, autocomplete, editor font,
+  mutation-change highlight (on/off + duration)
   (JetBrains Mono / Match UI / System Monospace).
 - **MCP**: default row limit (with **Unlimited** toggle) and per-cell
   byte cap for the `octa --mcp` server. Read at server startup, so

@@ -168,6 +168,11 @@ are ignored (with a warning) when an action flag is set.
     settings ([Settings → MCP](../reference/settings.md#mcp)). See
     the [MCP server guide](../mcp/index.md) for setup.
 
+`--mcp-read-only`
+:   Only valid with `--mcp`. Omits the file-writing tools
+    (`write_table`, `edit_table`, `convert`) so the server exposes a
+    read-only surface.
+
 ## Options
 
 `-n N`, `--lines N`
