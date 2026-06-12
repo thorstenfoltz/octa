@@ -121,6 +121,6 @@ exports the same DDL as the same table with zero filter.
   from the command line.
 - [MCP `export_schema` tool](../mcp/tools/export_schema.md): the same
   renderers over MCP, with multi-table support.
-- [Column Inspector](column-inspector.md): see types and basic
-  stats without leaving Octa.
+- [Summary](summary.md): see types and per-column statistics
+  without leaving Octa.
 - [Saving](saving.md): for writing back to the same DB.

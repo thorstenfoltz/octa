@@ -11,6 +11,12 @@ format, but some files are better viewed in their native shape:
 Switch view modes via the **View** menu in the toolbar. Only modes
 applicable to the current file are enabled.
 
+A few file types open in a non-Table view that suits them better: a
+`.json` file opens in the [JSON Tree](json-and-yaml-tree.md), and a
+`.yml` / `.yaml` file opens in [Raw Text](raw-text.md). You can always
+switch from the View menu; this just picks a sensible starting point.
+JSONL and every other format still open in Table view.
+
 <!-- SCREENSHOT: view-menu.png: View menu open in the toolbar, showing the radio buttons for Table / Raw Text / Markdown / Notebook / EPUB Reader / Map / JSON Tree / YAML Tree / Compare / Read-only mode. -->
 ![View menu](../../assets/screenshots/view-menu.png){ .screenshot-placeholder }
 

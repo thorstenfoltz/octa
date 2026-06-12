@@ -74,6 +74,8 @@ pub struct SqlAction {
     pub save_snippet: bool,
     /// User deleted a saved snippet by name.
     pub delete_snippet: Option<String>,
+    /// User clicked the **Snippets** button to open the snippet manager window.
+    pub open_snippets_window: bool,
 }
 
 /// Persistent id of the SQL editor TextEdit. Exposed so the global keyboard
@@ -244,8 +246,6 @@ pub struct SqlViewContext<'a> {
     pub editor_font: octa::ui::settings::SqlEditorFont,
     pub workspace_tables: &'a [WorkspaceRow],
     pub workspace_attachments: &'a [WorkspaceAttachment],
-    /// Saved SQL snippets for the Snippets dropdown.
-    pub sql_snippets: &'a [crate::app::sql_snippets::SqlSnippet],
     /// Currently selected inspector target. Drives both the highlight in the
     /// workspace tree on the left and the detail pane on the right.
     pub inspector_selection: Option<&'a crate::app::sql_panel::InspectorTarget>,
@@ -271,7 +271,6 @@ pub fn render_sql_view(
         editor_font,
         workspace_tables,
         workspace_attachments,
-        sql_snippets,
         inspector_selection,
         inspector_entry,
     } = ctx_args;
@@ -314,40 +313,14 @@ pub fn render_sql_view(
             .on_hover_text(octa::i18n::t("sql.history_hint"));
         }
 
-        // Snippets: persistent named query library.
-        ui.menu_button(octa::i18n::t("sql.snippets"), |ui| {
-            ui.set_min_width(240.0);
-            if ui.button(octa::i18n::t("sql.snippet_save")).clicked() {
-                action.save_snippet = true;
-                ui.close();
-            }
-            if !sql_snippets.is_empty() {
-                ui.separator();
-                for snip in sql_snippets {
-                    ui.horizontal(|ui| {
-                        let hover = if snip.description.is_empty() {
-                            snip.query.clone()
-                        } else {
-                            format!("{}\n\n{}", snip.description, snip.query)
-                        };
-                        if ui.button(&snip.name).on_hover_text(hover).clicked() {
-                            action.insert_snippet = Some(snip.query.clone());
-                            ui.close();
-                        }
-                        if ui
-                            .small_button("\u{00d7}")
-                            .on_hover_text(octa::i18n::t("sql.snippet_delete"))
-                            .clicked()
-                        {
-                            action.delete_snippet = Some(snip.name.clone());
-                            ui.close();
-                        }
-                    });
-                }
-            }
-        })
-        .response
-        .on_hover_text(octa::i18n::t("sql.snippets_hint"));
+        // Snippets: opens the persistent named-query manager window.
+        if ui
+            .button(octa::i18n::t("sql.snippets"))
+            .on_hover_text(octa::i18n::t("sql.snippets_hint"))
+            .clicked()
+        {
+            action.open_snippets_window = true;
+        }
 
         let has_result = tab.sql_result.as_ref().is_some_and(|t| t.col_count() > 0);
         ui.add_enabled_ui(has_result, |ui| {

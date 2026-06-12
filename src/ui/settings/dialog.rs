@@ -576,6 +576,52 @@ impl SettingsDialog {
                 });
         });
 
+        // ── Summary ──
+        egui::CollapsingHeader::new(
+            egui::RichText::new(crate::i18n::t("settings.sec_summary"))
+                .strong()
+                .size(13.0),
+        )
+        .id_salt("settings_section_summary")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(crate::i18n::t("settings_hint.summary_intro"))
+                    .weak()
+                    .size(11.0),
+            );
+            ui.add_space(6.0);
+            egui::Grid::new("settings_summary")
+                .num_columns(2)
+                .spacing([16.0, 8.0])
+                .show(ui, |ui| {
+                    use crate::data::summary::SummaryStat;
+                    for stat in SummaryStat::all() {
+                        ui.label(crate::i18n::t(stat.i18n_key()))
+                            .on_hover_text(crate::i18n::t(stat.hint_key()));
+                        if stat.is_mandatory() {
+                            // Column name + type are always shown: render a
+                            // disabled, checked box so the user sees they are on
+                            // but can't turn them off.
+                            let mut on = true;
+                            ui.add_enabled(false, egui::Checkbox::new(&mut on, ""));
+                        } else {
+                            let mut on = self.draft.summary_stats.contains(&stat);
+                            if ui.checkbox(&mut on, "").changed() {
+                                if on {
+                                    if !self.draft.summary_stats.contains(&stat) {
+                                        self.draft.summary_stats.push(stat);
+                                    }
+                                } else {
+                                    self.draft.summary_stats.retain(|s| *s != stat);
+                                }
+                            }
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
+
         // ── Search & Editor ──
         egui::CollapsingHeader::new(
             egui::RichText::new(crate::i18n::t("settings.sec_search_editor"))
@@ -1227,6 +1273,11 @@ impl SettingsDialog {
                                 );
                             }
                         });
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.directory_tree_filter"))
+                        .on_hover_text(crate::i18n::t("settings_hint.directory_tree_filter"));
+                    ui.checkbox(&mut self.draft.directory_tree_filter_enabled, "");
                     ui.end_row();
                 });
         });

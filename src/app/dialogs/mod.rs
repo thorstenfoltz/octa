@@ -8,9 +8,9 @@ use super::state::OctaApp;
 
 pub(crate) mod about;
 pub(crate) mod add_column;
+pub(crate) mod chat_prompt;
 pub(crate) mod column_filter;
 pub(crate) mod column_format;
-pub(crate) mod column_inspector;
 pub(crate) mod conditional_format;
 pub(crate) mod date_ambiguity;
 pub(crate) mod delete_columns;
@@ -27,6 +27,7 @@ pub(crate) mod schema_export;
 pub(crate) mod settings;
 pub(crate) mod sheet_picker;
 pub(crate) mod sql_snippet;
+pub(crate) mod sql_snippets_window;
 pub(crate) mod sql_write_back;
 pub(crate) mod table_picker;
 pub(crate) mod time_calc;
@@ -43,7 +44,6 @@ impl OctaApp {
         add_column::render_add_column_dialog(self, ctx);
         column_filter::render_column_filter_dialog(self, ctx);
         column_format::render_column_format_dialog(self, ctx);
-        column_inspector::render_column_inspector_dialog(self, ctx);
         delete_columns::render_delete_columns_dialog(self, ctx);
         unsaved_changes::render_close_confirm_dialog(self, ctx);
         unsaved_changes::render_open_confirm_dialog(self, ctx);
@@ -67,6 +67,8 @@ impl OctaApp {
         conditional_format::render_conditional_format_dialog(self, ctx);
         pivot::render_pivot_dialog(self, ctx);
         sql_snippet::render_sql_snippet_dialog(self, ctx);
+        sql_snippets_window::render_sql_snippets_window(self, ctx);
+        chat_prompt::render_chat_prompt_dialog(self, ctx);
         time_calc::render_time_calc_dialog(self, ctx);
         schema_export::render_schema_export_dialog(self, ctx);
         sql_write_back::render_sql_write_back_dialog(self, ctx);

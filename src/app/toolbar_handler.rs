@@ -6,7 +6,7 @@ use eframe::egui;
 use octa::data::ViewMode;
 use octa::ui;
 
-use super::state::{ColumnInspectorSort, OctaApp, TabState};
+use super::state::{OctaApp, TabState};
 
 impl OctaApp {
     pub(crate) fn render_toolbar(&mut self, parent_ui: &mut egui::Ui) {
@@ -404,11 +404,6 @@ impl OctaApp {
         }
         if action.sort_columns_desc {
             self.sort_columns_alphabetically(false);
-        }
-        if action.show_column_inspector {
-            let tab = &mut self.tabs[self.active_tab];
-            tab.show_column_inspector = true;
-            tab.column_inspector_sort = ColumnInspectorSort::Default;
         }
         if action.show_all_columns {
             self.tabs[self.active_tab].hidden_columns.clear();

@@ -15,6 +15,7 @@ pub mod num_format;
 pub mod sample;
 pub mod schema_export;
 pub mod search;
+pub mod summary;
 pub mod time_calc;
 pub mod trim;
 pub mod unique_columns;

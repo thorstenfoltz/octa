@@ -63,16 +63,17 @@ carry over to the next.
 
 ## History and snippets
 
-The SQL toolbar has two dropdowns for reusing queries:
+The SQL toolbar has two ways to reuse queries:
 
-- **History** lists the recent queries run in this tab, most recent
-  first. Pick one to load it back into the editor. History is **per tab
-  and session-only** (it is not saved to disk).
-- **Snippets** is a **persistent, named library** of queries. Click
-  **Save current query as snippet...** to store the editor content under
-  a name and an optional description. Pick a snippet to load it (the
-  description appears on hover), or click the **x** beside it to delete
-  it. Snippets are stored in `sql_snippets.json` in the
+- **History** is a dropdown listing the recent queries run in this tab,
+  most recent first. Pick one to load it back into the editor. History is
+  **per tab and session-only** (it is not saved to disk).
+- **Snippets** opens a **manager window** for a persistent, named library
+  of queries. **Save current query as snippet...** stores the editor
+  content under a name and an optional description; each saved snippet has
+  **Insert** (load it into the editor) and **x** (delete). The window has
+  the usual minimise / maximise / close controls and is resizable.
+  Snippets are stored in `sql_snippets.json` in the
   [config directory](../reference/settings.md), so they survive restarts
   and are shared across all tabs.
 

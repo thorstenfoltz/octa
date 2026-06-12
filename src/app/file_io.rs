@@ -919,6 +919,21 @@ impl OctaApp {
                     .ok()
                     .map(|v| octa::formats::yaml_reader::yaml_to_json(&v));
             }
+            // Initial view for structured-text formats (overrides the Table
+            // default chosen above): a `.json` file opens as a collapsible tree
+            // when it parsed, a `.yml`/`.yaml` file opens as raw text. Both can
+            // still be switched via the View menu. JSONL stays tabular. Gating
+            // JSON on `json_value.is_some()` keeps `view_mode` in sync with
+            // `available_view_modes`, which only offers JsonTree when parsed.
+            if tab.table.format_name.as_deref() == Some("JSON") && tab.json_value.is_some() {
+                tab.view_mode = ViewMode::JsonTree;
+                tab.sql_panel_open = false;
+                tab.sql_editor_focus_pending = false;
+            } else if tab.table.format_name.as_deref() == Some("YAML") {
+                tab.view_mode = ViewMode::Raw;
+                tab.sql_panel_open = false;
+                tab.sql_editor_focus_pending = false;
+            }
             // Both trees share the depth+expand tracking fields, since only
             // one tree view is shown per tab at a time.
             let tree_root = tab.json_value.as_ref().or(tab.yaml_value.as_ref());

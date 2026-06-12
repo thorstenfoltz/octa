@@ -8,6 +8,7 @@ pub(crate) mod bg_rows;
 pub(crate) mod central_panel;
 pub(crate) mod chat;
 pub(crate) mod chat_panel;
+pub(crate) mod chat_prompts;
 pub(crate) mod clipboard;
 pub(crate) mod dialogs;
 pub(crate) mod easter_eggs;

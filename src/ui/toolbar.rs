@@ -52,7 +52,14 @@ fn top_menu_button(
             egui::UiStackInfo::new(egui::UiKind::Menu)
                 .with_tag_value(egui::containers::menu::MenuConfig::MENU_CONFIG_TAG, config),
         )
-        .show(content);
+        .show(|ui| {
+            // Never wrap menu-item labels: in non-English locales longer strings
+            // (e.g. German/Russian) would otherwise break onto a second line and
+            // look cramped. `Extend` lets the popup grow to the widest item
+            // instead, applied once here so every top menu inherits it.
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            content(ui);
+        });
 
     resp
 }
@@ -112,8 +119,6 @@ pub struct ToolbarAction {
     pub sort_columns_asc: bool,
     /// Reorder all columns reverse-alphabetically by name (case-insensitive).
     pub sort_columns_desc: bool,
-    /// Open the read-only Column Inspector dialog.
-    pub show_column_inspector: bool,
     /// Clear the active tab's `hidden_columns` so every column becomes
     /// visible again. Wired to Edit -> Show hidden columns.
     pub show_all_columns: bool,
@@ -560,14 +565,6 @@ pub fn draw_toolbar(
                     );
                     if sort_cols_desc.clicked() {
                         action.sort_columns_desc = true;
-                        ui.close();
-                    }
-
-                    if ui
-                        .button(crate::i18n::t("edit_menu.column_inspector"))
-                        .clicked()
-                    {
-                        action.show_column_inspector = true;
                         ui.close();
                     }
 

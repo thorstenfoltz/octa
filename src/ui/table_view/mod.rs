@@ -74,6 +74,11 @@ pub struct TableViewState {
     /// horizontally (Excel-style freeze). 0 = nothing frozen. Set from the
     /// column-header context menu; session-only, like column widths.
     pub frozen_cols: usize,
+    /// Optional per-column hover descriptions shown on the column header.
+    /// Indexed by column. An empty vec (or an empty/short entry) means no
+    /// tooltip. Used by the Summary tab to explain each statistic; empty
+    /// everywhere else, so it has no effect on ordinary tables.
+    pub header_tooltips: Vec<String>,
 }
 
 const DEFAULT_ROW_HEIGHT: f32 = 26.0;

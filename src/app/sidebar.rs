@@ -12,8 +12,27 @@ impl OctaApp {
         if self.directory_tree.is_none() {
             return;
         }
+        // Build the openable-extension allowlist once per frame when the
+        // filter is on. Includes the registry's extensions plus any the user
+        // forced into text mode, all lowercased. `None` lists every file.
+        let allowed_exts: Option<std::collections::HashSet<String>> =
+            if self.settings.directory_tree_filter_enabled {
+                let mut set: std::collections::HashSet<String> = self
+                    .registry
+                    .all_extensions()
+                    .into_iter()
+                    .map(|e| e.to_ascii_lowercase())
+                    .collect();
+                for e in &self.settings.text_mode_extensions {
+                    set.insert(e.trim_start_matches('.').to_ascii_lowercase());
+                }
+                Some(set)
+            } else {
+                None
+            };
         let tree_action = {
             let position = self.settings.directory_tree_position;
+            let allowed_ref = allowed_exts.as_ref();
             let state = self.directory_tree.as_mut().unwrap();
             let mut action = ui::directory_tree::TreeAction::default();
             // Default to a 50/50 split the first time the sidebar is shown;
@@ -29,7 +48,8 @@ impl OctaApp {
                         .default_size(default_w)
                         .size_range(80.0..=max_w)
                         .show_inside(parent_ui, |ui| {
-                            action = ui::directory_tree::render_directory_tree(ui, state);
+                            action =
+                                ui::directory_tree::render_directory_tree(ui, state, allowed_ref);
                         });
                 }
                 ui::settings::DirectoryTreePosition::Right => {
@@ -38,7 +58,8 @@ impl OctaApp {
                         .default_size(default_w)
                         .size_range(80.0..=max_w)
                         .show_inside(parent_ui, |ui| {
-                            action = ui::directory_tree::render_directory_tree(ui, state);
+                            action =
+                                ui::directory_tree::render_directory_tree(ui, state, allowed_ref);
                         });
                 }
             }

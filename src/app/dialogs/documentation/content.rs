@@ -454,17 +454,46 @@ describe the table as you currently see it, not the file on disk.
 
 ## What it shows
 
-The statistics come from DuckDB's `SUMMARIZE`, so the exact column set
-can vary slightly between DuckDB releases. Typical columns:
+One row per source column. The column titles are shown in your chosen
+language, and hovering a title explains what that statistic means. The
+available statistics are:
 
-- `column_name` - the source column this row describes.
-- `column_type` - the SQL type DuckDB inferred for it.
-- `min` / `max` - smallest and largest value (lexicographic for text).
-- `approx_unique` - approximate count of distinct values.
-- `avg` / `std` - mean and standard deviation (numeric columns only).
-- `q25` / `q50` / `q75` - quartiles (numeric columns only).
-- `count` - number of non-null values.
-- `null_percentage` - share of null values in the column.
+- **Column** / **Type** - the source column and its inferred data type
+  (always shown).
+- **Min** / **Max** - smallest and largest value.
+- **Mean** / **Median** / **Std dev** - average, middle value, and
+  standard deviation (numeric columns).
+- **Q25** / **Q75** - lower and upper quartiles (numeric columns).
+- **Not null** / **Nulls** / **Null %** - counts of present and missing
+  values, and the missing share.
+- **Unique** - exact count of distinct values (nulls excluded).
+- **Distinct ratio** - unique values divided by total rows.
+- **Total rows** - row count of the whole table.
+
+## How Min / Max work for text
+
+For numbers, dates, and times, **Min** and **Max** are the smallest and
+largest values as you'd expect. For **text** columns the comparison is
+"dictionary" order by character code, not by length or meaning:
+
+- It compares character by character, left to right.
+- It is case-sensitive, and uppercase letters come before lowercase
+  ones, so `"Zebra"` sorts before `"apple"`.
+- Digits compare by their character, not their numeric value, so as
+  text `"10"` sorts before `"9"` (the character `"1"` comes before
+  `"9"`). Numbers stored as text do not sort numerically.
+
+If a column should sort numerically or by date, give it a numeric or
+date type (Octa's date inference and the SQL view's `CAST` can help)
+rather than leaving it as text.
+
+## Choosing which statistics show
+
+**Settings > Summary** has a checkbox per statistic. Turn off the ones
+you don't care about and the Summary tab drops those columns; Column and
+Type are always present. The figures come from a single DuckDB
+`SUMMARIZE` pass, plus derived null counts and an exact distinct-value
+count.
 
 ## Working with the result
 
@@ -706,6 +735,14 @@ The **Cycle view mode** shortcut (default **F4**, remappable) advances through
 the modes available for the current tab. **F8** toggles a session-only
 read-only mode that disables every editing path while still allowing copy
 and Save-As.
+
+## Default view per file type
+
+Some files open in a non-Table view that suits them better: a `.json`
+file opens in the JSON Tree, and a `.yml` / `.yaml` file opens in Raw
+Text. You can always switch to another mode from the View menu; this
+just picks a sensible starting point. JSONL and every other format
+still open in Table View.
 "#;
 
 pub(super) const COMPARE_VIEW: &str = r#"# Compare View
@@ -893,6 +930,11 @@ by default; switch to the right under **Settings > Directory Tree**). Click
 any file in the tree to open it in a new tab. **File > Close Directory**
 hides the sidebar without touching the open tabs.
 
+By default the sidebar lists only sub-folders and files Octa can open, so a
+folder full of unrelated files stays readable. Turn off **Show only openable
+files** under **Settings > Directory Tree** to list every file instead.
+Files without an extension are hidden while the filter is on.
+
 For multi-table databases (SQLite, DuckDB), a picker dialog lists tables and
 their row counts before any data loads.
 "#;
@@ -914,17 +956,18 @@ query under the cursor.
 
 ## History and snippets
 
-Two dropdowns sit on the SQL toolbar:
+The SQL toolbar offers two ways to reuse queries:
 
-- **History** lists the recent queries you have run in this tab (most
-  recent first). Pick one to load it back into the editor. The history
-  is per tab and lasts for the session only.
-- **Snippets** is a saved library of named queries that persists across
-  sessions. Use **Save current query as snippet...** to store the editor
-  content under a **name** and an optional **description**; pick a snippet
-  from the list to load it (the description shows on hover), or use the
-  **x** beside it to delete it. Snippets live in `sql_snippets.json` in
-  Octa's config directory.
+- **History** is a dropdown listing the recent queries you have run in
+  this tab (most recent first). Pick one to load it back into the editor.
+  The history is per tab and lasts for the session only.
+- **Snippets** opens a manager window for a saved library of named queries
+  that persists across sessions. Use **Save current query as snippet...**
+  to store the editor content under a **name** and an optional
+  **description**; each snippet has **Insert** (load it into the editor)
+  and **x** (delete). The window has minimise / maximise / close controls
+  and is resizable. Snippets live in `sql_snippets.json` in Octa's config
+  directory.
 
 ## Mutation highlight
 
@@ -1012,6 +1055,15 @@ Conversations are saved automatically as JSON under `chat_sessions/` in
 your config directory. Use **New chat** to start fresh and **History**
 to reopen or delete past conversations.
 
+## Saved prompts
+
+The **Prompts** button next to Send opens a small manager window for
+reusable prompts. **Save current prompt...** names and stores whatever is
+in the input box; each saved prompt has **Insert** (drop it into the
+input) and **x** (delete). The window has the usual minimise / maximise /
+close controls and is resizable. Prompts persist across sessions in
+`chat_prompts.json` in your config directory, the same way SQL snippets do.
+
 ## Tool-call audit log
 
 Turn on **Settings > Chat / Assistant > Tool-call audit log** (off by
@@ -1060,6 +1112,9 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
   binary display mode (Binary / Hex / Text).
 - **Search & Editor**: default search mode, search result display, search
   history size, tab size.
+- **Summary**: a checkbox per statistic the **Analyse > Summary** tab can
+  show (Min, Max, Mean, Median, Std dev, quartiles, null counts, unique,
+  distinct ratio, total rows). Column and Type are always shown.
 - **File-Specific**: column coloring for raw CSV/TSV, "warn before
   un-aligning" guard, "warn on date format change" banner, "trim
   whitespace on load" + "warn on whitespace trim" toggles, "read-only
@@ -1072,7 +1127,8 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
   changes require a restart.
 - **Map**: default mode (Tiles / Geometry only), tile URL template,
   fall-back-to-geometry toggle for offline / blocked tile fetches.
-- **Directory Tree**: sidebar position (left / right).
+- **Directory Tree**: sidebar position (left / right), and "show only
+  openable files" (on by default) to hide files Octa can't open.
 - **Shortcuts**: rebind any keyboard shortcut. Conflicting bindings are
   flagged.
 - **Performance**: initial-load row cap (streaming readers), syntax-

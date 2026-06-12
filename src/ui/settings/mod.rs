@@ -894,6 +894,20 @@ pub struct AppSettings {
     /// clear, which the UI warns about explicitly.
     #[serde(default)]
     pub chat_api_keys: std::collections::BTreeMap<String, String>,
+    /// Which statistics the Analyse -> Summary tab shows, in addition to the
+    /// always-present column name and type. Defaults to the full set. See
+    /// `src/data/summary.rs`.
+    #[serde(default = "default_summary_stats")]
+    pub summary_stats: Vec<crate::data::summary::SummaryStat>,
+    /// When a folder is open in the directory-tree sidebar, show only
+    /// sub-folders and files Octa can open (by extension). Default `true`.
+    /// Turn off to list every file regardless of type.
+    #[serde(default = "default_true")]
+    pub directory_tree_filter_enabled: bool,
+}
+
+fn default_summary_stats() -> Vec<crate::data::summary::SummaryStat> {
+    crate::data::summary::SummaryStat::default_enabled()
 }
 
 fn default_true() -> bool {
@@ -1081,6 +1095,8 @@ impl Default for AppSettings {
             chat_audit_log_warn_bytes: default_chat_audit_warn_bytes(),
             chat_audit_log_warn_enabled: true,
             chat_api_keys: std::collections::BTreeMap::new(),
+            summary_stats: default_summary_stats(),
+            directory_tree_filter_enabled: true,
         }
     }
 }

@@ -67,9 +67,6 @@ impl OctaApp {
             let tab = &self.tabs[self.active_tab];
             workspace_snapshot(tab)
         };
-        // Cloned up front so the render closure (which mutably borrows `tab`)
-        // can hold a reference without fighting the `&mut self.tabs` borrow.
-        let sql_snippets_owned = self.sql_snippets.clone();
 
         let tab = &mut self.tabs[self.active_tab];
         let partial_rows = tab.table.total_rows.and_then(|total| {
@@ -106,7 +103,6 @@ impl OctaApp {
                     editor_font,
                     workspace_tables: &workspace_rows,
                     workspace_attachments: &workspace_attachments,
-                    sql_snippets: &sql_snippets_owned,
                     inspector_selection: inspector_selection_owned.as_ref(),
                     inspector_entry: inspector_entry_owned.as_ref(),
                 },
@@ -232,6 +228,9 @@ impl OctaApp {
         if let Some(name) = sql_action.delete_snippet {
             self.sql_snippets.retain(|s| s.name != name);
             super::sql_snippets::save(&self.sql_snippets);
+        }
+        if sql_action.open_snippets_window {
+            self.sql_snippets_window_open = !self.sql_snippets_window_open;
         }
     }
 

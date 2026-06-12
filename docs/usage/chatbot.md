@@ -267,6 +267,17 @@ your config directory:
 - macOS: `~/Library/Application Support/Octa/chat_sessions/`
 - Windows: `%APPDATA%\Octa\chat_sessions\`
 
+## Saved prompts
+
+The **Prompts** button next to **Send** opens a small manager window for
+reusable prompts. **Save current prompt...** names and stores whatever is in
+the input box; each saved prompt then has **Insert** (drop it into the input)
+and **x** (delete). The window has the usual minimise / maximise / close
+controls and is resizable. Prompts persist across sessions as
+`chat_prompts.json` in your config directory, the same way SQL snippets do.
+Handy for repeated tasks like "profile every open table" or a house-style
+analysis request.
+
 ## Tool-call audit log
 
 For auditing, you can record **every tool the assistant runs**. Turn on

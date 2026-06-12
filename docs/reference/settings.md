@@ -128,9 +128,28 @@ and the filesystem sandbox.
 
 ## Directory Tree
 
-| Setting              | Default | Notes                                                         |
-|----------------------|---------|---------------------------------------------------------------|
-| **Sidebar position** | Left    | Side the directory tree sidebar docks on (`Left` or `Right`). |
+| Setting                     | Default | Notes                                                                                                                                                                            |
+|-----------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Sidebar position**        | Left    | Side the directory tree sidebar docks on (`Left` or `Right`).                                                                                                                    |
+| **Show only openable files**| On      | List only sub-folders and files Octa can open (by extension). Files without an extension are hidden while on. Turn off to list every file. TOML key: `directory_tree_filter_enabled`. |
+
+## Summary
+
+The **Analyse -> Summary** tab shows one row of statistics per column.
+Each statistic below has a checkbox; turn any off to drop that column.
+**Column** and **Type** are always shown. TOML key: `summary_stats`.
+
+| Statistic        | Notes                                            |
+|------------------|--------------------------------------------------|
+| **Min / Max**    | Smallest and largest value.                      |
+| **Mean / Median**| Average and middle value (numeric columns).      |
+| **Std dev**      | Standard deviation (numeric columns).            |
+| **Q25 / Q75**    | Lower and upper quartiles (numeric columns).     |
+| **Not null**     | Count of present (non-null) values.              |
+| **Nulls / Null %**| Count and share of missing values.              |
+| **Unique**       | Exact count of distinct values (nulls excluded). |
+| **Distinct ratio**| Unique values divided by total rows.            |
+| **Total rows**   | Row count of the whole table.                    |
 
 ## Shortcuts
 

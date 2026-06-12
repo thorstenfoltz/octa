@@ -10,9 +10,7 @@ use octa::data::{self, DataTable, ViewMode};
 use octa::ui;
 use octa::ui::table_view::TableViewState;
 
-use super::state::{
-    ColumnInspectorSort, OctaApp, RawCsvEscape, RawCsvQuote, SearchNavState, TabState,
-};
+use super::state::{OctaApp, RawCsvEscape, RawCsvQuote, SearchNavState, TabState};
 
 impl TabState {
     /// Build the [`RowMatcher`](octa::data::search::RowMatcher) for this tab's
@@ -100,11 +98,6 @@ impl TabState {
             sql_workspace_tree_expanded: std::collections::HashSet::new(),
             sql_write_back: None,
             first_row_is_header: true,
-            show_column_inspector: false,
-            column_inspector_sort: ColumnInspectorSort::Default,
-            column_inspector_size: octa::ui::settings::DialogSize::default(),
-            column_inspector_selected: std::collections::HashSet::new(),
-            column_inspector_anchor: None,
             value_frequency_col: None,
             value_frequency_top_n: Some(50),
             value_frequency_bin_numeric: true,
@@ -400,8 +393,9 @@ impl OctaApp {
             })
             .unwrap_or_else(|| source.title_display());
 
-        let outcome = match octa::sql::run_query(&snap, "SUMMARIZE data") {
-            Ok(o) => o,
+        let enabled = self.settings.summary_stats.clone();
+        let table = match octa::data::summary::build_summary_table(&snap, &enabled) {
+            Ok(t) => t,
             Err(e) => {
                 self.status_message =
                     Some((format!("Summary failed: {e}"), std::time::Instant::now()));
@@ -409,12 +403,23 @@ impl OctaApp {
             }
         };
 
+        // Header tooltips: one localized description per active statistic, in
+        // the same column order the Summary table was built with.
+        let header_tooltips: Vec<String> = octa::data::summary::active_stats(&enabled)
+            .iter()
+            .map(|s| octa::i18n::t(s.hint_key()))
+            .collect();
+
         let default_search_mode = self.settings.default_search_mode;
         let mut new_tab = super::state::TabState::new(default_search_mode);
-        new_tab.table = outcome.table;
+        new_tab.table = table;
         new_tab.table.source_path = None;
         new_tab.table.format_name = None;
-        new_tab.custom_tab_label = Some(format!("Summary - {source_label}"));
+        new_tab.table_state.header_tooltips = header_tooltips;
+        new_tab.custom_tab_label = Some(format!(
+            "{} - {source_label}",
+            octa::i18n::t("summary.tab_label")
+        ));
         self.tabs.push(new_tab);
         self.active_tab = self.tabs.len() - 1;
     }

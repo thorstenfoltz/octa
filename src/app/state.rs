@@ -35,16 +35,6 @@ pub(crate) enum ClosedTabSnapshot {
     },
 }
 
-/// Sort order for the Column Inspector dialog. View-only - does not mutate
-/// the underlying column order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum ColumnInspectorSort {
-    #[default]
-    Default,
-    Asc,
-    Desc,
-}
-
 /// What to do with duplicate rows once `find_duplicate_rows` has
 /// returned them. `Highlight` marks each row in orange so the user can
 /// see them in place; `NewTab` opens a new tab containing only those
@@ -82,6 +72,14 @@ pub(crate) struct SqlSnippetDraft {
     pub(crate) name: String,
     pub(crate) description: String,
     pub(crate) query: String,
+}
+
+/// Draft state for the "Save chat prompt" dialog: the editable name and
+/// description plus the captured prompt body. Mirrors [`SqlSnippetDraft`].
+pub(crate) struct ChatPromptDraft {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) text: String,
 }
 
 /// Pivot vs Unpivot (long<->wide reshape) for the Pivot dialog.
@@ -590,18 +588,6 @@ pub(crate) struct TabState {
     /// headers (the default for most readers). When toggled off, the headers
     /// are pushed back into row 0 and column names become `column_1..N`.
     pub(crate) first_row_is_header: bool,
-    /// Whether the Column Inspector modal is open for this tab.
-    pub(crate) show_column_inspector: bool,
-    /// Sort order applied inside the Column Inspector (view-only).
-    pub(crate) column_inspector_sort: ColumnInspectorSort,
-    /// Window-size mode for the Column Inspector (Normal/Maximized/Minimized).
-    pub(crate) column_inspector_size: ui::settings::DialogSize,
-    /// Selected row indices (display-position indices) inside the Column
-    /// Inspector. Drives Ctrl+C / context-menu copy. Cleared when the dialog
-    /// closes.
-    pub(crate) column_inspector_selected: std::collections::HashSet<usize>,
-    /// Anchor index for Shift+click range selection in the Column Inspector.
-    pub(crate) column_inspector_anchor: Option<usize>,
     /// Column index whose value-frequency dialog is currently open for this
     /// tab. `None` = dialog closed. Set by Ctrl+Shift+I, column-header
     /// right-click -> "Value frequency...", or the Edit menu.
@@ -828,6 +814,18 @@ pub(crate) struct OctaApp {
     /// Active "Save SQL snippet" dialog (name + description buffers + the query
     /// being saved), or `None` when closed.
     pub(crate) sql_snippet_save: Option<SqlSnippetDraft>,
+    /// Whether the SQL snippets manager window is open (app-level; the snippet
+    /// library is shared across tabs).
+    pub(crate) sql_snippets_window_open: bool,
+    /// Window-size mode for the SQL snippets manager window.
+    pub(crate) sql_snippets_window_size: ui::settings::DialogSize,
+    /// Saved chat prompts (named prompt library), persisted to
+    /// `<config_dir>/chat_prompts.json`. Offered in the chat panel's Prompts
+    /// manager window.
+    pub(crate) chat_prompts: Vec<super::chat_prompts::ChatPrompt>,
+    /// Active "Save chat prompt" dialog (name + description buffers + the prompt
+    /// being saved), or `None` when closed.
+    pub(crate) chat_prompt_save: Option<ChatPromptDraft>,
     pub(crate) settings: AppSettings,
     /// The concrete icon variant in use for this session. Equals
     /// `settings.icon_variant` for non-Random; for Random, holds the

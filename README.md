@@ -95,7 +95,7 @@ default, and keyboard shortcut in detail.
 - Column resize, drag-and-drop reorder, and double-click best-fit width
 - Ascending/descending sort by any column
 - Cell, row, and column selection with clipboard copy/paste
-- Search and filter across all columns in real time (Plain / Wildcard / Regex modes)
+- Search and filter across all columns in real time (Plain / Wildcard / Regex modes), with match-case and whole-word toggles, a single-column scope, and a persistent **Recent** history
 - Excel-style formulas in cells (`=A1+B1`) and as the "Insert column" formula
 - Thousand separators for numeric cells (English / European styles) plus per-column rounding, all display-only and never written to saved data
 
@@ -110,16 +110,20 @@ view (Python, Rust, shell, Terraform, etc.)
 - **Notebook** — rendered Jupyter notebook with code cells, markdown cells, and outputs.
 - **EPUB Reader** — chapter-by-chapter rendered text for `.epub` files. Top toolbar shows the book title, Previous/Next, and a chapter combo. Embedded images render as a thumbnail strip below the chapter body.
 - **Map** — slippy-map view for `.geojson` files. OSM tiles (configurable URL) with feature geometries painted on top. Toolbar toggles Tiles ↔ Geometry-only; plain mouse-wheel zoom; double-click to zoom in.
-- **Compare** — side-by-side comparison of two files. Two sub-modes toggle in
-the Compare toolbar: **Text Diff** (git-style line diff) and **Row Hash Diff**
-(BLAKE3-hashed columns; uniques + shared rows bucketed). Cross-format works
-since hashing sees cell text only.
-- **SQL Query** — write a query against the current table (exposed as `data`) and see results beneath. Line numbers, chip-style autocomplete, UPPER/lower case conversion.
+- **Compare** — side-by-side comparison of two files. Four sub-modes toggle in
+the Compare toolbar: **Text Diff** (git-style line diff), **Row Hash Diff**
+(BLAKE3-hashed columns; uniques + shared rows bucketed), **Ordered** (rows lined
+up positionally with the exact changed cells), and **Join** (rows matched on a
+key column into added / removed / changed). Cross-format works since hashing
+sees cell text only.
+- **SQL Query** — write a query against the current table (exposed as `data`) and see results beneath. Line numbers, chip-style autocomplete, UPPER/lower case conversion, a per-tab query **History**, a saved-**Snippets** library, and a brief green highlight of the cells a mutation changed.
 
 ### Editing
 
 - Insert, delete, and move rows and columns
 - Colour marking for cells, rows, and columns with six colour choices
+- Conditional formatting: rule-based automatic cell colouring (equals, contains, greater-than, is empty, ...) that applies live
+- Copy the current selection as a GitHub-flavoured Markdown table
 - Undo / Redo for cell edits, structural changes, and colour marks
 - Leading/trailing whitespace trimmed from string cells and column titles on load (configurable, with a banner listing the affected columns)
 - Unsaved-changes guards on close and file open
@@ -129,9 +133,10 @@ since hashing sees cell text only.
 
 ### Inspecting data
 
-- **Column Inspector** — schema-level overview of every column with types, null counts, and basic stats
+- **Summary** — one row of statistics per column (min, max, mean, median, standard deviation, quartiles, null counts, exact unique count, distinct ratio, total rows). Column titles are localised and explained on hover, and you choose which statistics appear under **Settings → Summary**
 - **Value Frequency** — `value_counts()`-style top-N values for any column.
 Numeric columns can be turned into a histogram: type a bin count (or leave it for automatic Sturges binning) and get that many equal-width ranges with their counts
+- **Pivot / Unpivot** — reshape a table between long and wide form (DuckDB `PIVOT` / `UNPIVOT`) into a new tab
 - **Schema Export** — render the column list as Postgres / MySQL / SQLite / Databricks / Snowflake DDL, Pydantic v2, TypeScript interface, JSON Schema, or a Rust struct. Also available from the CLI (`octa --export-schema`) and over MCP.
 - **Chart** — open a new tab plotting the active table as a histogram, bar, line, scatter, or box chart via `egui_plot`.
 Customisable title / axis / legend / per-series colour, PNG/SVG/PDF export, log scale.
@@ -165,7 +170,7 @@ Output format is selectable with `-f / --format {tsv|json|csv}` (TSV default). R
 ### MCP server
 
 `octa --mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io/) server on stdio that exposes Octa's reading, inspection, and write capabilities as MCP tools. Point any MCP client (Claude Desktop, Claude Code,
-MCP Inspector, or any compatible client) at the same binary and the model can query your local data files directly, no scripting in between.
+MCP Inspector, or any compatible client) at the same binary and the model can query your local data files directly, no scripting in between. Add `--mcp-read-only` to drop the data-writing tools for clients that should only ever read.
 
 ### Assistant (in-app chat)
 
@@ -180,12 +185,17 @@ Groq / LM Studio) or run fully offline with [Ollama](https://ollama.com/). API
 keys are kept in your OS keyring, reads are sandboxed
 to the files you have open, and writes go to a configurable export directory.
 
+A **Prompts** library lets you save and reuse common requests, and an optional
+tool-call audit log records every tool the assistant runs (metadata only, never
+cell contents) for review.
+
 ### Settings
 
 - Configurable font size and theme
 - Font picker for the SQL editor
 - Performance knobs such as streaming row caps and size limits
 - User-extensible "open as plain text" extension list
+- Directory sidebar filter to list only files Octa can open (on by default)
 - Remappable keyboard shortcuts
 
 ### Other

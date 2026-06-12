@@ -258,8 +258,6 @@ pub enum ShortcutAction {
     OpenSettings,
     /// Open the Documentation dialog.
     OpenDocumentation,
-    /// Open the Column Inspector dialog for the active tab.
-    OpenColumnInspector,
     /// Open the Excel-style Column Filter dialog for the active tab. The
     /// Search menu's entry deliberately omits this shortcut from its label
     /// (the binding is discoverable via Settings -> Shortcuts).
@@ -369,7 +367,6 @@ impl ShortcutAction {
             Self::Redo => "Redo last undone change",
             Self::OpenSettings => "Open settings",
             Self::OpenDocumentation => "Open documentation",
-            Self::OpenColumnInspector => "Open column inspector",
             Self::OpenColumnFilter => "Open column filter",
             Self::CycleViewMode => "Cycle view mode",
             Self::ToggleReadOnly => "Toggle read-only mode",
@@ -431,7 +428,6 @@ impl ShortcutAction {
             Self::Redo => KeyCombo::ctrl(Key::Y),
             Self::OpenSettings => KeyCombo::plain(Key::F3),
             Self::OpenDocumentation => KeyCombo::plain(Key::F1),
-            Self::OpenColumnInspector => KeyCombo::ctrl(Key::I),
             Self::OpenColumnFilter => KeyCombo::ctrl_shift(Key::F),
             Self::CycleViewMode => KeyCombo::plain(Key::F4),
             Self::ToggleReadOnly => KeyCombo::plain(Key::F8),
@@ -570,10 +566,7 @@ impl ShortcutAction {
             | Self::FitAllColumns
             | Self::CompareSelectedTabs => G::View,
             Self::ExportSqlResult => G::SqlPanel,
-            Self::OpenDocumentation
-            | Self::OpenSettings
-            | Self::OpenColumnInspector
-            | Self::ColumnValueFrequency => G::Dialogs,
+            Self::OpenDocumentation | Self::OpenSettings | Self::ColumnValueFrequency => G::Dialogs,
         }
     }
 }
