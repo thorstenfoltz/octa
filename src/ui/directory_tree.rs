@@ -265,27 +265,5 @@ pub fn read_sorted_dir(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sort_puts_directories_first() {
-        let tmp = tempfile::tempdir().unwrap();
-        std::fs::create_dir(tmp.path().join("zdir")).unwrap();
-        std::fs::write(tmp.path().join("afile.txt"), "").unwrap();
-        std::fs::write(tmp.path().join("bfile.txt"), "").unwrap();
-        let out = read_sorted_dir(tmp.path()).unwrap();
-        let names: Vec<String> = out
-            .iter()
-            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
-            .collect();
-        assert_eq!(names, vec!["zdir", "afile.txt", "bfile.txt"]);
-    }
-
-    #[test]
-    fn state_has_root_expanded_by_default() {
-        let tmp = tempfile::tempdir().unwrap();
-        let s = DirectoryTreeState::new(tmp.path().to_path_buf());
-        assert!(s.expanded.contains(&tmp.path().to_path_buf()));
-    }
-}
+#[path = "directory_tree_tests.rs"]
+mod tests;

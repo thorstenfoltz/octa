@@ -16,7 +16,10 @@ use std::sync::Arc;
 pub enum ThemeMode {
     Light,
     Dark,
-    Nord,
+    /// Calm arctic, north-bluish palette. Formerly named "Nord"; the
+    /// `serde(alias)` keeps old settings loading.
+    #[serde(alias = "Nord")]
+    North,
     Dracula,
     GruvboxDark,
     HighContrast,
@@ -26,12 +29,19 @@ pub enum ThemeMode {
     /// Refined gentleman's-club palette: deep walnut and burgundy backgrounds
     /// with champagne-gold accents and warm parchment text.
     Gentleman,
-    /// Deep ocean blue: a Nord-flavoured but bluer and more saturated palette,
+    /// Deep ocean blue: a North-flavoured but bluer and more saturated palette,
     /// with abyssal navy backgrounds and lagoon-blue accents.
     DeepSea,
     /// Frost: cool, near-white backgrounds with pale ice-blue accents and
     /// dark slate text. The light counterpart to Deep Sea.
     Frost,
+    /// Warm: a friendly light theme. Cream and blush backgrounds, soft
+    /// rose/mauve accents and dark plum text. A warm counterweight to the
+    /// cooler, darker presets.
+    Warm,
+    /// Forest: a deep woodland dark theme. Dark forest-green backgrounds,
+    /// moss / leaf-green accents, warm bark tones and pale parchment text.
+    Forest,
     /// Hidden easter-egg theme - not listed in `ALL`, only reachable by
     /// clicking the toolbar logo seven times in quick succession. Cycles the
     /// accent hue every frame.
@@ -42,7 +52,9 @@ impl ThemeMode {
     pub const ALL: &[ThemeMode] = &[
         Self::Light,
         Self::Dark,
-        Self::Nord,
+        Self::Warm,
+        Self::Forest,
+        Self::North,
         Self::Dracula,
         Self::GruvboxDark,
         Self::HighContrast,
@@ -56,14 +68,15 @@ impl ThemeMode {
     /// and any view-mode logic that wants to swap text colors per brightness.
     pub fn is_dark(self) -> bool {
         match self {
-            Self::Light | Self::Manga | Self::Frost => false,
+            Self::Light | Self::Manga | Self::Frost | Self::Warm => false,
             Self::Dark
-            | Self::Nord
+            | Self::North
             | Self::Dracula
             | Self::GruvboxDark
             | Self::HighContrast
             | Self::Gentleman
             | Self::DeepSea
+            | Self::Forest
             | Self::Rainbow => true,
         }
     }
@@ -90,7 +103,9 @@ impl ThemeMode {
         match self {
             Self::Light => "Light",
             Self::Dark => "Dark",
-            Self::Nord => "Nord",
+            Self::Warm => "Warm",
+            Self::Forest => "Forest",
+            Self::North => "North",
             Self::Dracula => "Dracula",
             Self::GruvboxDark => "Gruvbox Dark",
             Self::HighContrast => "High Contrast",
@@ -212,7 +227,9 @@ impl ThemeColors {
         match mode {
             ThemeMode::Dark => Self::dark(),
             ThemeMode::Light => Self::light(),
-            ThemeMode::Nord => Self::nord(),
+            ThemeMode::Warm => Self::warm(),
+            ThemeMode::Forest => Self::forest(),
+            ThemeMode::North => Self::north(),
             ThemeMode::Dracula => Self::dracula(),
             ThemeMode::GruvboxDark => Self::gruvbox_dark(),
             ThemeMode::HighContrast => Self::high_contrast(),

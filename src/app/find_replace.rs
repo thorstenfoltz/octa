@@ -111,6 +111,15 @@ impl OctaApp {
             }
         }
 
+        // Validation: cache the cells failing a rule so the renderer can paint
+        // them without re-scanning the table every frame. Cheap no-op when no
+        // rules are set.
+        tab.validation_violations = if tab.validation_rules.is_empty() {
+            std::collections::HashSet::new()
+        } else {
+            octa::data::validation::violations(&tab.table, &tab.validation_rules)
+        };
+
         tab.filter_dirty = false;
         tab.table_state.invalidate_row_heights();
     }

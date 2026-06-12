@@ -1,11 +1,32 @@
 # Release notes
 
-New analysis and formatting tools (conditional formatting, pivot / unpivot,
-key-matched comparison, a rebuilt Summary tab), saveable SQL snippets and chat
+New analysis and formatting tools (conditional formatting, data validation,
+pivot / unpivot, key-matched comparison, multi-column sort, a rebuilt Summary
+tab with more statistics), two new themes, saveable SQL snippets and chat
 prompts, a richer search bar, a read-only mode for the MCP server, and a long
 list of smaller conveniences and fixes.
 
+## Appearance
+
+**Two new themes.** **Warm** is a friendly light theme in cream and blush with
+soft rose accents; **Forest** is a deep woodland dark theme with forest-green
+backgrounds, moss-green accents and pale parchment text. Pick them under
+**Settings -> Appearance -> Default theme**.
+
+**Nord is now called North.** Only the name changed; the arctic blue colours
+are exactly as before, and an existing `Nord` setting still loads.
+
 ## Analysis and formatting
+
+**Data validation.** **Edit -> Data validation...** flags cells that break a rule
+you define (not empty, in a numeric range, matches a regular expression, unique in
+its column, or within a maximum length). Failing cells are highlighted red, the
+dialog shows a live count, and rules apply as you edit them. Highlighting is
+per-tab and session-only and never changes the data.
+
+**Sort by several columns.** **Analyse -> Sort by columns...** sorts by an ordered
+list of columns, each ascending or descending. The first column is the primary
+sort and later columns break ties.
 
 **Conditional formatting.** **Edit -> Conditional formatting...** colours cells
 automatically from rules you define (equals, contains, greater-than, is empty,
@@ -23,13 +44,18 @@ reports added, removed, and changed rows. Changed rows carry the names of the
 differing columns. The same `ordered` / `join` modes are available from
 `octa --diff` and the MCP `diff_tables` tool.
 
-**Rebuilt Summary tab.** **Analyse -> Summary...** now shows localised column
-titles in your chosen language, with a hover description on each. You can choose
-which statistics appear under **Settings -> Summary** (min, max, mean, median,
-standard deviation, quartiles, not-null and null counts, null percentage,
-unique count, distinct ratio, total rows); Column and Type are always shown. The
-**Unique** count is now exact (`COUNT(DISTINCT)`), so it never exceeds the row
-count. The older **Column Inspector** has been removed, as the Summary tab now
+**Rebuilt Summary tab.** **Analyse -> Summary...** shows one row of statistics
+per column. The column headers are short `snake_case` identifiers
+(`column_name`, `not_null`, `null_percent`, `total_rows`, ...) so the table is
+easy to reuse elsewhere, with the friendly description in your language on
+hover. The statistics cover min, max, sum, mean, median, standard deviation,
+range, IQR, quartiles, mode and its count, not-null and null counts, null
+percentage, exact unique count (`COUNT(DISTINCT)`, so it never exceeds the row
+count), distinct ratio, shortest / longest text length, and total rows. Choose
+which appear under **Settings -> Summary** (column name and type are always
+included, so they are not listed there). Numeric figures honour the
+thousand-separator and English / European style settings, the same as the main
+table. The older **Column Inspector** has been removed, as the Summary tab
 covers everything it did and more.
 
 **Copy as Markdown table.** **Edit -> Copy as Markdown table** (also on the cell
@@ -104,3 +130,7 @@ agent frameworks that should only ever read.
 **Menus no longer wrap in other languages.** Longer menu-item labels in
 non-English locales (German, Russian, and others) no longer break onto a second
 line; the menu widens to fit instead.
+
+**Toolbar search row aligned.** The search box, its mode and scope dropdowns, and
+the Recent and Filter buttons now sit on the same line as the File / Edit / View
+menus instead of dropping below them.

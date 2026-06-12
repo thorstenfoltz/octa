@@ -25,14 +25,54 @@ pub(super) fn apply_theme_decoration(style: &mut Style, mode: ThemeMode, colors:
     match mode {
         ThemeMode::Light | ThemeMode::Dark | ThemeMode::Rainbow => {}
         ThemeMode::Manga => apply_manga_decoration(style, colors),
-        ThemeMode::Nord => apply_nord_decoration(style, colors),
+        ThemeMode::North => apply_north_decoration(style, colors),
         ThemeMode::Dracula => apply_dracula_decoration(style, colors),
         ThemeMode::GruvboxDark => apply_gruvbox_decoration(style, colors),
         ThemeMode::HighContrast => apply_high_contrast_decoration(style, colors),
         ThemeMode::Gentleman => apply_gentleman_decoration(style, colors),
         ThemeMode::DeepSea => apply_deep_sea_decoration(style, colors),
         ThemeMode::Frost => apply_frost_decoration(style, colors),
+        // The Warm and Forest presets share one understated "soft" treatment:
+        // gentle rounding and hairline borders, palette does the rest.
+        ThemeMode::Warm | ThemeMode::Forest => apply_soft_decoration(style, colors),
     }
+}
+
+/// Understated decoration for the Warm / Forest presets: gentle 8px rounding,
+/// hairline accent-tinted borders and a soft hover. Deliberately leaves
+/// `fg_stroke`
+/// colors to the base style so `RichText::strong()` (which aliases
+/// `widgets.active.fg_stroke`) stays readable on every background.
+fn apply_soft_decoration(style: &mut Style, colors: &ThemeColors) {
+    let radius = CornerRadius::same(8);
+    let hairline = Stroke::new(1.0, colors.border);
+    let v = &mut style.visuals;
+
+    v.widgets.noninteractive.corner_radius = radius;
+    v.widgets.noninteractive.bg_stroke = hairline;
+
+    v.widgets.inactive.corner_radius = radius;
+    v.widgets.inactive.bg_fill = colors.bg_secondary;
+    v.widgets.inactive.weak_bg_fill = colors.bg_secondary;
+    v.widgets.inactive.bg_stroke = hairline;
+
+    v.widgets.hovered.corner_radius = radius;
+    v.widgets.hovered.bg_fill = colors.accent.linear_multiply(0.18);
+    v.widgets.hovered.weak_bg_fill = colors.accent.linear_multiply(0.18);
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0, colors.accent);
+    v.widgets.hovered.expansion = 0.5;
+
+    v.widgets.active.corner_radius = radius;
+    v.widgets.active.bg_stroke = Stroke::new(1.0, colors.accent);
+
+    v.widgets.open.corner_radius = radius;
+
+    v.window_corner_radius = CornerRadius::same(10);
+    v.menu_corner_radius = CornerRadius::same(8);
+    v.window_stroke = hairline;
+
+    style.spacing.button_padding = egui::vec2(10.0, 6.0);
+    style.spacing.item_spacing = egui::vec2(8.0, 5.0);
 }
 
 fn apply_manga_decoration(style: &mut Style, colors: &ThemeColors) {
@@ -93,9 +133,9 @@ fn apply_manga_decoration(style: &mut Style, colors: &ThemeColors) {
     style.spacing.item_spacing = egui::vec2(10.0, 6.0);
 }
 
-fn apply_nord_decoration(style: &mut Style, colors: &ThemeColors) {
+fn apply_north_decoration(style: &mut Style, colors: &ThemeColors) {
     // Frosted-glass Scandinavian panels: gently rounded, thin frost-blue
-    // borders, soft hover halo. Less aggressive than Manga - Nord is about
+    // borders, soft hover halo. Less aggressive than Manga - North is about
     // calm minimalism, not pop.
     let radius = CornerRadius::same(8);
     let frost = Color32::from_rgb(0xd8, 0xde, 0xe9); // snow text color
@@ -416,13 +456,19 @@ fn apply_frost_decoration(style: &mut Style, colors: &ThemeColors) {
 pub fn paint_background_decoration(painter: &egui::Painter, rect: egui::Rect, mode: ThemeMode) {
     match mode {
         ThemeMode::Manga => paint_manga_background(painter, rect),
-        ThemeMode::Nord => paint_nord_background(painter, rect),
+        ThemeMode::North => paint_north_background(painter, rect),
         ThemeMode::Dracula => paint_dracula_background(painter, rect),
         ThemeMode::GruvboxDark => paint_gruvbox_background(painter, rect),
         ThemeMode::Gentleman => paint_gentleman_background(painter, rect),
         ThemeMode::DeepSea => paint_deep_sea_background(painter, rect),
         ThemeMode::Frost => paint_frost_background(painter, rect),
-        ThemeMode::Light | ThemeMode::Dark | ThemeMode::HighContrast | ThemeMode::Rainbow => {}
+        // Warm and Forest stay clean: no background art, palette only.
+        ThemeMode::Light
+        | ThemeMode::Dark
+        | ThemeMode::HighContrast
+        | ThemeMode::Warm
+        | ThemeMode::Forest
+        | ThemeMode::Rainbow => {}
     }
 }
 
@@ -471,9 +517,9 @@ fn paint_manga_background(painter: &egui::Painter, rect: egui::Rect) {
     }
 }
 
-fn paint_nord_background(painter: &egui::Painter, rect: egui::Rect) {
+fn paint_north_background(painter: &egui::Painter, rect: egui::Rect) {
     // Aurora bands: three soft horizontal stripes at varying alpha - a nod to
-    // Nord's polar inspiration without obscuring content. The bands fade in
+    // North's polar inspiration without obscuring content. The bands fade in
     // and out via piecewise-linear alpha so the seam isn't a hard line.
     let bands = [
         (

@@ -158,6 +158,36 @@ impl Default for PivotState {
     }
 }
 
+/// One sort key in the multi-column sort dialog: a column index and a
+/// direction (`true` = ascending).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SortKey {
+    pub(crate) col: usize,
+    pub(crate) ascending: bool,
+}
+
+/// State for the multi-column sort dialog. The ordered `keys` list is the sort
+/// priority: the first key is primary, later keys break ties. App-level (the
+/// sort applies to the active tab in place).
+pub(crate) struct MultiSortState {
+    pub(crate) keys: Vec<SortKey>,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl Default for MultiSortState {
+    fn default() -> Self {
+        Self {
+            // Start with one key so the dialog is never empty.
+            keys: vec![SortKey {
+                col: 0,
+                ascending: true,
+            }],
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
 /// One-shot per-file prompt shown after loading a CSV/TSV whose size is
 /// likely to make column coloring or column alignment laggy. The user can
 /// either keep the slow features on (we honor their choice and don't ask
@@ -625,6 +655,16 @@ pub(crate) struct TabState {
     pub(crate) show_conditional_format: bool,
     /// Conditional-formatting dialog window sizing (Normal/Maximized/Minimized).
     pub(crate) conditional_format_size: ui::settings::DialogSize,
+    /// Data-validation rules for this tab. Cells failing any rule are painted
+    /// red by the renderer (see `octa::data::validation`). Session-only.
+    pub(crate) validation_rules: Vec<octa::data::validation::ValidationRule>,
+    /// Cached set of `(row, col)` cells failing a validation rule, recomputed in
+    /// `recompute_filter` (like `search_cell_matches`) so the renderer stays cheap.
+    pub(crate) validation_violations: std::collections::HashSet<(usize, usize)>,
+    /// Whether the "Data validation..." dialog is open on this tab.
+    pub(crate) show_validation: bool,
+    /// Data-validation dialog window sizing (Normal/Maximized/Minimized).
+    pub(crate) validation_size: ui::settings::DialogSize,
     /// Column index whose Number-format dialog is open. `None` = closed.
     /// This is the "primary" column (drives the dialog title + preview); the
     /// chosen format applies to every column in `column_format_cols`.
@@ -943,6 +983,9 @@ pub(crate) struct OctaApp {
     /// the active tab; running it builds a DuckDB PIVOT/UNPIVOT query and lands
     /// the result in a new detached tab (see `src/app/dialogs/pivot.rs`).
     pub(crate) pivot_dialog: Option<PivotState>,
+    /// Active multi-column sort dialog state, or `None` when closed. Sorts the
+    /// active tab in place (see `src/app/dialogs/multi_sort.rs`).
+    pub(crate) multi_sort_dialog: Option<MultiSortState>,
     /// Currently opened directory tree sidebar (`None` = sidebar hidden).
     pub(crate) directory_tree: Option<ui::directory_tree::DirectoryTreeState>,
     /// How many key presses of the Konami sequence have been matched so far.

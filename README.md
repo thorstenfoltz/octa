@@ -13,24 +13,24 @@ An application for viewing data files. Octa opens files in a spreadsheet-like ta
 - [Why Octa?](#why-octa)
 - [Supported Formats](#supported-formats)
 - [Features](#features)
-- [Table View](#table-view)
-- [Multiple View Modes](#multiple-view-modes)
-- [Editing](#editing)
-- [Inspecting data](#inspecting-data)
-- [Archives](#archives)
-- [Command-line](#command-line)
-- [MCP server](#mcp-server)
-- [Assistant (in-app chat)](#assistant-in-app-chat)
-- [Settings](#settings)
-- [Other](#other)
+  - [Table View](#table-view)
+  - [Multiple View Modes](#multiple-view-modes)
+  - [Editing](#editing)
+  - [Inspecting data](#inspecting-data)
+  - [Archives](#archives)
+  - [Command-line](#command-line)
+  - [MCP server](#mcp-server)
+  - [Assistant (in-app chat)](#assistant-in-app-chat)
+  - [Settings](#settings)
+  - [Other](#other)
 - [Docker / Containers](#docker--containers)
 - [Installation](#installation)
-- [Linux (and WSL)](#linux-and-wsl)
-- [Linux AppImage](#linux-appimage)
-- [Linux (build from source)](#linux-build-from-source)
-- [Arch Linux](#arch-linux)
-- [Windows](#windows)
-- [macOS](#macos)
+  - [Linux (and WSL)](#linux-and-wsl)
+  - [Linux AppImage](#linux-appimage)
+  - [Linux (build from source)](#linux-build-from-source)
+  - [Arch Linux](#arch-linux)
+  - [Windows](#windows)
+  - [macOS](#macos)
 - [Configuration](#configuration)
 - [License](#license)
 
@@ -123,6 +123,8 @@ sees cell text only.
 - Insert, delete, and move rows and columns
 - Colour marking for cells, rows, and columns with six colour choices
 - Conditional formatting: rule-based automatic cell colouring (equals, contains, greater-than, is empty, ...) that applies live
+- Data validation: flag cells that break a rule (not empty, in range, matches a pattern, unique, max length) — failing cells are highlighted red
+- Multi-column sort (**Analyse → Sort by columns...**): sort by an ordered list of columns, each ascending or descending
 - Copy the current selection as a GitHub-flavoured Markdown table
 - Undo / Redo for cell edits, structural changes, and colour marks
 - Leading/trailing whitespace trimmed from string cells and column titles on load (configurable, with a banner listing the affected columns)
@@ -133,7 +135,7 @@ sees cell text only.
 
 ### Inspecting data
 
-- **Summary** — one row of statistics per column (min, max, mean, median, standard deviation, quartiles, null counts, exact unique count, distinct ratio, total rows). Column titles are localised and explained on hover, and you choose which statistics appear under **Settings → Summary**
+- **Summary** — one row of statistics per column (min, max, sum, mean, median, standard deviation, range, IQR, quartiles, mode and its count, null counts, exact unique count, distinct ratio, text length, total rows). Headers are short `snake_case` identifiers so the table is easy to reuse, with the localised description on hover; you choose which statistics appear under **Settings → Summary**
 - **Value Frequency** — `value_counts()`-style top-N values for any column.
 Numeric columns can be turned into a histogram: type a bin count (or leave it for automatic Sturges binning) and get that many equal-width ranges with their counts
 - **Pivot / Unpivot** — reshape a table between long and wide form (DuckDB `PIVOT` / `UNPIVOT`) into a new tab

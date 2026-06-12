@@ -15,23 +15,29 @@ describe the table as you currently see it, not the file on disk.
 
 ## What it shows
 
-One row per source column. Column titles are shown in your chosen
-language, and hovering a title explains what the statistic means. The
-available statistics are:
+One row per source column. The column headers are short, lower-case
+identifiers (with underscores, no spaces) so the table is easy to reuse
+elsewhere; hovering a header explains what the statistic means in your
+chosen language. The available statistics are:
 
-| Column            | Meaning                                              |
-|-------------------|------------------------------------------------------|
-| Column            | The source column this row describes (always shown). |
-| Type              | The data type Octa inferred for it (always shown).   |
-| Min / Max         | Smallest and largest value.                          |
-| Mean / Median     | Average and middle value (numeric columns).          |
-| Std dev           | Standard deviation (numeric columns).                |
-| Q25 / Q75         | Lower and upper quartiles (numeric columns).         |
-| Not null / Nulls  | Counts of present and missing values.                |
-| Null %            | Share of missing values in the column.               |
-| Unique            | Exact count of distinct values (nulls excluded).     |
-| Distinct ratio    | Unique values divided by total rows.                 |
-| Total rows        | Row count of the whole table.                        |
+| Header                        | Meaning                                              |
+|-------------------------------|------------------------------------------------------|
+| `column_name`                 | The source column this row describes (always shown). |
+| `type`                        | The data type Octa inferred for it (always shown).   |
+| `min` / `max`                 | Smallest and largest value.                          |
+| `sum`                         | Total of the numeric values.                         |
+| `mean` / `median`             | Average and middle value (numeric columns).          |
+| `std_dev`                     | Standard deviation (numeric columns).                |
+| `range`                       | Largest minus smallest value.                        |
+| `iqr`                         | Interquartile range (q75 minus q25).                 |
+| `q25` / `q75`                 | Lower and upper quartiles (numeric columns).         |
+| `mode` / `mode_count`         | Most frequent value and how often it occurs.         |
+| `not_null` / `null_count`     | Counts of present and missing values.                |
+| `null_percent`                | Share of missing values in the column.               |
+| `unique_count`                | Exact count of distinct values (nulls excluded).     |
+| `distinct_ratio`              | Unique values divided by total rows.                 |
+| `text_len_min` / `text_len_max` | Shortest and longest text length in characters.    |
+| `total_rows`                  | Row count of the whole table.                        |
 
 ## How Min / Max work for text
 
@@ -57,10 +63,25 @@ give it a numeric or date type (Octa's
 ## Choosing which statistics show
 
 **Settings -> Summary** has a checkbox per statistic. Turn off the ones
-you don't need and the Summary tab drops those columns; Column and Type
-are always present. The figures come from a single DuckDB `SUMMARIZE`
-pass, plus derived null counts and an exact distinct-value count
-(`COUNT(DISTINCT ...)`, so **Unique** never exceeds the row count).
+you don't need and the Summary tab drops those columns; `column_name` and
+`type` are always present. The core figures come from a single DuckDB
+`SUMMARIZE` pass, plus derived null counts and an exact distinct-value
+count (`COUNT(DISTINCT ...)`, so `unique_count` never exceeds the row
+count). Switching on `sum` or the text-length statistics adds one extra
+aggregate pass, and the `mode` statistics add one small pass per column,
+so a minimal Summary stays a single query.
+
+## Number formatting
+
+Numeric statistics are stored as real numbers, not text, so they follow
+the same display settings as the main table and right-align like numbers.
+When **thousand separators** are switched on (**Settings -> Display**),
+figures like `sum`, `total_rows`, and the counts are grouped
+(`1,234,567`), and the chosen English / European style sets the grouping
+and decimal marks. A numeric column's `min` / `max` / `mode` group too; a
+text column's stay verbatim, as do the column name and type. Because the
+values stay numeric underneath, saving or exporting the Summary keeps
+clean numbers (no separators baked in).
 
 ## Working with the result
 

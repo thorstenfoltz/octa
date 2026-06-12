@@ -477,27 +477,5 @@ pub async fn run(
 }
 
 #[cfg(test)]
-mod read_only_tests {
-    use super::*;
-
-    #[test]
-    fn read_only_drops_write_tools() {
-        let ro = OctaMcpServer::new(Some(1000), 65536, true);
-        for name in ["write_table", "edit_table", "convert"] {
-            assert!(
-                !ro.tool_router.has_route(name),
-                "read-only server should not expose `{name}`"
-            );
-        }
-        // A read tool is still present.
-        assert!(ro.tool_router.has_route("read_table"));
-    }
-
-    #[test]
-    fn default_keeps_write_tools() {
-        let rw = OctaMcpServer::new(Some(1000), 65536, false);
-        for name in ["write_table", "edit_table", "convert", "read_table"] {
-            assert!(rw.tool_router.has_route(name), "`{name}` should be present");
-        }
-    }
-}
+#[path = "mod_tests.rs"]
+mod read_only_tests;

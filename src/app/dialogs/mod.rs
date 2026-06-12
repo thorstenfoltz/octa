@@ -16,6 +16,7 @@ pub(crate) mod date_ambiguity;
 pub(crate) mod delete_columns;
 pub(crate) mod documentation;
 pub(crate) mod find_duplicates;
+pub(crate) mod multi_sort;
 pub(crate) mod parse_in_new_tab;
 pub(crate) mod pivot;
 pub(crate) mod raw_perf_prompt;
@@ -33,6 +34,7 @@ pub(crate) mod table_picker;
 pub(crate) mod time_calc;
 pub(crate) mod unsaved_changes;
 pub(crate) mod update_dialog;
+pub(crate) mod validation;
 pub(crate) mod value_frequency;
 pub(crate) mod value_frequency_picker;
 
@@ -65,7 +67,9 @@ impl OctaApp {
         value_frequency::render_value_frequency_dialog(self, ctx);
         find_duplicates::render_find_duplicates_dialog(self, ctx);
         conditional_format::render_conditional_format_dialog(self, ctx);
+        validation::render_validation_dialog(self, ctx);
         pivot::render_pivot_dialog(self, ctx);
+        multi_sort::render_multi_sort_dialog(self, ctx);
         sql_snippet::render_sql_snippet_dialog(self, ctx);
         sql_snippets_window::render_sql_snippets_window(self, ctx);
         chat_prompt::render_chat_prompt_dialog(self, ctx);

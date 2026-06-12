@@ -144,6 +144,7 @@ impl OctaApp {
             pending_parse_modal: None,
             schema_export: None,
             pivot_dialog: None,
+            multi_sort_dialog: None,
             directory_tree: None,
             konami_index: 0,
             confetti_until: None,

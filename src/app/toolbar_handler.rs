@@ -497,8 +497,17 @@ impl OctaApp {
                 tab.show_conditional_format = true;
             }
         }
+        if action.open_validation {
+            let tab = &mut self.tabs[self.active_tab];
+            if tab.table.col_count() > 0 {
+                tab.show_validation = true;
+            }
+        }
         if action.open_pivot && self.tabs[self.active_tab].table.col_count() > 0 {
             self.pivot_dialog = Some(crate::app::state::PivotState::default());
+        }
+        if action.open_multi_sort && self.tabs[self.active_tab].table.col_count() > 0 {
+            self.multi_sort_dialog = Some(crate::app::state::MultiSortState::default());
         }
         if action.copy_as_markdown {
             self.do_copy_markdown();

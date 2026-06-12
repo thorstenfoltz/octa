@@ -358,6 +358,7 @@ impl OctaApp {
             let hidden_cols = tab.hidden_columns.clone();
             let col_number_formats = tab.column_number_formats.clone();
             let cond_format_rules = tab.conditional_format_rules.clone();
+            let validation_violations = tab.validation_violations.clone();
             let os_has_clip = tab.table_state.clipboard.is_some() || os_has_clipboard;
             let interaction = ui::table_view::draw_table(
                 ui,
@@ -385,6 +386,7 @@ impl OctaApp {
                 &search_matches,
                 current_match,
                 &cond_format_rules,
+                &validation_violations,
             );
 
             let welcome_logo_clicked = interaction.welcome_logo_clicked;

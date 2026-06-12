@@ -257,7 +257,8 @@ collects the failing one in a **N file(s) skipped -- click to
 expand** chip above the result list. The expanded view shows each
 file's name plus the reason (size cap or parser error); the full
 path is visible on hover. The list resets on the next search.
-Failures no longer hide results from files that searched fine.
+A failure in one file does not hide results from files that
+searched fine.
 
 Press **Cancel** to stop a running directory scan at the next file
 boundary. Whatever hits were already collected stay in the panel.
@@ -454,21 +455,29 @@ describe the table as you currently see it, not the file on disk.
 
 ## What it shows
 
-One row per source column. The column titles are shown in your chosen
-language, and hovering a title explains what that statistic means. The
-available statistics are:
+One row per source column. The column headers are short, lower-case
+identifiers (`column_name`, `not_null`, `total_rows`, ...) so the table
+is easy to reuse elsewhere; hovering a header explains what that
+statistic means in your chosen language. The available statistics are:
 
-- **Column** / **Type** - the source column and its inferred data type
-  (always shown).
-- **Min** / **Max** - smallest and largest value.
-- **Mean** / **Median** / **Std dev** - average, middle value, and
+- **column_name** / **type** - the source column and its inferred data
+  type (always shown).
+- **min** / **max** - smallest and largest value.
+- **sum** - total of the numeric values.
+- **mean** / **median** / **std_dev** - average, middle value, and
   standard deviation (numeric columns).
-- **Q25** / **Q75** - lower and upper quartiles (numeric columns).
-- **Not null** / **Nulls** / **Null %** - counts of present and missing
-  values, and the missing share.
-- **Unique** - exact count of distinct values (nulls excluded).
-- **Distinct ratio** - unique values divided by total rows.
-- **Total rows** - row count of the whole table.
+- **range** - largest minus smallest value; **iqr** - the interquartile
+  range (q75 minus q25).
+- **q25** / **q75** - lower and upper quartiles (numeric columns).
+- **mode** / **mode_count** - the most frequent value and how often it
+  occurs.
+- **not_null** / **null_count** / **null_percent** - counts of present
+  and missing values, and the missing share.
+- **unique_count** - exact count of distinct values (nulls excluded).
+- **distinct_ratio** - unique values divided by total rows.
+- **text_len_min** / **text_len_max** - shortest and longest text length
+  in characters.
+- **total_rows** - row count of the whole table.
 
 ## How Min / Max work for text
 
@@ -490,10 +499,22 @@ rather than leaving it as text.
 ## Choosing which statistics show
 
 **Settings > Summary** has a checkbox per statistic. Turn off the ones
-you don't care about and the Summary tab drops those columns; Column and
-Type are always present. The figures come from a single DuckDB
-`SUMMARIZE` pass, plus derived null counts and an exact distinct-value
-count.
+you don't care about and the Summary tab drops those columns; column_name
+and type are always present. The core figures come from a single DuckDB
+`SUMMARIZE` pass, plus derived null counts, an exact distinct-value
+count, and (only when those statistics are switched on) one extra pass
+for sum and text lengths and one per column for the mode.
+
+## Number formatting
+
+Numeric statistics are stored as real numbers, not text, so they follow
+the same display settings as the main table and right-align like numbers.
+When **thousand separators** are switched on (**Settings > Display**),
+figures like sum, total rows, and the counts are grouped, and the chosen
+English / European style sets the grouping and decimal marks. A numeric
+column's min / max / mode group too; a text column's stay verbatim, as do
+the column name and type. Saving or exporting the Summary keeps clean
+numbers underneath (no separators baked in).
 
 ## Working with the result
 
@@ -702,6 +723,57 @@ Rules apply live as you edit them and update instantly when you change cell
 values. They are **per tab and session-only** - they are not saved with the
 file and do not change the data, only how it is shown. **Add rule** appends a
 new row; the **x** button removes one; **Clear all** removes them all.
+"#;
+
+pub(super) const VALIDATION: &str = r#"# Data Validation
+
+Data validation flags cells that break a rule you define, painting each
+failing cell **red** so problems stand out. Open it via
+**Edit > Data validation...**.
+
+## Rules
+
+The dialog holds a list of rules. Each rule has a column (a specific
+column, or `(any column)` to check every cell) and a kind:
+
+- **Not empty** - the cell must have a value.
+- **In range** - the cell must be a number within an optional **min** and
+  **max** (leave a bound blank to leave that side open). A non-numeric
+  cell fails.
+- **Matches pattern** - the cell text must match a regular expression.
+- **Unique** - every value in the column must be distinct; duplicated
+  cells fail.
+- **Max length** - the cell text must be at most the given number of
+  characters.
+
+The footer shows a live count of how many cells currently fail.
+
+## How it behaves
+
+Rules apply live: failing cells are highlighted as soon as you add or edit
+a rule, and the highlight updates when you change cell values. Validation
+highlighting is **per tab and session-only** - it is not saved with the
+file and does not change the data, only how it is shown. A manual colour
+mark or a conditional-formatting colour takes priority over the red
+validation highlight. **Add rule** appends a new rule; the **X** button
+removes one; **Clear all** removes them all.
+"#;
+
+pub(super) const SORTING: &str = r#"# Sorting
+
+Click a column header to sort by that column ascending; click again for
+descending, and a third time to clear the sort. Sorting applies to the
+filtered view, so search first and then sort.
+
+## Sort by several columns
+
+For a multi-level sort, open **Analyse > Sort by columns...**. The dialog
+holds an ordered list of sort keys, each a column and a direction. The
+first key is the primary sort; later keys break ties (so, for example,
+sort by department ascending, then by salary descending).
+
+Use the **^** / **v** buttons to reorder the keys, **Add column** for
+another key, and **x** to remove one. **Apply** sorts the table in place.
 "#;
 
 pub(super) const VIEW_MODES: &str = r#"# View Modes

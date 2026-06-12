@@ -156,6 +156,9 @@ pub struct ToolbarAction {
     /// Open the Pivot / Unpivot dialog for the active table.
     /// Fired by **Analyse -> Pivot / Unpivot...**.
     pub open_pivot: bool,
+    /// Open the multi-column sort dialog for the active table.
+    /// Fired by **Analyse -> Sort by columns...**.
+    pub open_multi_sort: bool,
     /// Copy the current selection to the clipboard as a Markdown table.
     /// Fired by **Edit -> Copy as Markdown table**.
     pub copy_as_markdown: bool,
@@ -165,6 +168,9 @@ pub struct ToolbarAction {
     /// Open the Conditional formatting dialog for the active table.
     /// Fired by **Edit -> Conditional formatting...**.
     pub open_conditional_format: bool,
+    /// Open the Data validation dialog for the active table.
+    /// Fired by **Edit -> Data validation...**.
+    pub open_validation: bool,
     /// Toggle "first row is header" for the active table.
     pub toggle_first_row_header: bool,
     /// Apply a color mark to a set of keys (cell/row/column).
@@ -296,6 +302,13 @@ pub fn draw_toolbar(
     // is enough here - we do *not* wrap in `egui::MenuBar`, because the
     // helper handles the menu/submenu plumbing itself.
     ui.horizontal(|ui| {
+        // Pin a uniform row height for the whole toolbar. egui centres each
+        // item against `interact_size.y` (default 18); the search ComboBoxes /
+        // TextEdit are taller, so without this the short menu buttons and the
+        // search widgets sit on different baselines and the search row looks
+        // dropped. A 24px band matches the ComboBox height so menus, the mode
+        // combo, Recent, Filter and the rest all share one centre line.
+        ui.spacing_mut().interact_size.y = 24.0;
         ui.add_space(4.0);
 
         // App logo + title. The logo is wrapped as a clickable widget so the
@@ -586,6 +599,15 @@ pub fn draw_toolbar(
                         .clicked()
                     {
                         action.open_conditional_format = true;
+                        ui.close();
+                    }
+
+                    if ui
+                        .button(crate::i18n::t("edit_menu.validation"))
+                        .on_hover_text(crate::i18n::t("edit_menu.validation_hint"))
+                        .clicked()
+                    {
+                        action.open_validation = true;
                         ui.close();
                     }
 
@@ -983,6 +1005,13 @@ pub fn draw_toolbar(
                         }
                         if ui.button(crate::i18n::t("analyse_menu.pivot")).clicked() {
                             action.open_pivot = true;
+                            ui.close();
+                        }
+                        if ui
+                            .button(crate::i18n::t("analyse_menu.multi_sort"))
+                            .clicked()
+                        {
+                            action.open_multi_sort = true;
                             ui.close();
                         }
                         ui.separator();

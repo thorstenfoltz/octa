@@ -54,8 +54,8 @@ trip.
 > through Q4; amounts are in the low thousands. Want me to drill
 > into any column?
 
-The older three-call dance (`schema` → `count_rows` → `read_table`)
-still works and is the right choice when you only want one of the
+The separate three calls (`schema` → `count_rows` → `read_table`)
+are the right choice when you only want one of the
 three pieces, e.g. just the schema:
 
 ```json

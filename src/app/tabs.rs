@@ -109,6 +109,10 @@ impl TabState {
             conditional_format_rules: Vec::new(),
             show_conditional_format: false,
             conditional_format_size: ui::settings::DialogSize::default(),
+            validation_rules: Vec::new(),
+            validation_violations: std::collections::HashSet::new(),
+            show_validation: false,
+            validation_size: ui::settings::DialogSize::default(),
             column_format_col: None,
             column_format_cols: Vec::new(),
             column_format_decimals_buf: String::new(),
@@ -394,6 +398,9 @@ impl OctaApp {
             .unwrap_or_else(|| source.title_display());
 
         let enabled = self.settings.summary_stats.clone();
+        // `build_summary_table` types its numeric columns as Int64 / Float64, so
+        // the table view's normal numeric display path groups them per the
+        // thousand-separator settings and right-aligns them like real numbers.
         let table = match octa::data::summary::build_summary_table(&snap, &enabled) {
             Ok(t) => t,
             Err(e) => {

@@ -20,6 +20,7 @@ pub mod time_calc;
 pub mod trim;
 pub mod unique_columns;
 pub mod validate_schema;
+pub mod validation;
 pub mod value_frequency;
 
 pub use formulas::{
@@ -1025,6 +1026,37 @@ impl DataTable {
             let vb = b.get(col_idx).unwrap_or(&CellValue::Null);
             let cmp = cmp_cell_values(va, vb);
             if ascending { cmp } else { cmp.reverse() }
+        });
+    }
+
+    /// Sort rows by several columns at once. `keys` lists `(col_idx, ascending)`
+    /// in priority order: the first key is the primary sort, later keys break
+    /// ties. Out-of-range columns and an empty key list are ignored. A single
+    /// stable sort keeps the relative order of rows that are equal on every key.
+    pub fn sort_rows_by_columns(&mut self, keys: &[(usize, bool)]) {
+        let valid: Vec<(usize, bool)> = keys
+            .iter()
+            .copied()
+            .filter(|&(c, _)| c < self.columns.len())
+            .collect();
+        if valid.is_empty() || self.rows.is_empty() {
+            return;
+        }
+        // Merge pending edits so we sort on the actual visible values.
+        self.apply_edits();
+        self.structural_changes = true;
+
+        self.rows.sort_by(|a, b| {
+            for &(col_idx, ascending) in &valid {
+                let va = a.get(col_idx).unwrap_or(&CellValue::Null);
+                let vb = b.get(col_idx).unwrap_or(&CellValue::Null);
+                let cmp = cmp_cell_values(va, vb);
+                let cmp = if ascending { cmp } else { cmp.reverse() };
+                if cmp != std::cmp::Ordering::Equal {
+                    return cmp;
+                }
+            }
+            std::cmp::Ordering::Equal
         });
     }
 

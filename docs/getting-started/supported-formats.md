@@ -65,9 +65,9 @@ of the table fills in as you reach it.
 
 Parquet files written with very many small row groups
 (more than 32,767, which is common with Spark or streaming ingest
-pipelines) used to fail the native arrow-parquet reader with
-`Row group ordinal 32768 exceeds i16 max value`. Octa now retries
-those reads through a DuckDB-backed reader automatically, with the same
+pipelines) exceed the native arrow-parquet reader's limit
+(`Row group ordinal 32768 exceeds i16 max value`). Octa reads
+those files through a DuckDB-backed reader automatically, with the same
 schema and types and no user action required.
 
 Files produced by **pandas** (`DataFrame.to_parquet`) embed the row

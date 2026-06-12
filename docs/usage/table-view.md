@@ -63,6 +63,15 @@ The sort indicator (▲ / ▼) appears next to the column name. Sorting
 is applied to the **filtered** view, so searching first and then
 sorting works as you'd expect.
 
+### Sort by several columns
+
+For a multi-level sort, open **Analyse -> Sort by columns...**. The
+dialog holds an ordered list of sort keys, each a column and a
+direction (ascending or descending). The first key is the primary
+sort; later keys break ties. Use the **^** / **v** buttons to reorder
+the keys, **Add column** for another key, and **x** to remove one.
+**Apply** sorts the table in place.
+
 ## Resizing columns
 
 - **Drag the right edge** of a column header to resize it. Minimum

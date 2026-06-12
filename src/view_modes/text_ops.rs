@@ -96,36 +96,5 @@ pub fn selected_text(ctx: &egui::Context, text_edit_id: egui::Id, buffer: &str) 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn upper_lower_apply_helpers() {
-        assert_eq!(CaseOp::Upper.apply("abc"), "ABC");
-        assert_eq!(CaseOp::Lower.apply("XYZ"), "xyz");
-    }
-
-    #[test]
-    fn byte_range_basic() {
-        let s = "hello";
-        let r = char_range_to_byte_range(s, 1, 4);
-        assert_eq!(r, 1..4);
-        assert_eq!(&s[r], "ell");
-    }
-
-    #[test]
-    fn byte_range_unicode() {
-        let s = "héllo";
-        // chars: h, é, l, l, o
-        let r = char_range_to_byte_range(s, 1, 4);
-        // 'é' is 2 bytes in UTF-8.
-        assert_eq!(&s[r], "éll");
-    }
-
-    #[test]
-    fn byte_range_clamped_at_end() {
-        let s = "abc";
-        let r = char_range_to_byte_range(s, 0, 3);
-        assert_eq!(&s[r], "abc");
-    }
-}
+#[path = "text_ops_tests.rs"]
+mod tests;
