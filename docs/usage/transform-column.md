@@ -9,14 +9,14 @@ press **Apply**.
 
 ## Operations
 
-| Operation            | What it does                                                                 |
-|----------------------|------------------------------------------------------------------------------|
-| **Split column**     | Break one column into several, by a **delimiter**, a **regular expression**, or a **fixed width** (every N characters). New columns are named `<source>_1`, `<source>_2`, ...; rows with fewer parts get empty cells. |
-| **Merge columns**    | Join two or more columns into one new column with a separator you choose (for example join First and Last name with a space). |
-| **Fill down**        | Copy the nearest non-empty value **downwards** into the empty cells below it. |
-| **Fill up**          | The same, but **upwards**. Useful for exports that only show a group label on the first row. |
-| **Extract pattern**  | Pull the first regular-expression match out of each cell into a new column (for example `#(\d+)` to grab an order number). Non-matching cells are left empty. |
-| **Replace in column**| Find and replace within a single column's cells, using Plain, Wildcard, or Regex matching (the same modes as the search bar). |
+| Operation             | What it does                                                                                                                                                                                                          |
+|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Split column**      | Break one column into several, by a **delimiter**, a **regular expression**, or a **fixed width** (every N characters). New columns are named `<source>_1`, `<source>_2`, ...; rows with fewer parts get empty cells. |
+| **Merge columns**     | Join two or more columns into one new column with a separator you choose (for example join First and Last name with a space).                                                                                         |
+| **Fill down**         | Copy the nearest non-empty value **downwards** into the empty cells below it.                                                                                                                                         |
+| **Fill up**           | The same, but **upwards**. Useful for exports that only show a group label on the first row.                                                                                                                          |
+| **Extract pattern**   | Pull the first regular-expression match out of each cell into a new column (for example `#(\d+)` to grab an order number). Non-matching cells are left empty.                                                         |
+| **Replace in column** | Find and replace within a single column's cells, using Plain, Wildcard, or Regex matching (the same modes as the search bar).                                                                                         |
 
 ## How it behaves
 

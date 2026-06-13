@@ -20,24 +20,24 @@ identifiers (with underscores, no spaces) so the table is easy to reuse
 elsewhere; hovering a header explains what the statistic means in your
 chosen language. The available statistics are:
 
-| Header                        | Meaning                                              |
-|-------------------------------|------------------------------------------------------|
-| `column_name`                 | The source column this row describes (always shown). |
-| `type`                        | The data type Octa inferred for it (always shown).   |
-| `min` / `max`                 | Smallest and largest value.                          |
-| `sum`                         | Total of the numeric values.                         |
-| `mean` / `median`             | Average and middle value (numeric columns).          |
-| `std_dev`                     | Standard deviation (numeric columns).                |
-| `range`                       | Largest minus smallest value.                        |
-| `iqr`                         | Interquartile range (q75 minus q25).                 |
-| `q25` / `q75`                 | Lower and upper quartiles (numeric columns).         |
-| `mode` / `mode_count`         | Most frequent value and how often it occurs.         |
-| `not_null` / `null_count`     | Counts of present and missing values.                |
-| `null_percent`                | Share of missing values in the column.               |
-| `unique_count`                | Exact count of distinct values (nulls excluded).     |
-| `distinct_ratio`              | Unique values divided by total rows.                 |
-| `text_len_min` / `text_len_max` | Shortest and longest text length in characters.    |
-| `total_rows`                  | Row count of the whole table.                        |
+| Header                          | Meaning                                              |
+|---------------------------------|------------------------------------------------------|
+| `column_name`                   | The source column this row describes (always shown). |
+| `type`                          | The data type Octa inferred for it (always shown).   |
+| `min` / `max`                   | Smallest and largest value.                          |
+| `sum`                           | Total of the numeric values.                         |
+| `mean` / `median`               | Average and middle value (numeric columns).          |
+| `std_dev`                       | Standard deviation (numeric columns).                |
+| `range`                         | Largest minus smallest value.                        |
+| `iqr`                           | Interquartile range (q75 minus q25).                 |
+| `q25` / `q75`                   | Lower and upper quartiles (numeric columns).         |
+| `mode` / `mode_count`           | Most frequent value and how often it occurs.         |
+| `not_null` / `null_count`       | Counts of present and missing values.                |
+| `null_percent`                  | Share of missing values in the column.               |
+| `unique_count`                  | Exact count of distinct values (nulls excluded).     |
+| `distinct_ratio`                | Unique values divided by total rows.                 |
+| `text_len_min` / `text_len_max` | Shortest and longest text length in characters.      |
+| `total_rows`                    | Row count of the whole table.                        |
 
 ## How Min / Max work for text
 

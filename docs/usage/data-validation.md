@@ -11,13 +11,13 @@ failing cell **red** so problems stand out at a glance. Open it via
 The dialog holds a list of rules. Each rule has a **column** (a specific
 column, or `(any column)` to check every cell) and a **kind**:
 
-| Kind             | A cell fails when...                                            |
-|------------------|----------------------------------------------------------------|
-| **Not empty**    | the cell is empty or blank.                                     |
-| **In range**     | the value is not a number, or falls outside the optional **min** / **max** (leave a bound blank to leave that side open). |
-| **Matches pattern** | the text does not match the regular expression.             |
-| **Unique**       | the value is duplicated elsewhere in the column.               |
-| **Max length**   | the text is longer than the given number of characters.        |
+| Kind                | A cell fails when...                                                                                                      |
+|---------------------|---------------------------------------------------------------------------------------------------------------------------|
+| **Not empty**       | the cell is empty or blank.                                                                                               |
+| **In range**        | the value is not a number, or falls outside the optional **min** / **max** (leave a bound blank to leave that side open). |
+| **Matches pattern** | the text does not match the regular expression.                                                                           |
+| **Unique**          | the value is duplicated elsewhere in the column.                                                                          |
+| **Max length**      | the text is longer than the given number of characters.                                                                   |
 
 The footer shows a live count of how many cells currently fail.
 

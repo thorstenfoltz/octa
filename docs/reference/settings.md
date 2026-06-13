@@ -21,14 +21,14 @@ for missing keys; old versions ignore unknown keys).
 
 ## Appearance
 
-| Setting              | Default      | Notes                                                                                                                                         |
-|----------------------|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| **Language**         | English      | UI language for menus and dialogs. 13 Latin-script languages; switches live, no restart. See [Languages](languages.md). TOML key: `language`. |
-| **Font size**        | 13 pt        | Base font size. Applied to body / button / monospace text.                                                                                    |
-| **Default theme**    | Light        | `Light`, `Dark` and more. Applied when you press **Apply**, and at startup.                                                                   |
-| **Body font**        | Proportional | `Proportional` or `Monospace`.                                                                                                                |
-| **Custom font path** | *(empty)*    | Optional path to a TTF/OTF font. Overrides Body font for proportional text.                                                                   |
-| **Icon variant**     | Rose         | Window icon colour. Several options.                                                                                                          |
+| Setting              | Default      | Notes                                                                                                                                                                                                                                                        |
+|----------------------|--------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Language**         | English      | UI language for menus and dialogs. 13 Latin-script languages; switches live, no restart. See [Languages](languages.md). TOML key: `language`.                                                                                                                |
+| **Font size**        | 13 pt        | Base font size. Applied to body / button / monospace text.                                                                                                                                                                                                   |
+| **Default theme**    | Light        | `Light`, `Dark` and more. Applied when you press **Apply**, and at startup.                                                                                                                                                                                  |
+| **Body font**        | Proportional | `Proportional` or `Monospace`.                                                                                                                                                                                                                               |
+| **Custom font path** | *(empty)*    | Optional path to a TTF/OTF font. Overrides Body font for proportional text.                                                                                                                                                                                  |
+| **Icon variant**     | Rose         | Window icon colour. Several options.                                                                                                                                                                                                                         |
 | **Custom title bar** | on           | Replaces the OS window frame with Octa's own slim title bar (min/max/close in the toolbar), with drag-to-move and edge/corner resize. Frees the vertical space a system title bar takes. Turn off for native window decorations. Takes effect after restart. |
 
 ## Table View
@@ -128,10 +128,10 @@ and the filesystem sandbox.
 
 ## Directory Tree
 
-| Setting                     | Default | Notes                                                                                                                                                                            |
-|-----------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Sidebar position**        | Left    | Side the directory tree sidebar docks on (`Left` or `Right`).                                                                                                                    |
-| **Show only openable files**| On      | List only sub-folders and files Octa can open (by extension). Files without an extension are hidden while on. Turn off to list every file. TOML key: `directory_tree_filter_enabled`. |
+| Setting                      | Default | Notes                                                                                                                                                                                 |
+|------------------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Sidebar position**         | Left    | Side the directory tree sidebar docks on (`Left` or `Right`).                                                                                                                         |
+| **Show only openable files** | On      | List only sub-folders and files Octa can open (by extension). Files without an extension are hidden while on. Turn off to list every file. TOML key: `directory_tree_filter_enabled`. |
 
 ## Summary
 
@@ -139,17 +139,17 @@ The **Analyse -> Summary** tab shows one row of statistics per column.
 Each statistic below has a checkbox; turn any off to drop that column.
 **Column** and **Type** are always shown. TOML key: `summary_stats`.
 
-| Statistic        | Notes                                            |
-|------------------|--------------------------------------------------|
-| **Min / Max**    | Smallest and largest value.                      |
-| **Mean / Median**| Average and middle value (numeric columns).      |
-| **Std dev**      | Standard deviation (numeric columns).            |
-| **Q25 / Q75**    | Lower and upper quartiles (numeric columns).     |
-| **Not null**     | Count of present (non-null) values.              |
-| **Nulls / Null %**| Count and share of missing values.              |
-| **Unique**       | Exact count of distinct values (nulls excluded). |
-| **Distinct ratio**| Unique values divided by total rows.            |
-| **Total rows**   | Row count of the whole table.                    |
+| Statistic          | Notes                                            |
+|--------------------|--------------------------------------------------|
+| **Min / Max**      | Smallest and largest value.                      |
+| **Mean / Median**  | Average and middle value (numeric columns).      |
+| **Std dev**        | Standard deviation (numeric columns).            |
+| **Q25 / Q75**      | Lower and upper quartiles (numeric columns).     |
+| **Not null**       | Count of present (non-null) values.              |
+| **Nulls / Null %** | Count and share of missing values.               |
+| **Unique**         | Exact count of distinct values (nulls excluded). |
+| **Distinct ratio** | Unique values divided by total rows.             |
+| **Total rows**     | Row count of the whole table.                    |
 
 ## Shortcuts
 

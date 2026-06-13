@@ -116,7 +116,8 @@ the Compare toolbar: **Text Diff** (git-style line diff), **Row Hash Diff**
 up positionally with the exact changed cells), and **Join** (rows matched on a
 key column into added / removed / changed). Cross-format works since hashing
 sees cell text only.
-- **SQL Query** — write a query against the current table (exposed as `data`) and see results beneath. Line numbers, chip-style autocomplete, UPPER/lower case conversion, a per-tab query **History**, a saved-**Snippets** library, and a brief green highlight of the cells a mutation changed.
+- **SQL Query** — write a query against the current table (exposed as `data`) and see results beneath. Line numbers, chip-style autocomplete, UPPER/lower case conversion, a per-tab query **History**,
+a saved-**Snippets** library, and a brief green highlight of the cells a mutation changed.
 
 ### Editing
 
@@ -135,7 +136,9 @@ sees cell text only.
 
 ### Inspecting data
 
-- **Summary** — one row of statistics per column (min, max, sum, mean, median, standard deviation, range, IQR, quartiles, mode and its count, null counts, exact unique count, distinct ratio, text length, total rows). Headers are short `snake_case` identifiers so the table is easy to reuse, with the localised description on hover; you choose which statistics appear under **Settings → Summary**
+- **Summary** — one row of statistics per column (min, max, sum, mean, median, standard deviation, range, IQR, quartiles, mode and its count, null counts,
+exact unique count, distinct ratio, text length, total rows). Headers are short `snake_case` identifiers so the table is easy to reuse, with the localised description on hover;
+you choose which statistics appear under **Settings → Summary**
 - **Value Frequency** — `value_counts()`-style top-N values for any column.
 Numeric columns can be turned into a histogram: type a bin count (or leave it for automatic Sturges binning) and get that many equal-width ranges with their counts
 - **Pivot / Unpivot** — reshape a table between long and wide form (DuckDB `PIVOT` / `UNPIVOT`) into a new tab
