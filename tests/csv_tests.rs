@@ -259,6 +259,36 @@ fn test_analyze_flags_tsv_wrong_delimiter() {
 }
 
 #[test]
+fn test_examples_malformed_csv_triggers_repair() {
+    // The shipped demo file `examples/malformed.csv` must keep tripping the
+    // repair analyzer (it backs the docs walkthrough). Guards against someone
+    // "tidying" it into a clean file.
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/malformed.csv");
+    let plan = analyze_delimited(&path, b',').expect("example should be malformed");
+    // It demonstrates all three text issues at once.
+    assert!(plan.options.strip_bom_controls, "BOM + control char");
+    assert!(
+        plan.issues
+            .iter()
+            .any(|i| i.contains("byte-order mark") || i.contains("BOM")),
+        "issues: {:?}",
+        plan.issues
+    );
+    assert!(
+        plan.issues.iter().any(|i| i.contains("control")),
+        "issues: {:?}",
+        plan.issues
+    );
+    assert!(
+        plan.issues.iter().any(|i| i.contains("inconsistent")),
+        "issues: {:?}",
+        plan.issues
+    );
+    // And it still loads once repaired.
+    assert!(read_delimited_opts(&path, b',', "CSV", &plan.options).is_ok());
+}
+
+#[test]
 fn test_read_delimited_opts_default_matches_normal() {
     let mut f = NamedTempFile::with_suffix(".csv").unwrap();
     writeln!(f, "a,b").unwrap();

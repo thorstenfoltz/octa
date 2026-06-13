@@ -20,6 +20,7 @@ use crate::ui;
 use ui::theme::ThemeMode;
 
 pub mod hash;
+pub mod key_diff;
 pub mod row_diff;
 pub mod text_diff;
 
@@ -82,7 +83,12 @@ pub fn render_compare_view(
         ui.add_space(16.0);
         // Mode toggle. Each radio commits the new mode immediately -
         // there's no Apply step, the renderers are cheap enough.
-        for mode in [CompareMode::TextDiff, CompareMode::RowHashDiff] {
+        for mode in [
+            CompareMode::TextDiff,
+            CompareMode::RowHashDiff,
+            CompareMode::Ordered,
+            CompareMode::Join,
+        ] {
             if ui
                 .radio_value(&mut tab.compare_mode, mode, mode.label_t())
                 .clicked()
@@ -119,6 +125,12 @@ pub fn render_compare_view(
         }
         CompareMode::RowHashDiff => {
             row_diff::render(ui, tab, theme_mode);
+        }
+        CompareMode::Ordered => {
+            key_diff::render(ui, tab, theme_mode, false);
+        }
+        CompareMode::Join => {
+            key_diff::render(ui, tab, theme_mode, true);
         }
     }
 

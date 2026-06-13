@@ -267,6 +267,34 @@ your config directory:
 - macOS: `~/Library/Application Support/Octa/chat_sessions/`
 - Windows: `%APPDATA%\Octa\chat_sessions\`
 
+## Saved prompts
+
+The **Prompts** button next to **Send** opens a small manager window for
+reusable prompts. **Save current prompt...** names and stores whatever is in
+the input box; each saved prompt then has **Insert** (drop it into the input)
+and **x** (delete). The window has the usual minimise / maximise / close
+controls and is resizable. Prompts persist across sessions as
+`chat_prompts.json` in your config directory, the same way SQL snippets do.
+Handy for repeated tasks like "profile every open table" or a house-style
+analysis request.
+
+## Tool-call audit log
+
+For auditing, you can record **every tool the assistant runs**. Turn on
+**Settings -> Chat / Assistant -> Tool-call audit log** (off by default).
+While on, each tool call appends one JSON line (tool name, argument and
+result byte counts, duration, error flag, timestamp) to a per-session file:
+
+- Linux: `~/.config/octa/chat_audit/<session-id>.jsonl`
+- macOS: `~/Library/Application Support/Octa/chat_audit/<session-id>.jsonl`
+- Windows: `%APPDATA%\Octa\chat_audit\<session-id>.jsonl`
+
+The log only records *that* a tool ran and how big its input/output were, not
+the cell contents themselves. Because it grows over time, Octa shows a
+one-time warning at startup once the audit files exceed a size limit
+(**Warn when logs exceed**, default 10 MB; the warning can be turned off).
+Delete the files in `chat_audit/` to reset.
+
 ## Privacy
 
 The assistant sends your prompts, a short description of your open tabs (names,

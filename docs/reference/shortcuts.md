@@ -123,13 +123,12 @@ same precedence Ctrl+M uses from the keyboard.
 |-------------------|-----------------------------------------------|------------------------------------------------------------------|
 | Export SQL result | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> | Save the current SQL result to a file. No-op when no result yet. |
 
-## Inspector / dialogs
+## Dialogs
 
 | Action                      | Default                                       | Notes                                                                                                          |
 |-----------------------------|-----------------------------------------------|----------------------------------------------------------------------------------------------------------------|
 | Open documentation          | <kbd>F1</kbd>                                 | This documentation, in-app.                                                                                    |
 | Open settings               | <kbd>F3</kbd>                                 |                                                                                                                |
-| Open column inspector       | <kbd>Ctrl</kbd>+<kbd>I</kbd>                  | Column-level metadata + type info for the active tab.                                                          |
 | Show column value frequency | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd> | Top-N values + counts for the column of the selected cell. See [Value Frequency](../usage/value-frequency.md). |
 
 ## Cheat-sheet (most-used)

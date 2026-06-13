@@ -105,9 +105,12 @@ nav:
       - Formulas: usage/formulas.md
       - Date / Time Calculation: usage/date-time-calculation.md
       - Colour Marking: usage/colour-marking.md
-      - Column Inspector: usage/column-inspector.md
+      - Conditional Formatting: usage/conditional-formatting.md
+      - Data Validation: usage/data-validation.md
+      - Transform Column: usage/transform-column.md
       - Value Frequency: usage/value-frequency.md
       - Summary: usage/summary.md
+      - Pivot / Unpivot: usage/pivot.md
       - Schema Export: usage/schema-export.md
       - Archive Viewer: usage/archive-viewer.md
       - Chart: usage/chart.md

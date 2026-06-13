@@ -6,9 +6,143 @@ use eframe::egui;
 use octa::data::ViewMode;
 use octa::ui;
 
-use super::state::{ColumnInspectorSort, OctaApp, TabState};
+use super::state::{OctaApp, TabState};
 
 impl OctaApp {
+    /// Paint invisible resize-grab strips along the window edges and corners
+    /// when running with a custom title bar.
+    ///
+    /// A borderless window (`with_decorations(false)`) loses the WM's resize
+    /// frame on most compositors, so without this the window can't be resized
+    /// at all. Each strip is a foreground [`egui::Area`] that hands control to
+    /// the windowing system via [`egui::ViewportCommand::BeginResize`] (winit's
+    /// native `drag_resize_window`), so the actual resize is done by the OS.
+    ///
+    /// Two details make it feel like a native border rather than a clunky
+    /// widget:
+    /// - We fire on the *press* (`is_pointer_button_down_on`), not on a drag
+    ///   threshold. `Sense::drag()` only reports `drag_started()` after the
+    ///   cursor has moved ~6px, so a press in a small corner did nothing until
+    ///   it had already slid off - the OS border engages instantly, so we
+    ///   match that.
+    /// - The strips sense **drag only**, never clicks: a foreground click-sense
+    ///   widget would *steal* clicks from whatever sits under it, which is
+    ///   exactly what killed the min/max/close buttons. Drag-only lets a plain
+    ///   click pass straight through (egui splits the click/drag hit-test), and
+    ///   we additionally keep the side strips **below the toolbar row** so they
+    ///   never overlap the menus or the window-control buttons at all.
+    ///
+    /// Geometry: bottom + side targets are generous, bottom corners are large
+    /// diagonal zones (a borderless window has no forgiving margin *outside*
+    /// the glass, so the easy grab area lives inside). The top stays a thin
+    /// sliver plus small corners, all above the toolbar's interactive row.
+    /// Strips are mutually exclusive, so every pixel belongs to one handle.
+    /// Skipped while maximised (the WM owns that geometry).
+    pub(crate) fn render_window_resize_handles(&self, ctx: &egui::Context) {
+        if !self.settings.use_custom_title_bar {
+            return;
+        }
+        if ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
+            return;
+        }
+
+        use egui::{CursorIcon, ResizeDirection as Dir, ViewportCommand};
+
+        // Grab thicknesses in logical points.
+        const EDGE: f32 = 8.0; // left / right / bottom side strips
+        const TOP_EDGE: f32 = 4.0; // top: thin sliver above the toolbar
+        const CORNER: f32 = 20.0; // bottom corners: big and easy to hit
+        const TOP_CORNER: f32 = 8.0; // top corners: small, above the toolbar
+        // Keep the side strips clear of the toolbar's interactive row (menus +
+        // window-control buttons live here). Matches `Panel::top("toolbar")
+        // .exact_size(40.0)` in `render_toolbar`.
+        const TOOLBAR_H: f32 = 40.0;
+
+        let rect = ctx.viewport_rect();
+        let (l, r, t, b) = (rect.left(), rect.right(), rect.top(), rect.bottom());
+        let side_top = t + TOOLBAR_H;
+
+        // (id, grab rect, resize direction, hover cursor). Non-overlapping.
+        let handles: [(&str, egui::Rect, Dir, CursorIcon); 8] = [
+            (
+                "resize_w",
+                egui::Rect::from_min_max(egui::pos2(l, side_top), egui::pos2(l + EDGE, b - CORNER)),
+                Dir::West,
+                CursorIcon::ResizeWest,
+            ),
+            (
+                "resize_e",
+                egui::Rect::from_min_max(egui::pos2(r - EDGE, side_top), egui::pos2(r, b - CORNER)),
+                Dir::East,
+                CursorIcon::ResizeEast,
+            ),
+            (
+                "resize_n",
+                egui::Rect::from_min_max(
+                    egui::pos2(l + TOP_CORNER, t),
+                    egui::pos2(r - TOP_CORNER, t + TOP_EDGE),
+                ),
+                Dir::North,
+                CursorIcon::ResizeNorth,
+            ),
+            (
+                "resize_s",
+                egui::Rect::from_min_max(
+                    egui::pos2(l + CORNER, b - EDGE),
+                    egui::pos2(r - CORNER, b),
+                ),
+                Dir::South,
+                CursorIcon::ResizeSouth,
+            ),
+            (
+                "resize_nw",
+                egui::Rect::from_min_max(
+                    egui::pos2(l, t),
+                    egui::pos2(l + TOP_CORNER, t + TOP_CORNER),
+                ),
+                Dir::NorthWest,
+                CursorIcon::ResizeNorthWest,
+            ),
+            (
+                "resize_ne",
+                egui::Rect::from_min_max(
+                    egui::pos2(r - TOP_CORNER, t),
+                    egui::pos2(r, t + TOP_CORNER),
+                ),
+                Dir::NorthEast,
+                CursorIcon::ResizeNorthEast,
+            ),
+            (
+                "resize_sw",
+                egui::Rect::from_min_max(egui::pos2(l, b - CORNER), egui::pos2(l + CORNER, b)),
+                Dir::SouthWest,
+                CursorIcon::ResizeSouthWest,
+            ),
+            (
+                "resize_se",
+                egui::Rect::from_min_max(egui::pos2(r - CORNER, b - CORNER), egui::pos2(r, b)),
+                Dir::SouthEast,
+                CursorIcon::ResizeSouthEast,
+            ),
+        ];
+
+        for (id, grab, dir, cursor) in handles {
+            let resp = egui::Area::new(egui::Id::new(id))
+                .order(egui::Order::Foreground)
+                .fixed_pos(grab.min)
+                .show(ctx, |ui| ui.allocate_rect(grab, egui::Sense::drag()))
+                .inner;
+            if resp.contains_pointer() {
+                ctx.set_cursor_icon(cursor);
+            }
+            // Engage on the press itself (no drag threshold) so the grab feels
+            // like a native sizing border.
+            if resp.is_pointer_button_down_on() {
+                ctx.send_viewport_cmd(ViewportCommand::BeginResize(dir));
+            }
+        }
+    }
+
     pub(crate) fn render_toolbar(&mut self, parent_ui: &mut egui::Ui) {
         let ctx = parent_ui.ctx().clone();
         let ctx = &ctx;
@@ -32,11 +166,18 @@ impl OctaApp {
                 } else {
                     tab.search_nav.current.min(match_count - 1) + 1
                 };
+                let search_col_names: Vec<String> =
+                    tab.table.columns.iter().map(|c| c.name.clone()).collect();
                 let action = ui::toolbar::draw_toolbar(
                     ui,
                     self.theme_mode,
                     &mut tab.search_text,
                     &mut tab.search_mode,
+                    &mut tab.search_case_sensitive,
+                    &mut tab.search_whole_word,
+                    &mut tab.search_scope_col,
+                    &search_col_names,
+                    &self.search_history,
                     &mut self.search_result_mode,
                     highlight_active,
                     match_count,
@@ -156,6 +297,13 @@ impl OctaApp {
         if action.open_file {
             self.open_file();
         }
+        if action.open_table_folder
+            && let Some(path) = rfd::FileDialog::new().pick_folder()
+        {
+            // load_file detects Delta/Iceberg table directories; a plain
+            // folder surfaces a clear status message.
+            self.load_file_in_new_tab(path);
+        }
         if action.open_directory
             && let Some(path) = rfd::FileDialog::new().pick_folder()
         {
@@ -230,6 +378,14 @@ impl OctaApp {
         if action.search_changed {
             self.tabs[self.active_tab].search_nav.reset();
             self.tabs[self.active_tab].filter_dirty = true;
+        }
+        if action.commit_search_history {
+            let query = self.tabs[self.active_tab].search_text.clone();
+            super::search_history::record(
+                &mut self.search_history,
+                &query,
+                self.settings.search_history_limit,
+            );
         }
         if action.search_result_mode_changed {
             // Switching Filter<->Highlight changes whether rows are hidden, so
@@ -390,11 +546,6 @@ impl OctaApp {
         if action.sort_columns_desc {
             self.sort_columns_alphabetically(false);
         }
-        if action.show_column_inspector {
-            let tab = &mut self.tabs[self.active_tab];
-            tab.show_column_inspector = true;
-            tab.column_inspector_sort = ColumnInspectorSort::Default;
-        }
         if action.show_all_columns {
             self.tabs[self.active_tab].hidden_columns.clear();
         }
@@ -480,6 +631,33 @@ impl OctaApp {
         }
         if action.open_column_format {
             self.open_column_format_for_selection();
+        }
+        if action.open_conditional_format {
+            let tab = &mut self.tabs[self.active_tab];
+            if tab.table.col_count() > 0 {
+                tab.show_conditional_format = true;
+            }
+        }
+        if action.open_validation {
+            let tab = &mut self.tabs[self.active_tab];
+            if tab.table.col_count() > 0 {
+                tab.show_validation = true;
+            }
+        }
+        if action.open_pivot && self.tabs[self.active_tab].table.col_count() > 0 {
+            self.pivot_dialog = Some(crate::app::state::PivotState::default());
+        }
+        if action.open_transform
+            && self.tabs[self.active_tab].table.col_count() > 0
+            && !self.is_readonly()
+        {
+            self.transform_dialog = Some(crate::app::state::TransformState::default());
+        }
+        if action.open_multi_sort && self.tabs[self.active_tab].table.col_count() > 0 {
+            self.multi_sort_dialog = Some(crate::app::state::MultiSortState::default());
+        }
+        if action.copy_as_markdown {
+            self.do_copy_markdown();
         }
         if action.show_find_duplicates {
             let tab = &mut self.tabs[self.active_tab];

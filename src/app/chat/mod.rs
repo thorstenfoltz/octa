@@ -17,6 +17,7 @@
 //! in the GUI process.
 
 pub mod agent;
+pub mod audit;
 pub mod ollama;
 pub mod persist;
 pub mod providers;

@@ -341,6 +341,13 @@ pub(super) fn draw_header_direct(
                 Sense::click_and_drag(),
             );
 
+            // Optional per-column hover description (Summary tab explains each
+            // statistic; empty for ordinary tables).
+            let header_response = match state.header_tooltips.get(col_idx) {
+                Some(tip) if !tip.is_empty() => header_response.on_hover_text(tip),
+                _ => header_response,
+            };
+
             if header_response.hovered() && state.dragging_col.is_none() {
                 ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
             }

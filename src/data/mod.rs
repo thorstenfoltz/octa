@@ -2,22 +2,29 @@ pub mod chart;
 pub mod chart_export;
 pub mod compare;
 pub mod compare_schemas;
+pub mod conditional_format;
+pub mod correlation;
 pub mod date_infer;
 pub mod describe;
 pub mod diff;
 pub mod duplicates;
 pub mod encoding;
 pub mod formulas;
+pub mod geo_detect;
 pub mod json_util;
 pub mod multi_search;
 pub mod num_format;
+pub mod pivot;
 pub mod sample;
 pub mod schema_export;
 pub mod search;
+pub mod summary;
 pub mod time_calc;
+pub mod transform;
 pub mod trim;
 pub mod unique_columns;
 pub mod validate_schema;
+pub mod validation;
 pub mod value_frequency;
 
 pub use formulas::{
@@ -105,6 +112,13 @@ pub enum CompareMode {
     /// Hash the user-picked columns per row and report uniques + duplicates
     /// across both files. Cross-format because only cell text is hashed.
     RowHashDiff,
+    /// Positional row-by-row cell comparison (`compare_ordered`): row N on the
+    /// left versus row N on the right, naming the columns that differ.
+    Ordered,
+    /// Key-matched comparison (`compare_join`): rows paired by user-picked key
+    /// column(s), reporting added / removed / changed rows and which columns
+    /// changed.
+    Join,
 }
 
 impl CompareMode {
@@ -112,6 +126,8 @@ impl CompareMode {
         match self {
             Self::TextDiff => "Text Diff",
             Self::RowHashDiff => "Row Hash Diff",
+            Self::Ordered => "Ordered",
+            Self::Join => "Join (by key)",
         }
     }
 
@@ -119,6 +135,8 @@ impl CompareMode {
         crate::i18n::t(match self {
             Self::TextDiff => "enum2.compare_text_diff",
             Self::RowHashDiff => "enum2.compare_row_hash",
+            Self::Ordered => "enum2.compare_ordered",
+            Self::Join => "enum2.compare_join",
         })
     }
 }
@@ -1012,6 +1030,37 @@ impl DataTable {
             let vb = b.get(col_idx).unwrap_or(&CellValue::Null);
             let cmp = cmp_cell_values(va, vb);
             if ascending { cmp } else { cmp.reverse() }
+        });
+    }
+
+    /// Sort rows by several columns at once. `keys` lists `(col_idx, ascending)`
+    /// in priority order: the first key is the primary sort, later keys break
+    /// ties. Out-of-range columns and an empty key list are ignored. A single
+    /// stable sort keeps the relative order of rows that are equal on every key.
+    pub fn sort_rows_by_columns(&mut self, keys: &[(usize, bool)]) {
+        let valid: Vec<(usize, bool)> = keys
+            .iter()
+            .copied()
+            .filter(|&(c, _)| c < self.columns.len())
+            .collect();
+        if valid.is_empty() || self.rows.is_empty() {
+            return;
+        }
+        // Merge pending edits so we sort on the actual visible values.
+        self.apply_edits();
+        self.structural_changes = true;
+
+        self.rows.sort_by(|a, b| {
+            for &(col_idx, ascending) in &valid {
+                let va = a.get(col_idx).unwrap_or(&CellValue::Null);
+                let vb = b.get(col_idx).unwrap_or(&CellValue::Null);
+                let cmp = cmp_cell_values(va, vb);
+                let cmp = if ascending { cmp } else { cmp.reverse() };
+                if cmp != std::cmp::Ordering::Equal {
+                    return cmp;
+                }
+            }
+            std::cmp::Ordering::Equal
         });
     }
 

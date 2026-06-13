@@ -35,16 +35,6 @@ pub(crate) enum ClosedTabSnapshot {
     },
 }
 
-/// Sort order for the Column Inspector dialog. View-only - does not mutate
-/// the underlying column order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum ColumnInspectorSort {
-    #[default]
-    Default,
-    Asc,
-    Desc,
-}
-
 /// What to do with duplicate rows once `find_duplicate_rows` has
 /// returned them. `Highlight` marks each row in orange so the user can
 /// see them in place; `NewTab` opens a new tab containing only those
@@ -74,6 +64,234 @@ pub(crate) struct InspectorCacheEntry {
 pub(crate) struct SchemaExportState {
     pub(crate) target: octa::data::schema_export::SchemaTarget,
     pub(crate) size: ui::settings::DialogSize,
+}
+
+/// Draft state for the "Save SQL snippet" dialog: the editable name and
+/// description plus the captured query text.
+pub(crate) struct SqlSnippetDraft {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) query: String,
+}
+
+/// Draft state for the "Save chat prompt" dialog: the editable name and
+/// description plus the captured prompt body. Mirrors [`SqlSnippetDraft`].
+pub(crate) struct ChatPromptDraft {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) text: String,
+}
+
+/// Pivot vs Unpivot (long<->wide reshape) for the Pivot dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PivotKind {
+    /// Long -> wide: spread one column's distinct values into new columns,
+    /// aggregating a value column.
+    Pivot,
+    /// Wide -> long: melt several columns into a name/value pair.
+    Unpivot,
+}
+
+/// Aggregate function used by a Pivot. Re-exported from the shared
+/// `octa::data::pivot` module (same enum drives the MCP `pivot` tool).
+pub(crate) use octa::data::pivot::PivotAgg;
+
+/// State for the Pivot / Unpivot dialog. Column references are indices into the
+/// active table's `columns`.
+pub(crate) struct PivotState {
+    pub(crate) kind: PivotKind,
+    /// Pivot: the column whose distinct values become new columns.
+    pub(crate) on_col: Option<usize>,
+    /// Pivot: the column aggregated under each new column.
+    pub(crate) value_col: Option<usize>,
+    pub(crate) agg: PivotAgg,
+    /// Pivot: the identity columns kept as rows (empty = DuckDB infers).
+    pub(crate) group_cols: Vec<usize>,
+    /// Unpivot: the columns melted into name/value pairs.
+    pub(crate) unpivot_cols: Vec<usize>,
+    /// Unpivot: name of the generated key column (buffer).
+    pub(crate) name_col: String,
+    /// Unpivot: name of the generated value column (buffer).
+    pub(crate) value_name: String,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl Default for PivotState {
+    fn default() -> Self {
+        Self {
+            kind: PivotKind::Pivot,
+            on_col: None,
+            value_col: None,
+            agg: PivotAgg::Sum,
+            group_cols: Vec::new(),
+            unpivot_cols: Vec::new(),
+            name_col: "name".to_string(),
+            value_name: "value".to_string(),
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
+/// One sort key in the multi-column sort dialog: a column index and a
+/// direction (`true` = ascending).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SortKey {
+    pub(crate) col: usize,
+    pub(crate) ascending: bool,
+}
+
+/// State for the multi-column sort dialog. The ordered `keys` list is the sort
+/// priority: the first key is primary, later keys break ties. App-level (the
+/// sort applies to the active tab in place).
+pub(crate) struct MultiSortState {
+    pub(crate) keys: Vec<SortKey>,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl Default for MultiSortState {
+    fn default() -> Self {
+        Self {
+            // Start with one key so the dialog is never empty.
+            keys: vec![SortKey {
+                col: 0,
+                ascending: true,
+            }],
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
+/// Which column-shaping transform the dialog is configured for. Maps onto the
+/// pure functions in [`octa::data::transform`] when the user applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TransformOp {
+    /// One column -> several (by delimiter / regex / fixed width).
+    Split,
+    /// Several columns -> one joined column.
+    Merge,
+    /// Fill empty cells from the value above.
+    FillDown,
+    /// Fill empty cells from the value below.
+    FillUp,
+    /// Pull a regex match from each cell into a new column.
+    Extract,
+    /// Find/replace within one column's cells.
+    Replace,
+}
+
+impl TransformOp {
+    pub(crate) const ALL: &'static [TransformOp] = &[
+        TransformOp::Split,
+        TransformOp::Merge,
+        TransformOp::FillDown,
+        TransformOp::FillUp,
+        TransformOp::Extract,
+        TransformOp::Replace,
+    ];
+
+    pub(crate) fn i18n_key(self) -> &'static str {
+        match self {
+            TransformOp::Split => "transform_op.split",
+            TransformOp::Merge => "transform_op.merge",
+            TransformOp::FillDown => "transform_op.fill_down",
+            TransformOp::FillUp => "transform_op.fill_up",
+            TransformOp::Extract => "transform_op.extract",
+            TransformOp::Replace => "transform_op.replace",
+        }
+    }
+
+    /// Whether this op materialises one or more *new* columns (so the dialog
+    /// should offer a name + insert-position). Fill / Replace edit in place.
+    pub(crate) fn creates_column(self) -> bool {
+        matches!(
+            self,
+            TransformOp::Split | TransformOp::Merge | TransformOp::Extract
+        )
+    }
+}
+
+/// How [`TransformOp::Split`] divides each cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SplitMode {
+    Delimiter,
+    Regex,
+    FixedWidth,
+}
+
+impl SplitMode {
+    pub(crate) const ALL: &'static [SplitMode] = &[
+        SplitMode::Delimiter,
+        SplitMode::Regex,
+        SplitMode::FixedWidth,
+    ];
+
+    pub(crate) fn i18n_key(self) -> &'static str {
+        match self {
+            SplitMode::Delimiter => "transform_op.split_delimiter",
+            SplitMode::Regex => "transform_op.split_regex",
+            SplitMode::FixedWidth => "transform_op.split_width",
+        }
+    }
+}
+
+/// State for the Transform-column dialog (Edit -> Transform column...).
+/// App-level: the transform applies to the active tab in place. Column
+/// references are indices into the active table's `columns`.
+pub(crate) struct TransformState {
+    pub(crate) op: TransformOp,
+    /// Source column for Split / FillDown / FillUp / Extract / Replace.
+    pub(crate) col: Option<usize>,
+    /// Merge: the ordered list of columns to join.
+    pub(crate) merge_cols: Vec<usize>,
+    /// Split mode + its parameter buffers.
+    pub(crate) split_mode: SplitMode,
+    pub(crate) split_delim: String,
+    pub(crate) split_regex: String,
+    pub(crate) split_width: String,
+    /// Merge separator.
+    pub(crate) merge_sep: String,
+    /// Extract regex pattern.
+    pub(crate) extract_pattern: String,
+    /// Replace: search query + mode + replacement text.
+    pub(crate) replace_query: String,
+    pub(crate) replace_mode: octa::data::SearchMode,
+    pub(crate) replace_with: String,
+    /// For column-creating ops (Split / Merge / Extract): the output column
+    /// name. Empty = the op's auto default (`merged`, `<src>_extracted`,
+    /// `<src>_N`). For Split it is used as the base for `<name>_N`.
+    pub(crate) new_name: String,
+    /// 1-based insert position buffer for the new column(s). Empty = the op's
+    /// natural default (after the source column; end for Merge).
+    pub(crate) insert_pos_text: String,
+    /// Last error (e.g. invalid regex), shown in the dialog.
+    pub(crate) error: Option<String>,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl Default for TransformState {
+    fn default() -> Self {
+        Self {
+            op: TransformOp::Split,
+            col: None,
+            merge_cols: Vec::new(),
+            split_mode: SplitMode::Delimiter,
+            split_delim: ",".to_string(),
+            split_regex: String::new(),
+            split_width: "1".to_string(),
+            merge_sep: " ".to_string(),
+            extract_pattern: String::new(),
+            replace_query: String::new(),
+            replace_mode: octa::data::SearchMode::Plain,
+            replace_with: String::new(),
+            new_name: String::new(),
+            insert_pos_text: String::new(),
+            error: None,
+            size: ui::settings::DialogSize::default(),
+        }
+    }
 }
 
 /// One-shot per-file prompt shown after loading a CSV/TSV whose size is
@@ -342,6 +560,15 @@ pub(crate) struct TabState {
     pub(crate) table_state: TableViewState,
     pub(crate) search_text: String,
     pub(crate) search_mode: data::SearchMode,
+    /// Case-sensitive search toggle (`Aa` button in the search bar). When off,
+    /// matching is case-insensitive across all modes. Session-only, per tab.
+    pub(crate) search_case_sensitive: bool,
+    /// Whole-word search toggle. When on, matches are bounded by word
+    /// boundaries (`\b`). Session-only, per tab.
+    pub(crate) search_whole_word: bool,
+    /// Which columns the search applies to. `None` = whole table; `Some(col)`
+    /// restricts matching to one column. Session-only, per tab.
+    pub(crate) search_scope_col: Option<usize>,
     pub(crate) show_replace_bar: bool,
     pub(crate) replace_text: String,
     pub(crate) filtered_rows: Vec<usize>,
@@ -462,6 +689,15 @@ pub(crate) struct TabState {
     /// Last successfully executed SELECT, kept verbatim so the write-back
     /// dialog has a source query to compose `CREATE TABLE AS ...` from.
     pub(crate) sql_last_query: String,
+    /// Recent executed queries for this tab (most-recent first), session-only.
+    /// Surfaced in the SQL panel's History dropdown. Capped in `run_workspace_query`.
+    pub(crate) sql_history: Vec<String>,
+    /// Cells/rows temporarily marked to show what the last SQL mutation
+    /// changed; cleared once `sql_diff_highlight_until` passes.
+    pub(crate) sql_diff_marks: Vec<data::MarkKey>,
+    /// When the post-mutation row-diff highlight expires. `None` when no
+    /// highlight is active.
+    pub(crate) sql_diff_highlight_until: Option<std::time::Instant>,
     /// Toggle for the collapsible Workspace section at the top of the SQL
     /// panel. Off by default to keep the panel compact for users who only
     /// query `data`.
@@ -488,18 +724,6 @@ pub(crate) struct TabState {
     /// headers (the default for most readers). When toggled off, the headers
     /// are pushed back into row 0 and column names become `column_1..N`.
     pub(crate) first_row_is_header: bool,
-    /// Whether the Column Inspector modal is open for this tab.
-    pub(crate) show_column_inspector: bool,
-    /// Sort order applied inside the Column Inspector (view-only).
-    pub(crate) column_inspector_sort: ColumnInspectorSort,
-    /// Window-size mode for the Column Inspector (Normal/Maximized/Minimized).
-    pub(crate) column_inspector_size: ui::settings::DialogSize,
-    /// Selected row indices (display-position indices) inside the Column
-    /// Inspector. Drives Ctrl+C / context-menu copy. Cleared when the dialog
-    /// closes.
-    pub(crate) column_inspector_selected: std::collections::HashSet<usize>,
-    /// Anchor index for Shift+click range selection in the Column Inspector.
-    pub(crate) column_inspector_anchor: Option<usize>,
     /// Column index whose value-frequency dialog is currently open for this
     /// tab. `None` = dialog closed. Set by Ctrl+Shift+I, column-header
     /// right-click -> "Value frequency...", or the Edit menu.
@@ -528,6 +752,25 @@ pub(crate) struct TabState {
     /// before applying rounding to the written values.
     pub(crate) column_number_formats:
         std::collections::HashMap<usize, octa::data::num_format::NumberFormat>,
+    /// Conditional-formatting rules colouring cells whose value matches a
+    /// predicate. Evaluated against every visible cell; the first matching
+    /// rule wins (see `octa::data::conditional_format`). Session-only, like
+    /// `column_number_formats` and manual marks.
+    pub(crate) conditional_format_rules: Vec<octa::data::conditional_format::CondRule>,
+    /// Whether the "Conditional formatting..." dialog is open on this tab.
+    pub(crate) show_conditional_format: bool,
+    /// Conditional-formatting dialog window sizing (Normal/Maximized/Minimized).
+    pub(crate) conditional_format_size: ui::settings::DialogSize,
+    /// Data-validation rules for this tab. Cells failing any rule are painted
+    /// red by the renderer (see `octa::data::validation`). Session-only.
+    pub(crate) validation_rules: Vec<octa::data::validation::ValidationRule>,
+    /// Cached set of `(row, col)` cells failing a validation rule, recomputed in
+    /// `recompute_filter` (like `search_cell_matches`) so the renderer stays cheap.
+    pub(crate) validation_violations: std::collections::HashSet<(usize, usize)>,
+    /// Whether the "Data validation..." dialog is open on this tab.
+    pub(crate) show_validation: bool,
+    /// Data-validation dialog window sizing (Normal/Maximized/Minimized).
+    pub(crate) validation_size: ui::settings::DialogSize,
     /// Column index whose Number-format dialog is open. `None` = closed.
     /// This is the "primary" column (drives the dialog title + preview); the
     /// chosen format applies to every column in `column_format_cols`.
@@ -656,6 +899,11 @@ pub(crate) struct TabState {
     /// flat table rows. Populated by `apply_loaded_table` from
     /// `geojson_reader::read_with_features`. Empty for non-GeoJSON tabs.
     pub(crate) geojson_features: Vec<octa::formats::geojson_reader::MapFeature>,
+    /// For non-GeoJSON tables plotted on the map: the (lat, lon) column
+    /// indices currently driving `geojson_features`. `None` for GeoJSON tabs
+    /// (whose geometry comes from the file) or before the Map view is opened.
+    /// The Map view's column dropdown writes here and rebuilds the points.
+    pub(crate) map_coord_cols: Option<(usize, usize)>,
     /// Per-tab map rendering mode. Initialised from
     /// `AppSettings.map_default_mode`; flipped by the Map toolbar's
     /// Tiles/Geometry toggle.
@@ -706,6 +954,29 @@ pub(crate) struct OctaApp {
     /// persisting. Governs the table view only; text/tree views always
     /// highlight.
     pub(crate) search_result_mode: data::SearchResultMode,
+    /// Recent search queries (most-recent first), persisted across sessions to
+    /// `<config_dir>/search_history.json`. Surfaced in the search-box history
+    /// dropdown; capped at `settings.search_history_limit`.
+    pub(crate) search_history: Vec<String>,
+    /// Saved SQL snippets (named query library), persisted to
+    /// `<config_dir>/sql_snippets.json`. Offered in the SQL panel's Snippets
+    /// dropdown.
+    pub(crate) sql_snippets: Vec<super::sql_snippets::SqlSnippet>,
+    /// Active "Save SQL snippet" dialog (name + description buffers + the query
+    /// being saved), or `None` when closed.
+    pub(crate) sql_snippet_save: Option<SqlSnippetDraft>,
+    /// Whether the SQL snippets manager window is open (app-level; the snippet
+    /// library is shared across tabs).
+    pub(crate) sql_snippets_window_open: bool,
+    /// Window-size mode for the SQL snippets manager window.
+    pub(crate) sql_snippets_window_size: ui::settings::DialogSize,
+    /// Saved chat prompts (named prompt library), persisted to
+    /// `<config_dir>/chat_prompts.json`. Offered in the chat panel's Prompts
+    /// manager window.
+    pub(crate) chat_prompts: Vec<super::chat_prompts::ChatPrompt>,
+    /// Active "Save chat prompt" dialog (name + description buffers + the prompt
+    /// being saved), or `None` when closed.
+    pub(crate) chat_prompt_save: Option<ChatPromptDraft>,
     pub(crate) settings: AppSettings,
     /// The concrete icon variant in use for this session. Equals
     /// `settings.icon_variant` for non-Random; for Random, holds the
@@ -819,6 +1090,16 @@ pub(crate) struct OctaApp {
     /// the dialog isn't open. Switching targets while the dialog is up
     /// mutates `target` in place; closing the dialog clears the field.
     pub(crate) schema_export: Option<SchemaExportState>,
+    /// Active Pivot / Unpivot dialog state, or `None` when closed. Operates on
+    /// the active tab; running it builds a DuckDB PIVOT/UNPIVOT query and lands
+    /// the result in a new detached tab (see `src/app/dialogs/pivot.rs`).
+    pub(crate) pivot_dialog: Option<PivotState>,
+    /// Active multi-column sort dialog state, or `None` when closed. Sorts the
+    /// active tab in place (see `src/app/dialogs/multi_sort.rs`).
+    pub(crate) multi_sort_dialog: Option<MultiSortState>,
+    /// Active Transform-column dialog state, or `None` when closed. Reshapes
+    /// the active tab in place (see `src/app/dialogs/transform.rs`).
+    pub(crate) transform_dialog: Option<TransformState>,
     /// Currently opened directory tree sidebar (`None` = sidebar hidden).
     pub(crate) directory_tree: Option<ui::directory_tree::DirectoryTreeState>,
     /// How many key presses of the Konami sequence have been matched so far.

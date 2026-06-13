@@ -66,11 +66,19 @@ impl OctaMcpServer {
 
 #[tool_router]
 impl OctaMcpServer {
-    pub fn new(default_row_limit: Option<usize>, cell_byte_cap: usize) -> Self {
+    pub fn new(default_row_limit: Option<usize>, cell_byte_cap: usize, read_only: bool) -> Self {
+        let mut tool_router = Self::tool_router();
+        if read_only {
+            // Read-only mode: drop every tool that mutates a file so the
+            // server can be wired into agent frameworks with no write surface.
+            for name in ["write_table", "edit_table", "convert", "transform_columns"] {
+                tool_router.remove_route(name);
+            }
+        }
         Self {
             default_row_limit,
             cell_byte_cap,
-            tool_router: Self::tool_router(),
+            tool_router,
         }
     }
 
@@ -393,6 +401,63 @@ the entire file before editing. Returns `cells_set`, `rows_inserted`, `rows_dele
     ) -> Result<CallToolResult, McpError> {
         tools::edit_table::handle(self, p).await
     }
+
+    #[tool(
+        description = "Reshape a table between long and wide form using DuckDB PIVOT / UNPIVOT. \
+With `mode: \"pivot\"` (default), spread the distinct values of column `on` into new columns, \
+aggregating `value` with `agg` (sum/count/avg/min/max), optionally grouped by `group`. With \
+`mode: \"unpivot\"`, melt the columns in `columns` into two columns named `name_col` / \
+`value_col`. Returns the reshaped table (`{schema, rows, row_count, ...}`). Operates on a file \
+`path` or an `open_tab`."
+    )]
+    async fn pivot(
+        &self,
+        Parameters(p): Parameters<tools::pivot::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::pivot::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Compute a pairwise correlation matrix over the numeric columns of a \
+tabular file or open tab. `method` is `pearson` (linear, default) or `spearman` (monotonic, \
+rank-based). Non-numeric columns are ignored; per pair only rows where both values are present \
+are used. Returns `{columns, matrix}` where `matrix[i][j]` correlates `columns[i]` with \
+`columns[j]` (null when undefined)."
+    )]
+    async fn correlation(
+        &self,
+        Parameters(p): Parameters<tools::correlation::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::correlation::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Search every tabular file in a directory (one level deep) for a value, \
+like grep across files. `query` + `mode` (`plain` default / `wildcard` / `regex`), with optional \
+`case_sensitive` and `whole_word`. Skips files larger than `max_file_size_mb` (default 50) and \
+unparseable files. Returns `hits` (`{file, row, column, snippet}`), `skipped`, `files_searched`, \
+`total_hits`, and `truncated` (capped at `max_results`, default 1000)."
+    )]
+    async fn grep_files(
+        &self,
+        Parameters(p): Parameters<tools::grep_files::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::grep_files::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Rename, cast, or drop columns of a tabular file and write the result back \
+(the column-level edit `edit_table` does not do). `rename` is `{from, to}` pairs; `cast` is \
+`{column, type}` (Arrow type name) re-typing the column and converting its cells; `drop` is \
+column names. Order: drop, then rename, then cast. Writes to `output_path` (default: overwrite \
+`path`). Database files are not valid sources or targets."
+    )]
+    async fn transform_columns(
+        &self,
+        Parameters(p): Parameters<tools::transform_columns::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::transform_columns::handle(self, p).await
+    }
 }
 
 // `router = self.tool_router` tells the macro to dispatch via the pre-built
@@ -424,7 +489,7 @@ impl ServerHandler for OctaMcpServer {
              Available tools: read_table, tail, sample, schema, list_tables, count_rows, \
              run_sql, convert, export_schema, profile, find_duplicates, value_frequency, \
              search, compare_schemas, diff_tables, validate_against_schema, describe_file, \
-             unique_columns."
+             unique_columns, pivot, correlation, grep_files, transform_columns."
         );
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::from_build_env())
@@ -434,8 +499,13 @@ impl ServerHandler for OctaMcpServer {
 }
 
 /// Run the MCP server over stdio. Blocks until the client disconnects.
-/// `default_row_limit` and `cell_byte_cap` come from `AppSettings`.
-pub async fn run(default_row_limit: Option<usize>, cell_byte_cap: usize) -> anyhow::Result<()> {
+/// `default_row_limit` and `cell_byte_cap` come from `AppSettings`;
+/// `read_only` (from `--mcp-read-only`) drops the file-writing tools.
+pub async fn run(
+    default_row_limit: Option<usize>,
+    cell_byte_cap: usize,
+    read_only: bool,
+) -> anyhow::Result<()> {
     let row_str = default_row_limit.map_or_else(|| "unlimited".to_string(), |n| n.to_string());
     let cell_str = if cell_byte_cap == 0 {
         "unlimited".to_string()
@@ -448,12 +518,21 @@ pub async fn run(default_row_limit: Option<usize>, cell_byte_cap: usize) -> anyh
     } else {
         format!("{file_cap}")
     };
+    let mode_str = if read_only {
+        " [read-only: write_table/edit_table/convert disabled]"
+    } else {
+        ""
+    };
     eprintln!(
-        "octa --mcp ready (default response row limit: {row_str}, cell cap: {cell_str}, \
+        "octa --mcp ready{mode_str} (default response row limit: {row_str}, cell cap: {cell_str}, \
          file-loader cap: {file_cap_str}; override per-call via `limit` / `unlimited`)"
     );
-    let server = OctaMcpServer::new(default_row_limit, cell_byte_cap);
+    let server = OctaMcpServer::new(default_row_limit, cell_byte_cap, read_only);
     let service = server.serve(stdio()).await?;
     service.waiting().await?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod read_only_tests;

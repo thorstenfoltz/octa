@@ -65,10 +65,10 @@ The chosen code is stored as `language` in your
 
 ## Scripts not yet offered
 
-The interface now covers Latin, Greek, Cyrillic, and CJK (Chinese,
-Japanese, Korean) scripts. Right-to-left scripts (Arabic, Hebrew) remain
-out of scope for the UI for now: beyond translated catalogs they need
-layout work that Octa does not yet do.
+The interface covers Latin, Greek, Cyrillic, and CJK (Chinese,
+Japanese, Korean) scripts. Right-to-left scripts (Arabic, Hebrew) are
+out of scope for the UI: beyond translated catalogs they need
+layout work that Octa does not do.
 
 This is separate from **displaying** non-Latin data: Octa bundles a Noto
 Sans CJK fallback face, so cell values containing Chinese, Japanese, or

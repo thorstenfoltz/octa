@@ -63,6 +63,32 @@ A dropdown next to the search box switches between three modes:
 The default mode is set under
 [**Settings → Search & Editor → Default search mode**](../reference/settings.md#search-editor).
 
+## Case, whole word, and scope
+
+Three controls beside the search box refine how matching works. They
+apply to both the filter and the in-place highlight.
+
+- **Aa** toggles **case-sensitive** matching. When off (the default),
+  matching ignores capitalisation in every mode; when on, `Foo` no
+  longer matches `foo`.
+- **W** toggles **whole-word** matching. The query is bounded by word
+  boundaries, so `cat` matches the word "cat" but not "category" or
+  "scatter".
+- The **scope** dropdown limits the search to a single column, or
+  **All columns** (the default). The dropdown's label always shows the
+  current scope, so you can tell at a glance whether you are searching
+  one column or the whole table.
+
+## Search history
+
+Recent queries are remembered across sessions. Once you have run a few
+searches, a **Recent** dropdown appears beside the search box; pick an
+entry to re-run that query. The number of queries kept is the
+[**Search history size**](../reference/settings.md#search-editor)
+setting (default 5; `0` disables the history). The list lives in
+`search_history.json` in the
+[config directory](../reference/settings.md).
+
 ## Filter or highlight
 
 A toggle button beside the search box controls how matches are shown:

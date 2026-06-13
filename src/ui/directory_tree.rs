@@ -40,7 +40,15 @@ const ARROW_WIDTH: f32 = 16.0;
 const ROW_PADDING_X: f32 = 4.0;
 
 /// Render the directory tree. Callers wrap this in a `SidePanel`.
-pub fn render_directory_tree(ui: &mut egui::Ui, state: &mut DirectoryTreeState) -> TreeAction {
+///
+/// When `allowed_exts` is `Some(set)`, only directories and files whose
+/// lowercased extension is in `set` are listed (extensionless files are
+/// hidden). `None` lists everything (dotfiles always excluded).
+pub fn render_directory_tree(
+    ui: &mut egui::Ui,
+    state: &mut DirectoryTreeState,
+    allowed_exts: Option<&HashSet<String>>,
+) -> TreeAction {
     let mut action = TreeAction::default();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Directory").strong());
@@ -68,9 +76,23 @@ pub fn render_directory_tree(ui: &mut egui::Ui, state: &mut DirectoryTreeState) 
         .auto_shrink([false, false])
         .show(ui, |ui| {
             let root = state.root.clone();
-            draw_dir(ui, &root, state, &mut action, 0);
+            draw_dir(ui, &root, state, &mut action, 0, allowed_exts);
         });
     action
+}
+
+/// Whether a file is listed under the current filter. Directories are always
+/// shown; the filter only applies to files. A file with no extension is
+/// hidden when the filter is active (it can't be matched against the
+/// registry's openable-extension set).
+fn file_is_listed(path: &Path, allowed_exts: Option<&HashSet<String>>) -> bool {
+    let Some(set) = allowed_exts else {
+        return true;
+    };
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) => set.contains(&ext.to_ascii_lowercase()),
+        None => false,
+    }
 }
 
 /// Render a single row that spans the full panel width and is clickable as a
@@ -145,6 +167,7 @@ fn draw_dir(
     state: &mut DirectoryTreeState,
     action: &mut TreeAction,
     depth: usize,
+    allowed_exts: Option<&HashSet<String>>,
 ) {
     let entries = match read_sorted_dir(dir) {
         Ok(e) => e,
@@ -164,6 +187,11 @@ fn draw_dir(
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
         if name.starts_with('.') {
+            continue;
+        }
+        // Hide files Octa can't open when the filter is on. Directories are
+        // always shown so the user can still navigate into them.
+        if !is_dir && !file_is_listed(&entry, allowed_exts) {
             continue;
         }
         let is_open = is_dir && state.expanded.contains(&entry);
@@ -189,7 +217,7 @@ fn draw_dir(
         }
 
         if is_dir && state.expanded.contains(&entry) {
-            draw_dir(ui, &entry, state, action, depth + 1);
+            draw_dir(ui, &entry, state, action, depth + 1, allowed_exts);
         }
     }
 }
@@ -237,27 +265,5 @@ pub fn read_sorted_dir(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sort_puts_directories_first() {
-        let tmp = tempfile::tempdir().unwrap();
-        std::fs::create_dir(tmp.path().join("zdir")).unwrap();
-        std::fs::write(tmp.path().join("afile.txt"), "").unwrap();
-        std::fs::write(tmp.path().join("bfile.txt"), "").unwrap();
-        let out = read_sorted_dir(tmp.path()).unwrap();
-        let names: Vec<String> = out
-            .iter()
-            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
-            .collect();
-        assert_eq!(names, vec!["zdir", "afile.txt", "bfile.txt"]);
-    }
-
-    #[test]
-    fn state_has_root_expanded_by_default() {
-        let tmp = tempfile::tempdir().unwrap();
-        let s = DirectoryTreeState::new(tmp.path().to_path_buf());
-        assert!(s.expanded.contains(&tmp.path().to_path_buf()));
-    }
-}
+#[path = "directory_tree_tests.rs"]
+mod tests;

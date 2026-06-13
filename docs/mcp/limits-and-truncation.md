@@ -164,10 +164,10 @@ sets it to effectively no cap) and restart the MCP server.
 ### Parquet row-group fallback
 
 Parquet files with more than 32,767 row groups (common with Spark
-or streaming ingest writers that emit many small batches) used to
-fail the native arrow-parquet reader with
-`Row group ordinal 32768 exceeds i16 max value`. Octa retries
-those reads through a DuckDB-backed reader automatically, with the same
+or streaming ingest writers that emit many small batches) exceed
+the native arrow-parquet reader's limit
+(`Row group ordinal 32768 exceeds i16 max value`). Octa reads
+those files through a DuckDB-backed reader automatically, with the same
 schema and types, just routed through DuckDB's parquet
 implementation instead. No user action needed.
 

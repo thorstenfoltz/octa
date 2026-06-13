@@ -140,6 +140,22 @@ egui_plot = "0.35"
 # silently drop and the rendered chart is mostly blank.
 # MIT/Apache-2.0.
 svg2pdf = { version = "0.13", default-features = false, features = ["text"] }
+# NumPy .npy/.npz reader. Parses the .npy binary payload with runtime dtype
+# dispatch; we read .npz archives with the existing `zip` crate rather than
+# enabling npyz's `npz` feature (which would pull a second zip + bzip2 + crypto).
+# MIT/Apache-2.0.
+npyz = "0.9.1"
+# MessagePack decoder for the read-only .msgpack reader (decoded into
+# serde_json::Value, then flattened by the JSON reader). MIT.
+rmp-serde = "1.3.1"
+# BSON (MongoDB dump) reader. `serde` gates the extjson module and `serde_json-1`
+# the `Bson -> serde_json::Value` conversion we feed into the JSON flattener.
+# Apache-2.0.
+bson = { version = "3.1.0", features = ["serde", "serde_json-1"] }
+# ESRI Shapefile reader. `geo-types` enables `Shape -> geo_types::Geometry`
+# conversion so shapefiles plot on the Map view like GeoJSON. The sibling .dbf
+# attributes are read via the `dbase` crate we already use. MIT.
+shapefile = { version = "0.8.0", features = ["geo-types"] }
 
 [build-dependencies]
 winresource = "0.1"

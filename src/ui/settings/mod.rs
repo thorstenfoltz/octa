@@ -612,6 +612,10 @@ pub struct AppSettings {
     /// highlight regardless.
     #[serde(default)]
     pub search_result_mode: crate::data::SearchResultMode,
+    /// How many recent search queries to remember across sessions (the search
+    /// box history dropdown). 0 disables the history. Default 20.
+    #[serde(default = "default_search_history_limit")]
+    pub search_history_limit: usize,
     /// Whether edited cells are highlighted with a background color.
     #[serde(default)]
     pub highlight_edits: bool,
@@ -662,6 +666,14 @@ pub struct AppSettings {
     /// proportional face while reading SQL in monospace.
     #[serde(default)]
     pub sql_editor_font: SqlEditorFont,
+    /// Briefly highlight the cells a SQL mutation (INSERT/UPDATE/DELETE)
+    /// changed, so the effect of a query is visible. Default on.
+    #[serde(default = "default_true")]
+    pub sql_row_diff_highlight_enabled: bool,
+    /// How long (seconds) the post-mutation row-diff highlight stays before
+    /// fading. Default 4.
+    #[serde(default = "default_sql_row_diff_secs")]
+    pub sql_row_diff_highlight_secs: u32,
     /// Where to dock the directory tree sidebar when a folder is open.
     #[serde(default)]
     pub directory_tree_position: DirectoryTreePosition,
@@ -695,11 +707,12 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub show_readonly_notice: bool,
     /// When `true`, Octa requests an undecorated viewport at startup and
-    /// renders its own slim title bar (logo + title + min/max/close
-    /// buttons). Useful on tiling WMs / minimal compositors that don't
-    /// provide window controls. Default `false` - system decorations are
-    /// preferred unless the user explicitly opts in.
-    #[serde(default)]
+    /// renders its own slim title bar (logo + title + min/max/close buttons),
+    /// with drag-to-move and edge/corner resize handles. Default `true` - the
+    /// in-toolbar controls free the vertical space a system title bar would
+    /// take and look consistent across platforms; opt out for native window
+    /// decorations.
+    #[serde(default = "default_true")]
     pub use_custom_title_bar: bool,
     /// Hard cap (in bytes) for files where the raw editor still applies
     /// syntect syntax highlighting. Past this threshold the editor falls
@@ -796,8 +809,9 @@ pub struct AppSettings {
     #[serde(default = "default_excel_max_auto_sheets")]
     pub excel_max_auto_sheets: usize,
     /// Whether to strip leading/trailing whitespace from string cells when a
-    /// file is loaded. Interior whitespace is untouched. Default `true`.
-    #[serde(default = "default_true")]
+    /// file is loaded. Interior whitespace is untouched. Default `false` -
+    /// loads leave cell values exactly as stored unless the user opts in.
+    #[serde(default)]
     pub trim_whitespace_on_load: bool,
     /// Whether to show a dismissible banner listing the columns that had
     /// whitespace trimmed on load. Default `true`. Independent of
@@ -849,7 +863,7 @@ pub struct AppSettings {
     #[serde(default = "default_chat_temperature")]
     pub chat_temperature: f32,
     /// Maximum agentic tool-use iterations per turn before the loop stops.
-    /// Guards against runaway tool loops. Default 12.
+    /// Guards against runaway tool loops. Default 3.
     #[serde(default = "default_chat_max_tool_iterations")]
     pub chat_max_tool_iterations: usize,
     /// Maximum response tokens requested from the provider per turn.
@@ -865,12 +879,37 @@ pub struct AppSettings {
     /// write here or to an absolute path the user explicitly requests.
     #[serde(default = "default_chat_export_dir")]
     pub chat_export_dir: String,
+    /// Record every assistant tool call to `<config_dir>/chat_audit/`. Off by
+    /// default. See `src/app/chat/audit.rs`.
+    #[serde(default)]
+    pub chat_audit_log_enabled: bool,
+    /// Warn at startup when the total size of the chat audit logs exceeds this
+    /// many bytes. Default 10 MB.
+    #[serde(default = "default_chat_audit_warn_bytes")]
+    pub chat_audit_log_warn_bytes: u64,
+    /// Whether the audit-log size warning is shown at all. Default on.
+    #[serde(default = "default_true")]
+    pub chat_audit_log_warn_enabled: bool,
     /// Plaintext per-provider API keys, keyed by [`ChatProviderKind::id`].
     /// Only populated when the OS keyring is unavailable; the keyring is
     /// preferred. Storing a key here means it sits in `settings.toml` in the
     /// clear, which the UI warns about explicitly.
     #[serde(default)]
     pub chat_api_keys: std::collections::BTreeMap<String, String>,
+    /// Which statistics the Analyse -> Summary tab shows, in addition to the
+    /// always-present column name and type. Defaults to the full set. See
+    /// `src/data/summary.rs`.
+    #[serde(default = "default_summary_stats")]
+    pub summary_stats: Vec<crate::data::summary::SummaryStat>,
+    /// When a folder is open in the directory-tree sidebar, show only
+    /// sub-folders and files Octa can open (by extension). Default `true`.
+    /// Turn off to list every file regardless of type.
+    #[serde(default = "default_true")]
+    pub directory_tree_filter_enabled: bool,
+}
+
+fn default_summary_stats() -> Vec<crate::data::summary::SummaryStat> {
+    crate::data::summary::SummaryStat::default_enabled()
 }
 
 fn default_true() -> bool {
@@ -886,7 +925,7 @@ fn default_chat_ollama_url() -> String {
 }
 
 fn default_chat_max_tool_iterations() -> usize {
-    12
+    3
 }
 
 fn default_chat_max_tokens() -> usize {
@@ -895,6 +934,10 @@ fn default_chat_max_tokens() -> usize {
 
 /// Default chat export directory: the user's Downloads folder if it exists,
 /// otherwise the home directory. Empty string if neither resolves.
+fn default_chat_audit_warn_bytes() -> u64 {
+    10 * 1024 * 1024
+}
+
 fn default_chat_export_dir() -> String {
     if let Some(home) = dirs_path_home() {
         let downloads = home.join("Downloads");
@@ -912,6 +955,14 @@ fn default_language() -> String {
 
 fn default_max_recent() -> usize {
     5
+}
+
+fn default_search_history_limit() -> usize {
+    5
+}
+
+fn default_sql_row_diff_secs() -> u32 {
+    4
 }
 
 fn default_tab_size() -> usize {
@@ -987,6 +1038,7 @@ impl Default for AppSettings {
             thousands_separators_in_cells: true,
             number_separator_style: crate::data::num_format::SeparatorStyle::default(),
             search_result_mode: crate::data::SearchResultMode::default(),
+            search_history_limit: default_search_history_limit(),
             highlight_edits: false,
             cell_line_breaks: false,
             binary_display_mode: BinaryDisplayMode::default(),
@@ -1002,6 +1054,8 @@ impl Default for AppSettings {
             sql_default_row_limit: 100,
             sql_autocomplete: true,
             sql_editor_font: SqlEditorFont::default(),
+            sql_row_diff_highlight_enabled: true,
+            sql_row_diff_highlight_secs: default_sql_row_diff_secs(),
             directory_tree_position: DirectoryTreePosition::default(),
             warn_raw_align_reload: true,
             warn_on_date_format_change: true,
@@ -1009,7 +1063,7 @@ impl Default for AppSettings {
             window_size: WindowSize::default(),
             start_maximized: true,
             show_readonly_notice: true,
-            use_custom_title_bar: false,
+            use_custom_title_bar: true,
             syntax_highlight_max_bytes: default_syntax_highlight_max_bytes(),
             initial_load_rows: default_initial_load_rows(),
             initial_load_rows_unlimited: false,
@@ -1025,7 +1079,7 @@ impl Default for AppSettings {
             chart_max_categories: default_chart_max_categories(),
             table_picker_visible_rows: default_table_picker_visible_rows(),
             excel_max_auto_sheets: default_excel_max_auto_sheets(),
-            trim_whitespace_on_load: true,
+            trim_whitespace_on_load: false,
             warn_on_whitespace_trim: true,
             offer_repair_on_malformed: false,
             language: default_language(),
@@ -1039,7 +1093,12 @@ impl Default for AppSettings {
             chat_max_tokens: default_chat_max_tokens(),
             chat_max_tokens_unlimited: false,
             chat_export_dir: default_chat_export_dir(),
+            chat_audit_log_enabled: false,
+            chat_audit_log_warn_bytes: default_chat_audit_warn_bytes(),
+            chat_audit_log_warn_enabled: true,
             chat_api_keys: std::collections::BTreeMap::new(),
+            summary_stats: default_summary_stats(),
+            directory_tree_filter_enabled: true,
         }
     }
 }
@@ -1223,6 +1282,9 @@ pub struct SettingsDialog {
     table_picker_visible_rows_buf: String,
     /// Buffer backing the Excel max-auto-sheets input.
     excel_max_auto_sheets_buf: String,
+    /// Buffer backing the search-history-size input (text, not a DragValue, so
+    /// Settings shows no horizontal-drag cursor). Parsed on Apply.
+    search_history_limit_buf: String,
     /// Buffer backing the chat temperature input (text, not a slider, so
     /// Settings shows no drag cursor). Parsed + clamped 0.0..=2.0 on Apply.
     chat_temperature_buf: String,
@@ -1235,6 +1297,9 @@ pub struct SettingsDialog {
     /// Mirrors `AppSettings.chat_max_tokens_unlimited`: when true the cap input
     /// is greyed out and Apply writes the unlimited flag.
     chat_unlimited_tokens: bool,
+    /// Audit-log size-warning threshold in MB (text buffer; parsed on Apply
+    /// into `chat_audit_log_warn_bytes`).
+    chat_audit_warn_mb_buf: String,
     /// Masked API-key entry buffer for the chat provider, in the Chat section.
     chat_key_input_buf: String,
     /// Last "where the key was stored" status line after a Save/Clear.
@@ -1394,113 +1459,5 @@ pub fn remember_dialog_rect(ctx: &egui::Context, id: egui::Id, size: DialogSize,
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn partial_toml_loads_with_defaults_for_missing_fields() {
-        // Writing only `font_size` should still deserialize cleanly: every
-        // other field is filled from `AppSettings::default()` thanks to the
-        // struct-level `#[serde(default)]`. This is the upgrade-survivability
-        // contract.
-        let partial = "font_size = 10.0\n";
-        let settings: AppSettings = toml::from_str(partial).expect("partial TOML must deserialize");
-        let defaults = AppSettings::default();
-        assert_eq!(settings.font_size, 10.0);
-        assert_eq!(settings.default_theme, defaults.default_theme);
-        assert_eq!(settings.icon_variant, defaults.icon_variant);
-        assert_eq!(settings.show_row_numbers, defaults.show_row_numbers);
-        assert_eq!(
-            settings.show_sequential_row_numbers,
-            defaults.show_sequential_row_numbers
-        );
-        assert_eq!(
-            settings.sql_default_row_limit,
-            defaults.sql_default_row_limit
-        );
-        assert_eq!(settings.start_maximized, defaults.start_maximized);
-    }
-
-    #[test]
-    fn unknown_fields_are_silently_ignored() {
-        // A field this binary doesn't know about (e.g. left over from a future
-        // release downgraded back to the current one) must not blow up the
-        // whole config - just skip it.
-        let with_unknown = "font_size = 11.0\nmysterious_future_field = \"hi\"\n";
-        let settings: AppSettings =
-            toml::from_str(with_unknown).expect("unknown fields should be tolerated");
-        assert_eq!(settings.font_size, 11.0);
-    }
-
-    #[test]
-    fn defaults_round_trip_through_toml() {
-        let defaults = AppSettings::default();
-        let serialized = toml::to_string_pretty(&defaults).expect("serialize");
-        let parsed: AppSettings = toml::from_str(&serialized).expect("round-trip");
-        assert_eq!(parsed.font_size, defaults.font_size);
-        assert_eq!(parsed.default_theme, defaults.default_theme);
-        assert_eq!(parsed.icon_variant, defaults.icon_variant);
-        assert_eq!(parsed.start_maximized, defaults.start_maximized);
-        // Chat settings survive the round-trip too.
-        assert_eq!(parsed.chat_provider, defaults.chat_provider);
-        assert_eq!(parsed.chat_panel_position, defaults.chat_panel_position);
-        assert_eq!(parsed.chat_temperature, defaults.chat_temperature);
-        assert_eq!(
-            parsed.chat_max_tool_iterations,
-            defaults.chat_max_tool_iterations
-        );
-        assert_eq!(parsed.chat_max_tokens, defaults.chat_max_tokens);
-        assert_eq!(
-            parsed.chat_max_tokens_unlimited,
-            defaults.chat_max_tokens_unlimited
-        );
-        assert_eq!(parsed.chat_export_dir, defaults.chat_export_dir);
-        assert_eq!(parsed.chat_models, defaults.chat_models);
-        assert_eq!(parsed.chat_api_keys, defaults.chat_api_keys);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn restrict_file_to_owner_sets_0600() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("secrets.toml");
-        std::fs::write(&path, "x = 1\n").expect("write");
-        restrict_file_to_owner(&path);
-        let mode = std::fs::metadata(&path)
-            .expect("metadata")
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o600);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn restrict_dir_to_owner_sets_0700() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().expect("tempdir");
-        let sub = dir.path().join("chat_sessions");
-        std::fs::create_dir_all(&sub).expect("create dir");
-        restrict_dir_to_owner(&sub);
-        let mode = std::fs::metadata(&sub)
-            .expect("metadata")
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o700);
-    }
-
-    #[test]
-    fn chat_provider_ids_are_stable_and_distinct() {
-        // The ids key persisted maps and the keyring entry; they must stay
-        // unique and must not change silently.
-        let ids: Vec<&str> = ChatProviderKind::ALL.iter().map(|p| p.id()).collect();
-        assert_eq!(
-            ids,
-            ["ollama", "anthropic", "openai", "openai_compat", "gemini"]
-        );
-        let mut sorted = ids.clone();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(sorted.len(), ids.len(), "provider ids must be distinct");
-    }
-}
+#[path = "mod_tests.rs"]
+mod tests;

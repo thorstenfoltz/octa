@@ -200,8 +200,7 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
     // leaf value matches, drive the toolbar count, and let the user step
     // through them. Rows are flattened in full above even though the ScrollArea
     // virtualizes painting, so the match set covers the whole tree.
-    let matcher =
-        (!tab.search_text.is_empty()).then(|| RowMatcher::new(&tab.search_text, tab.search_mode));
+    let matcher = (!tab.search_text.is_empty()).then(|| tab.search_matcher());
     let (hl_normal, hl_active) = ui::search_highlight::highlight_colors(&colors);
     let match_indices: Vec<usize> = match matcher.as_ref() {
         Some(m) => rows

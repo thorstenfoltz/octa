@@ -99,8 +99,8 @@ via the regular paste-into-cells path.
 
 ## See also
 
-- [Column Inspector](column-inspector.md): schema-level overview of
-  every column at once.
+- [Summary](summary.md): one row of statistics per column, for a
+  table-wide overview.
 - [Search & Filter](search-and-filter.md): including the column
   filter that Value Frequency can populate.
 - [Keyboard Shortcuts](../reference/shortcuts.md): to rebind

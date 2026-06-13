@@ -77,7 +77,7 @@ impl ThemeColors {
         }
     }
 
-    pub(super) fn nord() -> Self {
+    pub(super) fn north() -> Self {
         // Arctic / north-bluish.
         Self {
             bg_primary: Color32::from_rgb(0x2e, 0x34, 0x40),
@@ -372,6 +372,81 @@ impl ThemeColors {
             scrollbar_track: Color32::from_rgb(0xdc, 0xe9, 0xf2),
             scrollbar_thumb: Color32::from_rgb(0xb6, 0xc9, 0xd7),
             scrollbar_thumb_hover: Color32::from_rgb(0x7f, 0xb4, 0xd4),
+        }
+    }
+
+    /// Warm: a friendly light theme. Cream and blush backgrounds, soft
+    /// rose/mauve accents, dark plum text. A warm counterweight to the cooler
+    /// presets, kept high-contrast enough to stay readable.
+    pub(super) fn warm() -> Self {
+        Self {
+            bg_primary: Color32::from_rgb(0xff, 0xf8, 0xf6),
+            bg_secondary: Color32::from_rgb(0xfc, 0xef, 0xec),
+            bg_tertiary: Color32::from_rgb(0xf7, 0xe3, 0xde),
+            bg_header: Color32::from_rgb(0xfb, 0xe4, 0xe7),
+            bg_selected: Color32::from_rgb(0xf2, 0xcc, 0xda),
+            bg_hover: Color32::from_rgb(0xfb, 0xe7, 0xdd),
+            bg_edited: Color32::from_rgb(0xff, 0xf1, 0xcc),
+
+            text_primary: Color32::from_rgb(0x3a, 0x22, 0x30),
+            text_secondary: Color32::from_rgb(0x6e, 0x4a, 0x5c),
+            text_muted: Color32::from_rgb(0xa9, 0x87, 0x94),
+            text_header: Color32::from_rgb(0xb1, 0x4a, 0x77),
+
+            accent: Color32::from_rgb(0xc2, 0x5b, 0x8b),
+            accent_hover: Color32::from_rgb(0xd7, 0x7b, 0xa6),
+            border: Color32::from_rgb(0xe9, 0xcb, 0xd3),
+            border_subtle: Color32::from_rgb(0xf4, 0xdd, 0xe2),
+
+            success: Color32::from_rgb(0x4f, 0xa5, 0x72),
+            warning: Color32::from_rgb(0xe0, 0x96, 0x2f),
+            error: Color32::from_rgb(0xc7, 0x40, 0x5a),
+
+            row_even: Color32::from_rgb(0xff, 0xf8, 0xf6),
+            row_odd: Color32::from_rgb(0xfc, 0xea, 0xe6),
+            row_number_bg: Color32::from_rgb(0xfb, 0xe4, 0xe7),
+            row_number_text: Color32::from_rgb(0xb0, 0x7e, 0x8e),
+
+            scrollbar_track: Color32::from_rgb(0xf7, 0xe3, 0xde),
+            scrollbar_thumb: Color32::from_rgb(0xe6, 0xbf, 0xc9),
+            scrollbar_thumb_hover: Color32::from_rgb(0xc2, 0x5b, 0x8b),
+        }
+    }
+
+    /// Forest: a deep woodland dark theme. Dark forest-green canvas, mossy /
+    /// leaf-green accents, warm bark tones for edits, and pale parchment text.
+    pub(super) fn forest() -> Self {
+        Self {
+            bg_primary: Color32::from_rgb(0x14, 0x20, 0x1a),
+            bg_secondary: Color32::from_rgb(0x1c, 0x2c, 0x23),
+            bg_tertiary: Color32::from_rgb(0x26, 0x39, 0x2d),
+            bg_header: Color32::from_rgb(0x18, 0x26, 0x1e),
+            bg_selected: Color32::from_rgba_unmultiplied(0x6f, 0xbf, 0x73, 100),
+            bg_hover: Color32::from_rgb(0x2e, 0x44, 0x35),
+            bg_edited: Color32::from_rgb(0x3a, 0x33, 0x18),
+
+            text_primary: Color32::from_rgb(0xe6, 0xef, 0xe2),
+            text_secondary: Color32::from_rgb(0xb6, 0xc9, 0xb6),
+            text_muted: Color32::from_rgb(0x7e, 0x94, 0x7e),
+            text_header: Color32::from_rgb(0xa8, 0xd5, 0xa2),
+
+            accent: Color32::from_rgb(0x6f, 0xbf, 0x73),
+            accent_hover: Color32::from_rgb(0x8e, 0xd8, 0x8f),
+            border: Color32::from_rgb(0x2e, 0x44, 0x35),
+            border_subtle: Color32::from_rgb(0x1c, 0x2c, 0x23),
+
+            success: Color32::from_rgb(0x7c, 0xc4, 0x6a),
+            warning: Color32::from_rgb(0xd8, 0xa2, 0x3a),
+            error: Color32::from_rgb(0xc7, 0x5a, 0x5a),
+
+            row_even: Color32::from_rgb(0x14, 0x20, 0x1a),
+            row_odd: Color32::from_rgb(0x18, 0x26, 0x1f),
+            row_number_bg: Color32::from_rgb(0x18, 0x26, 0x1e),
+            row_number_text: Color32::from_rgb(0x7e, 0x94, 0x7e),
+
+            scrollbar_track: Color32::from_rgb(0x1c, 0x2c, 0x23),
+            scrollbar_thumb: Color32::from_rgb(0x3a, 0x52, 0x40),
+            scrollbar_thumb_hover: Color32::from_rgb(0x6f, 0xbf, 0x73),
         }
     }
 

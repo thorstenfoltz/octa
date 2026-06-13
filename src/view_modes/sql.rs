@@ -66,6 +66,16 @@ pub struct SqlAction {
     /// User toggled the open/closed state of an attached schema group.
     /// String is the tree key (`alias` or `alias::schema`).
     pub toggle_tree_key: Option<String>,
+    /// User picked a recent query from the History dropdown (the query text).
+    pub recall_query: Option<String>,
+    /// User picked a saved snippet (the snippet's query text) to load.
+    pub insert_snippet: Option<String>,
+    /// User clicked **Save current query as snippet...**.
+    pub save_snippet: bool,
+    /// User deleted a saved snippet by name.
+    pub delete_snippet: Option<String>,
+    /// User clicked the **Snippets** button to open the snippet manager window.
+    pub open_snippets_window: bool,
 }
 
 /// Persistent id of the SQL editor TextEdit. Exposed so the global keyboard
@@ -280,6 +290,38 @@ pub fn render_sql_view(
         if ui.button(octa::i18n::t("sql.clear_result")).clicked() {
             action.clear = true;
         }
+
+        // History: recent queries run in this tab (session-only).
+        if !tab.sql_history.is_empty() {
+            ui.menu_button(octa::i18n::t("sql.history"), |ui| {
+                ui.set_min_width(220.0);
+                for q in &tab.sql_history {
+                    // One-line preview; full query on hover.
+                    let preview = q.replace('\n', " ");
+                    let preview = if preview.len() > 60 {
+                        format!("{}...", &preview[..57])
+                    } else {
+                        preview
+                    };
+                    if ui.button(preview).on_hover_text(q).clicked() {
+                        action.recall_query = Some(q.clone());
+                        ui.close();
+                    }
+                }
+            })
+            .response
+            .on_hover_text(octa::i18n::t("sql.history_hint"));
+        }
+
+        // Snippets: opens the persistent named-query manager window.
+        if ui
+            .button(octa::i18n::t("sql.snippets"))
+            .on_hover_text(octa::i18n::t("sql.snippets_hint"))
+            .clicked()
+        {
+            action.open_snippets_window = true;
+        }
+
         let has_result = tab.sql_result.as_ref().is_some_and(|t| t.col_count() > 0);
         ui.add_enabled_ui(has_result, |ui| {
             if ui
@@ -1273,44 +1315,5 @@ fn result_to_tsv(table: &octa::data::DataTable) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn prefix_picks_up_word_before_cursor() {
-        let s = "SELECT na";
-        let (start, pfx) = current_prefix_at(s, s.len());
-        assert_eq!(pfx, "na");
-        assert_eq!(start, 7);
-    }
-
-    #[test]
-    fn prefix_is_empty_after_whitespace() {
-        let s = "SELECT ";
-        let (start, pfx) = current_prefix_at(s, s.len());
-        assert_eq!(pfx, "");
-        assert_eq!(start, s.len());
-    }
-
-    #[test]
-    fn suggestions_match_columns_and_keywords() {
-        let cols = vec!["name".to_string(), "age".to_string()];
-        let out = collect_suggestions("n", &cols, 8);
-        assert!(out.contains(&"name".to_string()));
-        assert!(out.contains(&"NOT".to_string()));
-    }
-
-    #[test]
-    fn suggestions_respect_limit() {
-        let cols: Vec<String> = (0..20).map(|i| format!("col_{i}")).collect();
-        let out = collect_suggestions("col", &cols, 5);
-        assert_eq!(out.len(), 5);
-    }
-
-    #[test]
-    fn empty_prefix_yields_no_suggestions() {
-        let cols = vec!["name".to_string()];
-        let out = collect_suggestions("", &cols, 8);
-        assert!(out.is_empty());
-    }
-}
+#[path = "sql_tests.rs"]
+mod tests;

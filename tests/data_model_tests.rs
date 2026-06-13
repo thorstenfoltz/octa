@@ -579,6 +579,62 @@ fn test_sort_invalid_column_noop() {
     assert!(!t.structural_changes);
 }
 
+#[test]
+fn test_multi_column_sort_primary_and_tiebreak() {
+    // group (col 0), n (col 1). Sort by group asc, then n asc.
+    let mut t = DataTable {
+        columns: vec![
+            ColumnInfo {
+                name: "group".into(),
+                data_type: "Utf8".into(),
+            },
+            ColumnInfo {
+                name: "n".into(),
+                data_type: "Int64".into(),
+            },
+        ],
+        rows: vec![
+            vec![CellValue::String("B".into()), CellValue::Int(3)],
+            vec![CellValue::String("A".into()), CellValue::Int(2)],
+            vec![CellValue::String("A".into()), CellValue::Int(1)],
+        ],
+        edits: HashMap::new(),
+        source_path: None,
+        format_name: None,
+        structural_changes: false,
+        total_rows: None,
+        row_offset: 0,
+        marks: HashMap::new(),
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+        db_meta: None,
+    };
+    t.sort_rows_by_columns(&[(0, true), (1, true)]);
+    assert_eq!(t.get(0, 0), Some(&CellValue::String("A".into())));
+    assert_eq!(t.get(0, 1), Some(&CellValue::Int(1)));
+    assert_eq!(t.get(1, 0), Some(&CellValue::String("A".into())));
+    assert_eq!(t.get(1, 1), Some(&CellValue::Int(2)));
+    assert_eq!(t.get(2, 0), Some(&CellValue::String("B".into())));
+    assert!(t.structural_changes);
+}
+
+#[test]
+fn test_multi_column_sort_secondary_descending() {
+    let mut t = sample_table();
+    // All ids distinct; sort by a constant-free secondary just to check the
+    // per-key direction flips. Sort by score desc as the only key.
+    t.sort_rows_by_columns(&[(2, false)]);
+    assert_eq!(t.get(0, 2), Some(&CellValue::Float(9.5)));
+    assert_eq!(t.get(2, 2), Some(&CellValue::Float(7.0)));
+}
+
+#[test]
+fn test_multi_column_sort_empty_keys_noop() {
+    let mut t = sample_table();
+    t.sort_rows_by_columns(&[]);
+    assert!(!t.structural_changes);
+}
+
 // --- is_modified ---
 
 #[test]

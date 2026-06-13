@@ -10,17 +10,29 @@ use octa::data::{self, DataTable, ViewMode};
 use octa::ui;
 use octa::ui::table_view::TableViewState;
 
-use super::state::{
-    ColumnInspectorSort, OctaApp, RawCsvEscape, RawCsvQuote, SearchNavState, TabState,
-};
+use super::state::{OctaApp, RawCsvEscape, RawCsvQuote, SearchNavState, TabState};
 
 impl TabState {
+    /// Build the [`RowMatcher`](octa::data::search::RowMatcher) for this tab's
+    /// current search text honouring the case-sensitive / whole-word toggles.
+    pub(crate) fn search_matcher(&self) -> octa::data::search::RowMatcher {
+        octa::data::search::RowMatcher::with_options(
+            &self.search_text,
+            self.search_mode,
+            self.search_case_sensitive,
+            self.search_whole_word,
+        )
+    }
+
     pub(crate) fn new(search_mode: data::SearchMode) -> Self {
         Self {
             table: DataTable::empty(),
             table_state: TableViewState::default(),
             search_text: String::new(),
             search_mode,
+            search_case_sensitive: false,
+            search_whole_word: false,
+            search_scope_col: None,
             show_replace_bar: false,
             replace_text: String::new(),
             filtered_rows: Vec::new(),
@@ -77,17 +89,15 @@ impl TabState {
             sql_ac_visible: true,
             sql_workspace: None,
             sql_last_query: String::new(),
+            sql_history: Vec::new(),
+            sql_diff_marks: Vec::new(),
+            sql_diff_highlight_until: None,
             sql_workspace_open: false,
             sql_inspector_selection: None,
             sql_inspector_cache: std::collections::HashMap::new(),
             sql_workspace_tree_expanded: std::collections::HashSet::new(),
             sql_write_back: None,
             first_row_is_header: true,
-            show_column_inspector: false,
-            column_inspector_sort: ColumnInspectorSort::Default,
-            column_inspector_size: octa::ui::settings::DialogSize::default(),
-            column_inspector_selected: std::collections::HashSet::new(),
-            column_inspector_anchor: None,
             value_frequency_col: None,
             value_frequency_top_n: Some(50),
             value_frequency_bin_numeric: true,
@@ -96,6 +106,13 @@ impl TabState {
             value_frequency_size: octa::ui::settings::DialogSize::default(),
             value_frequency_pick: false,
             column_number_formats: std::collections::HashMap::new(),
+            conditional_format_rules: Vec::new(),
+            show_conditional_format: false,
+            conditional_format_size: ui::settings::DialogSize::default(),
+            validation_rules: Vec::new(),
+            validation_violations: std::collections::HashSet::new(),
+            show_validation: false,
+            validation_size: ui::settings::DialogSize::default(),
             column_format_col: None,
             column_format_cols: Vec::new(),
             column_format_decimals_buf: String::new(),
@@ -130,6 +147,7 @@ impl TabState {
             epub_active_chapter: 0,
             epub_title: None,
             geojson_features: Vec::new(),
+            map_coord_cols: None,
             map_mode: data::MapMode::default(),
             map_tiles: None,
             map_memory: None,
@@ -157,7 +175,13 @@ impl TabState {
         let has_notebook = self.table.format_name.as_deref() == Some("Jupyter Notebook");
         let has_markdown = self.table.format_name.as_deref() == Some("Markdown");
         let has_epub = !self.epub_chapters_md.is_empty();
-        let has_map = self.table.format_name.as_deref() == Some("GeoJSON");
+        // GeoJSON and Shapefile always offer Map (geometry comes from the
+        // file); any other table offers it when it has detectable
+        // latitude/longitude columns (plotted as points).
+        let has_map = matches!(
+            self.table.format_name.as_deref(),
+            Some("GeoJSON") | Some("Shapefile")
+        ) || octa::data::geo_detect::detect_lat_lon(&self.table).is_some();
         let has_json = self.json_value.is_some();
         let has_yaml = self.yaml_value.is_some();
         let has_raw = self.raw_content.is_some();
@@ -380,8 +404,12 @@ impl OctaApp {
             })
             .unwrap_or_else(|| source.title_display());
 
-        let outcome = match octa::sql::run_query(&snap, "SUMMARIZE data") {
-            Ok(o) => o,
+        let enabled = self.settings.summary_stats.clone();
+        // `build_summary_table` types its numeric columns as Int64 / Float64, so
+        // the table view's normal numeric display path groups them per the
+        // thousand-separator settings and right-aligns them like real numbers.
+        let table = match octa::data::summary::build_summary_table(&snap, &enabled) {
+            Ok(t) => t,
             Err(e) => {
                 self.status_message =
                     Some((format!("Summary failed: {e}"), std::time::Instant::now()));
@@ -389,12 +417,23 @@ impl OctaApp {
             }
         };
 
+        // Header tooltips: one localized description per active statistic, in
+        // the same column order the Summary table was built with.
+        let header_tooltips: Vec<String> = octa::data::summary::active_stats(&enabled)
+            .iter()
+            .map(|s| octa::i18n::t(s.hint_key()))
+            .collect();
+
         let default_search_mode = self.settings.default_search_mode;
         let mut new_tab = super::state::TabState::new(default_search_mode);
-        new_tab.table = outcome.table;
+        new_tab.table = table;
         new_tab.table.source_path = None;
         new_tab.table.format_name = None;
-        new_tab.custom_tab_label = Some(format!("Summary - {source_label}"));
+        new_tab.table_state.header_tooltips = header_tooltips;
+        new_tab.custom_tab_label = Some(format!(
+            "{} - {source_label}",
+            octa::i18n::t("summary.tab_label")
+        ));
         self.tabs.push(new_tab);
         self.active_tab = self.tabs.len() - 1;
     }

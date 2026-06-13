@@ -52,7 +52,14 @@ fn top_menu_button(
             egui::UiStackInfo::new(egui::UiKind::Menu)
                 .with_tag_value(egui::containers::menu::MenuConfig::MENU_CONFIG_TAG, config),
         )
-        .show(content);
+        .show(|ui| {
+            // Never wrap menu-item labels: in non-English locales longer strings
+            // (e.g. German/Russian) would otherwise break onto a second line and
+            // look cramped. `Extend` lets the popup grow to the widest item
+            // instead, applied once here so every top menu inherits it.
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            content(ui);
+        });
 
     resp
 }
@@ -77,6 +84,9 @@ pub enum ParseScope {
 pub struct ToolbarAction {
     pub new_file: bool,
     pub open_file: bool,
+    /// Open a folder as a Delta Lake / Apache Iceberg table (the table format
+    /// is a directory, not a file). Fired by **File -> Open table folder...**.
+    pub open_table_folder: bool,
     pub open_directory: bool,
     pub close_directory: bool,
     pub open_recent: Option<String>,
@@ -88,6 +98,9 @@ pub struct ToolbarAction {
     pub save_file_as: bool,
     pub toggle_theme: bool,
     pub search_changed: bool,
+    /// The search box lost focus with a non-empty query: record it in the
+    /// persistent search history.
+    pub commit_search_history: bool,
     /// The Filter/Highlight search-behaviour toggle was flipped this frame.
     pub search_result_mode_changed: bool,
     /// Jump to the next highlight-search match (`>` button or Enter).
@@ -109,8 +122,6 @@ pub struct ToolbarAction {
     pub sort_columns_asc: bool,
     /// Reorder all columns reverse-alphabetically by name (case-insensitive).
     pub sort_columns_desc: bool,
-    /// Open the read-only Column Inspector dialog.
-    pub show_column_inspector: bool,
     /// Clear the active tab's `hidden_columns` so every column becomes
     /// visible again. Wired to Edit -> Show hidden columns.
     pub show_all_columns: bool,
@@ -145,9 +156,27 @@ pub struct ToolbarAction {
     /// Open a Summary tab (per-column statistics via DuckDB SUMMARIZE) for
     /// the active table. Fired by **Analyse -> Summary...**.
     pub open_describe_tab: bool,
+    /// Open the Pivot / Unpivot dialog for the active table.
+    /// Fired by **Analyse -> Pivot / Unpivot...**.
+    pub open_pivot: bool,
+    /// Open the multi-column sort dialog for the active table.
+    /// Fired by **Analyse -> Sort by columns...**.
+    pub open_multi_sort: bool,
+    /// Copy the current selection to the clipboard as a Markdown table.
+    /// Fired by **Edit -> Copy as Markdown table**.
+    pub copy_as_markdown: bool,
     /// Open the per-column Number-format dialog for the selected column.
     /// Fired by **Edit -> Number format...**.
     pub open_column_format: bool,
+    /// Open the Conditional formatting dialog for the active table.
+    /// Fired by **Edit -> Conditional formatting...**.
+    pub open_conditional_format: bool,
+    /// Open the Data validation dialog for the active table.
+    /// Fired by **Edit -> Data validation...**.
+    pub open_validation: bool,
+    /// Open the Transform-column dialog for the active table.
+    /// Fired by **Edit -> Transform column...**.
+    pub open_transform: bool,
     /// Toggle "first row is header" for the active table.
     pub toggle_first_row_header: bool,
     /// Apply a color mark to a set of keys (cell/row/column).
@@ -207,6 +236,15 @@ pub fn draw_toolbar(
     theme_mode: ThemeMode,
     search_text: &mut String,
     search_mode: &mut SearchMode,
+    // Search-bar toggles: case-sensitive (`Aa`), whole-word, and the column
+    // scope (`None` = whole table, `Some(col)` = one column). Edited in place.
+    search_case_sensitive: &mut bool,
+    search_whole_word: &mut bool,
+    search_scope_col: &mut Option<usize>,
+    // Column names for the scope dropdown (in table order).
+    column_names: &[String],
+    // Recent search queries (most-recent first) for the history dropdown.
+    search_history: &[String],
     // Session search behaviour (Filter vs Highlight). Edited in place by the
     // search-bar toggle; the table respects it, text/tree views always
     // highlight.
@@ -264,12 +302,43 @@ pub fn draw_toolbar(
     let colors = ThemeColors::for_mode(theme_mode);
     let has_selected_cell = selected_cell.is_some();
 
+    // Custom title bar: the toolbar background doubles as the window's drag
+    // handle. Without system decorations this is the only way to move the
+    // window (left-drag) or toggle maximise (double-click), matching the
+    // standard title-bar gestures. We register this interaction FIRST, over
+    // the whole toolbar rect, so the menus / search box / window-control
+    // buttons added afterwards sit "on top" (egui breaks hit-test ties in
+    // favour of the last-registered widget) and keep their own clicks - only
+    // the leftover empty background drags the window.
+    if show_window_controls {
+        let title_rect = ui.max_rect();
+        let drag = ui.interact(
+            title_rect,
+            ui.id().with("custom_title_bar_drag"),
+            egui::Sense::click_and_drag(),
+        );
+        if drag.double_clicked() {
+            let is_max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::Maximized(!is_max));
+        } else if drag.drag_started() {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
+    }
+
     // Top-level menus go through `top_menu_button` (defined above), which
     // brings back the hover-switch behaviour egui 0.31's MenuRoot used to
     // provide and that egui 0.34's MenuButton dropped. Plain `ui.horizontal`
     // is enough here - we do *not* wrap in `egui::MenuBar`, because the
     // helper handles the menu/submenu plumbing itself.
     ui.horizontal(|ui| {
+        // Pin a uniform row height for the whole toolbar. egui centres each
+        // item against `interact_size.y` (default 18); the search ComboBoxes /
+        // TextEdit are taller, so without this the short menu buttons and the
+        // search widgets sit on different baselines and the search row looks
+        // dropped. A 24px band matches the ComboBox height so menus, the mode
+        // combo, Recent, Filter and the rest all share one centre line.
+        ui.spacing_mut().interact_size.y = 24.0;
         ui.add_space(4.0);
 
         // App logo + title. The logo is wrapped as a clickable widget so the
@@ -303,6 +372,14 @@ pub fn draw_toolbar(
                 }
                 if ui.button(crate::i18n::t("common.open")).clicked() {
                     action.open_file = true;
+                    ui.close();
+                }
+                if ui
+                    .button(crate::i18n::t("file_menu.open_table_folder"))
+                    .on_hover_text(crate::i18n::t("file_menu.open_table_folder_hint"))
+                    .clicked()
+                {
+                    action.open_table_folder = true;
                     ui.close();
                 }
                 if ui
@@ -428,6 +505,14 @@ pub fn draw_toolbar(
                         action.fit_all_columns = true;
                         ui.close();
                     }
+                    if ui
+                        .button(crate::i18n::t("edit_menu.copy_markdown"))
+                        .on_hover_text(crate::i18n::t("edit_menu.copy_markdown_hint"))
+                        .clicked()
+                    {
+                        action.copy_as_markdown = true;
+                        ui.close();
+                    }
                     ui.separator();
 
                     // Row operations
@@ -487,6 +572,14 @@ pub fn draw_toolbar(
                         action.time_calc = true;
                         ui.close();
                     }
+                    if ui
+                        .button(crate::i18n::t("transform.menu"))
+                        .on_hover_text(crate::i18n::t("transform.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_transform = true;
+                        ui.close();
+                    }
                     let del_col = ui.add_enabled(
                         has_selected_cell,
                         egui::Button::new(crate::i18n::t("toolbar.delete_column")),
@@ -534,14 +627,6 @@ pub fn draw_toolbar(
                         ui.close();
                     }
 
-                    if ui
-                        .button(crate::i18n::t("edit_menu.column_inspector"))
-                        .clicked()
-                    {
-                        action.show_column_inspector = true;
-                        ui.close();
-                    }
-
                     let num_fmt_btn = ui.add_enabled(
                         has_selected_cell,
                         egui::Button::new(crate::i18n::t("edit_menu.number_format")),
@@ -551,6 +636,24 @@ pub fn draw_toolbar(
                         .clicked()
                     {
                         action.open_column_format = true;
+                        ui.close();
+                    }
+
+                    if ui
+                        .button(crate::i18n::t("edit_menu.conditional_format"))
+                        .on_hover_text(crate::i18n::t("edit_menu.conditional_format_hint"))
+                        .clicked()
+                    {
+                        action.open_conditional_format = true;
+                        ui.close();
+                    }
+
+                    if ui
+                        .button(crate::i18n::t("edit_menu.validation"))
+                        .on_hover_text(crate::i18n::t("edit_menu.validation_hint"))
+                        .clicked()
+                    {
+                        action.open_validation = true;
                         ui.close();
                     }
 
@@ -946,6 +1049,17 @@ pub fn draw_toolbar(
                             action.open_describe_tab = true;
                             ui.close();
                         }
+                        if ui.button(crate::i18n::t("analyse_menu.pivot")).clicked() {
+                            action.open_pivot = true;
+                            ui.close();
+                        }
+                        if ui
+                            .button(crate::i18n::t("analyse_menu.multi_sort"))
+                            .clicked()
+                        {
+                            action.open_multi_sort = true;
+                            ui.close();
+                        }
                         ui.separator();
                     }
                     if ui
@@ -1039,8 +1153,87 @@ pub fn draw_toolbar(
             if response.changed() {
                 action.search_changed = true;
             }
+            // Record a completed query when the box loses focus.
+            if response.lost_focus() && !search_text.is_empty() {
+                action.commit_search_history = true;
+            }
             if search_focus_requested {
                 response.request_focus();
+            }
+
+            // Case-sensitive (`Aa`) and whole-word toggles.
+            if ui
+                .selectable_label(*search_case_sensitive, "Aa")
+                .on_hover_text(crate::i18n::t("search.case_sensitive"))
+                .clicked()
+            {
+                *search_case_sensitive = !*search_case_sensitive;
+                action.search_changed = true;
+            }
+            if ui
+                .selectable_label(*search_whole_word, "W")
+                .on_hover_text(crate::i18n::t("search.whole_word"))
+                .clicked()
+            {
+                *search_whole_word = !*search_whole_word;
+                action.search_changed = true;
+            }
+
+            // Scope selector: whole table or a single column. A visible chip so
+            // the user always knows what the search covers.
+            let scope_label = match *search_scope_col {
+                None => crate::i18n::t("search.scope_all"),
+                Some(c) => column_names
+                    .get(c)
+                    .cloned()
+                    .unwrap_or_else(|| crate::i18n::t("search.scope_all")),
+            };
+            egui::ComboBox::from_id_salt("search_scope")
+                .width(110.0)
+                .selected_text(scope_label)
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(
+                            search_scope_col.is_none(),
+                            crate::i18n::t("search.scope_all"),
+                        )
+                        .clicked()
+                    {
+                        *search_scope_col = None;
+                        action.search_changed = true;
+                    }
+                    for (c, name) in column_names.iter().enumerate() {
+                        if ui
+                            .selectable_label(*search_scope_col == Some(c), name)
+                            .clicked()
+                        {
+                            *search_scope_col = Some(c);
+                            action.search_changed = true;
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(crate::i18n::t("search.scope_hint"));
+
+            // Recent-queries dropdown. Picking one fills the search box.
+            if !search_history.is_empty() {
+                ui.menu_button(crate::i18n::t("search.history_btn"), |ui| {
+                    ui.set_min_width(160.0);
+                    ui.label(
+                        RichText::new(crate::i18n::t("search.history"))
+                            .size(10.0)
+                            .color(colors.text_secondary),
+                    );
+                    for entry in search_history {
+                        if ui.button(entry).clicked() {
+                            *search_text = entry.clone();
+                            action.search_changed = true;
+                            ui.close();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(crate::i18n::t("search.history_hint"));
             }
 
             // Enter / Shift+Enter while the search box is focused step through

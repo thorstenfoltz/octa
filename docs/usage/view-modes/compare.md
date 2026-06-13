@@ -1,9 +1,10 @@
 # Compare View
 
-Side-by-side comparison of two files. Two sub-modes: **Text Diff**
-for git-style line-by-line diffs, and **Row Hash Diff** for
-column-aware row-level comparison. Both work across formats, so you
-can compare a CSV to a Parquet by hashing matching columns.
+Side-by-side comparison of two files. Four sub-modes: **Text Diff**
+for git-style line-by-line diffs, **Row Hash Diff** for column-aware
+set comparison, **Ordered** for positional row-by-row cell diffs, and
+**Join (by key)** for matching rows by a key column and reporting what
+changed. All work across formats, so you can compare a CSV to a Parquet.
 
 <!-- SCREENSHOT: compare-view-text-diff.png: Compare view in Text Diff mode. Two panes side-by-side with line numbers, +/-/~ markers in the gutter, added lines in green, removed in red, modified in yellow. -->
 ![Compare view: Text Diff](../../assets/screenshots/compare-view-text-diff.png){ .screenshot-placeholder }
@@ -27,8 +28,8 @@ is always **right**.
 
 ## Sub-mode toggle
 
-The Compare view's toolbar has a **Text Diff** / **Row Hash Diff**
-radio:
+The Compare view's toolbar has a **Text Diff** / **Row Hash Diff** /
+**Ordered** / **Join (by key)** radio:
 
 - **Text Diff** uses the
   [`similar`](https://docs.rs/similar/) crate to compute a
@@ -39,6 +40,12 @@ radio:
   **BLAKE3** (fast, stable across runs) and bucketed the rows into
   **Left-only**, **Right-only**, **Shared**. Cross-format works
   because hashing sees only `CellValue::to_string` output.
+- **Ordered** compares rows by position: row N on the left versus
+  row N on the right, naming the differing columns. See
+  [Ordered](#ordered) below.
+- **Join (by key)** matches rows by the key column(s) you pick and
+  reports added / removed / changed rows. See [Join](#join-by-key)
+  below.
 
 The default sub-mode picks itself based on inputs:
 
@@ -111,6 +118,46 @@ If you start with no columns selected, the diff hashes **every**
 column on both sides, but the bucket display narrows to showing
 the first 8 columns to keep the grid readable.
 
+## Ordered
+
+Compares the two tables **positionally**: row 1 against row 1, row 2
+against row 2, and so on, over the columns the two tables share. For
+each row it names exactly which columns differ. Rows past the end of
+the shorter table are reported as existing on one side only.
+
+Use Ordered when the two files are already in the same order (for
+example two exports of the same query taken at different times) and you
+want a precise cell-level diff rather than set membership.
+
+The result is one table with a **status** column (`changed_a` /
+`changed_b` for the two halves of a changed pair, `only_in_a` /
+`only_in_b` for unmatched trailing rows), a **changed_columns** column
+listing the differing column names, and the data columns. A changed row
+appears as two adjacent rows so the before/after sit together.
+
+## Join (by key)
+
+Matches rows by one or more **key columns** instead of by position.
+Tick the key column(s) in the **Key columns** panel (for example an
+`id` column); Octa pairs each left row with the right row that has the
+same key, then reports:
+
+- rows present only on the left (`only_in_a`),
+- rows present only on the right (`only_in_b`),
+- rows that matched but whose other columns differ (`changed_a` /
+  `changed_b`), with the differing column names in **changed_columns**.
+
+The same key column name must exist on both sides; a missing key column
+raises an inline warning. Non-key columns are compared by name, so column
+order may differ between the two files.
+
+Use Join when you care about "the same record, what changed?" and the
+two files are not necessarily in the same row order.
+
+The **Ordered** and **Join** modes run the same logic as the
+command-line `octa --diff` and the assistant's `diff_tables` tool, so the
+GUI, CLI, and MCP always agree.
+
 ## When to use which sub-mode
 
 | Scenario                                                         | Mode                                                   |
@@ -120,6 +167,8 @@ the first 8 columns to keep the grid readable.
 | Find rows that exist in CSV A but not in CSV B                   | Row Hash Diff                                          |
 | Compare a CSV against a SQLite export                            | Row Hash Diff (cross-format)                           |
 | Check whether two Parquet files have the same data               | Row Hash Diff                                          |
+| Two same-ordered exports, see which cells changed                | Ordered                                                |
+| Same records by `id`, see what each record's fields changed to   | Join (by key)                                          |
 
 ## Limitations
 

@@ -33,6 +33,26 @@ local MCP server. This page walks through all three.
     you won't see anything on stdout unless an MCP client is talking
     to it.
 
+## Read-only mode
+
+Add `--mcp-read-only` to expose a **read-only tool surface**: the
+file-writing tools `write_table`, `edit_table`, and `convert` are
+omitted from the server, so an agent wired to Octa can inspect and
+query data but cannot modify files.
+
+```bash
+octa --mcp --mcp-read-only
+```
+
+The startup banner notes the mode:
+
+```
+octa --mcp ready [read-only: write_table/edit_table/convert disabled] (...)
+```
+
+Use it in any client config by appending the flag to `args`, e.g.
+`"args": ["--mcp", "--mcp-read-only"]`.
+
 ## Claude Desktop
 
 Claude Desktop reads its MCP servers from `claude_desktop_config.json`:

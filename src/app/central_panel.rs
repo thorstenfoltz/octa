@@ -357,6 +357,8 @@ impl OctaApp {
             let show_sequential = self.settings.show_sequential_row_numbers && filter_active;
             let hidden_cols = tab.hidden_columns.clone();
             let col_number_formats = tab.column_number_formats.clone();
+            let cond_format_rules = tab.conditional_format_rules.clone();
+            let validation_violations = tab.validation_violations.clone();
             let os_has_clip = tab.table_state.clipboard.is_some() || os_has_clipboard;
             let interaction = ui::table_view::draw_table(
                 ui,
@@ -383,6 +385,8 @@ impl OctaApp {
                 &col_number_formats,
                 &search_matches,
                 current_match,
+                &cond_format_rules,
+                &validation_violations,
             );
 
             let welcome_logo_clicked = interaction.welcome_logo_clicked;
@@ -751,6 +755,9 @@ impl OctaApp {
         }
         if interaction.ctx_copy {
             self.do_copy();
+        }
+        if interaction.ctx_copy_markdown {
+            self.do_copy_markdown();
         }
         if interaction.ctx_cut {
             self.do_cut();

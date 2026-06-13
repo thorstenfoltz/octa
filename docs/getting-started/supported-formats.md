@@ -19,6 +19,7 @@ always open *something*.
 | **ORC**                       | `.orc`                                             |  ✅   |   ✅   |
 | **HDF5**                      | `.h5`, `.hdf5`, `.hdf`                             |  ✅   |   ❌   |
 | **NetCDF v3**                 | `.nc`                                              |  ✅   |   ❌   |
+| **NumPy**                     | `.npy`, `.npz`                                     |  ✅   |   ❌   |
 | **SQLite**                    | `.sqlite`, `.sqlite3`, `.db`                       |  ✅   | ✅ **  |
 | **DuckDB**                    | `.duckdb`, `.ddb`                                  |  ✅   | ✅ **  |
 | **GeoPackage**                | `.gpkg`                                            |  ✅   | ✅ **  |
@@ -34,6 +35,11 @@ always open *something*.
 | **Markdown**                  | `.md`, `.markdown`, `.mdown`, `.mkd`               |  ✅   |   ✅   |
 | **EPUB**                      | `.epub`                                            |  ✅   |   ❌   |
 | **GeoJSON**                   | `.geojson`                                         |  ✅   |   ❌   |
+| **Shapefile**                 | `.shp` (+ sibling `.dbf`, `.shx`)                  |  ✅   |   ❌   |
+| **Delta Lake**                | table *directory* (`_delta_log/`)                  |  ✅   |   ❌   |
+| **Apache Iceberg**            | table *directory* (`metadata/`)                    |  ✅   |   ❌   |
+| **MessagePack**               | `.msgpack`, `.mpk`                                 |  ✅   |   ❌   |
+| **BSON**                      | `.bson`                                            |  ✅   |   ❌   |
 | **Archive (zip / tar / tgz)** | `.zip`, `.tar`, `.tgz`                             |  ✅   |   ❌   |
 | **Fixed-width (FWF)**         | `.fwf`, `.prn`                                     |  ✅   |   ❌   |
 | **Source code / config**      | `.py`, `.rs`, `.go`, `.ts`, `.js`, ... (see below) |  ✅   |   ✅   |
@@ -65,9 +71,9 @@ of the table fills in as you reach it.
 
 Parquet files written with very many small row groups
 (more than 32,767, which is common with Spark or streaming ingest
-pipelines) used to fail the native arrow-parquet reader with
-`Row group ordinal 32768 exceeds i16 max value`. Octa now retries
-those reads through a DuckDB-backed reader automatically, with the same
+pipelines) exceed the native arrow-parquet reader's limit
+(`Row group ordinal 32768 exceeds i16 max value`). Octa reads
+those files through a DuckDB-backed reader automatically, with the same
 schema and types and no user action required.
 
 Files produced by **pandas** (`DataFrame.to_parquet`) embed the row
@@ -112,6 +118,27 @@ one table (each variable becomes a column). Multi-dimensional or
 scalar variables are skipped, with a count surfaced in the file's
 format label (e.g. *"NetCDF (3 multi-D vars skipped)"*).
 
+### NumPy
+
+Read-only. A `.npy` file holds a single array: a 1-D array opens
+as one `value` column, a 2-D array as one column per column index
+(`col_0`, `col_1`, ...), and higher dimensions flatten their
+trailing axes into columns. A `.npz` file is a zip of named arrays
+(what `numpy.savez` writes), so it opens as a multi-table source,
+one table per array, picked from the table dialog. Structured /
+record arrays are not supported.
+
+### MessagePack and BSON
+
+Read-only. Both are binary cousins of JSON, so Octa decodes them
+and flattens them the same way as JSON: nested objects become
+dotted columns (`address.city`) and a top-level array of objects
+becomes one row per object. A MessagePack file holds a single
+value; a `.bson` file may hold several documents back-to-back (the
+shape `mongodump` writes), each becoming a row. Dates, ObjectIds
+and other BSON-specific values render in MongoDB's relaxed extended
+JSON form.
+
 ### EPUB
 
 Read-only. Octa converts each chapter's XHTML to Markdown at load
@@ -131,6 +158,35 @@ tile background.
 The [Table view](../usage/table-view.md) is also available with
 one row per Feature; the geometry is serialised as **WKT** in a
 `__geometry` column, and every property becomes its own column.
+
+### Shapefile
+
+Read-only. A shapefile is a set of sibling files: open the `.shp`
+and Octa pulls geometry from it and attributes from the matching
+`.dbf` (the `.shx` index is read too). It opens just like GeoJSON,
+in the [Map view](../usage/view-modes/map.md), with a `__geometry`
+WKT column followed by one column per attribute field. Keep the
+companion files next to the `.shp`. Writing is not supported.
+
+### Delta Lake and Apache Iceberg
+
+Read-only, and what you open is a **directory**, not a single file:
+a Delta or Iceberg table is a folder of Parquet data files plus a
+transaction log (`_delta_log/`) or metadata layer (`metadata/`) that
+records which files form the current snapshot. Use
+**File -> Open table folder...** and pick the table directory; Octa
+detects whether it is Delta or Iceberg and reads the current
+snapshot through DuckDB's `delta_scan` / `iceberg_scan`.
+
+Two things to know:
+
+- The DuckDB `delta` / `iceberg` **extensions install on first use,
+  which needs network access**. After that they are cached and work
+  offline.
+- The directory must be **complete**: the log/metadata plus every
+  Parquet file it references. A single `.parquet` lifted out of such
+  a table is just a fragment, open it with the
+  [Parquet reader](#streaming-readers-large-files-ok) instead.
 
 ### Archives (zip / tar / tgz)
 
@@ -279,8 +335,8 @@ octa --convert legacy.xlsx tidy.sqlite
 octa --convert measurements.dta measurements.json
 ```
 
-Read-only formats (SAS, RDS, HDF5, NetCDF, EPUB, GeoJSON, archives)
-are rejected up-front as conversion targets, so Octa surfaces a
+Read-only formats (SAS, RDS, HDF5, NetCDF, NumPy, MessagePack, BSON,
+EPUB, GeoJSON, Shapefile, Delta Lake, Iceberg, archives) are rejected up-front as conversion targets, so Octa surfaces a
 clear error rather than silently writing a malformed file.
 
 ## See also

@@ -461,7 +461,41 @@ impl OctaApp {
         self.load_file(path);
     }
 
+    /// Open a directory as a Delta Lake / Apache Iceberg table. Detects the
+    /// format from the marker subdirectory and reads it via DuckDB; reports a
+    /// clear status message for plain directories or read failures (e.g. the
+    /// `delta`/`iceberg` extension failing to install offline).
+    fn load_lakehouse_dir(&mut self, path: std::path::PathBuf) {
+        let Some(kind) = octa::formats::lakehouse_reader::detect(&path) else {
+            self.status_message = Some((
+                format!(
+                    "Not a Delta Lake or Iceberg table directory: {}",
+                    path.display()
+                ),
+                std::time::Instant::now(),
+            ));
+            return;
+        };
+        match octa::formats::lakehouse_reader::read_dir(&path, kind) {
+            Ok(table) => self.apply_loaded_table(path, table),
+            Err(e) => {
+                self.status_message = Some((
+                    format!("Error reading {} table: {e}", kind.format_name()),
+                    std::time::Instant::now(),
+                ));
+            }
+        }
+    }
+
     pub(crate) fn load_file(&mut self, path: std::path::PathBuf) {
+        // Directory-open path: Delta Lake / Apache Iceberg tables are
+        // directories (a transaction log + Parquet files), not single files,
+        // so they bypass the extension-based registry. Detect the marker
+        // subdirectory and read via DuckDB; any other directory is ignored.
+        if path.is_dir() {
+            self.load_lakehouse_dir(path);
+            return;
+        }
         // Empty-file easter egg: short-circuit before format dispatch, since
         // most readers will surface a confusing "no schema found" error on a
         // 0-byte file.
@@ -890,6 +924,16 @@ impl OctaApp {
                     tab.geojson_features = extras.features;
                 }
                 tab.view_mode = ViewMode::Map;
+            } else if tab.table.format_name.as_deref() == Some("Shapefile") {
+                // Same second-pass shape as GeoJSON: the registry returned the
+                // table, so re-read for the `geo-types` geometries the Map
+                // view renders.
+                if let Ok((_, features)) =
+                    octa::formats::shapefile_reader::read_with_features(&path)
+                {
+                    tab.geojson_features = features;
+                }
+                tab.view_mode = ViewMode::Map;
             } else {
                 tab.view_mode = ViewMode::Table;
             }
@@ -918,6 +962,21 @@ impl OctaApp {
                 tab.yaml_value = serde_yaml_ng::from_str::<serde_yaml_ng::Value>(content)
                     .ok()
                     .map(|v| octa::formats::yaml_reader::yaml_to_json(&v));
+            }
+            // Initial view for structured-text formats (overrides the Table
+            // default chosen above): a `.json` file opens as a collapsible tree
+            // when it parsed, a `.yml`/`.yaml` file opens as raw text. Both can
+            // still be switched via the View menu. JSONL stays tabular. Gating
+            // JSON on `json_value.is_some()` keeps `view_mode` in sync with
+            // `available_view_modes`, which only offers JsonTree when parsed.
+            if tab.table.format_name.as_deref() == Some("JSON") && tab.json_value.is_some() {
+                tab.view_mode = ViewMode::JsonTree;
+                tab.sql_panel_open = false;
+                tab.sql_editor_focus_pending = false;
+            } else if tab.table.format_name.as_deref() == Some("YAML") {
+                tab.view_mode = ViewMode::Raw;
+                tab.sql_panel_open = false;
+                tab.sql_editor_focus_pending = false;
             }
             // Both trees share the depth+expand tracking fields, since only
             // one tree view is shown per tab at a time.

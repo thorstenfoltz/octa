@@ -13,7 +13,10 @@ use serde_json::Value;
 use octa::data::DataTable;
 
 use crate::mcp::tools::{TableSnapshot, ToolContext};
-use crate::ui::settings::{AppSettings, ChatPanelPosition, ChatProviderKind};
+use crate::ui::settings::{
+    AppSettings, ChatPanelPosition, ChatProviderKind, DialogSize, draw_window_controls,
+    remember_dialog_rect, size_dialog_window,
+};
 use octa::i18n::t;
 
 use super::chat::providers::{ProviderConfig, make_provider};
@@ -97,6 +100,12 @@ pub(crate) struct ChatPanelState {
     pub ac_selected: usize,
     pub session: Arc<Mutex<ChatSessionState>>,
     pub session_list_open: bool,
+    /// Window-size mode (Normal/Maximized/Minimized) for the History window.
+    pub session_list_size: octa::ui::settings::DialogSize,
+    /// Whether the saved-prompts manager window is open.
+    pub prompts_window_open: bool,
+    /// Window-size mode for the saved-prompts manager window.
+    pub prompts_window_size: octa::ui::settings::DialogSize,
     /// Message count at the last autosave, to debounce per-turn saves.
     pub last_saved_len: usize,
     /// Screen rect of the docked panel last frame, so the table's clipboard
@@ -119,6 +128,9 @@ impl ChatPanelState {
             ac_selected: 0,
             session: Arc::new(Mutex::new(ChatSessionState::new(provider.id(), model))),
             session_list_open: false,
+            session_list_size: octa::ui::settings::DialogSize::default(),
+            prompts_window_open: false,
+            prompts_window_size: octa::ui::settings::DialogSize::default(),
             last_saved_len: 0,
             panel_rect: None,
             ollama: OllamaUi::default(),
@@ -161,8 +173,8 @@ impl OctaApp {
             ChatPanelPosition::Right => {
                 egui::Panel::right("octa_chat_panel")
                     .resizable(true)
-                    .default_size(420.0)
-                    .min_size(300.0)
+                    .default_size(480.0)
+                    .min_size(340.0)
                     .show_inside(parent_ui, |ui| self.render_chat_body(ui))
                     .response
                     .rect
@@ -170,8 +182,8 @@ impl OctaApp {
             ChatPanelPosition::Left => {
                 egui::Panel::left("octa_chat_panel")
                     .resizable(true)
-                    .default_size(420.0)
-                    .min_size(300.0)
+                    .default_size(480.0)
+                    .min_size(340.0)
                     .show_inside(parent_ui, |ui| self.render_chat_body(ui))
                     .response
                     .rect
@@ -244,6 +256,7 @@ impl OctaApp {
             });
         });
         self.render_chat_history_window(ui.ctx());
+        self.render_prompts_window(ui.ctx());
 
         // Provider + model quick-switch row.
         let mut provider_changed = false;
@@ -669,51 +682,12 @@ impl OctaApp {
         // `@`-mention suggestions: open-tab handles/names + column names.
         let mention_suggestions = self.build_mention_suggestions();
 
-        ui.add_space(4.0);
-        let mut send_now = false;
-        let mut input_resp: Option<egui::Response> = None;
-        ui.horizontal(|ui| {
-            if running {
-                if ui.button(t("chat.cancel")).clicked() {
-                    self.cancel_chat();
-                }
-            } else if ui
-                .add_enabled(ready, egui::Button::new(t("chat.send")))
-                .clicked()
-            {
-                send_now = true;
-            }
-
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                let resp = ui.add_enabled(
-                    !running,
-                    egui::TextEdit::multiline(&mut self.chat.input)
-                        .id(input_id)
-                        .desired_rows(2)
-                        .desired_width(f32::INFINITY)
-                        .hint_text(t("chat.input_hint")),
-                );
-                if self.chat.focus_input {
-                    resp.request_focus();
-                    self.chat.focus_input = false;
-                }
-                // Enter sends; Shift+Enter inserts a newline. (Like the SQL
-                // editor, Enter is left to the editor even when the mention
-                // popup is open - Tab / click accept a suggestion instead.)
-                if resp.has_focus()
-                    && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift)
-                    && ready
-                    && !running
-                {
-                    send_now = true;
-                }
-                input_resp = Some(resp);
-            });
-        });
-        ui.add_space(4.0);
-
-        // --- @-mention autocomplete -------------------------------------
-        let resp = input_resp.expect("chat input always renders");
+        // --- Compute @-mention popup state BEFORE rendering the editor. ----
+        // The multiline TextEdit consumes arrow / Enter / Tab keys for caret
+        // movement and newlines during its own render, so the popup's key
+        // handling must run first or it never sees them (mirrors the SQL editor
+        // autocomplete in src/view_modes/sql.rs). Uses last frame's text +
+        // cursor from memory, which is one frame behind - same as SQL.
         let focused = ui.ctx().memory(|m| m.focused() == Some(input_id));
         let mut filtered: Vec<(String, String)> = Vec::new();
         let mut at_start = 0usize;
@@ -758,19 +732,24 @@ impl OctaApp {
             self.chat.ac_selected = 0;
         }
 
+        // Consume the popup keys while it is open, before the editor renders:
+        // Up/Down move the selection, Enter or Tab accepts, Escape dismisses.
+        // Gated on `popup_active`, so plain typing keeps arrows/Enter/Tab.
         let mut apply: Option<String> = None;
         if popup_active {
             let mut sel = self.chat.ac_selected;
             let len = filtered.len();
             let mut dismiss = false;
             ui.input_mut(|i| {
-                if i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowDown) {
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown) {
                     sel = (sel + 1) % len;
                 }
-                if i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowUp) {
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp) {
                     sel = if sel == 0 { len - 1 } else { sel - 1 };
                 }
-                if i.consume_key(egui::Modifiers::NONE, egui::Key::Tab) {
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                    || i.consume_key(egui::Modifiers::NONE, egui::Key::Tab)
+                {
                     apply = filtered.get(sel).map(|(_, ins)| ins.clone());
                 }
                 if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
@@ -781,7 +760,64 @@ impl OctaApp {
             if dismiss {
                 self.chat.ac_visible = false;
             }
+        }
 
+        ui.add_space(4.0);
+        let mut send_now = false;
+        let mut input_resp: Option<egui::Response> = None;
+        ui.horizontal(|ui| {
+            if running {
+                if ui.button(t("chat.cancel")).clicked() {
+                    self.cancel_chat();
+                }
+            } else if ui
+                .add_enabled(ready, egui::Button::new(t("chat.send")))
+                .clicked()
+            {
+                send_now = true;
+            }
+
+            // Prompts library: opens a manager window (save / insert / delete).
+            if ui
+                .button(t("chat.prompts"))
+                .on_hover_text(t("chat.prompts_hint"))
+                .clicked()
+            {
+                self.chat.prompts_window_open = !self.chat.prompts_window_open;
+            }
+
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                let resp = ui.add_enabled(
+                    !running,
+                    egui::TextEdit::multiline(&mut self.chat.input)
+                        .id(input_id)
+                        .desired_rows(2)
+                        .desired_width(f32::INFINITY)
+                        .hint_text(t("chat.input_hint")),
+                );
+                if self.chat.focus_input {
+                    resp.request_focus();
+                    self.chat.focus_input = false;
+                }
+                // Enter sends; Shift+Enter inserts a newline. While the mention
+                // popup is open Enter was consumed above to accept a suggestion,
+                // so it never sends here.
+                if !popup_active
+                    && resp.has_focus()
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift)
+                    && ready
+                    && !running
+                {
+                    send_now = true;
+                }
+                input_resp = Some(resp);
+            });
+        });
+        ui.add_space(4.0);
+
+        // --- @-mention autocomplete popup (visual + click) --------------
+        let resp = input_resp.expect("chat input always renders");
+        if popup_active {
             let popup_id = ui.make_persistent_id("octa_chat_mention_popup");
             egui::Popup::from_response(&resp)
                 .id(popup_id)
@@ -841,6 +877,149 @@ impl OctaApp {
         }
     }
 
+    /// Insert a saved prompt's text into the input box (append on its own line
+    /// when there's already text), then focus the input.
+    fn insert_prompt_text(&mut self, text: String) {
+        if self.chat.input.trim().is_empty() {
+            self.chat.input = text;
+        } else {
+            if !self.chat.input.ends_with('\n') {
+                self.chat.input.push('\n');
+            }
+            self.chat.input.push_str(&text);
+        }
+        self.chat.focus_input = true;
+    }
+
+    /// Saved-prompts manager window (standard min/max/close chrome): save the
+    /// current input as a named prompt, insert a saved one, or delete one.
+    /// Replaces the old dropdown menu (which jumped around on click).
+    fn render_prompts_window(&mut self, ctx: &egui::Context) {
+        if !self.chat.prompts_window_open {
+            return;
+        }
+        let mut size = self.chat.prompts_window_size;
+        let mut close_requested = false;
+        let mut save_prompt = false;
+        let mut insert_prompt: Option<String> = None;
+        let mut delete_prompt: Option<String> = None;
+        let can_save = !self.chat.input.trim().is_empty();
+
+        let dialog_id = egui::Id::new("octa_chat_prompts_window_v1");
+        let window = egui::Window::new(t("chat.prompts"))
+            .id(dialog_id)
+            .title_bar(false)
+            .collapsible(false);
+        let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+            w.resizable(true)
+                .default_width(420.0)
+                .default_height(440.0)
+                .min_width(300.0)
+                .min_height(180.0)
+        });
+        let minimized = size == DialogSize::Minimized;
+
+        let inner = window.show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(t("chat.prompts")).strong().size(15.0));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if draw_window_controls(ui, &mut size) {
+                        close_requested = true;
+                    }
+                });
+            });
+            if minimized {
+                return;
+            }
+            ui.separator();
+
+            if ui
+                .add_enabled(can_save, egui::Button::new(t("chat.prompt_save")))
+                .on_hover_text(t("chat.prompts_hint"))
+                .clicked()
+            {
+                save_prompt = true;
+            }
+            ui.separator();
+
+            if self.chat_prompts.is_empty() {
+                ui.label(
+                    egui::RichText::new(t("chat.prompt_empty"))
+                        .weak()
+                        .size(12.0),
+                );
+                return;
+            }
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for prompt in &self.chat_prompts {
+                        ui.horizontal(|ui| {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui
+                                        .button("x")
+                                        .on_hover_text(t("chat.prompt_delete"))
+                                        .clicked()
+                                    {
+                                        delete_prompt = Some(prompt.name.clone());
+                                    }
+                                    if ui.button(t("chat.prompt_insert")).clicked() {
+                                        insert_prompt = Some(prompt.text.clone());
+                                    }
+                                    ui.with_layout(
+                                        egui::Layout::left_to_right(egui::Align::Center),
+                                        |ui| {
+                                            let hover = if prompt.description.is_empty() {
+                                                prompt.text.clone()
+                                            } else {
+                                                format!("{}\n\n{}", prompt.description, prompt.text)
+                                            };
+                                            ui.add(
+                                                egui::Label::new(
+                                                    egui::RichText::new(&prompt.name).strong(),
+                                                )
+                                                .truncate(),
+                                            )
+                                            .on_hover_text(hover);
+                                        },
+                                    );
+                                },
+                            );
+                        });
+                        if !prompt.description.is_empty() {
+                            ui.label(egui::RichText::new(&prompt.description).weak().size(11.0));
+                        }
+                        ui.separator();
+                    }
+                });
+        });
+
+        if let Some(inner) = inner {
+            remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+        }
+        self.chat.prompts_window_size = size;
+
+        if save_prompt {
+            self.chat_prompt_save = Some(super::state::ChatPromptDraft {
+                name: String::new(),
+                description: String::new(),
+                text: self.chat.input.clone(),
+            });
+        }
+        if let Some(text) = insert_prompt {
+            self.insert_prompt_text(text);
+        }
+        if let Some(name) = delete_prompt {
+            self.chat_prompts.retain(|p| p.name != name);
+            super::chat_prompts::save(&self.chat_prompts);
+        }
+        if close_requested {
+            self.chat.prompts_window_open = false;
+        }
+    }
+
     /// Build the `@`-mention autocomplete list from the open tabs: one entry per
     /// non-chart tab (`#N name` -> inserts `@#N`) followed by every distinct
     /// column name (inserts the bare name). Returned as `(display, insert)`.
@@ -881,50 +1060,104 @@ impl OctaApp {
         if !self.chat.session_list_open {
             return;
         }
-        let mut open = true;
         let mut to_load: Option<String> = None;
         let mut to_delete: Option<String> = None;
         let mut clear_all = false;
-        egui::Window::new(t("chat.history_title"))
-            .id(egui::Id::new("octa_chat_history_v1"))
-            .collapsible(false)
-            .resizable(true)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                let metas = persist::list();
-                if metas.is_empty() {
-                    ui.label(t("chat.history_empty"));
-                    return;
-                }
-                ui.horizontal(|ui| {
-                    ui.label(format!("{} {}", metas.len(), t("chat.history_count")));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(t("chat.delete_all")).clicked() {
-                            clear_all = true;
-                        }
-                    });
+        let mut close_requested = false;
+        let mut size = self.chat.session_list_size;
+
+        let dialog_id = egui::Id::new("octa_chat_history_v2");
+        let window = egui::Window::new(t("chat.history_title"))
+            .id(dialog_id)
+            .title_bar(false)
+            .collapsible(false);
+        let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+            w.resizable(true)
+                .default_width(380.0)
+                .default_height(440.0)
+                .min_width(280.0)
+                .min_height(180.0)
+        });
+        let minimized = size == DialogSize::Minimized;
+
+        let inner = window.show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(t("chat.history_title"))
+                        .strong()
+                        .size(15.0),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if draw_window_controls(ui, &mut size) {
+                        close_requested = true;
+                    }
                 });
-                ui.separator();
-                egui::ScrollArea::vertical()
-                    .max_height(320.0)
-                    .show(ui, |ui| {
-                        for m in metas {
-                            ui.horizontal(|ui| {
-                                let label = if m.title.trim().is_empty() {
-                                    t("chat.untitled")
-                                } else {
-                                    m.title.clone()
-                                };
-                                if ui.button(label).clicked() {
-                                    to_load = Some(m.id.clone());
-                                }
-                                if ui.button("x").on_hover_text(t("chat.delete")).clicked() {
-                                    to_delete = Some(m.id.clone());
-                                }
-                            });
-                        }
-                    });
             });
+            if minimized {
+                return;
+            }
+            ui.separator();
+
+            let metas = persist::list();
+            if metas.is_empty() {
+                ui.label(t("chat.history_empty"));
+                return;
+            }
+            ui.horizontal(|ui| {
+                ui.label(format!("{} {}", metas.len(), t("chat.history_count")));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(t("chat.delete_all")).clicked() {
+                        clear_all = true;
+                    }
+                });
+            });
+            ui.separator();
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for m in metas {
+                        ui.horizontal(|ui| {
+                            let label = if m.title.trim().is_empty() {
+                                t("chat.untitled")
+                            } else {
+                                m.title.clone()
+                            };
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.button("x").on_hover_text(t("chat.delete")).clicked() {
+                                        to_delete = Some(m.id.clone());
+                                    }
+                                    ui.with_layout(
+                                        egui::Layout::left_to_right(egui::Align::Center),
+                                        |ui| {
+                                            if ui
+                                                .add(
+                                                    egui::Button::new(label)
+                                                        .min_size(egui::vec2(
+                                                            ui.available_width(),
+                                                            0.0,
+                                                        ))
+                                                        .wrap(),
+                                                )
+                                                .clicked()
+                                            {
+                                                to_load = Some(m.id.clone());
+                                            }
+                                        },
+                                    );
+                                },
+                            );
+                        });
+                    }
+                });
+        });
+
+        if let Some(inner) = inner {
+            remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+        }
+        self.chat.session_list_size = size;
+
         if let Some(id) = to_load {
             self.load_chat_session(&id);
             self.chat.session_list_open = false;
@@ -936,7 +1169,7 @@ impl OctaApp {
             let removed = persist::delete_all();
             eprintln!("octa: cleared {removed} saved chat session(s)");
         }
-        if !open {
+        if close_requested {
             self.chat.session_list_open = false;
         }
     }
@@ -1089,6 +1322,12 @@ impl OctaApp {
         // New `Arc`s (not just `store(false)`) so a previous cancelled turn that
         // is still blocked on a network read can't resume into this session.
         let session = self.chat.session.clone();
+        // Capture the session id for the (opt-in) tool-call audit log.
+        let audit_session = if self.settings.chat_audit_log_enabled {
+            Some(session.lock().unwrap().id.clone())
+        } else {
+            None
+        };
         let cancel = Arc::new(AtomicBool::new(false));
         let running = Arc::new(AtomicBool::new(true));
         {
@@ -1115,6 +1354,7 @@ impl OctaApp {
                 max_iterations,
                 cancel,
                 running,
+                audit_session,
             },
             ctx.clone(),
         );

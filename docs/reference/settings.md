@@ -21,15 +21,15 @@ for missing keys; old versions ignore unknown keys).
 
 ## Appearance
 
-| Setting              | Default      | Notes                                                                                                                                         |
-|----------------------|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
-| **Language**         | English      | UI language for menus and dialogs. 13 Latin-script languages; switches live, no restart. See [Languages](languages.md). TOML key: `language`. |
-| **Font size**        | 13 pt        | Base font size. Applied to body / button / monospace text.                                                                                    |
-| **Default theme**    | Light        | `Light`, `Dark` and more. Applied at startup.                                                                                                 |
-| **Body font**        | Proportional | `Proportional` or `Monospace`.                                                                                                                |
-| **Custom font path** | *(empty)*    | Optional path to a TTF/OTF font. Overrides Body font for proportional text.                                                                   |
-| **Icon variant**     | Rose         | Window icon colour. Several options.                                                                                                          |
-| **Custom title bar** | off          | Replaces the OS window frame with Octa's own title bar. Useful on tiling WMs that don't provide window controls. Takes effect after restart.  |
+| Setting              | Default      | Notes                                                                                                                                                                                                                                                        |
+|----------------------|--------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Language**         | English      | UI language for menus and dialogs. 13 Latin-script languages; switches live, no restart. See [Languages](languages.md). TOML key: `language`.                                                                                                                |
+| **Font size**        | 13 pt        | Base font size. Applied to body / button / monospace text.                                                                                                                                                                                                   |
+| **Default theme**    | Light        | `Light`, `Dark` and more. Applied when you press **Apply**, and at startup.                                                                                                                                                                                  |
+| **Body font**        | Proportional | `Proportional` or `Monospace`.                                                                                                                                                                                                                               |
+| **Custom font path** | *(empty)*    | Optional path to a TTF/OTF font. Overrides Body font for proportional text.                                                                                                                                                                                  |
+| **Icon variant**     | Rose         | Window icon colour. Several options.                                                                                                                                                                                                                         |
+| **Custom title bar** | on           | Replaces the OS window frame with Octa's own slim title bar (min/max/close in the toolbar), with drag-to-move and edge/corner resize. Frees the vertical space a system title bar takes. Turn off for native window decorations. Takes effect after restart. |
 
 ## Table View
 
@@ -52,6 +52,7 @@ for missing keys; old versions ignore unknown keys).
 |---------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Default search mode**   | Plain   | Initial mode for the toolbar search: Plain / Wildcard / Regex.                                                                                                                                                                                                               |
 | **Search result display** | Filter  | How search results show in the table: **Filter** hides non-matching rows; **Highlight** keeps every row and highlights matches in place (with a count and next/previous navigation). The search-bar toggle overrides this per session. Text and tree views always highlight. |
+| **Search history size**   | 5       | How many recent search queries to remember across sessions (the **Recent** dropdown beside the search box). `0` disables the history. Stored in `search_history.json`. TOML key: `search_history_limit`.                                                                     |
 | **Tab size**              | 4       | Number of spaces inserted when pressing Tab inside text editors (the Raw text editor and the Markdown Edit/Split editor; Tab indents in place rather than moving focus).                                                                                                     |
 
 ## File-Specific
@@ -61,7 +62,7 @@ for missing keys; old versions ignore unknown keys).
 | **Colour aligned columns**          | on      | In [Raw view](../usage/view-modes/raw-text.md) of CSV/TSV files, tint each column with a subtle background.                                                                                                                                                                                                  |
 | **Warn on un-align reload**         | on      | Confirmation dialog when toggling **Align Columns** off (the buffer is re-loaded).                                                                                                                                                                                                                           |
 | **Warn on date format change**      | on      | One-shot banner when date inference promotes a non-ISO column.                                                                                                                                                                                                                                               |
-| **Trim whitespace on load**         | on      | Strip leading/trailing whitespace from string cells and column titles when a file is opened (interior spaces kept). TOML key: `trim_whitespace_on_load`.                                                                                                                                                     |
+| **Trim whitespace on load**         | off     | Strip leading/trailing whitespace from string cells and column titles when a file is opened (interior spaces kept). Off by default, so loaded values match what is stored. TOML key: `trim_whitespace_on_load`.                                                                                              |
 | **Warn on whitespace trim**         | on      | Banner listing which columns had whitespace trimmed on load. Independent of the trim setting. TOML key: `warn_on_whitespace_trim`.                                                                                                                                                                           |
 | **Offer repair on malformed files** | off     | Prompt to repair a CSV/TSV that reads but looks malformed (bad encoding, BOM, control chars, delimiter mismatch, ragged rows). The file on disk is never changed. See [Supported formats](../getting-started/supported-formats.md#repairing-malformed-csv-tsv-files). TOML key: `offer_repair_on_malformed`. |
 | **Read-only mode notice**           | on      | Show the read-only intro modal on **F8** the first time per session.                                                                                                                                                                                                                                         |
@@ -69,13 +70,15 @@ for missing keys; old versions ignore unknown keys).
 
 ## SQL
 
-| Setting                       | Default        | Notes                                                                   |
-|-------------------------------|----------------|-------------------------------------------------------------------------|
-| **Open SQL panel by default** | off            | Auto-open the [SQL panel](../usage/sql.md) when opening a tabular file. |
-| **Panel position**            | Bottom         | Where the SQL panel docks: `Bottom` / `Top` / `Left` / `Right`.         |
-| **Default row limit**         | 100            | Placeholder query is `SELECT * FROM data LIMIT N`.                      |
-| **Autocomplete**              | on             | Show keyword + column-name suggestion chips under the editor.           |
-| **Editor font**               | JetBrains Mono | `JetBrainsMono` (bundled), `MatchUiFont`, or `SystemMonospace`.         |
+| Setting                       | Default        | Notes                                                                                                                               |
+|-------------------------------|----------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| **Open SQL panel by default** | off            | Auto-open the [SQL panel](../usage/sql.md) when opening a tabular file.                                                             |
+| **Panel position**            | Bottom         | Where the SQL panel docks: `Bottom` / `Top` / `Left` / `Right`.                                                                     |
+| **Default row limit**         | 100            | Placeholder query is `SELECT * FROM data LIMIT N`.                                                                                  |
+| **Autocomplete**              | on             | Show keyword + column-name suggestion chips under the editor.                                                                       |
+| **Editor font**               | JetBrains Mono | `JetBrainsMono` (bundled), `MatchUiFont`, or `SystemMonospace`.                                                                     |
+| **Highlight SQL changes**     | on             | After an `INSERT`/`UPDATE`/`DELETE`, briefly mark the changed cells and new rows green. TOML key: `sql_row_diff_highlight_enabled`. |
+| **Highlight duration**        | 4 s            | How long the mutation highlight stays before clearing. TOML key: `sql_row_diff_highlight_secs`.                                     |
 
 ## MCP
 
@@ -97,18 +100,20 @@ full semantics.
 Settings for the in-GUI [Assistant](../usage/chatbot.md) panel. All live
 in the main Settings dialog under the **Chat / Assistant** section.
 
-| Setting                 | Default                  | Notes                                                                                                                                                                                |
-|-------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Provider**            | Anthropic                | LLM backend: `Anthropic`, `OpenAI`, `OpenAI-compatible`, `Gemini`, or `Ollama` (local). TOML key: `chat_provider`.                                                                   |
-| **Model**               | per-provider default     | Model id for the active provider. A dropdown of presets (from `models.toml`) plus a free-text field for any model. Stored per provider. TOML key: `chat_models`.                     |
-| **Base URL**            | *(empty)*                | Endpoint override for the OpenAI-compatible provider. TOML key: `chat_base_url`.                                                                                                     |
-| **Ollama URL**          | `http://localhost:11434` | Base URL of the local Ollama server. TOML key: `chat_ollama_url`.                                                                                                                    |
-| **Panel position**      | Right                    | Where the chat panel docks: `Right` / `Left` / `Bottom`. TOML key: `chat_panel_position`.                                                                                            |
-| **Temperature**         | 0.0                      | Sampling temperature passed to the model. TOML key: `chat_temperature`.                                                                                                              |
-| **Max tool iterations** | 12                       | How many tool-call rounds the agent runs per turn before stopping. TOML key: `chat_max_tool_iterations`.                                                                             |
-| **Max tokens**          | 16,384                   | Cap on the model's response length. **Unlimited** omits the field (Anthropic substitutes a high value). TOML keys: `chat_max_tokens`, `chat_max_tokens_unlimited`.                   |
-| **Export directory**    | `~/Downloads`            | Where the assistant writes files (charts, exports, `write_text`). TOML key: `chat_export_dir`.                                                                                       |
-| **API key**             | *(none)*                 | Per-provider key. Resolved **env → OS keyring → plaintext `settings.toml`**. **Clear API key** needs a second click to confirm. TOML key: `chat_api_keys` (plaintext fallback only). |
+| Setting                   | Default                  | Notes                                                                                                                                                                                                                                  |
+|---------------------------|--------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Provider**              | Anthropic                | LLM backend: `Anthropic`, `OpenAI`, `OpenAI-compatible`, `Gemini`, or `Ollama` (local). TOML key: `chat_provider`.                                                                                                                     |
+| **Model**                 | per-provider default     | Model id for the active provider. A dropdown of presets (from `models.toml`) plus a free-text field for any model. Stored per provider. TOML key: `chat_models`.                                                                       |
+| **Base URL**              | *(empty)*                | Endpoint override for the OpenAI-compatible provider. TOML key: `chat_base_url`.                                                                                                                                                       |
+| **Ollama URL**            | `http://localhost:11434` | Base URL of the local Ollama server. TOML key: `chat_ollama_url`.                                                                                                                                                                      |
+| **Panel position**        | Right                    | Where the chat panel docks: `Right` / `Left` / `Bottom`. TOML key: `chat_panel_position`.                                                                                                                                              |
+| **Temperature**           | 0.0                      | Sampling temperature passed to the model. TOML key: `chat_temperature`.                                                                                                                                                                |
+| **Max tool iterations**   | 3                        | How many tool-call rounds the agent runs per turn before stopping. TOML key: `chat_max_tool_iterations`.                                                                                                                               |
+| **Max tokens**            | 16,384                   | Cap on the model's response length. **Unlimited** omits the field (Anthropic substitutes a high value). TOML keys: `chat_max_tokens`, `chat_max_tokens_unlimited`.                                                                     |
+| **Export directory**      | `~/Downloads`            | Where the assistant writes files (charts, exports, `write_text`). TOML key: `chat_export_dir`.                                                                                                                                         |
+| **Tool-call audit log**   | off                      | Record every assistant tool call (name, arg/result byte counts, duration) to `chat_audit/<session>.jsonl` in the config dir. TOML key: `chat_audit_log_enabled`. See [Assistant → audit log](../usage/chatbot.md#tool-call-audit-log). |
+| **Warn when logs exceed** | 10 MB (on)               | Show a one-time startup warning when the audit logs grow past this size. TOML keys: `chat_audit_log_warn_enabled`, `chat_audit_log_warn_bytes`.                                                                                        |
+| **API key**               | *(none)*                 | Per-provider key. Resolved **env → OS keyring → plaintext `settings.toml`**. **Clear API key** needs a second click to confirm. TOML key: `chat_api_keys` (plaintext fallback only).                                                   |
 
 See [Assistant](../usage/chatbot.md) for the full workflow, tool list,
 and the filesystem sandbox.
@@ -123,9 +128,28 @@ and the filesystem sandbox.
 
 ## Directory Tree
 
-| Setting              | Default | Notes                                                         |
-|----------------------|---------|---------------------------------------------------------------|
-| **Sidebar position** | Left    | Side the directory tree sidebar docks on (`Left` or `Right`). |
+| Setting                      | Default | Notes                                                                                                                                                                                 |
+|------------------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Sidebar position**         | Left    | Side the directory tree sidebar docks on (`Left` or `Right`).                                                                                                                         |
+| **Show only openable files** | On      | List only sub-folders and files Octa can open (by extension). Files without an extension are hidden while on. Turn off to list every file. TOML key: `directory_tree_filter_enabled`. |
+
+## Summary
+
+The **Analyse -> Summary** tab shows one row of statistics per column.
+Each statistic below has a checkbox; turn any off to drop that column.
+**Column** and **Type** are always shown. TOML key: `summary_stats`.
+
+| Statistic          | Notes                                            |
+|--------------------|--------------------------------------------------|
+| **Min / Max**      | Smallest and largest value.                      |
+| **Mean / Median**  | Average and middle value (numeric columns).      |
+| **Std dev**        | Standard deviation (numeric columns).            |
+| **Q25 / Q75**      | Lower and upper quartiles (numeric columns).     |
+| **Not null**       | Count of present (non-null) values.              |
+| **Nulls / Null %** | Count and share of missing values.               |
+| **Unique**         | Exact count of distinct values (nulls excluded). |
+| **Distinct ratio** | Unique values divided by total rows.             |
+| **Total rows**     | Row count of the whole table.                    |
 
 ## Shortcuts
 

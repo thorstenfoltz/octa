@@ -61,6 +61,22 @@ persistent SQL state between queries. Accidental mutations therefore
 do not accumulate across runs; an `UPDATE` in one query does not
 carry over to the next.
 
+## History and snippets
+
+The SQL toolbar has two ways to reuse queries:
+
+- **History** is a dropdown listing the recent queries run in this tab,
+  most recent first. Pick one to load it back into the editor. History is
+  **per tab and session-only** (it is not saved to disk).
+- **Snippets** opens a **manager window** for a persistent, named library
+  of queries. **Save current query as snippet...** stores the editor
+  content under a name and an optional description; each saved snippet has
+  **Insert** (load it into the editor) and **x** (delete). The window has
+  the usual minimise / maximise / close controls and is resizable.
+  Snippets are stored in `sql_snippets.json` in the
+  [config directory](../reference/settings.md), so they survive restarts
+  and are shared across all tabs.
+
 ## What's available
 
 DuckDB's full SQL surface, including:
@@ -95,6 +111,13 @@ Errors render in **red** below the editor.
 instead of `conn.query()`. After a mutation, Octa re-selects the
 full `data` table and replaces the **base table** in the active
 tab, so the mutation's effect is visible immediately.
+
+To make the effect easy to spot, Octa **briefly highlights the
+changed cells and any new rows in green** after a mutation. Toggle
+this and set its duration under
+[**Settings → SQL**](../reference/settings.md#sql) (**Highlight SQL
+changes** / **Highlight duration**, on by default, 4 seconds). The
+highlight is a temporary display mark and clears itself.
 
 !!! warning "Mutations don't persist back to disk by default"
 
