@@ -40,7 +40,7 @@ An application for viewing data files. Octa opens files in a spreadsheet-like ta
 
 ## Why Octa?
 
-One native tool to open, inspect, query, and compare data files across 20+ formats (Parquet, CSV, JSON, Excel, SQLite, DuckDB, GeoPackage, Arrow, Avro, ORC, SAS, SPSS, Stata, RDS, HDF5, NetCDF, DBF, GeoJSON, EPUB, archives, and more)
+One native tool to open, inspect, query, and compare data files across 25+ formats (Parquet, CSV, JSON, Excel, SQLite, DuckDB, GeoPackage, Arrow, Avro, ORC, SAS, SPSS, Stata, RDS, HDF5, NetCDF, DBF, NumPy, MessagePack, BSON, GeoJSON, Shapefile, Delta Lake, Apache Iceberg, EPUB, archives, and more)
 without spinning up Python, opening a browser, or installing a heavyweight database client. Octa runs as a standalone binary on Linux, macOS, and Windows.
 
 The same binary also speaks the Model Context Protocol over stdio (`octa --mcp`), so AI assistants and automation pipelines can read local files directly through Octa instead of round-tripping data through a custom script.
@@ -66,6 +66,9 @@ The same binary also speaks the Model Context Protocol over stdio (`octa --mcp`)
 | SPSS (.sav, .zsav)        | yes  | yes   |                                                                                   |
 | Stata (.dta)              | yes  | yes   |                                                                                   |
 | R (.rds, .rdata)          | yes  | no    |                                                                                   |
+| NumPy (.npy, .npz)        | yes  | no    | `.npz` opens each array as its own tab.                                           |
+| MessagePack (.msgpack)    | yes  | no    | Decoded like JSON.                                                                |
+| BSON (.bson)              | yes  | no    | Concatenated documents (mongodump shape); decoded like JSON.                      |
 | DBF/dBase (.dbf)          | yes  | yes   |                                                                                   |
 | XML                       | yes  | yes   |                                                                                   |
 | TOML                      | yes  | yes   |                                                                                   |
@@ -74,6 +77,9 @@ The same binary also speaks the Model Context Protocol over stdio (`octa --mcp`)
 | Markdown                  | yes  | yes   | Rendered preview, Split, and Edit modes.                                          |
 | EPUB                      | yes  | no    | EPUB Reader view, chapter-by-chapter with embedded images.                        |
 | GeoJSON (.geojson)        | yes  | no    | Map view with OSM tile rendering or geometry-only fallback.                       |
+| Shapefile (.shp)          | yes  | no    | Reads sibling `.dbf` attributes; Map view like GeoJSON.                           |
+| Delta Lake (folder)       | yes  | no    | Open via **File -> Open table folder...**; extensions download on first use.      |
+| Apache Iceberg (folder)   | yes  | no    | Open via **File -> Open table folder...**; extensions download on first use.      |
 | Archive (zip / tar / tgz) | yes  | no    | Read-only listing; per-entry extract-and-open action.                             |
 | Fixed-width (FWF)         | yes  | no    | `.fwf` / `.prn`; read-only, best-effort column-boundary inference.                |
 | Source code / config      | yes  | yes   | `.py`, `.rs`, `.go`, `.ts`, ... opened with syntect highlighting in the Raw view. |
@@ -109,7 +115,7 @@ view (Python, Rust, shell, Terraform, etc.)
 - **JSON Tree** / **YAML Tree** — collapsible Firefox-style tree for `.json` / `.jsonl` / `.yaml` / `.yml`. Keys are renamable, values are editable, and you can add keys to objects in place.
 - **Notebook** — rendered Jupyter notebook with code cells, markdown cells, and outputs.
 - **EPUB Reader** — chapter-by-chapter rendered text for `.epub` files. Top toolbar shows the book title, Previous/Next, and a chapter combo. Embedded images render as a thumbnail strip below the chapter body.
-- **Map** — slippy-map view for `.geojson` files. OSM tiles (configurable URL) with feature geometries painted on top. Toolbar toggles Tiles ↔ Geometry-only; plain mouse-wheel zoom; double-click to zoom in.
+- **Map** — slippy-map view for `.geojson` and `.shp` files, and for any table with latitude / longitude columns (auto-detected, with a Lat / Lon picker). OSM tiles (configurable URL) with feature geometries painted on top. Toolbar toggles Tiles ↔ Geometry-only; plain mouse-wheel zoom; double-click to zoom in.
 - **Compare** — side-by-side comparison of two files. Four sub-modes toggle in
 the Compare toolbar: **Text Diff** (git-style line diff), **Row Hash Diff**
 (BLAKE3-hashed columns; uniques + shared rows bucketed), **Ordered** (rows lined
@@ -126,6 +132,7 @@ a saved-**Snippets** library, and a brief green highlight of the cells a mutatio
 - Conditional formatting: rule-based automatic cell colouring (equals, contains, greater-than, is empty, ...) that applies live
 - Data validation: flag cells that break a rule (not empty, in range, matches a pattern, unique, max length) — failing cells are highlighted red
 - Multi-column sort (**Analyse → Sort by columns...**): sort by an ordered list of columns, each ascending or descending
+- Transform column (**Edit → Transform column...**): split, merge, fill down/up, extract a regex match, or find-and-replace within a column; new-column ops let you set the name and position
 - Copy the current selection as a GitHub-flavoured Markdown table
 - Undo / Redo for cell edits, structural changes, and colour marks
 - Leading/trailing whitespace trimmed from string cells and column titles on load (configurable, with a banner listing the affected columns)
@@ -174,7 +181,7 @@ Output format is selectable with `-f / --format {tsv|json|csv}` (TSV default). R
 
 ### MCP server
 
-`octa --mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io/) server on stdio that exposes Octa's reading, inspection, and write capabilities as MCP tools. Point any MCP client (Claude Desktop, Claude Code,
+`octa --mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io/) server on stdio that exposes Octa's reading, inspection, analysis, and write capabilities as MCP tools, including SQL, schema export, profiling, diffing, pivot / unpivot, correlation, and directory-wide search. Point any MCP client (Claude Desktop, Claude Code,
 MCP Inspector, or any compatible client) at the same binary and the model can query your local data files directly, no scripting in between. Add `--mcp-read-only` to drop the data-writing tools for clients that should only ever read.
 
 ### Assistant (in-app chat)
@@ -201,6 +208,7 @@ cell contents) for review.
 - Performance knobs such as streaming row caps and size limits
 - User-extensible "open as plain text" extension list
 - Directory sidebar filter to list only files Octa can open (on by default)
+- Built-in window title bar with the controls in the toolbar, drag-to-move and edge resize (on by default; turn off for native decorations)
 - Remappable keyboard shortcuts
 
 ### Other

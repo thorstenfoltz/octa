@@ -1,10 +1,13 @@
 # Release notes
 
-New analysis and formatting tools (conditional formatting, data validation,
-pivot / unpivot, key-matched comparison, multi-column sort, a rebuilt Summary
-tab with more statistics), two new themes, saveable SQL snippets and chat
-prompts, a richer search bar, a read-only mode for the MCP server, and a long
-list of smaller conveniences and fixes.
+New analysis and formatting tools (column transforms, conditional formatting,
+data validation, pivot / unpivot, key-matched comparison, multi-column sort, a
+rebuilt Summary tab with more statistics), five more file formats (NumPy,
+MessagePack, BSON, Shapefile, Delta Lake / Apache Iceberg), plotting any
+latitude / longitude table on the map, two new themes, a built-in window title
+bar, saveable SQL snippets and chat prompts, a richer search bar, new
+read-only analysis tools for the MCP server, and a long list of smaller
+conveniences and fixes.
 
 ## Appearance
 
@@ -16,7 +19,25 @@ backgrounds, moss-green accents and pale parchment text. Pick them under
 **Nord is now called North.** Only the name changed; the arctic blue colours
 are exactly as before, and an existing `Nord` setting still loads.
 
+**Window controls in the toolbar.** Octa can draw its own slim title bar with
+the minimise / maximise / close buttons in the toolbar, in place of the system
+window frame. This frees the vertical space the system title bar would take and
+looks the same on every platform. Drag the empty part of the toolbar to move
+the window, double-click it to maximise, and drag the window edges or corners
+to resize. **This is now on by default**; turn it off under **Settings ->
+Appearance -> Custom title bar** for native window decorations (takes effect
+after restart).
+
 ## Analysis and formatting
+
+**Transform column.** **Edit -> Transform column...** reshapes a column the way
+you would clean up a messy spreadsheet by hand: **split** one column into
+several (by a delimiter, a regular expression, or a fixed width), **merge**
+several columns into one, **fill** empty cells from the value above or below,
+**extract** the first regular-expression match into a new column, or **find and
+replace** within one column. For the operations that create a new column you can
+set the name and the insert position. Every transform is undoable and applies to
+the table in memory only.
 
 **Data validation.** **Edit -> Data validation...** flags cells that break a rule
 you define (not empty, in a numeric range, matches a regular expression, unique in
@@ -109,6 +130,10 @@ arrows and to clicking a suggestion, the panel opens a little wider so the
 header buttons no longer overlap, and the History window gained the standard
 minimise / maximise / close controls.
 
+**Fewer tool rounds by default.** The default **Max tool iterations** is now 3
+(was 12), so a turn settles sooner; raise it under **Settings -> Chat /
+Assistant** if you want longer agentic runs.
+
 ## Everyday conveniences
 
 **Open the right view per file type.** A `.json` file now opens in the JSON
@@ -119,11 +144,39 @@ the View menu; this just picks a sensible starting point.
 files Octa can open, so a folder full of unrelated files stays readable. Turn it
 off under **Settings -> Directory Tree** to list every file.
 
+**Plot coordinates on the map.** Any table with latitude and longitude columns
+can now be shown on the Map view, not just GeoJSON files. Octa detects the
+coordinate columns automatically and a Lat / Lon dropdown in the map toolbar
+lets you pick different ones.
+
+**Whitespace trimming is now off by default.** Loading a file no longer strips
+leading and trailing spaces from cells unless you opt in under **Settings ->
+Performance**, so values match exactly what is stored.
+
+## File formats
+
+**Five more formats open in Octa**, all read-only:
+
+- **NumPy** `.npy` and `.npz` arrays (an `.npz` opens each array as its own
+  tab).
+- **MessagePack** and **BSON** documents (decoded the same way as JSON).
+- **ESRI Shapefile** `.shp` (with its sibling `.dbf` attributes), shown on the
+  Map view like GeoJSON.
+- **Delta Lake** and **Apache Iceberg** tables. Because these are *folders*
+  rather than single files, open one with **File -> Open table folder...**
+  (the table extensions download on first use).
+
 ## CLI and MCP
 
 **Read-only MCP mode.** `octa --mcp --mcp-read-only` starts the MCP server with
-the data-writing tools (`write_table`, `edit_table`, `convert`) removed, for
-agent frameworks that should only ever read.
+the data-writing tools (`write_table`, `edit_table`, `convert`,
+`transform_columns`) removed, for agent frameworks that should only ever read.
+
+**New MCP tools.** The server gains `pivot` (DuckDB pivot / unpivot),
+`correlation` (Pearson / Spearman across numeric columns), `grep_files` (search
+across the files in a directory), and `transform_columns` (rename, cast, or drop
+columns and write the result back). The first three are read-only and stay
+available under `--mcp-read-only`.
 
 ## Fixes
 
