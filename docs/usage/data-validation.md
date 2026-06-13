@@ -4,7 +4,6 @@ Data validation flags cells that break a rule you define, painting each
 failing cell **red** so problems stand out at a glance. Open it via
 **Edit -> Data validation...**.
 
-<!-- SCREENSHOT: data-validation.png: Data validation dialog with a few rules (Not empty, In range, Unique) over a table; several cells in the table highlighted red. -->
 ![Data validation](../assets/screenshots/data-validation.png){ .screenshot-placeholder }
 
 ## Rules

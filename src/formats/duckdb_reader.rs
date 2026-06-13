@@ -314,7 +314,7 @@ fn ensure_row_id_column(conn: &Connection, schema: &str, table: &str) -> Result<
     Ok(())
 }
 
-fn duckdb_type_to_arrow(ty: &str) -> String {
+pub(crate) fn duckdb_type_to_arrow(ty: &str) -> String {
     let upper = ty.to_uppercase();
     if upper.contains("BIGINT")
         || upper.contains("INTEGER")
@@ -344,7 +344,7 @@ fn duckdb_type_to_arrow(ty: &str) -> String {
     }
 }
 
-fn duckdb_value_to_cell(v: ValueRef<'_>) -> CellValue {
+pub(crate) fn duckdb_value_to_cell(v: ValueRef<'_>) -> CellValue {
     use duckdb::types::ValueRef as V;
     match v {
         V::Null => CellValue::Null,

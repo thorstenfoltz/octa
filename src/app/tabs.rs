@@ -147,6 +147,7 @@ impl TabState {
             epub_active_chapter: 0,
             epub_title: None,
             geojson_features: Vec::new(),
+            map_coord_cols: None,
             map_mode: data::MapMode::default(),
             map_tiles: None,
             map_memory: None,
@@ -174,7 +175,13 @@ impl TabState {
         let has_notebook = self.table.format_name.as_deref() == Some("Jupyter Notebook");
         let has_markdown = self.table.format_name.as_deref() == Some("Markdown");
         let has_epub = !self.epub_chapters_md.is_empty();
-        let has_map = self.table.format_name.as_deref() == Some("GeoJSON");
+        // GeoJSON and Shapefile always offer Map (geometry comes from the
+        // file); any other table offers it when it has detectable
+        // latitude/longitude columns (plotted as points).
+        let has_map = matches!(
+            self.table.format_name.as_deref(),
+            Some("GeoJSON") | Some("Shapefile")
+        ) || octa::data::geo_detect::detect_lat_lon(&self.table).is_some();
         let has_json = self.json_value.is_some();
         let has_yaml = self.yaml_value.is_some();
         let has_raw = self.raw_content.is_some();

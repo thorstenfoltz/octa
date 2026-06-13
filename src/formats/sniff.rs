@@ -76,6 +76,11 @@ fn sniff_magic(head: &[u8]) -> Option<&'static str> {
     if head.starts_with(b"\x89HDF\r\n\x1a\n") {
         return Some("HDF5");
     }
+    // NumPy .npy: the 6-byte "\x93NUMPY" magic. (.npz is a zip and is caught by
+    // the PK magic below, routing to the Archive reader, which is acceptable.)
+    if head.starts_with(b"\x93NUMPY") {
+        return Some("NumPy");
+    }
     // Zip local-file / central-dir / end-of-central-dir headers. Covers plain
     // zips as well as the OOXML / OpenDocument containers; we route to the
     // read-only Archive reader, which lists the entries so the user can see

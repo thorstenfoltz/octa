@@ -36,8 +36,13 @@ to open files.
 - R Datasets (`.rds`, `.rdata`, `.rda`)
 - HDF5 (`.h5`, `.hdf5`, `.hdf`)
 - NetCDF v3 (`.nc`)
+- NumPy (`.npy`, `.npz`)
+- MessagePack (`.msgpack`, `.mpk`)
+- BSON (`.bson`)
 - EPUB (`.epub`)
 - GeoJSON (`.geojson`)
+- Shapefile (`.shp`)
+- Delta Lake / Apache Iceberg (table directory; **File -> Open table folder...**)
 
 When saving, the original format and settings (e.g. CSV delimiter) are
 preserved. Database writes only update changed rows and reject schema
@@ -759,6 +764,40 @@ validation highlight. **Add rule** appends a new rule; the **X** button
 removes one; **Clear all** removes them all.
 "#;
 
+pub(super) const TRANSFORMS: &str = r#"# Transform Column
+
+Transform Column reshapes your data with a single click, the way you would
+clean up a messy spreadsheet by hand. Open it via
+**Edit > Transform column...**. Pick an operation, fill in its options, and
+press **Apply**. Each transform is undoable (Ctrl+Z), session-only until you
+save, and respects read-only mode.
+
+## Operations
+
+- **Split column** - break one column into several. Split on a **delimiter**
+  (for example a comma, so `a,b,c` becomes three cells), a **regular
+  expression**, or a **fixed width** (every N characters). New columns are
+  named after the source with a `_1`, `_2`, ... suffix; rows with fewer parts
+  get empty cells.
+- **Merge columns** - join two or more columns into one new column with a
+  separator you choose (like joining First and Last name with a space).
+- **Fill down** / **Fill up** - copy the nearest non-empty value into the
+  empty cells above or below it. Handy for un-merging the "only show the
+  group name on the first row" style of export.
+- **Extract pattern** - pull the first regular-expression match out of each
+  cell into a new column (for example `#(\d+)` to grab an order number).
+  Cells that don't match are left empty.
+- **Replace in column** - find and replace within a single column's cells,
+  using Plain, Wildcard, or Regex matching (same modes as the search bar).
+
+Split, Merge, and Extract create new columns; Fill and Replace rewrite the
+chosen column in place. For the column-creating operations you can set the
+new column name and the insert position (leave either blank for the default
+shown as the field hint); for Split the name is used as a base, so the parts
+become name_1, name_2, and so on. None of them change column types beyond
+producing text, and all changes can be undone before you save.
+"#;
+
 pub(super) const SORTING: &str = r#"# Sorting
 
 Click a column header to sort by that column ascending; click again for
@@ -878,9 +917,18 @@ like any other tabular file.
 
 pub(super) const MAP_VIEW: &str = r#"# Map View
 
-For `.geojson` files. The Map view is the default; the Table view is
-still available with one row per feature, a `__geometry` column holding
-the WKT representation, and one column per property.
+For `.geojson` and `.shp` (Shapefile) files. The Map view is the
+default; the Table view is still available with one row per feature, a
+`__geometry` column holding the WKT representation, and one column per
+property. Shapefiles read geometry from the `.shp` and attribute columns
+from the sibling `.dbf`.
+
+You can also plot **any** table that has latitude/longitude columns:
+open a CSV/Parquet/Excel file with columns named `lat`/`latitude` and
+`lon`/`lng`/`long`/`longitude` (numeric, in range) and **View -> Map**
+becomes available, drawing one point per row. The Map toolbar shows
+**Lat** / **Lon** dropdowns to correct the column choice; the points
+update live.
 
 Top toolbar:
 

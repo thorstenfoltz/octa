@@ -252,37 +252,21 @@ fn multi_col_picker(ui: &mut egui::Ui, id: &str, sel: &mut Vec<usize>, cols: &[S
     });
 }
 
-/// Quote a DuckDB identifier (double quotes, internal quotes doubled).
-fn quote_ident(name: &str) -> String {
-    format!("\"{}\"", name.replace('"', "\"\""))
-}
-
-/// Build the PIVOT / UNPIVOT SQL from the dialog state.
+/// Build the PIVOT / UNPIVOT SQL from the dialog state. Resolves column
+/// indices to names, then defers to the shared `octa::data::pivot` builders
+/// (also used by the MCP `pivot` tool).
 fn build_sql(st: &PivotState, cols: &[String]) -> Option<String> {
-    let name = |i: usize| cols.get(i).map(|s| quote_ident(s));
+    let name = |i: usize| cols.get(i).cloned();
     match st.kind {
         PivotKind::Pivot => {
             let on = name(st.on_col?)?;
             let value = name(st.value_col?)?;
-            let agg = st.agg.sql_fn();
-            let mut sql = format!("PIVOT data ON {on} USING {agg}({value})");
-            if !st.group_cols.is_empty() {
-                let groups: Vec<String> = st.group_cols.iter().filter_map(|&i| name(i)).collect();
-                sql.push_str(&format!(" GROUP BY {}", groups.join(", ")));
-            }
-            Some(sql)
+            let group: Vec<String> = st.group_cols.iter().filter_map(|&i| name(i)).collect();
+            Some(octa::data::pivot::pivot_sql(&on, st.agg, &value, &group))
         }
         PivotKind::Unpivot => {
-            if st.unpivot_cols.len() < 2 {
-                return None;
-            }
             let melt: Vec<String> = st.unpivot_cols.iter().filter_map(|&i| name(i)).collect();
-            let name_col = quote_ident(st.name_col.trim());
-            let value_col = quote_ident(st.value_name.trim());
-            Some(format!(
-                "UNPIVOT data ON {} INTO NAME {name_col} VALUE {value_col}",
-                melt.join(", ")
-            ))
+            octa::data::pivot::unpivot_sql(&melt, &st.name_col, &st.value_name)
         }
     }
 }

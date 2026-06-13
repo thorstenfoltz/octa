@@ -121,6 +121,23 @@ impl RowMatcher {
             RowMatcher::Invalid => text.to_string(),
         }
     }
+
+    /// Replace **every** matching portion in `text` with `replacement`
+    /// (unlike [`replace`](Self::replace), which replaces only the first
+    /// match). Used by the column-wide "replace in column" transform.
+    pub fn replace_all(&self, text: &str, replacement: &str) -> String {
+        match self {
+            RowMatcher::Plain(q) => {
+                let escaped = regex::escape(q);
+                match regex::Regex::new(&format!("(?i){escaped}")) {
+                    Ok(re) => re.replace_all(text, replacement).to_string(),
+                    Err(_) => text.to_string(),
+                }
+            }
+            RowMatcher::Regex(re) => re.replace_all(text, replacement).to_string(),
+            RowMatcher::Invalid => text.to_string(),
+        }
+    }
 }
 
 #[cfg(test)]

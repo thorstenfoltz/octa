@@ -55,6 +55,7 @@ fn sections(shortcuts: &ui::shortcuts::Shortcuts) -> Vec<(&'static str, String)>
         ("Color Marking", MARKING.to_string()),
         ("Conditional Formatting", CONDITIONAL_FORMAT.to_string()),
         ("Data Validation", VALIDATION.to_string()),
+        ("Transform Column", TRANSFORMS.to_string()),
         ("Sorting", SORTING.to_string()),
         ("View Modes", VIEW_MODES.to_string()),
         ("Compare View", COMPARE_VIEW.to_string()),

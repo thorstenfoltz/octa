@@ -107,6 +107,7 @@ nav:
       - Colour Marking: usage/colour-marking.md
       - Conditional Formatting: usage/conditional-formatting.md
       - Data Validation: usage/data-validation.md
+      - Transform Column: usage/transform-column.md
       - Value Frequency: usage/value-frequency.md
       - Summary: usage/summary.md
       - Pivot / Unpivot: usage/pivot.md

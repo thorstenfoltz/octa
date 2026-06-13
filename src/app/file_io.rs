@@ -461,7 +461,41 @@ impl OctaApp {
         self.load_file(path);
     }
 
+    /// Open a directory as a Delta Lake / Apache Iceberg table. Detects the
+    /// format from the marker subdirectory and reads it via DuckDB; reports a
+    /// clear status message for plain directories or read failures (e.g. the
+    /// `delta`/`iceberg` extension failing to install offline).
+    fn load_lakehouse_dir(&mut self, path: std::path::PathBuf) {
+        let Some(kind) = octa::formats::lakehouse_reader::detect(&path) else {
+            self.status_message = Some((
+                format!(
+                    "Not a Delta Lake or Iceberg table directory: {}",
+                    path.display()
+                ),
+                std::time::Instant::now(),
+            ));
+            return;
+        };
+        match octa::formats::lakehouse_reader::read_dir(&path, kind) {
+            Ok(table) => self.apply_loaded_table(path, table),
+            Err(e) => {
+                self.status_message = Some((
+                    format!("Error reading {} table: {e}", kind.format_name()),
+                    std::time::Instant::now(),
+                ));
+            }
+        }
+    }
+
     pub(crate) fn load_file(&mut self, path: std::path::PathBuf) {
+        // Directory-open path: Delta Lake / Apache Iceberg tables are
+        // directories (a transaction log + Parquet files), not single files,
+        // so they bypass the extension-based registry. Detect the marker
+        // subdirectory and read via DuckDB; any other directory is ignored.
+        if path.is_dir() {
+            self.load_lakehouse_dir(path);
+            return;
+        }
         // Empty-file easter egg: short-circuit before format dispatch, since
         // most readers will surface a confusing "no schema found" error on a
         // 0-byte file.
@@ -888,6 +922,16 @@ impl OctaApp {
                 // needs the egui `Context`).
                 if let Ok((_, extras)) = octa::formats::geojson_reader::read_with_features(&path) {
                     tab.geojson_features = extras.features;
+                }
+                tab.view_mode = ViewMode::Map;
+            } else if tab.table.format_name.as_deref() == Some("Shapefile") {
+                // Same second-pass shape as GeoJSON: the registry returned the
+                // table, so re-read for the `geo-types` geometries the Map
+                // view renders.
+                if let Ok((_, features)) =
+                    octa::formats::shapefile_reader::read_with_features(&path)
+                {
+                    tab.geojson_features = features;
                 }
                 tab.view_mode = ViewMode::Map;
             } else {

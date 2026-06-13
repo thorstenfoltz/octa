@@ -32,6 +32,7 @@ pub(crate) mod sql_snippets_window;
 pub(crate) mod sql_write_back;
 pub(crate) mod table_picker;
 pub(crate) mod time_calc;
+pub(crate) mod transform;
 pub(crate) mod unsaved_changes;
 pub(crate) mod update_dialog;
 pub(crate) mod validation;
@@ -70,6 +71,7 @@ impl OctaApp {
         validation::render_validation_dialog(self, ctx);
         pivot::render_pivot_dialog(self, ctx);
         multi_sort::render_multi_sort_dialog(self, ctx);
+        transform::render_transform_dialog(self, ctx);
         sql_snippet::render_sql_snippet_dialog(self, ctx);
         sql_snippets_window::render_sql_snippets_window(self, ctx);
         chat_prompt::render_chat_prompt_dialog(self, ctx);

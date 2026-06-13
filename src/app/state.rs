@@ -92,34 +92,9 @@ pub(crate) enum PivotKind {
     Unpivot,
 }
 
-/// Aggregate function used by a Pivot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PivotAgg {
-    Sum,
-    Count,
-    Avg,
-    Min,
-    Max,
-}
-
-impl PivotAgg {
-    pub(crate) const ALL: &'static [PivotAgg] = &[
-        PivotAgg::Sum,
-        PivotAgg::Count,
-        PivotAgg::Avg,
-        PivotAgg::Min,
-        PivotAgg::Max,
-    ];
-    pub(crate) fn sql_fn(self) -> &'static str {
-        match self {
-            PivotAgg::Sum => "sum",
-            PivotAgg::Count => "count",
-            PivotAgg::Avg => "avg",
-            PivotAgg::Min => "min",
-            PivotAgg::Max => "max",
-        }
-    }
-}
+/// Aggregate function used by a Pivot. Re-exported from the shared
+/// `octa::data::pivot` module (same enum drives the MCP `pivot` tool).
+pub(crate) use octa::data::pivot::PivotAgg;
 
 /// State for the Pivot / Unpivot dialog. Column references are indices into the
 /// active table's `columns`.
@@ -183,6 +158,137 @@ impl Default for MultiSortState {
                 col: 0,
                 ascending: true,
             }],
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
+/// Which column-shaping transform the dialog is configured for. Maps onto the
+/// pure functions in [`octa::data::transform`] when the user applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TransformOp {
+    /// One column -> several (by delimiter / regex / fixed width).
+    Split,
+    /// Several columns -> one joined column.
+    Merge,
+    /// Fill empty cells from the value above.
+    FillDown,
+    /// Fill empty cells from the value below.
+    FillUp,
+    /// Pull a regex match from each cell into a new column.
+    Extract,
+    /// Find/replace within one column's cells.
+    Replace,
+}
+
+impl TransformOp {
+    pub(crate) const ALL: &'static [TransformOp] = &[
+        TransformOp::Split,
+        TransformOp::Merge,
+        TransformOp::FillDown,
+        TransformOp::FillUp,
+        TransformOp::Extract,
+        TransformOp::Replace,
+    ];
+
+    pub(crate) fn i18n_key(self) -> &'static str {
+        match self {
+            TransformOp::Split => "transform_op.split",
+            TransformOp::Merge => "transform_op.merge",
+            TransformOp::FillDown => "transform_op.fill_down",
+            TransformOp::FillUp => "transform_op.fill_up",
+            TransformOp::Extract => "transform_op.extract",
+            TransformOp::Replace => "transform_op.replace",
+        }
+    }
+
+    /// Whether this op materialises one or more *new* columns (so the dialog
+    /// should offer a name + insert-position). Fill / Replace edit in place.
+    pub(crate) fn creates_column(self) -> bool {
+        matches!(
+            self,
+            TransformOp::Split | TransformOp::Merge | TransformOp::Extract
+        )
+    }
+}
+
+/// How [`TransformOp::Split`] divides each cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SplitMode {
+    Delimiter,
+    Regex,
+    FixedWidth,
+}
+
+impl SplitMode {
+    pub(crate) const ALL: &'static [SplitMode] = &[
+        SplitMode::Delimiter,
+        SplitMode::Regex,
+        SplitMode::FixedWidth,
+    ];
+
+    pub(crate) fn i18n_key(self) -> &'static str {
+        match self {
+            SplitMode::Delimiter => "transform_op.split_delimiter",
+            SplitMode::Regex => "transform_op.split_regex",
+            SplitMode::FixedWidth => "transform_op.split_width",
+        }
+    }
+}
+
+/// State for the Transform-column dialog (Edit -> Transform column...).
+/// App-level: the transform applies to the active tab in place. Column
+/// references are indices into the active table's `columns`.
+pub(crate) struct TransformState {
+    pub(crate) op: TransformOp,
+    /// Source column for Split / FillDown / FillUp / Extract / Replace.
+    pub(crate) col: Option<usize>,
+    /// Merge: the ordered list of columns to join.
+    pub(crate) merge_cols: Vec<usize>,
+    /// Split mode + its parameter buffers.
+    pub(crate) split_mode: SplitMode,
+    pub(crate) split_delim: String,
+    pub(crate) split_regex: String,
+    pub(crate) split_width: String,
+    /// Merge separator.
+    pub(crate) merge_sep: String,
+    /// Extract regex pattern.
+    pub(crate) extract_pattern: String,
+    /// Replace: search query + mode + replacement text.
+    pub(crate) replace_query: String,
+    pub(crate) replace_mode: octa::data::SearchMode,
+    pub(crate) replace_with: String,
+    /// For column-creating ops (Split / Merge / Extract): the output column
+    /// name. Empty = the op's auto default (`merged`, `<src>_extracted`,
+    /// `<src>_N`). For Split it is used as the base for `<name>_N`.
+    pub(crate) new_name: String,
+    /// 1-based insert position buffer for the new column(s). Empty = the op's
+    /// natural default (after the source column; end for Merge).
+    pub(crate) insert_pos_text: String,
+    /// Last error (e.g. invalid regex), shown in the dialog.
+    pub(crate) error: Option<String>,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl Default for TransformState {
+    fn default() -> Self {
+        Self {
+            op: TransformOp::Split,
+            col: None,
+            merge_cols: Vec::new(),
+            split_mode: SplitMode::Delimiter,
+            split_delim: ",".to_string(),
+            split_regex: String::new(),
+            split_width: "1".to_string(),
+            merge_sep: " ".to_string(),
+            extract_pattern: String::new(),
+            replace_query: String::new(),
+            replace_mode: octa::data::SearchMode::Plain,
+            replace_with: String::new(),
+            new_name: String::new(),
+            insert_pos_text: String::new(),
+            error: None,
             size: ui::settings::DialogSize::default(),
         }
     }
@@ -793,6 +899,11 @@ pub(crate) struct TabState {
     /// flat table rows. Populated by `apply_loaded_table` from
     /// `geojson_reader::read_with_features`. Empty for non-GeoJSON tabs.
     pub(crate) geojson_features: Vec<octa::formats::geojson_reader::MapFeature>,
+    /// For non-GeoJSON tables plotted on the map: the (lat, lon) column
+    /// indices currently driving `geojson_features`. `None` for GeoJSON tabs
+    /// (whose geometry comes from the file) or before the Map view is opened.
+    /// The Map view's column dropdown writes here and rebuilds the points.
+    pub(crate) map_coord_cols: Option<(usize, usize)>,
     /// Per-tab map rendering mode. Initialised from
     /// `AppSettings.map_default_mode`; flipped by the Map toolbar's
     /// Tiles/Geometry toggle.
@@ -986,6 +1097,9 @@ pub(crate) struct OctaApp {
     /// Active multi-column sort dialog state, or `None` when closed. Sorts the
     /// active tab in place (see `src/app/dialogs/multi_sort.rs`).
     pub(crate) multi_sort_dialog: Option<MultiSortState>,
+    /// Active Transform-column dialog state, or `None` when closed. Reshapes
+    /// the active tab in place (see `src/app/dialogs/transform.rs`).
+    pub(crate) transform_dialog: Option<TransformState>,
     /// Currently opened directory tree sidebar (`None` = sidebar hidden).
     pub(crate) directory_tree: Option<ui::directory_tree::DirectoryTreeState>,
     /// How many key presses of the Konami sequence have been matched so far.

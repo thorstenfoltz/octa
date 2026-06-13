@@ -95,7 +95,60 @@ pub fn ensure_fixtures() {
         if !nc_path.exists() {
             write_netcdf3_fixture(&nc_path);
         }
+
+        // NumPy `.npz` (a zip of named `.npy` arrays) for the multi-table read
+        // path. The reader is read-only, so the fixture is hand-built.
+        let npz_path = fixture_path("sample.npz");
+        if !npz_path.exists() {
+            write_npz_fixture(&npz_path);
+        }
     });
+}
+
+/// Build a tiny `.npy` payload (version 1.0) for a 1-D little-endian array of
+/// the given dtype descr, appending each element via `body`.
+fn build_npy(descr: &str, len: usize, body: impl Fn(&mut Vec<u8>)) -> Vec<u8> {
+    let header = format!("{{'descr': '{descr}', 'fortran_order': False, 'shape': ({len},), }}");
+    let mut head = header.into_bytes();
+    let prefix = 10; // magic(6) + version(2) + header-len(2)
+    let pad = (64 - ((prefix + head.len() + 1) % 64)) % 64;
+    head.extend(std::iter::repeat_n(b' ', pad));
+    head.push(b'\n');
+
+    let mut out = Vec::new();
+    out.extend_from_slice(b"\x93NUMPY");
+    out.push(1);
+    out.push(0);
+    out.extend_from_slice(&(head.len() as u16).to_le_bytes());
+    out.extend_from_slice(&head);
+    body(&mut out);
+    out
+}
+
+/// Write a `.npz` with two arrays: `temps` (f64) and `counts` (i32).
+fn write_npz_fixture(path: &PathBuf) {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    let temps = build_npy("<f8", 3, |out| {
+        for v in [20.0_f64, 21.5, 19.0] {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+    });
+    let counts = build_npy("<i4", 3, |out| {
+        for v in [10_i32, 20, 30] {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+    });
+
+    let file = std::fs::File::create(path).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+    let opts = SimpleFileOptions::default();
+    zip.start_file("temps.npy", opts).unwrap();
+    zip.write_all(&temps).unwrap();
+    zip.start_file("counts.npy", opts).unwrap();
+    zip.write_all(&counts).unwrap();
+    zip.finish().unwrap();
 }
 
 /// Build a 5-row NetCDF v3 fixture with two 1D variables (`temperature: f64`,

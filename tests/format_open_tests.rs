@@ -389,3 +389,29 @@ fn test_roundtrip_markdown() {
     let table2 = reader.read_file(tmp.path()).unwrap();
     assert_eq!(table2.row_count(), table.row_count());
 }
+
+#[test]
+fn test_open_npz_multi_array() {
+    ensure_fixtures();
+    let reg = FormatRegistry::new();
+    let path = fixture_path("sample.npz");
+    let reader = reg.reader_for_path(&path).unwrap();
+    assert_eq!(reader.name(), "NumPy");
+
+    // The .npz exposes one table per stored array.
+    let tables = reader
+        .list_tables(&path)
+        .unwrap()
+        .expect("npz lists tables");
+    let names: Vec<&str> = tables.iter().map(|t| t.name.as_str()).collect();
+    assert!(names.contains(&"temps"), "{names:?}");
+    assert!(names.contains(&"counts"), "{names:?}");
+
+    // Each array reads back as a single "value" column.
+    let counts = reader.read_table(&path, "counts").unwrap();
+    assert_eq!(counts.col_count(), 1);
+    assert_eq!(counts.columns[0].name, "value");
+    assert_eq!(counts.columns[0].data_type, "Int32");
+    assert_eq!(counts.row_count(), 3);
+    assert_eq!(counts.format_name.as_deref(), Some("NumPy"));
+}

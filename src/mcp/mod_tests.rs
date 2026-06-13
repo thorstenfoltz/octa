@@ -7,20 +7,31 @@ use super::*;
 #[test]
 fn read_only_drops_write_tools() {
     let ro = OctaMcpServer::new(Some(1000), 65536, true);
-    for name in ["write_table", "edit_table", "convert"] {
+    for name in ["write_table", "edit_table", "convert", "transform_columns"] {
         assert!(
             !ro.tool_router.has_route(name),
             "read-only server should not expose `{name}`"
         );
     }
-    // A read tool is still present.
-    assert!(ro.tool_router.has_route("read_table"));
+    // Read tools (including the read-only analytics tools) are still present.
+    for name in ["read_table", "pivot", "correlation", "grep_files"] {
+        assert!(ro.tool_router.has_route(name), "`{name}` should be present");
+    }
 }
 
 #[test]
 fn default_keeps_write_tools() {
     let rw = OctaMcpServer::new(Some(1000), 65536, false);
-    for name in ["write_table", "edit_table", "convert", "read_table"] {
+    for name in [
+        "write_table",
+        "edit_table",
+        "convert",
+        "read_table",
+        "transform_columns",
+        "pivot",
+        "correlation",
+        "grep_files",
+    ] {
         assert!(rw.tool_router.has_route(name), "`{name}` should be present");
     }
 }

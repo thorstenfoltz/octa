@@ -707,11 +707,12 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub show_readonly_notice: bool,
     /// When `true`, Octa requests an undecorated viewport at startup and
-    /// renders its own slim title bar (logo + title + min/max/close
-    /// buttons). Useful on tiling WMs / minimal compositors that don't
-    /// provide window controls. Default `false` - system decorations are
-    /// preferred unless the user explicitly opts in.
-    #[serde(default)]
+    /// renders its own slim title bar (logo + title + min/max/close buttons),
+    /// with drag-to-move and edge/corner resize handles. Default `true` - the
+    /// in-toolbar controls free the vertical space a system title bar would
+    /// take and look consistent across platforms; opt out for native window
+    /// decorations.
+    #[serde(default = "default_true")]
     pub use_custom_title_bar: bool,
     /// Hard cap (in bytes) for files where the raw editor still applies
     /// syntect syntax highlighting. Past this threshold the editor falls
@@ -808,8 +809,9 @@ pub struct AppSettings {
     #[serde(default = "default_excel_max_auto_sheets")]
     pub excel_max_auto_sheets: usize,
     /// Whether to strip leading/trailing whitespace from string cells when a
-    /// file is loaded. Interior whitespace is untouched. Default `true`.
-    #[serde(default = "default_true")]
+    /// file is loaded. Interior whitespace is untouched. Default `false` -
+    /// loads leave cell values exactly as stored unless the user opts in.
+    #[serde(default)]
     pub trim_whitespace_on_load: bool,
     /// Whether to show a dismissible banner listing the columns that had
     /// whitespace trimmed on load. Default `true`. Independent of
@@ -861,7 +863,7 @@ pub struct AppSettings {
     #[serde(default = "default_chat_temperature")]
     pub chat_temperature: f32,
     /// Maximum agentic tool-use iterations per turn before the loop stops.
-    /// Guards against runaway tool loops. Default 12.
+    /// Guards against runaway tool loops. Default 3.
     #[serde(default = "default_chat_max_tool_iterations")]
     pub chat_max_tool_iterations: usize,
     /// Maximum response tokens requested from the provider per turn.
@@ -923,7 +925,7 @@ fn default_chat_ollama_url() -> String {
 }
 
 fn default_chat_max_tool_iterations() -> usize {
-    12
+    3
 }
 
 fn default_chat_max_tokens() -> usize {
@@ -1061,7 +1063,7 @@ impl Default for AppSettings {
             window_size: WindowSize::default(),
             start_maximized: true,
             show_readonly_notice: true,
-            use_custom_title_bar: false,
+            use_custom_title_bar: true,
             syntax_highlight_max_bytes: default_syntax_highlight_max_bytes(),
             initial_load_rows: default_initial_load_rows(),
             initial_load_rows_unlimited: false,
@@ -1077,7 +1079,7 @@ impl Default for AppSettings {
             chart_max_categories: default_chart_max_categories(),
             table_picker_visible_rows: default_table_picker_visible_rows(),
             excel_max_auto_sheets: default_excel_max_auto_sheets(),
-            trim_whitespace_on_load: true,
+            trim_whitespace_on_load: false,
             warn_on_whitespace_trim: true,
             offer_repair_on_malformed: false,
             language: default_language(),

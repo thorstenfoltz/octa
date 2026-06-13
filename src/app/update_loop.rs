@@ -80,6 +80,7 @@ impl eframe::App for OctaApp {
         self.render_chat_panel(ui);
         self.render_christmas_overlay(&ctx);
         self.render_central_panel(ui);
+        self.render_window_resize_handles(&ctx);
         self.render_confetti(&ctx);
         self.render_snowfall(&ctx);
         self.render_new_year_overlay(&ctx);

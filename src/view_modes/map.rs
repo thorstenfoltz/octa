@@ -41,6 +41,17 @@ pub fn render_map_view(
     tab: &mut TabState,
     settings: &AppSettings,
 ) {
+    // GeoJSON and Shapefile tabs carry their geometry from the file. Any other
+    // table is plotted from its latitude/longitude columns (detected on first
+    // entry).
+    let geometry_from_file = matches!(
+        tab.table.format_name.as_deref(),
+        Some("GeoJSON") | Some("Shapefile")
+    );
+    if !geometry_from_file {
+        seed_point_features(tab);
+    }
+
     if tab.geojson_features.is_empty() {
         ui.centered_and_justified(|ui| {
             ui.label(egui::RichText::new(octa::i18n::t("view.map_no_features")).weak());
@@ -48,7 +59,7 @@ pub fn render_map_view(
         return;
     }
 
-    draw_toolbar(ui, tab);
+    draw_toolbar(ui, tab, geometry_from_file);
     ui.separator();
 
     // Lazy-init the map widget state. Both `HttpTiles` and `MapMemory`
@@ -96,7 +107,21 @@ pub fn render_map_view(
     }
 }
 
-fn draw_toolbar(ui: &mut egui::Ui, tab: &mut TabState) {
+/// Seed `geojson_features` from the table's coordinate columns the first time
+/// a plain (non-GeoJSON) table opens the Map view. Detection runs once; the
+/// chosen columns are remembered in `tab.map_coord_cols` and can be changed
+/// via the toolbar dropdown (which rebuilds directly).
+fn seed_point_features(tab: &mut TabState) {
+    if tab.map_coord_cols.is_none()
+        && let Some((lat, lon)) = octa::data::geo_detect::detect_lat_lon(&tab.table)
+    {
+        tab.map_coord_cols = Some((lat, lon));
+        tab.geojson_features =
+            octa::formats::geojson_reader::points_to_features(&tab.table, lat, lon);
+    }
+}
+
+fn draw_toolbar(ui: &mut egui::Ui, tab: &mut TabState, geometry_from_file: bool) {
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new(format!(
@@ -126,7 +151,52 @@ fn draw_toolbar(ui: &mut egui::Ui, tab: &mut TabState) {
             // the default zoom, then re-centres on the feature centroid.
             tab.map_memory = None;
         }
+        // Coordinate-column picker for point-from-table maps (where the
+        // geometry comes from lat/lon columns, not a GeoJSON/Shapefile file).
+        if !geometry_from_file {
+            draw_coord_picker(ui, tab);
+        }
     });
+}
+
+/// Lat/Lon column dropdowns for a table-driven map. Changing either rebuilds
+/// the point features and recentres the map.
+fn draw_coord_picker(ui: &mut egui::Ui, tab: &mut TabState) {
+    let Some((mut lat, mut lon)) = tab.map_coord_cols else {
+        return;
+    };
+    let col_names: Vec<String> = tab.table.columns.iter().map(|c| c.name.clone()).collect();
+    let mut changed = false;
+    ui.separator();
+    ui.label(octa::i18n::t("mapcoord.lat"));
+    egui::ComboBox::from_id_salt("map_lat_col")
+        .selected_text(col_names.get(lat).cloned().unwrap_or_default())
+        .show_ui(ui, |ui| {
+            for (i, name) in col_names.iter().enumerate() {
+                if ui.selectable_label(lat == i, name).clicked() && lat != i {
+                    lat = i;
+                    changed = true;
+                }
+            }
+        });
+    ui.label(octa::i18n::t("mapcoord.lon"));
+    egui::ComboBox::from_id_salt("map_lon_col")
+        .selected_text(col_names.get(lon).cloned().unwrap_or_default())
+        .show_ui(ui, |ui| {
+            for (i, name) in col_names.iter().enumerate() {
+                if ui.selectable_label(lon == i, name).clicked() && lon != i {
+                    lon = i;
+                    changed = true;
+                }
+            }
+        });
+    if changed {
+        tab.map_coord_cols = Some((lat, lon));
+        tab.geojson_features =
+            octa::formats::geojson_reader::points_to_features(&tab.table, lat, lon);
+        // Recentre on the new points.
+        tab.map_memory = None;
+    }
 }
 
 /// Initialise (or rebuild) the per-tab tile cache + map memory if needed.

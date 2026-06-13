@@ -1,6 +1,7 @@
 pub mod archive_reader;
 pub mod arrow_ipc_reader;
 pub mod avro_reader;
+pub mod bson_reader;
 pub mod csv_reader;
 pub mod dbf_reader;
 pub mod duckdb_reader;
@@ -12,13 +13,17 @@ pub mod gpkg_reader;
 pub mod hdf5_reader;
 pub mod json_reader;
 pub mod jupyter_reader;
+pub mod lakehouse_reader;
 pub mod markdown_reader;
+pub mod msgpack_reader;
 pub mod netcdf_reader;
+pub mod numpy_reader;
 pub mod ods_reader;
 pub mod orc_reader;
 pub mod parquet_reader;
 pub mod rds_reader;
 pub mod sas_reader;
+pub mod shapefile_reader;
 pub mod sniff;
 pub mod spss_reader;
 pub mod sqlite_reader;
@@ -201,6 +206,10 @@ impl FormatRegistry {
         registry.register(Box::new(rds_reader::RdsReader));
         registry.register(Box::new(netcdf_reader::NetCdfReader));
         registry.register(Box::new(fwf_reader::FwfReader));
+        registry.register(Box::new(numpy_reader::NumpyReader));
+        registry.register(Box::new(msgpack_reader::MsgpackReader));
+        registry.register(Box::new(bson_reader::BsonReader));
+        registry.register(Box::new(shapefile_reader::ShapefileReader));
         registry.register(Box::new(text_reader::TextReader));
         registry
     }

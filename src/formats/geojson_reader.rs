@@ -57,6 +57,29 @@ pub struct MapFeature {
     pub geometry: Option<GeoGeometry<f64>>,
 }
 
+/// Build map point features from a plain table's latitude/longitude columns,
+/// one feature per row (aligned with the table rows, like [`GeoJsonExtras`]).
+/// Rows whose lat or lon cell is missing/non-numeric get a `None` geometry so
+/// the row/feature alignment is preserved. Used by the Map view to plot any
+/// tabular file with coordinate columns (see [`crate::data::geo_detect`]).
+pub fn points_to_features(table: &DataTable, lat_col: usize, lon_col: usize) -> Vec<MapFeature> {
+    use crate::data::geo_detect::cell_as_coord;
+    (0..table.row_count())
+        .map(|r| {
+            let lat = table.get(r, lat_col).and_then(cell_as_coord);
+            let lon = table.get(r, lon_col).and_then(cell_as_coord);
+            let geometry = match (lat, lon) {
+                (Some(la), Some(lo)) if la.is_finite() && lo.is_finite() => {
+                    // geo-types Point is (x = lon, y = lat).
+                    Some(GeoGeometry::Point(geo_types::Point::new(lo, la)))
+                }
+                _ => None,
+            };
+            MapFeature { geometry }
+        })
+        .collect()
+}
+
 impl FormatReader for GeoJsonReader {
     fn name(&self) -> &str {
         "GeoJSON"
@@ -208,4 +231,35 @@ fn geometry_to_wkt(value: &GeometryValue) -> Option<String> {
         return Some(format!("GEOMETRYCOLLECTION({})", parts.join(", ")));
     }
     None
+}
+
+#[cfg(test)]
+mod point_tests {
+    use super::*;
+    use crate::data::{CellValue, ColumnInfo, DataTable};
+
+    #[test]
+    fn points_from_lat_lon_columns() {
+        let mut t = DataTable::empty();
+        for n in ["lat", "lon"] {
+            t.columns.push(ColumnInfo {
+                name: n.to_string(),
+                data_type: "Float64".to_string(),
+            });
+        }
+        t.rows = vec![
+            vec![CellValue::Float(51.5), CellValue::Float(-0.12)],
+            vec![CellValue::Null, CellValue::Float(2.0)], // missing lat -> None
+        ];
+        let feats = points_to_features(&t, 0, 1);
+        assert_eq!(feats.len(), 2);
+        match &feats[0].geometry {
+            Some(GeoGeometry::Point(p)) => {
+                assert!((p.x() - (-0.12)).abs() < 1e-9); // x = lon
+                assert!((p.y() - 51.5).abs() < 1e-9); // y = lat
+            }
+            other => panic!("expected point, got {other:?}"),
+        }
+        assert!(feats[1].geometry.is_none());
+    }
 }

@@ -73,7 +73,7 @@ impl FormatReader for DbfReader {
     }
 }
 
-fn dbf_type_string(info: &FieldInfo) -> &'static str {
+pub(crate) fn dbf_type_string(info: &FieldInfo) -> &'static str {
     match info.field_type() {
         FieldType::Logical => "Boolean",
         FieldType::Integer => "Int32",
@@ -89,7 +89,7 @@ fn dbf_type_string(info: &FieldInfo) -> &'static str {
     }
 }
 
-fn field_value_to_cell(value: &FieldValue) -> CellValue {
+pub(crate) fn field_value_to_cell(value: &FieldValue) -> CellValue {
     match value {
         FieldValue::Character(Some(s)) => CellValue::String(s.trim_end().to_string()),
         FieldValue::Character(None) => CellValue::Null,

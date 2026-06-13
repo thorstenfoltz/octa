@@ -4,6 +4,7 @@
 
 pub mod compare_schemas;
 pub mod convert;
+pub mod correlation;
 pub mod count_rows;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
 pub mod create_chart;
@@ -12,7 +13,9 @@ pub mod diff_tables;
 pub mod edit_table;
 pub mod export_schema;
 pub mod find_duplicates;
+pub mod grep_files;
 pub mod list_tables;
+pub mod pivot;
 pub mod profile;
 pub mod read_table;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
@@ -22,6 +25,7 @@ pub mod sample;
 pub mod schema;
 pub mod search;
 pub mod tail;
+pub mod transform_columns;
 pub mod unique_columns;
 pub mod validate_schema;
 pub mod value_frequency;

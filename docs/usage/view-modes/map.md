@@ -25,10 +25,27 @@ top of it.
 
 ## When the Map view appears
 
-The Map view is the **default** for `.geojson` files. The
-[Table view](../table-view.md) is still available with one row per
-Feature, where properties become columns and the `__geometry`
-column holds the feature's geometry as WKT.
+The Map view is the **default** for `.geojson` and `.shp`
+(Shapefile) files. The [Table view](../table-view.md) is still
+available with one row per Feature, where properties become columns
+and the `__geometry` column holds the feature's geometry as WKT.
+Shapefiles read their geometry from the `.shp` and their attribute
+columns from the sibling `.dbf`, so they plot exactly like GeoJSON.
+
+## Plotting any table with coordinates
+
+You don't need GeoJSON to use the map. Open **any** tabular file
+(CSV, Parquet, Excel, ...) that has a **latitude** and a
+**longitude** column and the **View -> Map** entry lights up. Octa
+recognises columns named `lat` / `latitude` and
+`lon` / `lng` / `long` / `longitude` (any case) as long as their
+values are numbers in the valid coordinate ranges, and draws one
+point per row.
+
+If Octa picks the wrong columns, the Map toolbar shows two small
+**Lat** / **Lon** dropdowns: change either one and the points (and
+the map centre) update immediately. Rows with a missing or
+non-numeric coordinate are simply skipped.
 
 ## Toolbar
 

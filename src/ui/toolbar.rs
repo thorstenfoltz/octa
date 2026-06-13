@@ -84,6 +84,9 @@ pub enum ParseScope {
 pub struct ToolbarAction {
     pub new_file: bool,
     pub open_file: bool,
+    /// Open a folder as a Delta Lake / Apache Iceberg table (the table format
+    /// is a directory, not a file). Fired by **File -> Open table folder...**.
+    pub open_table_folder: bool,
     pub open_directory: bool,
     pub close_directory: bool,
     pub open_recent: Option<String>,
@@ -171,6 +174,9 @@ pub struct ToolbarAction {
     /// Open the Data validation dialog for the active table.
     /// Fired by **Edit -> Data validation...**.
     pub open_validation: bool,
+    /// Open the Transform-column dialog for the active table.
+    /// Fired by **Edit -> Transform column...**.
+    pub open_transform: bool,
     /// Toggle "first row is header" for the active table.
     pub toggle_first_row_header: bool,
     /// Apply a color mark to a set of keys (cell/row/column).
@@ -296,6 +302,30 @@ pub fn draw_toolbar(
     let colors = ThemeColors::for_mode(theme_mode);
     let has_selected_cell = selected_cell.is_some();
 
+    // Custom title bar: the toolbar background doubles as the window's drag
+    // handle. Without system decorations this is the only way to move the
+    // window (left-drag) or toggle maximise (double-click), matching the
+    // standard title-bar gestures. We register this interaction FIRST, over
+    // the whole toolbar rect, so the menus / search box / window-control
+    // buttons added afterwards sit "on top" (egui breaks hit-test ties in
+    // favour of the last-registered widget) and keep their own clicks - only
+    // the leftover empty background drags the window.
+    if show_window_controls {
+        let title_rect = ui.max_rect();
+        let drag = ui.interact(
+            title_rect,
+            ui.id().with("custom_title_bar_drag"),
+            egui::Sense::click_and_drag(),
+        );
+        if drag.double_clicked() {
+            let is_max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::Maximized(!is_max));
+        } else if drag.drag_started() {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+        }
+    }
+
     // Top-level menus go through `top_menu_button` (defined above), which
     // brings back the hover-switch behaviour egui 0.31's MenuRoot used to
     // provide and that egui 0.34's MenuButton dropped. Plain `ui.horizontal`
@@ -342,6 +372,14 @@ pub fn draw_toolbar(
                 }
                 if ui.button(crate::i18n::t("common.open")).clicked() {
                     action.open_file = true;
+                    ui.close();
+                }
+                if ui
+                    .button(crate::i18n::t("file_menu.open_table_folder"))
+                    .on_hover_text(crate::i18n::t("file_menu.open_table_folder_hint"))
+                    .clicked()
+                {
+                    action.open_table_folder = true;
                     ui.close();
                 }
                 if ui
@@ -532,6 +570,14 @@ pub fn draw_toolbar(
                     }
                     if ui.button(crate::i18n::t("toolbar.time_calc")).clicked() {
                         action.time_calc = true;
+                        ui.close();
+                    }
+                    if ui
+                        .button(crate::i18n::t("transform.menu"))
+                        .on_hover_text(crate::i18n::t("transform.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_transform = true;
                         ui.close();
                     }
                     let del_col = ui.add_enabled(
