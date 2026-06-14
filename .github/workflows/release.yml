@@ -133,7 +133,11 @@ jobs:
           path: Octa-${{ env.VERSION }}-x86_64.AppImage
 
   build-windows:
-    runs-on: windows-latest
+    # Pinned off windows-latest: that image now ships VS 18 / MSVC 14.51, which
+    # fails to compile bundled DuckDB (libduckdb-sys) -- cl.exe exits 2 on
+    # ub_src_storage_compression_chimp.cpp. windows-2022 (VS 2022 / MSVC 14.4x)
+    # builds it cleanly. Revisit when libduckdb-sys supports the newer toolset.
+    runs-on: windows-2022
     # TODO: Uncomment when enabling SignPath code signing
     # outputs:
     #   unsigned-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
