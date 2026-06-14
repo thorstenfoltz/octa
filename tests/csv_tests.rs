@@ -289,6 +289,45 @@ fn test_examples_malformed_csv_triggers_repair() {
 }
 
 #[test]
+fn test_preserve_ragged_keeps_extra_fields() {
+    // The repair must not lose data: a row with more fields than the header
+    // gets its extra value kept in a new column, not silently dropped.
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/malformed.csv");
+    let plan = analyze_delimited(&path, b',').expect("example should be malformed");
+    assert!(
+        plan.options.preserve_ragged,
+        "ragged file should opt into widening"
+    );
+    let table = read_delimited_opts(&path, b',', "CSV", &plan.options).unwrap();
+    // Header had 3 columns; the widest data row has 4, so a 4th is synthesised.
+    assert_eq!(table.columns.len(), 4);
+    assert_eq!(table.columns[3].name, "column_4");
+    // Rows in order: alice, bob, carol, dave. carol's extra value survives.
+    assert_eq!(
+        table.get(2, 3).map(|v| v.to_string()),
+        Some("extra".to_string())
+    );
+    assert_eq!(
+        table.get(3, 1).map(|v| v.to_string()),
+        Some("dave".to_string())
+    );
+    // dave's missing trailing fields pad with Null.
+    assert!(matches!(table.get(3, 3), None | Some(CellValue::Null)));
+}
+
+#[test]
+fn test_trim_to_header_when_not_preserving() {
+    // Default (preserve_ragged off) keeps the historical trim-to-header shape.
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/malformed.csv");
+    let opts = ReadOptions {
+        strip_bom_controls: true,
+        ..Default::default()
+    };
+    let table = read_delimited_opts(&path, b',', "CSV", &opts).unwrap();
+    assert_eq!(table.columns.len(), 3);
+}
+
+#[test]
 fn test_read_delimited_opts_default_matches_normal() {
     let mut f = NamedTempFile::with_suffix(".csv").unwrap();
     writeln!(f, "a,b").unwrap();

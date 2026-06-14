@@ -17,6 +17,14 @@ use octa::ui::settings::{
 
 use crate::app::state::{OctaApp, PivotAgg, PivotKind, PivotState, TabState};
 
+/// Cap on how many source rows the live preview runs against, so previewing a
+/// pivot of a huge table stays instant.
+const PIVOT_PREVIEW_SOURCE_ROWS: usize = 1000;
+/// Cap on how many result rows the preview shows.
+const PIVOT_PREVIEW_RESULT_ROWS: usize = 10;
+/// Cap on how many result columns the preview shows (pivots can be very wide).
+const PIVOT_PREVIEW_MAX_COLS: usize = 12;
+
 pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     if app.pivot_dialog.is_none() {
         return;
@@ -34,6 +42,15 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     // Work on a clone so the closure doesn't borrow `app` twice; written back
     // after the window closes.
     let mut st = app.pivot_dialog.take().unwrap();
+
+    // Refresh the bounded preview only when the inputs changed (never per
+    // frame, never against the full table).
+    let key = preview_key(&st);
+    if st.preview_key != key {
+        st.preview = compute_preview(app, &st, &col_names);
+        st.preview_key = key;
+    }
+
     let mut size = st.size;
     let minimized = size == DialogSize::Minimized;
 
@@ -43,8 +60,8 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         .collapsible(false);
     let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
         w.resizable(true)
-            .default_width(480.0)
-            .default_height(440.0)
+            .default_width(560.0)
+            .default_height(560.0)
             .min_width(360.0)
             .min_height(200.0)
     });
@@ -122,6 +139,37 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             match st.kind {
                 PivotKind::Pivot => pivot_body(ui, &mut st, &col_names),
                 PivotKind::Unpivot => unpivot_body(ui, &mut st, &col_names),
+            }
+
+            // Plain-language explanation + bounded live preview, so the user
+            // can see what the reshape does without already knowing the concept.
+            ui.add_space(6.0);
+            ui.separator();
+            ui.label(RichText::new(explain_text(&st, &col_names)).italics());
+            ui.add_space(4.0);
+            match &st.preview {
+                Some(Ok(table)) => {
+                    ui.label(
+                        RichText::new(octa::i18n::t("dialog.pv_preview"))
+                            .strong()
+                            .size(11.0),
+                    );
+                    render_preview_grid(ui, table);
+                }
+                Some(Err(e)) => {
+                    ui.label(
+                        RichText::new(e)
+                            .color(ui.visuals().error_fg_color)
+                            .size(10.0),
+                    );
+                }
+                None => {
+                    ui.label(
+                        RichText::new(octa::i18n::t("dialog.pv_preview_select"))
+                            .size(10.0)
+                            .color(ui.visuals().weak_text_color()),
+                    );
+                }
             }
         });
     });
@@ -269,6 +317,114 @@ fn build_sql(st: &PivotState, cols: &[String]) -> Option<String> {
             octa::data::pivot::unpivot_sql(&melt, &st.name_col, &st.value_name)
         }
     }
+}
+
+/// Plain-language sentence describing the configured reshape, resolving the
+/// chosen column indices to names and deferring to the pure `octa::data::pivot`
+/// explain helpers.
+fn explain_text(st: &PivotState, cols: &[String]) -> String {
+    match st.kind {
+        PivotKind::Pivot => {
+            let on = st
+                .on_col
+                .and_then(|i| cols.get(i))
+                .cloned()
+                .unwrap_or_default();
+            let value = st
+                .value_col
+                .and_then(|i| cols.get(i))
+                .cloned()
+                .unwrap_or_default();
+            let group: Vec<String> = st
+                .group_cols
+                .iter()
+                .filter_map(|&i| cols.get(i).cloned())
+                .collect();
+            octa::data::pivot::explain_pivot(&on, st.agg, &value, &group)
+        }
+        PivotKind::Unpivot => {
+            let melt: Vec<String> = st
+                .unpivot_cols
+                .iter()
+                .filter_map(|&i| cols.get(i).cloned())
+                .collect();
+            octa::data::pivot::explain_unpivot(&melt, &st.name_col, &st.value_name)
+        }
+    }
+}
+
+/// Hash of the inputs the preview depends on, so it is recomputed only when one
+/// of them changes.
+fn preview_key(st: &PivotState) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    matches!(st.kind, PivotKind::Pivot).hash(&mut h);
+    st.on_col.hash(&mut h);
+    st.value_col.hash(&mut h);
+    st.agg.sql_fn().hash(&mut h);
+    st.group_cols.hash(&mut h);
+    st.unpivot_cols.hash(&mut h);
+    st.name_col.hash(&mut h);
+    st.value_name.hash(&mut h);
+    h.finish()
+}
+
+/// Run the reshape on a capped sample of the active table and return the first
+/// rows, for the dialog preview. `None` when the inputs aren't sufficient yet
+/// (so no SQL runs); `Err` carries the failure text.
+fn compute_preview(
+    app: &OctaApp,
+    st: &PivotState,
+    cols: &[String],
+) -> Option<Result<octa::data::DataTable, String>> {
+    let sql = build_sql(st, cols)?;
+    let mut snap = app.tabs[app.active_tab].table.clone();
+    snap.apply_edits();
+    snap.rows.truncate(PIVOT_PREVIEW_SOURCE_ROWS);
+    snap.source_path = None;
+    snap.total_rows = None;
+    match octa::sql::run_query(&snap, &sql) {
+        Ok(outcome) => {
+            let mut table = outcome.table;
+            table.rows.truncate(PIVOT_PREVIEW_RESULT_ROWS);
+            Some(Ok(table))
+        }
+        Err(e) => Some(Err(e.to_string())),
+    }
+}
+
+/// Render a small, bounded preview table (header + a few rows, capped columns).
+fn render_preview_grid(ui: &mut egui::Ui, table: &octa::data::DataTable) {
+    let ncols = table.col_count().min(PIVOT_PREVIEW_MAX_COLS);
+    let more_cols = table.col_count() > PIVOT_PREVIEW_MAX_COLS;
+    egui::ScrollArea::horizontal()
+        .id_salt("pv_preview_scroll")
+        .max_height(160.0)
+        .show(ui, |ui| {
+            egui::Grid::new("pv_preview_grid")
+                .striped(true)
+                .show(ui, |ui| {
+                    for c in 0..ncols {
+                        let name = table.columns.get(c).map(|c| c.name.as_str()).unwrap_or("");
+                        ui.label(RichText::new(name).strong());
+                    }
+                    if more_cols {
+                        ui.label(RichText::new("...").strong());
+                    }
+                    ui.end_row();
+                    for r in 0..table.row_count() {
+                        for c in 0..ncols {
+                            let cell = table.get(r, c).map(|v| v.to_string()).unwrap_or_default();
+                            let cell: String = cell.chars().take(30).collect();
+                            ui.label(cell);
+                        }
+                        if more_cols {
+                            ui.label("...");
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
 }
 
 fn execute_pivot(app: &mut OctaApp, st: &PivotState, cols: &[String]) {

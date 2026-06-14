@@ -115,6 +115,13 @@ pub(crate) struct PivotState {
     pub(crate) value_name: String,
     /// Dialog window sizing (Normal / Maximized / Minimized).
     pub(crate) size: ui::settings::DialogSize,
+    /// Cached bounded preview of the reshape result (first rows of running the
+    /// op on a capped source sample). `Ok` = preview table, `Err` = error text,
+    /// `None` = not enough inputs chosen yet. Recomputed only when
+    /// `preview_key` changes (see `dialogs::pivot`), never per frame.
+    pub(crate) preview: Option<Result<octa::data::DataTable, String>>,
+    /// Hash of the inputs the cached `preview` was computed from.
+    pub(crate) preview_key: u64,
 }
 
 impl Default for PivotState {
@@ -129,6 +136,8 @@ impl Default for PivotState {
             name_col: "name".to_string(),
             value_name: "value".to_string(),
             size: ui::settings::DialogSize::default(),
+            preview: None,
+            preview_key: 0,
         }
     }
 }
@@ -286,6 +295,40 @@ impl Default for TransformState {
             replace_query: String::new(),
             replace_mode: octa::data::SearchMode::Plain,
             replace_with: String::new(),
+            new_name: String::new(),
+            insert_pos_text: String::new(),
+            error: None,
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
+/// Live state for the "Conditional column" dialog (Edit -> Conditional
+/// column...). Builds a new column from an if / else-if / else rule chain over
+/// the active tab; on Apply the rules are evaluated by
+/// [`octa::data::transform::build_case_column`] and materialised as a new
+/// column. App-level (applies to the active tab); column references are indices
+/// into the active table's `columns`.
+pub(crate) struct ConditionalColumnState {
+    /// Ordered if / else-if rules (first match wins).
+    pub(crate) rules: Vec<octa::data::transform::CaseRule>,
+    /// Output written when no rule matches (the `else` branch).
+    pub(crate) else_output: String,
+    /// New column name. Empty falls back to a default ("derived").
+    pub(crate) new_name: String,
+    /// 1-based insert position buffer. Empty = append at the end.
+    pub(crate) insert_pos_text: String,
+    /// Last error, shown in the dialog.
+    pub(crate) error: Option<String>,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl Default for ConditionalColumnState {
+    fn default() -> Self {
+        Self {
+            rules: vec![octa::data::transform::CaseRule::new()],
+            else_output: String::new(),
             new_name: String::new(),
             insert_pos_text: String::new(),
             error: None,
@@ -1100,6 +1143,10 @@ pub(crate) struct OctaApp {
     /// Active Transform-column dialog state, or `None` when closed. Reshapes
     /// the active tab in place (see `src/app/dialogs/transform.rs`).
     pub(crate) transform_dialog: Option<TransformState>,
+    /// Active Conditional-column (CASE) dialog state, or `None` when closed.
+    /// Builds a new column from an if / else-if / else rule chain over the
+    /// active tab (see `src/app/dialogs/conditional_column.rs`).
+    pub(crate) conditional_column_dialog: Option<ConditionalColumnState>,
     /// Currently opened directory tree sidebar (`None` = sidebar hidden).
     pub(crate) directory_tree: Option<ui::directory_tree::DirectoryTreeState>,
     /// How many key presses of the Konami sequence have been matched so far.

@@ -34,6 +34,20 @@ generated **name column** and **value column**.
 **Example.** A wide `region, jan, feb, mar` table becomes a long
 `region, name, value` table with one row per region-month.
 
+## Live preview
+
+While the dialog is open it shows, underneath the options:
+
+- a one-line **plain-language description** of what the current settings do
+  (for example "Spreads the distinct values of `month` into new columns, using
+  sum of `sales`, grouped by `region`."), and
+- a small **preview table** of the first few result rows.
+
+So you can see the shape of the result before committing. To stay fast on large
+tables the preview runs against a **sample** of the first 1,000 source rows and
+shows at most 10 result rows; press **Run** to reshape the full table into a new
+tab.
+
 ## How it works
 
 Both modes build a DuckDB

@@ -11,6 +11,7 @@ pub(crate) mod add_column;
 pub(crate) mod chat_prompt;
 pub(crate) mod column_filter;
 pub(crate) mod column_format;
+pub(crate) mod conditional_column;
 pub(crate) mod conditional_format;
 pub(crate) mod date_ambiguity;
 pub(crate) mod delete_columns;
@@ -72,6 +73,7 @@ impl OctaApp {
         pivot::render_pivot_dialog(self, ctx);
         multi_sort::render_multi_sort_dialog(self, ctx);
         transform::render_transform_dialog(self, ctx);
+        conditional_column::render_conditional_column_dialog(self, ctx);
         sql_snippet::render_sql_snippet_dialog(self, ctx);
         sql_snippets_window::render_sql_snippets_window(self, ctx);
         chat_prompt::render_chat_prompt_dialog(self, ctx);

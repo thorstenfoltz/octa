@@ -1,189 +1,89 @@
 # Release notes
 
-New analysis and formatting tools (column transforms, conditional formatting,
-data validation, pivot / unpivot, key-matched comparison, multi-column sort, a
-rebuilt Summary tab with more statistics), five more file formats (NumPy,
-MessagePack, BSON, Shapefile, Delta Lake / Apache Iceberg), plotting any
-latitude / longitude table on the map, two new themes, a built-in window title
-bar, saveable SQL snippets and chat prompts, a richer search bar, new
-read-only analysis tools for the MCP server, and a long list of smaller
-conveniences and fixes.
-
-## Appearance
-
-**Two new themes.** **Warm** is a friendly light theme in cream and blush with
-soft rose accents; **Forest** is a deep woodland dark theme with forest-green
-backgrounds, moss-green accents and pale parchment text. Pick them under
-**Settings -> Appearance -> Default theme**.
-
-**Nord is now called North.** Only the name changed; the arctic blue colours
-are exactly as before, and an existing `Nord` setting still loads.
-
-**Window controls in the toolbar.** Octa can draw its own slim title bar with
-the minimise / maximise / close buttons in the toolbar, in place of the system
-window frame. This frees the vertical space the system title bar would take and
-looks the same on every platform. Drag the empty part of the toolbar to move
-the window, double-click it to maximise, and drag the window edges or corners
-to resize. **This is now on by default**; turn it off under **Settings ->
-Appearance -> Custom title bar** for native window decorations (takes effect
-after restart).
+This release adds a way to build a column from if / else-if / else rules, a
+live preview for pivot and unpivot, a CSV repair that keeps stray fields instead
+of dropping them, default keyboard shortcuts for the newer tools, and a no-admin
+PowerShell installer for Windows.
 
 ## Analysis and formatting
 
-**Transform column.** **Edit -> Transform column...** reshapes a column the way
-you would clean up a messy spreadsheet by hand: **split** one column into
-several (by a delimiter, a regular expression, or a fixed width), **merge**
-several columns into one, **fill** empty cells from the value above or below,
-**extract** the first regular-expression match into a new column, or **find and
-replace** within one column. For the operations that create a new column you can
-set the name and the insert position. Every transform is undoable and applies to
-the table in memory only.
+**Conditional column (if / else-if / else).** **Edit -> Conditional column...**
+builds a new column whose value depends on conditions, like a spreadsheet
+`IF` / `IFS` or a SQL `CASE`. Add an ordered list of rules, for example "if
+amount > 100 then high, else if amount > 50 then medium, else low". Each rule
+tests one column with an operator (equals, contains, greater than, is empty, and
+so on) and writes its output value when it matches. Rules are checked top to
+bottom and the first match wins; reorder them with the up / down buttons, and a
+final **Else** value covers the rows no rule matches. Outputs that look like
+numbers become numeric cells; everything else is text. The result is a new
+column (name and position configurable) and is undoable with Ctrl+Z. It shares
+its operators with Conditional formatting, the difference being that conditional
+formatting *colours* matching cells while a conditional column *sets a value*.
 
-**Data validation.** **Edit -> Data validation...** flags cells that break a rule
-you define (not empty, in a numeric range, matches a regular expression, unique in
-its column, or within a maximum length). Failing cells are highlighted red, the
-dialog shows a live count, and rules apply as you edit them. Highlighting is
-per-tab and session-only and never changes the data.
+**Conditional formatting: explicit rule order.** Rules have always been checked
+top to bottom with the first match winning. That order is now adjustable with
+**^** / **v** buttons on each rule, and a one-line hint makes the
+if / else-if / else behaviour clear.
 
-**Sort by several columns.** **Analyse -> Sort by columns...** sorts by an ordered
-list of columns, each ascending or descending. The first column is the primary
-sort and later columns break ties.
+**Pivot / Unpivot live preview.** The Pivot / Unpivot dialog now explains itself.
+It shows a plain-language sentence of what the current settings do (for example
+"Spreads the distinct values of `month` into new columns, using sum of `sales`,
+grouped by `region`.") and a small preview table of the first result rows, so you
+can see the shape of the result before committing. To stay fast on large tables
+the preview runs against a sample of the first 1,000 source rows and shows at
+most 10 result rows; press **Run** to reshape the full table into a new tab.
 
-**Conditional formatting.** **Edit -> Conditional formatting...** colours cells
-automatically from rules you define (equals, contains, greater-than, is empty,
-and so on, with numeric comparison when both sides are numbers). Rules apply
-live as you edit them, and explicit colour marks still win over a rule.
+## Opening files
 
-**Pivot / Unpivot.** **Analyse -> Pivot / Unpivot...** reshapes a table between
-long and wide form the way a spreadsheet pivot table does, powered by DuckDB's
-`PIVOT` / `UNPIVOT`. The result opens in its own detached tab.
+**Malformed-CSV repair keeps your data.** When the repair prompt
+(**Settings -> File-Specific -> Offer repair on malformed files**) detects rows
+with *more* fields than the header, it now offers **Keep extra values (add
+columns)**. With it on, the table is widened so every extra field keeps its own
+column (named `column_4`, `column_5`, ...) instead of being silently dropped;
+rows that are too short pad with empty cells. This is on by default for ragged
+files, because dropping values is rarely the fix you want. The file on disk is
+never changed.
 
-**Key-matched comparison.** The Compare view gains two new modes alongside the
-existing text and row-hash diffs. **Ordered** lines rows up positionally and
-reports exactly which cells changed; **Join** matches rows on a key column and
-reports added, removed, and changed rows. Changed rows carry the names of the
-differing columns. The same `ordered` / `join` modes are available from
-`octa --diff` and the MCP `diff_tables` tool.
+## Keyboard shortcuts
 
-**Rebuilt Summary tab.** **Analyse -> Summary...** shows one row of statistics
-per column. The column headers are short `snake_case` identifiers
-(`column_name`, `not_null`, `null_percent`, `total_rows`, ...) so the table is
-easy to reuse elsewhere, with the friendly description in your language on
-hover. The statistics cover min, max, sum, mean, median, standard deviation,
-range, IQR, quartiles, mode and its count, not-null and null counts, null
-percentage, exact unique count (`COUNT(DISTINCT)`, so it never exceeds the row
-count), distinct ratio, shortest / longest text length, and total rows. Choose
-which appear under **Settings -> Summary** (column name and type are always
-included, so they are not listed there). Numeric figures honour the
-thousand-separator and English / European style settings, the same as the main
-table. The older **Column Inspector** has been removed, as the Summary tab
-covers everything it did and more.
+**Default shortcuts for the newer tools.** Several features that previously had
+no keyboard shortcut now ship with one, all rebindable under
+**Settings -> Shortcuts** (which refuses to let two actions share a key):
 
-**Copy as Markdown table.** **Edit -> Copy as Markdown table** (also on the cell
-and row context menus) copies the current selection as a GitHub-flavoured
-Markdown table, ready to paste into a README or an issue.
+| Action | Default |
+|--------|---------|
+| Pivot / Unpivot... | Ctrl+Shift+P |
+| Transform column... | Ctrl+Shift+R |
+| Conditional formatting... | Ctrl+Shift+L |
+| Conditional column... | Ctrl+Shift+J |
+| Data validation... | Ctrl+Shift+G |
+| Sort by columns... | Ctrl+Shift+O |
+| Summary tab | Ctrl+Shift+M |
+| Number format... | Ctrl+Shift+N |
+| Copy as Markdown table | Ctrl+Shift+B |
 
-## Search
+## Windows
 
-**Case-sensitive and whole-word toggles.** The search bar gains an **Aa**
-(match case) toggle and a whole-word toggle, both applied to the filter and the
-in-place highlight.
+**No-admin PowerShell installer.** A new `install.ps1` installs Octa for the
+current user without administrator rights. It downloads the latest release,
+verifies its SHA256 checksum, installs into `%LOCALAPPDATA%\Programs\Octa`, and
+unblocks the binary so the unsigned executable usually launches without the
+SmartScreen prompt. Run it from PowerShell:
 
-**Search scope.** A scope dropdown limits the search to a single column instead
-of every column.
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
 
-**Persistent search history.** A **Recent** dropdown beside the search box
-recalls your recent queries across sessions. The number kept is configurable
-under **Settings -> Search & Editor** (set it to 0 to disable).
+Pass `-Version v1.2.3` for a specific release or `-InstallDir <path>` to install
+elsewhere. The existing `install.bat` (system-wide, requires administrator) is
+unchanged.
 
-## SQL panel
+## Under the hood
 
-**Saved snippets.** The **Snippets** button opens a manager window for a named,
-persistent query library. Save the current query under a name and description,
-then insert or delete saved snippets. The window has the usual minimise /
-maximise / close controls and is resizable. Snippets are shared across tabs and
-survive restarts.
+**Clearer window-size setting.** The **Initial window size** setting only sizes
+the window when it is *not* maximised; a maximised window always fills the
+screen, so on a maximised window every size looks the same. The setting's hint
+and the documentation now say this plainly.
 
-**Query history.** A **History** dropdown recalls the recent queries run in the
-current tab (session-only).
-
-**Change highlight after a mutation.** After an `INSERT` / `UPDATE` / `DELETE`,
-the cells and rows the query changed are briefly highlighted in green so the
-effect is visible. The duration is configurable under **Settings -> SQL**, and
-the feature can be turned off.
-
-## Chat assistant
-
-**Saved prompts.** The **Prompts** button opens a manager window for a small
-library of reusable prompts: save whatever is in the input box under a name,
-then insert or delete saved prompts later. Like SQL snippets, prompts persist
-across sessions.
-
-**Tool-call audit log (opt-in).** Turn on **Settings -> Chat / Assistant ->
-Tool-call audit log** to record every tool the assistant runs as one JSON line
-per call (tool name, argument and result sizes, duration, error flag,
-timestamp). Cell contents are never written. Octa warns once at startup when
-these logs grow past a configurable size.
-
-**Smoother input.** The `@`-mention autocomplete now responds to the Up / Down
-arrows and to clicking a suggestion, the panel opens a little wider so the
-header buttons no longer overlap, and the History window gained the standard
-minimise / maximise / close controls.
-
-**Fewer tool rounds by default.** The default **Max tool iterations** is now 3
-(was 12), so a turn settles sooner; raise it under **Settings -> Chat /
-Assistant** if you want longer agentic runs.
-
-## Everyday conveniences
-
-**Open the right view per file type.** A `.json` file now opens in the JSON
-Tree, and a `.yml` / `.yaml` file opens in Raw text. You can still switch from
-the View menu; this just picks a sensible starting point.
-
-**Tidier folder sidebar.** The directory tree now lists only sub-folders and
-files Octa can open, so a folder full of unrelated files stays readable. Turn it
-off under **Settings -> Directory Tree** to list every file.
-
-**Plot coordinates on the map.** Any table with latitude and longitude columns
-can now be shown on the Map view, not just GeoJSON files. Octa detects the
-coordinate columns automatically and a Lat / Lon dropdown in the map toolbar
-lets you pick different ones.
-
-**Whitespace trimming is now off by default.** Loading a file no longer strips
-leading and trailing spaces from cells unless you opt in under **Settings ->
-Performance**, so values match exactly what is stored.
-
-## File formats
-
-**Five more formats open in Octa**, all read-only:
-
-- **NumPy** `.npy` and `.npz` arrays (an `.npz` opens each array as its own
-  tab).
-- **MessagePack** and **BSON** documents (decoded the same way as JSON).
-- **ESRI Shapefile** `.shp` (with its sibling `.dbf` attributes), shown on the
-  Map view like GeoJSON.
-- **Delta Lake** and **Apache Iceberg** tables. Because these are *folders*
-  rather than single files, open one with **File -> Open table folder...**
-  (the table extensions download on first use).
-
-## CLI and MCP
-
-**Read-only MCP mode.** `octa --mcp --mcp-read-only` starts the MCP server with
-the data-writing tools (`write_table`, `edit_table`, `convert`,
-`transform_columns`) removed, for agent frameworks that should only ever read.
-
-**New MCP tools.** The server gains `pivot` (DuckDB pivot / unpivot),
-`correlation` (Pearson / Spearman across numeric columns), `grep_files` (search
-across the files in a directory), and `transform_columns` (rename, cast, or drop
-columns and write the result back). The first three are read-only and stay
-available under `--mcp-read-only`.
-
-## Fixes
-
-**Menus no longer wrap in other languages.** Longer menu-item labels in
-non-English locales (German, Russian, and others) no longer break onto a second
-line; the menu widens to fit instead.
-
-**Toolbar search row aligned.** The search box, its mode and scope dropdowns, and
-the Recent and Filter buttons now sit on the same line as the File / Edit / View
-menus instead of dropping below them.
+**Internal tidy-up.** The toolbar and the Settings dialog were split into smaller
+source modules for maintainability. There is no change in behaviour.

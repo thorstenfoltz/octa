@@ -653,6 +653,13 @@ impl OctaApp {
         {
             self.transform_dialog = Some(crate::app::state::TransformState::default());
         }
+        if action.open_conditional_column
+            && self.tabs[self.active_tab].table.col_count() > 0
+            && !self.is_readonly()
+        {
+            self.conditional_column_dialog =
+                Some(crate::app::state::ConditionalColumnState::default());
+        }
         if action.open_multi_sort && self.tabs[self.active_tab].table.col_count() > 0 {
             self.multi_sort_dialog = Some(crate::app::state::MultiSortState::default());
         }

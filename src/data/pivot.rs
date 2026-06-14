@@ -83,6 +83,39 @@ pub fn unpivot_sql(cols: &[String], name_col: &str, value_col: &str) -> Option<S
     ))
 }
 
+/// Plain-language description of a PIVOT, for the dialog's "what does this do"
+/// line. Interpolates the chosen column names into a localized template; empty
+/// names show as "?". Pure (only reads the i18n catalog).
+pub fn explain_pivot(on: &str, agg: PivotAgg, value: &str, group: &[String]) -> String {
+    let on = if on.is_empty() { "?" } else { on };
+    let value = if value.is_empty() { "?" } else { value };
+    if group.is_empty() {
+        crate::i18n::t("dialog.pv_explain_pivot")
+            .replace("{on}", on)
+            .replace("{agg}", agg.sql_fn())
+            .replace("{value}", value)
+    } else {
+        crate::i18n::t("dialog.pv_explain_pivot_grouped")
+            .replace("{on}", on)
+            .replace("{agg}", agg.sql_fn())
+            .replace("{value}", value)
+            .replace("{cols}", &group.join(", "))
+    }
+}
+
+/// Plain-language description of an UNPIVOT for the dialog.
+pub fn explain_unpivot(cols: &[String], name_col: &str, value_col: &str) -> String {
+    let cols = if cols.is_empty() {
+        "?".to_string()
+    } else {
+        cols.join(", ")
+    };
+    crate::i18n::t("dialog.pv_explain_unpivot")
+        .replace("{cols}", &cols)
+        .replace("{name}", name_col.trim())
+        .replace("{value}", value_col.trim())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,5 +160,18 @@ mod tests {
     #[test]
     fn idents_quoted() {
         assert_eq!(quote_ident(r#"a"b"#), r#""a""b""#);
+    }
+
+    #[test]
+    fn explain_mentions_columns() {
+        // Locale-independent parts: the chosen column names appear in the text.
+        let s = explain_pivot("month", PivotAgg::Sum, "revenue", &["region".to_string()]);
+        assert!(s.contains("month"), "{s}");
+        assert!(s.contains("revenue"), "{s}");
+        assert!(s.contains("region"), "{s}");
+
+        let u = explain_unpivot(&["q1".to_string(), "q2".to_string()], "quarter", "amount");
+        assert!(u.contains("q1") && u.contains("q2"), "{u}");
+        assert!(u.contains("quarter") && u.contains("amount"), "{u}");
     }
 }

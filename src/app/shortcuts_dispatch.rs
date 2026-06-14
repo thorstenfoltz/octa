@@ -402,6 +402,45 @@ impl OctaApp {
                     tab.show_find_duplicates = true;
                 }
             }
+            if action_fired(SA::OpenPivot) && self.tabs[self.active_tab].table.col_count() > 0 {
+                self.pivot_dialog = Some(super::state::PivotState::default());
+            }
+            if action_fired(SA::OpenTransform)
+                && self.tabs[self.active_tab].table.col_count() > 0
+                && !self.is_readonly()
+            {
+                self.transform_dialog = Some(super::state::TransformState::default());
+            }
+            if action_fired(SA::OpenConditionalColumn)
+                && self.tabs[self.active_tab].table.col_count() > 0
+                && !self.is_readonly()
+            {
+                self.conditional_column_dialog =
+                    Some(super::state::ConditionalColumnState::default());
+            }
+            if action_fired(SA::OpenConditionalFormat)
+                && self.tabs[self.active_tab].table.col_count() > 0
+            {
+                self.tabs[self.active_tab].show_conditional_format = true;
+            }
+            if action_fired(SA::OpenValidation) && self.tabs[self.active_tab].table.col_count() > 0
+            {
+                self.tabs[self.active_tab].show_validation = true;
+            }
+            if action_fired(SA::OpenMultiSort) && self.tabs[self.active_tab].table.col_count() > 0 {
+                self.multi_sort_dialog = Some(super::state::MultiSortState::default());
+            }
+            if action_fired(SA::OpenSummary) && self.tabs[self.active_tab].table.col_count() > 0 {
+                self.open_describe_tab();
+            }
+            if action_fired(SA::OpenNumberFormat)
+                && self.tabs[self.active_tab].table.col_count() > 0
+            {
+                self.open_column_format_for_selection();
+            }
+            if action_fired(SA::CopyAsMarkdown) {
+                self.do_copy_markdown();
+            }
         }
 
         // --- Handle close request ---

@@ -74,6 +74,7 @@ same precedence Ctrl+M uses from the keyboard.
 | Insert row below          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> | New empty row.                                |
 | Duplicate selected row(s) | <kbd>Ctrl</kbd>+<kbd>D</kbd>                      | Copies the selected row(s) immediately below. |
 | Delete selected row(s)    | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>     |                                               |
+| Number format...          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd>     | Per-column number formatting dialog.          |
 | Undo last change          | <kbd>Ctrl</kbd>+<kbd>Z</kbd>                      | Covers cell edits, structural changes, marks. |
 | Redo last undone change   | <kbd>Ctrl</kbd>+<kbd>Y</kbd>                      |                                               |
 
@@ -81,9 +82,10 @@ same precedence Ctrl+M uses from the keyboard.
 
 | Action         | Default                      | Notes                          |
 |----------------|------------------------------|--------------------------------|
-| Copy selection | <kbd>Ctrl</kbd>+<kbd>C</kbd> | TSV format on the clipboard.   |
-| Cut selection  | <kbd>Ctrl</kbd>+<kbd>X</kbd> | Copies, then clears the cells. |
-| Paste          | <kbd>Ctrl</kbd>+<kbd>V</kbd> | Splits on tabs + newlines.     |
+| Copy selection         | <kbd>Ctrl</kbd>+<kbd>C</kbd>                  | TSV format on the clipboard.   |
+| Cut selection          | <kbd>Ctrl</kbd>+<kbd>X</kbd>                  | Copies, then clears the cells. |
+| Paste                  | <kbd>Ctrl</kbd>+<kbd>V</kbd>                  | Splits on tabs + newlines.     |
+| Copy as Markdown table | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | GitHub-flavoured Markdown table of the selection. |
 
 ## Marking
 
@@ -130,6 +132,16 @@ same precedence Ctrl+M uses from the keyboard.
 | Open documentation          | <kbd>F1</kbd>                                 | This documentation, in-app.                                                                                    |
 | Open settings               | <kbd>F3</kbd>                                 |                                                                                                                |
 | Show column value frequency | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd> | Top-N values + counts for the column of the selected cell. See [Value Frequency](../usage/value-frequency.md). |
+| Pivot / Unpivot...          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> | See [Pivot / Unpivot](../usage/pivot.md).                                                                      |
+| Transform column...         | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> | See [Transform column](../usage/transform-column.md).                                                          |
+| Conditional formatting...   | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> | See [Conditional formatting](../usage/conditional-formatting.md).                                              |
+| Conditional column...       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>J</kbd> | If / else-if / else CASE column. See [Transform column](../usage/transform-column.md).                         |
+| Data validation...          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | See [Data validation](../usage/data-validation.md).                                                            |
+| Sort by columns...          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> | Multi-column sort.                                                                                             |
+| Summary tab                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | See [Summary](../usage/summary.md).                                                                            |
+
+All of these are rebindable in **Settings → Shortcuts**, which refuses to let two
+actions share the same combination.
 
 ## Cheat-sheet (most-used)
 
