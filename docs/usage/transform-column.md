@@ -34,6 +34,33 @@ press **Apply**.
   on.
 - New cells are produced as text; column types are otherwise unchanged.
 
+## Conditional column (if / else-if / else)
+
+**Edit -> Conditional column...** builds a new column whose value depends on
+conditions, like a spreadsheet `IF`/`IFS` or a SQL `CASE`. You add an ordered
+list of rules:
+
+```
+IF   amount  >  100   -> "high"
+ELIF amount  >   50   -> "medium"
+ELSE                  -> "low"
+```
+
+- Each rule tests one column with an operator (equals, contains, greater than,
+  is empty, ...) and writes its **output value** when it matches.
+- Rules are checked **top to bottom**; the **first** one that matches wins
+  (that is the "else if" behaviour). Reorder them with the up/down arrows.
+- If no rule matches, the **Else** value is used.
+- Outputs that look like numbers become numeric cells (so the new column can be
+  summed or sorted as numbers); everything else is text.
+- The result is a brand-new column (name and position configurable) and is
+  **undoable** with Ctrl+Z. Shortcut: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>J</kbd>.
+
+This reuses the same comparison operators as
+[Conditional formatting](conditional-formatting.md); the difference is that
+conditional formatting **colours** matching cells, while a conditional column
+**sets a value**.
+
 ## See also
 
 - [Formulas](formulas.md) add a computed column from an arithmetic

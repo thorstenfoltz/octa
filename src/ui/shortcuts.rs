@@ -322,6 +322,28 @@ pub enum ShortcutAction {
     /// Toggle the in-GUI chat assistant panel open / closed. Also reachable
     /// via the toolbar Assistant button and **View -> Assistant panel**.
     ToggleChatPanel,
+    /// Open the Pivot / Unpivot dialog. Also **Analyse -> Pivot / Unpivot...**.
+    OpenPivot,
+    /// Open the Transform-column dialog. Also **Edit -> Transform column...**.
+    OpenTransform,
+    /// Open the Conditional-formatting dialog. Also
+    /// **Edit -> Conditional formatting...**.
+    OpenConditionalFormat,
+    /// Open the Conditional-column (CASE) dialog. Also
+    /// **Edit -> Conditional column...**.
+    OpenConditionalColumn,
+    /// Open the Data-validation dialog. Also **Edit -> Data validation...**.
+    OpenValidation,
+    /// Open the multi-column Sort dialog. Also **Analyse -> Sort by columns...**.
+    OpenMultiSort,
+    /// Open the Summary tab. Also **Analyse -> Summary...**.
+    OpenSummary,
+    /// Open the per-column Number-format dialog. Also
+    /// **Edit -> Number format...**.
+    OpenNumberFormat,
+    /// Copy the current selection as a GitHub Markdown table. Also
+    /// **Edit -> Copy as Markdown table**.
+    CopyAsMarkdown,
 }
 
 impl ShortcutAction {
@@ -381,6 +403,15 @@ impl ShortcutAction {
             Self::ScrollPageUp => "Scroll up one page",
             Self::ScrollPageDown => "Scroll down one page",
             Self::ToggleChatPanel => "Toggle chat assistant panel",
+            Self::OpenPivot => "Pivot / Unpivot...",
+            Self::OpenTransform => "Transform column...",
+            Self::OpenConditionalFormat => "Conditional formatting...",
+            Self::OpenConditionalColumn => "Conditional column...",
+            Self::OpenValidation => "Data validation...",
+            Self::OpenMultiSort => "Sort by columns...",
+            Self::OpenSummary => "Summary tab",
+            Self::OpenNumberFormat => "Number format...",
+            Self::CopyAsMarkdown => "Copy as Markdown table",
         }
     }
 
@@ -452,6 +483,17 @@ impl ShortcutAction {
             Self::ScrollPageUp => KeyCombo::ctrl(Key::PageUp),
             Self::ScrollPageDown => KeyCombo::ctrl(Key::PageDown),
             Self::ToggleChatPanel => KeyCombo::ctrl_shift(Key::A),
+            // Newer feature dialogs. All Ctrl+Shift+<letter> on free letters
+            // (the uniqueness test pins that none collide with the above).
+            Self::OpenPivot => KeyCombo::ctrl_shift(Key::P),
+            Self::OpenTransform => KeyCombo::ctrl_shift(Key::R),
+            Self::OpenConditionalFormat => KeyCombo::ctrl_shift(Key::L),
+            Self::OpenConditionalColumn => KeyCombo::ctrl_shift(Key::J),
+            Self::OpenValidation => KeyCombo::ctrl_shift(Key::G),
+            Self::OpenMultiSort => KeyCombo::ctrl_shift(Key::O),
+            Self::OpenSummary => KeyCombo::ctrl_shift(Key::M),
+            Self::OpenNumberFormat => KeyCombo::ctrl_shift(Key::N),
+            Self::CopyAsMarkdown => KeyCombo::ctrl_shift(Key::B),
         }
     }
 }
@@ -566,7 +608,17 @@ impl ShortcutAction {
             | Self::FitAllColumns
             | Self::CompareSelectedTabs => G::View,
             Self::ExportSqlResult => G::SqlPanel,
-            Self::OpenDocumentation | Self::OpenSettings | Self::ColumnValueFrequency => G::Dialogs,
+            Self::OpenNumberFormat | Self::CopyAsMarkdown => G::Editing,
+            Self::OpenDocumentation
+            | Self::OpenSettings
+            | Self::ColumnValueFrequency
+            | Self::OpenPivot
+            | Self::OpenTransform
+            | Self::OpenConditionalFormat
+            | Self::OpenConditionalColumn
+            | Self::OpenValidation
+            | Self::OpenMultiSort
+            | Self::OpenSummary => G::Dialogs,
         }
     }
 }
@@ -608,5 +660,43 @@ impl Shortcuts {
 
     pub fn reset(&mut self, action: ShortcutAction) {
         self.bindings.insert(action, action.default_combo());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use strum::IntoEnumIterator;
+
+    /// No two actions may ship with the same default key combination, otherwise
+    /// one of them would be silently unreachable until rebound. (Unbound
+    /// defaults are exempt - several actions can legitimately ship with no key.)
+    #[test]
+    fn default_combos_are_unique() {
+        let mut seen: HashMap<KeyCombo, ShortcutAction> = HashMap::new();
+        for action in ShortcutAction::iter() {
+            let combo = action.default_combo();
+            if combo == KeyCombo::UNBOUND {
+                continue;
+            }
+            if let Some(prev) = seen.insert(combo, action) {
+                panic!(
+                    "default key {} is bound to both {:?} and {:?}",
+                    combo.label(),
+                    prev,
+                    action
+                );
+            }
+        }
+    }
+
+    /// Every action must report a label and a group (the matches are
+    /// exhaustive, so this mostly guards the `strum` iterator wiring).
+    #[test]
+    fn every_action_has_label_and_group() {
+        for action in ShortcutAction::iter() {
+            assert!(!action.label().is_empty());
+            let _ = action.group();
+        }
     }
 }

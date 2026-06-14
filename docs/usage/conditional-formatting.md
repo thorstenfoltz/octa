@@ -36,11 +36,18 @@ comparison case-sensitive (off by default).
 ## How rules combine
 
 Rules are checked from **top to bottom**, and the **first** rule that
-matches a cell decides its colour. Put your most specific rules first.
+matches a cell decides its colour, like an if / else-if / else chain.
+Put your most specific rules first, and use the **^** / **v** buttons on
+each rule to move it up or down into the order you want.
 
 A manual [colour mark](colour-marking.md) on a cell always wins over a
 conditional rule, so you can pin an exception by hand without removing
 the rule.
+
+!!! tip "Set a value, not just a colour"
+    Conditional formatting **colours** matching cells. To compute a new
+    cell **value** from the same kind of if / else-if / else conditions,
+    use [Conditional column](transform-column.md#conditional-column-if-else-if-else).
 
 ## Live and session-only
 

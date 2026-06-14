@@ -396,6 +396,18 @@ shortcut. Right-click and choose **Run as administrator**. It does *not*
 modify your `PATH`; open Octa via the Start Menu shortcut or by running
 `"C:\Program Files\Octa\octa.exe"` directly.
 
+For a no-admin install that also avoids the SmartScreen prompt, use
+`install.ps1` instead. It downloads the latest release, verifies its
+SHA256 checksum, installs into `%LOCALAPPDATA%\Programs\Octa`, and unblocks
+the binary so the unsigned exe launches cleanly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+Pass `-Version v1.2.3` for a specific release or `-InstallDir <path>` to
+install elsewhere.
+
 **Windows SmartScreen warning:** Octa is not code-signed, so on first
 launch Windows shows *"Windows protected your PC"*. Click **More info**,
 then **Run anyway**. Subsequent launches open without the prompt.

@@ -33,6 +33,8 @@ pub(crate) fn render_conditional_format_dialog(app: &mut OctaApp, ctx: &egui::Co
     let mut close_requested = false;
     let mut changed = false;
     let mut remove_idx: Option<usize> = None;
+    let mut move_up: Option<usize> = None;
+    let mut move_down: Option<usize> = None;
     let mut size = app.tabs[app.active_tab].conditional_format_size;
     let minimized = size == DialogSize::Minimized;
 
@@ -101,7 +103,13 @@ pub(crate) fn render_conditional_format_dialog(app: &mut OctaApp, ctx: &egui::Co
                     .size(10.0)
                     .color(ui.visuals().weak_text_color()),
             );
+            ui.label(
+                RichText::new(octa::i18n::t("dialog.cnf_order_hint"))
+                    .size(10.0)
+                    .color(ui.visuals().weak_text_color()),
+            );
             ui.add_space(6.0);
+            let rule_count = rules.len();
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
@@ -198,6 +206,23 @@ pub(crate) fn render_conditional_format_dialog(app: &mut OctaApp, ctx: &egui::Co
                                 changed = true;
                             }
 
+                            // Reorder: rules are first-match-wins, so order is
+                            // the if / else-if chain the user builds.
+                            if ui
+                                .add_enabled(i > 0, egui::Button::new("^").small())
+                                .on_hover_text(octa::i18n::t("dialog.cnf_move_up"))
+                                .clicked()
+                            {
+                                move_up = Some(i);
+                            }
+                            if ui
+                                .add_enabled(i + 1 < rule_count, egui::Button::new("v").small())
+                                .on_hover_text(octa::i18n::t("dialog.cnf_move_down"))
+                                .clicked()
+                            {
+                                move_down = Some(i);
+                            }
+
                             if ui
                                 .small_button("✕")
                                 .on_hover_text(octa::i18n::t("dialog.cnf_remove"))
@@ -227,6 +252,19 @@ pub(crate) fn render_conditional_format_dialog(app: &mut OctaApp, ctx: &egui::Co
         && i < rules.len()
     {
         rules.remove(i);
+        changed = true;
+    }
+    if let Some(i) = move_up
+        && i > 0
+        && i < rules.len()
+    {
+        rules.swap(i, i - 1);
+        changed = true;
+    }
+    if let Some(i) = move_down
+        && i + 1 < rules.len()
+    {
+        rules.swap(i, i + 1);
         changed = true;
     }
 

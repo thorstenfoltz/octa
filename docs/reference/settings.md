@@ -185,10 +185,16 @@ The full list of actions lives on the
 
 ## Window
 
-| Setting                 | Default       | Notes                                                                              |
-|-------------------------|---------------|------------------------------------------------------------------------------------|
-| **Default window size** | (auto-detect) | Initial window size on first launch. Re-applied as the restore-from-maximize size. |
-| **Start maximized**     | on            | Launch with the window maximised.                                                  |
+| Setting                 | Default       | Notes                                                                                               |
+|-------------------------|---------------|-----------------------------------------------------------------------------------------------------|
+| **Initial window size** | (auto-detect) | Pixel size of the window when it is **not** maximised, also used as the restore-from-maximise size. |
+| **Start maximized**     | on            | Launch with the window maximised.                                                                   |
+
+!!! note "Why every window size can look the same"
+    A maximised window always fills the whole screen, so the **Initial window size** has no visible
+    effect while the window is maximised (on a 4K screen it stays 4K whichever size you pick). The
+    setting only takes effect on the restored (non-maximised) window: turn **Start maximized** off, or
+    click the un-maximise button, to see it applied.
 
 ## Reset to defaults
 

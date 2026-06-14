@@ -20,6 +20,11 @@ pub(crate) fn render_repair_file_dialog(app: &mut OctaApp, ctx: &egui::Context) 
         .unwrap_or_else(|| repair.path.display().to_string());
     let issues = repair.issues.clone();
     let preview = repair.preview.clone();
+    let has_ragged = issues
+        .iter()
+        .any(|i| i.contains("inconsistent column counts"));
+    let mut preserve_ragged = repair.options.preserve_ragged;
+    let initial_preserve = preserve_ragged;
 
     let mut do_repair = false;
     let mut open_as_is = false;
@@ -43,6 +48,14 @@ pub(crate) fn render_repair_file_dialog(app: &mut OctaApp, ctx: &egui::Context) 
                 ui.label(format!("  - {issue}"));
             }
             ui.add_space(8.0);
+
+            if has_ragged {
+                ui.checkbox(
+                    &mut preserve_ragged,
+                    octa::i18n::t("dialog.repair_keep_extra"),
+                );
+                ui.add_space(8.0);
+            }
 
             if !preview.is_empty() {
                 ui.label(RichText::new(octa::i18n::t("dialog.repair_preview")).strong());
@@ -92,6 +105,15 @@ pub(crate) fn render_repair_file_dialog(app: &mut OctaApp, ctx: &egui::Context) 
                     .size(11.0),
             );
         });
+
+    // Reflect a toggle of "keep extra values" back onto the pending repair and
+    // regenerate the preview so the shown table matches the chosen option.
+    if preserve_ragged != initial_preserve {
+        if let Some(r) = app.pending_file_repair.as_mut() {
+            r.options.preserve_ragged = preserve_ragged;
+        }
+        app.refresh_repair_preview();
+    }
 
     if do_repair {
         app.resolve_file_repair(true);

@@ -280,9 +280,40 @@ like (`Desktop`, `C:\Tools\`, etc.) and double-click to launch.
     *"Windows protected your PC"*. Click **More info** → **Run
     anyway**. Subsequent launches open without the prompt.
 
-### Install via `install.bat`
+### Install via `install.ps1` (recommended, no admin)
 
-If you want Octa in your Start Menu and on `PATH`:
+`install.ps1` downloads the latest release, verifies its checksum, and
+installs Octa into a **per-user** directory (`%LOCALAPPDATA%\Programs\Octa`)
+so it needs **no administrator rights**. It also removes the
+mark-of-the-web from the downloaded binary, so the unsigned exe usually
+launches **without** the SmartScreen prompt.
+
+Grab `install.ps1` from the repository root (it is a standalone script, not
+part of the release zip, since it downloads the zip for you). From
+PowerShell, in the folder where you saved it:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+Or run it straight from GitHub without saving it first:
+
+```powershell
+irm https://raw.githubusercontent.com/thorstenfoltz/octa/master/install.ps1 | iex
+```
+
+Options:
+
+- `-Version v1.2.3` installs a specific release instead of the latest.
+- `-InstallDir "D:\Apps\Octa"` installs elsewhere.
+- `-NoShortcut` skips the Start Menu shortcut.
+
+To uninstall, delete the install directory and the Start Menu shortcut at
+`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Octa.lnk`.
+
+### Install via `install.bat` (system-wide, needs admin)
+
+If you want Octa in `C:\Program Files\Octa` for all users:
 
 1. Right-click `install.bat` and choose **Run as administrator**.
 2. The script copies `octa.exe` to `C:\Program Files\Octa`, adds the

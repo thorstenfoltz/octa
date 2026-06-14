@@ -290,6 +290,14 @@ You choose:
 - **Open without repair** loads the file as-is.
 - **Cancel** backs out.
 
+When **ragged rows** are detected (some rows have more fields than the
+header), the prompt also offers **Keep extra values (add columns)**. With
+it ticked, repair **widens** the table so every extra field keeps its own
+column (the overflow columns are named `column_4`, `column_5`, ...) instead
+of being dropped. Rows that are too short are padded with empty cells. This
+is on by default for ragged files, because dropping data is rarely the fix
+you want; untick it to fall back to trimming each row to the header width.
+
 The repair only changes what Octa loads into memory, **your file on
 disk is never modified**. It applies to CSV/TSV only. See
 [CSV quote / escape](../reference/csv-quote-escape.md) for the related

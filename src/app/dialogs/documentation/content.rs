@@ -55,6 +55,19 @@ with up to N sheets (default 5, **Settings > Performance > Excel sheets
 to auto-open**) open all sheets at once, each in its own tab. With more
 than N sheets, a picker lets you choose which to open (you can pick more
 than N, or all).
+
+## Repairing a malformed CSV / TSV
+
+Turn on **Settings > File-Specific > Offer repair on malformed files** and,
+when a CSV/TSV reads but looks malformed (bad encoding, a byte-order mark,
+stray control characters, a delimiter that disagrees with the extension, or
+rows with uneven column counts), Octa offers to clean it up on open. It lists
+what it found, shows a preview, and lets you **Repair and open**, **Open
+without repair**, or **Cancel**. When some rows have *more* fields than the
+header, a **Keep extra values (add columns)** option widens the table so the
+extra fields keep their own columns (named `column_4`, `column_5`, ...) instead
+of being dropped; short rows pad with empty cells. The file on disk is never
+changed.
 "#;
 
 pub(super) const NAVIGATION: &str = r#"# Navigation & Selection
@@ -563,6 +576,14 @@ generated **name column** and **value column**. A wide `region, jan, feb,
 mar` table becomes a long `region, name, value` table with one row per
 region-month.
 
+## Live preview
+
+While the dialog is open it shows a plain-language sentence of what the
+current settings do, plus a small preview table of the first result rows.
+To stay fast on big tables the preview runs on a sample of the first 1,000
+source rows and shows up to 10 result rows; press **Run** to reshape the
+full table.
+
 Powered by DuckDB's `PIVOT` / `UNPIVOT`, so it works on any open table.
 "#;
 
@@ -721,13 +742,18 @@ comparison is numeric when both the cell and the value look like numbers
 ## How rules combine
 
 Rules are checked from top to bottom and the **first** one that matches a
-cell wins, so put your most specific rules first. A manual colour mark on a
-cell always takes priority over a conditional rule.
+cell wins (like an if / else-if / else chain), so put your most specific
+rules first. Use the **^** / **v** buttons on a rule to move it up or down
+and build that order. A manual colour mark on a cell always takes priority
+over a conditional rule.
 
 Rules apply live as you edit them and update instantly when you change cell
 values. They are **per tab and session-only** - they are not saved with the
 file and do not change the data, only how it is shown. **Add rule** appends a
 new row; the **x** button removes one; **Clear all** removes them all.
+
+To set a cell **value** (rather than a colour) from conditions, use
+**Conditional column** instead - see the Transform Column help.
 "#;
 
 pub(super) const VALIDATION: &str = r#"# Data Validation
@@ -796,6 +822,24 @@ new column name and the insert position (leave either blank for the default
 shown as the field hint); for Split the name is used as a base, so the parts
 become name_1, name_2, and so on. None of them change column types beyond
 producing text, and all changes can be undone before you save.
+
+## Conditional column (if / else-if / else)
+
+**Edit > Conditional column...** builds a new column whose value depends on
+conditions, like a spreadsheet IF/IFS or a SQL CASE. Add an ordered list of
+rules such as "if amount > 100 then high, else if amount > 50 then medium,
+else low". Each rule tests one column with an operator (equals, contains,
+greater than, is empty, ...) and writes its output value when it matches.
+
+Rules are checked top to bottom and the first match wins (that is the
+"else if" behaviour); reorder them with the ^ / v buttons. If no rule
+matches, the Else value is used. Outputs that look like numbers become
+numeric cells; everything else is text. The result is a new column (name
+and position configurable) and is undoable with Ctrl+Z.
+
+This shares its operators with Conditional formatting; the difference is
+that conditional formatting colours matching cells, while a conditional
+column sets a value.
 "#;
 
 pub(super) const SORTING: &str = r#"# Sorting
@@ -1256,7 +1300,11 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
   file extensions to open as plain text, and how many Excel sheets to
   auto-open.
 - **Files**: how many recent files to remember.
-- **Window**: default size, start maximized.
+- **Window**: initial size, start maximised. The initial size is the
+  pixel size of the window when it is *not* maximised. A maximised window
+  always fills the screen, so the size only takes effect once you
+  un-maximise (or turn "Start maximised" off) - that is why every size
+  setting looks identical while the window is maximised.
 
 Settings persist to:
 

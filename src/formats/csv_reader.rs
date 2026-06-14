@@ -138,6 +138,10 @@ pub struct ReadOptions {
     /// Strip a leading UTF-8 BOM and stray control characters (everything
     /// except tab / CR / LF) before parsing.
     pub strip_bom_controls: bool,
+    /// Keep every field of ragged rows instead of dropping extras. When set,
+    /// the table is widened to the longest record and overflow columns get
+    /// synthetic names, so no value is lost; short rows pad with Null.
+    pub preserve_ragged: bool,
 }
 
 /// A diagnosis of why a delimited file looks malformed, plus the
@@ -156,7 +160,7 @@ fn read_delimited(path: &Path, delimiter: u8, format_name: &str) -> Result<DataT
         .has_headers(true)
         .flexible(true)
         .from_path(path)?;
-    build_table_from_reader(rdr, path, format_name)
+    build_table_from_reader(rdr, path, format_name, false)
 }
 
 /// Strip a leading UTF-8 BOM and any control characters other than the
@@ -193,7 +197,7 @@ pub fn read_delimited_opts(
         .has_headers(true)
         .flexible(true)
         .from_reader(content.as_bytes());
-    build_table_from_reader(rdr, path, format_name)
+    build_table_from_reader(rdr, path, format_name, opts.preserve_ragged)
 }
 
 /// Build a [`DataTable`] from any CSV reader. Shared by the streaming
@@ -203,36 +207,81 @@ fn build_table_from_reader<R: std::io::Read>(
     mut rdr: csv::Reader<R>,
     path: &Path,
     format_name: &str,
+    preserve_ragged: bool,
 ) -> Result<DataTable> {
     let headers: Vec<String> = rdr.headers()?.iter().map(|h| h.to_string()).collect();
-    let columns: Vec<ColumnInfo> = headers
+    let header_count = headers.len();
+    let max_rows = super::initial_load_rows();
+
+    let mut rows: Vec<Vec<CellValue>> = Vec::new();
+    let mut truncated = false;
+    // Column count: normally the header width. When preserving ragged rows we
+    // first learn the widest record so overflow fields keep their own columns
+    // instead of being dropped. Only the repair path sets `preserve_ragged`,
+    // so the common streaming path keeps its row-by-row, lower-memory shape.
+    let col_count = if preserve_ragged {
+        let mut records: Vec<csv::StringRecord> = Vec::new();
+        for result in rdr.records() {
+            if records.len() >= max_rows {
+                truncated = true;
+                break;
+            }
+            records.push(result?);
+        }
+        let col_count = records
+            .iter()
+            .map(|r| r.len())
+            .max()
+            .unwrap_or(header_count)
+            .max(header_count);
+        for record in &records {
+            let mut row: Vec<CellValue> = (0..col_count)
+                .map(|i| {
+                    record
+                        .get(i)
+                        .map(infer_cell_value)
+                        .unwrap_or(CellValue::Null)
+                })
+                .collect();
+            row.resize(col_count, CellValue::Null);
+            rows.push(row);
+        }
+        col_count
+    } else {
+        for result in rdr.records() {
+            if rows.len() >= max_rows {
+                truncated = true;
+                break;
+            }
+            let record = result?;
+            let mut row: Vec<CellValue> = (0..header_count)
+                .map(|i| {
+                    record
+                        .get(i)
+                        .map(infer_cell_value)
+                        .unwrap_or(CellValue::Null)
+                })
+                .collect();
+            row.resize(header_count, CellValue::Null);
+            rows.push(row);
+        }
+        header_count
+    };
+
+    // Build columns, adding synthetic names for any overflow beyond the header.
+    let mut columns: Vec<ColumnInfo> = headers
         .iter()
         .map(|h| ColumnInfo {
             name: h.clone(),
             data_type: "Utf8".to_string(),
         })
         .collect();
-
-    let col_count = columns.len();
-    let max_rows = super::initial_load_rows();
-    let mut rows: Vec<Vec<CellValue>> = Vec::new();
-    let mut truncated = false;
-    for result in rdr.records() {
-        if rows.len() >= max_rows {
-            truncated = true;
-            break;
-        }
-        let record = result?;
-        let mut row: Vec<CellValue> = (0..col_count)
-            .map(|i| {
-                record
-                    .get(i)
-                    .map(infer_cell_value)
-                    .unwrap_or(CellValue::Null)
-            })
-            .collect();
-        row.resize(col_count, CellValue::Null);
-        rows.push(row);
+    while columns.len() < col_count {
+        let name = overflow_column_name(&columns, columns.len());
+        columns.push(ColumnInfo {
+            name,
+            data_type: "Utf8".to_string(),
+        });
     }
 
     // If truncated, signal that more rows are available without reading the rest
@@ -377,6 +426,9 @@ pub fn analyze_delimited(path: &Path, default_delimiter: u8) -> Option<RepairPla
             .any(|r| r.len() != header_len);
         if ragged {
             issues.push("Rows have inconsistent column counts".to_string());
+            // Repair by widening the table so extra fields keep their own
+            // columns rather than being silently dropped.
+            options.preserve_ragged = true;
         }
     }
 
@@ -394,6 +446,25 @@ fn read_prefix(path: &Path, max: usize) -> Option<Vec<u8>> {
     let mut buf = Vec::new();
     f.take(max as u64).read_to_end(&mut buf).ok()?;
     Some(buf)
+}
+
+/// Pick a name for an overflow column at `idx` (0-based) that does not collide
+/// with any already-present column. Base name is 1-based ("column_4" for the
+/// fourth column); a numeric suffix is appended on collision.
+fn overflow_column_name(existing: &[ColumnInfo], idx: usize) -> String {
+    let taken = |name: &str| existing.iter().any(|c| c.name == name);
+    let base = format!("column_{}", idx + 1);
+    if !taken(&base) {
+        return base;
+    }
+    let mut n = 2;
+    loop {
+        let candidate = format!("{base}_{n}");
+        if !taken(&candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
 }
 
 /// Human label for a delimiter byte (ASCII only).

@@ -723,6 +723,26 @@ impl OctaApp {
         true
     }
 
+    /// Recompute the repaired preview for the pending repair prompt after the
+    /// user toggled an option (e.g. "keep extra values"). Best effort: leaves
+    /// the existing preview in place if the re-read fails.
+    pub(crate) fn refresh_repair_preview(&mut self) {
+        let Some(repair) = self.pending_file_repair.as_ref() else {
+            return;
+        };
+        if let Ok(table) = formats::csv_reader::read_delimited_opts(
+            &repair.path,
+            repair.default_delimiter,
+            &repair.format_name,
+            &repair.options,
+        ) {
+            let preview = repair_preview_rows(&table, 8, 8);
+            if let Some(r) = self.pending_file_repair.as_mut() {
+                r.preview = preview;
+            }
+        }
+    }
+
     /// Resolve a pending repair prompt. `apply_repair = true` applies the
     /// suggested fixes; `false` opens the file without repair (lossy decode
     /// only, so a bad-encoding file still loads). Clears the pending state.
@@ -737,6 +757,7 @@ impl OctaApp {
                 lossy_utf8: true,
                 delimiter: Some(repair.default_delimiter),
                 strip_bom_controls: false,
+                preserve_ragged: false,
             }
         };
         match formats::csv_reader::read_delimited_opts(
