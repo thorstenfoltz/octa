@@ -80,11 +80,11 @@ same precedence Ctrl+M uses from the keyboard.
 
 ## Clipboard
 
-| Action         | Default                      | Notes                          |
-|----------------|------------------------------|--------------------------------|
-| Copy selection         | <kbd>Ctrl</kbd>+<kbd>C</kbd>                  | TSV format on the clipboard.   |
-| Cut selection          | <kbd>Ctrl</kbd>+<kbd>X</kbd>                  | Copies, then clears the cells. |
-| Paste                  | <kbd>Ctrl</kbd>+<kbd>V</kbd>                  | Splits on tabs + newlines.     |
+| Action                 | Default                                       | Notes                                             |
+|------------------------|-----------------------------------------------|---------------------------------------------------|
+| Copy selection         | <kbd>Ctrl</kbd>+<kbd>C</kbd>                  | TSV format on the clipboard.                      |
+| Cut selection          | <kbd>Ctrl</kbd>+<kbd>X</kbd>                  | Copies, then clears the cells.                    |
+| Paste                  | <kbd>Ctrl</kbd>+<kbd>V</kbd>                  | Splits on tabs + newlines.                        |
 | Copy as Markdown table | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | GitHub-flavoured Markdown table of the selection. |
 
 ## Marking

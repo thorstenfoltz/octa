@@ -185,10 +185,10 @@ The full list of actions lives on the
 
 ## Window
 
-| Setting                 | Default       | Notes                                                                                                       |
-|-------------------------|---------------|-------------------------------------------------------------------------------------------------------------|
-| **Initial window size** | (auto-detect) | Pixel size of the window when it is **not** maximised, also used as the restore-from-maximise size.          |
-| **Start maximized**     | on            | Launch with the window maximised.                                                                           |
+| Setting                 | Default       | Notes                                                                                               |
+|-------------------------|---------------|-----------------------------------------------------------------------------------------------------|
+| **Initial window size** | (auto-detect) | Pixel size of the window when it is **not** maximised, also used as the restore-from-maximise size. |
+| **Start maximized**     | on            | Launch with the window maximised.                                                                   |
 
 !!! note "Why every window size can look the same"
     A maximised window always fills the whole screen, so the **Initial window size** has no visible
