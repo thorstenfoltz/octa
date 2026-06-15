@@ -121,6 +121,12 @@ pub struct ToolbarAction {
     /// Open the Conditional-column (CASE / if-elseif-else) dialog for the
     /// active table. Fired by **Edit -> Conditional column...**.
     pub open_conditional_column: bool,
+    /// Open the Anonymise-columns dialog for the active table.
+    /// Fired by **Edit -> Anonymise columns...**.
+    pub open_anonymize: bool,
+    /// Open the Find-near-duplicates (fuzzy) dialog for the active table.
+    /// Fired by **Search -> Find near-duplicates...**.
+    pub open_fuzzy_duplicates: bool,
     /// Toggle "first row is header" for the active table.
     pub toggle_first_row_header: bool,
     /// Apply a color mark to a set of keys (cell/row/column).

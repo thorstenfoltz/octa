@@ -1,9 +1,12 @@
 # Tools Reference
 
-The MCP server exposes twenty tools. Most are **read-only** against a
-file argument. The exceptions are `convert` (writes a new output file),
-`write_table` (writes model-supplied rows to a new file), and
-`edit_table` (edits an existing file in place).
+The MCP server exposes the tools below. Most are **read-only** against a
+file argument. The file-writing exceptions are `convert` (writes a new
+output file), `write_table` (writes model-supplied rows to a new file),
+`edit_table` (edits an existing file in place), `transform_columns`
+(rename / cast / drop columns, writes back), and `anonymize` (mask /
+scramble columns, writes the result). These are dropped when the server
+is started with `--mcp-read-only`.
 
 ## At-a-glance
 
@@ -20,6 +23,7 @@ file argument. The exceptions are `convert` (writes a new output file),
 | **[`export_schema`](export_schema.md)**                     | Render the schema as DDL / model / struct | No                              |
 | **[`profile`](profile.md)**                                 | Per-column statistics (`SUMMARIZE`)       | No                              |
 | **[`find_duplicates`](find_duplicates.md)**                 | Rows sharing key-column values            | No                              |
+| **[`fuzzy_duplicates`](fuzzy_duplicates.md)**               | Near-duplicate row clusters (fuzzy)       | No                              |
 | **[`value_frequency`](value_frequency.md)**                 | Per-column value counts                   | No                              |
 | **[`search`](search.md)**                                   | Match cells across every column           | No                              |
 | **[`compare_schemas`](compare_schemas.md)**                 | Diff the column metadata of two files     | No                              |
@@ -27,8 +31,13 @@ file argument. The exceptions are `convert` (writes a new output file),
 | **[`describe_file`](describe_file.md)**                     | One-shot orientation snapshot             | No                              |
 | **[`validate_against_schema`](validate_against_schema.md)** | Validate columns against a JSON Schema    | No                              |
 | **[`unique_columns`](unique_columns.md)**                   | Unique columns / key candidates           | No                              |
+| **[`pivot`](pivot.md)**                                     | Reshape long <-> wide (PIVOT / UNPIVOT)   | No                              |
+| **[`correlation`](correlation.md)**                         | Pairwise numeric correlation matrix       | No                              |
+| **[`grep_files`](grep_files.md)**                           | Grep a value across files in a directory  | No                              |
 | **[`write_table`](write_table.md)**                         | Write inline rows to a new file           | Writes/replaces the output path |
 | **[`edit_table`](edit_table.md)**                           | Set cells / insert / delete rows in place | Yes (edits the file)            |
+| **[`transform_columns`](transform_columns.md)**             | Rename / cast / drop columns, write back  | Writes the output path          |
+| **[`anonymize`](anonymize.md)**                             | Mask / scramble columns, write the result | Writes the output path          |
 
 \* `run_sql` accepts mutation queries (`INSERT` / `UPDATE` / `DELETE`)
 but the in-memory DuckDB connection is discarded at the end of the

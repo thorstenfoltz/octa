@@ -2,7 +2,7 @@
 
 Octa includes a built-in **MCP (Model Context Protocol) server**.
 Run `octa --mcp` and Octa speaks JSON-RPC over stdin/stdout,
-exposing twenty tools that let an MCP-aware client (Claude Desktop,
+exposing a set of tools that let an MCP-aware client (Claude Desktop,
 Claude Code, MCP Inspector, etc.) interact with your local data
 files.
 
@@ -24,7 +24,7 @@ Octa via stdio (the AI process spawns `octa --mcp` as a subprocess),
 and no network calls leave your machine for the data operations
 themselves. Your files stay on disk.
 
-## The twenty tools
+## The tools
 
 | Tool                      | What it does                                  | Reference                                 |
 |---------------------------|-----------------------------------------------|-------------------------------------------|
@@ -39,6 +39,7 @@ themselves. Your files stay on disk.
 | `export_schema`           | Render the schema as DDL / a model / a struct | [→ doc](tools/export_schema.md)           |
 | `profile`                 | Per-column statistics via `SUMMARIZE`         | [→ doc](tools/profile.md)                 |
 | `find_duplicates`         | Find rows sharing key-column values           | [→ doc](tools/find_duplicates.md)         |
+| `fuzzy_duplicates`        | Cluster near-duplicate rows (fuzzy)           | [→ doc](tools/fuzzy_duplicates.md)        |
 | `value_frequency`         | Count per-column values (`value_counts`)      | [→ doc](tools/value_frequency.md)         |
 | `search`                  | Match cells across every column               | [→ doc](tools/search.md)                  |
 | `compare_schemas`         | Diff the column metadata of two files         | [→ doc](tools/compare_schemas.md)         |
@@ -46,8 +47,13 @@ themselves. Your files stay on disk.
 | `describe_file`           | One-shot orientation snapshot                 | [→ doc](tools/describe_file.md)           |
 | `validate_against_schema` | Validate columns against a JSON Schema        | [→ doc](tools/validate_against_schema.md) |
 | `unique_columns`          | Unique columns / key candidates               | [→ doc](tools/unique_columns.md)          |
+| `pivot`                   | Reshape long <-> wide (PIVOT / UNPIVOT)       | [→ doc](tools/pivot.md)                   |
+| `correlation`             | Pairwise numeric correlation matrix           | [→ doc](tools/correlation.md)             |
+| `grep_files`              | Grep a value across files in a directory      | [→ doc](tools/grep_files.md)              |
 | `write_table`             | Write inline rows to a new file               | [→ doc](tools/write_table.md)             |
 | `edit_table`              | Set cells / insert / delete rows in place     | [→ doc](tools/edit_table.md)              |
+| `transform_columns`       | Rename / cast / drop columns, write back      | [→ doc](tools/transform_columns.md)       |
+| `anonymize`               | Mask / scramble columns, write the result     | [→ doc](tools/anonymize.md)               |
 
 Every tool that returns rows respects a configurable response
 row limit (default 1000) and cell byte cap (default 64 KiB),

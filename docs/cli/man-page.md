@@ -34,6 +34,7 @@ octa --diff FILE_A FILE_B [--diff-mode MODE] [--diff-on COLS] [-f FORMAT]
 octa --describe FILE [--table NAME] [--sample-rows N] [-f FORMAT]
 octa --validate-schema FILE --expect-schema SCHEMA_FILE [--table NAME] [-f FORMAT]
 octa --unique-columns FILE [--table NAME] [--max-combo N] [-f FORMAT]
+octa --anonymize SPEC FILE [-f FORMAT]
 octa --mcp
 ```
 
@@ -155,16 +156,29 @@ are ignored (with a warning) when an action flag is set.
     Use `--max-combo N` (clamped to `[1, 3]`) to test pairs /
     triples. See [`octa --unique-columns`](unique-columns.md).
 
+`--anonymize SPEC FILE`
+:   Mask / scramble sensitive columns of *FILE* per the JSON *SPEC*
+    file and print the sanitised table to stdout (the input file is
+    never modified). The spec lists per-column rules (`hash` /
+    `partial_mask` / `redact` / `fake`) plus an optional shared
+    `salt`; columns are named. The same value plus the same salt
+    always maps the same way, so duplicates stay linked and a re-run
+    re-joins to an earlier export. See
+    [`octa --anonymize`](anonymize.md).
+
 `--mcp`
 :   Start a Model Context Protocol (MCP) server on standard
-    input / output. Twenty tools are exposed: `read_table`,
+    input / output. The tools exposed are: `read_table`,
     `tail`, `sample`, `schema`, `list_tables`, `count_rows`,
     `run_sql`, `convert`, `export_schema`, `profile`,
-    `find_duplicates`, `value_frequency`, `search`,
-    `compare_schemas`, `diff_tables`, `describe_file`,
-    `validate_against_schema`, `unique_columns`, `write_table`,
-    `edit_table`. Defaults for the
-    row limit and per-cell byte cap come from the user's Octa
+    `find_duplicates`, `fuzzy_duplicates`, `value_frequency`,
+    `search`, `compare_schemas`, `diff_tables`, `describe_file`,
+    `validate_against_schema`, `unique_columns`, `pivot`,
+    `correlation`, `grep_files`, `write_table`, `edit_table`,
+    `transform_columns`, `anonymize`. The file-writing tools
+    (`convert`, `write_table`, `edit_table`, `transform_columns`,
+    `anonymize`) are dropped when `--mcp-read-only` is given. Defaults
+    for the row limit and per-cell byte cap come from the user's Octa
     settings ([Settings → MCP](../reference/settings.md#mcp)). See
     the [MCP server guide](../mcp/index.md) for setup.
 
@@ -438,10 +452,14 @@ octa --mcp
 ## MCP Server
 
 When invoked with `--mcp`, Octa speaks the Model Context Protocol
-over JSON-RPC on stdin/stdout. Fifteen tools are exposed:
+over JSON-RPC on stdin/stdout. The tools are:
 
 - [`read_table(path, limit?, unlimited?, table?)`](../mcp/tools/read_table.md)
   returns schema + rows JSON.
+- [`tail(path, n?, unlimited?, table?)`](../mcp/tools/tail.md) returns
+  the last N rows.
+- [`sample(path, n?, seed?, unlimited?, table?)`](../mcp/tools/sample.md)
+  returns a reproducible random N-row sample.
 - [`schema(path, table?)`](../mcp/tools/schema.md) returns column
   schema only.
 - [`list_tables(path)`](../mcp/tools/list_tables.md) lists tables
@@ -458,22 +476,39 @@ over JSON-RPC on stdin/stdout. Fifteen tools are exposed:
   returns per-column statistics via `SUMMARIZE`.
 - [`find_duplicates(path, key_columns, …, unlimited?)`](../mcp/tools/find_duplicates.md)
   returns rows sharing key-column values.
+- [`fuzzy_duplicates(path, key_columns, method?, threshold?, …)`](../mcp/tools/fuzzy_duplicates.md)
+  clusters near-duplicate rows (typos, spacing, word order).
 - [`value_frequency(path, column, …, unlimited?)`](../mcp/tools/value_frequency.md)
   counts per-column values.
 - [`search(path, query, mode?, …, unlimited?)`](../mcp/tools/search.md)
   matches cells across every column.
 - [`compare_schemas(path_a, path_b, table_a?, table_b?)`](../mcp/tools/compare_schemas.md)
   diffs the column schemas of two files.
+- [`diff_tables(path_a, path_b, mode?, on?, …)`](../mcp/tools/diff_tables.md)
+  row-level diff of two files (set / ordered / join).
 - [`describe_file(path, table?, sample_rows?, unlimited?)`](../mcp/tools/describe_file.md)
   returns a one-shot orientation snapshot.
 - [`validate_against_schema(path, table?, schema_path?, schema_inline?)`](../mcp/tools/validate_against_schema.md)
   checks a file against a JSON Schema.
 - [`unique_columns(path, table?, max_combo_size?, unlimited?)`](../mcp/tools/unique_columns.md)
   finds primary-key candidates.
+- [`pivot(path, mode?, on?, value?, agg?, …)`](../mcp/tools/pivot.md)
+  reshapes long <-> wide (PIVOT / UNPIVOT).
+- [`correlation(path, method?, unlimited?, table?)`](../mcp/tools/correlation.md)
+  computes a pairwise numeric correlation matrix.
+- [`grep_files(dir, query, mode?, …)`](../mcp/tools/grep_files.md)
+  greps a value across files in a directory.
 - [`write_table(path, columns, rows?, mode?, unlimited?)`](../mcp/tools/write_table.md)
   writes inline rows to a new file (create / overwrite / append).
 - [`edit_table(path, table?, set?, insert_rows?, delete_rows?, unlimited?)`](../mcp/tools/edit_table.md)
   edits an existing file in place (DB sources diff-saved).
+- [`transform_columns(path, drop?, rename?, cast?, output_path?)`](../mcp/tools/transform_columns.md)
+  renames / casts / drops columns and writes back.
+- [`anonymize(path, rules, salt?, output_path?)`](../mcp/tools/anonymize.md)
+  masks / scrambles columns and writes the result.
+
+The file-writing tools (`convert`, `write_table`, `edit_table`,
+`transform_columns`, `anonymize`) are dropped under `--mcp-read-only`.
 
 Defaults (the response row cap of 1000 rows, per-cell byte cap of
 64 KiB, and file-loader cap of 5,000,000 rows) are configurable

@@ -459,6 +459,64 @@ so Ctrl+Shift+D -> Apply is the fastest path for a one-column dedupe
 check.
 "#;
 
+pub(super) const FUZZY_DUPLICATES: &str = r#"# Find Near-Duplicates
+
+**Search > Find near-duplicates...** (Ctrl+Shift+U) finds rows that are
+*almost* the same on the columns you choose, not just exactly equal. It catches
+typos, spacing, and reordered words (for example "Jon Smith" vs "John Smith",
+or "ACME Inc" vs "ACME, Inc.") and groups the likely duplicates into clusters
+with a similarity score for review.
+
+## Controls
+
+The dialog has **two** column choices that do different jobs:
+
+- **Columns to compare**: the columns whose text is matched loosely (where typos
+  and near-misses are found). Each candidate row pair is scored per column and
+  the scores are averaged; the pair matches when the average is at or above the
+  threshold.
+- **Only look for duplicates within the same**: an optional column whose value
+  must match exactly before two rows are even compared. Think of it as sorting
+  the table into bins first, then hunting for duplicates inside each bin only.
+  Example: with Columns to compare = name and "within the same" = country, the
+  two US rows "Jon Smith" / "John Smith" are compared, but a German "Jon Smith"
+  is never compared with the US ones. It makes large tables fast and avoids
+  merging rows that clearly differ on a field you trust. Leave it empty to
+  compare every row.
+
+Other controls:
+
+- **Method** - how two text values are scored:
+  - Edit ratio: counts single-character changes. Best for typos.
+  - Jaro-Winkler: rewards matching starts. Best for names and short strings.
+  - Token set: compares the set of words, ignoring order and punctuation. Best
+    when words are reordered ("Jon Smith" vs "Smith, Jon").
+- **Similarity threshold**: how alike two rows must be (default 85%). 100% =
+  identical; lower catches looser matches but risks false matches.
+- **Normalise**: ignore case, collapse spaces, and ignore punctuation before
+  comparing (all on by default). This is what lets "ACME, Inc." line up with
+  "ACME Inc".
+- **Row limit** caps how many rows are scanned (default 20,000); if the table
+  is larger, the result says so.
+
+The scan runs in the background with a **Cancel** button. Clusters are formed
+transitively: if A is near B and B is near C, all three land in one cluster.
+The cluster's reported score is the lowest linking similarity inside it (the
+honest worst case).
+
+## Output (tick any combination)
+
+- **Add a cluster_id column** (default): writes a cluster_id and cluster_score
+  column onto the table so you can sort or filter by cluster. One undo step.
+- **Highlight** colours the near-duplicate rows orange. Re-running first clears
+  the previous run's highlight, so it never builds up into a fully marked table,
+  and your own marks are left alone.
+- **New tab** opens a clustered report: a cluster id and score column followed
+  by the original columns, grouped by cluster.
+
+The same scan is available as the `fuzzy_duplicates` MCP / assistant tool.
+"#;
+
 pub(super) const SUMMARY: &str = r#"# Summary
 
 The Summary tab answers "what does this table look like?" in one click.
@@ -840,6 +898,66 @@ and position configurable) and is undoable with Ctrl+Z.
 This shares its operators with Conditional formatting; the difference is
 that conditional formatting colours matching cells, while a conditional
 column sets a value.
+"#;
+
+pub(super) const ANONYMIZE: &str = r#"# Anonymise Columns
+
+**Edit > Anonymise columns...** (Ctrl+Shift+Y) prepares a file for sharing by
+masking or scrambling sensitive columns. Add rules, pick a strategy for each,
+choose where the result goes, and press Apply. An Apply is a single undo step
+(Ctrl+Z reverts the whole operation at once).
+
+## Strategies
+
+- **Hash** - replace each value with a stable hex code. The same value always
+  hashes to the same code, so the data stays join-able.
+- **Partial mask** - keep the first or last N characters and replace the rest
+  with a mask character (for example ***-***-1234).
+- **Redact** - replace the whole value with a fixed token ([REDACTED]) or an
+  empty (null) cell.
+- **Fake** - substitute realistic synthetic data (name, email, city, company,
+  phone, UUID). Deterministic, so duplicates stay consistent.
+
+A rule can target several columns; for mask / redact / fake the strategy is
+applied to each.
+
+## Hashing: SHA-256 vs BLAKE3
+
+Both produce a 256-bit digest written as 64 hex characters. SHA-256 is the
+widely known standard; BLAKE3 is a modern hash that is much faster on large
+files. For masking either is fine and the result is equally join-able - pick
+SHA-256 for familiarity, BLAKE3 for speed.
+
+By default Octa writes the full 64-character hash. Turn off "Output full hash"
+to keep only the first N characters as a shorter ID; the fewer characters, the
+higher the (still small) chance two different values share a code.
+
+## Salt
+
+The optional **salt** is mixed into every value before hashing. The same value
+plus the same salt always gives the same result, so duplicates stay linked and
+a re-run with the same salt re-joins to an earlier export. A non-empty salt
+makes the output non-guessable. Null and empty cells always pass through
+unchanged.
+
+## Combine columns into one ID
+
+Select several columns in one **Hash** rule to hash them together into one new
+column (a pseudonymous key), for example first + last into person_id. A
+multi-column hash always creates a new column rather than overwriting.
+
+## Output
+
+- **Replace the columns in place** - overwrite the chosen columns.
+- **Add the result as new columns** - keep the originals and append the
+  anonymised values (e.g. email_anon).
+- **Put a sanitised copy in a new tab** - leave the original untouched.
+
+## Command line and assistant
+
+The same engine is available as octa --anonymize spec.json data.csv (a JSON
+spec file lists the rules, salt, and output mode) and as the anonymize MCP /
+assistant tool.
 "#;
 
 pub(super) const SORTING: &str = r#"# Sorting

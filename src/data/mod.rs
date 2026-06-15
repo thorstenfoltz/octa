@@ -10,6 +10,7 @@ pub mod diff;
 pub mod duplicates;
 pub mod encoding;
 pub mod formulas;
+pub mod fuzzy_duplicates;
 pub mod geo_detect;
 pub mod json_util;
 pub mod multi_search;
@@ -574,6 +575,10 @@ pub enum UndoAction {
         old_values: Vec<CellValue>,
         new_values: Vec<CellValue>,
     },
+    /// A group of actions applied as one logical operation, so a single
+    /// undo/redo reverts/replays all of them (e.g. anonymising a column writes
+    /// one cell edit per row but should undo in one step).
+    Batch(Vec<UndoAction>),
 }
 
 /// Key identifying what is marked (cell, row, or column).
@@ -1370,6 +1375,24 @@ impl DataTable {
 
     /// Undo the last action. Returns true if something was undone.
     pub fn undo(&mut self) -> bool {
+        // Batch: undo each child via the normal single-action path (reverse
+        // order), then record one Batch on the redo stack.
+        if matches!(self.undo_stack.last(), Some(UndoAction::Batch(_))) {
+            let Some(UndoAction::Batch(children)) = self.undo_stack.pop() else {
+                unreachable!()
+            };
+            let mut redone: Vec<UndoAction> = Vec::with_capacity(children.len());
+            for child in children.into_iter().rev() {
+                self.undo_stack.push(child);
+                self.undo();
+                if let Some(done) = self.redo_stack.pop() {
+                    redone.push(done);
+                }
+            }
+            redone.reverse();
+            self.redo_stack.push(UndoAction::Batch(redone));
+            return true;
+        }
         if let Some(action) = self.undo_stack.pop() {
             match action.clone() {
                 UndoAction::CellEdit {
@@ -1524,6 +1547,7 @@ impl DataTable {
                         }
                     }
                 }
+                UndoAction::Batch(_) => {}
             }
             self.redo_stack.push(action);
             true
@@ -1534,6 +1558,23 @@ impl DataTable {
 
     /// Redo the last undone action. Returns true if something was redone.
     pub fn redo(&mut self) -> bool {
+        // Batch: redo each child via the normal single-action path (forward
+        // order), then record one Batch on the undo stack.
+        if matches!(self.redo_stack.last(), Some(UndoAction::Batch(_))) {
+            let Some(UndoAction::Batch(children)) = self.redo_stack.pop() else {
+                unreachable!()
+            };
+            let mut undone: Vec<UndoAction> = Vec::with_capacity(children.len());
+            for child in children.into_iter() {
+                self.redo_stack.push(child);
+                self.redo();
+                if let Some(done) = self.undo_stack.pop() {
+                    undone.push(done);
+                }
+            }
+            self.undo_stack.push(UndoAction::Batch(undone));
+            return true;
+        }
         if let Some(action) = self.redo_stack.pop() {
             match action.clone() {
                 UndoAction::CellEdit {
@@ -1679,12 +1720,24 @@ impl DataTable {
                         }
                     }
                 }
+                UndoAction::Batch(_) => {}
             }
             self.undo_stack.push(action);
             true
         } else {
             false
         }
+    }
+
+    /// Fold every undo action pushed since `start_len` into a single
+    /// [`UndoAction::Batch`], so the whole operation undoes/redoes in one step.
+    /// No-op when 0 or 1 actions were pushed since `start_len`.
+    pub fn coalesce_undo_since(&mut self, start_len: usize) {
+        if self.undo_stack.len() <= start_len + 1 {
+            return;
+        }
+        let children: Vec<UndoAction> = self.undo_stack.split_off(start_len);
+        self.undo_stack.push(UndoAction::Batch(children));
     }
 }
 
@@ -1835,5 +1888,51 @@ pub fn cmp_cell_values(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
             .to_string()
             .to_lowercase()
             .cmp(&b.to_string().to_lowercase()),
+    }
+}
+
+#[cfg(test)]
+mod undo_tests {
+    use super::*;
+
+    fn one_col(values: &[&str]) -> DataTable {
+        let mut t = DataTable::empty();
+        t.columns.push(ColumnInfo {
+            name: "a".into(),
+            data_type: "Utf8".into(),
+        });
+        t.rows = values
+            .iter()
+            .map(|v| vec![CellValue::String(v.to_string())])
+            .collect();
+        t
+    }
+
+    #[test]
+    fn batch_undo_is_one_step() {
+        let mut t = one_col(&["x", "y"]);
+        let start = t.undo_stack.len();
+        t.set(0, 0, CellValue::String("X".into()));
+        t.set(1, 0, CellValue::String("Y".into()));
+        t.coalesce_undo_since(start);
+        assert_eq!(t.undo_stack.len(), start + 1);
+        assert!(t.undo());
+        assert_eq!(t.get(0, 0).unwrap().to_string(), "x");
+        assert_eq!(t.get(1, 0).unwrap().to_string(), "y");
+        assert!(t.redo());
+        assert_eq!(t.get(0, 0).unwrap().to_string(), "X");
+        assert_eq!(t.get(1, 0).unwrap().to_string(), "Y");
+    }
+
+    #[test]
+    fn coalesce_noop_for_zero_or_one() {
+        let mut t = one_col(&["x"]);
+        let start = t.undo_stack.len();
+        t.coalesce_undo_since(start);
+        assert_eq!(t.undo_stack.len(), start);
+        t.set(0, 0, CellValue::String("Z".into()));
+        let one = t.undo_stack.len();
+        t.coalesce_undo_since(one - 1);
+        assert_eq!(t.undo_stack.len(), one);
     }
 }

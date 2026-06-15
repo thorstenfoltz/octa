@@ -402,6 +402,17 @@ impl OctaApp {
                     tab.show_find_duplicates = true;
                 }
             }
+            if action_fired(SA::OpenFuzzyDuplicates)
+                && self.tabs[self.active_tab].table.col_count() > 0
+            {
+                let mut st = super::state::FuzzyDuplicatesState::default();
+                if let Some((_, c)) = self.tabs[self.active_tab].table_state.selected_cell
+                    && c < self.tabs[self.active_tab].table.col_count()
+                {
+                    st.key_cols.insert(c);
+                }
+                self.fuzzy_duplicates_dialog = Some(st);
+            }
             if action_fired(SA::OpenPivot) && self.tabs[self.active_tab].table.col_count() > 0 {
                 self.pivot_dialog = Some(super::state::PivotState::default());
             }
@@ -417,6 +428,12 @@ impl OctaApp {
             {
                 self.conditional_column_dialog =
                     Some(super::state::ConditionalColumnState::default());
+            }
+            if action_fired(SA::OpenAnonymize)
+                && self.tabs[self.active_tab].table.col_count() > 0
+                && !self.is_readonly()
+            {
+                self.anonymize_dialog = Some(super::state::AnonymizeState::default());
             }
             if action_fired(SA::OpenConditionalFormat)
                 && self.tabs[self.active_tab].table.col_count() > 0

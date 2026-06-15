@@ -147,6 +147,8 @@ impl OctaApp {
             multi_sort_dialog: None,
             transform_dialog: None,
             conditional_column_dialog: None,
+            anonymize_dialog: None,
+            fuzzy_duplicates_dialog: None,
             directory_tree: None,
             konami_index: 0,
             confetti_until: None,

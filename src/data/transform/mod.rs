@@ -15,6 +15,7 @@
 //! the result through [`DataTable::insert_column`] + [`DataTable::set`] so the
 //! existing undo/redo machinery records the change.
 
+pub mod anonymize;
 pub mod conditional_value;
 pub mod extract;
 pub mod fill;
@@ -22,6 +23,10 @@ pub mod merge;
 pub mod replace_in_column;
 pub mod split;
 
+pub use anonymize::{
+    AnonOutput, AnonRule, AnonSource, AnonSpec, AnonStrategy, FakeKind, HashAlgo, KeepEnd,
+    RedactToken, anonymize_table,
+};
 pub use conditional_value::{CaseRule, CaseSpec, build_case_column, infer_case_column_type};
 pub use extract::extract_pattern;
 pub use fill::{fill_down, fill_up};

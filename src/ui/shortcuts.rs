@@ -296,6 +296,9 @@ pub enum ShortcutAction {
     /// seeds its key from the currently selected column or cell. Also
     /// reachable via **Search -> Find duplicates...**.
     FindDuplicates,
+    /// Open the Find-near-duplicates (fuzzy) dialog. Also
+    /// **Search -> Find near-duplicates...**.
+    OpenFuzzyDuplicates,
     /// Open the Schema Export dialog. The dialog itself lets the user
     /// pick which of the seven targets (Postgres / MySQL / SQLite /
     /// Pydantic v2 / TypeScript / JSON Schema / Rust) to render, so a
@@ -332,6 +335,8 @@ pub enum ShortcutAction {
     /// Open the Conditional-column (CASE) dialog. Also
     /// **Edit -> Conditional column...**.
     OpenConditionalColumn,
+    /// Open the Anonymise-columns dialog. Also **Edit -> Anonymise columns...**.
+    OpenAnonymize,
     /// Open the Data-validation dialog. Also **Edit -> Data validation...**.
     OpenValidation,
     /// Open the multi-column Sort dialog. Also **Analyse -> Sort by columns...**.
@@ -397,6 +402,7 @@ impl ShortcutAction {
             Self::CompareSelectedTabs => "Compare selected tabs",
             Self::ColumnValueFrequency => "Show column value frequency",
             Self::FindDuplicates => "Find duplicate rows...",
+            Self::OpenFuzzyDuplicates => "Find near-duplicates...",
             Self::ExportSchema => "Export schema...",
             Self::MultiSearch => "Open multi-search panel",
             Self::OpenChart => "Open chart tab",
@@ -407,6 +413,7 @@ impl ShortcutAction {
             Self::OpenTransform => "Transform column...",
             Self::OpenConditionalFormat => "Conditional formatting...",
             Self::OpenConditionalColumn => "Conditional column...",
+            Self::OpenAnonymize => "Anonymise columns...",
             Self::OpenValidation => "Data validation...",
             Self::OpenMultiSort => "Sort by columns...",
             Self::OpenSummary => "Summary tab",
@@ -467,6 +474,7 @@ impl ShortcutAction {
             Self::CompareSelectedTabs => KeyCombo::plain(Key::F9),
             Self::ColumnValueFrequency => KeyCombo::ctrl_shift(Key::I),
             Self::FindDuplicates => KeyCombo::ctrl_shift(Key::D),
+            Self::OpenFuzzyDuplicates => KeyCombo::ctrl_shift(Key::U),
             // F7 (not Ctrl+Shift+X): on Linux/Windows egui receives an
             // OS-level `Event::Cut` for Ctrl+Shift+X, which collides
             // with `do_cut`. F-keys don't generate clipboard events.
@@ -489,6 +497,7 @@ impl ShortcutAction {
             Self::OpenTransform => KeyCombo::ctrl_shift(Key::R),
             Self::OpenConditionalFormat => KeyCombo::ctrl_shift(Key::L),
             Self::OpenConditionalColumn => KeyCombo::ctrl_shift(Key::J),
+            Self::OpenAnonymize => KeyCombo::ctrl_shift(Key::Y),
             Self::OpenValidation => KeyCombo::ctrl_shift(Key::G),
             Self::OpenMultiSort => KeyCombo::ctrl_shift(Key::O),
             Self::OpenSummary => KeyCombo::ctrl_shift(Key::M),
@@ -577,6 +586,7 @@ impl ShortcutAction {
             | Self::ToggleFindReplace
             | Self::OpenColumnFilter
             | Self::FindDuplicates
+            | Self::OpenFuzzyDuplicates
             | Self::MultiSearch
             | Self::OpenChart => G::Search,
             Self::GoToCell
@@ -616,6 +626,7 @@ impl ShortcutAction {
             | Self::OpenTransform
             | Self::OpenConditionalFormat
             | Self::OpenConditionalColumn
+            | Self::OpenAnonymize
             | Self::OpenValidation
             | Self::OpenMultiSort
             | Self::OpenSummary => G::Dialogs,

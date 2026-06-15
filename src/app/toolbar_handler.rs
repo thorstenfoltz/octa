@@ -660,6 +660,12 @@ impl OctaApp {
             self.conditional_column_dialog =
                 Some(crate::app::state::ConditionalColumnState::default());
         }
+        if action.open_anonymize
+            && self.tabs[self.active_tab].table.col_count() > 0
+            && !self.is_readonly()
+        {
+            self.anonymize_dialog = Some(crate::app::state::AnonymizeState::default());
+        }
         if action.open_multi_sort && self.tabs[self.active_tab].table.col_count() > 0 {
             self.multi_sort_dialog = Some(crate::app::state::MultiSortState::default());
         }
@@ -687,6 +693,16 @@ impl OctaApp {
                 }
                 tab.show_find_duplicates = true;
             }
+        }
+        if action.open_fuzzy_duplicates && self.tabs[self.active_tab].table.col_count() > 0 {
+            let mut st = crate::app::state::FuzzyDuplicatesState::default();
+            // Seed the compare set from the selected column, if any.
+            if let Some((_, c)) = self.tabs[self.active_tab].table_state.selected_cell
+                && c < self.tabs[self.active_tab].table.col_count()
+            {
+                st.key_cols.insert(c);
+            }
+            self.fuzzy_duplicates_dialog = Some(st);
         }
     }
 }

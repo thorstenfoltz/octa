@@ -55,6 +55,7 @@ self-contained bundle; invoke it directly:
 | `--describe FILE`                               | One-shot snapshot: format + schema + sample   | [→ `--describe`](describe.md)               |
 | `--validate-schema FILE --expect-schema SCHEMA` | Validate against JSON Schema (exit 1 = drift) | [→ `--validate-schema`](validate-schema.md) |
 | `--unique-columns FILE`                         | Find PK candidates (singles + combos)         | [→ `--unique-columns`](unique-columns.md)   |
+| `--anonymize SPEC FILE`                         | Mask / scramble columns per a JSON spec       | [→ `--anonymize`](anonymize.md)             |
 | `--mcp`                                         | Start the MCP server                          | [→ MCP guide](../mcp/index.md)              |
 
 `--export-schema` also has the short alias `-e`.

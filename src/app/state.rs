@@ -337,6 +337,167 @@ impl Default for ConditionalColumnState {
     }
 }
 
+/// One editable rule row in the Anonymise dialog: a target column plus the
+/// chosen strategy and its parameters. Parameters for *all* strategies are
+/// held at once (not an enum) so switching the strategy dropdown keeps the
+/// other fields' values; the dialog reads only the active strategy's fields.
+/// `column` is an index into the active table's `columns`.
+#[derive(Clone)]
+pub(crate) struct AnonRuleDraft {
+    /// One or more source columns (indices into the active table). With Hash
+    /// and two or more columns, the values are combined into one new column.
+    pub(crate) columns: std::collections::BTreeSet<usize>,
+    pub(crate) kind: AnonStrategyKind,
+    pub(crate) hash_algo: octa::data::transform::HashAlgo,
+    /// Output the full digest (default). When false, truncate to `hash_length`.
+    pub(crate) hash_full: bool,
+    pub(crate) hash_length: String,
+    /// Name for the derived column (multi-column hash).
+    pub(crate) new_column: String,
+    pub(crate) keep_end: octa::data::transform::KeepEnd,
+    pub(crate) mask_count: String,
+    pub(crate) mask_char: String,
+    pub(crate) redact_token: String,
+    pub(crate) redact_use_null: bool,
+    pub(crate) fake_kind: octa::data::transform::FakeKind,
+}
+
+impl Default for AnonRuleDraft {
+    fn default() -> Self {
+        Self {
+            columns: std::collections::BTreeSet::new(),
+            kind: AnonStrategyKind::Hash,
+            hash_algo: octa::data::transform::HashAlgo::Sha256,
+            hash_full: true,
+            hash_length: "12".to_string(),
+            new_column: String::new(),
+            keep_end: octa::data::transform::KeepEnd::Last,
+            mask_count: "4".to_string(),
+            mask_char: "*".to_string(),
+            redact_token: "[REDACTED]".to_string(),
+            redact_use_null: false,
+            fake_kind: octa::data::transform::FakeKind::Name,
+        }
+    }
+}
+
+/// Which strategy a rule row is editing. Mirrors
+/// [`octa::data::transform::AnonStrategy`]'s variants without their payloads,
+/// so the dropdown can switch strategy while the draft keeps every field.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AnonStrategyKind {
+    Hash,
+    PartialMask,
+    Redact,
+    Fake,
+}
+
+impl AnonStrategyKind {
+    pub(crate) const ALL: &'static [AnonStrategyKind] = &[
+        AnonStrategyKind::Hash,
+        AnonStrategyKind::PartialMask,
+        AnonStrategyKind::Redact,
+        AnonStrategyKind::Fake,
+    ];
+    pub(crate) fn label_t(self) -> String {
+        match self {
+            AnonStrategyKind::Hash => octa::i18n::t("anon_strategy.hash"),
+            AnonStrategyKind::PartialMask => octa::i18n::t("anon_strategy.partial_mask"),
+            AnonStrategyKind::Redact => octa::i18n::t("anon_strategy.redact"),
+            AnonStrategyKind::Fake => octa::i18n::t("anon_strategy.fake"),
+        }
+    }
+}
+
+/// Whether Anonymise rewrites the active table or builds a clean copy.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AnonymizeOutput {
+    InPlace,
+    NewColumns,
+    NewTab,
+}
+
+/// Live state for the "Anonymise columns" dialog (Edit -> Anonymise
+/// columns...). App-level (applies to the active tab).
+pub(crate) struct AnonymizeState {
+    pub(crate) rules: Vec<AnonRuleDraft>,
+    pub(crate) salt: String,
+    pub(crate) output: AnonymizeOutput,
+    pub(crate) error: Option<String>,
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl Default for AnonymizeState {
+    fn default() -> Self {
+        Self {
+            rules: vec![AnonRuleDraft::default()],
+            salt: String::new(),
+            output: AnonymizeOutput::InPlace,
+            error: None,
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
+/// Whether the fuzzy-duplicate finder highlights rows in place or opens a
+/// Live state for the "Find near-duplicates" dialog (Search -> Find
+/// near-duplicates...). The scan runs on a background thread (the comparison is
+/// O(n^2) within a block); the worker writes its [`FuzzyResult`] into `result`
+/// and flips `running`, mirroring the multi-search panel's worker pattern.
+/// App-level (operates on the active tab).
+pub(crate) struct FuzzyDuplicatesState {
+    pub(crate) key_cols: std::collections::BTreeSet<usize>,
+    pub(crate) method: octa::data::fuzzy_duplicates::SimilarityMethod,
+    /// Threshold as a percentage (0..=100) for the slider; divided by 100 when
+    /// building the config.
+    pub(crate) threshold_pct: f64,
+    pub(crate) normalize: octa::data::fuzzy_duplicates::NormalizeOpts,
+    pub(crate) block_col: Option<usize>,
+    /// Row-cap text buffer (comma-tolerant), default "20000".
+    pub(crate) max_rows_text: String,
+    /// Output options (any combination, at least one required).
+    pub(crate) out_cluster_col: bool,
+    pub(crate) out_highlight: bool,
+    pub(crate) out_new_tab: bool,
+    /// Rows the previous run highlighted, cleared before the next highlight so
+    /// re-running does not accumulate marks across the whole table.
+    pub(crate) last_highlight_rows: Vec<usize>,
+    /// Worker output (None until a scan completes).
+    pub(crate) result: Arc<Mutex<Option<octa::data::fuzzy_duplicates::FuzzyResult>>>,
+    pub(crate) running: Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) cancel: Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) handle: Option<std::thread::JoinHandle<()>>,
+    /// True once a scan has finished and its output has been applied (so the
+    /// per-frame poll applies it exactly once).
+    pub(crate) applied: bool,
+    pub(crate) error: Option<String>,
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl Default for FuzzyDuplicatesState {
+    fn default() -> Self {
+        Self {
+            key_cols: std::collections::BTreeSet::new(),
+            method: octa::data::fuzzy_duplicates::SimilarityMethod::default(),
+            threshold_pct: 85.0,
+            normalize: octa::data::fuzzy_duplicates::NormalizeOpts::default(),
+            block_col: None,
+            max_rows_text: "20000".to_string(),
+            out_cluster_col: true,
+            out_highlight: false,
+            out_new_tab: false,
+            last_highlight_rows: Vec::new(),
+            result: Arc::new(Mutex::new(None)),
+            running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            handle: None,
+            applied: false,
+            error: None,
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
 /// One-shot per-file prompt shown after loading a CSV/TSV whose size is
 /// likely to make column coloring or column alignment laggy. The user can
 /// either keep the slow features on (we honor their choice and don't ask
@@ -1147,6 +1308,14 @@ pub(crate) struct OctaApp {
     /// Builds a new column from an if / else-if / else rule chain over the
     /// active tab (see `src/app/dialogs/conditional_column.rs`).
     pub(crate) conditional_column_dialog: Option<ConditionalColumnState>,
+    /// Active Anonymise-columns dialog state, or `None` when closed. Masks or
+    /// scrambles chosen columns of the active tab (see
+    /// `src/app/dialogs/anonymize.rs`).
+    pub(crate) anonymize_dialog: Option<AnonymizeState>,
+    /// Active Find-near-duplicates dialog state, or `None` when closed. Runs a
+    /// fuzzy-duplicate scan on a worker thread (see
+    /// `src/app/dialogs/find_fuzzy_duplicates.rs`).
+    pub(crate) fuzzy_duplicates_dialog: Option<FuzzyDuplicatesState>,
     /// Currently opened directory tree sidebar (`None` = sidebar hidden).
     pub(crate) directory_tree: Option<ui::directory_tree::DirectoryTreeState>,
     /// How many key presses of the Konami sequence have been matched so far.

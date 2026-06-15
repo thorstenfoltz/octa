@@ -108,7 +108,9 @@ nav:
       - Conditional Formatting: usage/conditional-formatting.md
       - Data Validation: usage/data-validation.md
       - Transform Column: usage/transform-column.md
+      - Anonymise Columns: usage/anonymize-columns.md
       - Value Frequency: usage/value-frequency.md
+      - Find Near-Duplicates: usage/find-near-duplicates.md
       - Summary: usage/summary.md
       - Pivot / Unpivot: usage/pivot.md
       - Schema Export: usage/schema-export.md
@@ -141,6 +143,7 @@ nav:
       - "--describe": cli/describe.md
       - "--validate-schema": cli/validate-schema.md
       - "--unique-columns": cli/unique-columns.md
+      - "--anonymize": cli/anonymize.md
       - Docker / Podman: cli/docker.md
       - Man Page: cli/man-page.md
   - MCP Server:
@@ -159,6 +162,7 @@ nav:
           - export_schema: mcp/tools/export_schema.md
           - profile: mcp/tools/profile.md
           - find_duplicates: mcp/tools/find_duplicates.md
+          - fuzzy_duplicates: mcp/tools/fuzzy_duplicates.md
           - value_frequency: mcp/tools/value_frequency.md
           - search: mcp/tools/search.md
           - compare_schemas: mcp/tools/compare_schemas.md
@@ -166,8 +170,13 @@ nav:
           - describe_file: mcp/tools/describe_file.md
           - validate_against_schema: mcp/tools/validate_against_schema.md
           - unique_columns: mcp/tools/unique_columns.md
+          - pivot: mcp/tools/pivot.md
+          - correlation: mcp/tools/correlation.md
+          - grep_files: mcp/tools/grep_files.md
           - write_table: mcp/tools/write_table.md
           - edit_table: mcp/tools/edit_table.md
+          - transform_columns: mcp/tools/transform_columns.md
+          - anonymize: mcp/tools/anonymize.md
       - Limits & Truncation: mcp/limits-and-truncation.md
       - Examples: mcp/examples.md
       - Troubleshooting: mcp/troubleshooting.md

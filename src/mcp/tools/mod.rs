@@ -2,6 +2,7 @@
 //! submodule so adding one is a drop-in (write the file, add it to the
 //! `mod` list here, add a wrapper method to `OctaMcpServer`).
 
+pub mod anonymize;
 pub mod compare_schemas;
 pub mod convert;
 pub mod correlation;
@@ -13,6 +14,7 @@ pub mod diff_tables;
 pub mod edit_table;
 pub mod export_schema;
 pub mod find_duplicates;
+pub mod fuzzy_duplicates;
 pub mod grep_files;
 pub mod list_tables;
 pub mod pivot;

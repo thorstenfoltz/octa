@@ -17,6 +17,7 @@ use clap::{Parser, ValueEnum};
 
 use octa::data::schema_export::SchemaTarget;
 
+pub mod anonymize;
 pub mod compare_schemas;
 pub mod convert;
 pub mod describe;
@@ -113,6 +114,10 @@ FROM data GROUP BY region' \
     octa --unique-columns users.csv
     octa --unique-columns sales.parquet --max-combo 2 -f json
 
+  Anonymise / mask columns for sharing:
+    octa --anonymize spec.json data.csv
+    octa --anonymize spec.json data.parquet -f json
+
   MCP server (stdio):
     octa --mcp                         # serve MCP over stdin/stdout
 
@@ -153,10 +158,13 @@ Notes:
     Use --max-combo to also test column pairs / triples.
   * --mcp starts an MCP (Model Context Protocol) server on stdio. Tools:
     read_table, tail, sample, schema, list_tables, count_rows, run_sql,
-    convert, export_schema, profile, find_duplicates, value_frequency,
-    search, compare_schemas, diff_tables, validate_against_schema,
-    describe_file, unique_columns. Default row + cell caps come from
-    Settings -> MCP.
+    convert, export_schema, profile, find_duplicates, fuzzy_duplicates,
+    value_frequency, search, compare_schemas, diff_tables,
+    validate_against_schema, describe_file, unique_columns, pivot,
+    correlation, grep_files, write_table, edit_table, transform_columns,
+    anonymize. The file-writing tools (convert, write_table, edit_table,
+    transform_columns, anonymize) are dropped under --mcp-read-only.
+    Default row + cell caps come from Settings -> MCP.
   * Action flags are mutually exclusive - pick one. Without any, Octa
     launches its GUI.
   * --rows overrides the initial-load row cap for this invocation
@@ -318,6 +326,18 @@ pub struct Cli {
     #[arg(long = "unique-columns", value_name = "FILE", group = "action")]
     pub unique_columns: Option<PathBuf>,
 
+    /// Anonymise / mask columns of FILE per a JSON SPEC file, printing the
+    /// sanitised table to stdout (the input file is never modified). The spec
+    /// lists per-column rules (`hash` / `partial_mask` / `redact` / `fake`)
+    /// plus an optional shared `salt`; columns are named.
+    #[arg(
+        long = "anonymize",
+        value_names = ["SPEC", "FILE"],
+        num_args = 2,
+        group = "action"
+    )]
+    pub anonymize: Vec<PathBuf>,
+
     /// Start the MCP (Model Context Protocol) server on stdin/stdout.
     /// Mutually exclusive with the other action flags. Tools mirror the
     /// CLI surface: read_table, schema, list_tables, count_rows, run_sql,
@@ -466,6 +486,10 @@ pub enum Action {
         table: Option<String>,
         max_combo: usize,
     },
+    Anonymize {
+        spec: PathBuf,
+        file: PathBuf,
+    },
     Mcp,
 }
 
@@ -594,6 +618,15 @@ impl Cli {
                 path: p.clone(),
                 table: self.table.clone(),
                 max_combo: self.max_combo,
+            }));
+        }
+        if !self.anonymize.is_empty() {
+            if self.anonymize.len() != 2 {
+                return Err("--anonymize needs exactly two paths: --anonymize SPEC FILE");
+            }
+            return Ok(Some(Action::Anonymize {
+                spec: self.anonymize[0].clone(),
+                file: self.anonymize[1].clone(),
             }));
         }
         if self.mcp {
@@ -817,6 +850,7 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             table,
             max_combo,
         } => unique_columns::run(path, table, max_combo, format),
+        Action::Anonymize { spec, file } => anonymize::run(spec, file, format),
         Action::ValidateSchema { .. } => unreachable!("handled above"),
         Action::Mcp => {
             eprintln!("error: --mcp must be dispatched from main, not via cli::dispatch");

@@ -370,6 +370,14 @@ pub fn draw_toolbar(
                         action.open_conditional_column = true;
                         ui.close();
                     }
+                    if ui
+                        .button(crate::i18n::t("anonymize.menu"))
+                        .on_hover_text(crate::i18n::t("anonymize.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_anonymize = true;
+                        ui.close();
+                    }
                     let del_col = ui.add_enabled(
                         has_selected_cell,
                         egui::Button::new(crate::i18n::t("toolbar.delete_column")),
@@ -793,6 +801,17 @@ pub fn draw_toolbar(
                     );
                     if dup_btn.clicked() {
                         action.show_find_duplicates = true;
+                        ui.close();
+                    }
+                    let fuzzy_btn = ui.add_enabled(
+                        has_data,
+                        egui::Button::new(crate::i18n::t("fuzzy_dup.menu")),
+                    );
+                    if fuzzy_btn
+                        .on_hover_text(crate::i18n::t("fuzzy_dup.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_fuzzy_duplicates = true;
                         ui.close();
                     }
                     ui.separator();

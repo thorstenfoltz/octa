@@ -71,7 +71,13 @@ impl OctaMcpServer {
         if read_only {
             // Read-only mode: drop every tool that mutates a file so the
             // server can be wired into agent frameworks with no write surface.
-            for name in ["write_table", "edit_table", "convert", "transform_columns"] {
+            for name in [
+                "write_table",
+                "edit_table",
+                "convert",
+                "transform_columns",
+                "anonymize",
+            ] {
                 tool_router.remove_route(name);
             }
         }
@@ -250,6 +256,20 @@ detection considers every row in the file."
         Parameters(p): Parameters<tools::find_duplicates::Params>,
     ) -> Result<CallToolResult, McpError> {
         tools::find_duplicates::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Find near-duplicate rows (fuzzy): rows almost the same on the chosen \
+columns (typos, spacing, reordered words). `key_columns` are compared (averaged); `method` is \
+edit_ratio / jaro_winkler / token_set; `threshold` 0.0..=1.0 (default 0.85). Optional \
+`block_column` only compares rows sharing its exact value. Returns clusters (`{rows, score}`), \
+`compared_rows`, and `capped`. Read-only analytics."
+    )]
+    async fn fuzzy_duplicates(
+        &self,
+        Parameters(p): Parameters<tools::fuzzy_duplicates::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::fuzzy_duplicates::handle(self, p).await
     }
 
     #[tool(
@@ -457,6 +477,20 @@ column names. Order: drop, then rename, then cast. Writes to `output_path` (defa
         Parameters(p): Parameters<tools::transform_columns::Params>,
     ) -> Result<CallToolResult, McpError> {
         tools::transform_columns::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Anonymise / mask sensitive columns of a tabular file and write the result. \
+`rules` is `{column, strategy}` where strategy is hash / partial_mask / redact / fake; a shared \
+`salt` makes output non-guessable and keeps duplicates linked. Null/empty cells pass through. \
+Writes to `output_path` (default: overwrite `path`). Database files are not valid sources or \
+targets."
+    )]
+    async fn anonymize(
+        &self,
+        Parameters(p): Parameters<tools::anonymize::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::anonymize::handle(self, p).await
     }
 }
 
