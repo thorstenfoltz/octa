@@ -11,14 +11,14 @@ with `--mcp-read-only`.
 
 ## Input schema
 
-| Parameter  | Type   | Required? | Default              | Description                                                        |
-|------------|--------|-----------|----------------------|--------------------------------------------------------------------|
-| `path`     | string | no\*      | (no default)         | Path to the source file (omit when `open_tab` is set)              |
-| `open_tab` | string | no        | (no default)         | Operate on an open GUI tab (`@active` or tab name)                 |
-| `table`    | string | no        | (no default)         | Specific table for multi-table sources                            |
-| `column`   | string | yes       | (no default)         | Column whose distinct values become the partitions                |
-| `out_dir`  | string | yes       | (no default)         | Output directory (created if absent)                              |
-| `format`   | string | no        | source's extension   | Output extension without the dot (`csv`, `parquet`, …). Required for an open tab with no file |
+| Parameter  | Type   | Required? | Default            | Description                                                                                   |
+|------------|--------|-----------|--------------------|-----------------------------------------------------------------------------------------------|
+| `path`     | string | no\*      | (no default)       | Path to the source file (omit when `open_tab` is set)                                         |
+| `open_tab` | string | no        | (no default)       | Operate on an open GUI tab (`@active` or tab name)                                            |
+| `table`    | string | no        | (no default)       | Specific table for multi-table sources                                                        |
+| `column`   | string | yes       | (no default)       | Column whose distinct values become the partitions                                            |
+| `out_dir`  | string | yes       | (no default)       | Output directory (created if absent)                                                          |
+| `format`   | string | no        | source's extension | Output extension without the dot (`csv`, `parquet`, …). Required for an open tab with no file |
 
 \* `path` or `open_tab` is required.
 

@@ -13,20 +13,20 @@ with a similarity score. The fuzzy counterpart of
 
 ## Input schema
 
-| Parameter      | Type     | Required? | Default       | Description                                                                          |
-|----------------|----------|-----------|---------------|--------------------------------------------------------------------------------------|
-| `path`         | string   | yes*      | (no default)  | Path to the file (omit when `open_tab` is set)                                       |
-| `open_tab`     | string   | no        | (no default)  | Operate on an open GUI tab (`@active` or a tab name) instead of a file              |
-| `table`        | string   | no        | (no default)  | Specific table for multi-table sources                                              |
-| `key_columns`  | string[] | yes       | (no default)  | Columns compared (scores are averaged across them)                                  |
-| `method`       | string   | no        | `edit_ratio`  | `edit_ratio` (typos), `jaro_winkler` (names), or `token_set` (word order)           |
-| `threshold`    | number   | no        | `0.85`        | Match threshold, `0.0`..=`1.0`                                                       |
-| `lower`        | bool     | no        | `true`        | Lowercase before comparing                                                           |
-| `collapse_ws`  | bool     | no        | `true`        | Collapse whitespace before comparing                                                |
-| `strip_punct`  | bool     | no        | `true`        | Strip punctuation before comparing                                                  |
-| `block_column` | string   | no        | (no default)  | Only compare rows sharing this column's exact value (makes large tables feasible)   |
-| `max_rows`     | integer  | no        | `20000`       | Cap on rows scanned                                                                  |
-| `unlimited`    | bool     | no        | `false`       | Lift the 5,000,000-row file-loader cap so every row is loaded from disk             |
+| Parameter      | Type     | Required? | Default      | Description                                                                       |
+|----------------|----------|-----------|--------------|-----------------------------------------------------------------------------------|
+| `path`         | string   | yes*      | (no default) | Path to the file (omit when `open_tab` is set)                                    |
+| `open_tab`     | string   | no        | (no default) | Operate on an open GUI tab (`@active` or a tab name) instead of a file            |
+| `table`        | string   | no        | (no default) | Specific table for multi-table sources                                            |
+| `key_columns`  | string[] | yes       | (no default) | Columns compared (scores are averaged across them)                                |
+| `method`       | string   | no        | `edit_ratio` | `edit_ratio` (typos), `jaro_winkler` (names), or `token_set` (word order)         |
+| `threshold`    | number   | no        | `0.85`       | Match threshold, `0.0`..=`1.0`                                                    |
+| `lower`        | bool     | no        | `true`       | Lowercase before comparing                                                        |
+| `collapse_ws`  | bool     | no        | `true`       | Collapse whitespace before comparing                                              |
+| `strip_punct`  | bool     | no        | `true`       | Strip punctuation before comparing                                                |
+| `block_column` | string   | no        | (no default) | Only compare rows sharing this column's exact value (makes large tables feasible) |
+| `max_rows`     | integer  | no        | `20000`      | Cap on rows scanned                                                               |
+| `unlimited`    | bool     | no        | `false`      | Lift the 5,000,000-row file-loader cap so every row is loaded from disk           |
 
 This is **read-only** analytics: it returns clusters and writes nothing, so it
 stays available under `--mcp-read-only`.

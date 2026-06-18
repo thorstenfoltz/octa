@@ -11,15 +11,15 @@ first or last occurrence of each key survives.
 
 ## Input schema
 
-| Parameter   | Type     | Required? | Default        | Description                                                          |
-|-------------|----------|-----------|----------------|----------------------------------------------------------------------|
-| `path`      | string   | no\*      | (no default)   | Path to the file (omit when `open_tab` is set)                       |
-| `open_tab`  | string   | no        | (no default)   | Operate on an open GUI tab (`@active` or tab name)                   |
-| `table`     | string   | no        | (no default)   | Specific table for multi-table sources                              |
-| `on`        | string[] | no        | all columns    | Key columns; omit or pass `[]` for whole-row equality               |
-| `keep`      | string   | no        | `first`        | `first` or `last`                                                    |
-| `limit`     | integer  | no        | server default | Max rows to return. `0` = unlimited                                  |
-| `unlimited` | bool     | no        | `false`        | Lift the 5,000,000-row file-loader cap so every row is read         |
+| Parameter   | Type     | Required? | Default        | Description                                                 |
+|-------------|----------|-----------|----------------|-------------------------------------------------------------|
+| `path`      | string   | no\*      | (no default)   | Path to the file (omit when `open_tab` is set)              |
+| `open_tab`  | string   | no        | (no default)   | Operate on an open GUI tab (`@active` or tab name)          |
+| `table`     | string   | no        | (no default)   | Specific table for multi-table sources                      |
+| `on`        | string[] | no        | all columns    | Key columns; omit or pass `[]` for whole-row equality       |
+| `keep`      | string   | no        | `first`        | `first` or `last`                                           |
+| `limit`     | integer  | no        | server default | Max rows to return. `0` = unlimited                         |
+| `unlimited` | bool     | no        | `false`        | Lift the 5,000,000-row file-loader cap so every row is read |
 
 \* `path` or `open_tab` is required.
 

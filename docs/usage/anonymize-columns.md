@@ -9,12 +9,12 @@ undo step (Ctrl+Z reverts the whole operation at once).
 
 Each rule targets one or more columns and applies a strategy:
 
-| Strategy | What it does | Example |
-| --- | --- | --- |
-| Hash | A stable code derived from the value. The same value always gives the same code, so the data stays join-able. | `a@x.com` -> `9f86d081a1b2...` |
-| Partial mask | Keep the first or last N characters, replace the rest. | `5551234` -> `***1234` |
-| Redact | Replace the whole value with a fixed token or an empty (null) cell. | `secret` -> `[REDACTED]` |
-| Fake | A realistic synthetic value (name, email, city, company, phone, UUID). Deterministic, so duplicates stay consistent. | `Alice` -> `Jordan Lee` |
+| Strategy     | What it does                                                                                                         | Example                        |
+|--------------|----------------------------------------------------------------------------------------------------------------------|--------------------------------|
+| Hash         | A stable code derived from the value. The same value always gives the same code, so the data stays join-able.        | `a@x.com` -> `9f86d081a1b2...` |
+| Partial mask | Keep the first or last N characters, replace the rest.                                                               | `5551234` -> `***1234`         |
+| Redact       | Replace the whole value with a fixed token or an empty (null) cell.                                                  | `secret` -> `[REDACTED]`       |
+| Fake         | A realistic synthetic value (name, email, city, company, phone, UUID). Deterministic, so duplicates stay consistent. | `Alice` -> `Jordan Lee`        |
 
 Picking several columns in one **mask / redact / fake** rule applies the same
 strategy to each of them.

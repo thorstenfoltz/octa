@@ -10,13 +10,13 @@ like a SQL JOIN or a spreadsheet VLOOKUP. Runs through DuckDB.
 
 ## Input schema
 
-| Parameter   | Type     | Required? | Default        | Description                                                                 |
-|-------------|----------|-----------|----------------|-----------------------------------------------------------------------------|
+| Parameter   | Type     | Required? | Default        | Description                                                                                                 |
+|-------------|----------|-----------|----------------|-------------------------------------------------------------------------------------------------------------|
 | `sources`   | object[] | yes       | (no default)   | Two or more sources. Each has `path` (file) **or** `open_tab` (`@active` / tab name), plus optional `table` |
-| `on`        | string[] | yes       | (no default)   | Key column name(s); must exist in every source. At least one required       |
-| `how`       | string   | no        | `left`         | `left`, `inner`, `right`, or `full`                                          |
-| `limit`     | integer  | no        | server default | Max rows to return. `0` = unlimited                                          |
-| `unlimited` | bool     | no        | `false`        | Lift the 5,000,000-row file-loader cap so every source row is read          |
+| `on`        | string[] | yes       | (no default)   | Key column name(s); must exist in every source. At least one required                                       |
+| `how`       | string   | no        | `left`         | `left`, `inner`, `right`, or `full`                                                                         |
+| `limit`     | integer  | no        | server default | Max rows to return. `0` = unlimited                                                                         |
+| `unlimited` | bool     | no        | `false`        | Lift the 5,000,000-row file-loader cap so every source row is read                                          |
 
 ## Response shape
 

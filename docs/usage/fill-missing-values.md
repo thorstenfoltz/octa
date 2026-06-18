@@ -6,14 +6,14 @@ changed; existing values are left alone. Apply is a single undo step.
 
 ## Strategies
 
-| Strategy | What it does |
-| --- | --- |
-| Mean | Fill with the column's average (numeric columns only). |
-| Median | Fill with the middle value (numeric columns only). |
-| Mode | Fill with the most common value. |
-| Constant | Fill with a fixed value you type. |
-| Forward fill | Copy the nearest non-empty value from above. |
-| Backward fill | Copy the nearest non-empty value from below. |
+| Strategy      | What it does                                           |
+|---------------|--------------------------------------------------------|
+| Mean          | Fill with the column's average (numeric columns only). |
+| Median        | Fill with the middle value (numeric columns only).     |
+| Mode          | Fill with the most common value.                       |
+| Constant      | Fill with a fixed value you type.                      |
+| Forward fill  | Copy the nearest non-empty value from above.           |
+| Backward fill | Copy the nearest non-empty value from below.           |
 
 A strategy that doesn't fit the data (for example Mean on a text column)
 shows an inline error and changes nothing. The operation respects

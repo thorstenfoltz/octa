@@ -12,14 +12,14 @@ several columns in one run. The data file is the positional argument.
 
 ## Strategies
 
-| Strategy | What it does |
-| --- | --- |
-| `mean` | Column average (numeric columns only). |
-| `median` | Middle value (numeric columns only). |
-| `mode` | Most common value. |
-| `ffill` | Forward fill: nearest non-empty value from above. |
-| `bfill` | Backward fill: nearest non-empty value from below. |
-| `const:VALUE` | A fixed value, e.g. `const:0` or `const:unknown`. |
+| Strategy      | What it does                                       |
+|---------------|----------------------------------------------------|
+| `mean`        | Column average (numeric columns only).             |
+| `median`      | Middle value (numeric columns only).               |
+| `mode`        | Most common value.                                 |
+| `ffill`       | Forward fill: nearest non-empty value from above.  |
+| `bfill`       | Backward fill: nearest non-empty value from below. |
+| `const:VALUE` | A fixed value, e.g. `const:0` or `const:unknown`.  |
 
 Only empty/null cells are changed. A strategy that doesn't fit the column
 (e.g. `mean` on text) is an error.

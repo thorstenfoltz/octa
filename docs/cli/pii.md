@@ -23,13 +23,13 @@ column like `salary` is left alone.
 
 One row per finding with these columns:
 
-| Column        | Meaning                                                        |
-|---------------|----------------------------------------------------------------|
-| `column`      | Column name                                                    |
+| Column        | Meaning                                                                                                                           |
+|---------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| `column`      | Column name                                                                                                                       |
 | `kind`        | `email`, `phone`, `ip_address`, `credit_card`, `iban`, `ssn`, `name`, `gender`, `country`, `birth_date`, `postal_code`, `address` |
-| `confidence`  | 0..1 score (reported when >= 0.5)                              |
-| `by_name`     | Whether the header matched                                     |
-| `value_match` | Fraction of sampled values matching the kind's pattern        |
+| `confidence`  | 0..1 score (reported when >= 0.5)                                                                                                 |
+| `by_name`     | Whether the header matched                                                                                                        |
+| `value_match` | Fraction of sampled values matching the kind's pattern                                                                            |
 
 `by_name` and `value_match` show how the confidence was reached. Use it to
 decide which columns to mask with [`--anonymize`](anonymize.md).

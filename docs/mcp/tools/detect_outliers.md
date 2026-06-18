@@ -10,14 +10,14 @@ coordinates of the flagged cells; it does not change the data.
 
 ## Input schema
 
-| Parameter  | Type     | Required? | Default          | Description                                              |
-|------------|----------|-----------|------------------|----------------------------------------------------------|
-| `path`     | string   | no\*      | (no default)     | Path to the file (omit when `open_tab` is set)           |
-| `open_tab` | string   | no        | (no default)     | Operate on an open GUI tab (`@active` or tab name)       |
-| `table`    | string   | no        | (no default)     | Specific table for multi-table sources                  |
-| `columns`  | string[] | no        | all columns      | Columns to check                                         |
-| `method`   | string   | no        | `iqr`            | `iqr` or `zscore`                                        |
-| `k`        | number   | no        | 1.5 IQR / 3.0 z  | Threshold multiplier                                     |
+| Parameter  | Type     | Required? | Default         | Description                                        |
+|------------|----------|-----------|-----------------|----------------------------------------------------|
+| `path`     | string   | no\*      | (no default)    | Path to the file (omit when `open_tab` is set)     |
+| `open_tab` | string   | no        | (no default)    | Operate on an open GUI tab (`@active` or tab name) |
+| `table`    | string   | no        | (no default)    | Specific table for multi-table sources             |
+| `columns`  | string[] | no        | all columns     | Columns to check                                   |
+| `method`   | string   | no        | `iqr`           | `iqr` or `zscore`                                  |
+| `k`        | number   | no        | 1.5 IQR / 3.0 z | Threshold multiplier                               |
 
 \* `path` or `open_tab` is required.
 

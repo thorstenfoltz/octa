@@ -15,14 +15,14 @@ This is a **write** tool, so it is removed under `--mcp-read-only` (alongside
 
 ## Input schema
 
-| Parameter     | Type     | Required? | Default          | Description                                                        |
-|---------------|----------|-----------|------------------|--------------------------------------------------------------------|
-| `path`        | string   | yes       | (no default)     | Path to the source file                                            |
-| `drop`        | string[] | no        | `[]`             | Column names to drop (applied first)                              |
-| `rename`      | object[] | no        | `[]`             | `{ "from": NAME, "to": NAME }` pairs (applied after drops)        |
-| `cast`        | object[] | no        | `[]`             | `{ "column": NAME, "type": ARROW_TYPE }` (applied last)           |
+| Parameter     | Type     | Required? | Default          | Description                                                      |
+|---------------|----------|-----------|------------------|------------------------------------------------------------------|
+| `path`        | string   | yes       | (no default)     | Path to the source file                                          |
+| `drop`        | string[] | no        | `[]`             | Column names to drop (applied first)                             |
+| `rename`      | object[] | no        | `[]`             | `{ "from": NAME, "to": NAME }` pairs (applied after drops)       |
+| `cast`        | object[] | no        | `[]`             | `{ "column": NAME, "type": ARROW_TYPE }` (applied last)          |
 | `output_path` | string   | no        | overwrite `path` | Where to write the result; format follows its extension          |
-| `unlimited`   | bool     | no        | `false`          | Lift the 5,000,000-row file-loader cap so every row is rewritten  |
+| `unlimited`   | bool     | no        | `false`          | Lift the 5,000,000-row file-loader cap so every row is rewritten |
 
 Operations apply in a fixed order: **drop**, then **rename**, then **cast** (so
 cast/rename refer to the post-drop column set, and cast uses the new names).

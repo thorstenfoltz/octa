@@ -11,8 +11,8 @@ analytics (stays available under `--mcp-read-only`).
 
 ## Input schema
 
-| Parameter          | Type    | Required? | Default      | Description                                          |
-|--------------------|---------|-----------|--------------|------------------------------------------------------|
+| Parameter          | Type    | Required? | Default      | Description                                         |
+|--------------------|---------|-----------|--------------|-----------------------------------------------------|
 | `dir`              | string  | yes       | (no default) | Directory to search (one level deep; not recursive) |
 | `query`            | string  | yes       | (no default) | The text / pattern to search for                    |
 | `mode`             | string  | no        | `plain`      | `plain`, `wildcard` (`*`/`?`), or `regex`           |

@@ -13,13 +13,13 @@ back to text.
 
 ## Input schema
 
-| Parameter   | Type      | Required? | Default        | Description                                                                 |
-|-------------|-----------|-----------|----------------|-----------------------------------------------------------------------------|
-| `sources`   | object[]  | yes       | (no default)   | Two or more sources. Each has `path` (file) **or** `open_tab` (`@active` / tab name), plus optional `table` for multi-table sources |
-| `drop`      | string[]  | no        | `[]`           | Column names to exclude from the output (unknown names ignored)             |
-| `cast`      | object[]  | no        | `[]`           | Per-column target-type overrides (`{ "column": NAME, "type": ARROW_TYPE }`) |
-| `limit`     | integer   | no        | server default | Max rows to return. `0` = unlimited                                         |
-| `unlimited` | bool      | no        | `false`        | Lift the 5,000,000-row file-loader cap so every source row is read          |
+| Parameter   | Type     | Required? | Default        | Description                                                                                                                         |
+|-------------|----------|-----------|----------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| `sources`   | object[] | yes       | (no default)   | Two or more sources. Each has `path` (file) **or** `open_tab` (`@active` / tab name), plus optional `table` for multi-table sources |
+| `drop`      | string[] | no        | `[]`           | Column names to exclude from the output (unknown names ignored)                                                                     |
+| `cast`      | object[] | no        | `[]`           | Per-column target-type overrides (`{ "column": NAME, "type": ARROW_TYPE }`)                                                         |
+| `limit`     | integer  | no        | server default | Max rows to return. `0` = unlimited                                                                                                 |
+| `unlimited` | bool     | no        | `false`        | Lift the 5,000,000-row file-loader cap so every source row is read                                                                  |
 
 ## Response shape
 

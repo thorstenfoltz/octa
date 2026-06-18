@@ -10,11 +10,11 @@ open tab. Read-only analytics (stays available under `--mcp-read-only`).
 
 ## Input schema
 
-| Parameter   | Type   | Required? | Default      | Description                                                  |
-|-------------|--------|-----------|--------------|--------------------------------------------------------------|
+| Parameter   | Type   | Required? | Default      | Description                                                 |
+|-------------|--------|-----------|--------------|-------------------------------------------------------------|
 | `path`      | string | yes*      | (no default) | Path to the file (omit when `open_tab` is set)              |
 | `open_tab`  | string | no        | (no default) | Operate on an open GUI tab (`@active` or a tab name)        |
-| `table`     | string | no        | (no default) | Specific table for multi-table sources                     |
+| `table`     | string | no        | (no default) | Specific table for multi-table sources                      |
 | `method`    | string | no        | `pearson`    | `pearson` (linear) or `spearman` (monotonic, rank-based)    |
 | `unlimited` | bool   | no        | `false`      | Lift the 5,000,000-row file-loader cap so every row is used |
 

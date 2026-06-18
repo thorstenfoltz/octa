@@ -13,12 +13,12 @@ like names or country are found while plain number columns are not.
 
 ## Input schema
 
-| Parameter     | Type    | Required? | Default      | Description                                          |
-|---------------|---------|-----------|--------------|------------------------------------------------------|
-| `path`        | string  | no\*      | (no default) | Path to the file (omit when `open_tab` is set)       |
-| `open_tab`    | string  | no        | (no default) | Operate on an open GUI tab (`@active` or tab name)   |
-| `table`       | string  | no        | (no default) | Specific table for multi-table sources              |
-| `sample_rows` | integer | no        | `500`        | Rows sampled per column for pattern matching         |
+| Parameter     | Type    | Required? | Default      | Description                                        |
+|---------------|---------|-----------|--------------|----------------------------------------------------|
+| `path`        | string  | no\*      | (no default) | Path to the file (omit when `open_tab` is set)     |
+| `open_tab`    | string  | no        | (no default) | Operate on an open GUI tab (`@active` or tab name) |
+| `table`       | string  | no        | (no default) | Specific table for multi-table sources             |
+| `sample_rows` | integer | no        | `500`        | Rows sampled per column for pattern matching       |
 
 \* `path` or `open_tab` is required.
 

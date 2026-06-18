@@ -11,21 +11,21 @@ The same engine that backs the GUI Pivot / Unpivot dialog. Read-only analytics
 
 ## Input schema
 
-| Parameter   | Type     | Required?         | Default       | Description                                                              |
-|-------------|----------|-------------------|---------------|--------------------------------------------------------------------------|
-| `path`      | string   | yes*              | (no default)  | Path to the file (omit when `open_tab` is set)                          |
-| `open_tab`  | string   | no                | (no default)  | Operate on an open GUI tab (`@active` or a tab name)                    |
-| `table`     | string   | no                | (no default)  | Specific table for multi-table sources                                 |
-| `mode`      | string   | no                | `pivot`       | `pivot` (long -> wide) or `unpivot` (wide -> long)                      |
-| `on`        | string   | pivot only        | (no default)  | Pivot: column whose distinct values become new columns                 |
-| `value`     | string   | pivot only        | (no default)  | Pivot: column aggregated under each new column                         |
-| `agg`       | string   | no                | `sum`         | Pivot: `sum` / `count` / `avg` / `min` / `max`                         |
-| `group`     | string[] | no                | (inferred)    | Pivot: identity columns kept as rows (empty = DuckDB infers them)      |
-| `columns`   | string[] | unpivot only      | (no default)  | Unpivot: the columns to melt (at least two)                            |
-| `name_col`  | string   | no                | `name`        | Unpivot: name of the generated key column                              |
-| `value_col` | string   | no                | `value`       | Unpivot: name of the generated value column                            |
-| `limit`     | integer  | no                | server default| Cap response rows (`0` = unlimited)                                    |
-| `unlimited` | bool     | no                | `false`       | Lift the 5,000,000-row file-loader cap so the reshape sees every row   |
+| Parameter   | Type     | Required?    | Default        | Description                                                          |
+|-------------|----------|--------------|----------------|----------------------------------------------------------------------|
+| `path`      | string   | yes*         | (no default)   | Path to the file (omit when `open_tab` is set)                       |
+| `open_tab`  | string   | no           | (no default)   | Operate on an open GUI tab (`@active` or a tab name)                 |
+| `table`     | string   | no           | (no default)   | Specific table for multi-table sources                               |
+| `mode`      | string   | no           | `pivot`        | `pivot` (long -> wide) or `unpivot` (wide -> long)                   |
+| `on`        | string   | pivot only   | (no default)   | Pivot: column whose distinct values become new columns               |
+| `value`     | string   | pivot only   | (no default)   | Pivot: column aggregated under each new column                       |
+| `agg`       | string   | no           | `sum`          | Pivot: `sum` / `count` / `avg` / `min` / `max`                       |
+| `group`     | string[] | no           | (inferred)     | Pivot: identity columns kept as rows (empty = DuckDB infers them)    |
+| `columns`   | string[] | unpivot only | (no default)   | Unpivot: the columns to melt (at least two)                          |
+| `name_col`  | string   | no           | `name`         | Unpivot: name of the generated key column                            |
+| `value_col` | string   | no           | `value`        | Unpivot: name of the generated value column                          |
+| `limit`     | integer  | no           | server default | Cap response rows (`0` = unlimited)                                  |
+| `unlimited` | bool     | no           | `false`        | Lift the 5,000,000-row file-loader cap so the reshape sees every row |
 
 ## Response shape
 
