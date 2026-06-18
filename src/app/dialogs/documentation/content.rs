@@ -912,7 +912,10 @@ choose where the result goes, and press Apply. An Apply is a single undo step
 - **Hash** - replace each value with a stable hex code. The same value always
   hashes to the same code, so the data stays join-able.
 - **Partial mask** - keep the first or last N characters and replace the rest
-  with a mask character (for example ***-***-1234).
+  with a mask character (for example ***-***-1234). Tick **Same length for
+  all** to use a fixed number of mask characters for every cell, so the output
+  no longer reveals how long the original value was. Left off, it masks exactly
+  the hidden characters.
 - **Redact** - replace the whole value with a fixed token ([REDACTED]) or an
   empty (null) cell.
 - **Fake** - substitute realistic synthetic data (name, email, city, company,
@@ -1435,4 +1438,208 @@ pub(super) const SHORTCUTS_INTRO: &str = r#"# Shortcuts
 
 Every action below can be rebound under **Help > Settings > Shortcuts**.
 Unbound actions show `(none)`. The bindings shown are the current ones:
+"#;
+
+pub(super) const DEDUPE: &str = r#"# Drop Duplicate Rows
+
+Drop Duplicate Rows removes repeated rows from the active table in one
+step, the way you would delete duplicate lines in a spreadsheet. Open it
+via **Edit > Drop duplicate rows...** (Ctrl+Shift+H).
+
+## How it works
+
+Tick the columns that make up the **key**. Two rows count as duplicates
+when all their checked columns are equal. With every column ticked
+(the default) only exact whole-row repeats are removed; tick just one
+column to collapse rows that share that value.
+
+Choose whether to **keep the first** or **keep the last** occurrence of
+each key. Apply removes the rest in a single undoable step (Ctrl+Z brings
+them all back), and the status bar reports how many rows were removed.
+
+Values are compared as text, so `1` (integer) and `1.0` (float) are not
+treated as the same. The same operation is available on the command line
+as `octa --dedupe` and as the `drop_duplicates` assistant/MCP tool.
+"#;
+
+pub(super) const IMPUTE: &str = r#"# Fill Missing Values
+
+Fill Missing Values replaces empty or null cells in one column using a
+strategy you pick, so you don't have to fill gaps by hand. Open it via
+**Edit > Fill missing values...**.
+
+## Strategies
+
+- **Mean** / **Median** - fill with the average or middle value of the
+  column's numbers (numeric columns only).
+- **Mode** - fill with the most common value.
+- **Constant** - fill with a fixed value you type.
+- **Forward fill** - copy the nearest non-empty value from above.
+- **Backward fill** - copy the nearest non-empty value from below.
+
+Only empty/null cells are changed; existing values are left alone. Apply
+writes the result back as a single undoable step. A strategy that doesn't
+fit the data (for example Mean on a text column) shows an inline error and
+changes nothing. Also available as `octa --impute` and the `fill_missing`
+assistant/MCP tool.
+"#;
+
+pub(super) const UNION: &str = r#"# Union Tables
+
+Union Tables stacks two or more open tabs on top of each other into one
+new table, like appending several exports of the same shape. Open it via
+**Analyse > Union tables...**.
+
+## How it works
+
+Tick the tabs to combine. Octa builds a **reconciliation plan**: the
+result has the union of all their columns. For each merged column you can
+keep or drop it and choose its target type. Columns that appear in only
+some tables are filled with empty cells for the rest. Mixed numeric types
+widen to a common number type; otherwise the column falls back to text.
+
+Apply opens the combined result in a new tab, leaving the sources
+untouched. Also available as `octa --union` and the `union_tables`
+assistant/MCP tool.
+"#;
+
+pub(super) const JOIN: &str = r#"# Join Tables
+
+Join Tables matches rows between two open tabs, like a spreadsheet VLOOKUP
+or a SQL JOIN. You need a second table open in another tab first. Open it
+via **Analyse > Join tables...** (Ctrl+Shift+Q).
+
+## How it works
+
+Pick the **left** table and the **right** table, then add one or more
+**conditions**. Each condition pairs any column of the left table with any
+column of the right table through an operator:
+
+- `=` equal, `<` less than, `<=` less or equal, `>` greater than,
+  `>=` greater or equal.
+
+The columns do **not** need the same name, and their **types do not need to
+match** - Octa converts both sides to a common type before comparing
+(numbers when both are numeric, otherwise text). So you can join a numeric
+`id` against a text `ref`, or match rows where one table's date is `>=`
+another's. Add several conditions to require all of them (an AND join).
+
+Then pick the join type:
+
+- **Inner** - keep only rows that match.
+- **Left** - keep every row of the left table, filling unmatched right
+  columns with empty cells.
+- **Right** - keep every row of the right table.
+- **Full** - keep every row of both.
+
+The matched result opens in a new tab. Joins run through DuckDB, so they are
+fast even on large tables.
+
+The command-line `octa --join` and the `join_tables` assistant/MCP tool
+join on shared **column names** with equality (`--join-on`); the in-app
+dialog is the place for different column names or non-equal operators.
+"#;
+
+pub(super) const PARTITION: &str = r#"# Partition by Column
+
+Partition by Column splits the active table into one file per distinct
+value of a column, like sorting rows into folders by category. Open it via
+**Analyse > Partition by column...** (Ctrl+Shift+Z).
+
+## How it works
+
+Pick the column to split on and an output folder. Octa writes one file per
+distinct value (named after the value) in the format you choose. For
+example, partitioning a sales table by `region` gives you `North.csv`,
+`South.csv`, and so on.
+
+The original table is not changed. Also available as
+`octa --partition-by` and the `partition_table` assistant/MCP tool.
+"#;
+
+pub(super) const OUTLIERS: &str = r#"# Detect Outliers
+
+Detect Outliers highlights numeric values that sit far from the rest of
+their column, painting each flagged cell **orange** so unusual readings
+stand out. Open it via **Analyse > Detect outliers...**.
+
+## Methods
+
+- **IQR (interquartile range)** - flags cells outside
+  `[Q1 - k*IQR, Q3 + k*IQR]`. The usual `k` is `1.5`.
+- **Z-score (standard deviations)** - flags cells whose value is more than
+  `k` standard deviations from the mean. The usual `k` is `3`.
+
+Tick the columns to scan (numeric columns are pre-selected) and set `k`,
+then press **Detect**. Columns with fewer than four numbers are skipped.
+
+## What Detect does
+
+Choose under **When done**:
+
+- **Highlight outlier cells** - paints each flagged cell **orange**. This is
+  **per tab and session-only**: it never changes the data, only how it is
+  shown, and **Clear highlight** removes it. Manual colour marks, conditional
+  colours, and validation highlights all take priority over the orange.
+- **Add an is_outlier column** - appends a boolean `is_outlier` column that
+  is `true` for every row holding at least one flagged value. This is a real,
+  undoable edit (Ctrl+Z) you can save, sort, or filter on.
+
+Also available as `octa --outliers` and the `detect_outliers` assistant/MCP
+tool (both report the flagged cells).
+"#;
+
+pub(super) const PII: &str = r#"# Detect PII
+
+Detect PII scans the table for columns that look like personal data, so
+you can find sensitive fields before sharing a file. Open it via
+**Analyse > Detect PII...**.
+
+## How it works
+
+Octa weighs two clues for every column:
+
+- the **column header** (does it look like `email`, `first_name`, `gender`,
+  `country`, `birthdate`, `ip`, ...?), and
+- the **cell values** (how many match a known shape: email, phone, IP
+  address, credit card, IBAN, SSN, date, postal code).
+
+This is why fields with no give-away values, like names, gender or country,
+are still found from their header, while a plain number column like
+`salary` is left alone.
+
+## Confidence
+
+The percentage combines those two clues:
+
+- a strong value pattern on its own reaches at least 60%,
+- a matching header on its own reaches 60%,
+- the two together score highest (up to 100%).
+
+A column is listed when its best guess is at least 50%. The **Basis** column
+tells you which clue drove it: `column name`, `values (N%)`, or both.
+
+**Send to Anonymise** opens the Anonymise dialog pre-filled with one hashing
+rule per detected column. Also available as `octa --detect-pii` and the
+`detect_pii` assistant/MCP tool, which return the same `confidence`,
+`by_name` and `value_match` fields.
+"#;
+
+pub(super) const CLEAN_HEADERS: &str = r#"# Clean Headers on Load
+
+Clean Headers on Load is an optional setting that tidies column names the
+moment a file opens, turning headers like `First Name` or `E-mail Address`
+into lower snake_case identifiers (`first_name`, `e_mail_address`). Enable
+it under **Help > Settings > Clean headers on load**.
+
+## What it does
+
+Each header is trimmed, lowercased, and has spaces and punctuation
+replaced with single underscores; leading and trailing underscores are
+stripped. Duplicate results get a numeric suffix (`name`, `name_2`) so
+every column keeps a distinct name. A header that has no usable characters
+becomes `column`.
+
+It is off by default, so files load with their original headers unless you
+opt in. It pairs naturally with **Trim whitespace on load**.
 "#;

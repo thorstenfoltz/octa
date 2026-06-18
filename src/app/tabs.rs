@@ -111,6 +111,7 @@ impl TabState {
             conditional_format_size: ui::settings::DialogSize::default(),
             validation_rules: Vec::new(),
             validation_violations: std::collections::HashSet::new(),
+            outlier_cells: std::collections::HashSet::new(),
             show_validation: false,
             validation_size: ui::settings::DialogSize::default(),
             column_format_col: None,

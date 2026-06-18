@@ -79,6 +79,11 @@ pub enum AnonStrategy {
         count: usize,
         #[serde(default = "default_mask_char")]
         mask_char: char,
+        /// Fixed number of mask characters, so every output has the same length
+        /// (`keep` count + this) and the original length stops leaking. `None`
+        /// masks exactly the hidden characters (length-revealing, the default).
+        #[serde(default)]
+        mask_len: Option<usize>,
     },
     /// Replace the whole value with a fixed token or `Null`.
     Redact {
@@ -302,21 +307,23 @@ fn apply_strategy(strategy: &AnonStrategy, salt: &str, value: &str) -> CellValue
             keep,
             count,
             mask_char,
+            mask_len,
         } => {
             let chars: Vec<char> = value.chars().collect();
             let len = chars.len();
             let keep_n = (*count).min(len);
-            let masked: String = match keep {
+            // None -> mask exactly the hidden chars (reveals length); Some(n) ->
+            // a fixed run so every output is the same length.
+            let mask_n = mask_len.unwrap_or(len - keep_n);
+            let mask: String = std::iter::repeat_n(*mask_char, mask_n).collect();
+            let masked = match keep {
                 KeepEnd::Last => {
-                    let mask_len = len - keep_n;
-                    let mut s: String = std::iter::repeat_n(*mask_char, mask_len).collect();
-                    s.extend(&chars[mask_len..]);
-                    s
+                    let kept: String = chars[len - keep_n..].iter().collect();
+                    format!("{mask}{kept}")
                 }
                 KeepEnd::First => {
-                    let mut s: String = chars[..keep_n].iter().collect();
-                    s.extend(std::iter::repeat_n(*mask_char, len - keep_n));
-                    s
+                    let kept: String = chars[..keep_n].iter().collect();
+                    format!("{kept}{mask}")
                 }
             };
             CellValue::String(masked)
@@ -582,6 +589,7 @@ mod tests {
                 keep: KeepEnd::Last,
                 count: 4,
                 mask_char: '*',
+                mask_len: None,
             },
             "",
         );
@@ -597,6 +605,7 @@ mod tests {
                 keep: KeepEnd::First,
                 count: 2,
                 mask_char: '#',
+                mask_len: None,
             },
             "",
         );
@@ -612,10 +621,29 @@ mod tests {
                 keep: KeepEnd::Last,
                 count: 5,
                 mask_char: '*',
+                mask_len: None,
             },
             "",
         );
         assert_eq!(out[0], CellValue::String("ab".to_string()));
+    }
+
+    #[test]
+    fn partial_mask_fixed_len_hides_original_length() {
+        let t = table(&["5551234", "12"]);
+        let out = run_one(
+            &t,
+            AnonStrategy::PartialMask {
+                keep: KeepEnd::Last,
+                count: 2,
+                mask_char: '*',
+                mask_len: Some(5),
+            },
+            "",
+        );
+        // Both rows: 5 mask chars + 2 kept = same length regardless of input.
+        assert_eq!(out[0], CellValue::String("*****34".to_string()));
+        assert_eq!(out[1], CellValue::String("*****12".to_string()));
     }
 
     #[test]
@@ -627,6 +655,7 @@ mod tests {
                 keep: KeepEnd::Last,
                 count: 1,
                 mask_char: '*',
+                mask_len: None,
             },
             "",
         );
@@ -766,6 +795,7 @@ mod tests {
                         keep: KeepEnd::Last,
                         count: 4,
                         mask_char: '*',
+                        mask_len: None,
                     },
                     new_column: None,
                 },
@@ -868,6 +898,7 @@ mod tests {
                     keep: KeepEnd::Last,
                     count: 4,
                     mask_char: '*',
+                    mask_len: None,
                 },
                 new_column: None,
             }],

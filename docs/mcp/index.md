@@ -54,6 +54,13 @@ themselves. Your files stay on disk.
 | `edit_table`              | Set cells / insert / delete rows in place     | [→ doc](tools/edit_table.md)              |
 | `transform_columns`       | Rename / cast / drop columns, write back      | [→ doc](tools/transform_columns.md)       |
 | `anonymize`               | Mask / scramble columns, write the result     | [→ doc](tools/anonymize.md)               |
+| `detect_pii`              | Find likely personal-data columns             | [→ doc](tools/detect_pii.md)              |
+| `detect_outliers`         | Flag numeric outlier cells                    | [→ doc](tools/detect_outliers.md)         |
+| `fill_missing`            | Impute empty cells in a column                | [→ doc](tools/fill_missing.md)            |
+| `drop_duplicates`         | Remove duplicate rows                         | [→ doc](tools/drop_duplicates.md)         |
+| `union_tables`            | Stack tables vertically                       | [→ doc](tools/union_tables.md)            |
+| `join_tables`             | Join tables on key columns                    | [→ doc](tools/join_tables.md)             |
+| `partition_table`         | One file per distinct column value            | [→ doc](tools/partition_table.md)         |
 
 Every tool that returns rows respects a configurable response
 row limit (default 1000) and cell byte cap (default 64 KiB),

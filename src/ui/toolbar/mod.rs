@@ -378,6 +378,22 @@ pub fn draw_toolbar(
                         action.open_anonymize = true;
                         ui.close();
                     }
+                    if ui
+                        .button(crate::i18n::t("dedupe.menu"))
+                        .on_hover_text(crate::i18n::t("dedupe.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_dedupe = true;
+                        ui.close();
+                    }
+                    if ui
+                        .button(crate::i18n::t("impute.menu"))
+                        .on_hover_text(crate::i18n::t("impute.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_impute = true;
+                        ui.close();
+                    }
                     let del_col = ui.add_enabled(
                         has_selected_cell,
                         egui::Button::new(crate::i18n::t("toolbar.delete_column")),
@@ -867,6 +883,26 @@ pub fn draw_toolbar(
                             .clicked()
                         {
                             action.open_multi_sort = true;
+                            ui.close();
+                        }
+                        if ui.button(crate::i18n::t("union.menu")).clicked() {
+                            action.open_union = true;
+                            ui.close();
+                        }
+                        if ui.button(crate::i18n::t("join.menu")).clicked() {
+                            action.open_join = true;
+                            ui.close();
+                        }
+                        if ui.button(crate::i18n::t("partition.menu")).clicked() {
+                            action.open_partition = true;
+                            ui.close();
+                        }
+                        if ui.button(crate::i18n::t("outliers.menu")).clicked() {
+                            action.open_outliers = true;
+                            ui.close();
+                        }
+                        if ui.button(crate::i18n::t("pii.menu")).clicked() {
+                            action.open_pii = true;
                             ui.close();
                         }
                         ui.separator();

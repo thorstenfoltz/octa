@@ -296,6 +296,14 @@ fn strategy_params(ui: &mut egui::Ui, i: usize, rule: &mut AnonRuleDraft) {
             ui.add(egui::TextEdit::singleline(&mut rule.mask_count).desired_width(40.0));
             ui.label(octa::i18n::t("anonymize.mask_char"));
             ui.add(egui::TextEdit::singleline(&mut rule.mask_char).desired_width(30.0));
+            ui.checkbox(
+                &mut rule.mask_fixed_len_on,
+                octa::i18n::t("anonymize.mask_fixed_len"),
+            )
+            .on_hover_text(octa::i18n::t("anonymize.mask_fixed_len_hint"));
+            if rule.mask_fixed_len_on {
+                ui.add(egui::TextEdit::singleline(&mut rule.mask_fixed_len).desired_width(40.0));
+            }
         }
         AnonStrategyKind::Redact => {
             ui.checkbox(
@@ -359,6 +367,11 @@ fn draft_strategy(rule: &AnonRuleDraft) -> AnonStrategy {
             keep: rule.keep_end,
             count: rule.mask_count.trim().parse().unwrap_or(4),
             mask_char: rule.mask_char.chars().next().unwrap_or('*'),
+            mask_len: if rule.mask_fixed_len_on {
+                Some(rule.mask_fixed_len.trim().parse().unwrap_or(8))
+            } else {
+                None
+            },
         },
         AnonStrategyKind::Redact => AnonStrategy::Redact {
             token: if rule.redact_use_null {

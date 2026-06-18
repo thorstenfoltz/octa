@@ -5,6 +5,7 @@ pub mod compare_schemas;
 pub mod conditional_format;
 pub mod correlation;
 pub mod date_infer;
+pub mod dedupe;
 pub mod describe;
 pub mod diff;
 pub mod duplicates;
@@ -12,9 +13,14 @@ pub mod encoding;
 pub mod formulas;
 pub mod fuzzy_duplicates;
 pub mod geo_detect;
+pub mod impute;
+pub mod join;
 pub mod json_util;
 pub mod multi_search;
 pub mod num_format;
+pub mod outliers;
+pub mod partition;
+pub mod pii;
 pub mod pivot;
 pub mod sample;
 pub mod schema_export;
@@ -23,6 +29,7 @@ pub mod summary;
 pub mod time_calc;
 pub mod transform;
 pub mod trim;
+pub mod union;
 pub mod unique_columns;
 pub mod validate_schema;
 pub mod validation;
@@ -257,7 +264,7 @@ pub fn wildcard_to_regex(pattern: &str) -> String {
     while i < chars.len() {
         if chars[i] == '\\' && i + 1 < chars.len() && (chars[i + 1] == '*' || chars[i + 1] == '?') {
             // Escaped wildcard -> literal
-            regex.push_str(&regex_syntax::escape(&chars[i + 1].to_string()));
+            regex.push_str(&regex::escape(&chars[i + 1].to_string()));
             i += 2;
         } else if chars[i] == '*' {
             regex.push_str(".*");
@@ -266,7 +273,7 @@ pub fn wildcard_to_regex(pattern: &str) -> String {
             regex.push('.');
             i += 1;
         } else {
-            regex.push_str(&regex_syntax::escape(&chars[i].to_string()));
+            regex.push_str(&regex::escape(&chars[i].to_string()));
             i += 1;
         }
     }

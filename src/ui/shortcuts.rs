@@ -349,6 +349,22 @@ pub enum ShortcutAction {
     /// Copy the current selection as a GitHub Markdown table. Also
     /// **Edit -> Copy as Markdown table**.
     CopyAsMarkdown,
+    /// Open the Drop-duplicate-rows dialog. Also
+    /// **Edit -> Drop duplicate rows...**.
+    OpenDedupe,
+    /// Open the Fill-missing-values (impute) dialog. Also
+    /// **Edit -> Fill missing values...**.
+    OpenImpute,
+    /// Open the Union-tables dialog. Also **Analyse -> Union tables...**.
+    OpenUnion,
+    /// Open the Join-tables dialog. Also **Analyse -> Join tables...**.
+    OpenJoin,
+    /// Open the Partition-by-column dialog. Also **Analyse -> Partition by column...**.
+    OpenPartition,
+    /// Open the Detect-outliers dialog. Also **Analyse -> Detect outliers...**.
+    OpenOutliers,
+    /// Open the Detect-PII dialog. Also **Analyse -> Detect PII...**.
+    OpenPii,
 }
 
 impl ShortcutAction {
@@ -419,6 +435,13 @@ impl ShortcutAction {
             Self::OpenSummary => "Summary tab",
             Self::OpenNumberFormat => "Number format...",
             Self::CopyAsMarkdown => "Copy as Markdown table",
+            Self::OpenDedupe => "Drop duplicate rows...",
+            Self::OpenImpute => "Fill missing values...",
+            Self::OpenUnion => "Union tables...",
+            Self::OpenJoin => "Join tables",
+            Self::OpenPartition => "Partition by column",
+            Self::OpenOutliers => "Detect outliers...",
+            Self::OpenPii => "Detect PII...",
         }
     }
 
@@ -503,6 +526,22 @@ impl ShortcutAction {
             Self::OpenSummary => KeyCombo::ctrl_shift(Key::M),
             Self::OpenNumberFormat => KeyCombo::ctrl_shift(Key::N),
             Self::CopyAsMarkdown => KeyCombo::ctrl_shift(Key::B),
+            Self::OpenDedupe => KeyCombo::ctrl_shift(Key::H),
+            Self::OpenJoin => KeyCombo::ctrl_shift(Key::Q),
+            // Ctrl+Shift+Z is free here: undo is Ctrl+Z, redo is Ctrl+Y.
+            Self::OpenPartition => KeyCombo::ctrl_shift(Key::Z),
+            // Impute, Union, Outliers and PII have no default binding. Every
+            // clipboard-safe Ctrl+Shift letter is already taken, and the
+            // clipboard letters are off-limits: egui-winit's
+            // is_copy/cut/paste_command match on `command && C/X/V` ignoring
+            // Shift, so Ctrl+Shift+C/X/V also fire Event::Copy/Cut/Paste on
+            // the table (Ctrl+Shift+V would *paste into* the table). Ctrl+Alt
+            // risks AltGr on non-English keyboards. These open from the menu;
+            // users can bind them in Settings.
+            Self::OpenImpute => KeyCombo::UNBOUND,
+            Self::OpenUnion => KeyCombo::UNBOUND,
+            Self::OpenOutliers => KeyCombo::UNBOUND,
+            Self::OpenPii => KeyCombo::UNBOUND,
         }
     }
 }
@@ -629,7 +668,14 @@ impl ShortcutAction {
             | Self::OpenAnonymize
             | Self::OpenValidation
             | Self::OpenMultiSort
-            | Self::OpenSummary => G::Dialogs,
+            | Self::OpenSummary
+            | Self::OpenDedupe
+            | Self::OpenImpute
+            | Self::OpenUnion
+            | Self::OpenJoin
+            | Self::OpenPartition
+            | Self::OpenOutliers
+            | Self::OpenPii => G::Dialogs,
         }
     }
 }

@@ -492,6 +492,9 @@ pub fn draw_table(
     // Cells failing a data-validation rule, painted red. Empty in the common
     // case (precomputed in `recompute_filter`).
     validation_violations: &HashSet<(usize, usize)>,
+    // Cells flagged as numeric outliers, painted orange. Empty unless the
+    // Detect-outliers dialog has been applied on this tab.
+    outlier_cells: &HashSet<(usize, usize)>,
 ) -> TableInteraction {
     let colors = ThemeColors::for_mode(theme_mode);
     let row_height = (font_size * 2.0).max(DEFAULT_ROW_HEIGHT);
@@ -1078,6 +1081,7 @@ pub fn draw_table(
                 current_match,
                 conditional_format_rules,
                 validation_violations,
+                outlier_cells,
             );
         }
 

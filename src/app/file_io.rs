@@ -1016,6 +1016,10 @@ impl OctaApp {
         // a value like " 2024-01-02 " can still be recognised as a date.
         self.run_trim_pass(self.active_tab);
 
+        // Normalise column headers to snake_case identifiers (gated by the
+        // setting). Runs after trimming so titles are already whitespace-clean.
+        self.run_clean_headers_pass(self.active_tab);
+
         // Promote string columns that are uniformly date-shaped. Runs for
         // every format - the candidate check (`date_infer::column_is_candidate`)
         // only ever touches `Utf8` string columns, so typed Date/Timestamp
@@ -1050,6 +1054,29 @@ impl OctaApp {
                 undo,
             });
         }
+    }
+
+    /// Normalise the tab's column headers to lower snake_case identifiers when
+    /// `clean_headers_on_load` is on. For DB-backed tables the diff-save
+    /// baseline is re-synced so the rename isn't seen as a schema change.
+    /// Surfaces a status message listing how many headers changed.
+    fn run_clean_headers_pass(&mut self, tab_idx: usize) {
+        if !self.settings.clean_headers_on_load || tab_idx >= self.tabs.len() {
+            return;
+        }
+        let tab = &mut self.tabs[tab_idx];
+        let changed = octa::data::trim::clean_headers(&mut tab.table);
+        if changed.is_empty() {
+            return;
+        }
+        resync_db_meta_baseline(tab);
+        tab.filter_dirty = true;
+        tab.table_state.widths_initialized = false;
+        self.status_message = Some((
+            octa::i18n::t("settings.clean_headers_status")
+                .replace("{n}", &changed.len().to_string()),
+            std::time::Instant::now(),
+        ));
     }
 
     /// Walk the freshly-loaded tab's columns and either (a) promote a

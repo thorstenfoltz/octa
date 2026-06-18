@@ -47,6 +47,7 @@ pub(super) fn draw_data_row_direct(
     current_match: Option<(usize, usize)>,
     conditional_format_rules: &[crate::data::conditional_format::CondRule],
     validation_violations: &HashSet<(usize, usize)>,
+    outlier_cells: &HashSet<(usize, usize)>,
 ) {
     let is_multi_selected_row = state.selected_rows.contains(&actual_row);
     // Highlight-search backgrounds derived from the theme (translucent so the
@@ -153,6 +154,16 @@ pub(super) fn draw_data_row_direct(
                         && validation_violations.contains(&(actual_row, col_idx))
                     {
                         Some(crate::data::MarkColor::Red)
+                    } else {
+                        None
+                    }
+                })
+                // A detected numeric outlier paints the cell orange. Lowest
+                // precedence: manual marks, conditional colours and validation
+                // failures all win.
+                .or_else(|| {
+                    if !outlier_cells.is_empty() && outlier_cells.contains(&(actual_row, col_idx)) {
+                        Some(crate::data::MarkColor::Orange)
                     } else {
                         None
                     }

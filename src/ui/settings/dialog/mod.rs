@@ -740,6 +740,11 @@ impl SettingsDialog {
                     ui.checkbox(&mut self.draft.warn_on_whitespace_trim, "");
                     ui.end_row();
 
+                    ui.label(crate::i18n::t("settings.clean_headers"))
+                        .on_hover_text(crate::i18n::t("settings_hint.clean_headers"));
+                    ui.checkbox(&mut self.draft.clean_headers_on_load, "");
+                    ui.end_row();
+
                     ui.label(crate::i18n::t("settings.offer_repair"))
                         .on_hover_text(crate::i18n::t("settings_hint.offer_repair"));
                     ui.checkbox(&mut self.draft.offer_repair_on_malformed, "");

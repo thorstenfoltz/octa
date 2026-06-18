@@ -4,9 +4,10 @@ The MCP server exposes the tools below. Most are **read-only** against a
 file argument. The file-writing exceptions are `convert` (writes a new
 output file), `write_table` (writes model-supplied rows to a new file),
 `edit_table` (edits an existing file in place), `transform_columns`
-(rename / cast / drop columns, writes back), and `anonymize` (mask /
-scramble columns, writes the result). These are dropped when the server
-is started with `--mcp-read-only`.
+(rename / cast / drop columns, writes back), `anonymize` (mask /
+scramble columns, writes the result), and `partition_table` (writes one
+file per group). These are dropped when the server is started with
+`--mcp-read-only`.
 
 ## At-a-glance
 
@@ -38,6 +39,13 @@ is started with `--mcp-read-only`.
 | **[`edit_table`](edit_table.md)**                           | Set cells / insert / delete rows in place | Yes (edits the file)            |
 | **[`transform_columns`](transform_columns.md)**             | Rename / cast / drop columns, write back  | Writes the output path          |
 | **[`anonymize`](anonymize.md)**                             | Mask / scramble columns, write the result | Writes the output path          |
+| **[`detect_pii`](detect_pii.md)**                           | Find likely personal-data columns         | No                              |
+| **[`detect_outliers`](detect_outliers.md)**                 | Flag numeric outlier cells                | No                              |
+| **[`fill_missing`](fill_missing.md)**                       | Impute empty cells in a column            | No                              |
+| **[`drop_duplicates`](drop_duplicates.md)**                 | Remove duplicate rows                     | No                              |
+| **[`union_tables`](union_tables.md)**                       | Stack tables vertically                   | No                              |
+| **[`join_tables`](join_tables.md)**                         | Join tables on key columns                | No                              |
+| **[`partition_table`](partition_table.md)**                 | One file per distinct column value        | Writes one file per group       |
 
 \* `run_sql` accepts mutation queries (`INSERT` / `UPDATE` / `DELETE`)
 but the in-memory DuckDB connection is discarded at the end of the

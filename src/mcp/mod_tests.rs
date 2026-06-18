@@ -13,6 +13,7 @@ fn read_only_drops_write_tools() {
         "convert",
         "transform_columns",
         "anonymize",
+        "partition_table",
     ] {
         assert!(
             !ro.tool_router.has_route(name),
@@ -26,6 +27,12 @@ fn read_only_drops_write_tools() {
         "correlation",
         "grep_files",
         "fuzzy_duplicates",
+        "union_tables",
+        "join_tables",
+        "drop_duplicates",
+        "fill_missing",
+        "detect_outliers",
+        "detect_pii",
     ] {
         assert!(ro.tool_router.has_route(name), "`{name}` should be present");
     }
@@ -44,6 +51,13 @@ fn default_keeps_write_tools() {
         "pivot",
         "correlation",
         "grep_files",
+        "union_tables",
+        "join_tables",
+        "drop_duplicates",
+        "fill_missing",
+        "detect_outliers",
+        "detect_pii",
+        "partition_table",
     ] {
         assert!(rw.tool_router.has_route(name), "`{name}` should be present");
     }

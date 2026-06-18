@@ -74,6 +74,43 @@ fn reports_each_affected_column() {
 }
 
 #[test]
+fn clean_headers_snake_cases_and_decollides() {
+    let mut t = table(
+        &["First Name", "first-name", "  E-mail Address ", "Name"],
+        vec![],
+    );
+    let changed = clean_headers(&mut t);
+    let names: Vec<&str> = t.columns.iter().map(|c| c.name.as_str()).collect();
+    // "First Name" and "first-name" both snake_case to "first_name"; the
+    // second is de-collided to "first_name_2".
+    assert_eq!(
+        names,
+        vec!["first_name", "first_name_2", "e_mail_address", "name"]
+    );
+    // Every title differed from its original (including "Name" -> "name"), so
+    // all four are reported as changed.
+    assert_eq!(
+        changed,
+        vec!["first_name", "first_name_2", "e_mail_address", "name"]
+    );
+}
+
+#[test]
+fn clean_headers_leaves_already_clean_titles() {
+    let mut t = table(&["id", "first_name"], vec![]);
+    let changed = clean_headers(&mut t);
+    assert!(changed.is_empty());
+}
+
+#[test]
+fn clean_headers_empty_title_falls_back() {
+    let mut t = table(&["???", "ok"], vec![]);
+    clean_headers(&mut t);
+    assert_eq!(t.columns[0].name, "column");
+    assert_eq!(t.columns[1].name, "ok");
+}
+
+#[test]
 fn undo_log_restores_original_values() {
     let mut t = table(
         &[" a ", "b"],

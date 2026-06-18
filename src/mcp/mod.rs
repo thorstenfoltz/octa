@@ -77,6 +77,7 @@ impl OctaMcpServer {
                 "convert",
                 "transform_columns",
                 "anonymize",
+                "partition_table",
             ] {
                 tool_router.remove_route(name);
             }
@@ -492,6 +493,114 @@ targets."
     ) -> Result<CallToolResult, McpError> {
         tools::anonymize::handle(self, p).await
     }
+
+    #[tool(
+        description = "Concatenate (union) multiple tables into one, reconciling differing \
+schemas. Each entry in `sources` has a `path` (file) or `open_tab` (GUI tab name / `@active`), \
+plus an optional `table` for multi-table sources. By default takes the union of all columns \
+(missing cells become null) and widens conflicting numeric types (int+float -> float, any other \
+disagreement -> text). Use `drop` to omit column names from the output, and `cast` \
+(`[{\"column\": \"name\", \"type\": \"Float64\"}, ...]`) to override a column's target Arrow \
+type. `limit` caps response rows (0 = unlimited); `unlimited: true` lifts the 5,000,000-row \
+file-loader cap. Requires at least two sources."
+    )]
+    async fn union_tables(
+        &self,
+        Parameters(p): Parameters<tools::union::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::union::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Join N tabular sources left-to-right on shared key columns. Each entry \
+in `sources` has a `path` (file) or `open_tab` (GUI tab name / `@active`), plus an optional \
+`table` for multi-table sources. Sources are assigned names `t0`, `t1`, ... and joined in \
+order using a SQL `USING (on)` clause. `how` sets the join type: `left` (default), `inner`, \
+`right`, or `full`. Duplicate key columns are collapsed into one in the output. Requires at \
+least two sources and at least one key column in `on`. `limit` caps response rows (0 = \
+unlimited); `unlimited: true` lifts the 5,000,000-row file-loader cap."
+    )]
+    async fn join_tables(
+        &self,
+        Parameters(p): Parameters<tools::join::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::join::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Remove duplicate rows from a tabular file or open tab. `on` lists the \
+column names whose combined value forms the duplicate key; omit it (or pass an empty list) to \
+deduplicate on all columns (whole-row equality). `keep` controls which occurrence to retain: \
+`first` (default) keeps the earliest, `last` keeps the latest. Surviving rows are returned in \
+original order. Returns the same `{schema, rows, row_count, truncated, ...}` shape as \
+`read_table`. `limit` caps response rows (0 = unlimited); `unlimited: true` lifts the \
+5,000,000-row file-loader cap."
+    )]
+    async fn drop_duplicates(
+        &self,
+        Parameters(p): Parameters<tools::dedupe::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::dedupe::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Fill missing or empty cells in one column of a tabular file or open \
+tab. `column` is the column name to impute; `strategy` chooses the fill method: `mean` or \
+`median` (numeric columns only), `mode` (most frequent value), `ffill` (forward-fill from the \
+previous non-null row), `bfill` (backward-fill from the next non-null row), or `const` (fill \
+with the literal string in `value`). Returns the table with the imputed column, in the same \
+`{schema, rows, row_count, truncated, ...}` shape as `read_table`. `limit` caps response rows \
+(0 = unlimited); `unlimited: true` lifts the 5,000,000-row file-loader cap."
+    )]
+    async fn fill_missing(
+        &self,
+        Parameters(p): Parameters<tools::impute::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::impute::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Flag numeric outlier cells per column. `method` is `iqr` (default, \
+interquartile range: flags values outside [q1 - k*IQR, q3 + k*IQR]) or `zscore` (flags values \
+where |z| > k). Default `k` is 1.5 for IQR and 3.0 for z-score; override with `k`. `columns` \
+restricts detection to named columns (default: all numeric columns). Columns with fewer than 4 \
+numeric values are skipped. Returns `{flagged: [{row, column}, ...], count, method, k}`."
+    )]
+    async fn detect_outliers(
+        &self,
+        Parameters(p): Parameters<tools::outliers::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::outliers::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Detect likely PII columns in a tabular file or open tab. Scans up to \
+`sample_rows` rows per column (default 500) and reports columns where more than half the \
+non-empty cells match a known PII pattern (email, phone, IBAN, credit card, SSN). Returns \
+`{findings: [{column, kind, confidence}, ...], suggested_rules: [...]}` where `suggested_rules` \
+are default anonymise-column rules (full SHA-256 hash) ready to pass to the `anonymize` tool."
+    )]
+    async fn detect_pii(
+        &self,
+        Parameters(p): Parameters<tools::pii::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::pii::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Split a table into one file per distinct value of a column, written into \
+a directory. Returns the list of files written. `column` is the column name to partition on; \
+`out_dir` is the output directory (created if absent); `format` overrides the output extension \
+(defaults to the source file's extension, or is required when the source is an open tab without \
+a known path). The response is `{ files: [{value, path, rows}, ...], count }`. This is a write \
+tool and is unavailable in read-only mode."
+    )]
+    async fn partition_table(
+        &self,
+        Parameters(p): Parameters<tools::partition::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::partition::handle(self, p).await
+    }
 }
 
 // `router = self.tool_router` tells the macro to dispatch via the pre-built
@@ -522,8 +631,8 @@ impl ServerHandler for OctaMcpServer {
              Flags `truncated` / `cell_truncated` tell you when re-querying is worthwhile.\n\n\
              Available tools: read_table, tail, sample, schema, list_tables, count_rows, \
              run_sql, convert, export_schema, profile, find_duplicates, value_frequency, \
-             search, compare_schemas, diff_tables, validate_against_schema, describe_file, \
-             unique_columns, pivot, correlation, grep_files, transform_columns."
+             search, compare_schemas, diff_tables, union_tables, validate_against_schema, \
+             describe_file, unique_columns, pivot, correlation, grep_files, transform_columns."
         );
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::from_build_env())

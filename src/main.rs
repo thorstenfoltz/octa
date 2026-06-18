@@ -30,7 +30,19 @@ fn main() -> ExitCode {
 
     match cli.detect_action() {
         Ok(Some(action)) => {
-            if !cli.files.is_empty() {
+            // For --union and --join the positional files are intentional (they
+            // form the first sources); --impute takes a positional FILE too.
+            // All other actions ignore them, so warn.
+            if !cli.files.is_empty()
+                && !matches!(
+                    action,
+                    cli::Action::Union { .. }
+                        | cli::Action::Join { .. }
+                        | cli::Action::Impute { .. }
+                        | cli::Action::Outliers { .. }
+                        | cli::Action::Partition { .. }
+                )
+            {
                 eprintln!(
                     "warning: ignoring trailing files when an action flag is set: {}",
                     cli.files

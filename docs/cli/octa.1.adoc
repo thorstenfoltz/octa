@@ -38,6 +38,20 @@ octa - multi-format tabular data viewer, editor, CLI tool, and MCP server
 
 *octa* *--anonymize* _SPEC_ _FILE_ [*-f* _FORMAT_]
 
+*octa* *--dedupe* _FILE_ [*--dedupe-on* _COLS_] [*--dedupe-keep* _WHICH_] [*-f* _FORMAT_]
+
+*octa* *--impute* _COL_=_STRATEGY_ _FILE_ [*-f* _FORMAT_]
+
+*octa* *--outliers* _FILE_ [*--outlier-method* _M_] [*--outlier-cols* _COLS_] [*--outlier-k* _K_] [*-f* _FORMAT_]
+
+*octa* *--detect-pii* _FILE_ [*--pii-sample* _N_] [*-f* _FORMAT_]
+
+*octa* *--union* _FILE_ *--union-file* _FILE_ [*--union-drop* _COL_] [*--union-cast* _COL_=_TYPE_] [*-f* _FORMAT_]
+
+*octa* *--join* _FILE_ *--join-file* _FILE_ *--join-on* _COLS_ [*--join-type* _TYPE_] [*-f* _FORMAT_]
+
+*octa* *--partition-by* _COL_ *--out-dir* _DIR_ _FILE_ [*--partition-format* _EXT_]
+
 *octa* *--mcp*
 
 == Description
@@ -51,8 +65,9 @@ When invoked with no flags, it launches the graphical interface,
 optionally opening the supplied _FILE_(s) in tabs. When invoked with
 one of the action flags (*--schema*, *--head*, *--tail*, *--sample*,
 *--convert*, *--sql*, *--export-schema*, *--compare-schemas*, *--diff*,
-*--describe*, *--validate-schema*, *--unique-columns*, *--mcp*), it
-performs that action and exits.
+*--describe*, *--validate-schema*, *--unique-columns*, *--anonymize*,
+*--dedupe*, *--impute*, *--outliers*, *--detect-pii*, *--union*,
+*--join*, *--partition-by*, *--mcp*), it performs that action and exits.
 
 Action flags are mutually exclusive. Trailing _FILE_ arguments are
 ignored (with a warning) when an action flag is set.
@@ -161,6 +176,42 @@ ignored (with a warning) when an action flag is set.
   The same value plus the same salt always maps the same way, so
   duplicates stay linked and a re-run re-joins to an earlier export.
 
+*--dedupe* _FILE_::
+  Remove duplicate rows from _FILE_ and print the result to stdout.
+  Without *--dedupe-on* the whole row is the key; with it only the named
+  columns form the key. *--dedupe-keep* (*first* default / *last*) picks
+  the surviving occurrence.
+
+*--impute* _COL_=_STRATEGY_::
+  Fill missing/empty cells of a column of the positional _FILE_.
+  Repeatable. Strategies: *mean*, *median*, *mode*, *ffill*, *bfill*,
+  *const:VALUE*.
+
+*--outliers* _FILE_::
+  Flag numeric outlier cells in _FILE_ and print their coordinates.
+  *--outlier-method* (*iqr* default / *zscore*), *--outlier-cols*
+  _COLS_, and *--outlier-k* _K_ tune the scan.
+
+*--detect-pii* _FILE_::
+  Scan _FILE_ for likely PII columns (email, phone, IBAN, credit card,
+  SSN) and print the findings. *--pii-sample* _N_ sets the per-column
+  sample size (default *500*).
+
+*--union* _FILE_::
+  Stack the positional _FILE_ plus every *--union-file* _FILE_ into one
+  table (at least two files). *--union-drop* _COL_ omits columns and
+  *--union-cast* _COL_=_TYPE_ overrides a column's target Arrow type.
+
+*--join* _FILE_::
+  Join the positional _FILE_(s) plus every *--join-file* _FILE_ on the
+  *--join-on* _COLS_ key(s). *--join-type* is *left* (default), *inner*,
+  *right*, or *full*.
+
+*--partition-by* _COL_::
+  Split the positional _FILE_ into one file per distinct value of _COL_,
+  written into *--out-dir* _DIR_ (required). *--partition-format* _EXT_
+  sets the output extension (defaults to the source's).
+
 *--mcp*::
   Start a Model Context Protocol (MCP) server on standard input /
   output. The tools exposed are: *read_table*, *tail*, *sample*,
@@ -169,10 +220,12 @@ ignored (with a warning) when an action flag is set.
   *value_frequency*, *search*, *compare_schemas*, *diff_tables*,
   *describe_file*, *validate_against_schema*, *unique_columns*,
   *pivot*, *correlation*, *grep_files*, *write_table*, *edit_table*,
-  *transform_columns*, *anonymize*. The file-writing tools (*convert*,
-  *write_table*, *edit_table*, *transform_columns*, *anonymize*) are
-  dropped when *--mcp-read-only* is given. Defaults for the row limit
-  and per-cell byte cap come from the user's Octa settings
+  *transform_columns*, *anonymize*, *detect_pii*, *detect_outliers*,
+  *fill_missing*, *drop_duplicates*, *union_tables*, *join_tables*,
+  *partition_table*. The file-writing tools (*convert*, *write_table*,
+  *edit_table*, *transform_columns*, *anonymize*, *partition_table*)
+  are dropped when *--mcp-read-only* is given. Defaults for the row
+  limit and per-cell byte cap come from the user's Octa settings
   (Settings → MCP).
 
 *--mcp-read-only*::
@@ -251,6 +304,49 @@ ignored (with a warning) when an action flag is set.
   *5,000,000* rows). Pass a number (commas/underscores allowed) to
   raise it or *all* to disable the cap entirely. Applies to
   *--schema*, *--head*, *--convert*, and *--sql*.
+
+*--dedupe-on* _COLS_::
+  Comma-separated key columns for *--dedupe*. Absent = whole-row key.
+
+*--dedupe-keep* _WHICH_::
+  Which duplicate to keep for *--dedupe*: *first* (default) or *last*.
+
+*--outlier-method* _M_::
+  Method for *--outliers*: *iqr* (default) or *zscore*.
+
+*--outlier-cols* _COLS_::
+  Comma-separated columns to scan with *--outliers* (default: all).
+
+*--outlier-k* _K_::
+  Threshold multiplier for *--outliers* (default *1.5* IQR, *3.0* z-score).
+
+*--pii-sample* _N_::
+  Rows sampled per column for *--detect-pii* (default *500*).
+
+*--union-file* _FILE_::
+  Additional source for *--union* (repeatable). The positional file plus
+  these form the input list (minimum two).
+
+*--union-drop* _COL_::
+  Column to omit from the *--union* output (repeatable).
+
+*--union-cast* _COL_=_TYPE_::
+  Override a column's target Arrow type in the *--union* output (repeatable).
+
+*--join-file* _FILE_::
+  Additional source for *--join* (repeatable).
+
+*--join-on* _COLS_::
+  Key column(s) for *--join*; comma-separated or repeated. Required.
+
+*--join-type* _TYPE_::
+  Join strategy for *--join*: *left* (default), *inner*, *right*, *full*.
+
+*--out-dir* _DIR_::
+  Output directory for *--partition-by* (required; created if absent).
+
+*--partition-format* _EXT_::
+  Output extension for *--partition-by* (default: the source's extension).
 
 *-f* _FORMAT_, *--format* _FORMAT_::
   Output format for actions that print a table (*--schema*,

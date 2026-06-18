@@ -4659,7 +4659,6 @@ dependencies = [
  "rbook",
  "rds2rust",
  "regex",
- "regex-syntax",
  "resvg 0.47.0",
  "rfd",
  "rmcp",

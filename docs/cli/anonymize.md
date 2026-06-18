@@ -42,7 +42,7 @@ is `in_place` (default, overwrite) or `new_columns` (keep originals, append).
 | `type`         | Fields                                                  | Behaviour                                            |
 |----------------|---------------------------------------------------------|------------------------------------------------------|
 | `hash`         | `algo` (`sha256`/`blake3`), `length` (optional)         | Hex digest, full 64 chars unless `length` truncates. Stable and join-able. |
-| `partial_mask` | `keep` (`first`/`last`), `count`, `mask_char`           | Keep N characters, mask the rest (`***-***-1234`).   |
+| `partial_mask` | `keep` (`first`/`last`), `count`, `mask_char`, `mask_len` (optional) | Keep N characters, mask the rest (`***-***-1234`). Set `mask_len` to a fixed number of mask characters so every output has the same length and the original length stops leaking. |
 | `redact`       | `token` (`{ "fixed": "[REDACTED]" }` or `"null"`)       | Replace the whole value with a token or a null cell. |
 | `fake`         | `kind` (`name`/`email`/`city`/`company`/`phone`/`uuid`) | Deterministic synthetic data of the chosen kind.     |
 

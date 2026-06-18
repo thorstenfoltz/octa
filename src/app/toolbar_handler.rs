@@ -666,8 +666,72 @@ impl OctaApp {
         {
             self.anonymize_dialog = Some(crate::app::state::AnonymizeState::default());
         }
+        if action.open_impute
+            && self.tabs[self.active_tab].table.col_count() > 0
+            && !self.is_readonly()
+        {
+            self.impute_dialog = Some(crate::app::state::ImputeState::default());
+        }
+        if action.open_dedupe
+            && self.tabs[self.active_tab].table.col_count() > 0
+            && !self.is_readonly()
+        {
+            let col_count = self.tabs[self.active_tab].table.col_count();
+            self.dedupe_dialog = Some(crate::app::state::DedupeState::new_all_cols(col_count));
+        }
         if action.open_multi_sort && self.tabs[self.active_tab].table.col_count() > 0 {
             self.multi_sort_dialog = Some(crate::app::state::MultiSortState::default());
+        }
+        if action.open_partition
+            && !self.tabs.is_empty()
+            && self.tabs[self.active_tab].table.col_count() > 0
+        {
+            self.partition_dialog = Some(crate::app::state::PartitionState {
+                col: 0,
+                out_dir: None,
+                format: String::new(),
+                error: None,
+                size: octa::ui::settings::DialogSize::default(),
+            });
+        }
+        // Union and Join both need a second open table. Surface a status
+        // message instead of silently doing nothing when only one tab is open.
+        if (action.open_union || action.open_join) && self.tabs.len() < 2 {
+            self.status_message =
+                Some((octa::i18n::t("union.need_open"), std::time::Instant::now()));
+        }
+        if action.open_union && self.tabs.len() >= 2 {
+            let active = self.active_tab;
+            let mut selected = vec![false; self.tabs.len()];
+            if active < selected.len() {
+                selected[active] = true;
+            }
+            let plan = octa::data::union::plan_union(
+                &self
+                    .tabs
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| selected.get(*i).copied().unwrap_or(false))
+                    .map(|(_, t)| t.table.columns.as_slice())
+                    .collect::<Vec<_>>(),
+            );
+            self.union_dialog = Some(crate::app::state::UnionState {
+                selected_tabs: selected,
+                plan,
+                error: None,
+                size: octa::ui::settings::DialogSize::default(),
+            });
+        }
+        if action.open_join && self.tabs.len() >= 2 {
+            self.join_dialog = Some(self.default_join_state());
+        }
+        if action.open_outliers && self.tabs[self.active_tab].table.col_count() > 0 {
+            self.outlier_dialog = Some(crate::app::state::OutlierState::for_table(
+                &self.tabs[self.active_tab].table,
+            ));
+        }
+        if action.open_pii && self.tabs[self.active_tab].table.col_count() > 0 {
+            self.open_pii_dialog();
         }
         if action.copy_as_markdown {
             self.do_copy_markdown();

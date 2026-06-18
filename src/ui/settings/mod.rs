@@ -813,6 +813,12 @@ pub struct AppSettings {
     /// loads leave cell values exactly as stored unless the user opts in.
     #[serde(default)]
     pub trim_whitespace_on_load: bool,
+    /// Whether to normalise column headers to lower snake_case identifiers when
+    /// a file is loaded (trim, lowercase, non-alphanumeric runs -> `_`,
+    /// de-collide repeats with `_2`). Default `false` - headers load verbatim
+    /// unless the user opts in. See `octa::data::trim::clean_headers`.
+    #[serde(default)]
+    pub clean_headers_on_load: bool,
     /// Whether to show a dismissible banner listing the columns that had
     /// whitespace trimmed on load. Default `true`. Independent of
     /// [`trim_whitespace_on_load`] - trimming can run silently if this is off.
@@ -1080,6 +1086,7 @@ impl Default for AppSettings {
             table_picker_visible_rows: default_table_picker_visible_rows(),
             excel_max_auto_sheets: default_excel_max_auto_sheets(),
             trim_whitespace_on_load: false,
+            clean_headers_on_load: false,
             warn_on_whitespace_trim: true,
             offer_repair_on_malformed: false,
             language: default_language(),

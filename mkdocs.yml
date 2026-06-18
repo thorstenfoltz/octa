@@ -109,6 +109,14 @@ nav:
       - Data Validation: usage/data-validation.md
       - Transform Column: usage/transform-column.md
       - Anonymise Columns: usage/anonymize-columns.md
+      - Detect PII: usage/detect-pii.md
+      - Detect Outliers: usage/detect-outliers.md
+      - Fill Missing Values: usage/fill-missing-values.md
+      - Drop Duplicate Rows: usage/drop-duplicate-rows.md
+      - Union Tables: usage/union-tables.md
+      - Join Tables: usage/join-tables.md
+      - Partition by Column: usage/partition-by-column.md
+      - Clean Headers on Load: usage/clean-headers.md
       - Value Frequency: usage/value-frequency.md
       - Find Near-Duplicates: usage/find-near-duplicates.md
       - Summary: usage/summary.md
@@ -144,6 +152,13 @@ nav:
       - "--validate-schema": cli/validate-schema.md
       - "--unique-columns": cli/unique-columns.md
       - "--anonymize": cli/anonymize.md
+      - "--detect-pii": cli/pii.md
+      - "--outliers": cli/outliers.md
+      - "--impute": cli/impute.md
+      - "--dedupe": cli/dedupe.md
+      - "--union": cli/union.md
+      - "--join": cli/join.md
+      - "--partition-by": cli/partition.md
       - Docker / Podman: cli/docker.md
       - Man Page: cli/man-page.md
   - MCP Server:
@@ -177,6 +192,13 @@ nav:
           - edit_table: mcp/tools/edit_table.md
           - transform_columns: mcp/tools/transform_columns.md
           - anonymize: mcp/tools/anonymize.md
+          - detect_pii: mcp/tools/detect_pii.md
+          - detect_outliers: mcp/tools/detect_outliers.md
+          - fill_missing: mcp/tools/fill_missing.md
+          - drop_duplicates: mcp/tools/drop_duplicates.md
+          - union_tables: mcp/tools/union_tables.md
+          - join_tables: mcp/tools/join_tables.md
+          - partition_table: mcp/tools/partition_table.md
       - Limits & Truncation: mcp/limits-and-truncation.md
       - Examples: mcp/examples.md
       - Troubleshooting: mcp/troubleshooting.md

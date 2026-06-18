@@ -86,6 +86,61 @@ pub fn trim_string_columns_tracked(table: &mut DataTable) -> (Vec<String>, TrimU
     (changed, undo)
 }
 
+/// Normalise one header into a lower snake_case identifier: lowercase, runs of
+/// non-alphanumeric characters become a single `_`, leading/trailing `_`
+/// stripped. An empty result falls back to `"column"`.
+fn snake_case(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut prev_us = false;
+    for ch in name.trim().chars() {
+        if ch.is_alphanumeric() {
+            for c in ch.to_lowercase() {
+                out.push(c);
+            }
+            prev_us = false;
+        } else if !prev_us {
+            out.push('_');
+            prev_us = true;
+        }
+    }
+    let cleaned = out.trim_matches('_');
+    if cleaned.is_empty() {
+        "column".to_string()
+    } else {
+        cleaned.to_string()
+    }
+}
+
+/// Clean every column title in place: snake_case each, then de-collide repeats
+/// by suffixing `_2`, `_3`, ... in column order. Returns the new names of the
+/// columns whose title actually changed (in column order).
+///
+/// Like [`trim_string_columns`] this is a normalization pass, not a tracked
+/// edit; the app gates it behind the `clean_headers_on_load` setting.
+pub fn clean_headers(table: &mut DataTable) -> Vec<String> {
+    use std::collections::HashMap;
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut changed = Vec::new();
+    for col in table.columns.iter_mut() {
+        let base = snake_case(&col.name);
+        let name = match seen.get_mut(&base) {
+            Some(count) => {
+                *count += 1;
+                format!("{base}_{count}")
+            }
+            None => {
+                seen.insert(base.clone(), 1);
+                base
+            }
+        };
+        if name != col.name {
+            col.name = name.clone();
+            changed.push(name);
+        }
+    }
+    changed
+}
+
 #[cfg(test)]
 #[path = "trim_tests.rs"]
 mod tests;
