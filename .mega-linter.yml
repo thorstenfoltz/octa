@@ -4,6 +4,10 @@
 
 APPLY_FIXES: none # all, none, or list of linter keys
 BASH_SHELLCHECK_ARGUMENTS: -e "SC2162"
+# partner.microsoft.com serves a cert chain lychee's container CA store rejects
+# ("SSL certificate not trusted"); the URL is valid, so skip it rather than
+# weaken every check with a global --insecure.
+SPELL_LYCHEE_ARGUMENTS: '--exclude partner\.microsoft\.com'
 CLEAR_REPORT_FOLDER: true
 DISABLE_ERRORS: false
 ENABLE_LINTERS:

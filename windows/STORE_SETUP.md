@@ -37,12 +37,12 @@ Portal labels shift over time; these are current as of 2026-06.
 Repo -> **Settings** -> **Secrets and variables** -> **Actions** ->
 **New repository secret**, four times, with these exact names:
 
-| Secret name | Value |
-|-------------|-------|
-| `PARTNER_CENTER_TENANT_ID` | Tenant ID from step 2 |
-| `PARTNER_CENTER_CLIENT_ID` | Client ID from step 2 |
+| Secret name                    | Value                     |
+|--------------------------------|---------------------------|
+| `PARTNER_CENTER_TENANT_ID`     | Tenant ID from step 2     |
+| `PARTNER_CENTER_CLIENT_ID`     | Client ID from step 2     |
 | `PARTNER_CENTER_CLIENT_SECRET` | Client secret from step 2 |
-| `PARTNER_CENTER_SELLER_ID` | Seller ID from step 2 |
+| `PARTNER_CENTER_SELLER_ID`     | Seller ID from step 2     |
 
 ## 4. First listing (one manual pass, required before going live)
 

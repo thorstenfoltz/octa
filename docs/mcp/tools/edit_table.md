@@ -33,7 +33,7 @@ columns use [`transform_columns`](transform_columns.md).
 | `set`         | array  | no        | `[]`         | Cell edits: `{ "row": int, "col": int \| string, "value": any }`               |
 | `insert_rows` | array  | no        | `[]`         | Rows to insert: `{ "at"?: int, "values": [...] }`                              |
 | `delete_rows` | array  | no        | `[]`         | 0-based row indices to delete                                                  |
-| `add_column`  | array  | no        | `[]`         | Columns to append: `{ "name": string, "expression": string }`                 |
+| `add_column`  | array  | no        | `[]`         | Columns to append: `{ "name": string, "expression": string }`                  |
 | `drop_column` | array  | no        | `[]`         | Columns to remove, each a 0-based index or a column name                       |
 | `unlimited`   | bool   | no        | `false`      | Load the whole file before editing (and rewrite it in full for non-DB formats) |
 

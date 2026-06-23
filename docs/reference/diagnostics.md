@@ -10,11 +10,11 @@ how the size limit works.
 All diagnostic files live in a `logs` subfolder of Octa's configuration
 directory:
 
-| Platform | Folder                                        |
-|----------|-----------------------------------------------|
-| Linux    | `~/.config/octa/logs/`                         |
-| macOS    | `~/Library/Application Support/Octa/logs/`     |
-| Windows  | `%APPDATA%\Octa\logs\`                         |
+| Platform | Folder                                     |
+|----------|--------------------------------------------|
+| Linux    | `~/.config/octa/logs/`                     |
+| macOS    | `~/Library/Application Support/Octa/logs/` |
+| Windows  | `%APPDATA%\Octa\logs\`                     |
 
 The fastest way to get there is **Settings -> Diagnostics -> Open log folder**,
 which opens this folder in your file manager (creating it first if it does not
