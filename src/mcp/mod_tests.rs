@@ -6,31 +6,58 @@ use super::*;
 
 #[test]
 fn read_only_drops_write_tools() {
-    let ro = OctaMcpServer::new(Some(1000), 65536, true);
-    for name in ["write_table", "edit_table", "convert", "transform_columns"] {
+    let ro = OctaMcpServer::new(Some(1000), 65536, true, false, true);
+    for name in [
+        "write_table",
+        "edit_table",
+        "convert",
+        "transform_columns",
+        "anonymize",
+        "partition_table",
+    ] {
         assert!(
             !ro.tool_router.has_route(name),
             "read-only server should not expose `{name}`"
         );
     }
     // Read tools (including the read-only analytics tools) are still present.
-    for name in ["read_table", "pivot", "correlation", "grep_files"] {
+    for name in [
+        "read_table",
+        "pivot",
+        "correlation",
+        "grep_files",
+        "fuzzy_duplicates",
+        "union_tables",
+        "join_tables",
+        "drop_duplicates",
+        "fill_missing",
+        "detect_outliers",
+        "detect_pii",
+    ] {
         assert!(ro.tool_router.has_route(name), "`{name}` should be present");
     }
 }
 
 #[test]
 fn default_keeps_write_tools() {
-    let rw = OctaMcpServer::new(Some(1000), 65536, false);
+    let rw = OctaMcpServer::new(Some(1000), 65536, false, false, true);
     for name in [
         "write_table",
         "edit_table",
         "convert",
         "read_table",
         "transform_columns",
+        "anonymize",
         "pivot",
         "correlation",
         "grep_files",
+        "union_tables",
+        "join_tables",
+        "drop_duplicates",
+        "fill_missing",
+        "detect_outliers",
+        "detect_pii",
+        "partition_table",
     ] {
         assert!(rw.tool_router.has_route(name), "`{name}` should be present");
     }

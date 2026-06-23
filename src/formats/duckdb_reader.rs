@@ -34,29 +34,51 @@ impl FormatReader for DuckDbReader {
     }
 
     fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {
+        self.write_file_schema_aware(path, table, false)
+    }
+
+    fn write_file_schema_aware(
+        &self,
+        path: &Path,
+        table: &DataTable,
+        allow_schema_changes: bool,
+    ) -> Result<()> {
         let meta = table
             .db_meta
             .as_ref()
             .ok_or_else(|| anyhow!("DuckDB write requires a table loaded from a database"))?;
-
-        let current_cols: Vec<&str> = table.columns.iter().map(|c| c.name.as_str()).collect();
-        let original_cols: Vec<&str> = meta.original_columns.iter().map(|s| s.as_str()).collect();
-        if current_cols != original_cols {
-            bail!(
-                "Schema changes are not supported on DuckDB tables (column rename/add/remove). \
-                 Save aborted."
-            );
-        }
 
         let mut conn = Connection::open(path)
             .with_context(|| format!("opening DuckDB at {}", path.display()))?;
         let schema = meta.schema.as_deref().unwrap_or("main");
         ensure_row_id_column(&conn, schema, &meta.table_name)?;
 
+        // Detect schema changes against the LIVE DB columns (not the in-memory
+        // baseline), excluding the synthetic id column.
+        let db_cols: Vec<ColumnInfo> = read_table_columns(&conn, schema, &meta.table_name)?
+            .into_iter()
+            .filter(|c| c.name != ROW_ID_COL)
+            .collect();
+        let schema_changed = db_cols.len() != table.columns.len()
+            || db_cols
+                .iter()
+                .zip(table.columns.iter())
+                .any(|(a, b)| a.name != b.name || a.data_type != b.data_type);
+
         let table_name = qualified_quote(schema, &meta.table_name);
         let col_idents: Vec<String> = table.columns.iter().map(|c| quote_ident(&c.name)).collect();
 
         let tx = conn.transaction()?;
+
+        if schema_changed {
+            if !allow_schema_changes {
+                bail!(
+                    "Schema changes (add / remove / rename / retype columns) are turned off. \
+                     Turn off Write protection in Settings to allow them. Save aborted."
+                );
+            }
+            reconcile_duckdb_schema(&tx, &table_name, &db_cols, &table.columns)?;
+        }
 
         // DELETE rows whose tag is no longer present.
         let live_tags: std::collections::HashSet<i64> = meta
@@ -104,7 +126,11 @@ impl FormatReader for DuckDbReader {
                 }
                 Some(tag) => {
                     let original = meta.original.get(tag);
-                    let unchanged = original.map(|orig| orig == &row_vals).unwrap_or(false);
+                    // After a schema change the added / retyped columns must be
+                    // written even for rows whose cells "match" the stale
+                    // baseline, so the unchanged short-circuit is gated on it.
+                    let unchanged =
+                        !schema_changed && original.map(|orig| orig == &row_vals).unwrap_or(false);
                     if unchanged {
                         continue;
                     }
@@ -314,6 +340,26 @@ fn ensure_row_id_column(conn: &Connection, schema: &str, table: &str) -> Result<
     Ok(())
 }
 
+/// Inverse of [`duckdb_type_to_arrow`] for `ADD COLUMN`. Lossy but round-trips
+/// the types our reader produces, so an unchanged column never looks "retyped".
+fn arrow_to_duckdb_type(arrow: &str) -> &'static str {
+    if arrow.starts_with("Int") || arrow.starts_with("UInt") {
+        "BIGINT"
+    } else if arrow.starts_with("Float") {
+        "DOUBLE"
+    } else if arrow == "Boolean" {
+        "BOOLEAN"
+    } else if arrow == "Binary" {
+        "BLOB"
+    } else if arrow == "Date32" || arrow == "Date64" {
+        "DATE"
+    } else if arrow.starts_with("Timestamp") {
+        "TIMESTAMP"
+    } else {
+        "VARCHAR"
+    }
+}
+
 pub(crate) fn duckdb_type_to_arrow(ty: &str) -> String {
     let upper = ty.to_uppercase();
     if upper.contains("BIGINT")
@@ -440,6 +486,53 @@ fn cell_to_duckdb_value(v: &CellValue) -> duckdb::types::Value {
         | CellValue::Nested(s) => Value::Text(s.clone()),
         CellValue::Binary(b) => Value::Blob(b.clone()),
     }
+}
+
+/// Make the DB table's user columns match `target` by dropping columns that are
+/// absent or whose type changed, then adding the ones that are missing. The row
+/// diff-save that follows repopulates added / retyped columns from memory, so a
+/// rename (drop old + add new) and a retype (drop + re-add) are both
+/// data-preserving. The synthetic id column is never touched.
+fn reconcile_duckdb_schema(
+    tx: &duckdb::Transaction<'_>,
+    table_q: &str,
+    db_cols: &[ColumnInfo],
+    target: &[ColumnInfo],
+) -> Result<()> {
+    use std::collections::HashSet;
+    let target_match: HashSet<(&str, &str)> = target
+        .iter()
+        .map(|c| (c.name.as_str(), c.data_type.as_str()))
+        .collect();
+    // Drop DB columns absent from target, or present-but-retyped.
+    for c in db_cols {
+        if !target_match.contains(&(c.name.as_str(), c.data_type.as_str())) {
+            tx.execute(
+                &format!("ALTER TABLE {table_q} DROP COLUMN {}", quote_ident(&c.name)),
+                [],
+            )?;
+        }
+    }
+    // What remains after the drops.
+    let kept: HashSet<&str> = db_cols
+        .iter()
+        .filter(|c| target_match.contains(&(c.name.as_str(), c.data_type.as_str())))
+        .map(|c| c.name.as_str())
+        .collect();
+    // Add target columns not currently present.
+    for c in target {
+        if !kept.contains(c.name.as_str()) {
+            tx.execute(
+                &format!(
+                    "ALTER TABLE {table_q} ADD COLUMN {} {}",
+                    quote_ident(&c.name),
+                    arrow_to_duckdb_type(&c.data_type)
+                ),
+                [],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// Quote a `schema.table` pair so each half is safe as an identifier. Quoting

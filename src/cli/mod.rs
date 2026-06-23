@@ -17,17 +17,25 @@ use clap::{Parser, ValueEnum};
 
 use octa::data::schema_export::SchemaTarget;
 
+pub mod anonymize;
 pub mod compare_schemas;
 pub mod convert;
+pub mod dedupe;
 pub mod describe;
 pub mod diff;
 pub mod export_schema;
 pub mod head;
+pub mod impute;
+pub mod join;
+pub mod outliers;
 pub mod output;
+pub mod partition;
+pub mod pii;
 pub mod sample;
 pub mod schema;
 pub mod sql;
 pub mod tail;
+pub mod union;
 pub mod unique_columns;
 pub mod validate_schema;
 
@@ -113,6 +121,15 @@ FROM data GROUP BY region' \
     octa --unique-columns users.csv
     octa --unique-columns sales.parquet --max-combo 2 -f json
 
+  Anonymise / mask columns for sharing:
+    octa --anonymize spec.json data.csv
+    octa --anonymize spec.json data.parquet -f json
+
+  Union (vertical stack of multiple files):
+    octa --union jan.csv --union-file feb.csv --union-file mar.csv
+    octa --union a.parquet --union-file b.parquet --union-drop internal_id
+    octa --union a.csv --union-file b.csv --union-cast amount=Float64 -f json
+
   MCP server (stdio):
     octa --mcp                         # serve MCP over stdin/stdout
 
@@ -151,12 +168,24 @@ Notes:
   * --unique-columns reports per-column distinct counts + uniqueness;
     `is_unique` is true only when no nulls AND every value distinct.
     Use --max-combo to also test column pairs / triples.
+  * --union stacks two or more files vertically into one output table.
+    Positional FILE is the first source; add further sources with
+    --union-file (repeatable). Schemas are reconciled automatically:
+    columns present in only some sources are filled with null; differing
+    numeric types are widened (all int -> Int64; int + float -> Float64;
+    anything else -> Utf8 text). --union-drop COL excludes a column
+    entirely; --union-cast COL=TYPE overrides the resolved Arrow type for
+    a column. A summary line (source count, output columns, output rows)
+    goes to stderr; the result table goes to stdout in --format.
   * --mcp starts an MCP (Model Context Protocol) server on stdio. Tools:
     read_table, tail, sample, schema, list_tables, count_rows, run_sql,
-    convert, export_schema, profile, find_duplicates, value_frequency,
-    search, compare_schemas, diff_tables, validate_against_schema,
-    describe_file, unique_columns. Default row + cell caps come from
-    Settings -> MCP.
+    convert, export_schema, profile, find_duplicates, fuzzy_duplicates,
+    value_frequency, search, compare_schemas, diff_tables, union_tables,
+    validate_against_schema, describe_file, unique_columns, pivot,
+    correlation, grep_files, write_table, edit_table, transform_columns,
+    anonymize. The file-writing tools (convert, write_table, edit_table,
+    transform_columns, anonymize) are dropped under --mcp-read-only.
+    Default row + cell caps come from Settings -> MCP.
   * Action flags are mutually exclusive - pick one. Without any, Octa
     launches its GUI.
   * --rows overrides the initial-load row cap for this invocation
@@ -318,6 +347,126 @@ pub struct Cli {
     #[arg(long = "unique-columns", value_name = "FILE", group = "action")]
     pub unique_columns: Option<PathBuf>,
 
+    /// Anonymise / mask columns of FILE per a JSON SPEC file, printing the
+    /// sanitised table to stdout (the input file is never modified). The spec
+    /// lists per-column rules (`hash` / `partial_mask` / `redact` / `fake`)
+    /// plus an optional shared `salt`; columns are named.
+    #[arg(
+        long = "anonymize",
+        value_names = ["SPEC", "FILE"],
+        num_args = 2,
+        group = "action"
+    )]
+    pub anonymize: Vec<PathBuf>,
+
+    /// Stack two or more tabular files into one output table, reconciling
+    /// differing schemas. Combine with `--union-file` to add further sources;
+    /// use `--union-drop` to omit columns and `--union-cast COL=TYPE` to
+    /// override a column's target Arrow type.
+    #[arg(long, group = "action")]
+    pub union: bool,
+
+    /// Additional file(s) to include in the `--union` stack. Repeatable.
+    /// The positional file plus all `--union-file` values form the full
+    /// input list (minimum two files total).
+    #[arg(long = "union-file", value_name = "FILE")]
+    pub union_file: Vec<PathBuf>,
+
+    /// Column name to exclude from the `--union` output. Repeatable.
+    #[arg(long = "union-drop", value_name = "COL")]
+    pub union_drop: Vec<String>,
+
+    /// Override a column's target Arrow type in the `--union` output.
+    /// Syntax: `COL=TYPE` (e.g. `amount=Float64`). Repeatable.
+    #[arg(long = "union-cast", value_name = "COL=TYPE")]
+    pub union_cast: Vec<String>,
+
+    /// Join two or more tabular files on shared key column(s). Combine with
+    /// `--join-file` to add sources beyond the positional file(s); use
+    /// `--join-on` to name the key columns and `--join-type` to pick the
+    /// join strategy (default `left`).
+    #[arg(long, group = "action")]
+    pub join: bool,
+
+    /// Additional file(s) to include in the `--join` operation. Repeatable.
+    /// The positional file(s) plus all `--join-file` values form the full
+    /// input list (minimum two files total).
+    #[arg(long = "join-file", value_name = "FILE")]
+    pub join_file: Vec<PathBuf>,
+
+    /// Key column(s) for `--join`. Comma-separated or repeated. Required.
+    #[arg(long = "join-on", value_name = "COL[,COL,...]")]
+    pub join_on: Option<String>,
+
+    /// Join strategy for `--join`: `left` (default), `inner`, `right`, or
+    /// `full`.
+    #[arg(long = "join-type", value_name = "TYPE")]
+    pub join_type: Option<String>,
+
+    /// Remove duplicate rows from FILE. By default the whole row is the
+    /// duplicate key; use `--dedupe-on` to restrict to named columns.
+    #[arg(long, value_name = "FILE", group = "action")]
+    pub dedupe: Option<PathBuf>,
+
+    /// Key column(s) for `--dedupe` (comma-separated). Absent = whole row.
+    #[arg(long = "dedupe-on", value_name = "COL[,COL,...]")]
+    pub dedupe_on: Option<String>,
+
+    /// Which occurrence to keep when deduplicating: `first` (default) or
+    /// `last`.
+    #[arg(long = "dedupe-keep", value_name = "first|last")]
+    pub dedupe_keep: Option<String>,
+
+    /// Fill missing/empty cells in one or more columns of FILE. Each flag
+    /// takes a `COL=STRATEGY` pair. Strategies: `mean`, `median`, `mode`,
+    /// `ffill`, `bfill`, `const:VALUE`. Repeatable.
+    #[arg(long = "impute", value_name = "COL=STRATEGY")]
+    pub impute: Vec<String>,
+
+    /// Flag numeric outlier cells in FILE per column using IQR or z-score.
+    /// Combine with `--outlier-method`, `--outlier-cols`, and `--outlier-k`.
+    #[arg(long, group = "action")]
+    pub outliers: bool,
+
+    /// Detection method for `--outliers`: `iqr` (default) or `zscore`.
+    #[arg(long = "outlier-method", value_name = "iqr|zscore")]
+    pub outlier_method: Option<String>,
+
+    /// Comma-separated column names to check with `--outliers`. Defaults to
+    /// all columns.
+    #[arg(long = "outlier-cols", value_name = "COL[,COL,...]")]
+    pub outlier_cols: Option<String>,
+
+    /// Threshold multiplier for `--outliers`. Default 1.5 for IQR, 3.0 for
+    /// z-score.
+    #[arg(long = "outlier-k", value_name = "K")]
+    pub outlier_k: Option<f64>,
+
+    /// Scan FILE for likely PII columns (email, phone, IBAN, credit card, SSN).
+    /// Combine with `--pii-sample` to control how many rows are sampled.
+    #[arg(long = "detect-pii", value_name = "FILE", group = "action")]
+    pub detect_pii: Option<PathBuf>,
+
+    /// Number of rows to sample per column when running `--detect-pii`
+    /// (default 500).
+    #[arg(long = "pii-sample", value_name = "N")]
+    pub pii_sample: Option<usize>,
+
+    /// Split FILE into one output file per distinct value of COL and write each
+    /// group into --out-dir. Output format defaults to the source extension;
+    /// override with --partition-format.
+    #[arg(long = "partition-by", value_name = "COL", group = "action")]
+    pub partition_by: Option<String>,
+
+    /// Output directory for --partition-by. Created if absent.
+    #[arg(long = "out-dir", value_name = "DIR")]
+    pub out_dir: Option<PathBuf>,
+
+    /// Output file extension for --partition-by (without the leading dot, e.g.
+    /// `csv`, `parquet`). Defaults to the source file's extension.
+    #[arg(long = "partition-format", value_name = "EXT")]
+    pub partition_format: Option<String>,
+
     /// Start the MCP (Model Context Protocol) server on stdin/stdout.
     /// Mutually exclusive with the other action flags. Tools mirror the
     /// CLI surface: read_table, schema, list_tables, count_rows, run_sql,
@@ -466,6 +615,51 @@ pub enum Action {
         table: Option<String>,
         max_combo: usize,
     },
+    Anonymize {
+        spec: PathBuf,
+        file: PathBuf,
+    },
+    Union {
+        files: Vec<PathBuf>,
+        union_file: Vec<PathBuf>,
+        drop: Vec<String>,
+        cast: Vec<String>,
+    },
+    Join {
+        files: Vec<PathBuf>,
+        join_file: Vec<PathBuf>,
+        join_on: Vec<String>,
+        join_type: Option<String>,
+    },
+    Dedupe {
+        path: PathBuf,
+        dedupe_on: Option<String>,
+        dedupe_keep: Option<String>,
+    },
+    Impute {
+        path: PathBuf,
+        specs: Vec<String>,
+    },
+    Outliers {
+        path: PathBuf,
+        method: Option<String>,
+        cols: Option<String>,
+        k: Option<f64>,
+    },
+    DetectPii {
+        path: PathBuf,
+        sample_rows: Option<usize>,
+    },
+    Partition {
+        /// Positional source file.
+        path: PathBuf,
+        /// Column name to partition on.
+        col: String,
+        /// Directory to write partition files into.
+        out_dir: PathBuf,
+        /// Output extension override (e.g. `csv`). `None` = use source extension.
+        format: Option<String>,
+    },
     Mcp,
 }
 
@@ -594,6 +788,97 @@ impl Cli {
                 path: p.clone(),
                 table: self.table.clone(),
                 max_combo: self.max_combo,
+            }));
+        }
+        if !self.anonymize.is_empty() {
+            if self.anonymize.len() != 2 {
+                return Err("--anonymize needs exactly two paths: --anonymize SPEC FILE");
+            }
+            return Ok(Some(Action::Anonymize {
+                spec: self.anonymize[0].clone(),
+                file: self.anonymize[1].clone(),
+            }));
+        }
+        if self.union {
+            return Ok(Some(Action::Union {
+                files: self.files.clone(),
+                union_file: self.union_file.clone(),
+                drop: self.union_drop.clone(),
+                cast: self.union_cast.clone(),
+            }));
+        }
+        if self.join {
+            let join_on = match &self.join_on {
+                Some(s) => s
+                    .split(',')
+                    .map(|c| c.trim().to_string())
+                    .filter(|c| !c.is_empty())
+                    .collect::<Vec<_>>(),
+                None => vec![],
+            };
+            if join_on.is_empty() {
+                return Err("--join requires --join-on COL[,COL,...] with at least one key column");
+            }
+            return Ok(Some(Action::Join {
+                files: self.files.clone(),
+                join_file: self.join_file.clone(),
+                join_on,
+                join_type: self.join_type.clone(),
+            }));
+        }
+        if let Some(p) = &self.dedupe {
+            return Ok(Some(Action::Dedupe {
+                path: p.clone(),
+                dedupe_on: self.dedupe_on.clone(),
+                dedupe_keep: self.dedupe_keep.clone(),
+            }));
+        }
+        if !self.impute.is_empty() {
+            // The positional FILE is the single data source for --impute.
+            let path = self
+                .files
+                .first()
+                .cloned()
+                .ok_or("--impute requires a positional FILE argument")?;
+            return Ok(Some(Action::Impute {
+                path,
+                specs: self.impute.clone(),
+            }));
+        }
+        if self.outliers {
+            let path = self
+                .files
+                .first()
+                .cloned()
+                .ok_or("--outliers requires a positional FILE argument")?;
+            return Ok(Some(Action::Outliers {
+                path,
+                method: self.outlier_method.clone(),
+                cols: self.outlier_cols.clone(),
+                k: self.outlier_k,
+            }));
+        }
+        if let Some(p) = &self.detect_pii {
+            return Ok(Some(Action::DetectPii {
+                path: p.clone(),
+                sample_rows: self.pii_sample,
+            }));
+        }
+        if let Some(col) = &self.partition_by {
+            let path = self
+                .files
+                .first()
+                .cloned()
+                .ok_or("--partition-by requires a positional FILE argument")?;
+            let out_dir = self
+                .out_dir
+                .clone()
+                .ok_or("--partition-by requires --out-dir DIR")?;
+            return Ok(Some(Action::Partition {
+                path,
+                col: col.clone(),
+                out_dir,
+                format: self.partition_format.clone(),
             }));
         }
         if self.mcp {
@@ -817,6 +1102,38 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             table,
             max_combo,
         } => unique_columns::run(path, table, max_combo, format),
+        Action::Anonymize { spec, file } => anonymize::run(spec, file, format),
+        Action::Union {
+            files,
+            union_file,
+            drop,
+            cast,
+        } => union::run(files, union_file, drop, cast, format),
+        Action::Join {
+            files,
+            join_file,
+            join_on,
+            join_type,
+        } => join::run(files, join_file, join_on, join_type, format),
+        Action::Dedupe {
+            path,
+            dedupe_on,
+            dedupe_keep,
+        } => dedupe::run(path, dedupe_on, dedupe_keep, format),
+        Action::Impute { path, specs } => impute::run(path, specs, format),
+        Action::Outliers {
+            path,
+            method,
+            cols,
+            k,
+        } => outliers::run(path, method, cols, k, format),
+        Action::DetectPii { path, sample_rows } => pii::run(path, sample_rows, format),
+        Action::Partition {
+            path,
+            col,
+            out_dir,
+            format: partition_format,
+        } => partition::run(path, col, out_dir, partition_format),
         Action::ValidateSchema { .. } => unreachable!("handled above"),
         Action::Mcp => {
             eprintln!("error: --mcp must be dispatched from main, not via cli::dispatch");

@@ -52,7 +52,6 @@ flate2 = "1"
 tar = "0.4"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 regex = "1"
-regex-syntax = "0.8"
 orc-rust = { version = "0.8.0", default-features = false }
 hdf5-reader = "0.6"
 rusqlite = { version = "0.40", features = ["bundled"] }

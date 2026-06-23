@@ -7,6 +7,11 @@ on:
         description: "Release version"
         required: true
         type: string
+      publish_to_store:
+        description: "Submit the MSIX to the Microsoft Store (needs PARTNER_CENTER_* secrets; off until Store setup is finished)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -165,6 +170,50 @@ jobs:
       - name: Build release binary
         run: cargo build --release
 
+      - name: Generate MSIX logo assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path msix\Images -Force | Out-Null
+          $sizes = @{
+            "Square44x44Logo.png"   = 44
+            "Square71x71Logo.png"   = 71
+            "Square150x150Logo.png" = 150
+            "Square310x310Logo.png" = 310
+            "StoreLogo.png"         = 50
+          }
+          foreach ($name in $sizes.Keys) {
+            $s = $sizes[$name]
+            magick assets/octa.png -resize "$($s)x$($s)" "msix\Images\$name"
+          }
+          # Wide tile: 150px logo centred on a transparent 310x150 canvas.
+          magick assets/octa.png -resize 150x150 -background none -gravity center -extent 310x150 msix\Images\Wide310x150Logo.png
+
+      - name: Stage MSIX payload
+        shell: pwsh
+        run: |
+          Copy-Item target\release\octa.exe msix\octa.exe
+          $ver = "$env:VERSION.0"
+          (Get-Content windows\AppxManifest.xml) -replace 'Version="0\.0\.0\.0"', "Version=`"$ver`"" | Set-Content msix\AppxManifest.xml
+          Write-Host "Manifest version set to $ver"
+
+      - name: Pack MSIX
+        shell: pwsh
+        run: |
+          $sdk = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Directory |
+            Where-Object { Test-Path "$($_.FullName)\x64\makeappx.exe" } |
+            Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $sdk) { throw "makeappx.exe not found in Windows SDK" }
+          $makeappx = Join-Path $sdk.FullName "x64\makeappx.exe"
+          & $makeappx pack /d msix /p "octa-$env:VERSION.0.msix" /o
+          if ($LASTEXITCODE -ne 0) { throw "makeappx failed ($LASTEXITCODE)" }
+          Write-Host "Built octa-$env:VERSION.0.msix"
+
+      - name: Upload MSIX artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-msix
+          path: octa-${{ env.VERSION }}.0.msix
+
       - name: Package Windows release
         shell: pwsh
         run: |
@@ -184,6 +233,38 @@ jobs:
         with:
           name: windows-release
           path: octa-${{ env.VERSION }}-windows-x86_64.zip
+
+  # Submit the packed MSIX to the Microsoft Store. A top-level job (not in
+  # `publish`'s needs chain) so a Store failure cannot block the GitHub release.
+  store-publish:
+    needs: build-windows
+    if: ${{ inputs.publish_to_store }}
+    runs-on: windows-2022
+    steps:
+      - name: Download MSIX artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: windows-msix
+
+      - name: Set up Microsoft Store CLI
+        uses: microsoft/setup-msstore-cli@v1
+
+      - name: Configure Partner Center credentials
+        shell: pwsh
+        env:
+          TENANT: ${{ secrets.PARTNER_CENTER_TENANT_ID }}
+          SELLER: ${{ secrets.PARTNER_CENTER_SELLER_ID }}
+          CLIENT_ID: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
+        run: |
+          msstore reconfigure --tenantId $env:TENANT --sellerId $env:SELLER --clientId $env:CLIENT_ID --clientSecret $env:CLIENT_SECRET
+
+      - name: Submit MSIX to the Store
+        shell: pwsh
+        run: |
+          $pkg = (Get-ChildItem *.msix | Select-Object -First 1).Name
+          Write-Host "Publishing $pkg"
+          msstore publish $pkg
 
   build-macos:
     runs-on: macos-latest

@@ -459,6 +459,64 @@ so Ctrl+Shift+D -> Apply is the fastest path for a one-column dedupe
 check.
 "#;
 
+pub(super) const FUZZY_DUPLICATES: &str = r#"# Find Near-Duplicates
+
+**Search > Find near-duplicates...** (Ctrl+Shift+U) finds rows that are
+*almost* the same on the columns you choose, not just exactly equal. It catches
+typos, spacing, and reordered words (for example "Jon Smith" vs "John Smith",
+or "ACME Inc" vs "ACME, Inc.") and groups the likely duplicates into clusters
+with a similarity score for review.
+
+## Controls
+
+The dialog has **two** column choices that do different jobs:
+
+- **Columns to compare**: the columns whose text is matched loosely (where typos
+  and near-misses are found). Each candidate row pair is scored per column and
+  the scores are averaged; the pair matches when the average is at or above the
+  threshold.
+- **Only look for duplicates within the same**: an optional column whose value
+  must match exactly before two rows are even compared. Think of it as sorting
+  the table into bins first, then hunting for duplicates inside each bin only.
+  Example: with Columns to compare = name and "within the same" = country, the
+  two US rows "Jon Smith" / "John Smith" are compared, but a German "Jon Smith"
+  is never compared with the US ones. It makes large tables fast and avoids
+  merging rows that clearly differ on a field you trust. Leave it empty to
+  compare every row.
+
+Other controls:
+
+- **Method** - how two text values are scored:
+  - Edit ratio: counts single-character changes. Best for typos.
+  - Jaro-Winkler: rewards matching starts. Best for names and short strings.
+  - Token set: compares the set of words, ignoring order and punctuation. Best
+    when words are reordered ("Jon Smith" vs "Smith, Jon").
+- **Similarity threshold**: how alike two rows must be (default 85%). 100% =
+  identical; lower catches looser matches but risks false matches.
+- **Normalise**: ignore case, collapse spaces, and ignore punctuation before
+  comparing (all on by default). This is what lets "ACME, Inc." line up with
+  "ACME Inc".
+- **Row limit** caps how many rows are scanned (default 20,000); if the table
+  is larger, the result says so.
+
+The scan runs in the background with a **Cancel** button. Clusters are formed
+transitively: if A is near B and B is near C, all three land in one cluster.
+The cluster's reported score is the lowest linking similarity inside it (the
+honest worst case).
+
+## Output (tick any combination)
+
+- **Add a cluster_id column** (default): writes a cluster_id and cluster_score
+  column onto the table so you can sort or filter by cluster. One undo step.
+- **Highlight** colours the near-duplicate rows orange. Re-running first clears
+  the previous run's highlight, so it never builds up into a fully marked table,
+  and your own marks are left alone.
+- **New tab** opens a clustered report: a cluster id and score column followed
+  by the original columns, grouped by cluster.
+
+The same scan is available as the `fuzzy_duplicates` MCP / assistant tool.
+"#;
+
 pub(super) const SUMMARY: &str = r#"# Summary
 
 The Summary tab answers "what does this table look like?" in one click.
@@ -842,6 +900,69 @@ that conditional formatting colours matching cells, while a conditional
 column sets a value.
 "#;
 
+pub(super) const ANONYMIZE: &str = r#"# Anonymise Columns
+
+**Edit > Anonymise columns...** (Ctrl+Shift+Y) prepares a file for sharing by
+masking or scrambling sensitive columns. Add rules, pick a strategy for each,
+choose where the result goes, and press Apply. An Apply is a single undo step
+(Ctrl+Z reverts the whole operation at once).
+
+## Strategies
+
+- **Hash** - replace each value with a stable hex code. The same value always
+  hashes to the same code, so the data stays join-able.
+- **Partial mask** - keep the first or last N characters and replace the rest
+  with a mask character (for example ***-***-1234). Tick **Same length for
+  all** to use a fixed number of mask characters for every cell, so the output
+  no longer reveals how long the original value was. Left off, it masks exactly
+  the hidden characters.
+- **Redact** - replace the whole value with a fixed token ([REDACTED]) or an
+  empty (null) cell.
+- **Fake** - substitute realistic synthetic data (name, email, city, company,
+  phone, UUID). Deterministic, so duplicates stay consistent.
+
+A rule can target several columns; for mask / redact / fake the strategy is
+applied to each.
+
+## Hashing: SHA-256 vs BLAKE3
+
+Both produce a 256-bit digest written as 64 hex characters. SHA-256 is the
+widely known standard; BLAKE3 is a modern hash that is much faster on large
+files. For masking either is fine and the result is equally join-able - pick
+SHA-256 for familiarity, BLAKE3 for speed.
+
+By default Octa writes the full 64-character hash. Turn off "Output full hash"
+to keep only the first N characters as a shorter ID; the fewer characters, the
+higher the (still small) chance two different values share a code.
+
+## Salt
+
+The optional **salt** is mixed into every value before hashing. The same value
+plus the same salt always gives the same result, so duplicates stay linked and
+a re-run with the same salt re-joins to an earlier export. A non-empty salt
+makes the output non-guessable. Null and empty cells always pass through
+unchanged.
+
+## Combine columns into one ID
+
+Select several columns in one **Hash** rule to hash them together into one new
+column (a pseudonymous key), for example first + last into person_id. A
+multi-column hash always creates a new column rather than overwriting.
+
+## Output
+
+- **Replace the columns in place** - overwrite the chosen columns.
+- **Add the result as new columns** - keep the originals and append the
+  anonymised values (e.g. email_anon).
+- **Put a sanitised copy in a new tab** - leave the original untouched.
+
+## Command line and assistant
+
+The same engine is available as octa --anonymize spec.json data.csv (a JSON
+spec file lists the rules, salt, and output mode) and as the anonymize MCP /
+assistant tool.
+"#;
+
 pub(super) const SORTING: &str = r#"# Sorting
 
 Click a column header to sort by that column ascending; click again for
@@ -1213,6 +1334,27 @@ Export directory**, default ~/Downloads) unless you give an absolute
 path. It can read, query (SQL), profile, convert, chart, and write data
 through the same tools the MCP server exposes.
 
+## Editing your data
+
+By default the assistant cannot change your files (Write protection, on
+under **Settings > Chat / Assistant**). Ask it to change an open table and
+it says so and offers to save a new file in the export directory instead.
+
+Turn Write protection off to let it edit in place:
+
+- Edit the open tab live: add a computed column (a DuckDB expression,
+  including window functions like a moving average), insert rows, set
+  cells, delete rows, or drop columns. The change shows up in the tab at
+  once and Ctrl+Z undoes it. Nothing reaches disk until you save.
+- Edit a file on disk that is not open, including adding or dropping a
+  column. Adding or removing a column on a DuckDB, SQLite, or GeoPackage
+  file is a schema change and also needs Write protection off.
+
+Before the assistant (or a schema-changing database save) overwrites an
+existing file, Octa first copies it to a timestamped .bak sidecar next to it
+(**Back up before modifying**, on by default, under **Settings > Chat /
+Assistant**). Routine manual saves are not backed up.
+
 ## Sessions
 
 Conversations are saved automatically as JSON under `chat_sessions/` in
@@ -1296,9 +1438,10 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
 - **Shortcuts**: rebind any keyboard shortcut. Conflicting bindings are
   flagged.
 - **Performance**: initial-load row cap (streaming readers), syntax-
-  highlight size cap (raw editor fallback), a user-extensible list of
-  file extensions to open as plain text, and how many Excel sheets to
-  auto-open.
+  highlight size cap (raw editor fallback), the raw view size cap (largest
+  file read fully into the raw editor, default 500 MB, with an Unlimited
+  toggle), a user-extensible list of file extensions to open as plain
+  text, and how many Excel sheets to auto-open.
 - **Files**: how many recent files to remember.
 - **Window**: initial size, start maximised. The initial size is the
   pixel size of the window when it is *not* maximised. A maximised window
@@ -1317,4 +1460,254 @@ pub(super) const SHORTCUTS_INTRO: &str = r#"# Shortcuts
 
 Every action below can be rebound under **Help > Settings > Shortcuts**.
 Unbound actions show `(none)`. The bindings shown are the current ones:
+"#;
+
+pub(super) const DEDUPE: &str = r#"# Drop Duplicate Rows
+
+Drop Duplicate Rows removes repeated rows from the active table in one
+step, the way you would delete duplicate lines in a spreadsheet. Open it
+via **Edit > Drop duplicate rows...** (Ctrl+Shift+H).
+
+## How it works
+
+Tick the columns that make up the **key**. Two rows count as duplicates
+when all their checked columns are equal. With every column ticked
+(the default) only exact whole-row repeats are removed; tick just one
+column to collapse rows that share that value.
+
+Choose whether to **keep the first** or **keep the last** occurrence of
+each key. Apply removes the rest in a single undoable step (Ctrl+Z brings
+them all back), and the status bar reports how many rows were removed.
+
+Values are compared as text, so `1` (integer) and `1.0` (float) are not
+treated as the same. The same operation is available on the command line
+as `octa --dedupe` and as the `drop_duplicates` assistant/MCP tool.
+"#;
+
+pub(super) const IMPUTE: &str = r#"# Fill Missing Values
+
+Fill Missing Values replaces empty or null cells in one column using a
+strategy you pick, so you don't have to fill gaps by hand. Open it via
+**Edit > Fill missing values...**.
+
+## Strategies
+
+- **Mean** / **Median** - fill with the average or middle value of the
+  column's numbers (numeric columns only).
+- **Mode** - fill with the most common value.
+- **Constant** - fill with a fixed value you type.
+- **Forward fill** - copy the nearest non-empty value from above.
+- **Backward fill** - copy the nearest non-empty value from below.
+
+Only empty/null cells are changed; existing values are left alone. Apply
+writes the result back as a single undoable step. A strategy that doesn't
+fit the data (for example Mean on a text column) shows an inline error and
+changes nothing. Also available as `octa --impute` and the `fill_missing`
+assistant/MCP tool.
+"#;
+
+pub(super) const UNION: &str = r#"# Union Tables
+
+Union Tables stacks two or more open tabs on top of each other into one
+new table, like appending several exports of the same shape. Open it via
+**Analyse > Union tables...**.
+
+## How it works
+
+Tick the tabs to combine. Octa builds a **reconciliation plan**: the
+result has the union of all their columns. For each merged column you can
+keep or drop it and choose its target type. Columns that appear in only
+some tables are filled with empty cells for the rest. Mixed numeric types
+widen to a common number type; otherwise the column falls back to text.
+
+Apply opens the combined result in a new tab, leaving the sources
+untouched. Also available as `octa --union` and the `union_tables`
+assistant/MCP tool.
+"#;
+
+pub(super) const JOIN: &str = r#"# Join Tables
+
+Join Tables matches rows between two open tabs, like a spreadsheet VLOOKUP
+or a SQL JOIN. You need a second table open in another tab first. Open it
+via **Analyse > Join tables...** (Ctrl+Shift+Q).
+
+## How it works
+
+Pick the **left** table and the **right** table, then add one or more
+**conditions**. Each condition pairs any column of the left table with any
+column of the right table through an operator:
+
+- `=` equal, `<` less than, `<=` less or equal, `>` greater than,
+  `>=` greater or equal.
+
+The columns do **not** need the same name, and their **types do not need to
+match** - Octa converts both sides to a common type before comparing
+(numbers when both are numeric, otherwise text). So you can join a numeric
+`id` against a text `ref`, or match rows where one table's date is `>=`
+another's. Add several conditions to require all of them (an AND join).
+
+Then pick the join type:
+
+- **Inner** - keep only rows that match.
+- **Left** - keep every row of the left table, filling unmatched right
+  columns with empty cells.
+- **Right** - keep every row of the right table.
+- **Full** - keep every row of both.
+
+The matched result opens in a new tab. Joins run through DuckDB, so they are
+fast even on large tables.
+
+The command-line `octa --join` and the `join_tables` assistant/MCP tool
+join on shared **column names** with equality (`--join-on`); the in-app
+dialog is the place for different column names or non-equal operators.
+"#;
+
+pub(super) const PARTITION: &str = r#"# Partition by Column
+
+Partition by Column splits the active table into one file per distinct
+value of a column, like sorting rows into folders by category. Open it via
+**Analyse > Partition by column...** (Ctrl+Shift+Z).
+
+## How it works
+
+Pick the column to split on and an output folder. Octa writes one file per
+distinct value (named after the value) in the format you choose. For
+example, partitioning a sales table by `region` gives you `North.csv`,
+`South.csv`, and so on.
+
+The original table is not changed. Also available as
+`octa --partition-by` and the `partition_table` assistant/MCP tool.
+"#;
+
+pub(super) const OUTLIERS: &str = r#"# Detect Outliers
+
+Detect Outliers highlights numeric values that sit far from the rest of
+their column, painting each flagged cell **orange** so unusual readings
+stand out. Open it via **Analyse > Detect outliers...**.
+
+## Methods
+
+- **IQR (interquartile range)** - flags cells outside
+  `[Q1 - k*IQR, Q3 + k*IQR]`. The usual `k` is `1.5`.
+- **Z-score (standard deviations)** - flags cells whose value is more than
+  `k` standard deviations from the mean. The usual `k` is `3`.
+
+Tick the columns to scan (numeric columns are pre-selected) and set `k`,
+then press **Detect**. Columns with fewer than four numbers are skipped.
+
+## What Detect does
+
+Choose under **When done**:
+
+- **Highlight outlier cells** - paints each flagged cell **orange**. This is
+  **per tab and session-only**: it never changes the data, only how it is
+  shown, and **Clear highlight** removes it. Manual colour marks, conditional
+  colours, and validation highlights all take priority over the orange.
+- **Add an is_outlier column** - appends a boolean `is_outlier` column that
+  is `true` for every row holding at least one flagged value. This is a real,
+  undoable edit (Ctrl+Z) you can save, sort, or filter on.
+
+Also available as `octa --outliers` and the `detect_outliers` assistant/MCP
+tool (both report the flagged cells).
+"#;
+
+pub(super) const PII: &str = r#"# Detect PII
+
+Detect PII scans the table for columns that look like personal data, so
+you can find sensitive fields before sharing a file. Open it via
+**Analyse > Detect PII...**.
+
+## How it works
+
+Octa weighs two clues for every column:
+
+- the **column header** (does it look like `email`, `first_name`, `gender`,
+  `country`, `birthdate`, `ip`, ...?), and
+- the **cell values** (how many match a known shape: email, phone, IP
+  address, credit card, IBAN, SSN, date, postal code).
+
+This is why fields with no give-away values, like names, gender or country,
+are still found from their header, while a plain number column like
+`salary` is left alone.
+
+## Confidence
+
+The percentage combines those two clues:
+
+- a strong value pattern on its own reaches at least 60%,
+- a matching header on its own reaches 60%,
+- the two together score highest (up to 100%).
+
+A column is listed when its best guess is at least 50%. The **Basis** column
+tells you which clue drove it: `column name`, `values (N%)`, or both.
+
+**Send to Anonymise** opens the Anonymise dialog pre-filled with one hashing
+rule per detected column. Also available as `octa --detect-pii` and the
+`detect_pii` assistant/MCP tool, which return the same `confidence`,
+`by_name` and `value_match` fields.
+"#;
+
+pub(super) const CLEAN_HEADERS: &str = r#"# Clean Headers on Load
+
+Clean Headers on Load is an optional setting that tidies column names the
+moment a file opens, turning headers like `First Name` or `E-mail Address`
+into lower snake_case identifiers (`first_name`, `e_mail_address`). Enable
+it under **Help > Settings > Clean headers on load**.
+
+## What it does
+
+Each header is trimmed, lowercased, and has spaces and punctuation
+replaced with single underscores; leading and trailing underscores are
+stripped. Duplicate results get a numeric suffix (`name`, `name_2`) so
+every column keeps a distinct name. A header that has no usable characters
+becomes `column`.
+
+It is off by default, so files load with their original headers unless you
+opt in. It pairs naturally with **Trim whitespace on load**.
+"#;
+
+pub(super) const DIAGNOSTICS: &str = r#"# Debug & Reports
+
+## The log
+
+Octa always keeps a log, so there is a record when something goes wrong.
+There is no switch to turn it on. It lives in a 'logs' subfolder of Octa's
+config folder (logs/octa.log), together with crash details (last_crash.txt),
+a run-lock marker (running.lock), and any reports you export. Use **Settings >
+Diagnostics > Open log folder** to jump straight there.
+
+Octa's own code logs at 'info' level; third-party libraries are kept to
+warnings and errors so the log stays readable.
+
+## Size limit and rotation
+
+The live log is capped at about 5 MB. When it reaches the cap, Octa renames it
+to octa.log.1 (replacing the previous octa.log.1) and starts a fresh octa.log.
+So there are at most two files, about 10 MB total, and the oldest entries are
+eventually discarded. The same check runs at start-up, so a restart never
+keeps appending past the limit.
+
+## Debug logging (off by default)
+
+Only the extra detail is opt-in. Turn on **Settings > Diagnostics > Debug
+logging** to raise Octa's own code from 'info' to 'debug' for more detailed
+entries (it applies immediately, no restart). Leave it off for normal use:
+debug entries fill the 5 MB cap faster, so the log rotates sooner and keeps
+less history. Switch it on while reproducing a bug, then back off.
+
+## After a crash
+
+Octa records failures two ways. A panic handler writes the time, location,
+message, and backtrace to last_crash.txt. A run-lock marker catches harder
+crashes the handler cannot (a native crash or a killed process): if the marker
+is still there at the next launch, the previous run ended uncleanly. Either
+way, the next launch offers to export a report.
+
+## Exporting a report
+
+Use **Help > Export debug report...** to write a single text file (in the logs
+folder) with your app version, operating system, theme and language, the tail
+of the log, the last crash if any, and your settings. Secrets are stripped and
+your home folder and username are masked, so it is safe to attach to a GitHub
+issue. No cell values or column data are included.
 "#;

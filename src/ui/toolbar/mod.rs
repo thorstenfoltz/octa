@@ -370,6 +370,30 @@ pub fn draw_toolbar(
                         action.open_conditional_column = true;
                         ui.close();
                     }
+                    if ui
+                        .button(crate::i18n::t("anonymize.menu"))
+                        .on_hover_text(crate::i18n::t("anonymize.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_anonymize = true;
+                        ui.close();
+                    }
+                    if ui
+                        .button(crate::i18n::t("dedupe.menu"))
+                        .on_hover_text(crate::i18n::t("dedupe.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_dedupe = true;
+                        ui.close();
+                    }
+                    if ui
+                        .button(crate::i18n::t("impute.menu"))
+                        .on_hover_text(crate::i18n::t("impute.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_impute = true;
+                        ui.close();
+                    }
                     let del_col = ui.add_enabled(
                         has_selected_cell,
                         egui::Button::new(crate::i18n::t("toolbar.delete_column")),
@@ -795,6 +819,17 @@ pub fn draw_toolbar(
                         action.show_find_duplicates = true;
                         ui.close();
                     }
+                    let fuzzy_btn = ui.add_enabled(
+                        has_data,
+                        egui::Button::new(crate::i18n::t("fuzzy_dup.menu")),
+                    );
+                    if fuzzy_btn
+                        .on_hover_text(crate::i18n::t("fuzzy_dup.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_fuzzy_duplicates = true;
+                        ui.close();
+                    }
                     ui.separator();
                     if ui
                         .button(crate::i18n::t("search_menu.multi_search"))
@@ -850,6 +885,26 @@ pub fn draw_toolbar(
                             action.open_multi_sort = true;
                             ui.close();
                         }
+                        if ui.button(crate::i18n::t("union.menu")).clicked() {
+                            action.open_union = true;
+                            ui.close();
+                        }
+                        if ui.button(crate::i18n::t("join.menu")).clicked() {
+                            action.open_join = true;
+                            ui.close();
+                        }
+                        if ui.button(crate::i18n::t("partition.menu")).clicked() {
+                            action.open_partition = true;
+                            ui.close();
+                        }
+                        if ui.button(crate::i18n::t("outliers.menu")).clicked() {
+                            action.open_outliers = true;
+                            ui.close();
+                        }
+                        if ui.button(crate::i18n::t("pii.menu")).clicked() {
+                            action.open_pii = true;
+                            ui.close();
+                        }
                         ui.separator();
                     }
                     if ui
@@ -882,11 +937,21 @@ pub fn draw_toolbar(
                     ui.close();
                 }
                 ui.separator();
+                if !crate::platform::is_store_packaged() {
+                    if ui
+                        .button(crate::i18n::t("help_menu.check_updates"))
+                        .clicked()
+                    {
+                        action.check_for_updates = true;
+                        ui.close();
+                    }
+                    ui.separator();
+                }
                 if ui
-                    .button(crate::i18n::t("help_menu.check_updates"))
+                    .button(crate::i18n::t("diagnostics.menu_export"))
                     .clicked()
                 {
-                    action.check_for_updates = true;
+                    action.export_debug_report = true;
                     ui.close();
                 }
                 ui.separator();

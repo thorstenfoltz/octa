@@ -77,6 +77,7 @@ pub struct ToolbarAction {
     pub show_settings: bool,
     pub show_about: bool,
     pub check_for_updates: bool,
+    pub export_debug_report: bool,
     pub replace_next: bool,
     pub replace_all: bool,
     pub toggle_replace_bar: bool,
@@ -121,6 +122,28 @@ pub struct ToolbarAction {
     /// Open the Conditional-column (CASE / if-elseif-else) dialog for the
     /// active table. Fired by **Edit -> Conditional column...**.
     pub open_conditional_column: bool,
+    /// Open the Anonymise-columns dialog for the active table.
+    /// Fired by **Edit -> Anonymise columns...**.
+    pub open_anonymize: bool,
+    /// Open the Fill-missing-values (impute) dialog for the active table.
+    /// Fired by **Edit -> Fill missing values...**.
+    pub open_impute: bool,
+    /// Open the Drop-duplicate-rows dialog for the active table.
+    /// Fired by **Edit -> Drop duplicate rows...**.
+    pub open_dedupe: bool,
+    /// Open the Find-near-duplicates (fuzzy) dialog for the active table.
+    /// Fired by **Search -> Find near-duplicates...**.
+    pub open_fuzzy_duplicates: bool,
+    /// Open the Partition-by-column dialog. Fired by **Analyse -> Partition by column...**.
+    pub open_partition: bool,
+    /// Open the Union-tables dialog. Fired by **Analyse -> Union tables...**.
+    pub open_union: bool,
+    /// Open the Join-tables dialog. Fired by **Analyse -> Join tables...**.
+    pub open_join: bool,
+    /// Open the Detect-outliers dialog. Fired by **Analyse -> Detect outliers...**.
+    pub open_outliers: bool,
+    /// Open the Detect-PII dialog. Fired by **Analyse -> Detect PII...**.
+    pub open_pii: bool,
     /// Toggle "first row is header" for the active table.
     pub toggle_first_row_header: bool,
     /// Apply a color mark to a set of keys (cell/row/column).

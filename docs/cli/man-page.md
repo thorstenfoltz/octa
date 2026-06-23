@@ -34,6 +34,14 @@ octa --diff FILE_A FILE_B [--diff-mode MODE] [--diff-on COLS] [-f FORMAT]
 octa --describe FILE [--table NAME] [--sample-rows N] [-f FORMAT]
 octa --validate-schema FILE --expect-schema SCHEMA_FILE [--table NAME] [-f FORMAT]
 octa --unique-columns FILE [--table NAME] [--max-combo N] [-f FORMAT]
+octa --anonymize SPEC FILE [-f FORMAT]
+octa --dedupe FILE [--dedupe-on COLS] [--dedupe-keep WHICH] [-f FORMAT]
+octa --impute COL=STRATEGY FILE [-f FORMAT]
+octa --outliers FILE [--outlier-method M] [--outlier-cols COLS] [--outlier-k K] [-f FORMAT]
+octa --detect-pii FILE [--pii-sample N] [-f FORMAT]
+octa --union FILE --union-file FILE [--union-drop COL] [--union-cast COL=TYPE] [-f FORMAT]
+octa --join FILE --join-file FILE --join-on COLS [--join-type TYPE] [-f FORMAT]
+octa --partition-by COL --out-dir DIR FILE [--partition-format EXT]
 octa --mcp
 ```
 
@@ -50,7 +58,9 @@ optionally opening the supplied *FILE*(s) in tabs. When invoked
 with one of the action flags (`--schema`, `--head`, `--tail`,
 `--sample`, `--convert`, `--sql`, `--export-schema`,
 `--compare-schemas`, `--diff`, `--describe`, `--validate-schema`,
-`--unique-columns`, `--mcp`), it performs that action and exits.
+`--unique-columns`, `--anonymize`, `--dedupe`, `--impute`,
+`--outliers`, `--detect-pii`, `--union`, `--join`, `--partition-by`,
+`--mcp`), it performs that action and exits.
 
 Action flags are **mutually exclusive**. Trailing *FILE* arguments
 are ignored (with a warning) when an action flag is set.
@@ -155,16 +165,67 @@ are ignored (with a warning) when an action flag is set.
     Use `--max-combo N` (clamped to `[1, 3]`) to test pairs /
     triples. See [`octa --unique-columns`](unique-columns.md).
 
+`--anonymize SPEC FILE`
+:   Mask / scramble sensitive columns of *FILE* per the JSON *SPEC*
+    file and print the sanitised table to stdout (the input file is
+    never modified). The spec lists per-column rules (`hash` /
+    `partial_mask` / `redact` / `fake`) plus an optional shared
+    `salt`; columns are named. The same value plus the same salt
+    always maps the same way, so duplicates stay linked and a re-run
+    re-joins to an earlier export. See
+    [`octa --anonymize`](anonymize.md).
+
+`--dedupe FILE`
+:   Remove duplicate rows from *FILE* and print the result. Without
+    `--dedupe-on` the whole row is the key; `--dedupe-keep`
+    (`first`/`last`) picks the surviving occurrence. See
+    [`octa --dedupe`](dedupe.md).
+
+`--impute COL=STRATEGY`
+:   Fill missing cells of a column of the positional *FILE* (repeatable).
+    Strategies: `mean`, `median`, `mode`, `ffill`, `bfill`,
+    `const:VALUE`. See [`octa --impute`](impute.md).
+
+`--outliers FILE`
+:   Flag numeric outlier cells in *FILE*. `--outlier-method`
+    (`iqr`/`zscore`), `--outlier-cols`, `--outlier-k` tune the scan.
+    See [`octa --outliers`](outliers.md).
+
+`--detect-pii FILE`
+:   Scan *FILE* for likely PII columns (email, phone, IBAN, credit
+    card, SSN). `--pii-sample N` sets the per-column sample size. See
+    [`octa --detect-pii`](pii.md).
+
+`--union FILE`
+:   Stack the positional *FILE* plus every `--union-file` into one
+    table. `--union-drop` omits columns, `--union-cast COL=TYPE`
+    overrides a target type. See [`octa --union`](union.md).
+
+`--join FILE`
+:   Join the positional *FILE*(s) plus every `--join-file` on the
+    `--join-on` key(s). `--join-type` is `left`/`inner`/`right`/`full`.
+    See [`octa --join`](join.md).
+
+`--partition-by COL`
+:   Split the positional *FILE* into one file per distinct value of
+    *COL*, written into `--out-dir`. `--partition-format` sets the
+    output extension. See [`octa --partition-by`](partition.md).
+
 `--mcp`
 :   Start a Model Context Protocol (MCP) server on standard
-    input / output. Twenty tools are exposed: `read_table`,
+    input / output. The tools exposed are: `read_table`,
     `tail`, `sample`, `schema`, `list_tables`, `count_rows`,
     `run_sql`, `convert`, `export_schema`, `profile`,
-    `find_duplicates`, `value_frequency`, `search`,
-    `compare_schemas`, `diff_tables`, `describe_file`,
-    `validate_against_schema`, `unique_columns`, `write_table`,
-    `edit_table`. Defaults for the
-    row limit and per-cell byte cap come from the user's Octa
+    `find_duplicates`, `fuzzy_duplicates`, `value_frequency`,
+    `search`, `compare_schemas`, `diff_tables`, `describe_file`,
+    `validate_against_schema`, `unique_columns`, `pivot`,
+    `correlation`, `grep_files`, `write_table`, `edit_table`,
+    `transform_columns`, `anonymize`, `detect_pii`, `detect_outliers`,
+    `fill_missing`, `drop_duplicates`, `union_tables`, `join_tables`,
+    `partition_table`. The file-writing tools (`convert`,
+    `write_table`, `edit_table`, `transform_columns`, `anonymize`,
+    `partition_table`) are dropped when `--mcp-read-only` is given. Defaults
+    for the row limit and per-cell byte cap come from the user's Octa
     settings ([Settings → MCP](../reference/settings.md#mcp)). See
     the [MCP server guide](../mcp/index.md) for setup.
 
@@ -250,6 +311,52 @@ are ignored (with a warning) when an action flag is set.
     disables it entirely. Applies to `--schema`, `--head`,
     `--convert`, and `--sql`. Commas / underscores in the number
     are allowed for readability.
+
+`--dedupe-on COLS`
+:   Comma-separated key columns for `--dedupe`. Absent = whole-row key.
+
+`--dedupe-keep WHICH`
+:   Which duplicate to keep for `--dedupe`: `first` (default) or `last`.
+
+`--outlier-method M`
+:   Method for `--outliers`: `iqr` (default) or `zscore`.
+
+`--outlier-cols COLS`
+:   Comma-separated columns to scan with `--outliers` (default: all).
+
+`--outlier-k K`
+:   Threshold multiplier for `--outliers` (default 1.5 IQR, 3.0 z-score).
+
+`--pii-sample N`
+:   Rows sampled per column for `--detect-pii` (default 500).
+
+`--union-file FILE`
+:   Additional source for `--union` (repeatable); positional file plus
+    these form the input list (minimum two).
+
+`--union-drop COL`
+:   Column to omit from the `--union` output (repeatable).
+
+`--union-cast COL=TYPE`
+:   Override a column's target Arrow type in the `--union` output
+    (repeatable).
+
+`--join-file FILE`
+:   Additional source for `--join` (repeatable).
+
+`--join-on COLS`
+:   Key column(s) for `--join`; comma-separated or repeated. Required.
+
+`--join-type TYPE`
+:   Join strategy for `--join`: `left` (default), `inner`, `right`,
+    `full`.
+
+`--out-dir DIR`
+:   Output directory for `--partition-by` (required; created if absent).
+
+`--partition-format EXT`
+:   Output extension for `--partition-by` (default: the source's
+    extension).
 
 `-f FORMAT`, `--format FORMAT`
 :   Output format for actions that print a table. *FORMAT* is one
@@ -438,10 +545,14 @@ octa --mcp
 ## MCP Server
 
 When invoked with `--mcp`, Octa speaks the Model Context Protocol
-over JSON-RPC on stdin/stdout. Fifteen tools are exposed:
+over JSON-RPC on stdin/stdout. The tools are:
 
 - [`read_table(path, limit?, unlimited?, table?)`](../mcp/tools/read_table.md)
   returns schema + rows JSON.
+- [`tail(path, n?, unlimited?, table?)`](../mcp/tools/tail.md) returns
+  the last N rows.
+- [`sample(path, n?, seed?, unlimited?, table?)`](../mcp/tools/sample.md)
+  returns a reproducible random N-row sample.
 - [`schema(path, table?)`](../mcp/tools/schema.md) returns column
   schema only.
 - [`list_tables(path)`](../mcp/tools/list_tables.md) lists tables
@@ -458,22 +569,54 @@ over JSON-RPC on stdin/stdout. Fifteen tools are exposed:
   returns per-column statistics via `SUMMARIZE`.
 - [`find_duplicates(path, key_columns, …, unlimited?)`](../mcp/tools/find_duplicates.md)
   returns rows sharing key-column values.
+- [`fuzzy_duplicates(path, key_columns, method?, threshold?, …)`](../mcp/tools/fuzzy_duplicates.md)
+  clusters near-duplicate rows (typos, spacing, word order).
 - [`value_frequency(path, column, …, unlimited?)`](../mcp/tools/value_frequency.md)
   counts per-column values.
 - [`search(path, query, mode?, …, unlimited?)`](../mcp/tools/search.md)
   matches cells across every column.
 - [`compare_schemas(path_a, path_b, table_a?, table_b?)`](../mcp/tools/compare_schemas.md)
   diffs the column schemas of two files.
+- [`diff_tables(path_a, path_b, mode?, on?, …)`](../mcp/tools/diff_tables.md)
+  row-level diff of two files (set / ordered / join).
 - [`describe_file(path, table?, sample_rows?, unlimited?)`](../mcp/tools/describe_file.md)
   returns a one-shot orientation snapshot.
 - [`validate_against_schema(path, table?, schema_path?, schema_inline?)`](../mcp/tools/validate_against_schema.md)
   checks a file against a JSON Schema.
 - [`unique_columns(path, table?, max_combo_size?, unlimited?)`](../mcp/tools/unique_columns.md)
   finds primary-key candidates.
+- [`pivot(path, mode?, on?, value?, agg?, …)`](../mcp/tools/pivot.md)
+  reshapes long <-> wide (PIVOT / UNPIVOT).
+- [`correlation(path, method?, unlimited?, table?)`](../mcp/tools/correlation.md)
+  computes a pairwise numeric correlation matrix.
+- [`grep_files(dir, query, mode?, …)`](../mcp/tools/grep_files.md)
+  greps a value across files in a directory.
 - [`write_table(path, columns, rows?, mode?, unlimited?)`](../mcp/tools/write_table.md)
   writes inline rows to a new file (create / overwrite / append).
 - [`edit_table(path, table?, set?, insert_rows?, delete_rows?, unlimited?)`](../mcp/tools/edit_table.md)
   edits an existing file in place (DB sources diff-saved).
+- [`transform_columns(path, drop?, rename?, cast?, output_path?)`](../mcp/tools/transform_columns.md)
+  renames / casts / drops columns and writes back.
+- [`anonymize(path, rules, salt?, output_path?)`](../mcp/tools/anonymize.md)
+  masks / scrambles columns and writes the result.
+- [`detect_pii(path, sample_rows?, table?)`](../mcp/tools/detect_pii.md)
+  reports likely personal-data columns.
+- [`detect_outliers(path, columns?, method?, k?, table?)`](../mcp/tools/detect_outliers.md)
+  flags numeric outlier cells.
+- [`fill_missing(path, column, strategy, value?, table?)`](../mcp/tools/fill_missing.md)
+  imputes empty cells in a column.
+- [`drop_duplicates(path, on?, keep?, table?)`](../mcp/tools/drop_duplicates.md)
+  removes duplicate rows.
+- [`union_tables(sources, drop?, cast?)`](../mcp/tools/union_tables.md)
+  stacks tables vertically.
+- [`join_tables(sources, on, how?)`](../mcp/tools/join_tables.md)
+  joins tables on key columns.
+- [`partition_table(path, column, out_dir, format?, table?)`](../mcp/tools/partition_table.md)
+  writes one file per distinct column value.
+
+The file-writing tools (`convert`, `write_table`, `edit_table`,
+`transform_columns`, `anonymize`, `partition_table`) are dropped under
+`--mcp-read-only`.
 
 Defaults (the response row cap of 1000 rows, per-cell byte cap of
 64 KiB, and file-loader cap of 5,000,000 rows) are configurable

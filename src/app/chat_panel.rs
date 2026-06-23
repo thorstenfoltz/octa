@@ -1412,6 +1412,126 @@ impl OctaApp {
             restrict_filesystem: true,
             allowed_read_paths,
             export_dir,
+            allow_existing_writes: !self.settings.write_protection,
+            allow_schema_changes: !self.settings.write_protection,
+            backup_before_modify: self.settings.backup_before_modify,
+            pending_tab_edits: Some(self.pending_tab_edits.clone()),
+        }
+    }
+
+    /// Apply any live-tab edits the chat agent queued. Each batch is applied on
+    /// the UI thread through the normal undoable table mutations, coalesced into
+    /// one undo entry. Aborts a batch (with a status message) if the target tab
+    /// is gone or its row count drifted from the snapshot the ops were computed
+    /// against, so data can never misalign.
+    pub(crate) fn drain_pending_tab_edits(&mut self) {
+        let batches: Vec<crate::mcp::tools::PendingTabEdit> = {
+            let mut q = self.pending_tab_edits.lock().unwrap();
+            if q.is_empty() {
+                return;
+            }
+            std::mem::take(&mut *q)
+        };
+
+        for batch in batches {
+            // Map the handle (#N) to a live non-chart tab, same numbering as
+            // build_tool_context.
+            let tab_idx = self
+                .tabs
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| !t.is_chart_tab)
+                .enumerate()
+                .find(|(pos, _)| format!("#{}", pos + 1) == batch.tab_handle)
+                .map(|(_, (i, _))| i);
+            let Some(tab_idx) = tab_idx else {
+                self.status_message = Some((
+                    format!(
+                        "Assistant edit skipped: tab {} is no longer open",
+                        batch.tab_handle
+                    ),
+                    std::time::Instant::now(),
+                ));
+                continue;
+            };
+            if self.is_readonly() || self.settings.write_protection {
+                self.status_message = Some((
+                    "Assistant edit skipped: editing is currently disabled".to_string(),
+                    std::time::Instant::now(),
+                ));
+                continue;
+            }
+            let tab = &mut self.tabs[tab_idx];
+            if tab.table.row_count() != batch.snapshot_rows {
+                self.status_message = Some((
+                    "Assistant edit skipped: the table changed while the assistant was working"
+                        .to_string(),
+                    std::time::Instant::now(),
+                ));
+                continue;
+            }
+
+            let start = tab.table.undo_stack.len();
+            for op in &batch.ops {
+                match op {
+                    crate::mcp::tools::ResolvedOp::AddColumn {
+                        name,
+                        type_name,
+                        values,
+                    } => {
+                        let idx = tab.table.col_count();
+                        tab.table
+                            .insert_column(idx, name.clone(), type_name.clone());
+                        for (r, v) in values.iter().enumerate() {
+                            if r < tab.table.row_count() {
+                                tab.table.set(r, idx, v.clone());
+                            }
+                        }
+                    }
+                    crate::mcp::tools::ResolvedOp::InsertRows { at, rows } => {
+                        for row in rows {
+                            let at_i = at
+                                .unwrap_or_else(|| tab.table.row_count())
+                                .min(tab.table.row_count());
+                            tab.table.insert_row(at_i);
+                            for (c, v) in row.iter().enumerate() {
+                                tab.table.set(at_i, c, v.clone());
+                            }
+                        }
+                    }
+                    crate::mcp::tools::ResolvedOp::SetCells(cells) => {
+                        for (r, c, v) in cells {
+                            tab.table.set(*r, *c, v.clone());
+                        }
+                    }
+                    crate::mcp::tools::ResolvedOp::DeleteRows(idxs) => {
+                        let mut sorted = idxs.clone();
+                        sorted.sort_unstable();
+                        sorted.dedup();
+                        for &i in sorted.iter().rev() {
+                            if i < tab.table.row_count() {
+                                tab.table.delete_row(i);
+                            }
+                        }
+                    }
+                    crate::mcp::tools::ResolvedOp::DropColumns(idxs) => {
+                        let mut sorted = idxs.clone();
+                        sorted.sort_unstable();
+                        sorted.dedup();
+                        for &c in sorted.iter().rev() {
+                            if c < tab.table.col_count() {
+                                tab.table.delete_column(c);
+                            }
+                        }
+                    }
+                }
+            }
+            tab.table.coalesce_undo_since(start);
+            // Remember the assistant touched this tab, so the next manual save
+            // backs up the original file first (the user's own edits don't).
+            tab.assistant_modified = true;
+            tab.filter_dirty = true;
+            tab.table_state.widths_initialized = false;
         }
     }
 }
@@ -1500,6 +1620,8 @@ fn render_message(ui: &mut egui::Ui, msg: &super::chat::types::Message) {
 /// selection+Ctrl+C and by right-click, regardless of the table view's own
 /// clipboard shortcut.
 fn copyable_text(ui: &mut egui::Ui, text: &str, monospace: bool) {
+    let text = ascii_glyphs(text);
+    let text = text.as_ref();
     let rich = if monospace {
         egui::RichText::new(text).monospace()
     } else {
@@ -1512,6 +1634,36 @@ fn copyable_text(ui: &mut egui::Ui, text: &str, monospace: bool) {
             ui.close();
         }
     });
+}
+
+/// egui's bundled fonts cover Latin/Greek/Cyrillic/CJK but not the arrow and
+/// typographic-symbol ranges, so glyphs the model loves to emit (`->`, em
+/// dash, smart quotes, ellipsis, bullet) render as empty tofu squares. Map the
+/// common offenders to ASCII before display. Script text (CJK/Greek/...) is
+/// left untouched so real translations still render.
+///
+/// ponytail: curated map, not full Unicode transliteration. Add a glyph here
+/// when one shows up as tofu rather than bundling a symbol font.
+fn ascii_glyphs(s: &str) -> std::borrow::Cow<'_, str> {
+    if s.is_ascii() {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\u{2192}' | '\u{27F6}' | '\u{21D2}' => out.push_str("->"),
+            '\u{2190}' | '\u{27F5}' | '\u{21D0}' => out.push_str("<-"),
+            '\u{2194}' | '\u{21D4}' => out.push_str("<->"),
+            '\u{2014}' | '\u{2013}' => out.push('-'),
+            '\u{2026}' => out.push_str("..."),
+            '\u{2022}' | '\u{00B7}' | '\u{2027}' => out.push('*'),
+            '\u{201C}' | '\u{201D}' => out.push('"'),
+            '\u{2018}' | '\u{2019}' => out.push('\''),
+            '\u{00D7}' => out.push('x'),
+            other => out.push(other),
+        }
+    }
+    std::borrow::Cow::Owned(out)
 }
 
 /// A simple speaker-labelled text block.
@@ -1536,4 +1688,22 @@ fn clip(s: &str, max: usize) -> String {
     }
     let cut: String = s.chars().take(max).collect();
     format!("{cut}\n...[clipped]")
+}
+
+#[cfg(test)]
+mod ascii_glyph_tests {
+    use super::ascii_glyphs;
+
+    #[test]
+    fn maps_common_tofu_to_ascii() {
+        assert_eq!(ascii_glyphs("a \u{2192} b"), "a -> b");
+        assert_eq!(ascii_glyphs("x \u{2014} y \u{2026}"), "x - y ...");
+        assert_eq!(ascii_glyphs("\u{201C}hi\u{201D}"), "\"hi\"");
+        // Pure ASCII is borrowed unchanged; real script text is preserved.
+        assert!(matches!(
+            ascii_glyphs("plain"),
+            std::borrow::Cow::Borrowed(_)
+        ));
+        assert_eq!(ascii_glyphs("\u{4f60}\u{597d}"), "\u{4f60}\u{597d}");
+    }
 }

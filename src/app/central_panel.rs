@@ -64,34 +64,30 @@ impl OctaApp {
                 ui.horizontal(|ui| {
                     ui.add_space(8.0);
                     ui.label(
-                        egui::RichText::new(format!(
-                            "Detected dates in {}; shown as YYYY-MM-DD.",
-                            summary
-                        ))
+                        egui::RichText::new(
+                            octa::i18n::t("banner.dates_detected").replace("{cols}", &summary),
+                        )
                         .color(colors.warning)
                         .size(12.0),
                     );
                     // "Okay" accepts the date display and closes the banner;
                     // "Dismiss" reverts the promoted columns back to text.
                     if ui
-                        .small_button("Okay")
-                        .on_hover_text("Keep showing these columns as dates (YYYY-MM-DD).")
+                        .small_button(octa::i18n::t("banner.okay"))
+                        .on_hover_text(octa::i18n::t("banner.dates_keep_tip"))
                         .clicked()
                     {
                         keep_dates = true;
                     }
                     if ui
-                        .small_button("Dismiss")
-                        .on_hover_text(
-                            "Revert these columns to their original text - do not \
-                             treat them as dates.",
-                        )
+                        .small_button(octa::i18n::t("banner.dismiss"))
+                        .on_hover_text(octa::i18n::t("banner.dates_revert_tip"))
                         .clicked()
                     {
                         dismiss_warning = true;
                     }
                     ui.label(
-                        egui::RichText::new("(disable in Settings -> File-Specific)")
+                        egui::RichText::new(octa::i18n::t("banner.disable_hint"))
                             .color(colors.text_muted)
                             .size(11.0),
                     );
@@ -130,22 +126,21 @@ impl OctaApp {
                 ui.horizontal_wrapped(|ui| {
                     ui.add_space(8.0);
                     ui.label(
-                        egui::RichText::new(format!(
-                            "Left as text - some values could not be parsed as dates: {}.",
-                            summary
-                        ))
+                        egui::RichText::new(
+                            octa::i18n::t("banner.dates_unparsed").replace("{cols}", &summary),
+                        )
                         .color(colors.warning)
                         .size(12.0),
                     );
                     if ui
-                        .small_button("Dismiss")
-                        .on_hover_text("Close this notice.")
+                        .small_button(octa::i18n::t("banner.dismiss"))
+                        .on_hover_text(octa::i18n::t("banner.close_tip"))
                         .clicked()
                     {
                         dismiss_date_parse = true;
                     }
                     ui.label(
-                        egui::RichText::new("(disable in Settings -> File-Specific)")
+                        egui::RichText::new(octa::i18n::t("banner.disable_hint"))
                             .color(colors.text_muted)
                             .size(11.0),
                     );
@@ -171,11 +166,11 @@ impl OctaApp {
                 ui.horizontal(|ui| {
                     ui.add_space(8.0);
                     ui.label(
-                        egui::RichText::new(format!(
-                            "Trimmed leading/trailing spaces in {} column(s): {}.",
-                            warning.columns.len(),
-                            summary
-                        ))
+                        egui::RichText::new(
+                            octa::i18n::t("banner.trimmed")
+                                .replace("{n}", &warning.columns.len().to_string())
+                                .replace("{cols}", &summary),
+                        )
                         .color(colors.warning)
                         .size(12.0),
                     );
@@ -183,21 +178,21 @@ impl OctaApp {
                     // undoes it, restoring the original leading/trailing
                     // whitespace.
                     if ui
-                        .small_button("Okay")
-                        .on_hover_text("Keep the trimmed values.")
+                        .small_button(octa::i18n::t("banner.okay"))
+                        .on_hover_text(octa::i18n::t("banner.trim_keep_tip"))
                         .clicked()
                     {
                         dismiss_trim = true;
                     }
                     if ui
-                        .small_button("Dismiss")
-                        .on_hover_text("Undo the trim and restore the original whitespace.")
+                        .small_button(octa::i18n::t("banner.dismiss"))
+                        .on_hover_text(octa::i18n::t("banner.trim_undo_tip"))
                         .clicked()
                     {
                         undo_trim = true;
                     }
                     ui.label(
-                        egui::RichText::new("(disable in Settings -> File-Specific)")
+                        egui::RichText::new(octa::i18n::t("banner.disable_hint"))
                             .color(colors.text_muted)
                             .size(11.0),
                     );
@@ -359,6 +354,7 @@ impl OctaApp {
             let col_number_formats = tab.column_number_formats.clone();
             let cond_format_rules = tab.conditional_format_rules.clone();
             let validation_violations = tab.validation_violations.clone();
+            let outlier_cells = tab.outlier_cells.clone();
             let os_has_clip = tab.table_state.clipboard.is_some() || os_has_clipboard;
             let interaction = ui::table_view::draw_table(
                 ui,
@@ -387,6 +383,7 @@ impl OctaApp {
                 current_match,
                 &cond_format_rules,
                 &validation_violations,
+                &outlier_cells,
             );
 
             let welcome_logo_clicked = interaction.welcome_logo_clicked;

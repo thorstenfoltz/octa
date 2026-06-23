@@ -443,6 +443,9 @@ impl OctaApp {
             self.show_update_dialog = true;
             self.check_for_updates(ctx);
         }
+        if action.export_debug_report {
+            self.export_debug_report_now();
+        }
 
         if let Some(scope) = action.parse_in_new_tab {
             let tab = &self.tabs[self.active_tab];
@@ -660,8 +663,78 @@ impl OctaApp {
             self.conditional_column_dialog =
                 Some(crate::app::state::ConditionalColumnState::default());
         }
+        if action.open_anonymize
+            && self.tabs[self.active_tab].table.col_count() > 0
+            && !self.is_readonly()
+        {
+            self.anonymize_dialog = Some(crate::app::state::AnonymizeState::default());
+        }
+        if action.open_impute
+            && self.tabs[self.active_tab].table.col_count() > 0
+            && !self.is_readonly()
+        {
+            self.impute_dialog = Some(crate::app::state::ImputeState::default());
+        }
+        if action.open_dedupe
+            && self.tabs[self.active_tab].table.col_count() > 0
+            && !self.is_readonly()
+        {
+            let col_count = self.tabs[self.active_tab].table.col_count();
+            self.dedupe_dialog = Some(crate::app::state::DedupeState::new_all_cols(col_count));
+        }
         if action.open_multi_sort && self.tabs[self.active_tab].table.col_count() > 0 {
             self.multi_sort_dialog = Some(crate::app::state::MultiSortState::default());
+        }
+        if action.open_partition
+            && !self.tabs.is_empty()
+            && self.tabs[self.active_tab].table.col_count() > 0
+        {
+            self.partition_dialog = Some(crate::app::state::PartitionState {
+                col: 0,
+                out_dir: None,
+                format: String::new(),
+                error: None,
+                size: octa::ui::settings::DialogSize::default(),
+            });
+        }
+        // Union and Join both need a second open table. Surface a status
+        // message instead of silently doing nothing when only one tab is open.
+        if (action.open_union || action.open_join) && self.tabs.len() < 2 {
+            self.status_message =
+                Some((octa::i18n::t("union.need_open"), std::time::Instant::now()));
+        }
+        if action.open_union && self.tabs.len() >= 2 {
+            let active = self.active_tab;
+            let mut selected = vec![false; self.tabs.len()];
+            if active < selected.len() {
+                selected[active] = true;
+            }
+            let plan = octa::data::union::plan_union(
+                &self
+                    .tabs
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| selected.get(*i).copied().unwrap_or(false))
+                    .map(|(_, t)| t.table.columns.as_slice())
+                    .collect::<Vec<_>>(),
+            );
+            self.union_dialog = Some(crate::app::state::UnionState {
+                selected_tabs: selected,
+                plan,
+                error: None,
+                size: octa::ui::settings::DialogSize::default(),
+            });
+        }
+        if action.open_join && self.tabs.len() >= 2 {
+            self.join_dialog = Some(self.default_join_state());
+        }
+        if action.open_outliers && self.tabs[self.active_tab].table.col_count() > 0 {
+            self.outlier_dialog = Some(crate::app::state::OutlierState::for_table(
+                &self.tabs[self.active_tab].table,
+            ));
+        }
+        if action.open_pii && self.tabs[self.active_tab].table.col_count() > 0 {
+            self.open_pii_dialog();
         }
         if action.copy_as_markdown {
             self.do_copy_markdown();
@@ -688,5 +761,56 @@ impl OctaApp {
                 tab.show_find_duplicates = true;
             }
         }
+        if action.open_fuzzy_duplicates && self.tabs[self.active_tab].table.col_count() > 0 {
+            let mut st = crate::app::state::FuzzyDuplicatesState::default();
+            // Seed the compare set from the selected column, if any.
+            if let Some((_, c)) = self.tabs[self.active_tab].table_state.selected_cell
+                && c < self.tabs[self.active_tab].table.col_count()
+            {
+                st.key_cols.insert(c);
+            }
+            self.fuzzy_duplicates_dialog = Some(st);
+        }
+    }
+
+    /// Build a redacted debug report, then reveal it in the OS file manager.
+    pub(crate) fn export_debug_report_now(&mut self) {
+        match octa::diagnostics::report::export_debug_report(&self.settings) {
+            Ok(path) => {
+                reveal_in_file_manager(&path);
+                self.status_message = Some((
+                    octa::i18n::t("diagnostics.report_saved"),
+                    std::time::Instant::now(),
+                ));
+            }
+            Err(e) => {
+                self.status_message = Some((
+                    format!("{}: {e}", octa::i18n::t("diagnostics.report_failed")),
+                    std::time::Instant::now(),
+                ));
+            }
+        }
+    }
+}
+
+/// Open the OS file manager with the given file selected (or its folder).
+fn reveal_in_file_manager(path: &std::path::Path) {
+    #[cfg(target_os = "linux")]
+    {
+        let dir = path.parent().unwrap_or(path);
+        let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg("-R")
+            .arg(path)
+            .spawn();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .spawn();
     }
 }

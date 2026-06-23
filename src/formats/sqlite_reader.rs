@@ -32,26 +32,47 @@ impl FormatReader for SqliteReader {
     }
 
     fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {
+        self.write_file_schema_aware(path, table, false)
+    }
+
+    fn write_file_schema_aware(
+        &self,
+        path: &Path,
+        table: &DataTable,
+        allow_schema_changes: bool,
+    ) -> Result<()> {
         let meta = table
             .db_meta
             .as_ref()
             .ok_or_else(|| anyhow!("SQLite write requires a table loaded from a database"))?;
 
-        let current_cols: Vec<&str> = table.columns.iter().map(|c| c.name.as_str()).collect();
-        let original_cols: Vec<&str> = meta.original_columns.iter().map(|s| s.as_str()).collect();
-        if current_cols != original_cols {
-            bail!(
-                "Schema changes are not supported on SQLite tables (column rename/add/remove). \
-                 Save aborted."
-            );
-        }
-
         let mut conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)
             .with_context(|| format!("opening SQLite at {}", path.display()))?;
-        let tx = conn.transaction()?;
+
+        // Detect schema changes against the LIVE DB columns (not the in-memory
+        // baseline). SQLite keys diff-saves on the built-in rowid, so there is
+        // no synthetic id column to exclude.
+        let db_cols = read_sqlite_columns(&conn, &meta.table_name)?;
+        let schema_changed = db_cols.len() != table.columns.len()
+            || db_cols
+                .iter()
+                .zip(table.columns.iter())
+                .any(|(a, b)| a.name != b.name || a.data_type != b.data_type);
 
         let table_name = quote_ident(&meta.table_name);
         let col_idents: Vec<String> = table.columns.iter().map(|c| quote_ident(&c.name)).collect();
+
+        let tx = conn.transaction()?;
+
+        if schema_changed {
+            if !allow_schema_changes {
+                bail!(
+                    "Schema changes (add / remove / rename / retype columns) are turned off. \
+                     Turn off Write protection in Settings to allow them. Save aborted."
+                );
+            }
+            reconcile_sqlite_schema(&tx, &table_name, &db_cols, &table.columns)?;
+        }
 
         // DELETE rows whose tag is no longer present.
         let live_tags: std::collections::HashSet<i64> = meta
@@ -89,7 +110,11 @@ impl FormatReader for SqliteReader {
                 }
                 Some(tag) => {
                     let original = meta.original.get(tag);
-                    let unchanged = original.map(|orig| orig == &row_vals).unwrap_or(false);
+                    // After a schema change the added / retyped columns must be
+                    // written even for rows whose cells "match" the stale
+                    // baseline, so the unchanged short-circuit is gated on it.
+                    let unchanged =
+                        !schema_changed && original.map(|orig| orig == &row_vals).unwrap_or(false);
                     if unchanged {
                         continue;
                     }
@@ -229,6 +254,36 @@ fn read_table_columns(conn: &Connection, table: &str) -> Result<Vec<ColumnInfo>>
     Ok(cols)
 }
 
+/// Inverse of [`sqlite_type_to_arrow`] for `ADD COLUMN`. SQLite uses type
+/// affinity, so these keywords are advisory; values are stored per cell.
+fn arrow_to_sqlite_type(arrow: &str) -> &'static str {
+    if arrow.starts_with("Int") || arrow.starts_with("UInt") || arrow == "Boolean" {
+        "INTEGER"
+    } else if arrow.starts_with("Float") {
+        "REAL"
+    } else if arrow == "Binary" {
+        "BLOB"
+    } else {
+        "TEXT"
+    }
+}
+
+/// Current user columns of `table` in `path`, mapped to Arrow type strings.
+fn read_sqlite_columns(conn: &Connection, table: &str) -> Result<Vec<ColumnInfo>> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", quote_ident(table)))?;
+    let cols = stmt
+        .query_map([], |r| {
+            let name: String = r.get(1)?; // (cid, name, type, ...)
+            let ty: String = r.get(2).unwrap_or_default();
+            Ok(ColumnInfo {
+                name,
+                data_type: sqlite_type_to_arrow(&ty),
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(cols)
+}
+
 fn sqlite_type_to_arrow(ty: &str) -> String {
     let upper = ty.to_uppercase();
     if upper.contains("INT") {
@@ -270,6 +325,48 @@ fn cell_to_sqlite_value(v: &CellValue) -> rusqlite::types::Value {
         | CellValue::Nested(s) => Value::Text(s.clone()),
         CellValue::Binary(b) => Value::Blob(b.clone()),
     }
+}
+
+/// SQLite counterpart of `reconcile_duckdb_schema`. DROP COLUMN is supported in
+/// SQLite >= 3.35 (bundled); a column inside an index / PK cannot be dropped and
+/// surfaces as a save error (a backup was taken first).
+fn reconcile_sqlite_schema(
+    tx: &rusqlite::Transaction<'_>,
+    table_q: &str,
+    db_cols: &[ColumnInfo],
+    target: &[ColumnInfo],
+) -> Result<()> {
+    use std::collections::HashSet;
+    let target_match: HashSet<(&str, &str)> = target
+        .iter()
+        .map(|c| (c.name.as_str(), c.data_type.as_str()))
+        .collect();
+    for c in db_cols {
+        if !target_match.contains(&(c.name.as_str(), c.data_type.as_str())) {
+            tx.execute(
+                &format!("ALTER TABLE {table_q} DROP COLUMN {}", quote_ident(&c.name)),
+                [],
+            )?;
+        }
+    }
+    let kept: HashSet<&str> = db_cols
+        .iter()
+        .filter(|c| target_match.contains(&(c.name.as_str(), c.data_type.as_str())))
+        .map(|c| c.name.as_str())
+        .collect();
+    for c in target {
+        if !kept.contains(c.name.as_str()) {
+            tx.execute(
+                &format!(
+                    "ALTER TABLE {table_q} ADD COLUMN {} {}",
+                    quote_ident(&c.name),
+                    arrow_to_sqlite_type(&c.data_type)
+                ),
+                [],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn quote_ident(name: &str) -> String {

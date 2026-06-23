@@ -296,6 +296,9 @@ pub enum ShortcutAction {
     /// seeds its key from the currently selected column or cell. Also
     /// reachable via **Search -> Find duplicates...**.
     FindDuplicates,
+    /// Open the Find-near-duplicates (fuzzy) dialog. Also
+    /// **Search -> Find near-duplicates...**.
+    OpenFuzzyDuplicates,
     /// Open the Schema Export dialog. The dialog itself lets the user
     /// pick which of the seven targets (Postgres / MySQL / SQLite /
     /// Pydantic v2 / TypeScript / JSON Schema / Rust) to render, so a
@@ -332,6 +335,8 @@ pub enum ShortcutAction {
     /// Open the Conditional-column (CASE) dialog. Also
     /// **Edit -> Conditional column...**.
     OpenConditionalColumn,
+    /// Open the Anonymise-columns dialog. Also **Edit -> Anonymise columns...**.
+    OpenAnonymize,
     /// Open the Data-validation dialog. Also **Edit -> Data validation...**.
     OpenValidation,
     /// Open the multi-column Sort dialog. Also **Analyse -> Sort by columns...**.
@@ -344,6 +349,22 @@ pub enum ShortcutAction {
     /// Copy the current selection as a GitHub Markdown table. Also
     /// **Edit -> Copy as Markdown table**.
     CopyAsMarkdown,
+    /// Open the Drop-duplicate-rows dialog. Also
+    /// **Edit -> Drop duplicate rows...**.
+    OpenDedupe,
+    /// Open the Fill-missing-values (impute) dialog. Also
+    /// **Edit -> Fill missing values...**.
+    OpenImpute,
+    /// Open the Union-tables dialog. Also **Analyse -> Union tables...**.
+    OpenUnion,
+    /// Open the Join-tables dialog. Also **Analyse -> Join tables...**.
+    OpenJoin,
+    /// Open the Partition-by-column dialog. Also **Analyse -> Partition by column...**.
+    OpenPartition,
+    /// Open the Detect-outliers dialog. Also **Analyse -> Detect outliers...**.
+    OpenOutliers,
+    /// Open the Detect-PII dialog. Also **Analyse -> Detect PII...**.
+    OpenPii,
 }
 
 impl ShortcutAction {
@@ -397,6 +418,7 @@ impl ShortcutAction {
             Self::CompareSelectedTabs => "Compare selected tabs",
             Self::ColumnValueFrequency => "Show column value frequency",
             Self::FindDuplicates => "Find duplicate rows...",
+            Self::OpenFuzzyDuplicates => "Find near-duplicates...",
             Self::ExportSchema => "Export schema...",
             Self::MultiSearch => "Open multi-search panel",
             Self::OpenChart => "Open chart tab",
@@ -407,11 +429,19 @@ impl ShortcutAction {
             Self::OpenTransform => "Transform column...",
             Self::OpenConditionalFormat => "Conditional formatting...",
             Self::OpenConditionalColumn => "Conditional column...",
+            Self::OpenAnonymize => "Anonymise columns...",
             Self::OpenValidation => "Data validation...",
             Self::OpenMultiSort => "Sort by columns...",
             Self::OpenSummary => "Summary tab",
             Self::OpenNumberFormat => "Number format...",
             Self::CopyAsMarkdown => "Copy as Markdown table",
+            Self::OpenDedupe => "Drop duplicate rows...",
+            Self::OpenImpute => "Fill missing values...",
+            Self::OpenUnion => "Union tables...",
+            Self::OpenJoin => "Join tables",
+            Self::OpenPartition => "Partition by column",
+            Self::OpenOutliers => "Detect outliers...",
+            Self::OpenPii => "Detect PII...",
         }
     }
 
@@ -467,6 +497,7 @@ impl ShortcutAction {
             Self::CompareSelectedTabs => KeyCombo::plain(Key::F9),
             Self::ColumnValueFrequency => KeyCombo::ctrl_shift(Key::I),
             Self::FindDuplicates => KeyCombo::ctrl_shift(Key::D),
+            Self::OpenFuzzyDuplicates => KeyCombo::ctrl_shift(Key::U),
             // F7 (not Ctrl+Shift+X): on Linux/Windows egui receives an
             // OS-level `Event::Cut` for Ctrl+Shift+X, which collides
             // with `do_cut`. F-keys don't generate clipboard events.
@@ -489,11 +520,28 @@ impl ShortcutAction {
             Self::OpenTransform => KeyCombo::ctrl_shift(Key::R),
             Self::OpenConditionalFormat => KeyCombo::ctrl_shift(Key::L),
             Self::OpenConditionalColumn => KeyCombo::ctrl_shift(Key::J),
+            Self::OpenAnonymize => KeyCombo::ctrl_shift(Key::Y),
             Self::OpenValidation => KeyCombo::ctrl_shift(Key::G),
             Self::OpenMultiSort => KeyCombo::ctrl_shift(Key::O),
             Self::OpenSummary => KeyCombo::ctrl_shift(Key::M),
             Self::OpenNumberFormat => KeyCombo::ctrl_shift(Key::N),
             Self::CopyAsMarkdown => KeyCombo::ctrl_shift(Key::B),
+            Self::OpenDedupe => KeyCombo::ctrl_shift(Key::H),
+            Self::OpenJoin => KeyCombo::ctrl_shift(Key::Q),
+            // Ctrl+Shift+Z is free here: undo is Ctrl+Z, redo is Ctrl+Y.
+            Self::OpenPartition => KeyCombo::ctrl_shift(Key::Z),
+            // Impute, Union, Outliers and PII have no default binding. Every
+            // clipboard-safe Ctrl+Shift letter is already taken, and the
+            // clipboard letters are off-limits: egui-winit's
+            // is_copy/cut/paste_command match on `command && C/X/V` ignoring
+            // Shift, so Ctrl+Shift+C/X/V also fire Event::Copy/Cut/Paste on
+            // the table (Ctrl+Shift+V would *paste into* the table). Ctrl+Alt
+            // risks AltGr on non-English keyboards. These open from the menu;
+            // users can bind them in Settings.
+            Self::OpenImpute => KeyCombo::UNBOUND,
+            Self::OpenUnion => KeyCombo::UNBOUND,
+            Self::OpenOutliers => KeyCombo::UNBOUND,
+            Self::OpenPii => KeyCombo::UNBOUND,
         }
     }
 }
@@ -577,6 +625,7 @@ impl ShortcutAction {
             | Self::ToggleFindReplace
             | Self::OpenColumnFilter
             | Self::FindDuplicates
+            | Self::OpenFuzzyDuplicates
             | Self::MultiSearch
             | Self::OpenChart => G::Search,
             Self::GoToCell
@@ -616,9 +665,17 @@ impl ShortcutAction {
             | Self::OpenTransform
             | Self::OpenConditionalFormat
             | Self::OpenConditionalColumn
+            | Self::OpenAnonymize
             | Self::OpenValidation
             | Self::OpenMultiSort
-            | Self::OpenSummary => G::Dialogs,
+            | Self::OpenSummary
+            | Self::OpenDedupe
+            | Self::OpenImpute
+            | Self::OpenUnion
+            | Self::OpenJoin
+            | Self::OpenPartition
+            | Self::OpenOutliers
+            | Self::OpenPii => G::Dialogs,
         }
     }
 }

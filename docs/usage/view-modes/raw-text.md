@@ -114,9 +114,12 @@ This applies to: CSV, TSV, JSON, JSONL, XML, YAML, TOML, Markdown,
 Jupyter, Text. Binary formats (Parquet, Excel, SQLite, …) never
 fall back, since raw bytes would render as garbage.
 
-Files larger than **500 MB** skip the fallback and surface the error
-in the status message instead, to avoid pulling half a gigabyte of
-content into the editor. This refers to the raw text editor. You can load larger files.
+Files larger than the **raw view size cap** (default **500 MB**) skip the
+fallback and surface the error in the status message instead, to avoid
+pulling half a gigabyte of content into the editor. This refers to the raw
+text editor only: you can still load larger files in the table view. Raise
+the cap (or set it to unlimited) under
+[Settings → Performance](../../reference/settings.md#performance).
 
 ## See also
 

@@ -61,6 +61,7 @@ impl eframe::App for OctaApp {
         self.update_easter_egg_inputs(&ctx);
         self.drain_background_rows(&ctx);
         self.drain_pending_open_queue();
+        self.drain_pending_tab_edits();
         self.expire_sql_diff_highlights(&ctx);
 
         if self.tabs[self.active_tab].filter_dirty {
@@ -84,6 +85,7 @@ impl eframe::App for OctaApp {
         self.render_confetti(&ctx);
         self.render_snowfall(&ctx);
         self.render_new_year_overlay(&ctx);
+        self.render_crash_offer(&ctx);
     }
 
     /// Cleanup on shutdown: persist the live chat session and stop any Ollama
@@ -91,5 +93,38 @@ impl eframe::App for OctaApp {
     fn on_exit(&mut self) {
         self.persist_current_session();
         self.chat.ollama.stop_server();
+        octa::diagnostics::crash::clear_running();
+    }
+}
+
+impl OctaApp {
+    /// One-shot dialog offering a debug report after an unclean prior exit.
+    fn render_crash_offer(&mut self, ctx: &egui::Context) {
+        if !self.pending_crash_offer {
+            return;
+        }
+        let mut close = false;
+        egui::Window::new(octa::i18n::t("diagnostics.crash_title"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label(octa::i18n::t("diagnostics.crash_body"));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(octa::i18n::t("diagnostics.export")).clicked() {
+                        self.export_debug_report_now();
+                        close = true;
+                    }
+                    if ui.button(octa::i18n::t("diagnostics.dismiss")).clicked() {
+                        // Discard the waiting crash file so this fires only once.
+                        let _ = octa::diagnostics::crash::take_last_crash();
+                        close = true;
+                    }
+                });
+            });
+        if close {
+            self.pending_crash_offer = false;
+        }
     }
 }

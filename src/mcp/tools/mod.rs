@@ -2,19 +2,29 @@
 //! submodule so adding one is a drop-in (write the file, add it to the
 //! `mod` list here, add a wrapper method to `OctaMcpServer`).
 
+pub mod anonymize;
 pub mod compare_schemas;
 pub mod convert;
 pub mod correlation;
 pub mod count_rows;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
 pub mod create_chart;
+pub mod dedupe;
 pub mod describe_file;
 pub mod diff_tables;
+/// Chat-only (rendered from chat dispatch, not registered with the MCP server).
+pub mod edit_open_tab;
 pub mod edit_table;
 pub mod export_schema;
 pub mod find_duplicates;
+pub mod fuzzy_duplicates;
 pub mod grep_files;
+pub mod impute;
+pub mod join;
 pub mod list_tables;
+pub mod outliers;
+pub mod partition;
+pub mod pii;
 pub mod pivot;
 pub mod profile;
 pub mod read_table;
@@ -26,6 +36,7 @@ pub mod schema;
 pub mod search;
 pub mod tail;
 pub mod transform_columns;
+pub mod union;
 pub mod unique_columns;
 pub mod validate_schema;
 pub mod value_frequency;
@@ -55,6 +66,37 @@ pub struct TableSnapshot {
     pub source_path: Option<String>,
     /// A clone of the tab's table with edits already materialised.
     pub table: DataTable,
+}
+
+/// A resolved live-tab edit op: values are already computed/literal so the UI
+/// thread applies it without touching DuckDB or the model.
+#[derive(Debug, Clone)]
+pub enum ResolvedOp {
+    AddColumn {
+        name: String,
+        type_name: String,
+        values: Vec<CellValue>,
+    },
+    InsertRows {
+        at: Option<usize>,
+        rows: Vec<Vec<CellValue>>,
+    },
+    SetCells(Vec<(usize, usize, CellValue)>),
+    DeleteRows(Vec<usize>),
+    /// Drop columns by (already-resolved) index. Applied highest-index-first.
+    DropColumns(Vec<usize>),
+}
+
+/// One batched edit the chat agent wants applied to a live GUI tab. Pushed by
+/// `edit_open_tab` (worker thread) and drained by `OctaApp` once per frame.
+#[derive(Debug, Clone)]
+pub struct PendingTabEdit {
+    /// The tab's stable handle (`#1`, ...) at compute time.
+    pub tab_handle: String,
+    /// Row count of the snapshot the ops were computed against; the apply aborts
+    /// if the live tab's row count no longer matches.
+    pub snapshot_rows: usize,
+    pub ops: Vec<ResolvedOp>,
 }
 
 /// Where a tool should read its primary table from. File sources go through
@@ -93,12 +135,30 @@ pub struct ToolContext {
     /// Directory the chat agent writes exports into when the caller gives a
     /// bare/relative filename. `None` for MCP / CLI (no confinement).
     pub export_dir: Option<PathBuf>,
+    /// Chat-only: when true (Write protection off), `resolve_write_path` stops
+    /// confining writes to `export_dir` and `edit_table`/`edit_open_tab` may
+    /// modify existing files. MCP leaves this `false` (it has no sandbox).
+    pub allow_existing_writes: bool,
+    /// Permit schema-changing DuckDB/SQLite/GeoPackage saves (passed straight to
+    /// `write_file_schema_aware`). Chat: Write protection off. MCP: read once at
+    /// startup.
+    pub allow_schema_changes: bool,
+    /// Back up an existing file before modifying it in place.
+    pub backup_before_modify: bool,
+    /// Chat-only write-back channel: the live-tab edit tool pushes one batched
+    /// `PendingTabEdit`; `OctaApp` drains it per frame. `None` for MCP.
+    pub pending_tab_edits: Option<std::sync::Arc<std::sync::Mutex<Vec<PendingTabEdit>>>>,
 }
 
 impl ToolContext {
     /// Context for the MCP server: no open tabs, caps from `AppSettings`, no
     /// filesystem sandbox (the CLI / MCP client is trusted).
-    pub fn for_mcp(default_row_limit: Option<usize>, cell_byte_cap: usize) -> Self {
+    pub fn for_mcp(
+        default_row_limit: Option<usize>,
+        cell_byte_cap: usize,
+        allow_schema_changes: bool,
+        backup_before_modify: bool,
+    ) -> Self {
         Self {
             open_tabs: Vec::new(),
             active_tab: None,
@@ -107,6 +167,10 @@ impl ToolContext {
             restrict_filesystem: false,
             allowed_read_paths: Vec::new(),
             export_dir: None,
+            allow_existing_writes: false,
+            allow_schema_changes,
+            backup_before_modify,
+            pending_tab_edits: None,
         }
     }
 
@@ -181,6 +245,18 @@ impl ToolContext {
         })
     }
 
+    /// Resolve an `open_tab` reference (`@active`, a handle, a display name, or a
+    /// file name) to one of the open-tab snapshots.
+    pub fn snapshot_for_open_tab(&self, open_tab: &str) -> Option<&TableSnapshot> {
+        if open_tab == "@active" {
+            return self.active_tab.and_then(|i| self.open_tabs.get(i));
+        }
+        self.open_tabs
+            .iter()
+            .find(|t| t.handle == open_tab || t.display_name == open_tab)
+            .or_else(|| self.snapshot_for_pathish(open_tab))
+    }
+
     /// Enforce the read sandbox: when `restrict_filesystem`, a file path is
     /// only readable if it is the source of an open tab (which also unlocks the
     /// other sheets/tables of an open Excel / DuckDB / SQLite file). Returns a
@@ -212,6 +288,11 @@ the inner table name.)",
     /// instead and are unaffected.)
     pub fn resolve_write_path(&self, requested: &Path) -> anyhow::Result<PathBuf> {
         if !self.restrict_filesystem {
+            return Ok(requested.to_path_buf());
+        }
+        // Write protection off: the assistant may target existing files
+        // anywhere it can already read.
+        if self.allow_existing_writes {
             return Ok(requested.to_path_buf());
         }
         let dir = self.export_dir.as_ref().ok_or_else(|| {

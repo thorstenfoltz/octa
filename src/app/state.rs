@@ -337,6 +337,379 @@ impl Default for ConditionalColumnState {
     }
 }
 
+/// One editable rule row in the Anonymise dialog: a target column plus the
+/// chosen strategy and its parameters. Parameters for *all* strategies are
+/// held at once (not an enum) so switching the strategy dropdown keeps the
+/// other fields' values; the dialog reads only the active strategy's fields.
+/// `column` is an index into the active table's `columns`.
+#[derive(Clone)]
+pub(crate) struct AnonRuleDraft {
+    /// One or more source columns (indices into the active table). With Hash
+    /// and two or more columns, the values are combined into one new column.
+    pub(crate) columns: std::collections::BTreeSet<usize>,
+    pub(crate) kind: AnonStrategyKind,
+    pub(crate) hash_algo: octa::data::transform::HashAlgo,
+    /// Output the full digest (default). When false, truncate to `hash_length`.
+    pub(crate) hash_full: bool,
+    pub(crate) hash_length: String,
+    /// Name for the derived column (multi-column hash).
+    pub(crate) new_column: String,
+    pub(crate) keep_end: octa::data::transform::KeepEnd,
+    pub(crate) mask_count: String,
+    pub(crate) mask_char: String,
+    /// When on, every masked output gets `mask_fixed_len` mask characters so
+    /// the original length stops leaking. Off = mask exactly the hidden chars.
+    pub(crate) mask_fixed_len_on: bool,
+    pub(crate) mask_fixed_len: String,
+    pub(crate) redact_token: String,
+    pub(crate) redact_use_null: bool,
+    pub(crate) fake_kind: octa::data::transform::FakeKind,
+}
+
+impl Default for AnonRuleDraft {
+    fn default() -> Self {
+        Self {
+            columns: std::collections::BTreeSet::new(),
+            kind: AnonStrategyKind::Hash,
+            hash_algo: octa::data::transform::HashAlgo::Sha256,
+            hash_full: true,
+            hash_length: "12".to_string(),
+            new_column: String::new(),
+            keep_end: octa::data::transform::KeepEnd::Last,
+            mask_count: "4".to_string(),
+            mask_char: "*".to_string(),
+            mask_fixed_len_on: false,
+            mask_fixed_len: "8".to_string(),
+            redact_token: "[REDACTED]".to_string(),
+            redact_use_null: false,
+            fake_kind: octa::data::transform::FakeKind::Name,
+        }
+    }
+}
+
+/// Which strategy a rule row is editing. Mirrors
+/// [`octa::data::transform::AnonStrategy`]'s variants without their payloads,
+/// so the dropdown can switch strategy while the draft keeps every field.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AnonStrategyKind {
+    Hash,
+    PartialMask,
+    Redact,
+    Fake,
+}
+
+impl AnonStrategyKind {
+    pub(crate) const ALL: &'static [AnonStrategyKind] = &[
+        AnonStrategyKind::Hash,
+        AnonStrategyKind::PartialMask,
+        AnonStrategyKind::Redact,
+        AnonStrategyKind::Fake,
+    ];
+    pub(crate) fn label_t(self) -> String {
+        match self {
+            AnonStrategyKind::Hash => octa::i18n::t("anon_strategy.hash"),
+            AnonStrategyKind::PartialMask => octa::i18n::t("anon_strategy.partial_mask"),
+            AnonStrategyKind::Redact => octa::i18n::t("anon_strategy.redact"),
+            AnonStrategyKind::Fake => octa::i18n::t("anon_strategy.fake"),
+        }
+    }
+}
+
+/// Whether Anonymise rewrites the active table or builds a clean copy.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AnonymizeOutput {
+    InPlace,
+    NewColumns,
+    NewTab,
+}
+
+/// Live state for the "Anonymise columns" dialog (Edit -> Anonymise
+/// columns...). App-level (applies to the active tab).
+pub(crate) struct AnonymizeState {
+    pub(crate) rules: Vec<AnonRuleDraft>,
+    pub(crate) salt: String,
+    pub(crate) output: AnonymizeOutput,
+    pub(crate) error: Option<String>,
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl Default for AnonymizeState {
+    fn default() -> Self {
+        Self {
+            rules: vec![AnonRuleDraft::default()],
+            salt: String::new(),
+            output: AnonymizeOutput::InPlace,
+            error: None,
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
+/// State for the "Fill missing values" dialog (Edit -> Fill missing values...).
+/// App-level (operates on the active tab in place). Column reference is an
+/// index into the active table's `columns`.
+#[derive(Default)]
+pub(crate) struct ImputeState {
+    /// Which column to fill (index into active table).
+    pub(crate) col: usize,
+    /// Which strategy is selected (index into the six-element list used by the
+    /// combo box).
+    pub(crate) strategy_idx: usize,
+    /// Text field for the Constant strategy.
+    pub(crate) constant: String,
+    /// Last error from Apply, shown inline (None = no error yet).
+    pub(crate) error: Option<String>,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+/// State for the "Drop duplicate rows" dialog (Edit -> Drop duplicate rows...).
+/// App-level (operates on the active tab in place). Column references are
+/// indices into the active table's `columns`.
+pub(crate) struct DedupeState {
+    /// Which columns form the duplicate key. Stored as a sorted `Vec` so the
+    /// order is stable across frames. Empty vec means "whole row" (all cols).
+    pub(crate) key_cols: Vec<usize>,
+    /// One bool per column: `true` = included in the key. Kept in sync with
+    /// `key_cols` on every frame so the checkbox list renders without a
+    /// linear search per cell.
+    pub(crate) col_selected: Vec<bool>,
+    /// Which occurrence to keep when removing duplicates.
+    pub(crate) keep: octa::data::dedupe::KeepWhich,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl DedupeState {
+    /// Build a fresh state seeded to include all columns of a table with
+    /// `col_count` columns (the default "whole row" key).
+    pub(crate) fn new_all_cols(col_count: usize) -> Self {
+        Self {
+            key_cols: (0..col_count).collect(),
+            col_selected: vec![true; col_count],
+            keep: octa::data::dedupe::KeepWhich::First,
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
+/// Whether a column is numeric by declared type or by sampled values (so
+/// numbers stored as text still register). Samples up to 30 non-empty cells.
+pub(crate) fn column_looks_numeric(table: &DataTable, col: usize) -> bool {
+    if let Some(c) = table.columns.get(col) {
+        let t = c.data_type.to_ascii_lowercase();
+        if t.contains("int") || t.contains("float") || t.contains("decimal") || t.contains("double")
+        {
+            return true;
+        }
+    }
+    let mut seen = 0usize;
+    let mut numeric = 0usize;
+    for r in 0..table.row_count() {
+        match table.get(r, col) {
+            Some(octa::data::CellValue::Null) | None => continue,
+            Some(v) => {
+                let s = v.to_string();
+                let s = s.trim();
+                if s.is_empty() {
+                    continue;
+                }
+                seen += 1;
+                if s.replace(',', ".").parse::<f64>().is_ok() {
+                    numeric += 1;
+                }
+                if seen >= 30 {
+                    break;
+                }
+            }
+        }
+    }
+    seen > 0 && numeric * 2 >= seen
+}
+
+/// What Apply does with the detected outliers: paint them, or add a boolean
+/// column flagging the rows that contain at least one outlier cell.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OutlierOutput {
+    Highlight,
+    NewColumn,
+}
+
+/// State for the "Detect outliers" dialog (Analyse -> Detect outliers...).
+/// App-level. The user picks numeric columns + a method; Apply either paints
+/// the flagged cells into the active tab's session-only `outlier_cells` set or
+/// materialises an `is_outlier` boolean column.
+pub(crate) struct OutlierState {
+    /// One bool per column: `true` = include in the scan.
+    pub(crate) col_selected: Vec<bool>,
+    /// IQR or Z-score.
+    pub(crate) method: octa::data::outliers::OutlierMethod,
+    /// Whether Apply highlights cells or adds an `is_outlier` column.
+    pub(crate) output: OutlierOutput,
+    /// `k` factor as a text buffer (IQR fence multiplier / Z-score threshold).
+    /// Comma-tolerant so European decimal commas parse.
+    pub(crate) k_buf: String,
+    /// Last error from Apply (e.g. unparseable `k`), shown inline.
+    pub(crate) error: Option<String>,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl OutlierState {
+    /// Seed with every numeric column ticked. A column counts as numeric if its
+    /// declared type is numeric **or** its sampled values parse as numbers (so
+    /// numbers stored as text - common in CSVs - are still pre-selected; the
+    /// engine reads them fine).
+    pub(crate) fn for_table(table: &DataTable) -> Self {
+        let col_selected = (0..table.col_count())
+            .map(|c| column_looks_numeric(table, c))
+            .collect();
+        Self {
+            col_selected,
+            method: octa::data::outliers::OutlierMethod::Iqr,
+            output: OutlierOutput::Highlight,
+            k_buf: "1.5".to_string(),
+            error: None,
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
+/// State for the "Detect PII" dialog (Analyse -> Detect PII...). Read-only
+/// report of likely personal-data columns; a button hands the findings to the
+/// Anonymise dialog. App-level.
+pub(crate) struct PiiState {
+    /// Scan results (column index + kind + confidence), computed once on open.
+    pub(crate) findings: Vec<octa::data::pii::ColumnPii>,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+/// Live state for the "Union tables" dialog (Analyse -> Union tables...).
+/// The user picks which open tabs to stack then reviews a reconciliation plan
+/// (keep checkboxes + target type per merged column) before applying.
+/// Applying runs [`octa::data::union::union_tables`] and opens the result in
+/// a new tab. App-level (source data spans multiple tabs).
+pub(crate) struct UnionState {
+    /// One bool per open tab (parallel to `app.tabs` at the time the dialog
+    /// was opened): `true` = include this tab in the union.
+    pub(crate) selected_tabs: Vec<bool>,
+    /// Reconciliation plan: which output columns to keep and at what type.
+    /// Recomputed from scratch whenever the tab selection changes.
+    pub(crate) plan: octa::data::union::UnionPlan,
+    /// Last error from Apply, shown inline (None = no error yet).
+    pub(crate) error: Option<String>,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+/// Live state for the "Partition by column" dialog (Analyse -> Partition by
+/// column...). The user picks a column of the active tab, an output directory,
+/// and an optional format override; Apply writes one file per distinct value
+/// into that directory (see `src/app/dialogs/partition.rs`).
+pub(crate) struct PartitionState {
+    /// Index of the column to partition on.
+    pub(crate) col: usize,
+    /// Output directory chosen by the folder picker.
+    pub(crate) out_dir: Option<std::path::PathBuf>,
+    /// Extension override (e.g. `"csv"`). Empty = use the source file's own
+    /// extension.
+    pub(crate) format: String,
+    /// Last inline error from Apply.
+    pub(crate) error: Option<String>,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+/// One join condition draft: `left.left_col <op> right.right_col`. Columns are
+/// indices into the chosen left / right tabs' schemas (resolved to names on
+/// Apply).
+pub(crate) struct JoinCondDraft {
+    pub(crate) left_col: usize,
+    pub(crate) op: octa::data::join::JoinOp,
+    pub(crate) right_col: usize,
+}
+
+/// Live state for the "Join tables" dialog (Analyse -> Join tables...).
+/// The user picks a left tab and a right tab, then one or more join conditions
+/// pairing any column of each side with a comparison operator (the column
+/// names and types need not match - both sides are cast to a common type).
+/// Applying runs [`octa::data::join::join_two`] and opens the result in a new
+/// tab. App-level (source data spans two tabs).
+pub(crate) struct JoinState {
+    /// Index of the left (driving) tab.
+    pub(crate) left_tab: usize,
+    /// Index of the right tab.
+    pub(crate) right_tab: usize,
+    /// One or more conditions, ANDed together.
+    pub(crate) conds: Vec<JoinCondDraft>,
+    /// How unmatched rows are handled.
+    pub(crate) join_type: octa::data::join::JoinType,
+    /// Last error from Apply, shown inline (None = no error yet).
+    pub(crate) error: Option<String>,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+/// Whether the fuzzy-duplicate finder highlights rows in place or opens a
+/// Live state for the "Find near-duplicates" dialog (Search -> Find
+/// near-duplicates...). The scan runs on a background thread (the comparison is
+/// O(n^2) within a block); the worker writes its [`FuzzyResult`] into `result`
+/// and flips `running`, mirroring the multi-search panel's worker pattern.
+/// App-level (operates on the active tab).
+pub(crate) struct FuzzyDuplicatesState {
+    pub(crate) key_cols: std::collections::BTreeSet<usize>,
+    pub(crate) method: octa::data::fuzzy_duplicates::SimilarityMethod,
+    /// Threshold as a percentage (0..=100) for the slider; divided by 100 when
+    /// building the config.
+    pub(crate) threshold_pct: f64,
+    pub(crate) normalize: octa::data::fuzzy_duplicates::NormalizeOpts,
+    pub(crate) block_col: Option<usize>,
+    /// Row-cap text buffer (comma-tolerant), default "20000".
+    pub(crate) max_rows_text: String,
+    /// Output options (any combination, at least one required).
+    pub(crate) out_cluster_col: bool,
+    pub(crate) out_highlight: bool,
+    pub(crate) out_new_tab: bool,
+    /// Rows the previous run highlighted, cleared before the next highlight so
+    /// re-running does not accumulate marks across the whole table.
+    pub(crate) last_highlight_rows: Vec<usize>,
+    /// Worker output (None until a scan completes).
+    pub(crate) result: Arc<Mutex<Option<octa::data::fuzzy_duplicates::FuzzyResult>>>,
+    pub(crate) running: Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) cancel: Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) handle: Option<std::thread::JoinHandle<()>>,
+    /// True once a scan has finished and its output has been applied (so the
+    /// per-frame poll applies it exactly once).
+    pub(crate) applied: bool,
+    pub(crate) error: Option<String>,
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl Default for FuzzyDuplicatesState {
+    fn default() -> Self {
+        Self {
+            key_cols: std::collections::BTreeSet::new(),
+            method: octa::data::fuzzy_duplicates::SimilarityMethod::default(),
+            threshold_pct: 85.0,
+            normalize: octa::data::fuzzy_duplicates::NormalizeOpts::default(),
+            block_col: None,
+            max_rows_text: "20000".to_string(),
+            out_cluster_col: true,
+            out_highlight: false,
+            out_new_tab: false,
+            last_highlight_rows: Vec::new(),
+            result: Arc::new(Mutex::new(None)),
+            running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            handle: None,
+            applied: false,
+            error: None,
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
 /// One-shot per-file prompt shown after loading a CSV/TSV whose size is
 /// likely to make column coloring or column alignment laggy. The user can
 /// either keep the slow features on (we honor their choice and don't ask
@@ -482,6 +855,18 @@ pub(crate) struct RoundSavePrompt {
     pub(crate) save_filtered_view: bool,
 }
 
+/// A deferred DB save waiting on the user's "apply schema changes?" decision.
+#[derive(Debug, Clone)]
+pub(crate) struct SchemaChangeSavePrompt {
+    pub(crate) tab_idx: usize,
+    pub(crate) path: std::path::PathBuf,
+    pub(crate) save_filtered_view: bool,
+    /// Human-readable lines describing the changes (added/removed columns).
+    pub(crate) changes: Vec<String>,
+    /// Where the backup will be written (None when backup is disabled).
+    pub(crate) backup_note: Option<String>,
+}
+
 /// One pending date-format ambiguity dialog request: a column whose values
 /// are consistent with more than one date layout (e.g. DD/MM/YYYY and
 /// MM/DD/YYYY). The user picks one, or chooses to leave the column as
@@ -600,6 +985,12 @@ impl SearchNavState {
 
 pub(crate) struct TabState {
     pub(crate) table: DataTable,
+    /// Set when the chat assistant changed this tab's table in place
+    /// (`edit_open_tab`). Consumed by the next manual save to decide whether to
+    /// back up the original file first ("Back up before modifying"), so the
+    /// user's own edits never trigger a backup but the assistant's do.
+    /// Session-only.
+    pub(crate) assistant_modified: bool,
     pub(crate) table_state: TableViewState,
     pub(crate) search_text: String,
     pub(crate) search_mode: data::SearchMode,
@@ -810,6 +1201,10 @@ pub(crate) struct TabState {
     /// Cached set of `(row, col)` cells failing a validation rule, recomputed in
     /// `recompute_filter` (like `search_cell_matches`) so the renderer stays cheap.
     pub(crate) validation_violations: std::collections::HashSet<(usize, usize)>,
+    /// Cells flagged as numeric outliers by the Detect-outliers dialog. Painted
+    /// orange by the renderer (see `octa::data::outliers`). Session-only; a
+    /// snapshot stamped on Apply (not recomputed as rows change).
+    pub(crate) outlier_cells: std::collections::HashSet<(usize, usize)>,
     /// Whether the "Data validation..." dialog is open on this tab.
     pub(crate) show_validation: bool,
     /// Data-validation dialog window sizing (Normal/Maximized/Minimized).
@@ -1065,6 +1460,9 @@ pub(crate) struct OctaApp {
     /// Update check state shared with background thread
     pub(crate) update_state: Arc<Mutex<UpdateState>>,
     pub(crate) status_message: Option<(String, std::time::Instant)>,
+    /// Set at startup when the previous run ended uncleanly or a crash file is
+    /// waiting; drives a one-shot "export a debug report?" dialog.
+    pub(crate) pending_crash_offer: bool,
     /// Recently opened file paths (most recent first).
     pub(crate) recent_files: Vec<String>,
     /// Zoom level in percent (100 = default, steps of 5).
@@ -1125,6 +1523,10 @@ pub(crate) struct OctaApp {
     /// that has per-column rounding formats; resolved by
     /// `round_save_prompt::render_round_save_prompt_dialog`.
     pub(crate) pending_round_save: Option<RoundSavePrompt>,
+    /// Pending "apply schema changes?" prompt. Set when saving a DB tab whose
+    /// columns differ from the on-disk schema; resolved by
+    /// `schema_change_save::render_schema_change_save_dialog`.
+    pub(crate) pending_schema_change_save: Option<SchemaChangeSavePrompt>,
     /// Pending "Parse in new tab" modal. Set when the user picks a scope
     /// from the Edit menu or right-click; cleared when the modal is
     /// dismissed (Cancel) or the parse succeeds (Open).
@@ -1147,6 +1549,40 @@ pub(crate) struct OctaApp {
     /// Builds a new column from an if / else-if / else rule chain over the
     /// active tab (see `src/app/dialogs/conditional_column.rs`).
     pub(crate) conditional_column_dialog: Option<ConditionalColumnState>,
+    /// Active Anonymise-columns dialog state, or `None` when closed. Masks or
+    /// scrambles chosen columns of the active tab (see
+    /// `src/app/dialogs/anonymize.rs`).
+    pub(crate) anonymize_dialog: Option<AnonymizeState>,
+    /// Active Fill-missing-values (impute) dialog state, or `None` when
+    /// closed. Fills null / empty cells in one column using the chosen strategy
+    /// (see `src/app/dialogs/impute.rs`).
+    pub(crate) impute_dialog: Option<ImputeState>,
+    /// Active Drop-duplicate-rows dialog state, or `None` when closed. Removes
+    /// duplicate rows from the active tab in place (see
+    /// `src/app/dialogs/dedupe.rs`).
+    pub(crate) dedupe_dialog: Option<DedupeState>,
+    /// Active Detect-outliers dialog state, or `None` when closed. Flags
+    /// numeric outlier cells in the active tab (see `src/app/dialogs/outliers.rs`).
+    pub(crate) outlier_dialog: Option<OutlierState>,
+    /// Active Detect-PII dialog state, or `None` when closed. Reports likely
+    /// personal-data columns (see `src/app/dialogs/pii.rs`).
+    pub(crate) pii_dialog: Option<PiiState>,
+    /// Active Find-near-duplicates dialog state, or `None` when closed. Runs a
+    /// fuzzy-duplicate scan on a worker thread (see
+    /// `src/app/dialogs/find_fuzzy_duplicates.rs`).
+    pub(crate) fuzzy_duplicates_dialog: Option<FuzzyDuplicatesState>,
+    /// Active Partition-by-column dialog state, or `None` when closed. Writes
+    /// one file per distinct column value into an output directory (see
+    /// `src/app/dialogs/partition.rs`).
+    pub(crate) partition_dialog: Option<PartitionState>,
+    /// Active Union-tables dialog state, or `None` when closed. Stacks
+    /// multiple open tabs row-by-row into a new reconciled tab (see
+    /// `src/app/dialogs/union.rs`).
+    pub(crate) union_dialog: Option<UnionState>,
+    /// Active Join-tables dialog state, or `None` when closed. Joins
+    /// multiple open tabs column-by-column on shared key columns, opening
+    /// the result in a new tab (see `src/app/dialogs/join.rs`).
+    pub(crate) join_dialog: Option<JoinState>,
     /// Currently opened directory tree sidebar (`None` = sidebar hidden).
     pub(crate) directory_tree: Option<ui::directory_tree::DirectoryTreeState>,
     /// How many key presses of the Konami sequence have been matched so far.
@@ -1194,6 +1630,9 @@ pub(crate) struct OctaApp {
     /// switching). Initialised hidden; opened via the toolbar Assistant
     /// button or the `ToggleChatPanel` shortcut.
     pub(crate) chat: super::chat_panel::ChatPanelState,
+    /// Live-tab edits queued by the chat `edit_open_tab` tool, drained per frame.
+    pub(crate) pending_tab_edits:
+        std::sync::Arc<std::sync::Mutex<Vec<crate::mcp::tools::PendingTabEdit>>>,
 }
 
 /// Snapshot of a read-only-toggle event used by the notice modal. Captures

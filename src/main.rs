@@ -30,7 +30,19 @@ fn main() -> ExitCode {
 
     match cli.detect_action() {
         Ok(Some(action)) => {
-            if !cli.files.is_empty() {
+            // For --union and --join the positional files are intentional (they
+            // form the first sources); --impute takes a positional FILE too.
+            // All other actions ignore them, so warn.
+            if !cli.files.is_empty()
+                && !matches!(
+                    action,
+                    cli::Action::Union { .. }
+                        | cli::Action::Join { .. }
+                        | cli::Action::Impute { .. }
+                        | cli::Action::Outliers { .. }
+                        | cli::Action::Partition { .. }
+                )
+            {
                 eprintln!(
                     "warning: ignoring trailing files when an action flag is set: {}",
                     cli.files
@@ -95,6 +107,12 @@ fn main() -> ExitCode {
     };
 
     let settings = AppSettings::load();
+
+    // GUI diagnostics: file logging (size-capped) + a panic hook that records
+    // crashes. The MCP path keeps its own stderr subscriber and is unaffected.
+    octa::diagnostics::init_logging(settings.debug_mode);
+    octa::diagnostics::crash::install_panic_hook();
+
     let resolved_icon = settings.icon_variant.resolve();
     let icon_svg = resolved_icon.svg_source();
     let icon = render_icon(icon_svg);
@@ -164,6 +182,8 @@ fn run_mcp(read_only: bool) -> ExitCode {
     let settings = AppSettings::load();
     let row_limit = settings.mcp_default_row_limit;
     let cell_cap = settings.mcp_default_cell_bytes;
+    let allow_schema_changes = !settings.write_protection;
+    let backup_before_modify = settings.backup_before_modify;
     // Push the user's GUI-configured file-loader cap into the streaming
     // readers' process-wide atomic so MCP tools without `unlimited` use the
     // same default the GUI does. "Unlimited" in Settings -> Performance
@@ -195,7 +215,13 @@ fn run_mcp(read_only: bool) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match rt.block_on(mcp::run(row_limit, cell_cap, read_only)) {
+    match rt.block_on(mcp::run(
+        row_limit,
+        cell_cap,
+        read_only,
+        allow_schema_changes,
+        backup_before_modify,
+    )) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: MCP server exited with error: {e}");

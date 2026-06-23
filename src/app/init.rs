@@ -83,8 +83,13 @@ impl OctaApp {
         };
         // Build the chat panel state from settings before `settings` is moved.
         let chat = super::chat_panel::ChatPanelState::new(&settings);
+        // Mark this session running (sentinel) and detect an unclean prior exit
+        // or a waiting crash file, to offer a debug report once.
+        let pending_crash_offer = octa::diagnostics::crash::check_and_mark_running()
+            || octa::diagnostics::crash::has_last_crash();
         Self {
             chat,
+            pending_crash_offer,
             tabs: vec![TabState::new(search_mode)],
             active_tab: 0,
             pending_close_tab: None,
@@ -141,12 +146,22 @@ impl OctaApp {
             pending_trim_warning: None,
             pending_file_repair: None,
             pending_round_save: None,
+            pending_schema_change_save: None,
             pending_parse_modal: None,
             schema_export: None,
             pivot_dialog: None,
             multi_sort_dialog: None,
             transform_dialog: None,
             conditional_column_dialog: None,
+            anonymize_dialog: None,
+            impute_dialog: None,
+            dedupe_dialog: None,
+            outlier_dialog: None,
+            pii_dialog: None,
+            fuzzy_duplicates_dialog: None,
+            partition_dialog: None,
+            union_dialog: None,
+            join_dialog: None,
             directory_tree: None,
             konami_index: 0,
             confetti_until: None,
@@ -157,6 +172,7 @@ impl OctaApp {
             pending_readonly_notice: None,
             startup_pin_load_done: false,
             multi_search: super::multi_search::MultiSearchState::new(search_mode),
+            pending_tab_edits: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
         }
     }
 

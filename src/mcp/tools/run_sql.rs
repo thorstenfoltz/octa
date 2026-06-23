@@ -213,7 +213,10 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
                 out_reader.name()
             );
         }
-        out_reader.write_file(&target_path, &qo.table)?;
+        if ctx.backup_before_modify && target_path.exists() {
+            octa::formats::backup_existing_file(&target_path)?;
+        }
+        out_reader.write_file_schema_aware(&target_path, &qo.table, ctx.allow_schema_changes)?;
         let mut out = Map::new();
         out.insert("kind".to_string(), Value::String("write_back".to_string()));
         out.insert(

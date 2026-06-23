@@ -63,7 +63,10 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
             out_reader.name()
         );
     }
-    out_reader.write_file(&output, &table)?;
+    if ctx.backup_before_modify && output.exists() {
+        octa::formats::backup_existing_file(&output)?;
+    }
+    out_reader.write_file_schema_aware(&output, &table, ctx.allow_schema_changes)?;
 
     let mut out = Map::new();
     out.insert("rows_written".to_string(), Value::from(table.row_count()));

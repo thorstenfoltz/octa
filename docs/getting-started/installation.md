@@ -267,6 +267,28 @@ rm -rf /Applications/Octa.app
 
 ## Windows
 
+<!-- Microsoft Store listing is not live yet. Uncomment this section once the
+     Store submission is published (see windows/STORE_SETUP_PROGRESS.md).
+
+### Microsoft Store (recommended)
+
+Install Octa from the Microsoft Store:
+
+- One click to install, with **no SmartScreen prompt** (the Store signs the
+  package).
+- Windows keeps Octa **up to date automatically** in the background.
+- Clean uninstall from **Settings -> Apps**.
+
+After installing, Windows may ask whether to let Octa open data files such as
+`.csv` or `.parquet` by default; that choice is yours and is managed by Windows
+under **Settings -> Apps -> Default apps**, not by Octa.
+
+> Octa's own **Help -> Check for updates** is hidden for Store installs, because
+> the Store delivers updates for them. Every other install path below keeps the
+> in-app updater.
+
+-->
+
 ### Pre-built binary
 
 Download `octa.exe` from the

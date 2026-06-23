@@ -72,7 +72,6 @@ impl FormatReader for XmlFormatReader {
 
 #[derive(Clone)]
 struct XmlElement {
-    #[allow(dead_code)]
     name: String,
     attributes: Vec<(String, String)>,
     text: String,

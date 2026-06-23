@@ -27,6 +27,7 @@ impl TabState {
     pub(crate) fn new(search_mode: data::SearchMode) -> Self {
         Self {
             table: DataTable::empty(),
+            assistant_modified: false,
             table_state: TableViewState::default(),
             search_text: String::new(),
             search_mode,
@@ -111,6 +112,7 @@ impl TabState {
             conditional_format_size: ui::settings::DialogSize::default(),
             validation_rules: Vec::new(),
             validation_violations: std::collections::HashSet::new(),
+            outlier_cells: std::collections::HashSet::new(),
             show_validation: false,
             validation_size: ui::settings::DialogSize::default(),
             column_format_col: None,

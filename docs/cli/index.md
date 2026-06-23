@@ -55,6 +55,14 @@ self-contained bundle; invoke it directly:
 | `--describe FILE`                               | One-shot snapshot: format + schema + sample   | [→ `--describe`](describe.md)               |
 | `--validate-schema FILE --expect-schema SCHEMA` | Validate against JSON Schema (exit 1 = drift) | [→ `--validate-schema`](validate-schema.md) |
 | `--unique-columns FILE`                         | Find PK candidates (singles + combos)         | [→ `--unique-columns`](unique-columns.md)   |
+| `--anonymize SPEC FILE`                         | Mask / scramble columns per a JSON spec       | [→ `--anonymize`](anonymize.md)             |
+| `--dedupe FILE`                                 | Remove duplicate rows                         | [→ `--dedupe`](dedupe.md)                   |
+| `--impute COL=STRATEGY FILE`                    | Fill missing cells in a column                | [→ `--impute`](impute.md)                   |
+| `--outliers FILE`                               | Flag numeric outlier cells                    | [→ `--outliers`](outliers.md)               |
+| `--detect-pii FILE`                             | Find likely personal-data columns             | [→ `--detect-pii`](pii.md)                  |
+| `--union FILE --union-file FILE`                | Stack files into one table                    | [→ `--union`](union.md)                     |
+| `--join FILE --join-file FILE --join-on COLS`   | Join files on key columns                     | [→ `--join`](join.md)                       |
+| `--partition-by COL --out-dir DIR FILE`         | One file per distinct column value            | [→ `--partition-by`](partition.md)          |
 | `--mcp`                                         | Start the MCP server                          | [→ MCP guide](../mcp/index.md)              |
 
 `--export-schema` also has the short alias `-e`.

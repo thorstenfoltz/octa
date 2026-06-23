@@ -402,6 +402,17 @@ impl OctaApp {
                     tab.show_find_duplicates = true;
                 }
             }
+            if action_fired(SA::OpenFuzzyDuplicates)
+                && self.tabs[self.active_tab].table.col_count() > 0
+            {
+                let mut st = super::state::FuzzyDuplicatesState::default();
+                if let Some((_, c)) = self.tabs[self.active_tab].table_state.selected_cell
+                    && c < self.tabs[self.active_tab].table.col_count()
+                {
+                    st.key_cols.insert(c);
+                }
+                self.fuzzy_duplicates_dialog = Some(st);
+            }
             if action_fired(SA::OpenPivot) && self.tabs[self.active_tab].table.col_count() > 0 {
                 self.pivot_dialog = Some(super::state::PivotState::default());
             }
@@ -417,6 +428,12 @@ impl OctaApp {
             {
                 self.conditional_column_dialog =
                     Some(super::state::ConditionalColumnState::default());
+            }
+            if action_fired(SA::OpenAnonymize)
+                && self.tabs[self.active_tab].table.col_count() > 0
+                && !self.is_readonly()
+            {
+                self.anonymize_dialog = Some(super::state::AnonymizeState::default());
             }
             if action_fired(SA::OpenConditionalFormat)
                 && self.tabs[self.active_tab].table.col_count() > 0
@@ -440,6 +457,70 @@ impl OctaApp {
             }
             if action_fired(SA::CopyAsMarkdown) {
                 self.do_copy_markdown();
+            }
+            if action_fired(SA::OpenDedupe)
+                && self.tabs[self.active_tab].table.col_count() > 0
+                && !self.is_readonly()
+            {
+                let col_count = self.tabs[self.active_tab].table.col_count();
+                self.dedupe_dialog = Some(super::state::DedupeState::new_all_cols(col_count));
+            }
+            if action_fired(SA::OpenImpute)
+                && self.tabs[self.active_tab].table.col_count() > 0
+                && !self.is_readonly()
+            {
+                self.impute_dialog = Some(super::state::ImputeState::default());
+            }
+            // Union and Join need a second open table; tell the user instead
+            // of failing silently when only one tab is open.
+            if (action_fired(SA::OpenUnion) || action_fired(SA::OpenJoin)) && self.tabs.len() < 2 {
+                self.status_message =
+                    Some((octa::i18n::t("union.need_open"), std::time::Instant::now()));
+            }
+            if action_fired(SA::OpenUnion) && self.tabs.len() >= 2 {
+                let active = self.active_tab;
+                let mut selected = vec![false; self.tabs.len()];
+                if active < selected.len() {
+                    selected[active] = true;
+                }
+                let plan = octa::data::union::plan_union(
+                    &self
+                        .tabs
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| selected.get(*i).copied().unwrap_or(false))
+                        .map(|(_, t)| t.table.columns.as_slice())
+                        .collect::<Vec<_>>(),
+                );
+                self.union_dialog = Some(super::state::UnionState {
+                    selected_tabs: selected,
+                    plan,
+                    error: None,
+                    size: octa::ui::settings::DialogSize::default(),
+                });
+            }
+            if action_fired(SA::OpenPartition)
+                && !self.tabs.is_empty()
+                && self.tabs[self.active_tab].table.col_count() > 0
+            {
+                self.partition_dialog = Some(super::state::PartitionState {
+                    col: 0,
+                    out_dir: None,
+                    format: String::new(),
+                    error: None,
+                    size: octa::ui::settings::DialogSize::default(),
+                });
+            }
+            if action_fired(SA::OpenJoin) && self.tabs.len() >= 2 {
+                self.join_dialog = Some(self.default_join_state());
+            }
+            if action_fired(SA::OpenOutliers) && self.tabs[self.active_tab].table.col_count() > 0 {
+                self.outlier_dialog = Some(super::state::OutlierState::for_table(
+                    &self.tabs[self.active_tab].table,
+                ));
+            }
+            if action_fired(SA::OpenPii) && self.tabs[self.active_tab].table.col_count() > 0 {
+                self.open_pii_dialog();
             }
         }
 
