@@ -30,6 +30,8 @@ impl SettingsDialog {
             crate::ui::status_bar::format_number(current.syntax_highlight_max_bytes / unit_factor);
         self.initial_load_rows_buf =
             crate::ui::status_bar::format_number(current.initial_load_rows);
+        self.raw_view_max_mb_buf =
+            crate::ui::status_bar::format_number(current.raw_view_max_bytes / 1_000_000);
         self.text_mode_extensions_buf = current.text_mode_extensions.join(", ");
         // MCP buffers seed from the live settings.
         self.mcp_unlimited_rows = current.mcp_default_row_limit.is_none();
@@ -162,6 +164,11 @@ impl SettingsDialog {
                                 && n >= 1
                             {
                                 self.draft.initial_load_rows = n;
+                            }
+                            // Raw-view size cap, entered in whole MB, stored
+                            // in bytes. 0 is valid ("never load raw text").
+                            if let Ok(mb) = parse_comma_number(&self.raw_view_max_mb_buf) {
+                                self.draft.raw_view_max_bytes = mb.saturating_mul(1_000_000);
                             }
                             self.draft.text_mode_extensions = self
                                 .text_mode_extensions_buf
@@ -473,6 +480,119 @@ impl SettingsDialog {
                 });
         });
 
+        // ── Files ──
+        egui::CollapsingHeader::new(
+            egui::RichText::new(crate::i18n::t("settings.sec_files"))
+                .strong()
+                .size(13.0),
+        )
+        .id_salt("settings_section_files")
+        .default_open(false)
+        .show(ui, |ui| {
+            egui::Grid::new("settings_files")
+                .num_columns(2)
+                .spacing([16.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(crate::i18n::t("settings.max_recent"))
+                        .on_hover_text(crate::i18n::t("settings_hint.max_recent"));
+                    egui::ComboBox::from_id_salt("max_recent_combo")
+                        .selected_text(self.draft.max_recent_files.to_string())
+                        .width(50.0)
+                        .show_ui(ui, |ui| {
+                            for n in 1..=30 {
+                                ui.selectable_value(
+                                    &mut self.draft.max_recent_files,
+                                    n,
+                                    n.to_string(),
+                                );
+                            }
+                        });
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.open_as_text"))
+                        .on_hover_text(crate::i18n::t("settings_hint.open_as_text"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.text_mode_extensions_buf)
+                            .desired_width(280.0)
+                            .hint_text("log4j, myproj, rawdata"),
+                    );
+                    ui.end_row();
+                });
+        });
+
+        // ── File-Specific ──
+        egui::CollapsingHeader::new(
+            egui::RichText::new(crate::i18n::t("settings.sec_file_specific"))
+                .strong()
+                .size(13.0),
+        )
+        .id_salt("settings_section_format")
+        .default_open(false)
+        .show(ui, |ui| {
+            egui::Grid::new("settings_format")
+                .num_columns(2)
+                .spacing([16.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(crate::i18n::t("settings.color_aligned"))
+                        .on_hover_text(crate::i18n::t("settings_hint.color_aligned"));
+                    ui.checkbox(&mut self.draft.color_aligned_columns, "");
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.warn_unalign"))
+                        .on_hover_text(crate::i18n::t("settings_hint.warn_unalign"));
+                    ui.checkbox(&mut self.draft.warn_raw_align_reload, "");
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.warn_date_change"))
+                        .on_hover_text(crate::i18n::t("settings_hint.warn_date_change"));
+                    ui.checkbox(&mut self.draft.warn_on_date_format_change, "");
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.trim_whitespace"))
+                        .on_hover_text(crate::i18n::t("settings_hint.trim_whitespace"));
+                    ui.checkbox(&mut self.draft.trim_whitespace_on_load, "");
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.warn_trim"))
+                        .on_hover_text(crate::i18n::t("settings_hint.warn_trim"));
+                    ui.checkbox(&mut self.draft.warn_on_whitespace_trim, "");
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.clean_headers"))
+                        .on_hover_text(crate::i18n::t("settings_hint.clean_headers"));
+                    ui.checkbox(&mut self.draft.clean_headers_on_load, "");
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.offer_repair"))
+                        .on_hover_text(crate::i18n::t("settings_hint.offer_repair"));
+                    ui.checkbox(&mut self.draft.offer_repair_on_malformed, "");
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.readonly_notice"))
+                        .on_hover_text(crate::i18n::t("settings_hint.readonly_notice"));
+                    ui.checkbox(&mut self.draft.show_readonly_notice, "");
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.notebook_output"))
+                        .on_hover_text(crate::i18n::t("settings_hint.notebook_output"));
+                    egui::ComboBox::from_id_salt("notebook_layout_combo")
+                        .selected_text(self.draft.notebook_output_layout.label_t())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.draft.notebook_output_layout,
+                                NotebookOutputLayout::Beside,
+                                crate::i18n::t("enum.nb_beside"),
+                            );
+                            ui.selectable_value(
+                                &mut self.draft.notebook_output_layout,
+                                NotebookOutputLayout::Beneath,
+                                crate::i18n::t("enum.nb_beneath"),
+                            );
+                        });
+                    ui.end_row();
+                });
+        });
+
         // ── Table View ──
         egui::CollapsingHeader::new(
             egui::RichText::new(crate::i18n::t("settings.sec_table_view"))
@@ -697,79 +817,6 @@ impl SettingsDialog {
                             for n in 1..=16 {
                                 ui.selectable_value(&mut self.draft.tab_size, n, n.to_string());
                             }
-                        });
-                    ui.end_row();
-                });
-        });
-
-        // ── File-Specific ──
-        egui::CollapsingHeader::new(
-            egui::RichText::new(crate::i18n::t("settings.sec_file_specific"))
-                .strong()
-                .size(13.0),
-        )
-        .id_salt("settings_section_format")
-        .default_open(false)
-        .show(ui, |ui| {
-            egui::Grid::new("settings_format")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("settings.color_aligned"))
-                        .on_hover_text(crate::i18n::t("settings_hint.color_aligned"));
-                    ui.checkbox(&mut self.draft.color_aligned_columns, "");
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.warn_unalign"))
-                        .on_hover_text(crate::i18n::t("settings_hint.warn_unalign"));
-                    ui.checkbox(&mut self.draft.warn_raw_align_reload, "");
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.warn_date_change"))
-                        .on_hover_text(crate::i18n::t("settings_hint.warn_date_change"));
-                    ui.checkbox(&mut self.draft.warn_on_date_format_change, "");
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.trim_whitespace"))
-                        .on_hover_text(crate::i18n::t("settings_hint.trim_whitespace"));
-                    ui.checkbox(&mut self.draft.trim_whitespace_on_load, "");
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.warn_trim"))
-                        .on_hover_text(crate::i18n::t("settings_hint.warn_trim"));
-                    ui.checkbox(&mut self.draft.warn_on_whitespace_trim, "");
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.clean_headers"))
-                        .on_hover_text(crate::i18n::t("settings_hint.clean_headers"));
-                    ui.checkbox(&mut self.draft.clean_headers_on_load, "");
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.offer_repair"))
-                        .on_hover_text(crate::i18n::t("settings_hint.offer_repair"));
-                    ui.checkbox(&mut self.draft.offer_repair_on_malformed, "");
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.readonly_notice"))
-                        .on_hover_text(crate::i18n::t("settings_hint.readonly_notice"));
-                    ui.checkbox(&mut self.draft.show_readonly_notice, "");
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.notebook_output"))
-                        .on_hover_text(crate::i18n::t("settings_hint.notebook_output"));
-                    egui::ComboBox::from_id_salt("notebook_layout_combo")
-                        .selected_text(self.draft.notebook_output_layout.label_t())
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.draft.notebook_output_layout,
-                                NotebookOutputLayout::Beside,
-                                crate::i18n::t("enum.nb_beside"),
-                            );
-                            ui.selectable_value(
-                                &mut self.draft.notebook_output_layout,
-                                NotebookOutputLayout::Beneath,
-                                crate::i18n::t("enum.nb_beneath"),
-                            );
                         });
                     ui.end_row();
                 });
@@ -1056,6 +1103,18 @@ impl SettingsDialog {
                     });
                     ui.end_row();
 
+                    // Write protection + backups gate what the assistant (and
+                    // schema-changing database saves) may do to existing files.
+                    ui.label(crate::i18n::t("settings.write_protection"))
+                        .on_hover_text(crate::i18n::t("settings_hint.write_protection"));
+                    ui.checkbox(&mut self.draft.write_protection, "");
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.backup_before_modify"))
+                        .on_hover_text(crate::i18n::t("settings_hint.backup_before_modify"));
+                    ui.checkbox(&mut self.draft.backup_before_modify, "");
+                    ui.end_row();
+
                     ui.label(crate::i18n::t("chat.audit_log"))
                         .on_hover_text(crate::i18n::t("settings_hint.chat_audit_log"));
                     ui.checkbox(&mut self.draft.chat_audit_log_enabled, "");
@@ -1338,6 +1397,23 @@ impl SettingsDialog {
                     });
                     ui.end_row();
 
+                    ui.label(crate::i18n::t("settings.raw_view_cap"))
+                        .on_hover_text(crate::i18n::t("settings_hint.raw_view_cap"));
+                    ui.horizontal(|ui| {
+                        ui.add_enabled(
+                            !self.draft.raw_view_max_bytes_unlimited,
+                            egui::TextEdit::singleline(&mut self.raw_view_max_mb_buf)
+                                .desired_width(120.0)
+                                .hint_text("500"),
+                        );
+                        ui.checkbox(
+                            &mut self.draft.raw_view_max_bytes_unlimited,
+                            crate::i18n::t("settings.unlimited"),
+                        )
+                        .on_hover_text(crate::i18n::t("settings_hint.raw_view_unlimited"));
+                    });
+                    ui.end_row();
+
                     ui.label(crate::i18n::t("settings.syntax_size_cap"))
                         .on_hover_text(crate::i18n::t("settings_hint.syntax_size_cap"));
                     ui.horizontal(|ui| {
@@ -1408,46 +1484,6 @@ impl SettingsDialog {
                 });
         });
 
-        // ── Files ──
-        egui::CollapsingHeader::new(
-            egui::RichText::new(crate::i18n::t("settings.sec_files"))
-                .strong()
-                .size(13.0),
-        )
-        .id_salt("settings_section_files")
-        .default_open(false)
-        .show(ui, |ui| {
-            egui::Grid::new("settings_files")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("settings.max_recent"))
-                        .on_hover_text(crate::i18n::t("settings_hint.max_recent"));
-                    egui::ComboBox::from_id_salt("max_recent_combo")
-                        .selected_text(self.draft.max_recent_files.to_string())
-                        .width(50.0)
-                        .show_ui(ui, |ui| {
-                            for n in 1..=30 {
-                                ui.selectable_value(
-                                    &mut self.draft.max_recent_files,
-                                    n,
-                                    n.to_string(),
-                                );
-                            }
-                        });
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.open_as_text"))
-                        .on_hover_text(crate::i18n::t("settings_hint.open_as_text"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.text_mode_extensions_buf)
-                            .desired_width(280.0)
-                            .hint_text("log4j, myproj, rawdata"),
-                    );
-                    ui.end_row();
-                });
-        });
-
         // ── Window ──
         egui::CollapsingHeader::new(
             egui::RichText::new(crate::i18n::t("settings.sec_window"))
@@ -1483,6 +1519,41 @@ impl SettingsDialog {
                     });
                     ui.end_row();
                 });
+        });
+
+        // ── Diagnostics ──
+        egui::CollapsingHeader::new(
+            egui::RichText::new(crate::i18n::t("diagnostics.section"))
+                .strong()
+                .size(13.0),
+        )
+        .id_salt("settings_section_diagnostics")
+        .default_open(false)
+        .show(ui, |ui| {
+            egui::Grid::new("settings_diagnostics")
+                .num_columns(2)
+                .spacing([16.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(crate::i18n::t("diagnostics.debug_mode"))
+                        .on_hover_text(crate::i18n::t("diagnostics.debug_mode_hint"));
+                    ui.checkbox(&mut self.draft.debug_mode, "");
+                    ui.end_row();
+                });
+            if ui
+                .button(crate::i18n::t("diagnostics.open_log_folder"))
+                .clicked()
+                && let Some(dir) = crate::diagnostics::logs_dir()
+            {
+                // Ensure it exists so the file manager has something to show
+                // even before the first log line is written.
+                let _ = std::fs::create_dir_all(&dir);
+                #[cfg(target_os = "linux")]
+                let _ = std::process::Command::new("xdg-open").arg(&dir).spawn();
+                #[cfg(target_os = "macos")]
+                let _ = std::process::Command::new("open").arg(&dir).spawn();
+                #[cfg(target_os = "windows")]
+                let _ = std::process::Command::new("explorer").arg(&dir).spawn();
+            }
         });
     }
 }

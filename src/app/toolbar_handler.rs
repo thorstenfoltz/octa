@@ -443,6 +443,9 @@ impl OctaApp {
             self.show_update_dialog = true;
             self.check_for_updates(ctx);
         }
+        if action.export_debug_report {
+            self.export_debug_report_now();
+        }
 
         if let Some(scope) = action.parse_in_new_tab {
             let tab = &self.tabs[self.active_tab];
@@ -768,5 +771,46 @@ impl OctaApp {
             }
             self.fuzzy_duplicates_dialog = Some(st);
         }
+    }
+
+    /// Build a redacted debug report, then reveal it in the OS file manager.
+    pub(crate) fn export_debug_report_now(&mut self) {
+        match octa::diagnostics::report::export_debug_report(&self.settings) {
+            Ok(path) => {
+                reveal_in_file_manager(&path);
+                self.status_message = Some((
+                    octa::i18n::t("diagnostics.report_saved"),
+                    std::time::Instant::now(),
+                ));
+            }
+            Err(e) => {
+                self.status_message = Some((
+                    format!("{}: {e}", octa::i18n::t("diagnostics.report_failed")),
+                    std::time::Instant::now(),
+                ));
+            }
+        }
+    }
+}
+
+/// Open the OS file manager with the given file selected (or its folder).
+fn reveal_in_file_manager(path: &std::path::Path) {
+    #[cfg(target_os = "linux")]
+    {
+        let dir = path.parent().unwrap_or(path);
+        let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg("-R")
+            .arg(path)
+            .spawn();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .spawn();
     }
 }

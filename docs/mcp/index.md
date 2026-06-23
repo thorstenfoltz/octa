@@ -51,7 +51,7 @@ themselves. Your files stay on disk.
 | `correlation`             | Pairwise numeric correlation matrix           | [→ doc](tools/correlation.md)             |
 | `grep_files`              | Grep a value across files in a directory      | [→ doc](tools/grep_files.md)              |
 | `write_table`             | Write inline rows to a new file               | [→ doc](tools/write_table.md)             |
-| `edit_table`              | Set cells / insert / delete rows in place     | [→ doc](tools/edit_table.md)              |
+| `edit_table`              | Add columns / set cells / insert / delete rows in place | [→ doc](tools/edit_table.md)    |
 | `transform_columns`       | Rename / cast / drop columns, write back      | [→ doc](tools/transform_columns.md)       |
 | `anonymize`               | Mask / scramble columns, write the result     | [→ doc](tools/anonymize.md)               |
 | `detect_pii`              | Find likely personal-data columns             | [→ doc](tools/detect_pii.md)              |

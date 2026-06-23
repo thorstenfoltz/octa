@@ -14,6 +14,10 @@ fn sandbox_ctx(restrict: bool, allowed: &[&str], export: Option<&str>) -> ToolCo
         restrict_filesystem: restrict,
         allowed_read_paths: allowed.iter().map(PathBuf::from).collect(),
         export_dir: export.map(PathBuf::from),
+        allow_existing_writes: false,
+        allow_schema_changes: false,
+        backup_before_modify: true,
+        pending_tab_edits: None,
     }
 }
 
@@ -94,6 +98,23 @@ fn write_path_rejects_symlink_escape() {
         c.resolve_write_path(Path::new("ok.csv")).unwrap(),
         export.join("ok.csv")
     );
+}
+
+#[test]
+fn resolve_write_path_allows_existing_when_unlocked() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("outside.csv");
+    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true);
+    // Simulate the chat sandbox with the unlock on.
+    ctx.restrict_filesystem = true;
+    ctx.export_dir = Some(dir.path().join("exports"));
+    ctx.allow_existing_writes = true;
+    let resolved = ctx.resolve_write_path(&target).unwrap();
+    assert_eq!(resolved, target, "unlocked writes pass the path through");
+
+    // With the lock on, an outside path is confined / rejected.
+    ctx.allow_existing_writes = false;
+    assert!(ctx.resolve_write_path(&target).is_err());
 }
 
 #[test]

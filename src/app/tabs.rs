@@ -27,6 +27,7 @@ impl TabState {
     pub(crate) fn new(search_mode: data::SearchMode) -> Self {
         Self {
             table: DataTable::empty(),
+            assistant_modified: false,
             table_state: TableViewState::default(),
             search_text: String::new(),
             search_mode,

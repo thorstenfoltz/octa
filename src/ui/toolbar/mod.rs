@@ -937,11 +937,21 @@ pub fn draw_toolbar(
                     ui.close();
                 }
                 ui.separator();
+                if !crate::platform::is_store_packaged() {
+                    if ui
+                        .button(crate::i18n::t("help_menu.check_updates"))
+                        .clicked()
+                    {
+                        action.check_for_updates = true;
+                        ui.close();
+                    }
+                    ui.separator();
+                }
                 if ui
-                    .button(crate::i18n::t("help_menu.check_updates"))
+                    .button(crate::i18n::t("diagnostics.menu_export"))
                     .clicked()
                 {
-                    action.check_for_updates = true;
+                    action.export_debug_report = true;
                     ui.close();
                 }
                 ui.separator();

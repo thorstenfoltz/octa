@@ -26,6 +26,7 @@ pub mod sample;
 pub mod schema_export;
 pub mod search;
 pub mod summary;
+pub mod table_edits;
 pub mod time_calc;
 pub mod transform;
 pub mod trim;
@@ -38,6 +39,7 @@ pub mod value_frequency;
 pub use formulas::{
     FormulaBadCell, FormulaOutcome, evaluate_formula, evaluate_formula_with_diagnostics,
 };
+pub use table_edits::{EditColRef, EditOp, apply_edit_ops, compute_column_values};
 
 use std::collections::HashMap;
 use std::fmt;

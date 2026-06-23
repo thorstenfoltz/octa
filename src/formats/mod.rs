@@ -38,6 +38,42 @@ use anyhow::Result;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// Copy an existing file to a timestamped sidecar `<path>.bak-YYYYMMDD-HHMMSS`
+/// before it is modified in place. Returns the backup path, or `Ok(None)` when
+/// `path` does not exist yet (nothing to back up). Names are made unique with a
+/// numeric suffix so two backups within the same second do not collide.
+///
+/// Callers invoke this only when `AppSettings.backup_before_modify` is on; a
+/// failure here must abort the modifying save (do not touch a file we could not
+/// back up).
+pub fn backup_existing_file(path: &std::path::Path) -> anyhow::Result<Option<std::path::PathBuf>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let base = {
+        let mut s = path.as_os_str().to_os_string();
+        s.push(format!(".bak-{stamp}"));
+        std::path::PathBuf::from(s)
+    };
+    let mut candidate = base.clone();
+    let mut n = 1u32;
+    while candidate.exists() {
+        let mut s = base.as_os_str().to_os_string();
+        s.push(format!("-{n}"));
+        candidate = std::path::PathBuf::from(s);
+        n += 1;
+    }
+    std::fs::copy(path, &candidate).map_err(|e| {
+        anyhow::anyhow!(
+            "backing up {} -> {}: {e}",
+            path.display(),
+            candidate.display()
+        )
+    })?;
+    Ok(Some(candidate))
+}
+
 /// Initial-load row cap shared by the streaming readers (Parquet, CSV, TSV).
 /// Mutable at runtime via `set_initial_load_rows` so `AppSettings` can override
 /// the 5 M default without each reader having to know about the settings type.
@@ -133,6 +169,20 @@ pub trait FormatReader: Send + Sync {
     /// Returns an error by default (read-only format).
     fn write_file(&self, _path: &Path, _table: &DataTable) -> Result<()> {
         anyhow::bail!("Writing is not supported for this format")
+    }
+
+    /// Write `table` back to `path`, permitting column-set / type changes when
+    /// `allow_schema_changes` is true. The diff-based DB writers (DuckDB /
+    /// SQLite) override this to reconcile the on-disk schema first; every other
+    /// writer rewrites the whole file, so for them column changes already work
+    /// and the default just calls `write_file`.
+    fn write_file_schema_aware(
+        &self,
+        path: &std::path::Path,
+        table: &crate::data::DataTable,
+        _allow_schema_changes: bool,
+    ) -> anyhow::Result<()> {
+        self.write_file(path, table)
     }
 
     /// Whether this reader supports writing.
@@ -299,5 +349,34 @@ impl FormatRegistry {
 impl Default for FormatRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod backup_tests {
+    use super::backup_existing_file;
+
+    #[test]
+    fn copies_when_present_noops_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("data.csv");
+        // Missing file: no backup, Ok(None).
+        assert!(backup_existing_file(&f).unwrap().is_none());
+
+        std::fs::write(&f, b"a,b\n1,2\n").unwrap();
+        let bak1 = backup_existing_file(&f).unwrap().expect("backup made");
+        assert!(bak1.exists());
+        assert_eq!(std::fs::read(&bak1).unwrap(), b"a,b\n1,2\n");
+        assert!(
+            bak1.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains(".bak-"),
+            "sidecar name carries .bak-: {bak1:?}"
+        );
+        // A second backup in the same second must not clobber the first.
+        let bak2 = backup_existing_file(&f).unwrap().expect("second backup");
+        assert_ne!(bak1, bak2, "backup names are unique");
+        assert!(bak2.exists());
     }
 }

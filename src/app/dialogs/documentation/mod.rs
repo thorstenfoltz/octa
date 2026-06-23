@@ -78,6 +78,7 @@ fn sections(shortcuts: &ui::shortcuts::Shortcuts) -> Vec<(&'static str, String)>
         ("Assistant", ASSISTANT.to_string()),
         ("Saving", SAVING.to_string()),
         ("Settings Reference", SETTINGS_REFERENCE.to_string()),
+        ("Debug & Reports", DIAGNOSTICS.to_string()),
         (
             "Shortcuts",
             format!("{}\n\n{}", SHORTCUTS_INTRO, shortcut_table),

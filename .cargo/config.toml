@@ -1,0 +1,7 @@
+# Statically link the MSVC C/C++ runtime for the Windows release binary so the
+# MSIX package (and the portable zip) carry no dependency on a system-wide
+# VC++ runtime. The `cc` crate picks up crt-static and compiles the bundled
+# DuckDB/SQLite C++ with /MT to match. Only affects the windows-msvc target;
+# Linux and macOS builds are unchanged.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

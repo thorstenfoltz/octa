@@ -16,8 +16,10 @@ it by hand if you prefer; Octa picks up changes on next launch.
 Unknown / removed fields are tolerated (new versions add defaults
 for missing keys; old versions ignore unknown keys).
 
-<!-- SCREENSHOT: settings-dialog.png: Settings dialog open showing the section headers (Appearance, Table View, Search & Editor, etc.) with one section expanded. -->
+<!-- SCREENSHOT: settings-dialog.png: Settings dialog open showing the section headers (Appearance, Files, File-Specific, Table View, etc.) with one section expanded. -->
 ![Settings dialog](../assets/screenshots/settings-dialog.png)
+
+The sections below are listed in the same order as the dialog.
 
 ## Appearance
 
@@ -30,6 +32,26 @@ for missing keys; old versions ignore unknown keys).
 | **Custom font path** | *(empty)*    | Optional path to a TTF/OTF font. Overrides Body font for proportional text.                                                                                                                                                                                  |
 | **Icon variant**     | Rose         | Window icon colour. Several options.                                                                                                                                                                                                                         |
 | **Custom title bar** | on           | Replaces the OS window frame with Octa's own slim title bar (min/max/close in the toolbar), with drag-to-move and edge/corner resize. Frees the vertical space a system title bar takes. Turn off for native window decorations. Takes effect after restart. |
+
+## Files
+
+| Setting              | Default   | Notes                                                                                                                                                                          |
+|----------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Max recent files** | 10        | How many entries to show in **File → Recent Files**.                                                                                                                           |
+| **Open as text**     | *(empty)* | Comma- or space-separated list of file extensions that should always open as plain text. Useful for unusual config or log extensions Octa doesn't ship a dedicated reader for. |
+
+## File-Specific
+
+| Setting                             | Default | Notes                                                                                                                                                                                                                                                                                                        |
+|-------------------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Colour aligned columns**          | on      | In [Raw view](../usage/view-modes/raw-text.md) of CSV/TSV files, tint each column with a subtle background.                                                                                                                                                                                                  |
+| **Warn on un-align reload**         | on      | Confirmation dialog when toggling **Align Columns** off (the buffer is re-loaded).                                                                                                                                                                                                                           |
+| **Warn on date format change**      | on      | One-shot banner when date inference promotes a non-ISO column.                                                                                                                                                                                                                                               |
+| **Trim whitespace on load**         | off     | Strip leading/trailing whitespace from string cells and column titles when a file is opened (interior spaces kept). Off by default, so loaded values match what is stored. TOML key: `trim_whitespace_on_load`.                                                                                              |
+| **Warn on whitespace trim**         | on      | Banner listing which columns had whitespace trimmed on load. Independent of the trim setting. TOML key: `warn_on_whitespace_trim`.                                                                                                                                                                           |
+| **Offer repair on malformed files** | off     | Prompt to repair a CSV/TSV that reads but looks malformed (bad encoding, BOM, control chars, delimiter mismatch, ragged rows). The file on disk is never changed. See [Supported formats](../getting-started/supported-formats.md#repairing-malformed-csv-tsv-files). TOML key: `offer_repair_on_malformed`. |
+| **Read-only mode notice**           | on      | Show the read-only intro modal on **F8** the first time per session.                                                                                                                                                                                                                                         |
+| **Notebook output layout**          | Beneath | Where notebook output cells render: `Below cell` or `Side-by-side`.                                                                                                                                                                                                                                          |
 
 ## Table View
 
@@ -46,6 +68,24 @@ for missing keys; old versions ignore unknown keys).
 | **Binary display mode**     | Binary  | How `Binary` columns render: `Binary` (010101…), `Hex` (`0xab`), or `Text` (UTF-8 if printable, fallback to hex).                                                                                                                                                |
 | **Default mark colour**     | Green   | Colour used by the `Mark` shortcut (Ctrl+M).                                                                                                                                                                                                                     |
 
+## Summary
+
+The **Analyse -> Summary** tab shows one row of statistics per column.
+Each statistic below has a checkbox; turn any off to drop that column.
+**Column** and **Type** are always shown. TOML key: `summary_stats`.
+
+| Statistic          | Notes                                            |
+|--------------------|--------------------------------------------------|
+| **Min / Max**      | Smallest and largest value.                      |
+| **Mean / Median**  | Average and middle value (numeric columns).      |
+| **Std dev**        | Standard deviation (numeric columns).            |
+| **Q25 / Q75**      | Lower and upper quartiles (numeric columns).     |
+| **Not null**       | Count of present (non-null) values.              |
+| **Nulls / Null %** | Count and share of missing values.               |
+| **Unique**         | Exact count of distinct values (nulls excluded). |
+| **Distinct ratio** | Unique values divided by total rows.             |
+| **Total rows**     | Row count of the whole table.                    |
+
 ## Search & Editor
 
 | Setting                   | Default | Notes                                                                                                                                                                                                                                                                        |
@@ -54,19 +94,6 @@ for missing keys; old versions ignore unknown keys).
 | **Search result display** | Filter  | How search results show in the table: **Filter** hides non-matching rows; **Highlight** keeps every row and highlights matches in place (with a count and next/previous navigation). The search-bar toggle overrides this per session. Text and tree views always highlight. |
 | **Search history size**   | 5       | How many recent search queries to remember across sessions (the **Recent** dropdown beside the search box). `0` disables the history. Stored in `search_history.json`. TOML key: `search_history_limit`.                                                                     |
 | **Tab size**              | 4       | Number of spaces inserted when pressing Tab inside text editors (the Raw text editor and the Markdown Edit/Split editor; Tab indents in place rather than moving focus).                                                                                                     |
-
-## File-Specific
-
-| Setting                             | Default | Notes                                                                                                                                                                                                                                                                                                        |
-|-------------------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Colour aligned columns**          | on      | In [Raw view](../usage/view-modes/raw-text.md) of CSV/TSV files, tint each column with a subtle background.                                                                                                                                                                                                  |
-| **Warn on un-align reload**         | on      | Confirmation dialog when toggling **Align Columns** off (the buffer is re-loaded).                                                                                                                                                                                                                           |
-| **Warn on date format change**      | on      | One-shot banner when date inference promotes a non-ISO column.                                                                                                                                                                                                                                               |
-| **Trim whitespace on load**         | off     | Strip leading/trailing whitespace from string cells and column titles when a file is opened (interior spaces kept). Off by default, so loaded values match what is stored. TOML key: `trim_whitespace_on_load`.                                                                                              |
-| **Warn on whitespace trim**         | on      | Banner listing which columns had whitespace trimmed on load. Independent of the trim setting. TOML key: `warn_on_whitespace_trim`.                                                                                                                                                                           |
-| **Offer repair on malformed files** | off     | Prompt to repair a CSV/TSV that reads but looks malformed (bad encoding, BOM, control chars, delimiter mismatch, ragged rows). The file on disk is never changed. See [Supported formats](../getting-started/supported-formats.md#repairing-malformed-csv-tsv-files). TOML key: `offer_repair_on_malformed`. |
-| **Read-only mode notice**           | on      | Show the read-only intro modal on **F8** the first time per session.                                                                                                                                                                                                                                         |
-| **Notebook output layout**          | Beneath | Where notebook output cells render: `Below cell` or `Side-by-side`.                                                                                                                                                                                                                                          |
 
 ## SQL
 
@@ -111,6 +138,8 @@ in the main Settings dialog under the **Chat / Assistant** section.
 | **Max tool iterations**   | 3                        | How many tool-call rounds the agent runs per turn before stopping. TOML key: `chat_max_tool_iterations`.                                                                                                                               |
 | **Max tokens**            | 16,384                   | Cap on the model's response length. **Unlimited** omits the field (Anthropic substitutes a high value). TOML keys: `chat_max_tokens`, `chat_max_tokens_unlimited`.                                                                     |
 | **Export directory**      | `~/Downloads`            | Where the assistant writes files (charts, exports, `write_text`). TOML key: `chat_export_dir`.                                                                                                                                         |
+| **Write protection**      | On                       | When on (the default), the assistant cannot modify existing files, its live-edit tool (`edit_open_tab`) is disabled, and schema-changing DuckDB / SQLite / GeoPackage saves are refused. Turn off to let the assistant and database saves change your files. Manual GUI edits and saves are never blocked. The MCP server reads this once at startup. TOML key: `write_protection`. |
+| **Back up before modifying** | On                    | When on (the default), Octa copies a file to a timestamped `.bak-*` sidecar before the assistant (or a schema-changing database save) overwrites it. Routine manual saves are **not** backed up. TOML key: `backup_before_modify`. |
 | **Tool-call audit log**   | off                      | Record every assistant tool call (name, arg/result byte counts, duration) to `chat_audit/<session>.jsonl` in the config dir. TOML key: `chat_audit_log_enabled`. See [Assistant → audit log](../usage/chatbot.md#tool-call-audit-log). |
 | **Warn when logs exceed** | 10 MB (on)               | Show a one-time startup warning when the audit logs grow past this size. TOML keys: `chat_audit_log_warn_enabled`, `chat_audit_log_warn_bytes`.                                                                                        |
 | **API key**               | *(none)*                 | Per-provider key. Resolved **env → OS keyring → plaintext `settings.toml`**. **Clear API key** needs a second click to confirm. TOML key: `chat_api_keys` (plaintext fallback only).                                                   |
@@ -133,24 +162,6 @@ and the filesystem sandbox.
 | **Sidebar position**         | Left    | Side the directory tree sidebar docks on (`Left` or `Right`).                                                                                                                         |
 | **Show only openable files** | On      | List only sub-folders and files Octa can open (by extension). Files without an extension are hidden while on. Turn off to list every file. TOML key: `directory_tree_filter_enabled`. |
 
-## Summary
-
-The **Analyse -> Summary** tab shows one row of statistics per column.
-Each statistic below has a checkbox; turn any off to drop that column.
-**Column** and **Type** are always shown. TOML key: `summary_stats`.
-
-| Statistic          | Notes                                            |
-|--------------------|--------------------------------------------------|
-| **Min / Max**      | Smallest and largest value.                      |
-| **Mean / Median**  | Average and middle value (numeric columns).      |
-| **Std dev**        | Standard deviation (numeric columns).            |
-| **Q25 / Q75**      | Lower and upper quartiles (numeric columns).     |
-| **Not null**       | Count of present (non-null) values.              |
-| **Nulls / Null %** | Count and share of missing values.               |
-| **Unique**         | Exact count of distinct values (nulls excluded). |
-| **Distinct ratio** | Unique values divided by total rows.             |
-| **Total rows**     | Row count of the whole table.                    |
-
 ## Shortcuts
 
 Every action is rebindable. Click **Record** next to an action,
@@ -170,18 +181,12 @@ The full list of actions lives on the
 |--------------------------------|-----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Initial-load row cap**       | 5,000,000 | Max rows loaded into memory on first open for streaming readers (Parquet, CSV, TSV). Additional rows stream in the background. Numeric input accepts comma separators (`5,000,000`).                                                                                                 |
 | **Syntax-highlight size cap**  | 1 MB      | Files larger than this fall back to plain monospace in the [Raw view](../usage/view-modes/raw-text.md) (syntect tokenisation gets laggy on huge files). Unit picker: Bytes / KB / MB. `0` disables highlighting entirely.                                                            |
+| **Raw view size cap (MB)**     | 500       | Largest file (in MB) whose full text is read into the [Raw view](../usage/view-modes/raw-text.md) editor. Also gates the parse-error raw fallback and the Compare view's raw side. Bigger files still open in the table view, just without raw text. Tick **Unlimited** to remove the ceiling (reads any file fully into memory). TOML keys: `raw_view_max_bytes`, `raw_view_max_bytes_unlimited`. |
 | **Multi-search file cap (MB)** | 50        | Per-file size cap for the directory scope of the [Multi-search panel](../usage/search-and-filter.md#multi-search). Files larger than this are skipped silently during the scan. `0` disables the cap. TOML key: `grep_max_file_size_mb`.                                             |
 | **Chart max points**           | 100,000   | Maximum rows the [Chart tab](../usage/chart.md) will plot before evenly-spaced downsampling kicks in (Histogram, Line, Scatter). Bar always aggregates the full input; Box computes the 5-number summary over the full input. `0` disables sampling. TOML key: `chart_max_points`.   |
 | **Chart max categories**       | 250       | Maximum distinct X categories a [Bar chart](../usage/chart.md#categorical-x-axes) will accept before refusing to draw. Filter or aggregate the table before charting if you exceed this. TOML key: `chart_max_categories`.                                                           |
 | **Tables visible in picker**   | 10        | How many table rows the multi-table picker dialog (SQLite, DuckDB, …) fits vertically at its default size. The dialog stays user-resizable, so drag the corner to grow it when a database has more tables. Minimum 1. TOML key: `table_picker_visible_rows`.                         |
 | **Excel sheets to auto-open**  | 5         | How many sheets of a multi-sheet [Excel workbook](../getting-started/supported-formats.md#excel-multi-sheet-workbooks) open automatically (each in its own tab). Workbooks with more sheets show a picker so you choose which to open. Minimum 1. TOML key: `excel_max_auto_sheets`. |
-
-## Files
-
-| Setting              | Default   | Notes                                                                                                                                                                          |
-|----------------------|-----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Max recent files** | 10        | How many entries to show in **File → Recent Files**.                                                                                                                           |
-| **Open as text**     | *(empty)* | Comma- or space-separated list of file extensions that should always open as plain text. Useful for unusual config or log extensions Octa doesn't ship a dedicated reader for. |
 
 ## Window
 

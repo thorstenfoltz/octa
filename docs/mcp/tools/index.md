@@ -36,7 +36,7 @@ file per group). These are dropped when the server is started with
 | **[`correlation`](correlation.md)**                         | Pairwise numeric correlation matrix       | No                              |
 | **[`grep_files`](grep_files.md)**                           | Grep a value across files in a directory  | No                              |
 | **[`write_table`](write_table.md)**                         | Write inline rows to a new file           | Writes/replaces the output path |
-| **[`edit_table`](edit_table.md)**                           | Set cells / insert / delete rows in place | Yes (edits the file)            |
+| **[`edit_table`](edit_table.md)**                           | Add columns / set cells / insert / delete rows in place | Yes (edits the file)            |
 | **[`transform_columns`](transform_columns.md)**             | Rename / cast / drop columns, write back  | Writes the output path          |
 | **[`anonymize`](anonymize.md)**                             | Mask / scramble columns, write the result | Writes the output path          |
 | **[`detect_pii`](detect_pii.md)**                           | Find likely personal-data columns         | No                              |

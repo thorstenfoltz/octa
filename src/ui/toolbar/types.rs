@@ -77,6 +77,7 @@ pub struct ToolbarAction {
     pub show_settings: bool,
     pub show_about: bool,
     pub check_for_updates: bool,
+    pub export_debug_report: bool,
     pub replace_next: bool,
     pub replace_all: bool,
     pub toggle_replace_bar: bool,

@@ -33,6 +33,7 @@ pub(crate) mod readonly_notice;
 pub(crate) mod reload_confirm;
 pub(crate) mod repair_file;
 pub(crate) mod round_save_prompt;
+pub(crate) mod schema_change_save;
 pub(crate) mod schema_export;
 pub(crate) mod settings;
 pub(crate) mod sheet_picker;
@@ -69,6 +70,7 @@ impl OctaApp {
         settings::render_settings_dialog(self, ctx);
         documentation::render_documentation_dialog(self, ctx);
         round_save_prompt::render_round_save_prompt_dialog(self, ctx);
+        schema_change_save::render_schema_change_save_dialog(self, ctx);
         reload_confirm::render_unalign_confirm_dialog(self, ctx);
         reload_confirm::render_reload_confirm_dialog(self, ctx);
         about::render_about_dialog(self, ctx);

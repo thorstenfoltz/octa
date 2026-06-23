@@ -67,8 +67,13 @@ Use these to summarise, explain, refactor, or edit prose and code.\n\
 file writes are confined there). To save a query or JOIN result, use \
 `run_sql` with `write_to` (the extension picks the format: csv / parquet / xlsx / ... or \
 duckdb / sqlite). Use `write_table` for inline data, `convert` to transcode a whole source, and \
-`create_chart` for charts. Writing changes back into an open tab is not supported; `edit_table` \
-edits an open file on disk in place.\n",
+`create_chart` for charts. To edit data the user has OPEN, use `edit_open_tab` (add a computed \
+column via a DuckDB expression, insert rows, set cells, delete rows, drop columns) - it applies to the live tab \
+so the user sees it immediately and can undo it; the user then saves to persist. This only works \
+when Write protection is off; if it is on, `edit_open_tab` will say so - relay that and offer to \
+save the result as a new file in the export directory instead. Use `edit_table` to edit a file on \
+disk that is not open. Adding or removing columns on a DuckDB/SQLite file is a schema change and \
+also needs Write protection off.\n",
     );
 
     if tab_summaries.is_empty() {

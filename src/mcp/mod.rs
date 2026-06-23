@@ -50,6 +50,11 @@ pub struct OctaMcpServer {
     pub default_row_limit: Option<usize>,
     /// Per-cell byte cap. `0` means no cap.
     pub cell_byte_cap: usize,
+    /// Permit schema-changing DuckDB/SQLite/GeoPackage saves. Read once from
+    /// `AppSettings` (`!write_protection`) at server startup.
+    pub allow_schema_changes: bool,
+    /// Back up an existing file before modifying it in place.
+    pub backup_before_modify: bool,
     /// rmcp tool routing table (populated by `#[tool_router]`).
     pub tool_router: ToolRouter<OctaMcpServer>,
 }
@@ -60,13 +65,24 @@ impl OctaMcpServer {
     /// in-GUI chat agent builds a context with tab snapshots instead. Sharing
     /// the type lets both surfaces call the same `tools::<name>::run`.
     pub fn tool_context(&self) -> tools::ToolContext {
-        tools::ToolContext::for_mcp(self.default_row_limit, self.cell_byte_cap)
+        tools::ToolContext::for_mcp(
+            self.default_row_limit,
+            self.cell_byte_cap,
+            self.allow_schema_changes,
+            self.backup_before_modify,
+        )
     }
 }
 
 #[tool_router]
 impl OctaMcpServer {
-    pub fn new(default_row_limit: Option<usize>, cell_byte_cap: usize, read_only: bool) -> Self {
+    pub fn new(
+        default_row_limit: Option<usize>,
+        cell_byte_cap: usize,
+        read_only: bool,
+        allow_schema_changes: bool,
+        backup_before_modify: bool,
+    ) -> Self {
         let mut tool_router = Self::tool_router();
         if read_only {
             // Read-only mode: drop every tool that mutates a file so the
@@ -85,6 +101,8 @@ impl OctaMcpServer {
         Self {
             default_row_limit,
             cell_byte_cap,
+            allow_schema_changes,
+            backup_before_modify,
             tool_router,
         }
     }
@@ -648,6 +666,8 @@ pub async fn run(
     default_row_limit: Option<usize>,
     cell_byte_cap: usize,
     read_only: bool,
+    allow_schema_changes: bool,
+    backup_before_modify: bool,
 ) -> anyhow::Result<()> {
     let row_str = default_row_limit.map_or_else(|| "unlimited".to_string(), |n| n.to_string());
     let cell_str = if cell_byte_cap == 0 {
@@ -670,7 +690,13 @@ pub async fn run(
         "octa --mcp ready{mode_str} (default response row limit: {row_str}, cell cap: {cell_str}, \
          file-loader cap: {file_cap_str}; override per-call via `limit` / `unlimited`)"
     );
-    let server = OctaMcpServer::new(default_row_limit, cell_byte_cap, read_only);
+    let server = OctaMcpServer::new(
+        default_row_limit,
+        cell_byte_cap,
+        read_only,
+        allow_schema_changes,
+        backup_before_modify,
+    );
     let service = server.serve(stdio()).await?;
     service.waiting().await?;
     Ok(())

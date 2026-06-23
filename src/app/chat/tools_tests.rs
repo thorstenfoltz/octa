@@ -35,6 +35,10 @@ fn sample_ctx() -> ToolContext {
         restrict_filesystem: false,
         allowed_read_paths: Vec::new(),
         export_dir: None,
+        allow_existing_writes: false,
+        allow_schema_changes: false,
+        backup_before_modify: true,
+        pending_tab_edits: None,
     }
 }
 
@@ -67,6 +71,10 @@ fn multi_ctx() -> ToolContext {
         restrict_filesystem: false,
         allowed_read_paths: Vec::new(),
         export_dir: None,
+        allow_existing_writes: false,
+        allow_schema_changes: false,
+        backup_before_modify: true,
+        pending_tab_edits: None,
     }
 }
 
@@ -193,6 +201,10 @@ fn text_ctx(lines: &[&str], source_path: Option<&str>) -> ToolContext {
         restrict_filesystem: false,
         allowed_read_paths: Vec::new(),
         export_dir: None,
+        allow_existing_writes: false,
+        allow_schema_changes: false,
+        backup_before_modify: true,
+        pending_tab_edits: None,
     }
 }
 

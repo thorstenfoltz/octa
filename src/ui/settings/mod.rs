@@ -596,6 +596,9 @@ pub struct AppSettings {
     /// Whether negative numbers are displayed in red.
     #[serde(default)]
     pub negative_numbers_red: bool,
+    /// Raise log verbosity to debug for the `octa` crate (live, no restart).
+    #[serde(default)]
+    pub debug_mode: bool,
     /// Whether `Int` / `Float` cells render with thousand separators
     /// (e.g. `1,234,567.89`) in the table view. Display-only - never alters
     /// saved / exported data. Default `true`.
@@ -738,6 +741,29 @@ pub struct AppSettings {
     /// this on so a single huge parquet/CSV opens in one shot.
     #[serde(default)]
     pub initial_load_rows_unlimited: bool,
+    /// Maximum file size (in bytes) for which Octa reads the full file text
+    /// into the Raw view editor. Also gates the parse-error raw fallback and
+    /// the Compare view's raw right side. Past this ceiling raw text is
+    /// skipped to protect memory. Default 500 MB. Overridden by
+    /// [`raw_view_max_bytes_unlimited`](Self::raw_view_max_bytes_unlimited).
+    #[serde(default = "default_raw_view_max_bytes")]
+    pub raw_view_max_bytes: usize,
+    /// When `true`, removes the raw-view size ceiling entirely - any file is
+    /// read into the raw editor regardless of size. Trumps
+    /// [`raw_view_max_bytes`](Self::raw_view_max_bytes). Default `false`.
+    #[serde(default)]
+    pub raw_view_max_bytes_unlimited: bool,
+    /// Master gate for modifying existing data. Default **true** (protected).
+    /// While true: the assistant cannot write to existing files, the chat
+    /// live-edit tool refuses, and schema-changing DuckDB/SQLite/GeoPackage
+    /// saves are refused. While false, all three are permitted. Distinct from
+    /// the F8 session read-only mode (which blocks every in-memory edit).
+    #[serde(default = "default_true")]
+    pub write_protection: bool,
+    /// Copy an existing file to `<name>.<ext>.bak-YYYYMMDD-HHMMSS` before any
+    /// in-place modification (every format). Default **true**.
+    #[serde(default = "default_true")]
+    pub backup_before_modify: bool,
     /// User-extensible list of file extensions (no leading dot, lowercase)
     /// that Octa should treat as plain text. Files with these extensions
     /// are routed through `TextReader` regardless of any other reader that
@@ -987,6 +1013,10 @@ fn default_initial_load_rows() -> usize {
     5_000_000
 }
 
+fn default_raw_view_max_bytes() -> usize {
+    500_000_000
+}
+
 // Kept literal here (rather than referencing `crate::mcp::DEFAULT_*`)
 // because `mcp` lives in the binary side of the crate split and the
 // settings module is in the library. The values are mirrored by
@@ -1041,6 +1071,7 @@ impl Default for AppSettings {
             show_sequential_row_numbers: true,
             alternating_row_colors: true,
             negative_numbers_red: true,
+            debug_mode: false,
             thousands_separators_in_cells: true,
             number_separator_style: crate::data::num_format::SeparatorStyle::default(),
             search_result_mode: crate::data::SearchResultMode::default(),
@@ -1073,6 +1104,10 @@ impl Default for AppSettings {
             syntax_highlight_max_bytes: default_syntax_highlight_max_bytes(),
             initial_load_rows: default_initial_load_rows(),
             initial_load_rows_unlimited: false,
+            raw_view_max_bytes: default_raw_view_max_bytes(),
+            raw_view_max_bytes_unlimited: false,
+            write_protection: true,
+            backup_before_modify: true,
             text_mode_extensions: Vec::new(),
             pinned_tabs: Vec::new(),
             mcp_default_row_limit: default_mcp_row_limit(),
@@ -1111,6 +1146,13 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    /// Whether a file of `size_bytes` is small enough to load its full text
+    /// into the Raw view (and the parse-error / Compare raw paths). Honours
+    /// the "unlimited" override. Single source of truth for the size ceiling.
+    pub fn raw_view_allows(&self, size_bytes: u64) -> bool {
+        self.raw_view_max_bytes_unlimited || size_bytes <= self.raw_view_max_bytes as u64
+    }
+
     /// Platform-specific config directory.
     pub fn config_dir() -> Option<PathBuf> {
         #[cfg(target_os = "linux")]
@@ -1258,6 +1300,9 @@ pub struct SettingsDialog {
     /// Buffer backing the initial-load-rows text input. Holds a comma-
     /// separated integer (e.g. "1,000,000"). Parsed on Apply.
     initial_load_rows_buf: String,
+    /// Buffer backing the raw-view size cap input, in whole MB (the stored
+    /// value is bytes; converted on open / Apply). Parsed on Apply.
+    raw_view_max_mb_buf: String,
     /// Buffer backing the user-extensible "treat as text" extensions input.
     /// Comma- or space-separated; canonicalised on Apply (lowercased,
     /// leading dot stripped). Parsed on Apply.

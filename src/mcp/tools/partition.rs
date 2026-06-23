@@ -136,7 +136,10 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
             format!("{base_stem}_{count}")
         };
         let out_path = out_dir.join(format!("{stem}.{ext}"));
-        out_reader.write_file(&out_path, group_table)?;
+        if ctx.backup_before_modify && out_path.exists() {
+            octa::formats::backup_existing_file(&out_path)?;
+        }
+        out_reader.write_file_schema_aware(&out_path, group_table, ctx.allow_schema_changes)?;
 
         let mut entry = Map::new();
         entry.insert("value".to_string(), Value::String(value.clone()));

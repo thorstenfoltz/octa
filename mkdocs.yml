@@ -208,6 +208,8 @@ nav:
       - Keyboard Shortcuts: reference/shortcuts.md
       - CSV Quote / Escape: reference/csv-quote-escape.md
       - Date Inference: reference/date-inference.md
+      - Diagnostics: reference/diagnostics.md
+      - Privacy Policy: privacy.md
   - Tips & Recipes: tips/workflows.md
   - Troubleshooting: troubleshooting.md
 
@@ -218,6 +220,7 @@ nav:
 # in nav" build warning.
 not_in_nav: |
   /assets/screenshots/INDEX.md
+  /assets/store/INDEX.md
 
 # Surface broken links + missing anchors as errors during the strict
 # build (used in CI). Locally `mkdocs serve` reports them as warnings.

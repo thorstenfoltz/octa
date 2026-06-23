@@ -57,6 +57,9 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         ctx.resolve_write_path(&p.path)?
     };
 
+    if ctx.backup_before_modify && dest.exists() {
+        octa::formats::backup_existing_file(&dest)?;
+    }
     std::fs::write(&dest, &p.content)
         .map_err(|e| anyhow::anyhow!("failed to write {}: {e}", dest.display()))?;
 

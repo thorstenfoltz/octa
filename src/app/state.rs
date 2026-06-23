@@ -855,6 +855,18 @@ pub(crate) struct RoundSavePrompt {
     pub(crate) save_filtered_view: bool,
 }
 
+/// A deferred DB save waiting on the user's "apply schema changes?" decision.
+#[derive(Debug, Clone)]
+pub(crate) struct SchemaChangeSavePrompt {
+    pub(crate) tab_idx: usize,
+    pub(crate) path: std::path::PathBuf,
+    pub(crate) save_filtered_view: bool,
+    /// Human-readable lines describing the changes (added/removed columns).
+    pub(crate) changes: Vec<String>,
+    /// Where the backup will be written (None when backup is disabled).
+    pub(crate) backup_note: Option<String>,
+}
+
 /// One pending date-format ambiguity dialog request: a column whose values
 /// are consistent with more than one date layout (e.g. DD/MM/YYYY and
 /// MM/DD/YYYY). The user picks one, or chooses to leave the column as
@@ -973,6 +985,12 @@ impl SearchNavState {
 
 pub(crate) struct TabState {
     pub(crate) table: DataTable,
+    /// Set when the chat assistant changed this tab's table in place
+    /// (`edit_open_tab`). Consumed by the next manual save to decide whether to
+    /// back up the original file first ("Back up before modifying"), so the
+    /// user's own edits never trigger a backup but the assistant's do.
+    /// Session-only.
+    pub(crate) assistant_modified: bool,
     pub(crate) table_state: TableViewState,
     pub(crate) search_text: String,
     pub(crate) search_mode: data::SearchMode,
@@ -1442,6 +1460,9 @@ pub(crate) struct OctaApp {
     /// Update check state shared with background thread
     pub(crate) update_state: Arc<Mutex<UpdateState>>,
     pub(crate) status_message: Option<(String, std::time::Instant)>,
+    /// Set at startup when the previous run ended uncleanly or a crash file is
+    /// waiting; drives a one-shot "export a debug report?" dialog.
+    pub(crate) pending_crash_offer: bool,
     /// Recently opened file paths (most recent first).
     pub(crate) recent_files: Vec<String>,
     /// Zoom level in percent (100 = default, steps of 5).
@@ -1502,6 +1523,10 @@ pub(crate) struct OctaApp {
     /// that has per-column rounding formats; resolved by
     /// `round_save_prompt::render_round_save_prompt_dialog`.
     pub(crate) pending_round_save: Option<RoundSavePrompt>,
+    /// Pending "apply schema changes?" prompt. Set when saving a DB tab whose
+    /// columns differ from the on-disk schema; resolved by
+    /// `schema_change_save::render_schema_change_save_dialog`.
+    pub(crate) pending_schema_change_save: Option<SchemaChangeSavePrompt>,
     /// Pending "Parse in new tab" modal. Set when the user picks a scope
     /// from the Edit menu or right-click; cleared when the modal is
     /// dismissed (Cancel) or the parse succeeds (Open).
@@ -1605,6 +1630,9 @@ pub(crate) struct OctaApp {
     /// switching). Initialised hidden; opened via the toolbar Assistant
     /// button or the `ToggleChatPanel` shortcut.
     pub(crate) chat: super::chat_panel::ChatPanelState,
+    /// Live-tab edits queued by the chat `edit_open_tab` tool, drained per frame.
+    pub(crate) pending_tab_edits:
+        std::sync::Arc<std::sync::Mutex<Vec<crate::mcp::tools::PendingTabEdit>>>,
 }
 
 /// Snapshot of a read-only-toggle event used by the notice modal. Captures

@@ -292,14 +292,16 @@ impl OctaApp {
             return;
         };
 
+        // Best-effort raw text load, gated by the configurable raw-view size
+        // cap (read before the mutable tab borrow below).
+        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        let raw_allowed = self.settings.raw_view_allows(size);
+
         let tab = &mut self.tabs[self.active_tab];
         tab.compare_error = None;
         tab.compare_right_path = Some(path.clone());
 
-        // Best-effort raw text load. 500 MB ceiling matches the raw-view
-        // sanity cap elsewhere in the codebase.
-        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        tab.compare_right_raw = if size <= 500_000_000 {
+        tab.compare_right_raw = if raw_allowed {
             std::fs::read_to_string(&path).ok()
         } else {
             None
@@ -787,10 +789,10 @@ impl OctaApp {
         err: anyhow::Error,
     ) {
         let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        if file_size > 500_000_000 {
+        if !self.settings.raw_view_allows(file_size) {
             self.status_message = Some((
                 format!(
-                    "Failed to parse {format_name}: {err}. File too large (>500MB) for raw fallback."
+                    "Failed to parse {format_name}: {err}. File exceeds the raw-view size cap (Settings -> Performance)."
                 ),
                 std::time::Instant::now(),
             ));
@@ -887,7 +889,7 @@ impl OctaApp {
             }
 
             let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-            if file_size <= 500_000_000 {
+            if self.settings.raw_view_allows(file_size) {
                 tab.raw_content = std::fs::read_to_string(&path).ok();
             } else {
                 tab.raw_content = None;
@@ -986,15 +988,18 @@ impl OctaApp {
             }
             // Initial view for structured-text formats (overrides the Table
             // default chosen above): a `.json` file opens as a collapsible tree
-            // when it parsed, a `.yml`/`.yaml` file opens as raw text. Both can
-            // still be switched via the View menu. JSONL stays tabular. Gating
-            // JSON on `json_value.is_some()` keeps `view_mode` in sync with
-            // `available_view_modes`, which only offers JsonTree when parsed.
+            // when it parsed, `.yml`/`.yaml`/`.toml`/`.xml` open as raw text.
+            // All can still be switched via the View menu. JSONL stays tabular.
+            // Gating JSON on `json_value.is_some()` keeps `view_mode` in sync
+            // with `available_view_modes`, which only offers JsonTree when parsed.
             if tab.table.format_name.as_deref() == Some("JSON") && tab.json_value.is_some() {
                 tab.view_mode = ViewMode::JsonTree;
                 tab.sql_panel_open = false;
                 tab.sql_editor_focus_pending = false;
-            } else if tab.table.format_name.as_deref() == Some("YAML") {
+            } else if matches!(
+                tab.table.format_name.as_deref(),
+                Some("YAML") | Some("TOML") | Some("XML")
+            ) {
                 tab.view_mode = ViewMode::Raw;
                 tab.sql_panel_open = false;
                 tab.sql_editor_focus_pending = false;
@@ -1332,20 +1337,45 @@ impl OctaApp {
         path: std::path::PathBuf,
         save_filtered_view: bool,
     ) {
-        self.do_save_tab_inner(tab_idx, path, save_filtered_view, None);
+        self.do_save_tab_inner(tab_idx, path, save_filtered_view, None, None);
     }
 
     /// Inner save implementation. `round_decision` resolves the per-column
     /// rounding prompt: `None` = ask the user if the tab has rounding formats;
     /// `Some(true)` = write rounded values; `Some(false)` = write full
     /// precision. The prompt dialog re-enters here with `Some(_)`.
+    ///
+    /// `schema_decision` resolves the DB schema-change prompt: `None` = ask the
+    /// user if a DB save adds/removes columns; `Some(true)` = proceed (back up
+    /// and reconcile). The confirm dialog re-enters here with `Some(true)`.
     pub(crate) fn do_save_tab_inner(
         &mut self,
         tab_idx: usize,
         path: std::path::PathBuf,
         save_filtered_view: bool,
         round_decision: Option<bool>,
+        schema_decision: Option<bool>,
     ) {
+        // If the chat assistant changed this tab, back up the original file
+        // before our save overwrites it (the user's own edits don't trigger
+        // this). The flag is consumed once the backup is taken so a rounding /
+        // schema re-entry of this function does not back up twice.
+        // ponytail: if the user then cancels a follow-up Save dialog, the .bak
+        // is already made and the flag cleared - a rare extra backup, not a
+        // missed one. Restore-on-failure keeps a real backup error retryable.
+        if self.settings.backup_before_modify && self.tabs[tab_idx].assistant_modified {
+            match octa::formats::backup_existing_file(&path) {
+                Ok(_) => self.tabs[tab_idx].assistant_modified = false,
+                Err(e) => {
+                    self.status_message = Some((
+                        format!("Backup failed, save aborted: {e}"),
+                        std::time::Instant::now(),
+                    ));
+                    return;
+                }
+            }
+        }
+
         let tab = &mut self.tabs[tab_idx];
         if tab.raw_content_modified
             && let Some(ref content) = tab.raw_content
@@ -1463,12 +1493,92 @@ impl OctaApp {
                     return;
                 }
                 let tab = &mut self.tabs[tab_idx];
+                // DB schema-change detection (only DB tabs have db_meta).
+                let schema_changed = tab
+                    .table
+                    .db_meta
+                    .as_ref()
+                    .map(|m| {
+                        let cur: Vec<&str> =
+                            tab.table.columns.iter().map(|c| c.name.as_str()).collect();
+                        let orig: Vec<&str> =
+                            m.original_columns.iter().map(|s| s.as_str()).collect();
+                        cur != orig
+                    })
+                    .unwrap_or(false);
+
+                if schema_changed && filtered_table.is_none() {
+                    if self.settings.write_protection {
+                        self.status_message = Some((
+                            "This save adds or removes database columns, which is turned off. \
+                             Turn off Write protection in Settings to allow it."
+                                .to_string(),
+                            std::time::Instant::now(),
+                        ));
+                        return;
+                    }
+                    if schema_decision.is_none() {
+                        // Build the change list + backup note and defer to the modal.
+                        let m = tab.table.db_meta.as_ref().unwrap();
+                        let orig: std::collections::HashSet<&str> =
+                            m.original_columns.iter().map(|s| s.as_str()).collect();
+                        let cur: std::collections::HashSet<&str> =
+                            tab.table.columns.iter().map(|c| c.name.as_str()).collect();
+                        let mut changes = Vec::new();
+                        for c in tab.table.columns.iter().map(|c| c.name.as_str()) {
+                            if !orig.contains(c) {
+                                changes.push(format!("+ add column \"{c}\""));
+                            }
+                        }
+                        for c in m.original_columns.iter().map(|s| s.as_str()) {
+                            if !cur.contains(c) {
+                                changes.push(format!("- remove column \"{c}\""));
+                            }
+                        }
+                        let backup_note = if self.settings.backup_before_modify {
+                            Some(format!("{}.bak-<timestamp>", path.display()))
+                        } else {
+                            None
+                        };
+                        self.pending_schema_change_save =
+                            Some(super::state::SchemaChangeSavePrompt {
+                                tab_idx,
+                                path,
+                                save_filtered_view,
+                                changes,
+                                backup_note,
+                            });
+                        return;
+                    }
+                }
+
+                // Back up ONLY for a schema-changing DB save (risky-writes
+                // scope; routine Ctrl+S does not spawn a .bak).
+                // ponytail: GUI schema-change detection is name-based (add/remove),
+                // matching the GUI's column ops. A pure retype with no name change
+                // skips the modal but the writer still reconciles it and a backup is
+                // taken. Upgrade to type-aware GUI detection only if a retype-only
+                // GUI path appears.
+                if schema_changed
+                    && filtered_table.is_none()
+                    && self.settings.backup_before_modify
+                    && let Err(e) = octa::formats::backup_existing_file(&path)
+                {
+                    self.status_message = Some((
+                        format!("Backup failed, save aborted: {e}"),
+                        std::time::Instant::now(),
+                    ));
+                    return;
+                }
+
+                let allow_schema = !self.settings.write_protection;
+                let tab = &mut self.tabs[tab_idx];
                 let write_result = if let Some(ref ftab) = filtered_table {
                     reader.write_file(&path, ftab)
                 } else {
                     tab.table.apply_edits();
                     let to_write = rounded_live.as_ref().unwrap_or(&tab.table);
-                    reader.write_file(&path, to_write)
+                    reader.write_file_schema_aware(&path, to_write, allow_schema)
                 };
                 match write_result {
                     Ok(()) => {

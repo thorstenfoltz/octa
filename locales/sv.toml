@@ -115,6 +115,12 @@ first_row_is_header = "Första raden är rubrik"
 discard_all_edits = "Ignorera alla ändringar"
 
 [dialog]
+scs_title = "Apply schema changes?"
+scs_intro = "Saving will change the database table structure:"
+scs_backup = "A backup will be written to:"
+scs_no_backup = "No backup will be made (backups are turned off)."
+scs_warn = "Indexes, constraints, and triggers are not preserved."
+scs_proceed = "Save changes"
 msort_title = "Sortera efter kolumner"
 msort_intro = "Sortera efter flera kolumner. Den första nyckeln är den primära sorteringen; senare avgör oavgjort."
 msort_by = "Sortera efter"
@@ -481,6 +487,8 @@ modified = "Ändrad"
 no_file = "Ingen fil inläst"
 
 [settings]
+write_protection = "Write protection (recommended)"
+backup_before_modify = "Back up files before modifying"
 sec_summary = "Sammanfattning"
 directory_tree_filter = "Visa endast oppningsbara filer"
 search_result_mode = "Visning av sokresultat:"
@@ -551,6 +559,7 @@ map_fallback = "Återgå till geometri:"
 tile_url = "URL-mall för rutor:"
 sidebar_position = "Sidofältets position:"
 initial_load_cap = "Radgräns vid första inläsning:"
+raw_view_cap = "Raw view size cap (MB):"
 syntax_size_cap = "Storleksgräns för syntaxmarkering:"
 open_as_text = "Öppna som text:"
 multi_search_cap = "Filgräns för multisökning (MB):"
@@ -785,6 +794,8 @@ tile_url = "URL-mönster för rasterplattor. `{z}/{x}/{y}` ersätts med zoomniv�
 sidebar_position = "På vilken sida katalogträdet dockas när en mapp öppnas\nvia Arkiv > Öppna katalog."
 shortcuts_intro = "Klicka på 'Spela in' och tryck sedan en tangentkombination (med Ctrl / Skift / Alt).\nTryck Esc för att avbryta inspelningen. 'Rensa' lämnar åtgärden obunden."
 initial_load_cap = "Högsta antal rader som läses in i tabellen vid första öppningen\nför strömmande format (Parquet, CSV, TSV). Resterande rader\nströmmar in i bakgrunden medan du rullar.\n\nStandard: 5,000,000. Att höja det förbättrar fullständigheten vid\nförsta ritningen men använder mer minne. Att sänka det gör första\növningen snabbare men flyttar mer arbete till bakgrundsinläsaren.\nKryssa i \"Obegränsat\" för att inaktivera gränsen helt och läsa in\nalla rader på förhand.\n\nSkriv ett tal - tillämpas vid Tillämpa."
+raw_view_cap = "Maximum file size (in MB) Octa reads fully into the Raw\nview editor. Also gates the parse-error raw fallback and\nthe Compare view's raw side. Larger files skip raw text to\nprotect memory.\n\nDefault: 500 MB. Tick \"Unlimited\" to load any file\nregardless of size. Applied on Apply."
+raw_view_unlimited = "Read the full text of any file into the Raw view, with\nno size limit. Use only with RAM to spare - a multi-GB\nfile is read entirely into memory."
 initial_load_unlimited = "Läs in alla rader i filen på förhand. Rekommenderas bara\nnär du har gott om RAM - en parquet med 100 M rader äter\nflera GB."
 syntax_size_cap = "Filer större än detta faller tillbaka till vanlig monospace i\nden råa redigeraren. Sätt 0 för att inaktivera syntaxmarkering\nhelt; sätt ett mycket stort tal för att avstå från skyddet.\nJSON/YAML/XML/Markdown/TOML markeras aldrig - de använder sina\negna träd-/förhandsvisningsvyer.\n\nStandard: 1 MB. Skriv ett tal, välj en enhet - tillämpas vid Tillämpa."
 open_as_text = "Extra filändelser att behandla som vanlig text vid öppning\n(åsidosätter den läsare som normalt skulle göra anspråk på dem).\nKomma- eller blankstegsavgränsade, ingen inledande punkt, gemener.\nExempel: log4j  myproj  rawdata\n\nTillämpas vid Tillämpa; gäller för efterföljande filöppningar."
@@ -803,6 +814,9 @@ ctrl_minimise = "Minimera"
 
 # Chat assistant panel. NOTE: values are English placeholders pending
 # translation; the i18n parity test only requires the keys to exist.
+write_protection = "Protects your files. When on, the assistant and database\nsaves cannot change existing files, and adding or removing columns in\na SQLite, DuckDB, or GeoPackage file is refused.\nTurn off to allow those writes."
+backup_before_modify = "Before the assistant or a schema-changing database save overwrites\na file, copy it to a timestamped .bak file next to it first.\nRoutine manual saves are not backed up."
+
 [chat]
 prompt_insert = "Infoga"
 prompts_hint = "Spara och ateranvand prompter"
@@ -1299,3 +1313,16 @@ close_tip = "Stäng detta meddelande."
 trimmed = "Inledande/avslutande blanksteg borttagna i {n} kolumn(er): {cols}."
 trim_keep_tip = "Behåll de trimmade värdena."
 trim_undo_tip = "Ångra trimningen och återställ de ursprungliga blankstegen."
+
+[diagnostics]
+section = "Diagnostics"
+debug_mode = "Debug logging"
+debug_mode_hint = "Write detailed debug-level logs to octa.log (takes effect immediately)."
+menu_export = "Export debug report..."
+open_log_folder = "Open log folder"
+crash_title = "Octa closed unexpectedly"
+crash_body = "Octa may have closed unexpectedly last time. Export a debug report to help diagnose it?"
+export = "Export report"
+dismiss = "Dismiss"
+report_saved = "Debug report saved; opening its folder."
+report_failed = "Could not write the debug report"

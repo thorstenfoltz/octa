@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <!-- Name and Publisher come from Partner Center (see windows/STORE_SETUP.md
+       step 1). Version is rewritten to X.Y.Z.0 by release.yml. -->
+  <Identity
+    Name="ThorstenFoltz.OctaDataViewer"
+    Publisher="CN=63CB4A82-B9E1-4E2C-B672-657B9C742FE2"
+    Version="0.0.0.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Octa Data Viewer</DisplayName>
+    <PublisherDisplayName>Thorsten Foltz</PublisherDisplayName>
+    <Logo>Images\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="Octa" Executable="octa.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Octa Data Viewer"
+        Description="Fast desktop viewer and editor for tabular data files."
+        BackgroundColor="transparent"
+        Square150x150Logo="Images\Square150x150Logo.png"
+        Square44x44Logo="Images\Square44x44Logo.png">
+        <uap:DefaultTile
+          Wide310x150Logo="Images\Wide310x150Logo.png"
+          Square71x71Logo="Images\Square71x71Logo.png"
+          Square310x310Logo="Images\Square310x310Logo.png" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="octadata">
+            <uap:DisplayName>Octa data file</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.parquet</uap:FileType>
+              <uap:FileType>.arrow</uap:FileType>
+              <uap:FileType>.feather</uap:FileType>
+              <uap:FileType>.avro</uap:FileType>
+              <uap:FileType>.orc</uap:FileType>
+              <uap:FileType>.csv</uap:FileType>
+              <uap:FileType>.tsv</uap:FileType>
+              <uap:FileType>.json</uap:FileType>
+              <uap:FileType>.jsonl</uap:FileType>
+              <uap:FileType>.ndjson</uap:FileType>
+              <uap:FileType>.sqlite</uap:FileType>
+              <uap:FileType>.db</uap:FileType>
+              <uap:FileType>.duckdb</uap:FileType>
+              <uap:FileType>.ddb</uap:FileType>
+              <uap:FileType>.gpkg</uap:FileType>
+              <uap:FileType>.yaml</uap:FileType>
+              <uap:FileType>.yml</uap:FileType>
+              <uap:FileType>.toml</uap:FileType>
+              <uap:FileType>.xml</uap:FileType>
+              <uap:FileType>.md</uap:FileType>
+              <uap:FileType>.sas7bdat</uap:FileType>
+              <uap:FileType>.dta</uap:FileType>
+              <uap:FileType>.sav</uap:FileType>
+              <uap:FileType>.rds</uap:FileType>
+              <uap:FileType>.dbf</uap:FileType>
+              <uap:FileType>.hdf5</uap:FileType>
+              <uap:FileType>.h5</uap:FileType>
+              <uap:FileType>.nc</uap:FileType>
+              <uap:FileType>.npy</uap:FileType>
+              <uap:FileType>.npz</uap:FileType>
+              <uap:FileType>.geojson</uap:FileType>
+              <uap:FileType>.shp</uap:FileType>
+              <uap:FileType>.epub</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

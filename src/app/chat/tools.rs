@@ -104,6 +104,7 @@ define_chat_tools! {
     "grep_files"               => grep_files,
     "write_table"              => write_table,
     "edit_table"               => edit_table,
+    "edit_open_tab"            => edit_open_tab,
     "transform_columns"        => transform_columns,
     "anonymize"                => anonymize,
     "partition_table"          => partition,

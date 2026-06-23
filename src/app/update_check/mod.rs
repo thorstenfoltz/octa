@@ -119,6 +119,11 @@ pub(crate) enum InstallError {
 
 impl OctaApp {
     pub(crate) fn check_for_updates(&self, ctx: &egui::Context) {
+        // Store (MSIX) copies are updated by the Store itself; the in-app
+        // updater cannot replace a packaged install in WindowsApps, so skip it.
+        if octa::platform::is_store_packaged() {
+            return;
+        }
         let state = Arc::clone(&self.update_state);
         let ctx = ctx.clone();
         *state.lock().unwrap() = UpdateState::Checking;

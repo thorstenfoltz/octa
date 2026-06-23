@@ -206,9 +206,30 @@ schema, and list unique columns. Beyond reading, it can:
 - Create a chart. Ask for a histogram, bar, line, scatter, or box plot of
   your data and it renders one and saves it as a PNG, PDF, or SVG.
 
-It deliberately does not write back into an open tab. If you ask it to
-change a table you have open, it will say so and offer to save a new file
-instead, so your in-tab edits are never modified by the assistant.
+## Editing open data
+
+With **Write protection** turned off (see below), the assistant can change
+your data directly:
+
+- Edit the open tab live (`edit_open_tab`). Ask it to add a computed column
+  (a DuckDB expression such as a moving average), insert rows, set cells,
+  delete rows, or drop columns, and the change appears in the tab immediately.
+  It is a normal edit, so <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes it, and nothing
+  is written to disk until **you** save.
+- Edit a file on disk that is not open (`edit_table`), including adding or
+  dropping a column. Adding or removing a column on a DuckDB, SQLite, or
+  GeoPackage file is a schema change and also needs Write protection off.
+
+**Write protection is on by default.** While it is on the assistant cannot
+modify existing files: ask it to change a table and it says so and offers to
+save the result as a new file in your
+[Export folder](#saving-results-and-charts) instead. Turn it off under
+**Settings > Chat / Assistant > Write protection** to allow in-place edits.
+
+Before the assistant (or a schema-changing database save) overwrites an
+existing file, Octa first copies it to a timestamped `.bak-*` sidecar next to
+it (controlled by **Back up before modifying**, on by default, under
+**Settings > Chat / Assistant**). Routine manual saves are not backed up.
 
 ## Text, code, and Markdown files
 

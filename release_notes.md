@@ -1,10 +1,12 @@
 # Release notes
 
-This release is a big step for working with data, not just viewing it. It adds
-a set of data-operations tools (anonymise, find near-duplicates, drop exact
+This release makes Octa do more *with* your data, not just show it. It adds a
+full set of data-operations tools (anonymise, find near-duplicates, drop exact
 duplicates, fill missing values, detect outliers, detect personal data, union,
-join, and partition), an optional header-cleaning step on load, and full
-translations of all the new screens into every supported language.
+join, and partition); lets the in-app assistant edit the tables you already have
+open, behind an opt-in write-protection switch; adds debug logging and one-click
+crash reports; opens config and markup files as readable text; and translates
+every new screen into all supported languages.
 
 ## Cleaning and shaping data
 
@@ -80,6 +82,29 @@ table into one file per distinct value of a column, written into a folder you
 choose, in the format you choose. Partitioning a sales table by `region` gives
 you `North.csv`, `South.csv`, and so on. The original table is not changed.
 
+## The assistant can change your data, when you let it
+
+**Editing open tables in place.** Until now the in-app assistant (and the MCP
+server) could read your files and write new ones, but never change a file you
+already had open. It can now edit an open table directly: add a computed column,
+drop columns, set individual cells, and insert or delete rows, all as normal
+undoable steps you can review and reverse like any manual edit.
+
+**Write protection (on by default).** Because letting an assistant change your
+data is a bigger responsibility, a new **Write protection** setting keeps it
+read-only until you deliberately turn it off in **Settings -> Chat / Assistant**.
+With it on, every attempt to change an existing file is refused.
+
+**Database schema changes.** With Write protection off, the assistant can also
+change a database file's columns (add or drop a column in SQLite, DuckDB, or
+GeoPackage), which Octa previously refused. Your rows keep their identity through
+the change, and the existing diff-based save still applies.
+
+**Back up before modifying.** A companion setting keeps a timestamped `.bak` copy
+of a file before a save that includes the assistant's changes. Your own manual
+saves are never backed up, so the backups stay meaningful: they only appear when
+the assistant touched the data.
+
 ## Opening files
 
 **Clean headers on load.** A new optional setting tidies column names the moment a
@@ -87,6 +112,23 @@ file opens, turning headers like `First Name` or `E-mail Address` into lower
 snake_case identifiers (`first_name`, `e_mail_address`): trimmed, lowercased, with
 spaces and punctuation becoming underscores and duplicates getting a numeric
 suffix. It is off by default and pairs naturally with **Trim whitespace on load**.
+
+**Config and markup files open as text.** TOML and XML files now open in the Raw
+Text view by default, where they read naturally with syntax highlighting, instead
+of being squeezed into a one-column table. A new **raw view size cap** setting
+(default 500 MB, configurable up to Unlimited) controls how large a file Octa
+will automatically fall back to the Raw view for.
+
+## Diagnostics and bug reports
+
+**Debug logging and crash reports.** Octa can now help you report problems. A
+rolling log of recent activity is kept in your config folder, and if Octa crashes
+it records the details; a run marker even catches harder crashes that a normal
+handler cannot, noticing them on the next start. **Help -> Export debug report...**
+writes a single text file with your version, the recent log, the last crash if
+any, and your settings, with secrets stripped out and file paths shortened, ready
+to attach to a bug report. Extra-detailed logging is opt-in under
+**Settings -> Diagnostics -> Debug mode**; the everyday log stays lightweight.
 
 ## Command line and assistant
 

@@ -189,7 +189,11 @@ MCP Inspector, or any compatible client) at the same binary and the model can qu
 A docked chat panel where you ask an LLM about your data in plain language and
 it answers by driving Octa's own tools against the tabs you already
 have open. It is the in-application sibling of the MCP server, with no external
-client to set up, and it can save results back to a file.
+client to set up. It can save results back to a file and, when you allow it,
+edit the data in an open tab directly (add or drop columns, set cells, insert or
+delete rows). A **Write protection** setting (on by default) keeps the assistant
+read-only until you opt in, and an optional backup keeps a timestamped copy of
+any file the assistant changes before it is overwritten.
 
 It is local-first and provider-agnostic: use a cloud model (Anthropic Claude,
 OpenAI, Google Gemini, or any OpenAI-compatible endpoint such as OpenRouter /
@@ -215,6 +219,7 @@ cell contents) for review.
 
 - CSV delimiter auto-detection (comma, semicolon, pipe, tab) and manual selection
 - Date inference for text-formatted columns (CSV, JSON, Excel, etc.) with an ambiguity picker for European vs US-format dates
+- Optional debug logging and crash capture, with a one-click redacted debug report (**Help -> Export debug report**) to attach to bug reports
 - Auto-update check from GitHub releases
 - Cross-platform: Linux, macOS, and Windows
 

@@ -48,6 +48,9 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     // a restart.
     octa::i18n::set_language(&app.settings.language);
 
+    // Apply the debug-log verbosity immediately (no restart).
+    octa::diagnostics::set_debug_level(app.settings.debug_mode);
+
     // Apply window-size / maximize changes immediately so the user sees the
     // effect without relaunching. `with_inner_size()` at startup is ignored
     // while the window is maximized, which was the source of "the setting

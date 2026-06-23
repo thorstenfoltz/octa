@@ -1334,6 +1334,27 @@ Export directory**, default ~/Downloads) unless you give an absolute
 path. It can read, query (SQL), profile, convert, chart, and write data
 through the same tools the MCP server exposes.
 
+## Editing your data
+
+By default the assistant cannot change your files (Write protection, on
+under **Settings > Chat / Assistant**). Ask it to change an open table and
+it says so and offers to save a new file in the export directory instead.
+
+Turn Write protection off to let it edit in place:
+
+- Edit the open tab live: add a computed column (a DuckDB expression,
+  including window functions like a moving average), insert rows, set
+  cells, delete rows, or drop columns. The change shows up in the tab at
+  once and Ctrl+Z undoes it. Nothing reaches disk until you save.
+- Edit a file on disk that is not open, including adding or dropping a
+  column. Adding or removing a column on a DuckDB, SQLite, or GeoPackage
+  file is a schema change and also needs Write protection off.
+
+Before the assistant (or a schema-changing database save) overwrites an
+existing file, Octa first copies it to a timestamped .bak sidecar next to it
+(**Back up before modifying**, on by default, under **Settings > Chat /
+Assistant**). Routine manual saves are not backed up.
+
 ## Sessions
 
 Conversations are saved automatically as JSON under `chat_sessions/` in
@@ -1417,9 +1438,10 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
 - **Shortcuts**: rebind any keyboard shortcut. Conflicting bindings are
   flagged.
 - **Performance**: initial-load row cap (streaming readers), syntax-
-  highlight size cap (raw editor fallback), a user-extensible list of
-  file extensions to open as plain text, and how many Excel sheets to
-  auto-open.
+  highlight size cap (raw editor fallback), the raw view size cap (largest
+  file read fully into the raw editor, default 500 MB, with an Unlimited
+  toggle), a user-extensible list of file extensions to open as plain
+  text, and how many Excel sheets to auto-open.
 - **Files**: how many recent files to remember.
 - **Window**: initial size, start maximised. The initial size is the
   pixel size of the window when it is *not* maximised. A maximised window
@@ -1642,4 +1664,50 @@ becomes `column`.
 
 It is off by default, so files load with their original headers unless you
 opt in. It pairs naturally with **Trim whitespace on load**.
+"#;
+
+pub(super) const DIAGNOSTICS: &str = r#"# Debug & Reports
+
+## The log
+
+Octa always keeps a log, so there is a record when something goes wrong.
+There is no switch to turn it on. It lives in a 'logs' subfolder of Octa's
+config folder (logs/octa.log), together with crash details (last_crash.txt),
+a run-lock marker (running.lock), and any reports you export. Use **Settings >
+Diagnostics > Open log folder** to jump straight there.
+
+Octa's own code logs at 'info' level; third-party libraries are kept to
+warnings and errors so the log stays readable.
+
+## Size limit and rotation
+
+The live log is capped at about 5 MB. When it reaches the cap, Octa renames it
+to octa.log.1 (replacing the previous octa.log.1) and starts a fresh octa.log.
+So there are at most two files, about 10 MB total, and the oldest entries are
+eventually discarded. The same check runs at start-up, so a restart never
+keeps appending past the limit.
+
+## Debug logging (off by default)
+
+Only the extra detail is opt-in. Turn on **Settings > Diagnostics > Debug
+logging** to raise Octa's own code from 'info' to 'debug' for more detailed
+entries (it applies immediately, no restart). Leave it off for normal use:
+debug entries fill the 5 MB cap faster, so the log rotates sooner and keeps
+less history. Switch it on while reproducing a bug, then back off.
+
+## After a crash
+
+Octa records failures two ways. A panic handler writes the time, location,
+message, and backtrace to last_crash.txt. A run-lock marker catches harder
+crashes the handler cannot (a native crash or a killed process): if the marker
+is still there at the next launch, the previous run ended uncleanly. Either
+way, the next launch offers to export a report.
+
+## Exporting a report
+
+Use **Help > Export debug report...** to write a single text file (in the logs
+folder) with your app version, operating system, theme and language, the tail
+of the log, the last crash if any, and your settings. Secrets are stripped and
+your home folder and username are masked, so it is safe to attach to a GitHub
+issue. No cell values or column data are included.
 "#;
