@@ -247,3 +247,62 @@ fn headers_are_snake_case_ids() {
                 .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
     }));
 }
+
+#[test]
+fn null_count_includes_empty_strings() {
+    // A Utf8 column where two cells are empty ("") and one is a true Null.
+    // DuckDB's null_percentage would report only the true Null; Octa must
+    // count empty strings as missing too.
+    let columns = vec![ColumnInfo {
+        name: "label".to_string(),
+        data_type: "Utf8".to_string(),
+    }];
+    let rows = vec![
+        vec![CellValue::String("a".to_string())],
+        vec![CellValue::String(String::new())],
+        vec![CellValue::Null],
+        vec![CellValue::String(String::new())],
+    ];
+    let t = DataTable {
+        columns,
+        rows,
+        edits: std::collections::HashMap::new(),
+        source_path: None,
+        format_name: None,
+        structural_changes: false,
+        total_rows: None,
+        row_offset: 0,
+        marks: std::collections::HashMap::new(),
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+        db_meta: None,
+    };
+
+    let enabled = SummaryStat::default_enabled();
+    let out = build_summary_table(&t, &enabled).unwrap();
+    let active = active_stats(&enabled);
+    let col = |stat: SummaryStat| active.iter().position(|s| *s == stat).unwrap();
+
+    let null_col = col(SummaryStat::NullCount);
+    let not_null_col = col(SummaryStat::NotNullCount);
+    // Single source column => single output row.
+    assert_eq!(
+        out.get(0, null_col).map(|v| v.to_string()),
+        Some("3".to_string())
+    );
+    assert_eq!(
+        out.get(0, not_null_col).map(|v| v.to_string()),
+        Some("1".to_string())
+    );
+}
+
+#[test]
+fn num_cell_keeps_full_precision() {
+    // More than 6 decimals must survive (no rounding to 6dp).
+    let v = 1.0_f64 / 3.0; // 0.3333333333333333
+    assert_eq!(num_cell(v), CellValue::Float(v));
+    // Whole numbers still collapse to Int.
+    assert_eq!(num_cell(5.0), CellValue::Int(5));
+    // Non-finite becomes a blank cell.
+    assert_eq!(num_cell(f64::INFINITY), CellValue::String(String::new()));
+}

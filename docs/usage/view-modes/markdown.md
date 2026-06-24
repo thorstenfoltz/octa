@@ -13,15 +13,16 @@ you can author Markdown right in Octa.
 A segmented toggle at the top of the Markdown view picks the
 layout. Each option carries a small icon next to the label:
 
-- 👁 **Preview** shows rendered output only. Read-mode.
-- 🔀 **Split** (default) shows the TextEdit on the left, live preview
+- 👁 **Preview** (default) shows rendered output only. Read-mode.
+  Links in the preview open in your system browser when clicked.
+- 🔀 **Split** shows the TextEdit on the left, live preview
   on the right. Edits update the preview every keystroke.
 - 📝 **Edit** shows the TextEdit only, full window width. Useful for
   distraction-free writing.
 
-The default is **Split** so live editing is the out-of-the-box
-experience. To change it permanently, save your preference is per-tab
-only.
+The default is **Preview** so Markdown files open as a rendered
+document straight away. Switch to Split or Edit whenever you need
+to write or edit the content.
 
 ## Reading width cap
 

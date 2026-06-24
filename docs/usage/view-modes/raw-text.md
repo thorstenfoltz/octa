@@ -37,12 +37,14 @@ differs from the on-disk content.
 ## Syntax highlighting
 
 Source files in supported languages render with full syntax
-highlighting. The list deliberately excludes formats that have their
-own dedicated view:
+highlighting. JSON, YAML, XML and TOML files are also highlighted in
+the Raw view, even though they each have a dedicated view mode as
+well. CSV and TSV are excluded because their column-colouring toolbar
+replaces per-token highlighting.
 
-| Highlighted                                                                                                                                                  | Not highlighted (use the dedicated view instead)                                                           |
-|--------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
-| Python, Rust, Go, JS / TS, JVM (Java/Kotlin/Scala), C/C++, Shell (bash/zsh/sh), R, Julia, HTML, CSS, Terraform / HCL, plus the rest of syntect's default set | [JSON](json-and-yaml-tree.md), [YAML](json-and-yaml-tree.md), XML, [Markdown](markdown.md), TOML, CSV, TSV |
+| Highlighted                                                                                                                                                                         | Not highlighted                             |
+|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------|
+| Python, Rust, Go, JS / TS, JVM (Java/Kotlin/Scala), C/C++, Shell (bash/zsh/sh), R, Julia, HTML, CSS, Terraform / HCL, JSON, YAML, XML, TOML, plus the rest of syntect's default set | CSV, TSV (column-colouring toolbar instead) |
 
 The Terraform / HCL bundle ships with Octa
 (`assets/Terraform.sublime-syntax`, MIT, hand-written) since syntect's

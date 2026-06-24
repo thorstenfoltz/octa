@@ -381,8 +381,13 @@ pub(super) fn draw_data_row_direct(
                 }
             }
 
-            // Cell interactions (left click + right click)
-            if rect.intersects(panel_rect) {
+            // Cell interactions (left click + right click). Skipped for the cell
+            // currently being edited so the inline TextEdit owns clicks - without
+            // this, clicking to reposition the caret hits the cell's own
+            // `response.clicked()` arm, which sets `editing_cell = None` and exits
+            // edit mode. Editing still commits on real focus loss (Enter / Esc /
+            // clicking a different cell, whose own interaction stays active).
+            if !is_editing && rect.intersects(panel_rect) {
                 let interact_rect = rect.intersect(col_clip);
                 let response = ui.interact(
                     interact_rect,

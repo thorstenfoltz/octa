@@ -155,10 +155,11 @@ impl CompareMode {
 /// or edit-only. Toggled via the segmented button in the markdown toolbar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum MarkdownLayout {
-    /// Render the markdown only (today's behavior).
+    /// Render the markdown only. Default - opening a .md file shows the
+    /// rendered document; the toolbar toggle switches to Split/Edit.
+    #[default]
     Preview,
     /// TextEdit on the left, rendered preview on the right. Live updates.
-    #[default]
     Split,
     /// TextEdit only - no preview pane. Useful for full-width editing.
     Edit,

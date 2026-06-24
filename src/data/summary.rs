@@ -192,16 +192,16 @@ fn summarize_field(stat: SummaryStat) -> Option<&'static str> {
         SummaryStat::Std => Some("std"),
         SummaryStat::Q25 => Some("q25"),
         SummaryStat::Q75 => Some("q75"),
-        SummaryStat::NullPercent => Some("null_percentage"),
         // Derived from other SUMMARIZE fields (no own column): Range = max-min,
         // Iqr = q75-q25.
         SummaryStat::Range | SummaryStat::Iqr => None,
-        // Computed by extra passes: Sum/TextLenMin/TextLenMax via one aggregate
-        // query; Mode/ModeCount via a per-column GROUP BY. NotNull/Null from
-        // `count` + `null_percentage` (SUMMARIZE's `count` is the *total* row
-        // count, not the non-null count); Unique and DistinctRatio from an exact
-        // `COUNT(DISTINCT)` pass (SUMMARIZE's `approx_unique` is a HyperLogLog
-        // estimate that can exceed the row count); TotalRows from the snapshot.
+        // Computed by extra passes or direct snapshot scans: Sum/TextLenMin/
+        // TextLenMax via one aggregate query; Mode/ModeCount via a per-column
+        // GROUP BY; NotNull/Null/NullPercent from a direct `missing_counts` scan
+        // (counts empty strings + true Nulls, no rounding); Unique and
+        // DistinctRatio from an exact `COUNT(DISTINCT)` pass (SUMMARIZE's
+        // `approx_unique` is a HyperLogLog estimate that can exceed the row
+        // count); TotalRows from the snapshot.
         SummaryStat::Sum
         | SummaryStat::TextLenMin
         | SummaryStat::TextLenMax
@@ -210,6 +210,7 @@ fn summarize_field(stat: SummaryStat) -> Option<&'static str> {
         | SummaryStat::UniqueCount
         | SummaryStat::NotNullCount
         | SummaryStat::NullCount
+        | SummaryStat::NullPercent
         | SummaryStat::DistinctRatio
         | SummaryStat::TotalRows => None,
     }
@@ -226,19 +227,18 @@ fn quote_ident(name: &str) -> String {
 const MAX_EXACT_INT_F64: f64 = 9_007_199_254_740_992.0;
 
 /// Convert a computed numeric statistic (sum / range / iqr / ratio) into its
-/// tightest cell type. Rounds to 6 decimals first to kill float noise (e.g.
-/// `0.1 + 0.2`), then stores an exact whole number as `Int` and anything else
-/// as `Float`, so the table view's numeric display path groups and right-aligns
-/// it. Non-finite values become a blank cell.
+/// tightest cell type: an exact whole number becomes `Int`, anything else a
+/// real `Float`, so the table view's numeric display path groups and
+/// right-aligns it. No rounding - statistics are stored at full f64 precision.
+/// Non-finite values become a blank cell.
 fn num_cell(x: f64) -> CellValue {
     if !x.is_finite() {
         return CellValue::String(String::new());
     }
-    let rounded = (x * 1_000_000.0).round() / 1_000_000.0;
-    if rounded.fract() == 0.0 && rounded.abs() < MAX_EXACT_INT_F64 {
-        CellValue::Int(rounded as i64)
+    if x.fract() == 0.0 && x.abs() < MAX_EXACT_INT_F64 {
+        CellValue::Int(x as i64)
     } else {
-        CellValue::Float(rounded)
+        CellValue::Float(x)
     }
 }
 
@@ -405,6 +405,24 @@ fn mode_values(snap: &DataTable) -> Vec<(Option<String>, Option<i64>)> {
     out
 }
 
+/// Count, per source column, cells that are *missing*: a true `Null` or a
+/// zero-length string. DuckDB's `null_percentage` treats `""` as present, so
+/// an all-empty UTF-8 column would otherwise report a null count of 0. Indexed
+/// by column position, matching the `SUMMARIZE` row order.
+fn missing_counts(snap: &DataTable) -> Vec<i64> {
+    (0..snap.columns.len())
+        .map(|ci| {
+            (0..snap.row_count())
+                .filter(|&ri| match snap.get(ri, ci) {
+                    None | Some(CellValue::Null) => true,
+                    Some(CellValue::String(s)) => s.is_empty(),
+                    _ => false,
+                })
+                .count() as i64
+        })
+        .collect()
+}
+
 /// The statistics actually rendered, in canonical (variant) order: every
 /// mandatory stat plus any the caller enabled. Order is independent of the
 /// order of `enabled`.
@@ -481,16 +499,35 @@ pub fn build_summary_table(snap: &DataTable, enabled: &[SummaryStat]) -> anyhow:
         Vec::new()
     };
 
+    // Null / empty counts come from a direct pass over the snapshot so empty
+    // strings count as missing (DuckDB's null_percentage does not). Only run it
+    // when one of the three stats that need it is active.
+    let need_missing = active.iter().any(|s| {
+        matches!(
+            s,
+            SummaryStat::NullCount | SummaryStat::NotNullCount | SummaryStat::NullPercent
+        )
+    });
+    let missing_per_col = if need_missing {
+        missing_counts(snap)
+    } else {
+        Vec::new()
+    };
+
     let mut rows: Vec<Vec<CellValue>> = Vec::with_capacity(summ.row_count());
     for r in 0..summ.row_count() {
         let unique: Option<i64> = exact_unique.get(r).copied().flatten();
         let agg = extra.get(r).cloned().unwrap_or_default();
         let (mode_value, mode_count) = modes.get(r).cloned().unwrap_or((None, None));
-        // SUMMARIZE's `count` is the total row count; the non-null and null
-        // counts come from it and `null_percentage`.
-        let null_pct: Option<f64> = cell_str(r, "null_percentage").and_then(|s| s.parse().ok());
-        let null_count = null_pct.map(|p| (total_rows as f64 * p / 100.0).round());
-        let not_null = null_count.map(|n| (total_rows as f64 - n).max(0.0));
+        // Null / empty / not-null come from the exact `missing_per_col` pass
+        // (counts empty strings, no rounding). Percentage derived from the same.
+        let missing = missing_per_col.get(r).copied().unwrap_or(0);
+        let not_null = (total_rows as i64 - missing).max(0);
+        let null_percent = if total_rows > 0 {
+            missing as f64 / total_rows as f64 * 100.0
+        } else {
+            0.0
+        };
 
         let blank = || CellValue::String(String::new());
         let row: Vec<CellValue> = active
@@ -513,12 +550,9 @@ pub fn build_summary_table(snap: &DataTable, enabled: &[SummaryStat]) -> anyhow:
                 SummaryStat::TextLenMax => {
                     agg.text_len_max.map(CellValue::Int).unwrap_or_else(blank)
                 }
-                SummaryStat::NotNullCount => not_null
-                    .map(|n| CellValue::Int(n as i64))
-                    .unwrap_or_else(blank),
-                SummaryStat::NullCount => null_count
-                    .map(|n| CellValue::Int(n as i64))
-                    .unwrap_or_else(blank),
+                SummaryStat::NotNullCount => CellValue::Int(not_null),
+                SummaryStat::NullCount => CellValue::Int(missing),
+                SummaryStat::NullPercent => num_cell(null_percent),
                 SummaryStat::UniqueCount => unique.map(CellValue::Int).unwrap_or_else(blank),
                 SummaryStat::DistinctRatio => match unique {
                     Some(u) if total_rows > 0 => num_cell(u as f64 / total_rows as f64),
@@ -532,8 +566,8 @@ pub fn build_summary_table(snap: &DataTable, enabled: &[SummaryStat]) -> anyhow:
                         .and_then(|f| cell_str(r, f))
                         .unwrap_or_default(),
                 ),
-                // Min / Max / Mean / Median / Std / Q25 / Q75 / NullPercent come
-                // from SUMMARIZE as strings; type them so numeric columns group.
+                // Min / Max / Mean / Median / Std / Q25 / Q75 come from SUMMARIZE
+                // as strings; type them so numeric columns group.
                 other => summarize_field(*other)
                     .and_then(|f| cell_str(r, f))
                     .map(|s| typed_cell(&s))

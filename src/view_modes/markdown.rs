@@ -713,6 +713,50 @@ fn flush_block(
     }
 }
 
+/// Collect the char ranges covered by link runs, paired with their URL. Char
+/// (not byte) ranges so they line up with `Galley::cursor_from_pos`, which
+/// returns a char index.
+fn link_spans(runs: &[(String, RunStyle)]) -> Vec<(std::ops::Range<usize>, String)> {
+    let mut spans = Vec::new();
+    let mut off = 0usize;
+    for (text, style) in runs {
+        let len = text.chars().count();
+        if let Some(url) = &style.link {
+            spans.push((off..off + len, url.clone()));
+        }
+        off += len;
+    }
+    spans
+}
+
+/// Given a laid-out galley for a styled label and the link spans within it,
+/// show a pointer cursor over links and open the link under the pointer on
+/// click. External URLs open in the system browser; in-document `#fragment`
+/// targets are ignored (anchor scrolling is not implemented).
+fn open_link_under_pointer(
+    ui: &egui::Ui,
+    resp: &egui::Response,
+    galley: &egui::Galley,
+    spans: &[(std::ops::Range<usize>, String)],
+) {
+    let idx_at = |pos: egui::Pos2| galley.cursor_from_pos(pos - resp.rect.min).index;
+    if let Some(hover) = resp.hover_pos()
+        && spans.iter().any(|(r, _)| r.contains(&idx_at(hover)))
+    {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if resp.clicked()
+        && let Some(pos) = resp.interact_pointer_pos()
+    {
+        let idx = idx_at(pos);
+        if let Some((_, url)) = spans.iter().find(|(r, _)| r.contains(&idx))
+            && !url.starts_with('#')
+        {
+            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+        }
+    }
+}
+
 /// Build a `LayoutJob` from a list of styled runs and emit it as a wrapping
 /// `Label`. Bold runs use the bundled `FontFamily::Name("bold")` family;
 /// italics use egui's runtime skew; code uses Monospace + a tinted bg.
@@ -764,7 +808,15 @@ fn render_runs(
     let full_text: String = runs.iter().map(|(t, _)| t.as_str()).collect();
     highlight_md_job(&mut job, &full_text, hl);
 
-    ui.add(egui::Label::new(job).wrap());
+    let spans = link_spans(runs);
+    if spans.is_empty() {
+        ui.add(egui::Label::new(job).wrap());
+    } else {
+        // Lay the job out ourselves so click positions map onto the same galley.
+        let galley = ui.fonts_mut(|f| f.layout_job(job));
+        let resp = ui.add(egui::Label::new(galley.clone()).sense(egui::Sense::click()));
+        open_link_under_pointer(ui, &resp, &galley, &spans);
+    }
 }
 
 /// Buffered table being collected during pulldown_cmark event traversal.
@@ -954,7 +1006,14 @@ fn render_cell_runs(
         job.append(text, 0.0, fmt);
     }
 
-    ui.add(egui::Label::new(job).halign(halign).wrap());
+    let spans = link_spans(runs);
+    if spans.is_empty() {
+        ui.add(egui::Label::new(job).halign(halign).wrap());
+    } else {
+        let galley = ui.fonts_mut(|f| f.layout_job(job));
+        let resp = ui.add(egui::Label::new(galley.clone()).sense(egui::Sense::click()));
+        open_link_under_pointer(ui, &resp, &galley, &spans);
+    }
 }
 
 fn render_code_block(
@@ -984,4 +1043,39 @@ fn render_code_block(
             highlight_md_job(&mut job, text, hl);
             ui.add(egui::Label::new(job).selectable(true));
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run(text: &str, link: Option<&str>) -> (String, RunStyle) {
+        (
+            text.to_string(),
+            RunStyle {
+                link: link.map(|s| s.to_string()),
+                ..Default::default()
+            },
+        )
+    }
+
+    #[test]
+    fn link_spans_finds_char_ranges() {
+        // "foo " | "bar"(link) | " baz"  ->  link covers chars 4..7.
+        let runs = vec![
+            run("foo ", None),
+            run("bar", Some("https://example.com")),
+            run(" baz", None),
+        ];
+        let spans = link_spans(&runs);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].0, 4..7);
+        assert_eq!(spans[0].1, "https://example.com");
+    }
+
+    #[test]
+    fn link_spans_empty_when_no_links() {
+        let runs = vec![run("plain text", None)];
+        assert!(link_spans(&runs).is_empty());
+    }
 }
