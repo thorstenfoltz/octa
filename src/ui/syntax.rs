@@ -39,6 +39,16 @@ fn syntax_set() -> &'static SyntaxSet {
                 );
             }
         }
+        static TOML_YAML: &str = include_str!("../../assets/TOML.sublime-syntax");
+        match SyntaxDefinition::load_from_str(TOML_YAML, true, Some("source.toml")) {
+            Ok(def) => builder.add(def),
+            Err(e) => {
+                eprintln!(
+                    "warning: bundled TOML.sublime-syntax failed to load: {e}; \
+                     .toml files will render as plain text"
+                );
+            }
+        }
         builder.build()
     })
 }
@@ -50,9 +60,9 @@ fn theme_set() -> &'static ThemeSet {
 /// Whitelist of file extensions where syntect highlighting is worth its cost.
 /// Deliberately narrow:
 /// - Languages with no dedicated view in Octa (raw editor is the *only* UI).
-/// - JSON/YAML/XML/Markdown/TOML are excluded because they already have
-///   tree/preview views; running syntect every frame on a multi-MB JSON in
-///   the raw editor made scrolling sluggish.
+/// - JSON/YAML/XML/TOML are now coloured here too: they default to the raw
+///   view, and the size gate keeps large files fast. Markdown stays excluded
+///   (it has its own preview).
 /// - CSV/TSV are excluded because the existing column-color layouter is more
 ///   useful for tabular content than per-token syntax coloring.
 const HIGHLIGHT_WHITELIST: &[&str] = &[
@@ -69,6 +79,11 @@ const HIGHLIGHT_WHITELIST: &[&str] = &[
     "html", "htm", "css", "scss", "sass", // Misc
     "tex", "dart", "ex", "exs", // Terraform / HCL - custom syntax bundled in assets/
     "tf", "tfvars", "hcl",
+    // Structured config/data formats. JSON/YAML/XML come from syntect's
+    // defaults; TOML from the bundled assets/TOML.sublime-syntax. These now
+    // open in the raw view (YAML/TOML/XML default to it), so colouring them
+    // there is wanted. Large files still fall back to plain via the size gate.
+    "json", "jsonl", "yaml", "yml", "xml", "toml",
 ];
 
 /// Resolve a file extension (without leading dot, lowercased) to a syntax

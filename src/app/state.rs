@@ -1047,7 +1047,7 @@ pub(crate) struct TabState {
     /// set when the user clicks a `#fragment` link, applied next frame.
     pub(crate) markdown_scroll_target: Option<f32>,
     /// Layout mode for the Markdown view (Preview / Split / Edit). Default
-    /// is `Split` so live editing is the out-of-the-box experience.
+    /// is `Preview` so opening a markdown file shows the rendered document.
     pub(crate) markdown_layout: data::MarkdownLayout,
     /// Cached output of `pre_render_html` keyed by content hash. Avoids
     /// re-running 8+ regex passes on every keystroke when the user edits

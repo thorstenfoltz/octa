@@ -26,3 +26,13 @@ fn highlight_whitelist_is_supported() {
              - add them to a FormatReader (TextReader for source code)"
     );
 }
+
+#[test]
+fn structured_formats_resolve_to_a_syntax() {
+    for ext in ["json", "yaml", "yml", "xml", "toml"] {
+        assert!(
+            super::syntax_for_extension(ext).is_some(),
+            "raw view should colour .{ext}"
+        );
+    }
+}

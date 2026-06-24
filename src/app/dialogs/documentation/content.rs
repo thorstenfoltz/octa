@@ -990,11 +990,13 @@ enabled.
 - **Raw Text**: shows the file content as plain text. For CSV/TSV the toolbar
   exposes Quote / Escape / Delimiter combos and an **Align Columns** toggle
   with per-column coloring. Syntect-based syntax highlighting kicks in for
-  source-code extensions (Python, Rust, shell, Terraform, ...); the size cap
-  is configurable under **Settings -> Performance**.
-- **Markdown View**: rendered markdown for `.md` files. A toolbar toggle
+  source-code extensions (Python, Rust, shell, Terraform, ...) and also for
+  JSON, YAML, XML and TOML files; the size cap is configurable under
+  **Settings -> Performance**.
+- **Markdown View**: rendered markdown for `.md` files. Files open in
+  **Preview** mode by default (rendered output only). A toolbar toggle
   switches between Preview / Split / Edit. Split places a TextEdit beside the
-  preview for live editing.
+  preview for live editing. Links in the preview open in your system browser.
 - **Notebook View**: rendered Jupyter notebook with cell outputs. Code cells
   use syntect highlighting.
 - **JSON Tree** / **YAML Tree**: collapsible tree view for JSON / JSONL /

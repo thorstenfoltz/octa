@@ -193,6 +193,16 @@ pub(super) fn draw_header_direct(
                     let edit_response = ui.put(name_edit_rect, edit);
                     if state.edit_col_needs_focus {
                         edit_response.request_focus();
+                        // Select the whole name so the user can type to replace
+                        // it immediately - same behaviour as editing a cell.
+                        if let Some(mut te_state) = egui::TextEdit::load_state(ui.ctx(), edit_id) {
+                            let ccursor_range = egui::text::CCursorRange::two(
+                                egui::text::CCursor::new(0),
+                                egui::text::CCursor::new(buf.len()),
+                            );
+                            te_state.cursor.set_char_range(Some(ccursor_range));
+                            te_state.store(ui.ctx(), edit_id);
+                        }
                         state.edit_col_needs_focus = false;
                     }
                     if edit_response.lost_focus() {
@@ -327,13 +337,21 @@ pub(super) fn draw_header_direct(
             Vec2::new(RESIZE_HANDLE_WIDTH, HEADER_HEIGHT),
         );
 
-        // Header click + drag (area excluding resize handle and sort arrows)
+        // Header click + drag (area excluding resize handle and sort arrows).
+        // Skipped while this column's name is being edited so the inline rename
+        // TextEdit owns clicks - otherwise clicking to reposition the caret hits
+        // this interaction, the field loses focus and the rename commits. Mirrors
+        // the cell edit guard in rows.rs. Renaming still commits on real focus
+        // loss (Enter / Esc / clicking elsewhere).
         let header_interact_rect = egui::Rect::from_min_size(
             egui::pos2(x, top_y),
             Vec2::new((arrows_x - x).max(0.0), HEADER_HEIGHT),
         );
 
-        if header_interact_rect.width() > 0.0 && header_interact_rect.intersects(interact_clip) {
+        if !is_editing_name
+            && header_interact_rect.width() > 0.0
+            && header_interact_rect.intersects(interact_clip)
+        {
             let visible_interact = header_interact_rect.intersect(interact_clip);
             let header_response = ui.interact(
                 visible_interact,

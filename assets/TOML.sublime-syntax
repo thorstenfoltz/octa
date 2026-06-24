@@ -1,0 +1,51 @@
+%YAML 1.2
+---
+# Minimal TOML syntax for syntect's raw-editor highlighting. Covers comments,
+# table headers, keys, strings, booleans, datetimes and numbers - enough to
+# bring colour to the raw view. Loaded best-effort in src/ui/syntax.rs.
+name: TOML
+file_extensions:
+  - toml
+scope: source.toml
+contexts:
+  main:
+    - match: '#.*$'
+      scope: comment.line.number-sign.toml
+    - match: '^\s*\[\[.*?\]\]'
+      scope: entity.name.section.toml
+    - match: '^\s*\[.*?\]'
+      scope: entity.name.section.toml
+    - match: '"""'
+      scope: punctuation.definition.string.begin.toml
+      push: string_multi
+    - match: '"'
+      scope: punctuation.definition.string.begin.toml
+      push: string_basic
+    - match: "'"
+      scope: punctuation.definition.string.begin.toml
+      push: string_literal
+    - match: '\b(true|false)\b'
+      scope: constant.language.boolean.toml
+    - match: '\b\d{4}-\d{2}-\d{2}([Tt ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})?)?'
+      scope: constant.other.datetime.toml
+    - match: '[+-]?\b\d[\d_]*(\.\d[\d_]*)?([eE][+-]?\d+)?\b'
+      scope: constant.numeric.toml
+    - match: '[A-Za-z0-9_.-]+\s*(?==)'
+      scope: variable.other.key.toml
+  string_basic:
+    - meta_scope: string.quoted.double.toml
+    - match: '\\.'
+      scope: constant.character.escape.toml
+    - match: '"'
+      scope: punctuation.definition.string.end.toml
+      pop: true
+  string_multi:
+    - meta_scope: string.quoted.double.block.toml
+    - match: '"""'
+      scope: punctuation.definition.string.end.toml
+      pop: true
+  string_literal:
+    - meta_scope: string.quoted.single.toml
+    - match: "'"
+      scope: punctuation.definition.string.end.toml
+      pop: true
