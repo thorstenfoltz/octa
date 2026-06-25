@@ -121,6 +121,7 @@ nav:
       - Find Near-Duplicates: usage/find-near-duplicates.md
       - Summary: usage/summary.md
       - Pivot / Unpivot: usage/pivot.md
+      - Correlation: usage/correlation.md
       - Schema Export: usage/schema-export.md
       - Archive Viewer: usage/archive-viewer.md
       - Chart: usage/chart.md

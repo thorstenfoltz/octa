@@ -2,7 +2,7 @@
 
 Data validation flags cells that break a rule you define, painting each
 failing cell **red** so problems stand out at a glance. Open it via
-**Edit -> Data validation...**.
+**Columns -> Data validation...**.
 
 ![Data validation](../assets/screenshots/data-validation.png){ .screenshot-placeholder }
 

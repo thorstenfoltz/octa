@@ -6,7 +6,7 @@ on their value, exactly like the spreadsheet feature of the same name.
 Flag every error row red, every overdue date orange, every empty cell
 yellow, and the colouring updates itself as you edit.
 
-Open it via **Edit -> Conditional formatting...**.
+Open it via **Columns -> Conditional formatting...**.
 
 ![Conditional formatting dialog](../assets/screenshots/conditional-formatting-dialog.png)
 

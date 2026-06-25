@@ -51,6 +51,7 @@ fn sections(shortcuts: &ui::shortcuts::Shortcuts) -> Vec<(&'static str, String)>
         ("Fill Missing Values", IMPUTE.to_string()),
         ("Summary", SUMMARY.to_string()),
         ("Pivot / Unpivot", PIVOT.to_string()),
+        ("Correlation", CORRELATION.to_string()),
         ("Schema Export", SCHEMA_EXPORT.to_string()),
         ("Archive Viewer", ARCHIVE_VIEWER.to_string()),
         ("Selection Stats", SELECTION_STATS.to_string()),

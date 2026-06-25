@@ -148,11 +148,19 @@ pub fn draw_toolbar(
             RichText::new(crate::i18n::t("menu.file")).color(colors.text_primary),
             |ui| {
                 ui.set_min_width(180.0);
-                if ui.button(crate::i18n::t("file_menu.new_file")).clicked() {
+                if ui
+                    .button(crate::i18n::t("file_menu.new_file"))
+                    .on_hover_text(crate::i18n::t("file_menu.new_file_hint"))
+                    .clicked()
+                {
                     action.new_file = true;
                     ui.close();
                 }
-                if ui.button(crate::i18n::t("common.open")).clicked() {
+                if ui
+                    .button(crate::i18n::t("common.open"))
+                    .on_hover_text(crate::i18n::t("file_menu.open_hint"))
+                    .clicked()
+                {
                     action.open_file = true;
                     ui.close();
                 }
@@ -166,6 +174,7 @@ pub fn draw_toolbar(
                 }
                 if ui
                     .button(crate::i18n::t("file_menu.open_directory"))
+                    .on_hover_text(crate::i18n::t("file_menu.open_directory_hint"))
                     .clicked()
                 {
                     action.open_directory = true;
@@ -174,6 +183,7 @@ pub fn draw_toolbar(
                 if directory_tree_open
                     && ui
                         .button(crate::i18n::t("file_menu.close_directory"))
+                        .on_hover_text(crate::i18n::t("file_menu.close_directory_hint"))
                         .clicked()
                 {
                     action.close_directory = true;
@@ -181,16 +191,26 @@ pub fn draw_toolbar(
                 }
                 if has_data {
                     ui.separator();
-                    if has_source_path && ui.button(crate::i18n::t("common.save")).clicked() {
+                    if has_source_path
+                        && ui
+                            .button(crate::i18n::t("common.save"))
+                            .on_hover_text(crate::i18n::t("file_menu.save_hint"))
+                            .clicked()
+                    {
                         action.save_file = true;
                         ui.close();
                     }
-                    if ui.button(crate::i18n::t("common.save_as")).clicked() {
+                    if ui
+                        .button(crate::i18n::t("common.save_as"))
+                        .on_hover_text(crate::i18n::t("file_menu.save_as_hint"))
+                        .clicked()
+                    {
                         action.save_file_as = true;
                         ui.close();
                     }
                     if ui
                         .button(crate::i18n::t("file_menu.export_schema"))
+                        .on_hover_text(crate::i18n::t("file_menu.export_schema_hint"))
                         .clicked()
                     {
                         action.show_schema_export = true;
@@ -234,7 +254,11 @@ pub fn draw_toolbar(
                     }
                 });
                 ui.separator();
-                if ui.button(crate::i18n::t("file_menu.exit")).clicked() {
+                if ui
+                    .button(crate::i18n::t("file_menu.exit"))
+                    .on_hover_text(crate::i18n::t("file_menu.exit_hint"))
+                    .clicked()
+                {
                     action.exit = true;
                     ui.close();
                 }
@@ -255,6 +279,7 @@ pub fn draw_toolbar(
                             can_undo,
                             egui::Button::new(crate::i18n::t("edit_menu.undo")),
                         )
+                        .on_hover_text(crate::i18n::t("edit_menu.undo_hint"))
                         .clicked()
                     {
                         action.undo = true;
@@ -265,6 +290,7 @@ pub fn draw_toolbar(
                             can_redo,
                             egui::Button::new(crate::i18n::t("edit_menu.redo")),
                         )
+                        .on_hover_text(crate::i18n::t("edit_menu.redo_hint"))
                         .clicked()
                     {
                         action.redo = true;
@@ -275,6 +301,7 @@ pub fn draw_toolbar(
                             can_reopen_tab,
                             egui::Button::new(crate::i18n::t("edit_menu.reopen_tab")),
                         )
+                        .on_hover_text(crate::i18n::t("edit_menu.reopen_tab_hint"))
                         .clicked()
                     {
                         action.reopen_last_closed_tab = true;
@@ -282,6 +309,7 @@ pub fn draw_toolbar(
                     }
                     if ui
                         .button(crate::i18n::t("edit_menu.fit_all_columns"))
+                        .on_hover_text(crate::i18n::t("edit_menu.fit_all_columns_hint"))
                         .clicked()
                     {
                         action.fit_all_columns = true;
@@ -304,14 +332,20 @@ pub fn draw_toolbar(
                             .size(11.0)
                             .color(colors.text_muted),
                     );
-                    if ui.button(crate::i18n::t("edit_menu.insert_row")).clicked() {
+                    if ui
+                        .button(crate::i18n::t("edit_menu.insert_row"))
+                        .on_hover_text(crate::i18n::t("edit_menu.insert_row_hint"))
+                        .clicked()
+                    {
                         action.add_row = true;
                         ui.close();
                     }
-                    let del_row = ui.add_enabled(
-                        has_selected_cell,
-                        egui::Button::new(crate::i18n::t("edit_menu.delete_row")),
-                    );
+                    let del_row = ui
+                        .add_enabled(
+                            has_selected_cell,
+                            egui::Button::new(crate::i18n::t("edit_menu.delete_row")),
+                        )
+                        .on_hover_text(crate::i18n::t("edit_menu.delete_row_hint"));
                     if del_row.clicked() {
                         action.delete_row = true;
                         ui.close();
@@ -320,170 +354,24 @@ pub fn draw_toolbar(
                     let can_move_up = selected_cell.is_some_and(|(r, _)| r > 0);
                     let can_move_down = selected_cell.is_some_and(|(r, _)| r + 1 < row_count);
 
-                    let up_btn = ui.add_enabled(
-                        can_move_up,
-                        egui::Button::new(crate::i18n::t("edit_menu.move_row_up")),
-                    );
+                    let up_btn = ui
+                        .add_enabled(
+                            can_move_up,
+                            egui::Button::new(crate::i18n::t("edit_menu.move_row_up")),
+                        )
+                        .on_hover_text(crate::i18n::t("edit_menu.move_row_up_hint"));
                     if up_btn.clicked() {
                         action.move_row_up = true;
                         ui.close();
                     }
-                    let down_btn = ui.add_enabled(
-                        can_move_down,
-                        egui::Button::new(crate::i18n::t("edit_menu.move_row_down")),
-                    );
+                    let down_btn = ui
+                        .add_enabled(
+                            can_move_down,
+                            egui::Button::new(crate::i18n::t("edit_menu.move_row_down")),
+                        )
+                        .on_hover_text(crate::i18n::t("edit_menu.move_row_down_hint"));
                     if down_btn.clicked() {
                         action.move_row_down = true;
-                        ui.close();
-                    }
-
-                    ui.separator();
-
-                    // Column operations
-                    ui.label(
-                        RichText::new(crate::i18n::t("edit_menu.section_columns"))
-                            .strong()
-                            .size(11.0)
-                            .color(colors.text_muted),
-                    );
-                    if ui.button(crate::i18n::t("toolbar.insert_column")).clicked() {
-                        action.add_column = true;
-                        ui.close();
-                    }
-                    if ui.button(crate::i18n::t("toolbar.time_calc")).clicked() {
-                        action.time_calc = true;
-                        ui.close();
-                    }
-                    if ui
-                        .button(crate::i18n::t("transform.menu"))
-                        .on_hover_text(crate::i18n::t("transform.menu_hint"))
-                        .clicked()
-                    {
-                        action.open_transform = true;
-                        ui.close();
-                    }
-                    if ui
-                        .button(crate::i18n::t("ccol.menu"))
-                        .on_hover_text(crate::i18n::t("ccol.menu_hint"))
-                        .clicked()
-                    {
-                        action.open_conditional_column = true;
-                        ui.close();
-                    }
-                    if ui
-                        .button(crate::i18n::t("anonymize.menu"))
-                        .on_hover_text(crate::i18n::t("anonymize.menu_hint"))
-                        .clicked()
-                    {
-                        action.open_anonymize = true;
-                        ui.close();
-                    }
-                    if ui
-                        .button(crate::i18n::t("dedupe.menu"))
-                        .on_hover_text(crate::i18n::t("dedupe.menu_hint"))
-                        .clicked()
-                    {
-                        action.open_dedupe = true;
-                        ui.close();
-                    }
-                    if ui
-                        .button(crate::i18n::t("impute.menu"))
-                        .on_hover_text(crate::i18n::t("impute.menu_hint"))
-                        .clicked()
-                    {
-                        action.open_impute = true;
-                        ui.close();
-                    }
-                    let del_col = ui.add_enabled(
-                        has_selected_cell,
-                        egui::Button::new(crate::i18n::t("toolbar.delete_column")),
-                    );
-                    if del_col.clicked() {
-                        action.delete_column = true;
-                        ui.close();
-                    }
-
-                    let can_move_left = selected_cell.is_some_and(|(_, c)| c > 0);
-                    let can_move_right = selected_cell.is_some_and(|(_, c)| c + 1 < col_count);
-
-                    let left_btn = ui.add_enabled(
-                        can_move_left,
-                        egui::Button::new(crate::i18n::t("edit_menu.move_col_left")),
-                    );
-                    if left_btn.clicked() {
-                        action.move_col_left = true;
-                        ui.close();
-                    }
-                    let right_btn = ui.add_enabled(
-                        can_move_right,
-                        egui::Button::new(crate::i18n::t("edit_menu.move_col_right")),
-                    );
-                    if right_btn.clicked() {
-                        action.move_col_right = true;
-                        ui.close();
-                    }
-
-                    let can_sort_cols = col_count > 1;
-                    let sort_cols_asc = ui.add_enabled(
-                        can_sort_cols,
-                        egui::Button::new(crate::i18n::t("edit_menu.sort_cols_asc")),
-                    );
-                    if sort_cols_asc.clicked() {
-                        action.sort_columns_asc = true;
-                        ui.close();
-                    }
-                    let sort_cols_desc = ui.add_enabled(
-                        can_sort_cols,
-                        egui::Button::new(crate::i18n::t("edit_menu.sort_cols_desc")),
-                    );
-                    if sort_cols_desc.clicked() {
-                        action.sort_columns_desc = true;
-                        ui.close();
-                    }
-
-                    let num_fmt_btn = ui.add_enabled(
-                        has_selected_cell,
-                        egui::Button::new(crate::i18n::t("edit_menu.number_format")),
-                    );
-                    if num_fmt_btn
-                        .on_hover_text(crate::i18n::t("edit_menu.number_format_hint"))
-                        .clicked()
-                    {
-                        action.open_column_format = true;
-                        ui.close();
-                    }
-
-                    if ui
-                        .button(crate::i18n::t("edit_menu.conditional_format"))
-                        .on_hover_text(crate::i18n::t("edit_menu.conditional_format_hint"))
-                        .clicked()
-                    {
-                        action.open_conditional_format = true;
-                        ui.close();
-                    }
-
-                    if ui
-                        .button(crate::i18n::t("edit_menu.validation"))
-                        .on_hover_text(crate::i18n::t("edit_menu.validation_hint"))
-                        .clicked()
-                    {
-                        action.open_validation = true;
-                        ui.close();
-                    }
-
-                    let show_all_btn = ui.add_enabled(
-                        has_hidden_columns,
-                        egui::Button::new(crate::i18n::t("edit_menu.show_hidden_columns")),
-                    );
-                    let show_all_btn = if !has_hidden_columns {
-                        show_all_btn.on_disabled_hover_text(crate::i18n::t(
-                            "edit_menu.show_hidden_columns_hint",
-                        ))
-                    } else {
-                        show_all_btn
-                    };
-                    if show_all_btn.clicked() {
-                        action.show_all_columns = true;
                         ui.close();
                     }
 
@@ -530,7 +418,9 @@ pub fn draw_toolbar(
                             action.parse_in_new_tab = Some(ParseScope::Table);
                             ui.close();
                         }
-                    });
+                    })
+                    .response
+                    .on_hover_text(crate::i18n::t("edit_menu.parse_in_new_tab_hint"));
 
                     ui.separator();
                     ui.label(
@@ -540,20 +430,24 @@ pub fn draw_toolbar(
                             .color(colors.text_muted),
                     );
                     let can_sort = selected_cell.is_some();
-                    let sort_asc = ui.add_enabled(
-                        can_sort,
-                        egui::Button::new(crate::i18n::t("edit_menu.sort_asc")),
-                    );
+                    let sort_asc = ui
+                        .add_enabled(
+                            can_sort,
+                            egui::Button::new(crate::i18n::t("edit_menu.sort_asc")),
+                        )
+                        .on_hover_text(crate::i18n::t("edit_menu.sort_asc_hint"));
                     if sort_asc.clicked() {
                         if let Some((_, col)) = selected_cell {
                             action.sort_rows_asc_by = Some(col);
                         }
                         ui.close();
                     }
-                    let sort_desc = ui.add_enabled(
-                        can_sort,
-                        egui::Button::new(crate::i18n::t("edit_menu.sort_desc")),
-                    );
+                    let sort_desc = ui
+                        .add_enabled(
+                            can_sort,
+                            egui::Button::new(crate::i18n::t("edit_menu.sort_desc")),
+                        )
+                        .on_hover_text(crate::i18n::t("edit_menu.sort_desc_hint"));
                     if sort_desc.clicked() {
                         if let Some((_, col)) = selected_cell {
                             action.sort_rows_desc_by = Some(col);
@@ -628,7 +522,9 @@ pub fn draw_toolbar(
                                     ui.close();
                                 }
                             }
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("edit_menu.mark_hint"));
                     });
 
                     ui.separator();
@@ -638,6 +534,7 @@ pub fn draw_toolbar(
                             &mut header_flag,
                             crate::i18n::t("edit_menu.first_row_is_header"),
                         )
+                        .on_hover_text(crate::i18n::t("edit_menu.first_row_is_header_hint"))
                         .changed()
                     {
                         action.toggle_first_row_header = true;
@@ -648,9 +545,233 @@ pub fn draw_toolbar(
                         ui.separator();
                         if ui
                             .button(crate::i18n::t("edit_menu.discard_all_edits"))
+                            .on_hover_text(crate::i18n::t("edit_menu.discard_all_edits_hint"))
                             .clicked()
                         {
                             action.discard_edits = true;
+                            ui.close();
+                        }
+                    }
+                },
+            );
+
+            // --- Columns menu ---
+            top_menu_button(
+                ui,
+                RichText::new(crate::i18n::t("menu.columns")).color(colors.text_primary),
+                |ui| {
+                    ui.set_min_width(200.0);
+                    if ui
+                        .button(crate::i18n::t("toolbar.insert_column"))
+                        .on_hover_text(crate::i18n::t("toolbar.insert_column_hint"))
+                        .clicked()
+                    {
+                        action.add_column = true;
+                        ui.close();
+                    }
+                    let del_col = ui
+                        .add_enabled(
+                            has_selected_cell,
+                            egui::Button::new(crate::i18n::t("toolbar.delete_column")),
+                        )
+                        .on_hover_text(crate::i18n::t("toolbar.delete_column_hint"));
+                    if del_col.clicked() {
+                        action.delete_column = true;
+                        ui.close();
+                    }
+
+                    let can_move_left = selected_cell.is_some_and(|(_, c)| c > 0);
+                    let can_move_right = selected_cell.is_some_and(|(_, c)| c + 1 < col_count);
+
+                    let left_btn = ui
+                        .add_enabled(
+                            can_move_left,
+                            egui::Button::new(crate::i18n::t("edit_menu.move_col_left")),
+                        )
+                        .on_hover_text(crate::i18n::t("edit_menu.move_col_left_hint"));
+                    if left_btn.clicked() {
+                        action.move_col_left = true;
+                        ui.close();
+                    }
+                    let right_btn = ui
+                        .add_enabled(
+                            can_move_right,
+                            egui::Button::new(crate::i18n::t("edit_menu.move_col_right")),
+                        )
+                        .on_hover_text(crate::i18n::t("edit_menu.move_col_right_hint"));
+                    if right_btn.clicked() {
+                        action.move_col_right = true;
+                        ui.close();
+                    }
+
+                    let can_sort_cols = col_count > 1;
+                    let sort_cols_asc = ui
+                        .add_enabled(
+                            can_sort_cols,
+                            egui::Button::new(crate::i18n::t("edit_menu.sort_cols_asc")),
+                        )
+                        .on_hover_text(crate::i18n::t("edit_menu.sort_cols_asc_hint"));
+                    if sort_cols_asc.clicked() {
+                        action.sort_columns_asc = true;
+                        ui.close();
+                    }
+                    let sort_cols_desc = ui
+                        .add_enabled(
+                            can_sort_cols,
+                            egui::Button::new(crate::i18n::t("edit_menu.sort_cols_desc")),
+                        )
+                        .on_hover_text(crate::i18n::t("edit_menu.sort_cols_desc_hint"));
+                    if sort_cols_desc.clicked() {
+                        action.sort_columns_desc = true;
+                        ui.close();
+                    }
+
+                    ui.separator();
+
+                    let num_fmt_btn = ui.add_enabled(
+                        has_selected_cell,
+                        egui::Button::new(crate::i18n::t("edit_menu.number_format")),
+                    );
+                    if num_fmt_btn
+                        .on_hover_text(crate::i18n::t("edit_menu.number_format_hint"))
+                        .clicked()
+                    {
+                        action.open_column_format = true;
+                        ui.close();
+                    }
+
+                    if ui
+                        .button(crate::i18n::t("edit_menu.conditional_format"))
+                        .on_hover_text(crate::i18n::t("edit_menu.conditional_format_hint"))
+                        .clicked()
+                    {
+                        action.open_conditional_format = true;
+                        ui.close();
+                    }
+
+                    if ui
+                        .button(crate::i18n::t("edit_menu.validation"))
+                        .on_hover_text(crate::i18n::t("edit_menu.validation_hint"))
+                        .clicked()
+                    {
+                        action.open_validation = true;
+                        ui.close();
+                    }
+
+                    ui.separator();
+
+                    let show_all_btn = ui.add_enabled(
+                        has_hidden_columns,
+                        egui::Button::new(crate::i18n::t("edit_menu.show_hidden_columns")),
+                    );
+                    let show_all_btn = if !has_hidden_columns {
+                        show_all_btn.on_disabled_hover_text(crate::i18n::t(
+                            "edit_menu.show_hidden_columns_hint",
+                        ))
+                    } else {
+                        show_all_btn
+                    };
+                    if show_all_btn.clicked() {
+                        action.show_all_columns = true;
+                        ui.close();
+                    }
+                },
+            );
+
+            // --- Data menu ---
+            top_menu_button(
+                ui,
+                RichText::new(crate::i18n::t("menu.data")).color(colors.text_primary),
+                |ui| {
+                    ui.set_min_width(200.0);
+                    if ui
+                        .button(crate::i18n::t("toolbar.time_calc"))
+                        .on_hover_text(crate::i18n::t("toolbar.time_calc_hint"))
+                        .clicked()
+                    {
+                        action.time_calc = true;
+                        ui.close();
+                    }
+                    if ui
+                        .button(crate::i18n::t("transform.menu"))
+                        .on_hover_text(crate::i18n::t("transform.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_transform = true;
+                        ui.close();
+                    }
+                    if ui
+                        .button(crate::i18n::t("ccol.menu"))
+                        .on_hover_text(crate::i18n::t("ccol.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_conditional_column = true;
+                        ui.close();
+                    }
+
+                    ui.separator();
+
+                    if ui
+                        .button(crate::i18n::t("dedupe.menu"))
+                        .on_hover_text(crate::i18n::t("dedupe.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_dedupe = true;
+                        ui.close();
+                    }
+                    if ui
+                        .button(crate::i18n::t("impute.menu"))
+                        .on_hover_text(crate::i18n::t("impute.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_impute = true;
+                        ui.close();
+                    }
+                    if ui
+                        .button(crate::i18n::t("anonymize.menu"))
+                        .on_hover_text(crate::i18n::t("anonymize.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_anonymize = true;
+                        ui.close();
+                    }
+
+                    // Multi-table / file-writing data ops act on the active
+                    // table, so they're shown only on Table-view tabs (same
+                    // gate they had in the Analyse menu before the reorg).
+                    let table_actions = current_view_mode == ViewMode::Table;
+                    if table_actions {
+                        ui.separator();
+                        if ui
+                            .button(crate::i18n::t("analyse_menu.multi_sort"))
+                            .on_hover_text(crate::i18n::t("analyse_menu.multi_sort_hint"))
+                            .clicked()
+                        {
+                            action.open_multi_sort = true;
+                            ui.close();
+                        }
+                        if ui
+                            .button(crate::i18n::t("union.menu"))
+                            .on_hover_text(crate::i18n::t("union.menu_hint"))
+                            .clicked()
+                        {
+                            action.open_union = true;
+                            ui.close();
+                        }
+                        if ui
+                            .button(crate::i18n::t("join.menu"))
+                            .on_hover_text(crate::i18n::t("join.menu_hint"))
+                            .clicked()
+                        {
+                            action.open_join = true;
+                            ui.close();
+                        }
+                        if ui
+                            .button(crate::i18n::t("partition.menu"))
+                            .on_hover_text(crate::i18n::t("partition.menu_hint"))
+                            .clicked()
+                        {
+                            action.open_partition = true;
                             ui.close();
                         }
                     }
@@ -739,9 +860,19 @@ pub fn draw_toolbar(
                     ui.separator();
                     if ui
                         .button(crate::i18n::t("view_menu.compare_with"))
+                        .on_hover_text(crate::i18n::t("view_menu.compare_with_hint"))
                         .clicked()
                     {
                         action.compare_with = true;
+                        ui.close();
+                    }
+                    if has_source_path
+                        && ui
+                            .button(crate::i18n::t("view_menu.compare_git"))
+                            .on_hover_text(crate::i18n::t("view_menu.compare_git_hint"))
+                            .clicked()
+                    {
+                        action.open_git_compare = true;
                         ui.close();
                     }
 
@@ -751,6 +882,7 @@ pub fn draw_toolbar(
                             &mut readonly_mode.clone(),
                             crate::i18n::t("view_menu.readonly"),
                         )
+                        .on_hover_text(crate::i18n::t("view_menu.readonly_hint"))
                         .clicked()
                     {
                         action.toggle_readonly = true;
@@ -774,7 +906,10 @@ pub fn draw_toolbar(
                         }
                     });
                     if zoom_percent != 100
-                        && ui.button(crate::i18n::t("view_menu.zoom_reset")).clicked()
+                        && ui
+                            .button(crate::i18n::t("view_menu.zoom_reset"))
+                            .on_hover_text(crate::i18n::t("view_menu.zoom_reset_hint"))
+                            .clicked()
                     {
                         action.zoom_reset = true;
                         ui.close();
@@ -788,12 +923,17 @@ pub fn draw_toolbar(
                 RichText::new(crate::i18n::t("menu.search")).color(colors.text_primary),
                 |ui| {
                     ui.set_min_width(180.0);
-                    if ui.button(crate::i18n::t("search_menu.find")).clicked() {
+                    if ui
+                        .button(crate::i18n::t("search_menu.find"))
+                        .on_hover_text(crate::i18n::t("search_menu.find_hint"))
+                        .clicked()
+                    {
                         action.search_focus = true;
                         ui.close();
                     }
                     if ui
                         .button(crate::i18n::t("search_menu.find_replace"))
+                        .on_hover_text(crate::i18n::t("search_menu.find_replace_hint"))
                         .clicked()
                     {
                         action.toggle_replace_bar = true;
@@ -803,18 +943,22 @@ pub fn draw_toolbar(
                     // Excel-style per-column value filter. Deliberately *not*
                     // suffixed with the shortcut combo (Ctrl+Shift+F by default)
                     // - same convention as the F8 read-only menu entry.
-                    let filter_btn = ui.add_enabled(
-                        has_data,
-                        egui::Button::new(crate::i18n::t("search_menu.column_filter")),
-                    );
+                    let filter_btn = ui
+                        .add_enabled(
+                            has_data,
+                            egui::Button::new(crate::i18n::t("search_menu.column_filter")),
+                        )
+                        .on_hover_text(crate::i18n::t("search_menu.column_filter_hint"));
                     if filter_btn.clicked() {
                         action.show_column_filter = Some(None);
                         ui.close();
                     }
-                    let dup_btn = ui.add_enabled(
-                        has_data,
-                        egui::Button::new(crate::i18n::t("search_menu.find_duplicates")),
-                    );
+                    let dup_btn = ui
+                        .add_enabled(
+                            has_data,
+                            egui::Button::new(crate::i18n::t("search_menu.find_duplicates")),
+                        )
+                        .on_hover_text(crate::i18n::t("search_menu.find_duplicates_hint"));
                     if dup_btn.clicked() {
                         action.show_find_duplicates = true;
                         ui.close();
@@ -833,6 +977,7 @@ pub fn draw_toolbar(
                     ui.separator();
                     if ui
                         .button(crate::i18n::t("search_menu.multi_search"))
+                        .on_hover_text(crate::i18n::t("search_menu.multi_search_hint"))
                         .clicked()
                     {
                         action.toggle_multi_search = true;
@@ -855,53 +1000,67 @@ pub fn draw_toolbar(
                     ui.set_min_width(120.0);
                     let table_actions = current_view_mode == ViewMode::Table;
                     if table_actions {
-                        if ui.button(crate::i18n::t("analyse_menu.sql")).clicked() {
+                        if ui
+                            .button(crate::i18n::t("analyse_menu.sql"))
+                            .on_hover_text(crate::i18n::t("analyse_menu.sql_hint"))
+                            .clicked()
+                        {
                             action.toggle_sql_panel = true;
                             ui.close();
                         }
-                        if ui.button(crate::i18n::t("analyse_menu.chart")).clicked() {
+                        if ui
+                            .button(crate::i18n::t("analyse_menu.chart"))
+                            .on_hover_text(crate::i18n::t("analyse_menu.chart_hint"))
+                            .clicked()
+                        {
                             action.open_chart_tab = true;
                             ui.close();
                         }
                         if ui
                             .button(crate::i18n::t("analyse_menu.value_frequency"))
+                            .on_hover_text(crate::i18n::t("analyse_menu.value_frequency_hint"))
                             .clicked()
                         {
                             action.open_value_frequency = true;
                             ui.close();
                         }
-                        if ui.button(crate::i18n::t("analyse_menu.describe")).clicked() {
+                        if ui
+                            .button(crate::i18n::t("analyse_menu.describe"))
+                            .on_hover_text(crate::i18n::t("analyse_menu.describe_hint"))
+                            .clicked()
+                        {
                             action.open_describe_tab = true;
                             ui.close();
                         }
-                        if ui.button(crate::i18n::t("analyse_menu.pivot")).clicked() {
+                        if ui
+                            .button(crate::i18n::t("analyse_menu.pivot"))
+                            .on_hover_text(crate::i18n::t("analyse_menu.pivot_hint"))
+                            .clicked()
+                        {
                             action.open_pivot = true;
                             ui.close();
                         }
                         if ui
-                            .button(crate::i18n::t("analyse_menu.multi_sort"))
+                            .button(crate::i18n::t("analyse_menu.correlation"))
+                            .on_hover_text(crate::i18n::t("analyse_menu.correlation_hint"))
                             .clicked()
                         {
-                            action.open_multi_sort = true;
+                            action.open_correlation = true;
                             ui.close();
                         }
-                        if ui.button(crate::i18n::t("union.menu")).clicked() {
-                            action.open_union = true;
-                            ui.close();
-                        }
-                        if ui.button(crate::i18n::t("join.menu")).clicked() {
-                            action.open_join = true;
-                            ui.close();
-                        }
-                        if ui.button(crate::i18n::t("partition.menu")).clicked() {
-                            action.open_partition = true;
-                            ui.close();
-                        }
-                        if ui.button(crate::i18n::t("outliers.menu")).clicked() {
+                        if ui
+                            .button(crate::i18n::t("outliers.menu"))
+                            .on_hover_text(crate::i18n::t("outliers.menu_hint"))
+                            .clicked()
+                        {
                             action.open_outliers = true;
                             ui.close();
                         }
-                        if ui.button(crate::i18n::t("pii.menu")).clicked() {
+                        if ui
+                            .button(crate::i18n::t("pii.menu"))
+                            .on_hover_text(crate::i18n::t("pii.menu_hint"))
+                            .clicked()
+                        {
                             action.open_pii = true;
                             ui.close();
                         }
@@ -909,6 +1068,7 @@ pub fn draw_toolbar(
                     }
                     if ui
                         .button(crate::i18n::t("analyse_menu.assistant"))
+                        .on_hover_text(crate::i18n::t("analyse_menu.assistant_hint"))
                         .clicked()
                     {
                         action.toggle_chat_panel = true;
@@ -926,13 +1086,18 @@ pub fn draw_toolbar(
                 ui.set_min_width(180.0);
                 if ui
                     .button(crate::i18n::t("help_menu.documentation"))
+                    .on_hover_text(crate::i18n::t("help_menu.documentation_hint"))
                     .clicked()
                 {
                     action.show_documentation = true;
                     ui.close();
                 }
                 ui.separator();
-                if ui.button(crate::i18n::t("help_menu.settings")).clicked() {
+                if ui
+                    .button(crate::i18n::t("help_menu.settings"))
+                    .on_hover_text(crate::i18n::t("help_menu.settings_hint"))
+                    .clicked()
+                {
                     action.show_settings = true;
                     ui.close();
                 }
@@ -940,6 +1105,7 @@ pub fn draw_toolbar(
                 if !crate::platform::is_store_packaged() {
                     if ui
                         .button(crate::i18n::t("help_menu.check_updates"))
+                        .on_hover_text(crate::i18n::t("help_menu.check_updates_hint"))
                         .clicked()
                     {
                         action.check_for_updates = true;
@@ -949,13 +1115,18 @@ pub fn draw_toolbar(
                 }
                 if ui
                     .button(crate::i18n::t("diagnostics.menu_export"))
+                    .on_hover_text(crate::i18n::t("diagnostics.menu_export_hint"))
                     .clicked()
                 {
                     action.export_debug_report = true;
                     ui.close();
                 }
                 ui.separator();
-                if ui.button(crate::i18n::t("help_menu.about")).clicked() {
+                if ui
+                    .button(crate::i18n::t("help_menu.about"))
+                    .on_hover_text(crate::i18n::t("help_menu.about_hint"))
+                    .clicked()
+                {
                     action.show_about = true;
                     ui.close();
                 }

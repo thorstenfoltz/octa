@@ -6,7 +6,7 @@
 //! rows where *both* values are present and finite are used; a pair with fewer
 //! than two such rows, or with zero variance in either column, yields `None`.
 
-use super::{CellValue, DataTable};
+use super::{CellValue, ColumnInfo, DataTable};
 
 /// Correlation method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -194,6 +194,35 @@ fn ranks(values: &[f64]) -> Vec<f64> {
     out
 }
 
+/// Render a [`CorrMatrix`] as a [`DataTable`]: a leading `variable` text column
+/// then one Float64 column per variable. `None` coefficients become Null cells
+/// so the table view renders them blank.
+pub fn matrix_to_table(m: &CorrMatrix) -> DataTable {
+    let mut table = DataTable::empty();
+    table.columns.push(ColumnInfo {
+        name: "variable".to_string(),
+        data_type: "Utf8".to_string(),
+    });
+    for name in &m.columns {
+        table.columns.push(ColumnInfo {
+            name: name.clone(),
+            data_type: "Float64".to_string(),
+        });
+    }
+    for (i, name) in m.columns.iter().enumerate() {
+        let mut row = Vec::with_capacity(m.columns.len() + 1);
+        row.push(CellValue::String(name.clone()));
+        for j in 0..m.columns.len() {
+            match m.matrix[i][j] {
+                Some(v) => row.push(CellValue::Float(v)),
+                None => row.push(CellValue::Null),
+            }
+        }
+        table.rows.push(row);
+    }
+    table
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,6 +290,19 @@ mod tests {
         }
         let sp = correlation_matrix(&t, CorrMethod::Spearman);
         assert!((sp.matrix[0][1].unwrap() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn matrix_to_table_shapes_correctly() {
+        let m = CorrMatrix {
+            columns: vec!["x".into(), "y".into()],
+            matrix: vec![vec![Some(1.0), Some(0.5)], vec![Some(0.5), Some(1.0)]],
+        };
+        let t = matrix_to_table(&m);
+        assert_eq!(t.col_count(), 3); // variable + x + y
+        assert_eq!(t.row_count(), 2);
+        assert_eq!(t.columns[0].name, "variable");
+        assert_eq!(t.columns[1].name, "x");
     }
 
     #[test]

@@ -151,6 +151,8 @@ impl OctaApp {
             schema_export: None,
             pivot_dialog: None,
             multi_sort_dialog: None,
+            git_compare_dialog: None,
+            correlation_dialog: None,
             transform_dialog: None,
             conditional_column_dialog: None,
             anonymize_dialog: None,

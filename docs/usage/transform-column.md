@@ -2,7 +2,7 @@
 
 Transform Column reshapes your data with a single click, the way you would
 clean up a messy spreadsheet by hand. Open it via
-**Edit -> Transform column...**, pick an operation, fill in its options, and
+**Data -> Transform column...**, pick an operation, fill in its options, and
 press **Apply**.
 
 ![Transform column](../assets/screenshots/transform-column.png){ .screenshot-placeholder }
@@ -36,7 +36,7 @@ press **Apply**.
 
 ## Conditional column (if / else-if / else)
 
-**Edit -> Conditional column...** builds a new column whose value depends on
+**Data -> Conditional column...** builds a new column whose value depends on
 conditions, like a spreadsheet `IF`/`IFS` or a SQL `CASE`. You add an ordered
 list of rules:
 

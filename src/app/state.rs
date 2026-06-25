@@ -172,6 +172,30 @@ impl Default for MultiSortState {
     }
 }
 
+/// Revision-picker dialog for "Compare with git version" / "Open git version".
+pub(crate) struct GitCompareState {
+    /// Repository root.
+    pub(crate) repo_root: std::path::PathBuf,
+    /// File path relative to `repo_root`, forward-slashed.
+    pub(crate) relpath: String,
+    /// Original file extension (no dot), for the temp file.
+    pub(crate) ext: String,
+    /// Recent commits touching the file (newest first).
+    pub(crate) commits: Vec<octa::git::Commit>,
+    /// Selected revision; defaults to "HEAD".
+    pub(crate) selected_rev: String,
+    /// Human label for the selected revision (combo text / status message).
+    pub(crate) selected_label: String,
+    pub(crate) size: DialogSize,
+}
+
+/// Correlation-matrix dialog state: just the method (the engine correlates over
+/// every numeric column, so there is nothing else to pick).
+pub(crate) struct CorrelationState {
+    pub(crate) method: octa::data::correlation::CorrMethod,
+    pub(crate) size: DialogSize,
+}
+
 /// Which column-shaping transform the dialog is configured for. Maps onto the
 /// pure functions in [`octa::data::transform`] when the user applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1542,6 +1566,12 @@ pub(crate) struct OctaApp {
     /// Active multi-column sort dialog state, or `None` when closed. Sorts the
     /// active tab in place (see `src/app/dialogs/multi_sort.rs`).
     pub(crate) multi_sort_dialog: Option<MultiSortState>,
+    /// Active git revision-picker, or `None` when closed. Compares the active
+    /// tab against a committed version (see `src/app/dialogs/git_compare.rs`).
+    pub(crate) git_compare_dialog: Option<GitCompareState>,
+    /// Active correlation-matrix dialog, or `None` when closed. Computes a
+    /// correlation matrix into a detached tab (see `src/app/dialogs/correlation.rs`).
+    pub(crate) correlation_dialog: Option<CorrelationState>,
     /// Active Transform-column dialog state, or `None` when closed. Reshapes
     /// the active tab in place (see `src/app/dialogs/transform.rs`).
     pub(crate) transform_dialog: Option<TransformState>,

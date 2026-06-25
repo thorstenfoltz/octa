@@ -102,9 +102,9 @@ pub(super) const EDITING: &str = r#"# Editing & Undo/Redo
 Structural edits:
 
 - **Edit > Insert Row** adds a new empty row below the selected cell.
-- **Edit > Insert Column** opens a dialog to add a column (name + type).
-- **Edit > Delete Row / Delete Column** removes the selected one(s).
-- **Edit > Move Row Up/Down** and **Move Column Left/Right** reorder data.
+- **Columns > Insert Column** opens a dialog to add a column (name + type).
+- **Edit > Delete Row** and **Columns > Delete Column** remove the selected one(s).
+- **Edit > Move Row Up/Down** and **Columns > Move Column Left/Right** reorder data.
 - **Edit > Discard All Edits** reverts all unsaved changes.
 - **Drag a column header** to reorder columns.
 - **Double-click a column header** to rename it inline.
@@ -128,7 +128,7 @@ values. Toggle it, or switch English (`1,234.56`) vs European
 (`1.234,56`) style, under **Settings > Table View** (**Thousand
 separators** + **Number style**).
 
-Right-click a numeric column header (or **Edit > Number format...**) for
+Right-click a numeric column header (or **Columns > Number format...**) for
 a per-column **rounding format**. The dialog applies live (no Apply
 step) and is movable/resizable. Type the number of **Decimals** (empty =
 Auto; a negative count rounds before the decimal point, e.g. -2 = nearest
@@ -156,7 +156,7 @@ Cells support simple Excel-like formulas starting with **=**.
 - **Parentheses**: `(A1 + B1) * 2`.
 - **Numeric literals**: `=A1 * 1.5`.
 
-When inserting a column via **Edit > Insert Column**, you can type a formula
+When inserting a column via **Columns > Insert Column**, you can type a formula
 into the **Formula** field. The formula is treated as a row-1 template and
 applied to every row (e.g. `=A1+B1` becomes `=A3+B3` on row 3).
 
@@ -344,7 +344,7 @@ pub(super) const COLUMN_TOOLS: &str = r#"# Column Tools
 
 Right-click any column header and pick **Hide column** to remove it
 from the view. Hidden columns are still part of the table on disk:
-Save and Save As both write them out. Use **Edit > Show hidden
+Save and Save As both write them out. Use **Columns > Show hidden
 columns** to bring everything back at once. This is a per-tab,
 session-only setting; closing the tab or reopening the file clears
 the hidden set.
@@ -645,6 +645,31 @@ full table.
 Powered by DuckDB's `PIVOT` / `UNPIVOT`, so it works on any open table.
 "#;
 
+pub(super) const CORRELATION: &str = r#"# Correlation
+
+Measure how strongly the numeric columns in a table move together. Open it
+via **Analyse > Correlation...**, pick a method, and press **Compute**. The
+result opens in a **new detached tab** - your original table is unchanged.
+
+## Methods
+
+- **Pearson** measures linear association (do the values rise and fall
+  together in a straight-line way).
+- **Spearman** measures monotonic association by correlating the value
+  ranks, so it catches consistent up-or-down relationships that are not
+  perfectly straight.
+
+## Reading the result
+
+Every numeric column is correlated with every other numeric column. The
+result is a square table: the first column lists each variable, and there
+is one further column per variable. Each cell holds a coefficient from
+**-1** (perfectly opposite) through **0** (no linear/monotonic relation) to
+**+1** (perfectly together); the diagonal is always 1. A pair with too few
+overlapping values, or no variation, is left blank. Non-numeric columns are
+ignored automatically.
+"#;
+
 pub(super) const SCHEMA_EXPORT: &str = r#"# Schema Export
 
 Open via **File > Export schema...** or **F7** (remappable).
@@ -779,7 +804,7 @@ pub(super) const CONDITIONAL_FORMAT: &str = r#"# Conditional Formatting
 
 Where colour marking is something you apply by hand, conditional formatting
 colours cells **automatically** based on their value, like the feature of the
-same name in a spreadsheet. Open it via **Edit > Conditional formatting...**.
+same name in a spreadsheet. Open it via **Columns > Conditional formatting...**.
 
 ## Rules
 
@@ -818,7 +843,7 @@ pub(super) const VALIDATION: &str = r#"# Data Validation
 
 Data validation flags cells that break a rule you define, painting each
 failing cell **red** so problems stand out. Open it via
-**Edit > Data validation...**.
+**Columns > Data validation...**.
 
 ## Rules
 
@@ -852,7 +877,7 @@ pub(super) const TRANSFORMS: &str = r#"# Transform Column
 
 Transform Column reshapes your data with a single click, the way you would
 clean up a messy spreadsheet by hand. Open it via
-**Edit > Transform column...**. Pick an operation, fill in its options, and
+**Data > Transform column...**. Pick an operation, fill in its options, and
 press **Apply**. Each transform is undoable (Ctrl+Z), session-only until you
 save, and respects read-only mode.
 
@@ -883,7 +908,7 @@ producing text, and all changes can be undone before you save.
 
 ## Conditional column (if / else-if / else)
 
-**Edit > Conditional column...** builds a new column whose value depends on
+**Data > Conditional column...** builds a new column whose value depends on
 conditions, like a spreadsheet IF/IFS or a SQL CASE. Add an ordered list of
 rules such as "if amount > 100 then high, else if amount > 50 then medium,
 else low". Each rule tests one column with an operator (equals, contains,
@@ -902,7 +927,7 @@ column sets a value.
 
 pub(super) const ANONYMIZE: &str = r#"# Anonymise Columns
 
-**Edit > Anonymise columns...** (Ctrl+Shift+Y) prepares a file for sharing by
+**Data > Anonymise columns...** (Ctrl+Shift+Y) prepares a file for sharing by
 masking or scrambling sensitive columns. Add rules, pick a strategy for each,
 choose where the result goes, and press Apply. An Apply is a single undo step
 (Ctrl+Z reverts the whole operation at once).
@@ -971,7 +996,7 @@ filtered view, so search first and then sort.
 
 ## Sort by several columns
 
-For a multi-level sort, open **Analyse > Sort by columns...**. The dialog
+For a multi-level sort, open **Data > Sort by columns...**. The dialog
 holds an ordered list of sort keys, each a column and a direction. The
 first key is the primary sort; later keys break ties (so, for example,
 sort by department ascending, then by salary descending).
@@ -1025,10 +1050,18 @@ still open in Table View.
 
 pub(super) const COMPARE_VIEW: &str = r#"# Compare View
 
-Compare two files side-by-side. Triggered in three ways:
+Compare two files side-by-side. Triggered in four ways:
 
 - **View -> Compare with...**: opens a file picker; the active tab is the
   left side, the picked file is the right.
+- **View -> Compare with git version...**: compare the current file (with
+  any uncommitted changes) against a committed version from git. Opens a
+  small dialog defaulting to **HEAD** (the last commit) with a dropdown of
+  recent commits that touched the file, so you can pick any older revision.
+  The dialog also has **Open in new tab**, which loads that past version on
+  its own instead of comparing. Works for any tracked file, text or binary
+  (the committed bytes are read straight from git). Requires the file to be
+  saved inside a git repository; otherwise a status message says so.
 - **Right-click a tab -> Compare with active tab**.
 - The **Compare selected tabs** shortcut (default **F9**, remappable) when
   exactly one tab is **Ctrl-clicked** as the right side.
@@ -1363,6 +1396,17 @@ Conversations are saved automatically as JSON under `chat_sessions/` in
 your config directory. Use **New chat** to start fresh and **History**
 to reopen or delete past conversations.
 
+## Exporting a conversation
+
+The **Export** button in the panel header saves the current conversation to
+a file. The save dialog offers two formats, chosen by the extension you pick:
+
+- **Markdown (.md)**: a readable transcript with your prompts, the
+  assistant's replies, every SQL query it ran (in ```sql code blocks), other
+  tool calls, and each tool's result (truncated to keep the file small).
+- **JSON (.json)**: the exact saved session, identical to the on-disk
+  format, for archiving or further processing.
+
 ## Saved prompts
 
 The **Prompts** button next to Send opens a small manager window for
@@ -1468,7 +1512,7 @@ pub(super) const DEDUPE: &str = r#"# Drop Duplicate Rows
 
 Drop Duplicate Rows removes repeated rows from the active table in one
 step, the way you would delete duplicate lines in a spreadsheet. Open it
-via **Edit > Drop duplicate rows...** (Ctrl+Shift+H).
+via **Data > Drop duplicate rows...** (Ctrl+Shift+H).
 
 ## How it works
 
@@ -1490,7 +1534,7 @@ pub(super) const IMPUTE: &str = r#"# Fill Missing Values
 
 Fill Missing Values replaces empty or null cells in one column using a
 strategy you pick, so you don't have to fill gaps by hand. Open it via
-**Edit > Fill missing values...**.
+**Data > Fill missing values...**.
 
 ## Strategies
 
@@ -1512,7 +1556,7 @@ pub(super) const UNION: &str = r#"# Union Tables
 
 Union Tables stacks two or more open tabs on top of each other into one
 new table, like appending several exports of the same shape. Open it via
-**Analyse > Union tables...**.
+**Data > Union tables...**.
 
 ## How it works
 
@@ -1531,7 +1575,7 @@ pub(super) const JOIN: &str = r#"# Join Tables
 
 Join Tables matches rows between two open tabs, like a spreadsheet VLOOKUP
 or a SQL JOIN. You need a second table open in another tab first. Open it
-via **Analyse > Join tables...** (Ctrl+Shift+Q).
+via **Data > Join tables...** (Ctrl+Shift+Q).
 
 ## How it works
 
@@ -1568,7 +1612,7 @@ pub(super) const PARTITION: &str = r#"# Partition by Column
 
 Partition by Column splits the active table into one file per distinct
 value of a column, like sorting rows into folders by category. Open it via
-**Analyse > Partition by column...** (Ctrl+Shift+Z).
+**Data > Partition by column...** (Ctrl+Shift+Z).
 
 ## How it works
 

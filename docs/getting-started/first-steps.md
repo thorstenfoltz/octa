@@ -93,10 +93,10 @@ automatically based on the column's type. See
 [Date Inference](../reference/date-inference.md) for the full
 mechanics.
 
-Need to insert a new row or column? **Edit → Insert Row** /
-**Insert Column** opens the right dialog (the column dialog also
+Need to insert a new row or column? **Edit → Insert Row** and
+**Columns → Insert Column** open the right dialog (the column dialog also
 accepts a [formula](../usage/formulas.md) like `=A1+B1`).
-**Edit → Delete Row** / **Delete Column** removes the selected one.
+**Edit → Delete Row** and **Columns → Delete Column** remove the selected one.
 
 **Ctrl+Z** undoes; **Ctrl+Y** redoes. Both stacks are visible in
 the **Edit** menu.

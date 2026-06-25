@@ -288,6 +288,23 @@ your config directory:
 - macOS: `~/Library/Application Support/Octa/chat_sessions/`
 - Windows: `%APPDATA%\Octa\chat_sessions\`
 
+## Exporting a conversation
+
+The **Export** button in the panel header saves the current conversation to a
+file you choose. The save dialog offers two formats, picked by the file
+extension:
+
+- **Markdown (`.md`)**: a readable transcript. It includes your prompts, the
+  assistant's replies, every SQL query it sent (rendered in `sql` code
+  blocks), any other tool calls, and each tool's result. Results are truncated
+  to keep the file manageable.
+- **JSON (`.json`)**: the exact saved session, the same format Octa stores on
+  disk, for archiving or feeding into other tools.
+
+Use Markdown when you want a human-readable record of the analysis (including
+the SQL that produced each answer); use JSON when you want a faithful,
+machine-readable copy.
+
 ## Saved prompts
 
 The **Prompts** button next to **Send** opens a small manager window for

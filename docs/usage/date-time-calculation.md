@@ -7,7 +7,7 @@ number of months to a date, convert a duration from minutes to hours,
 pull the weekday out of a timestamp, or turn a Unix epoch timestamp into
 a readable date (and back).
 
-Open it from **Edit → Date/Time calculation…**. The dialog computes the
+Open it from **Data → Date/Time calculation…**. The dialog computes the
 result into a brand-new column and leaves the source columns untouched,
 the same way [Insert Column](editing.md#inserting-columns) and
 [formulas](formulas.md) do.

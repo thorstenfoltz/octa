@@ -1,6 +1,6 @@
 # Partition by Column
 
-**Analyse > Partition by column...** (Ctrl+Shift+Z) splits the active table
+**Data > Partition by column...** (Ctrl+Shift+Z) splits the active table
 into one file per distinct value of a column, like sorting rows into folders
 by category.
 

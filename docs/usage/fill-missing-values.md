@@ -1,6 +1,6 @@
 # Fill Missing Values
 
-**Edit > Fill missing values...** replaces empty or null
+**Data > Fill missing values...** replaces empty or null
 cells in one column using a strategy you pick. Only empty/null cells are
 changed; existing values are left alone. Apply is a single undo step.
 

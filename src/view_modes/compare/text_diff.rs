@@ -45,9 +45,14 @@ pub fn render(
         Color32::from_rgb(255, 220, 220)
     };
 
-    // Build per-side line streams: each row is (marker, line, bg). Equal
-    // lines appear on both sides; insertions only on the right, deletions
-    // only on the left. Empty placeholders keep the rows aligned visually.
+    // Build per-side line streams: each row is (marker, line, bg). The LEFT is
+    // the current/active file, the RIGHT is what it is compared against (for a
+    // git compare, the committed version). So a line that exists only on the
+    // left is an addition in the current file (green `+`), and a line that
+    // exists only on the right was removed from it (red `-`). Because the diff
+    // is `diff_lines(left, right)`, `similar` reports left-only lines as
+    // `Delete` and right-only lines as `Insert` - the opposite of the colours,
+    // so we map them deliberately here. Empty placeholders keep rows aligned.
     let mut left_rows: Vec<(&'static str, String, Option<Color32>)> = Vec::new();
     let mut right_rows: Vec<(&'static str, String, Option<Color32>)> = Vec::new();
 
@@ -59,87 +64,131 @@ pub fn render(
                 left_rows.push((" ", trimmed.clone(), None));
                 right_rows.push((" ", trimmed, None));
             }
+            // Only in the left (current) file: an addition -> green `+`.
             ChangeTag::Delete => {
-                left_rows.push(("-", trimmed, Some(del_bg)));
+                left_rows.push(("+", trimmed, Some(add_bg)));
                 right_rows.push(("", String::new(), None));
             }
+            // Only in the right (compared) file: a removal -> red `-`.
             ChangeTag::Insert => {
                 left_rows.push(("", String::new(), None));
-                right_rows.push(("+", trimmed, Some(add_bg)));
+                right_rows.push(("-", trimmed, Some(del_bg)));
             }
         }
     }
 
     let mono = egui::FontId::new(12.0, egui::FontFamily::Monospace);
 
-    egui::ScrollArea::both()
+    egui::ScrollArea::vertical()
         .id_salt("compare_text_diff_scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            ui.horizontal_top(|ui| {
-                let pane_width = (ui.available_width() - 8.0).max(200.0) / 2.0;
-                draw_pane(ui, &left_rows, &mono, &colors, pane_width);
-                ui.add_space(8.0);
-                draw_pane(ui, &right_rows, &mono, &colors, pane_width);
-            });
+            let total_w = ui.available_width();
+            // Two equal panes with an 8px gutter between them.
+            let pane_w = ((total_w - 8.0) / 2.0).max(160.0);
+            // Content starts after the line-number + marker gutter.
+            let content_x = 56.0;
+            let content_w = (pane_w - 8.0 - content_x).max(40.0);
+            let min_row_h = mono.size * 1.4;
+
+            // Lay a line out as a wrapped galley bounded to one pane's content
+            // width, so a long line breaks onto further lines instead of
+            // overflowing into (and painting over) the other pane.
+            let layout_line = |ui: &egui::Ui, text: &str| -> std::sync::Arc<egui::Galley> {
+                let mut job = egui::text::LayoutJob::single_section(
+                    text.to_owned(),
+                    egui::text::TextFormat {
+                        font_id: mono.clone(),
+                        color: colors.text_primary,
+                        ..Default::default()
+                    },
+                );
+                job.wrap.max_width = content_w;
+                ui.fonts_mut(|f| f.layout_job(job))
+            };
+
+            for (idx, (left, right)) in left_rows.iter().zip(right_rows.iter()).enumerate() {
+                let lg = layout_line(ui, &left.1);
+                let rg = layout_line(ui, &right.1);
+                // Both panes share the taller height so corresponding lines
+                // stay vertically aligned when one side wraps.
+                let row_h = lg.size().y.max(rg.size().y).max(min_row_h) + 2.0;
+                let (rect, _) = ui.allocate_exact_size(
+                    egui::vec2(pane_w * 2.0 + 8.0, row_h),
+                    egui::Sense::hover(),
+                );
+                draw_row(
+                    ui,
+                    rect.left_top(),
+                    pane_w,
+                    content_x,
+                    row_h,
+                    idx + 1,
+                    left,
+                    lg,
+                    &mono,
+                    &colors,
+                );
+                draw_row(
+                    ui,
+                    rect.left_top() + egui::vec2(pane_w + 8.0, 0.0),
+                    pane_w,
+                    content_x,
+                    row_h,
+                    idx + 1,
+                    right,
+                    rg,
+                    &mono,
+                    &colors,
+                );
+            }
         });
 }
 
-fn draw_pane(
-    ui: &mut egui::Ui,
-    rows: &[(&'static str, String, Option<Color32>)],
+/// Paint one line of one pane: background tint, line-number gutter, change
+/// marker, and the (already wrapped) content galley.
+#[allow(clippy::too_many_arguments)]
+fn draw_row(
+    ui: &egui::Ui,
+    origin: egui::Pos2,
+    pane_w: f32,
+    content_x: f32,
+    row_h: f32,
+    line_no: usize,
+    row: &(&'static str, String, Option<Color32>),
+    galley: std::sync::Arc<egui::Galley>,
     mono: &egui::FontId,
     colors: &ui::theme::ThemeColors,
-    width: f32,
 ) {
-    egui::Frame::new()
-        .stroke(egui::Stroke::new(1.0, colors.border_subtle))
-        .inner_margin(4.0)
-        .show(ui, |ui| {
-            ui.set_min_width(width);
-            ui.set_max_width(width);
-            ui.vertical(|ui| {
-                for (idx, (marker, line, bg)) in rows.iter().enumerate() {
-                    let row_rect_height = mono.size * 1.4;
-                    let (rect, _) = ui.allocate_exact_size(
-                        egui::vec2(width - 8.0, row_rect_height),
-                        egui::Sense::hover(),
-                    );
-                    if let Some(c) = bg {
-                        ui.painter().rect_filled(rect, 0.0, *c);
-                    }
-                    // Line number gutter (1-based, left-aligned narrow).
-                    let line_no = format!("{:>4}", idx + 1);
-                    ui.painter().text(
-                        rect.left_top() + egui::vec2(2.0, 2.0),
-                        egui::Align2::LEFT_TOP,
-                        line_no,
-                        mono.clone(),
-                        colors.text_muted,
-                    );
-                    ui.painter().text(
-                        rect.left_top() + egui::vec2(40.0, 2.0),
-                        egui::Align2::LEFT_TOP,
-                        marker,
-                        mono.clone(),
-                        match *marker {
-                            "+" => Color32::from_rgb(60, 160, 80),
-                            "-" => Color32::from_rgb(200, 70, 70),
-                            _ => colors.text_muted,
-                        },
-                    );
-                    // The actual line content. Drawn as a single Galley so a
-                    // very long line just gets clipped at the pane edge.
-                    ui.painter().text(
-                        rect.left_top() + egui::vec2(60.0, 2.0),
-                        egui::Align2::LEFT_TOP,
-                        line,
-                        mono.clone(),
-                        colors.text_primary,
-                    );
-                }
-            });
-        });
+    let (marker, _line, bg) = row;
+    let painter = ui.painter();
+    let rect = egui::Rect::from_min_size(origin, egui::vec2(pane_w, row_h));
+    if let Some(c) = bg {
+        painter.rect_filled(rect, 0.0, *c);
+    }
+    painter.text(
+        origin + egui::vec2(2.0, 2.0),
+        egui::Align2::LEFT_TOP,
+        format!("{line_no:>4}"),
+        mono.clone(),
+        colors.text_muted,
+    );
+    painter.text(
+        origin + egui::vec2(40.0, 2.0),
+        egui::Align2::LEFT_TOP,
+        marker,
+        mono.clone(),
+        match *marker {
+            "+" => Color32::from_rgb(60, 160, 80),
+            "-" => Color32::from_rgb(200, 70, 70),
+            _ => colors.text_muted,
+        },
+    );
+    painter.galley(
+        origin + egui::vec2(content_x, 2.0),
+        galley,
+        colors.text_primary,
+    );
 }
 
 fn strip_trailing_newline(s: &str) -> String {

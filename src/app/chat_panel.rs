@@ -173,8 +173,8 @@ impl OctaApp {
             ChatPanelPosition::Right => {
                 egui::Panel::right("octa_chat_panel")
                     .resizable(true)
-                    .default_size(480.0)
-                    .min_size(340.0)
+                    .default_size(580.0)
+                    .min_size(380.0)
                     .show_inside(parent_ui, |ui| self.render_chat_body(ui))
                     .response
                     .rect
@@ -182,8 +182,8 @@ impl OctaApp {
             ChatPanelPosition::Left => {
                 egui::Panel::left("octa_chat_panel")
                     .resizable(true)
-                    .default_size(480.0)
-                    .min_size(340.0)
+                    .default_size(580.0)
+                    .min_size(380.0)
                     .show_inside(parent_ui, |ui| self.render_chat_body(ui))
                     .response
                     .rect
@@ -252,6 +252,13 @@ impl OctaApp {
                     if !text.is_empty() {
                         ui.ctx().copy_text(text);
                     }
+                }
+                if ui
+                    .button(t("chat.export"))
+                    .on_hover_text(t("chat.export_hint"))
+                    .clicked()
+                {
+                    self.export_chat_session();
                 }
             });
         });
@@ -1259,6 +1266,49 @@ impl OctaApp {
             }
         }
         out
+    }
+
+    /// Save the active session as Markdown (.md) or JSON (.json). The picked
+    /// file extension selects the format.
+    fn export_chat_session(&mut self) {
+        use super::chat::{export, persist};
+        let saved = {
+            let guard = self.chat.session.lock().unwrap();
+            if guard.messages.is_empty() {
+                self.status_message = Some((t("chat.export_empty"), std::time::Instant::now()));
+                return;
+            }
+            persist::snapshot(&guard)
+        };
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Markdown", &["md"])
+            .add_filter("JSON", &["json"])
+            .set_file_name("chat-export.md")
+            .save_file()
+        else {
+            return;
+        };
+        let is_json = path
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("json"))
+            .unwrap_or(false);
+        let content = if is_json {
+            serde_json::to_string_pretty(&saved).unwrap_or_default()
+        } else {
+            export::to_markdown(&saved, export::EXPORT_RESULT_CAP_BYTES)
+        };
+        match std::fs::write(&path, content) {
+            Ok(()) => {
+                self.status_message = Some((
+                    format!("{}: {}", t("chat.export_done"), path.display()),
+                    std::time::Instant::now(),
+                ));
+            }
+            Err(e) => {
+                self.status_message =
+                    Some((format!("Export failed: {e}"), std::time::Instant::now()));
+            }
+        }
     }
 
     pub(crate) fn cancel_chat(&mut self) {

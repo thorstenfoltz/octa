@@ -611,6 +611,15 @@ impl OctaApp {
         if action.compare_with {
             self.begin_compare_with();
         }
+        if action.open_git_compare {
+            self.open_git_compare_dialog();
+        }
+        if action.open_correlation && self.tabs[self.active_tab].table.col_count() > 0 {
+            self.correlation_dialog = Some(crate::app::state::CorrelationState {
+                method: octa::data::correlation::CorrMethod::Pearson,
+                size: octa::ui::settings::DialogSize::default(),
+            });
+        }
         if action.show_schema_export {
             super::dialogs::schema_export::open(self);
         }

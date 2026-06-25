@@ -340,6 +340,176 @@ impl OctaApp {
         tab.view_mode = octa::data::ViewMode::Compare;
     }
 
+    /// Build and open the git revision-picker for the active tab. Surfaces a
+    /// status message (no dialog) when the file is not in a git repo.
+    pub(crate) fn open_git_compare_dialog(&mut self) {
+        let Some(src) = self.tabs[self.active_tab].table.source_path.clone() else {
+            self.status_message = Some((
+                "Save the file first; git compare needs a file on disk.".to_string(),
+                std::time::Instant::now(),
+            ));
+            return;
+        };
+        let path = std::path::PathBuf::from(&src);
+        let Some(root) = octa::git::repo_root(&path) else {
+            self.status_message = Some((
+                octa::i18n::t("dialog.gitcmp_not_repo"),
+                std::time::Instant::now(),
+            ));
+            return;
+        };
+        let Some(relpath) = octa::git::relative_path(&path, &root) else {
+            self.status_message = Some((
+                octa::i18n::t("dialog.gitcmp_not_tracked"),
+                std::time::Instant::now(),
+            ));
+            return;
+        };
+        let ext = path
+            .extension()
+            .map(|e| e.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let commits = octa::git::recent_commits(&root, &relpath, 20);
+        self.git_compare_dialog = Some(crate::app::state::GitCompareState {
+            repo_root: root,
+            relpath,
+            ext,
+            commits,
+            selected_rev: "HEAD".to_string(),
+            selected_label: octa::i18n::t("dialog.gitcmp_head"),
+            size: octa::ui::settings::DialogSize::default(),
+        });
+    }
+
+    /// Load the comparison "right side" from in-memory bytes (the git compare
+    /// path). `ext` is the original file extension (no dot) so the temp file
+    /// routes to the correct reader. Mirrors the populate logic in
+    /// `begin_compare_with`.
+    pub(crate) fn begin_compare_with_git_bytes(
+        &mut self,
+        bytes: Vec<u8>,
+        ext: &str,
+        label: String,
+    ) {
+        use std::io::Write;
+        // `tempfile::Builder` borrows the suffix by reference, so it must
+        // outlive the builder (hence the binding before `builder`).
+        let suffix = if ext.is_empty() {
+            String::new()
+        } else {
+            format!(".{ext}")
+        };
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("octa-git-");
+        if !suffix.is_empty() {
+            builder.suffix(suffix.as_str());
+        }
+        let tmp = match builder.tempfile() {
+            Ok(mut f) => {
+                if f.write_all(&bytes).is_err() {
+                    self.status_message = Some((
+                        "Failed to write temporary git file".to_string(),
+                        std::time::Instant::now(),
+                    ));
+                    return;
+                }
+                f
+            }
+            Err(e) => {
+                self.status_message =
+                    Some((format!("Temp file error: {e}"), std::time::Instant::now()));
+                return;
+            }
+        };
+        let path = tmp.path().to_path_buf();
+        let size = bytes.len() as u64;
+        let raw_allowed = self.settings.raw_view_allows(size);
+
+        let tab = &mut self.tabs[self.active_tab];
+        tab.compare_error = None;
+        tab.compare_right_path = Some(path.clone());
+        tab.compare_right_raw = if raw_allowed {
+            String::from_utf8(bytes).ok()
+        } else {
+            None
+        };
+        tab.compare_right_table = match self.registry.reader_for_path(&path) {
+            Some(r) => match r.read_file(&path) {
+                Ok(t) => Some(Box::new(t)),
+                Err(e) => {
+                    tab.compare_error = Some(format!("Failed to load git version as table: {e}"));
+                    None
+                }
+            },
+            None => None,
+        };
+        tab.compare_columns_left.clear();
+        tab.compare_columns_right.clear();
+        let both_have_text = tab.raw_content.is_some() && tab.compare_right_raw.is_some();
+        tab.compare_mode = if both_have_text {
+            octa::data::CompareMode::TextDiff
+        } else {
+            octa::data::CompareMode::RowHashDiff
+        };
+        tab.view_mode = octa::data::ViewMode::Compare;
+        // The table was cloned into `compare_right_table` and the raw text
+        // copied, so the temp file can drop now.
+        drop(tmp);
+        self.status_message = Some((
+            format!("{}: {label}", octa::i18n::t("dialog.gitcmp_title")),
+            std::time::Instant::now(),
+        ));
+    }
+
+    /// Write git bytes to a temp file and open it as a new tab (the "Open git
+    /// version" action). The temp file is kept alive until `load_file_in_new_tab`
+    /// has read it.
+    pub(crate) fn open_git_bytes_in_new_tab(
+        &mut self,
+        bytes: Vec<u8>,
+        ext: &str,
+        relpath: &str,
+        rev: &str,
+    ) {
+        use std::io::Write;
+        let suffix = if ext.is_empty() {
+            String::new()
+        } else {
+            format!(".{ext}")
+        };
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("octa-git-");
+        if !suffix.is_empty() {
+            builder.suffix(suffix.as_str());
+        }
+        let mut tmp = match builder.tempfile() {
+            Ok(f) => f,
+            Err(e) => {
+                self.status_message =
+                    Some((format!("Temp file error: {e}"), std::time::Instant::now()));
+                return;
+            }
+        };
+        if tmp.write_all(&bytes).is_err() {
+            self.status_message = Some((
+                "Failed to write temporary git file".to_string(),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        let path = tmp.path().to_path_buf();
+        self.load_file_in_new_tab(path);
+        // Label the new tab so it reads as a git version, not the temp filename.
+        if let Some(tab) = self.tabs.last_mut() {
+            let name = std::path::Path::new(relpath)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| relpath.to_string());
+            tab.custom_tab_label = Some(format!("{name} @ {rev}"));
+        }
+        drop(tmp);
+    }
+
     /// Compare the active tab against a **sibling tab** (no file picker).
     /// Used by:
     ///   - The tab right-click context menu ("Compare with active tab").

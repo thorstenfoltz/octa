@@ -1,6 +1,6 @@
 # Anonymise Columns
 
-**Edit > Anonymise columns...** (Ctrl+Shift+Y) prepares a file for sharing by
+**Data > Anonymise columns...** (Ctrl+Shift+Y) prepares a file for sharing by
 masking or scrambling sensitive columns. Add one or more rules, pick a strategy
 for each, choose where the result goes, and press Apply. An Apply is a single
 undo step (Ctrl+Z reverts the whole operation at once).
