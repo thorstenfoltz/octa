@@ -85,7 +85,8 @@ reason). Octa never implements the OAuth flow itself.
     All three CLIs ship native Windows installers (the AWS CLI MSI, the Azure
     CLI MSI, the Google Cloud SDK installer). If your CLI only lives inside
     WSL, native-Windows Octa will not see it - install it on Windows, or use
-    static keys / a SAS token instead.
+    static keys / a SAS token instead. As an alternative install Octa and the
+    CLI in WSL2 and start Octa from there.
 
 ## Browse and open
 
