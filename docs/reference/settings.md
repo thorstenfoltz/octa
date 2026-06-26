@@ -137,6 +137,7 @@ in the main Settings dialog under the **Chat / Assistant** section.
 | **Temperature**              | 0.0                      | Sampling temperature passed to the model. TOML key: `chat_temperature`.                                                                                                                                                                                                                                                                                                             |
 | **Max tool iterations**      | 3                        | How many tool-call rounds the agent runs per turn before stopping. TOML key: `chat_max_tool_iterations`.                                                                                                                                                                                                                                                                            |
 | **Max tokens**               | 16,384                   | Cap on the model's response length. **Unlimited** omits the field (Anthropic substitutes a high value). TOML keys: `chat_max_tokens`, `chat_max_tokens_unlimited`.                                                                                                                                                                                                                  |
+| **Result row limit**         | 200                      | How many rows a tool result (e.g. a SQL query) puts into the assistant's context. The query still runs over every row; this only caps what the model sees so a big result can't flood the chat. When it bites, the assistant offers to write the full result to a file or a tab. **Unlimited** removes the cap. TOML keys: `chat_result_row_limit`, `chat_result_row_limit_unlimited`.                |
 | **Export directory**         | `~/Downloads`            | Where the assistant writes files (charts, exports, `write_text`). TOML key: `chat_export_dir`.                                                                                                                                                                                                                                                                                      |
 | **Write protection**         | On                       | When on (the default), the assistant cannot modify existing files, its live-edit tool (`edit_open_tab`) is disabled, and schema-changing DuckDB / SQLite / GeoPackage saves are refused. Turn off to let the assistant and database saves change your files. Manual GUI edits and saves are never blocked. The MCP server reads this once at startup. TOML key: `write_protection`. |
 | **Back up before modifying** | On                       | When on (the default), Octa copies a file to a timestamped `.bak-*` sidecar before the assistant (or a schema-changing database save) overwrites it. Routine manual saves are **not** backed up. TOML key: `backup_before_modify`.                                                                                                                                                  |
@@ -146,6 +147,16 @@ in the main Settings dialog under the **Chat / Assistant** section.
 
 See [Assistant](../usage/chatbot.md) for the full workflow, tool list,
 and the filesystem sandbox.
+
+## Cloud storage
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| **Allow writing to cloud storage** | Off | When on, a cloud-opened tab's **Save** uploads back to the object, and the assistant / MCP may write to cloud URLs. Off keeps cloud files read-only. TOML key: `cloud_writes_enabled`. |
+| **Connections** | *(none)* | Saved S3 / Azure / GCS connections (name, provider, bucket, endpoint, credentials). TOML keys: `cloud_connections`, `cloud_secrets` (plaintext fallback; keyring preferred). |
+
+See [Cloud storage](../usage/cloud-storage.md) for adding connections,
+sign-in, public buckets, and saving back.
 
 ## Map
 

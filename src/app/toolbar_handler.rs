@@ -312,6 +312,9 @@ impl OctaApp {
         if action.close_directory {
             self.directory_tree = None;
         }
+        if action.toggle_cloud_browser {
+            self.toggle_cloud_browser();
+        }
         if let Some(ref path) = action.open_recent {
             let path_buf = std::path::PathBuf::from(path);
             if path_buf.exists() {

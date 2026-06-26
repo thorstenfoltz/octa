@@ -175,6 +175,7 @@ impl OctaApp {
             startup_pin_load_done: false,
             multi_search: super::multi_search::MultiSearchState::new(search_mode),
             pending_tab_edits: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            cloud_browser: super::cloud_browser::CloudBrowserState::default(),
         }
     }
 

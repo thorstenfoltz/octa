@@ -1404,12 +1404,23 @@ impl OctaApp {
     }
 
     pub(crate) fn save_file(&mut self) {
+        // Cloud-opened tab: block when writes are disabled (the user can still
+        // Save As to a local copy), otherwise upload after the local write.
+        if self.tabs[self.active_tab].cloud_origin.is_some() && !self.settings.cloud_writes_enabled
+        {
+            self.status_message = Some((
+                octa::i18n::t("cloud.write_disabled"),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
         if let Some(ref path) = self.tabs[self.active_tab].table.source_path.clone() {
             let path = std::path::Path::new(path);
             // Regular save writes the full table back to the source path,
             // never the filtered view - the file on disk represents the
             // user's data, not their current view.
             self.do_save(path.to_path_buf(), false);
+            self.maybe_upload_cloud(self.active_tab, path);
         }
     }
 
@@ -1429,7 +1440,31 @@ impl OctaApp {
             // Save As respects the current row filter (text search + column
             // filters). The on-disk output mirrors what the user sees; the
             // in-memory table is left intact.
+            let new_path = path.to_string_lossy().to_string();
             self.do_save(path, true);
+            // A real rebase (no active filter) repoints source_path at the
+            // local file; detach from the cloud so future Saves stay local.
+            // A filtered *export* leaves source_path untouched - keep the
+            // cloud origin.
+            if self.tabs[self.active_tab].table.source_path.as_deref() == Some(new_path.as_str()) {
+                self.tabs[self.active_tab].cloud_origin = None;
+            }
+        }
+    }
+
+    /// Upload a freshly-saved cloud-backed tab if writes are enabled and the
+    /// local write actually completed (a rounding / DB-schema prompt defers the
+    /// write and leaves the tab modified; the user re-Saves after confirming).
+    ///
+    // ponytail: upload fires on the direct Save path. A deferred prompt skips
+    // it; re-Save after confirming pushes to the cloud. Hook the writer's
+    // success points only if a real cloud DB / rounding case turns up.
+    fn maybe_upload_cloud(&mut self, tab_idx: usize, path: &std::path::Path) {
+        if self.tabs[tab_idx].cloud_origin.is_some()
+            && self.settings.cloud_writes_enabled
+            && !self.tabs[tab_idx].is_modified()
+        {
+            self.upload_cloud_tab(tab_idx, path.to_path_buf());
         }
     }
 
@@ -1486,9 +1521,17 @@ impl OctaApp {
     }
 
     pub(crate) fn save_tab(&mut self, tab_idx: usize) {
+        if self.tabs[tab_idx].cloud_origin.is_some() && !self.settings.cloud_writes_enabled {
+            self.status_message = Some((
+                octa::i18n::t("cloud.write_disabled"),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
         if let Some(ref path) = self.tabs[tab_idx].table.source_path.clone() {
             let path = std::path::Path::new(path);
             self.do_save_tab(tab_idx, path.to_path_buf(), false);
+            self.maybe_upload_cloud(tab_idx, path);
         }
     }
 

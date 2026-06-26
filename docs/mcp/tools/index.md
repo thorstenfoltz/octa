@@ -35,6 +35,7 @@ file per group). These are dropped when the server is started with
 | **[`pivot`](pivot.md)**                                     | Reshape long <-> wide (PIVOT / UNPIVOT)                 | No                              |
 | **[`correlation`](correlation.md)**                         | Pairwise numeric correlation matrix                     | No                              |
 | **[`grep_files`](grep_files.md)**                           | Grep a value across files in a directory                | No                              |
+| **[`list_objects`](list_objects.md)**                       | List a cloud bucket folder (S3/Azure/GCS)               | No                              |
 | **[`write_table`](write_table.md)**                         | Write inline rows to a new file                         | Writes/replaces the output path |
 | **[`edit_table`](edit_table.md)**                           | Add columns / set cells / insert / delete rows in place | Yes (edits the file)            |
 | **[`transform_columns`](transform_columns.md)**             | Rename / cast / drop columns, write back                | Writes the output path          |
@@ -59,6 +60,17 @@ All tools share two parameter conventions:
 
 - `path` is required. Absolute or working-directory-relative
   path to the file. Octa parses based on the file extension.
+  A **cloud URL** (`s3://bucket/key`, `az://container/key`, `gs://bucket/key`)
+  is also accepted: the object is downloaded to a temporary file and read as
+  usual. The MCP/CLI server authenticates with **ambient credentials** (AWS_*
+  env vars, a cached SSO session, Azure CLI login, or Google
+  application-default credentials); Azure also needs `AZURE_STORAGE_ACCOUNT`.
+  Use [`list_objects`](list_objects.md) to browse a bucket first.
+  **Writing** to a cloud URL works too: the write tools (`write_table`,
+  `convert`, `transform_columns`, `anonymize`, `run_sql` with `write_to`)
+  accept a cloud URL as their output, building the file locally and uploading
+  it. They use the same ambient credentials; run the server with
+  `--mcp-read-only` to drop all write tools.
 - `table` *(optional)*: for multi-table sources (SQLite,
   DuckDB, GeoPackage), pick a specific table. Omit for
   single-table formats. If you don't know the available tables,

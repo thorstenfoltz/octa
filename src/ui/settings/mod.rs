@@ -1,4 +1,5 @@
 pub mod chat_models;
+pub mod cloud_secrets;
 mod dialog;
 pub mod secrets;
 
@@ -906,6 +907,17 @@ pub struct AppSettings {
     /// default; Anthropic, which requires the field, substitutes a high value).
     #[serde(default)]
     pub chat_max_tokens_unlimited: bool,
+    /// How many rows a tool result (e.g. a `run_sql` SELECT) puts into the
+    /// assistant's context. The result is capped to this many rows so a big
+    /// query can't flood the conversation; when it bites, the tool tells the
+    /// model to offer writing the full result to a file/tab. Default 200.
+    /// Ignored when `chat_result_row_limit_unlimited` is set.
+    #[serde(default = "default_chat_result_row_limit")]
+    pub chat_result_row_limit: usize,
+    /// When `true`, tool results are not row-capped (the numeric limit above is
+    /// ignored). Mirrors `chat_max_tokens_unlimited`.
+    #[serde(default)]
+    pub chat_result_row_limit_unlimited: bool,
     /// Directory the chat assistant writes exported files into (new CSVs,
     /// charts, ...) when the model gives a bare filename. The agent can only
     /// write here or to an absolute path the user explicitly requests.
@@ -938,6 +950,20 @@ pub struct AppSettings {
     /// Turn off to list every file regardless of type.
     #[serde(default = "default_true")]
     pub directory_tree_filter_enabled: bool,
+    /// Whether cloud writes (save-back / upload) are allowed. Default OFF, like
+    /// the local write-protection switch: browsing and opening always work, but
+    /// writing to a cloud object requires turning this on first.
+    #[serde(default)]
+    pub cloud_writes_enabled: bool,
+    /// Saved cloud connections (no secrets here; secrets live in the keyring /
+    /// `cloud_secrets` fallback, keyed by connection id).
+    #[serde(default)]
+    pub cloud_connections: Vec<crate::cloud::CloudConnection>,
+    /// Plaintext per-connection cloud secrets (JSON-encoded `CloudSecret`),
+    /// keyed by connection id. Only populated when the OS keyring is
+    /// unavailable; the keyring is preferred and the UI warns about plaintext.
+    #[serde(default)]
+    pub cloud_secrets: std::collections::BTreeMap<String, String>,
 }
 
 fn default_summary_stats() -> Vec<crate::data::summary::SummaryStat> {
@@ -962,6 +988,10 @@ fn default_chat_max_tool_iterations() -> usize {
 
 fn default_chat_max_tokens() -> usize {
     16_384
+}
+
+fn default_chat_result_row_limit() -> usize {
+    200
 }
 
 /// Default chat export directory: the user's Downloads folder if it exists,
@@ -1134,6 +1164,8 @@ impl Default for AppSettings {
             chat_max_tool_iterations: default_chat_max_tool_iterations(),
             chat_max_tokens: default_chat_max_tokens(),
             chat_max_tokens_unlimited: false,
+            chat_result_row_limit: default_chat_result_row_limit(),
+            chat_result_row_limit_unlimited: false,
             chat_export_dir: default_chat_export_dir(),
             chat_audit_log_enabled: false,
             chat_audit_log_warn_bytes: default_chat_audit_warn_bytes(),
@@ -1141,6 +1173,9 @@ impl Default for AppSettings {
             chat_api_keys: std::collections::BTreeMap::new(),
             summary_stats: default_summary_stats(),
             directory_tree_filter_enabled: true,
+            cloud_writes_enabled: false,
+            cloud_connections: Vec::new(),
+            cloud_secrets: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -1346,6 +1381,13 @@ pub struct SettingsDialog {
     /// Buffer backing the chat max-response-tokens input. Comma-tolerant
     /// integer; ignored when `chat_unlimited_tokens` is checked. Parsed on Apply.
     chat_max_tokens_buf: String,
+    /// Buffer backing the chat result-row-limit input (`chat_result_row_limit`).
+    /// Comma-tolerant integer (>= 1); ignored when `chat_unlimited_rows` is
+    /// checked. Parsed on Apply.
+    chat_result_row_limit_buf: String,
+    /// Mirrors `AppSettings.chat_result_row_limit_unlimited`: when true the row
+    /// limit input is greyed out and Apply writes the unlimited flag.
+    chat_unlimited_rows: bool,
     /// Mirrors `AppSettings.chat_max_tokens_unlimited`: when true the cap input
     /// is greyed out and Apply writes the unlimited flag.
     chat_unlimited_tokens: bool,
@@ -1371,6 +1413,34 @@ pub struct SettingsDialog {
     shortcut_conflict: Option<String>,
     /// Whether the "Reset to defaults" confirmation modal is currently shown.
     show_reset_confirm: bool,
+    /// Index of the connection currently loaded into the cloud form (edit
+    /// mode); `None` = the form adds a new connection.
+    cloud_editing: Option<usize>,
+    /// Id of the connection being edited (empty = new); keeps the stable id
+    /// across the form so its keyring secret stays addressable.
+    cloud_form_id: String,
+    cloud_form_name: String,
+    cloud_form_kind: crate::cloud::CloudKind,
+    cloud_form_bucket: String,
+    cloud_form_region: String,
+    cloud_form_endpoint: String,
+    cloud_form_account: String,
+    cloud_form_profile: String,
+    cloud_form_path_style: bool,
+    cloud_form_allow_http: bool,
+    /// Public / anonymous access (skip signing; no secret or sign-in needed).
+    cloud_form_anonymous: bool,
+    /// S3 access key id (secret entry).
+    cloud_form_access_key_id: String,
+    /// S3 secret access key / Azure account key / Azure SAS (per the toggle).
+    cloud_form_secret: String,
+    /// For Azure: the secret buffer is a SAS token rather than an account key.
+    cloud_form_azure_is_sas: bool,
+    /// Status line after a cloud secret save / clear.
+    cloud_secret_status_msg: Option<String>,
+    /// Armed Clear-secret confirmation: holds the connection id awaiting an
+    /// explicit second click. Guards against a one-click secret wipe.
+    cloud_secret_clear_confirm: Option<String>,
     /// Window-size mode for the dialog (Normal / Maximized / Minimized).
     /// Persists across re-opens within the same app session - closing and
     /// reopening Settings keeps the size choice the user last picked.

@@ -59,6 +59,13 @@ workbook or DuckDB/SQLite database, call `list_tables` then `read_table` with th
 open tabs, set `open_tab` to the first and add EACH other tab as an `extra_tables` entry whose \
 `path` is its handle or name, e.g. `extra_tables: [{name: \"b\", path: \"#2\"}, {name: \"c\", \
 path: \"#3\"}]`, then JOIN `data` with `b`, `c`, ... Any number of tables can be joined.\n\
+- Tool results are capped to a configurable number of rows (the user sets this in Settings > \
+Chat) so a large result never floods the conversation. Do NOT add a SQL `LIMIT` to `run_sql` \
+yourself - it would silently truncate a calculation; the query always runs over every row and \
+the tool only limits what it returns. When a result comes back `truncated: true` (its `note` \
+explains it), say how many of how many rows you saw, and offer to write the FULL result to a \
+file or a new tab (e.g. `run_sql` with `write_to`) rather than trying to pull it all into the \
+chat.\n\
 - Text, source-code, and Markdown files open as a single line-per-row column. For those, use \
 `read_text` (not `read_table`) to get the file's text, and `write_text` to save changes - either \
 to a new file or back to the open tab's file on disk (the user reloads with Ctrl+R to see it). \

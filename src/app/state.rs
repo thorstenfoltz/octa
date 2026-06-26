@@ -1007,6 +1007,16 @@ impl SearchNavState {
     }
 }
 
+/// Where a tab was opened from in the cloud. Set when a file is downloaded
+/// from a [`octa::cloud::CloudConnection`]; the tab's `source_path` points at
+/// the downloaded temp copy. Save-back (gated by `cloud_writes_enabled`)
+/// uploads to `key` on the connection identified by `conn_id`.
+#[derive(Debug, Clone)]
+pub(crate) struct CloudOrigin {
+    pub(crate) conn_id: String,
+    pub(crate) key: String,
+}
+
 pub(crate) struct TabState {
     pub(crate) table: DataTable,
     /// Set when the chat assistant changed this tab's table in place
@@ -1389,6 +1399,10 @@ pub(crate) struct TabState {
     /// every change. Each buffer is empty when the corresponding `Option`
     /// is `None`, otherwise holds the f64 / usize formatted for display.
     pub(crate) chart_buffers: ChartInputBuffers,
+    /// Set when this tab was opened from cloud storage. Carries the connection
+    /// id + object key so a later save can write back (gated by
+    /// `cloud_writes_enabled`). `None` for local files.
+    pub(crate) cloud_origin: Option<CloudOrigin>,
 }
 
 /// Text-input staging buffers for the Chart Customise section. Kept on
@@ -1663,6 +1677,10 @@ pub(crate) struct OctaApp {
     /// Live-tab edits queued by the chat `edit_open_tab` tool, drained per frame.
     pub(crate) pending_tab_edits:
         std::sync::Arc<std::sync::Mutex<Vec<crate::mcp::tools::PendingTabEdit>>>,
+    /// Sidebar cloud-storage browser: per-connection lazy listings + in-flight
+    /// downloads + sign-in status, all driven by background workers. Hidden
+    /// until toggled via **File -> Cloud connections**.
+    pub(crate) cloud_browser: super::cloud_browser::CloudBrowserState,
 }
 
 /// Snapshot of a read-only-toggle event used by the notice modal. Captures

@@ -74,6 +74,7 @@ fn sections(shortcuts: &ui::shortcuts::Shortcuts) -> Vec<(&'static str, String)>
         ("Map View", MAP_VIEW.to_string()),
         ("Chart", CHART_VIEW.to_string()),
         ("Tabs & Folder Sidebar", TABS.to_string()),
+        ("Cloud Storage", CLOUD_STORAGE.to_string()),
         ("SQL View", SQL_VIEW.to_string()),
         ("Command-line & MCP", CLI_AND_MCP.to_string()),
         ("Assistant", ASSISTANT.to_string()),

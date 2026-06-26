@@ -102,6 +102,7 @@ define_chat_tools! {
     "pivot"                    => pivot,
     "correlation"              => correlation,
     "grep_files"               => grep_files,
+    "list_objects"             => list_objects,
     "write_table"              => write_table,
     "edit_table"               => edit_table,
     "edit_open_tab"            => edit_open_tab,

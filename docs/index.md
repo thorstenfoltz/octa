@@ -96,6 +96,17 @@ like Claude can answer questions about your local files.
 
     [:octicons-arrow-right-24: Compare view](usage/view-modes/compare.md)
 
+- :material-cloud-outline:{ .lg .middle } **Open files from the cloud**
+
+    ---
+
+    Browse and open objects straight from Amazon S3 (and S3-compatible
+    stores), Azure Blob, and Google Cloud Storage in a sidebar. Static
+    keys, SSO sign-in, or public buckets, files download and open like
+    local ones. Saving back is off by default until you opt in.
+
+    [:octicons-arrow-right-24: Cloud storage](usage/cloud-storage.md)
+
 - :material-pencil:{ .lg .middle } **Edit and save back**
 
     ---

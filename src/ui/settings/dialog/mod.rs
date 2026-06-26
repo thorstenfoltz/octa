@@ -9,6 +9,7 @@ use crate::data::{BinaryDisplayMode, MapMode, MarkColor, SearchMode, SearchResul
 use crate::ui::theme::{BodyFont, ThemeMode};
 
 mod chat_section;
+mod cloud_section;
 mod shortcuts_grid;
 
 impl SettingsDialog {
@@ -52,12 +53,17 @@ impl SettingsDialog {
         self.chat_temperature_buf = format!("{:.2}", current.chat_temperature);
         self.chat_max_iterations_buf = current.chat_max_tool_iterations.to_string();
         self.chat_max_tokens_buf = crate::ui::status_bar::format_number(current.chat_max_tokens);
+        self.chat_result_row_limit_buf = current.chat_result_row_limit.to_string();
+        self.chat_unlimited_rows = current.chat_result_row_limit_unlimited;
         self.chat_unlimited_tokens = current.chat_max_tokens_unlimited;
         self.chat_audit_warn_mb_buf =
             (current.chat_audit_log_warn_bytes / (1024 * 1024)).to_string();
         self.chat_key_input_buf.clear();
         self.chat_key_status_msg = None;
         self.chat_key_clear_confirm = None;
+        self.clear_cloud_form();
+        self.cloud_secret_status_msg = None;
+        self.cloud_secret_clear_confirm = None;
         // Reset here; the chat panel re-sets it to true right after calling
         // open() so the Chat section starts expanded only when launched there.
         self.focus_chat_section = false;
@@ -229,6 +235,14 @@ impl SettingsDialog {
                             {
                                 self.draft.chat_max_tokens = n;
                             }
+                            // Chat result-row limit: "Unlimited" checkbox
+                            // overrides the number; otherwise parse (>= 1).
+                            self.draft.chat_result_row_limit_unlimited = self.chat_unlimited_rows;
+                            if let Ok(n) = parse_comma_number(&self.chat_result_row_limit_buf)
+                                && n >= 1
+                            {
+                                self.draft.chat_result_row_limit = n;
+                            }
                             // Audit-log warning threshold (MB -> bytes).
                             if let Ok(mb) = parse_comma_number(&self.chat_audit_warn_mb_buf) {
                                 self.draft.chat_audit_log_warn_bytes = (mb as u64) * 1024 * 1024;
@@ -318,6 +332,8 @@ impl SettingsDialog {
             self.chat_max_iterations_buf = self.draft.chat_max_tool_iterations.to_string();
             self.chat_max_tokens_buf =
                 crate::ui::status_bar::format_number(self.draft.chat_max_tokens);
+            self.chat_result_row_limit_buf = self.draft.chat_result_row_limit.to_string();
+            self.chat_unlimited_rows = self.draft.chat_result_row_limit_unlimited;
             self.chat_unlimited_tokens = self.draft.chat_max_tokens_unlimited;
             self.icon_changed = true;
             self.font_changed = true;
@@ -1073,6 +1089,20 @@ impl SettingsDialog {
                     });
                     ui.end_row();
 
+                    ui.label(crate::i18n::t("chat.result_row_limit"))
+                        .on_hover_text(crate::i18n::t("settings_hint.chat_result_row_limit"));
+                    ui.horizontal(|ui| {
+                        let edit = egui::TextEdit::singleline(&mut self.chat_result_row_limit_buf)
+                            .desired_width(100.0)
+                            .hint_text("200");
+                        ui.add_enabled(!self.chat_unlimited_rows, edit);
+                        ui.checkbox(
+                            &mut self.chat_unlimited_rows,
+                            crate::i18n::t("settings.unlimited"),
+                        );
+                    });
+                    ui.end_row();
+
                     ui.label(crate::i18n::t("chat.position"))
                         .on_hover_text(crate::i18n::t("settings_hint.chat_position"));
                     egui::ComboBox::from_id_salt("settings_chat_position")
@@ -1262,6 +1292,18 @@ impl SettingsDialog {
                         ui.end_row();
                     }
                 });
+        });
+
+        // ── Cloud storage ──
+        egui::CollapsingHeader::new(
+            egui::RichText::new(crate::i18n::t("settings.sec_cloud"))
+                .strong()
+                .size(13.0),
+        )
+        .id_salt("settings_section_cloud")
+        .default_open(false)
+        .show(ui, |ui| {
+            self.cloud_section_body(ui);
         });
 
         // ── Map ──

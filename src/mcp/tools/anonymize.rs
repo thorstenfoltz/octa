@@ -156,9 +156,10 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
 
     // Resolve + validate output.
     let requested = p.output_path.clone().unwrap_or_else(|| p.path.clone());
-    let out_path = ctx.resolve_write_path(&requested)?;
+    let dest = ctx.resolve_write_dest(&requested)?;
+    let out_path = dest.path();
     let registry = FormatRegistry::new();
-    let out_reader = registry.reader_for_path(&out_path).ok_or_else(|| {
+    let out_reader = registry.reader_for_path(out_path).ok_or_else(|| {
         anyhow::anyhow!("no reader for output extension on {}", out_path.display())
     })?;
     if DB_FORMATS.contains(&out_reader.name()) {
@@ -173,21 +174,20 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
             out_reader.name()
         );
     }
-    if ctx.backup_before_modify && out_path.exists() {
-        octa::formats::backup_existing_file(&out_path)?;
+    if ctx.backup_before_modify && !dest.is_cloud() && out_path.exists() {
+        octa::formats::backup_existing_file(out_path)?;
     }
-    out_reader.write_file_schema_aware(&out_path, &table, ctx.allow_schema_changes)?;
+    out_reader.write_file_schema_aware(out_path, &table, ctx.allow_schema_changes)?;
+    let rows_written = table.row_count();
+    let target = dest.finish()?;
 
     let mut out = Map::new();
-    out.insert("rows_written".to_string(), Value::from(table.row_count()));
+    out.insert("rows_written".to_string(), Value::from(rows_written));
     out.insert(
         "columns_anonymized".to_string(),
         Value::from(columns_anonymized),
     );
-    out.insert(
-        "output".to_string(),
-        Value::String(out_path.display().to_string()),
-    );
+    out.insert("output".to_string(), Value::String(target));
     Ok(Value::Object(out))
 }
 

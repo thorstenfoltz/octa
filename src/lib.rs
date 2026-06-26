@@ -1,3 +1,4 @@
+pub mod cloud;
 pub mod data;
 pub mod diagnostics;
 pub mod formats;

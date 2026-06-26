@@ -1331,6 +1331,11 @@ Six tools cover roughly the CLI surface plus row counting:
 - `run_sql(path, query, limit?, table?)`
 - `convert(input, output, table?)`
 
+(The full tool set is larger; see the online MCP docs.) Tools also
+accept **cloud URLs** (`s3://`, `az://`, `gs://`) wherever they take a
+`path`, for both reading and writing, using ambient cloud credentials;
+`list_objects` browses a bucket.
+
 Defaults (row limit + per-cell byte cap) are configurable under
 **Settings -> MCP**; changes require an `octa --mcp` restart. Every
 result-bearing tool exposes a `limit` parameter (pass `0` for
@@ -1363,11 +1368,21 @@ environment, then the OS keyring, then `settings.toml` (in that order).
 ## What it can access
 
 The assistant sees only your **open tabs** (and the other sheets/tables
-of an open workbook or database). It cannot read arbitrary files. Writes
-are confined to the export directory (**Settings > Chat / Assistant >
-Export directory**, default ~/Downloads) unless you give an absolute
-path. It can read, query (SQL), profile, convert, chart, and write data
-through the same tools the MCP server exposes.
+of an open workbook or database). It cannot read arbitrary files. It can
+also read and list **cloud objects** (s3://, az://, gs://) in buckets you
+have saved as a connection under **Settings > Cloud storage**; unsaved
+buckets are refused. Writes are confined to the export directory
+(**Settings > Chat / Assistant > Export directory**, default ~/Downloads)
+unless you give an absolute path. It can read, query (SQL), profile,
+convert, chart, and write data through the same tools the MCP server
+exposes.
+
+Tool results are capped at **Settings > Chat / Assistant > Result row
+limit** (default 200 rows) so a big query can't flood the conversation.
+The query still runs over every row; only what the model sees is capped.
+When a result is shortened, the assistant tells you how many of how many
+rows it got and offers to write the full result to a file or a tab. Tick
+**Unlimited** for no cap.
 
 ## Editing your data
 
@@ -1477,6 +1492,14 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
 - **MCP**: default row limit (with **Unlimited** toggle) and per-cell
   byte cap for the `octa --mcp` server. Read at server startup, so
   changes require a restart.
+- **Chat / Assistant**: provider + model, API keys, temperature, max
+  tool iterations, max response tokens, the result row limit (with an
+  **Unlimited** checkbox), panel position, export directory, write
+  protection, and the tool-call audit log. See the **Assistant**
+  section.
+- **Cloud storage**: the **Allow writing to cloud storage** switch and
+  your saved S3 / Azure / GCS connections (with their credentials). See
+  the **Cloud Storage** section.
 - **Map**: default mode (Tiles / Geometry only), tile URL template,
   fall-back-to-geometry toggle for offline / blocked tile fetches.
 - **Directory Tree**: sidebar position (left / right), and "show only
@@ -1756,4 +1779,120 @@ folder) with your app version, operating system, theme and language, the tail
 of the log, the last crash if any, and your settings. Secrets are stripped and
 your home folder and username are masked, so it is safe to attach to a GitHub
 issue. No cell values or column data are included.
+"#;
+
+pub(super) const CLOUD_STORAGE: &str = r#"# Cloud Storage
+
+Browse and open files directly from Amazon S3 (and S3-compatible providers
+such as IONOS, MinIO, and Cloudflare R2), Azure Blob Storage, and Google
+Cloud Storage. Saving back to the cloud is **off by default** and must be
+turned on.
+
+## Add a connection
+
+Open **Settings > Cloud storage** and click **Add connection**:
+
+- **Name** - a label shown in the sidebar.
+- **Provider** - S3, Azure Blob, or GCS.
+- **Bucket / Container** - the S3 bucket, Azure container, or GCS bucket.
+- **S3 endpoint** - leave empty for real AWS. Set it for an S3-compatible
+  provider (IONOS, MinIO, R2, ...); those usually also need **Path-style
+  addressing** on, and a local MinIO may need **Allow HTTP**.
+- **AWS profile** - a named profile for SSO sign-in (resolved through the AWS
+  CLI). Leave empty to use ambient credentials.
+- **Storage account** (Azure only).
+
+### Credentials
+
+Octa resolves credentials in this order: a **secret you save** on the
+connection, then the **ambient** environment (AWS_* variables, a cached SSO
+session, Azure CLI login, or Google application-default credentials).
+
+- **S3 / S3-compatible**: save an **Access key ID** + **Secret** for static
+  keys, or use a profile / `aws sso login` for AWS SSO.
+- **Azure**: save an account key or a **SAS token**, or sign in with the
+  Azure CLI.
+- **GCS**: uses application-default credentials (`gcloud auth
+  application-default login`) or `GOOGLE_*` environment variables.
+
+Saved secrets are stored in your operating system keyring when available,
+otherwise in `settings.toml`. **Clear secret** removes a stored secret.
+
+### Public / anonymous buckets
+
+For a **public, read-only** bucket or container, tick **Public / anonymous
+access** in the connection form. Octa then skips request signing entirely, so
+it opens with no credentials and no sign-in. (Without this, a public Azure
+container would redirect to a login and fail.) No secret is needed, and the
+sidebar shows the connection as `(public)`.
+
+## Sign in (browser SSO)
+
+A **Sign in** button is only needed for **browser SSO** sign-in, and only
+appears for connections that use it. It shells out to the cloud's official CLI:
+
+- S3: `aws sso login` (with `--profile` if set)
+- Azure: `az login`
+- GCS: `gcloud auth application-default login`
+
+You do **not** need any CLI for static keys, a SAS token, ambient environment
+credentials, a GCS service-account key, or a public connection - only for the
+in-app browser sign-in. When the CLI is missing, the connection shows a
+**"Sign in needs CLI"** note instead of the button (hover it for the full
+reason). Octa never implements the OAuth flow itself.
+
+On **Windows**, all three CLIs have native installers (the AWS CLI MSI, the
+Azure CLI MSI, the Google Cloud SDK installer); WSL is not required. If your
+CLI only lives inside WSL, native-Windows Octa will not see it - install the
+CLI on Windows, or use static keys / a SAS token instead.
+
+## Browse and open
+
+Open the sidebar with **File > Cloud connections**. Click a connection to list
+its bucket root, expand folders to drill in (listings load in the background
+and are cached), and click a file to open it. The file is downloaded to a
+temporary copy and opened in a new tab, just like a local file, so every
+supported format works. **Refresh** re-lists a connection (for example after
+signing in or after the bucket changed).
+
+## Saving back
+
+By default, cloud-opened files are read-only: pressing **Save** shows a
+reminder and does nothing, but **Save As** to a local path always works (and
+detaches the tab from the cloud).
+
+To save back to the object, turn on **Allow writing to cloud storage** in
+**Settings > Cloud storage**. Then **Save** writes the tab back to its
+original object. Uploads run in the background; the status bar reports success
+or failure.
+
+The same switch also lets the **assistant** write to the cloud: ask it to save
+a result to a cloud URL (e.g. `s3://bucket/out.parquet`) and its write tools
+upload it to a bucket you have saved as a connection. The headless MCP server
+(`octa --mcp`) writes to cloud URLs too, using ambient credentials; run it with
+`--mcp-read-only` to remove every write tool.
+
+## Connection status
+
+Each connection's name carries its provider in brackets - `(S3)`, `(Azure)`,
+or `(GCS)`. Under the name the sidebar shows how it authenticates - **Public**,
+**Saved keys**, or **Sign-in** - and, once you have expanded it at least once,
+whether the bucket was **reachable** (green) or **not reachable** (red). The
+status comes from the last listing; it is not a live connection (see below).
+
+## Signing out
+
+A connection that uses **saved keys** shows a **Sign out** button. It removes
+that connection's stored credentials from this computer (the same as **Clear
+secret** in Settings), after a confirm. This is local only - a browser SSO
+session lives in the cloud CLI, not in Octa, so you end that there (for example
+`aws sso logout`). A public connection has nothing to sign out of.
+
+## Is it always connected?
+
+No. Object storage is not a persistent session - every list, open, and save is
+an independent request. A saved connection is just **configuration** (the
+bucket plus how to authenticate), like a bookmark; it stays in the list across
+restarts but nothing is "connected" in between. There is nothing to keep open
+and nothing that drains while idle.
 "#;

@@ -24,9 +24,9 @@ use super::chat::session::{ChatSessionState, TurnPhase};
 use super::chat::{agent, build_system_prompt, ollama, persist, secrets, tools};
 use super::state::OctaApp;
 
-/// Conservative response caps for tools driven by the chat agent - much
-/// tighter than the MCP defaults so one `read_table` can't swamp the model.
-const CHAT_ROW_CAP: usize = 200;
+/// Per-cell byte cap for chat tool results - tighter than the MCP default so
+/// one wide cell can't swamp the model. The row cap is user-configurable
+/// (`AppSettings.chat_result_row_limit`, default 200).
 const CHAT_CELL_CAP: usize = 4096;
 
 /// Shared (worker-updated) Ollama discovery state.
@@ -1457,7 +1457,14 @@ impl OctaApp {
         ToolContext {
             open_tabs,
             active_tab: active_index,
-            default_row_limit: Some(CHAT_ROW_CAP),
+            // Cap how many rows a tool result puts into the model's context.
+            // User-configurable (Settings > Chat); the Unlimited checkbox sends
+            // `None` (no cap).
+            default_row_limit: if self.settings.chat_result_row_limit_unlimited {
+                None
+            } else {
+                Some(self.settings.chat_result_row_limit)
+            },
             cell_byte_cap: CHAT_CELL_CAP,
             restrict_filesystem: true,
             allowed_read_paths,
@@ -1466,6 +1473,9 @@ impl OctaApp {
             allow_schema_changes: !self.settings.write_protection,
             backup_before_modify: self.settings.backup_before_modify,
             pending_tab_edits: Some(self.pending_tab_edits.clone()),
+            // The assistant may reach saved cloud connections (creds resolved
+            // lazily on the worker thread).
+            cloud_settings: Some(self.settings.clone()),
         }
     }
 

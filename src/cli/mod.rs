@@ -182,10 +182,12 @@ Notes:
     convert, export_schema, profile, find_duplicates, fuzzy_duplicates,
     value_frequency, search, compare_schemas, diff_tables, union_tables,
     validate_against_schema, describe_file, unique_columns, pivot,
-    correlation, grep_files, write_table, edit_table, transform_columns,
-    anonymize. The file-writing tools (convert, write_table, edit_table,
-    transform_columns, anonymize) are dropped under --mcp-read-only.
-    Default row + cell caps come from Settings -> MCP.
+    correlation, grep_files, list_objects, write_table, edit_table,
+    transform_columns, anonymize. The file-writing tools (convert, write_table,
+    edit_table, transform_columns, anonymize) are dropped under
+    --mcp-read-only. Read tools also accept cloud URLs (s3://, az://, gs://)
+    in their `path`, and `list_objects` browses a bucket; both use ambient
+    cloud credentials. Default row + cell caps come from Settings -> MCP.
   * Action flags are mutually exclusive - pick one. Without any, Octa
     launches its GUI.
   * --rows overrides the initial-load row cap for this invocation

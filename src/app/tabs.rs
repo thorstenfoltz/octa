@@ -155,6 +155,7 @@ impl TabState {
             map_memory: None,
             chart_config: data::chart::ChartConfig::default(),
             chart_buffers: super::state::ChartInputBuffers::default(),
+            cloud_origin: None,
         }
     }
 

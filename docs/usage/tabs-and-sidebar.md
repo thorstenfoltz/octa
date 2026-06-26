@@ -91,6 +91,13 @@ splitter to resize.
 the tabs you've already opened from it. Re-opening a folder shows it
 again.
 
+### Cloud connections
+
+The same sidebar also hosts your **cloud connections**. **File → Cloud
+connections** shows a browser for saved S3 / Azure / GCS buckets above
+the folder tree; expand a connection to list its objects and click a
+file to open it. See [Cloud storage](cloud-storage.md).
+
 ## Multi-table databases (table picker)
 
 When you open a `.sqlite` / `.duckdb` / `.gpkg` file with **more than
@@ -122,6 +129,8 @@ tab and reopen the file.
 
 - [Compare view](view-modes/compare.md) uses tab multi-selection
   (Ctrl+click) to pick the right-side file.
+- [Cloud storage](cloud-storage.md) browses S3 / Azure / GCS buckets in
+  the same sidebar.
 - [Settings → Directory Tree](../reference/settings.md#directory-tree)
   changes the sidebar dock side.
 - [Settings → Files](../reference/settings.md#files) changes the

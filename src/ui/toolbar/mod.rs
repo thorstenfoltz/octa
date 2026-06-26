@@ -189,6 +189,14 @@ pub fn draw_toolbar(
                     action.close_directory = true;
                     ui.close();
                 }
+                if ui
+                    .button(crate::i18n::t("file_menu.cloud_connections"))
+                    .on_hover_text(crate::i18n::t("file_menu.cloud_connections_hint"))
+                    .clicked()
+                {
+                    action.toggle_cloud_browser = true;
+                    ui.close();
+                }
                 if has_data {
                     ui.separator();
                     if has_source_path

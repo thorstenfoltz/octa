@@ -62,6 +62,8 @@ impl eframe::App for OctaApp {
         self.drain_background_rows(&ctx);
         self.drain_pending_open_queue();
         self.drain_pending_tab_edits();
+        self.drain_cloud_pending_open();
+        self.drain_cloud_sign_ins(&ctx);
         self.expire_sql_diff_highlights(&ctx);
 
         if self.tabs[self.active_tab].filter_dirty {
