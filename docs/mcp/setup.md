@@ -35,10 +35,22 @@ local MCP server. This page walks through all three.
 
 ## Read-only mode
 
-Add `--mcp-read-only` to expose a **read-only tool surface**: the
-file-writing tools `write_table`, `edit_table`, and `convert` are
-omitted from the server, so an agent wired to Octa can inspect and
-query data but cannot modify files.
+Add `--mcp-read-only` to expose a **read-only tool surface**: every
+file-writing tool is omitted from the server, so an agent wired to Octa
+can inspect and query data but cannot modify files. The dropped tools are:
+
+- `write_table`
+- `edit_table`
+- `convert`
+- `transform_columns`
+- `anonymize`
+- `partition_table`
+
+Every other tool stays available, including the read-only analytics
+(`pivot`, `correlation`, `grep_files`) and `list_objects`. For cloud
+objects this is also the only write gate: with `--mcp-read-only` the
+server can read from `s3://` / `az://` / `gs://` URLs but never write
+back to them.
 
 ```bash
 octa --mcp --mcp-read-only
@@ -47,7 +59,7 @@ octa --mcp --mcp-read-only
 The startup banner notes the mode:
 
 ```
-octa --mcp ready [read-only: write_table/edit_table/convert disabled] (...)
+octa --mcp ready [read-only: write tools disabled] (...)
 ```
 
 Use it in any client config by appending the flag to `args`, e.g.

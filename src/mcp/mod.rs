@@ -698,7 +698,7 @@ pub async fn run(
         format!("{file_cap}")
     };
     let mode_str = if read_only {
-        " [read-only: write_table/edit_table/convert disabled]"
+        " [read-only: write tools disabled]"
     } else {
         ""
     };
