@@ -27,15 +27,15 @@ checkboxes, and the Secret section with Access key ID + Secret fields and a
 
 Open **Settings > Cloud storage** and click **Add connection**:
 
-| Field | Meaning |
-| --- | --- |
-| **Name** | Label shown in the sidebar. |
-| **Provider** | S3, Azure Blob, or GCS. |
-| **Bucket / Container** | The S3 bucket, Azure container, or GCS bucket. |
-| **S3 endpoint** | Leave empty for real AWS. Set it for an S3-compatible provider; those usually also need **Path-style addressing** on, and a local MinIO may need **Allow HTTP**. |
-| **Region** | S3 region (real AWS). |
-| **AWS profile** | A named profile for SSO sign-in (resolved through the AWS CLI). Leave empty for ambient credentials. |
-| **Storage account** | Azure only. |
+| Field                  | Meaning                                                                                                                                                          |
+|------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Name**               | Label shown in the sidebar.                                                                                                                                      |
+| **Provider**           | S3, Azure Blob, or GCS.                                                                                                                                          |
+| **Bucket / Container** | The S3 bucket, Azure container, or GCS bucket.                                                                                                                   |
+| **S3 endpoint**        | Leave empty for real AWS. Set it for an S3-compatible provider; those usually also need **Path-style addressing** on, and a local MinIO may need **Allow HTTP**. |
+| **Region**             | S3 region (real AWS).                                                                                                                                            |
+| **AWS profile**        | A named profile for SSO sign-in (resolved through the AWS CLI). Leave empty for ambient credentials.                                                             |
+| **Storage account**    | Azure only.                                                                                                                                                      |
 
 ### Credentials
 
@@ -69,11 +69,11 @@ as `(public)`.
 A **Sign in** button is only needed for **browser SSO** sign-in, and only
 appears for connections that use it. It shells out to the cloud's official CLI:
 
-| Provider | Command |
-| --- | --- |
-| S3 | `aws sso login` (plus `--profile` if set) |
-| Azure | `az login` |
-| GCS | `gcloud auth application-default login` |
+| Provider | Command                                   |
+|----------|-------------------------------------------|
+| S3       | `aws sso login` (plus `--profile` if set) |
+| Azure    | `az login`                                |
+| GCS      | `gcloud auth application-default login`   |
 
 You do **not** need any CLI for static keys, a SAS token, ambient environment
 credentials, a GCS service-account key, or a public connection - only for the

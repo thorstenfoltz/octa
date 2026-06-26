@@ -11,8 +11,8 @@ Read-only analytics (stays available under `--mcp-read-only`).
 
 ## Input schema
 
-| Parameter | Type   | Required? | Default      | Description                                                       |
-|-----------|--------|-----------|--------------|-------------------------------------------------------------------|
+| Parameter | Type   | Required? | Default      | Description                                                                                         |
+|-----------|--------|-----------|--------------|-----------------------------------------------------------------------------------------------------|
 | `url`     | string | yes       | (no default) | `s3://bucket/prefix`, `az://container/prefix`, or `gs://bucket/prefix` (empty prefix = bucket root) |
 
 ## Credentials
