@@ -151,6 +151,8 @@ impl OctaApp {
             schema_export: None,
             pivot_dialog: None,
             multi_sort_dialog: None,
+            git_compare_dialog: None,
+            correlation_dialog: None,
             transform_dialog: None,
             conditional_column_dialog: None,
             anonymize_dialog: None,
@@ -173,6 +175,7 @@ impl OctaApp {
             startup_pin_load_done: false,
             multi_search: super::multi_search::MultiSearchState::new(search_mode),
             pending_tab_edits: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            cloud_browser: super::cloud_browser::CloudBrowserState::default(),
         }
     }
 

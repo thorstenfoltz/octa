@@ -102,9 +102,9 @@ pub(super) const EDITING: &str = r#"# Editing & Undo/Redo
 Structural edits:
 
 - **Edit > Insert Row** adds a new empty row below the selected cell.
-- **Edit > Insert Column** opens a dialog to add a column (name + type).
-- **Edit > Delete Row / Delete Column** removes the selected one(s).
-- **Edit > Move Row Up/Down** and **Move Column Left/Right** reorder data.
+- **Columns > Insert Column** opens a dialog to add a column (name + type).
+- **Edit > Delete Row** and **Columns > Delete Column** remove the selected one(s).
+- **Edit > Move Row Up/Down** and **Columns > Move Column Left/Right** reorder data.
 - **Edit > Discard All Edits** reverts all unsaved changes.
 - **Drag a column header** to reorder columns.
 - **Double-click a column header** to rename it inline.
@@ -128,7 +128,7 @@ values. Toggle it, or switch English (`1,234.56`) vs European
 (`1.234,56`) style, under **Settings > Table View** (**Thousand
 separators** + **Number style**).
 
-Right-click a numeric column header (or **Edit > Number format...**) for
+Right-click a numeric column header (or **Columns > Number format...**) for
 a per-column **rounding format**. The dialog applies live (no Apply
 step) and is movable/resizable. Type the number of **Decimals** (empty =
 Auto; a negative count rounds before the decimal point, e.g. -2 = nearest
@@ -156,7 +156,7 @@ Cells support simple Excel-like formulas starting with **=**.
 - **Parentheses**: `(A1 + B1) * 2`.
 - **Numeric literals**: `=A1 * 1.5`.
 
-When inserting a column via **Edit > Insert Column**, you can type a formula
+When inserting a column via **Columns > Insert Column**, you can type a formula
 into the **Formula** field. The formula is treated as a row-1 template and
 applied to every row (e.g. `=A1+B1` becomes `=A3+B3` on row 3).
 
@@ -344,7 +344,7 @@ pub(super) const COLUMN_TOOLS: &str = r#"# Column Tools
 
 Right-click any column header and pick **Hide column** to remove it
 from the view. Hidden columns are still part of the table on disk:
-Save and Save As both write them out. Use **Edit > Show hidden
+Save and Save As both write them out. Use **Columns > Show hidden
 columns** to bring everything back at once. This is a per-tab,
 session-only setting; closing the tab or reopening the file clears
 the hidden set.
@@ -645,6 +645,31 @@ full table.
 Powered by DuckDB's `PIVOT` / `UNPIVOT`, so it works on any open table.
 "#;
 
+pub(super) const CORRELATION: &str = r#"# Correlation
+
+Measure how strongly the numeric columns in a table move together. Open it
+via **Analyse > Correlation...**, pick a method, and press **Compute**. The
+result opens in a **new detached tab** - your original table is unchanged.
+
+## Methods
+
+- **Pearson** measures linear association (do the values rise and fall
+  together in a straight-line way).
+- **Spearman** measures monotonic association by correlating the value
+  ranks, so it catches consistent up-or-down relationships that are not
+  perfectly straight.
+
+## Reading the result
+
+Every numeric column is correlated with every other numeric column. The
+result is a square table: the first column lists each variable, and there
+is one further column per variable. Each cell holds a coefficient from
+**-1** (perfectly opposite) through **0** (no linear/monotonic relation) to
+**+1** (perfectly together); the diagonal is always 1. A pair with too few
+overlapping values, or no variation, is left blank. Non-numeric columns are
+ignored automatically.
+"#;
+
 pub(super) const SCHEMA_EXPORT: &str = r#"# Schema Export
 
 Open via **File > Export schema...** or **F7** (remappable).
@@ -779,7 +804,7 @@ pub(super) const CONDITIONAL_FORMAT: &str = r#"# Conditional Formatting
 
 Where colour marking is something you apply by hand, conditional formatting
 colours cells **automatically** based on their value, like the feature of the
-same name in a spreadsheet. Open it via **Edit > Conditional formatting...**.
+same name in a spreadsheet. Open it via **Columns > Conditional formatting...**.
 
 ## Rules
 
@@ -818,7 +843,7 @@ pub(super) const VALIDATION: &str = r#"# Data Validation
 
 Data validation flags cells that break a rule you define, painting each
 failing cell **red** so problems stand out. Open it via
-**Edit > Data validation...**.
+**Columns > Data validation...**.
 
 ## Rules
 
@@ -852,7 +877,7 @@ pub(super) const TRANSFORMS: &str = r#"# Transform Column
 
 Transform Column reshapes your data with a single click, the way you would
 clean up a messy spreadsheet by hand. Open it via
-**Edit > Transform column...**. Pick an operation, fill in its options, and
+**Data > Transform column...**. Pick an operation, fill in its options, and
 press **Apply**. Each transform is undoable (Ctrl+Z), session-only until you
 save, and respects read-only mode.
 
@@ -883,7 +908,7 @@ producing text, and all changes can be undone before you save.
 
 ## Conditional column (if / else-if / else)
 
-**Edit > Conditional column...** builds a new column whose value depends on
+**Data > Conditional column...** builds a new column whose value depends on
 conditions, like a spreadsheet IF/IFS or a SQL CASE. Add an ordered list of
 rules such as "if amount > 100 then high, else if amount > 50 then medium,
 else low". Each rule tests one column with an operator (equals, contains,
@@ -902,7 +927,7 @@ column sets a value.
 
 pub(super) const ANONYMIZE: &str = r#"# Anonymise Columns
 
-**Edit > Anonymise columns...** (Ctrl+Shift+Y) prepares a file for sharing by
+**Data > Anonymise columns...** (Ctrl+Shift+Y) prepares a file for sharing by
 masking or scrambling sensitive columns. Add rules, pick a strategy for each,
 choose where the result goes, and press Apply. An Apply is a single undo step
 (Ctrl+Z reverts the whole operation at once).
@@ -971,7 +996,7 @@ filtered view, so search first and then sort.
 
 ## Sort by several columns
 
-For a multi-level sort, open **Analyse > Sort by columns...**. The dialog
+For a multi-level sort, open **Data > Sort by columns...**. The dialog
 holds an ordered list of sort keys, each a column and a direction. The
 first key is the primary sort; later keys break ties (so, for example,
 sort by department ascending, then by salary descending).
@@ -1025,10 +1050,18 @@ still open in Table View.
 
 pub(super) const COMPARE_VIEW: &str = r#"# Compare View
 
-Compare two files side-by-side. Triggered in three ways:
+Compare two files side-by-side. Triggered in four ways:
 
 - **View -> Compare with...**: opens a file picker; the active tab is the
   left side, the picked file is the right.
+- **View -> Compare with git version...**: compare the current file (with
+  any uncommitted changes) against a committed version from git. Opens a
+  small dialog defaulting to **HEAD** (the last commit) with a dropdown of
+  recent commits that touched the file, so you can pick any older revision.
+  The dialog also has **Open in new tab**, which loads that past version on
+  its own instead of comparing. Works for any tracked file, text or binary
+  (the committed bytes are read straight from git). Requires the file to be
+  saved inside a git repository; otherwise a status message says so.
 - **Right-click a tab -> Compare with active tab**.
 - The **Compare selected tabs** shortcut (default **F9**, remappable) when
   exactly one tab is **Ctrl-clicked** as the right side.
@@ -1298,6 +1331,11 @@ Six tools cover roughly the CLI surface plus row counting:
 - `run_sql(path, query, limit?, table?)`
 - `convert(input, output, table?)`
 
+(The full tool set is larger; see the online MCP docs.) Tools also
+accept **cloud URLs** (`s3://`, `az://`, `gs://`) wherever they take a
+`path`, for both reading and writing, using ambient cloud credentials;
+`list_objects` browses a bucket.
+
 Defaults (row limit + per-cell byte cap) are configurable under
 **Settings -> MCP**; changes require an `octa --mcp` restart. Every
 result-bearing tool exposes a `limit` parameter (pass `0` for
@@ -1330,11 +1368,21 @@ environment, then the OS keyring, then `settings.toml` (in that order).
 ## What it can access
 
 The assistant sees only your **open tabs** (and the other sheets/tables
-of an open workbook or database). It cannot read arbitrary files. Writes
-are confined to the export directory (**Settings > Chat / Assistant >
-Export directory**, default ~/Downloads) unless you give an absolute
-path. It can read, query (SQL), profile, convert, chart, and write data
-through the same tools the MCP server exposes.
+of an open workbook or database). It cannot read arbitrary files. It can
+also read and list **cloud objects** (s3://, az://, gs://) in buckets you
+have saved as a connection under **Settings > Cloud storage**; unsaved
+buckets are refused. Writes are confined to the export directory
+(**Settings > Chat / Assistant > Export directory**, default ~/Downloads)
+unless you give an absolute path. It can read, query (SQL), profile,
+convert, chart, and write data through the same tools the MCP server
+exposes.
+
+Tool results are capped at **Settings > Chat / Assistant > Result row
+limit** (default 200 rows) so a big query can't flood the conversation.
+The query still runs over every row; only what the model sees is capped.
+When a result is shortened, the assistant tells you how many of how many
+rows it got and offers to write the full result to a file or a tab. Tick
+**Unlimited** for no cap.
 
 ## Editing your data
 
@@ -1362,6 +1410,17 @@ Assistant**). Routine manual saves are not backed up.
 Conversations are saved automatically as JSON under `chat_sessions/` in
 your config directory. Use **New chat** to start fresh and **History**
 to reopen or delete past conversations.
+
+## Exporting a conversation
+
+The **Export** button in the panel header saves the current conversation to
+a file. The save dialog offers two formats, chosen by the extension you pick:
+
+- **Markdown (.md)**: a readable transcript with your prompts, the
+  assistant's replies, every SQL query it ran (in ```sql code blocks), other
+  tool calls, and each tool's result (truncated to keep the file small).
+- **JSON (.json)**: the exact saved session, identical to the on-disk
+  format, for archiving or further processing.
 
 ## Saved prompts
 
@@ -1433,6 +1492,14 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
 - **MCP**: default row limit (with **Unlimited** toggle) and per-cell
   byte cap for the `octa --mcp` server. Read at server startup, so
   changes require a restart.
+- **Chat / Assistant**: provider + model, API keys, temperature, max
+  tool iterations, max response tokens, the result row limit (with an
+  **Unlimited** checkbox), panel position, export directory, write
+  protection, and the tool-call audit log. See the **Assistant**
+  section.
+- **Cloud storage**: the **Allow writing to cloud storage** switch and
+  your saved S3 / Azure / GCS connections (with their credentials). See
+  the **Cloud Storage** section.
 - **Map**: default mode (Tiles / Geometry only), tile URL template,
   fall-back-to-geometry toggle for offline / blocked tile fetches.
 - **Directory Tree**: sidebar position (left / right), and "show only
@@ -1468,7 +1535,7 @@ pub(super) const DEDUPE: &str = r#"# Drop Duplicate Rows
 
 Drop Duplicate Rows removes repeated rows from the active table in one
 step, the way you would delete duplicate lines in a spreadsheet. Open it
-via **Edit > Drop duplicate rows...** (Ctrl+Shift+H).
+via **Data > Drop duplicate rows...** (Ctrl+Shift+H).
 
 ## How it works
 
@@ -1490,7 +1557,7 @@ pub(super) const IMPUTE: &str = r#"# Fill Missing Values
 
 Fill Missing Values replaces empty or null cells in one column using a
 strategy you pick, so you don't have to fill gaps by hand. Open it via
-**Edit > Fill missing values...**.
+**Data > Fill missing values...**.
 
 ## Strategies
 
@@ -1512,7 +1579,7 @@ pub(super) const UNION: &str = r#"# Union Tables
 
 Union Tables stacks two or more open tabs on top of each other into one
 new table, like appending several exports of the same shape. Open it via
-**Analyse > Union tables...**.
+**Data > Union tables...**.
 
 ## How it works
 
@@ -1531,7 +1598,7 @@ pub(super) const JOIN: &str = r#"# Join Tables
 
 Join Tables matches rows between two open tabs, like a spreadsheet VLOOKUP
 or a SQL JOIN. You need a second table open in another tab first. Open it
-via **Analyse > Join tables...** (Ctrl+Shift+Q).
+via **Data > Join tables...** (Ctrl+Shift+Q).
 
 ## How it works
 
@@ -1568,7 +1635,7 @@ pub(super) const PARTITION: &str = r#"# Partition by Column
 
 Partition by Column splits the active table into one file per distinct
 value of a column, like sorting rows into folders by category. Open it via
-**Analyse > Partition by column...** (Ctrl+Shift+Z).
+**Data > Partition by column...** (Ctrl+Shift+Z).
 
 ## How it works
 
@@ -1712,4 +1779,120 @@ folder) with your app version, operating system, theme and language, the tail
 of the log, the last crash if any, and your settings. Secrets are stripped and
 your home folder and username are masked, so it is safe to attach to a GitHub
 issue. No cell values or column data are included.
+"#;
+
+pub(super) const CLOUD_STORAGE: &str = r#"# Cloud Storage
+
+Browse and open files directly from Amazon S3 (and S3-compatible providers
+such as IONOS, MinIO, and Cloudflare R2), Azure Blob Storage, and Google
+Cloud Storage. Saving back to the cloud is **off by default** and must be
+turned on.
+
+## Add a connection
+
+Open **Settings > Cloud storage** and click **Add connection**:
+
+- **Name** - a label shown in the sidebar.
+- **Provider** - S3, Azure Blob, or GCS.
+- **Bucket / Container** - the S3 bucket, Azure container, or GCS bucket.
+- **S3 endpoint** - leave empty for real AWS. Set it for an S3-compatible
+  provider (IONOS, MinIO, R2, ...); those usually also need **Path-style
+  addressing** on, and a local MinIO may need **Allow HTTP**.
+- **AWS profile** - a named profile for SSO sign-in (resolved through the AWS
+  CLI). Leave empty to use ambient credentials.
+- **Storage account** (Azure only).
+
+### Credentials
+
+Octa resolves credentials in this order: a **secret you save** on the
+connection, then the **ambient** environment (AWS_* variables, a cached SSO
+session, Azure CLI login, or Google application-default credentials).
+
+- **S3 / S3-compatible**: save an **Access key ID** + **Secret** for static
+  keys, or use a profile / `aws sso login` for AWS SSO.
+- **Azure**: save an account key or a **SAS token**, or sign in with the
+  Azure CLI.
+- **GCS**: uses application-default credentials (`gcloud auth
+  application-default login`) or `GOOGLE_*` environment variables.
+
+Saved secrets are stored in your operating system keyring when available,
+otherwise in `settings.toml`. **Clear secret** removes a stored secret.
+
+### Public / anonymous buckets
+
+For a **public, read-only** bucket or container, tick **Public / anonymous
+access** in the connection form. Octa then skips request signing entirely, so
+it opens with no credentials and no sign-in. (Without this, a public Azure
+container would redirect to a login and fail.) No secret is needed, and the
+sidebar shows the connection as `(public)`.
+
+## Sign in (browser SSO)
+
+A **Sign in** button is only needed for **browser SSO** sign-in, and only
+appears for connections that use it. It shells out to the cloud's official CLI:
+
+- S3: `aws sso login` (with `--profile` if set)
+- Azure: `az login`
+- GCS: `gcloud auth application-default login`
+
+You do **not** need any CLI for static keys, a SAS token, ambient environment
+credentials, a GCS service-account key, or a public connection - only for the
+in-app browser sign-in. When the CLI is missing, the connection shows a
+**"Sign in needs CLI"** note instead of the button (hover it for the full
+reason). Octa never implements the OAuth flow itself.
+
+On **Windows**, all three CLIs have native installers (the AWS CLI MSI, the
+Azure CLI MSI, the Google Cloud SDK installer); WSL is not required. If your
+CLI only lives inside WSL, native-Windows Octa will not see it - install the
+CLI on Windows, or use static keys / a SAS token instead.
+
+## Browse and open
+
+Open the sidebar with **File > Cloud connections**. Click a connection to list
+its bucket root, expand folders to drill in (listings load in the background
+and are cached), and click a file to open it. The file is downloaded to a
+temporary copy and opened in a new tab, just like a local file, so every
+supported format works. **Refresh** re-lists a connection (for example after
+signing in or after the bucket changed).
+
+## Saving back
+
+By default, cloud-opened files are read-only: pressing **Save** shows a
+reminder and does nothing, but **Save As** to a local path always works (and
+detaches the tab from the cloud).
+
+To save back to the object, turn on **Allow writing to cloud storage** in
+**Settings > Cloud storage**. Then **Save** writes the tab back to its
+original object. Uploads run in the background; the status bar reports success
+or failure.
+
+The same switch also lets the **assistant** write to the cloud: ask it to save
+a result to a cloud URL (e.g. `s3://bucket/out.parquet`) and its write tools
+upload it to a bucket you have saved as a connection. The headless MCP server
+(`octa --mcp`) writes to cloud URLs too, using ambient credentials; run it with
+`--mcp-read-only` to remove every write tool.
+
+## Connection status
+
+Each connection's name carries its provider in brackets - `(S3)`, `(Azure)`,
+or `(GCS)`. Under the name the sidebar shows how it authenticates - **Public**,
+**Saved keys**, or **Sign-in** - and, once you have expanded it at least once,
+whether the bucket was **reachable** (green) or **not reachable** (red). The
+status comes from the last listing; it is not a live connection (see below).
+
+## Signing out
+
+A connection that uses **saved keys** shows a **Sign out** button. It removes
+that connection's stored credentials from this computer (the same as **Clear
+secret** in Settings), after a confirm. This is local only - a browser SSO
+session lives in the cloud CLI, not in Octa, so you end that there (for example
+`aws sso logout`). A public connection has nothing to sign out of.
+
+## Is it always connected?
+
+No. Object storage is not a persistent session - every list, open, and save is
+an independent request. A saved connection is just **configuration** (the
+bucket plus how to authenticate), like a bookmark; it stays in the list across
+restarts but nothing is "connected" in between. There is nothing to keep open
+and nothing that drains while idle.
 "#;

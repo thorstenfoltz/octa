@@ -121,15 +121,13 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     // Force the chosen extension, then confine to the export dir.
     let mut requested = p.output.clone();
     requested.set_extension(ext);
-    let out = ctx.resolve_write_path(&requested)?;
-    std::fs::write(&out, bytes)
-        .map_err(|e| anyhow::anyhow!("could not write {}: {e}", out.display()))?;
+    let dest = ctx.resolve_write_dest(&requested)?;
+    std::fs::write(dest.path(), bytes)
+        .map_err(|e| anyhow::anyhow!("could not write {}: {e}", dest.path().display()))?;
+    let target = dest.finish()?;
 
     let mut m = Map::new();
-    m.insert(
-        "output".to_string(),
-        Value::String(out.display().to_string()),
-    );
+    m.insert("output".to_string(), Value::String(target));
     m.insert("format".to_string(), Value::String(ext.to_string()));
     Ok(Value::Object(m))
 }

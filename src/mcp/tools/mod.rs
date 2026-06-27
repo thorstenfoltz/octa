@@ -21,6 +21,7 @@ pub mod fuzzy_duplicates;
 pub mod grep_files;
 pub mod impute;
 pub mod join;
+pub mod list_objects;
 pub mod list_tables;
 pub mod outliers;
 pub mod partition;
@@ -148,6 +149,13 @@ pub struct ToolContext {
     /// Chat-only write-back channel: the live-tab edit tool pushes one batched
     /// `PendingTabEdit`; `OctaApp` drains it per frame. `None` for MCP.
     pub pending_tab_edits: Option<std::sync::Arc<std::sync::Mutex<Vec<PendingTabEdit>>>>,
+    /// Chat-only cloud config: the live settings, used to match a cloud URL to a
+    /// saved connection and resolve its credentials. `None` for MCP/CLI, which
+    /// fall back to ambient credentials + an ephemeral connection from the URL.
+    /// Held whole (not just the connections) so credential resolution - which
+    /// can shell out to the cloud CLI - runs lazily on the worker, not the UI
+    /// thread.
+    pub cloud_settings: Option<octa::ui::settings::AppSettings>,
 }
 
 impl ToolContext {
@@ -171,6 +179,7 @@ impl ToolContext {
             allow_schema_changes,
             backup_before_modify,
             pending_tab_edits: None,
+            cloud_settings: None,
         }
     }
 
@@ -191,6 +200,14 @@ impl ToolContext {
                     && let Some(snap) = self.snapshot_for_pathish(&path.to_string_lossy())
                 {
                     return Ok(snap.table.clone());
+                }
+                // Cloud URL (s3://, az://, gs://): download to a temp file and
+                // read it as usual. Credentials come from a saved connection
+                // (chat) or ambient creds (MCP/CLI); see `resolve_cloud`.
+                let path_str = path.to_string_lossy();
+                if octa::cloud::parse_cloud_url(&path_str).is_some() {
+                    let temp = self.cloud_fetch_to_temp(&path_str)?;
+                    return read_with_registry(&temp, table.as_deref());
                 }
                 self.ensure_readable(path)?;
                 read_with_registry(path, table.as_deref())
@@ -217,6 +234,96 @@ impl ToolContext {
                 Ok(snap.table.clone())
             }
         }
+    }
+
+    /// Resolve a cloud URL to a provider + parsed location. Prefers a saved
+    /// connection whose kind + bucket match (chat); otherwise, when the
+    /// filesystem sandbox is off (MCP/CLI), builds an ephemeral connection from
+    /// the URL with ambient credentials. Under the chat sandbox an unsaved
+    /// bucket is rejected so the assistant can only reach buckets the user
+    /// configured.
+    pub fn cloud_provider_for(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(
+        Box<dyn octa::cloud::CloudProvider>,
+        octa::cloud::CloudLocation,
+    )> {
+        let loc = octa::cloud::parse_cloud_url(url)
+            .ok_or_else(|| anyhow::anyhow!("not a cloud URL: {url}"))?;
+        let (conn, creds) = self.resolve_cloud(&loc)?;
+        let provider = octa::cloud::build_provider(&conn, &creds)?;
+        Ok((provider, loc))
+    }
+
+    fn resolve_cloud(
+        &self,
+        loc: &octa::cloud::CloudLocation,
+    ) -> anyhow::Result<(octa::cloud::CloudConnection, octa::cloud::ProviderCreds)> {
+        use octa::cloud::{CloudConnection, CloudKind, resolve_ambient_creds};
+
+        // A saved connection matching this bucket wins (carries the user's
+        // configured credentials / endpoint).
+        if let Some(settings) = &self.cloud_settings
+            && let Some(conn) = settings
+                .cloud_connections
+                .iter()
+                .find(|c| c.kind == loc.kind && c.bucket == loc.bucket)
+                .cloned()
+        {
+            let creds = octa::ui::settings::cloud_secrets::resolve_creds(&conn, settings);
+            return Ok((conn, creds));
+        }
+
+        // No saved match. Under the chat sandbox, refuse unsaved buckets.
+        if self.restrict_filesystem {
+            anyhow::bail!(
+                "The assistant can only access cloud buckets saved as a connection. Add \
+\"{}://{}\" in Settings > Cloud storage (set its credentials or sign in there).",
+                loc.kind.scheme(),
+                loc.bucket
+            );
+        }
+
+        // MCP / CLI: ephemeral connection + ambient credentials.
+        let conn = match loc.kind {
+            CloudKind::S3 => CloudConnection::ephemeral_s3(&loc.bucket),
+            CloudKind::Gcs => CloudConnection::ephemeral_gcs(&loc.bucket),
+            CloudKind::AzureBlob => {
+                let account = std::env::var("AZURE_STORAGE_ACCOUNT").map_err(|_| {
+                    anyhow::anyhow!(
+                        "Azure needs a storage account: set AZURE_STORAGE_ACCOUNT, or add a saved \
+connection (an az:// URL cannot carry the account name)"
+                    )
+                })?;
+                CloudConnection::ephemeral_azure(account, &loc.bucket)
+            }
+        };
+        let creds = resolve_ambient_creds(&conn);
+        Ok((conn, creds))
+    }
+
+    /// Download a cloud object to a temp file and return its path. Used by
+    /// `resolve` so cloud URLs flow through the normal format readers.
+    fn cloud_fetch_to_temp(&self, url: &str) -> anyhow::Result<PathBuf> {
+        use std::io::Write;
+        let (provider, loc) = self.cloud_provider_for(url)?;
+        let bytes = provider.get(&loc.key)?;
+        let ext = Path::new(&loc.key)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("bin");
+        let suffix = format!(".{ext}");
+        let tmp = tempfile::Builder::new()
+            .prefix("octa-cloud-mcp-")
+            .suffix(&suffix)
+            .tempfile()?;
+        tmp.as_file().write_all(&bytes)?;
+        let path = tmp.path().to_path_buf();
+        // ponytail: leaked temp file (readers may stream from disk); OS cleans
+        // /tmp. One per cloud read for the process lifetime.
+        let _ = tmp.keep();
+        Ok(path)
     }
 
     /// Map a path-ish string - a tab handle (`#2`), a tab display name, or a
@@ -334,6 +441,56 @@ Octa will write it there; the user can change the directory in Settings > Chat."
         Ok(candidate)
     }
 
+    /// Resolve a write target, supporting cloud URLs. A local path goes through
+    /// [`Self::resolve_write_path`]. A cloud URL (`s3://`/`az://`/`gs://`)
+    /// resolves to a temp file the tool writes to; calling [`WriteDest::finish`]
+    /// after the write uploads it to the object.
+    ///
+    /// Gating mirrors cloud reads: the **chat** surface (has settings) requires
+    /// `cloud_writes_enabled` (the same switch a manual Save uses) and only
+    /// reaches saved connections. The **MCP/CLI** server (no settings) is
+    /// trusted, like its local writes, and uses ambient credentials for any
+    /// bucket; the operator gates it off with `--mcp-read-only`.
+    pub fn resolve_write_dest(&self, requested: &Path) -> anyhow::Result<WriteDest> {
+        if let Some(loc) = octa::cloud::parse_cloud_url(&requested.to_string_lossy()) {
+            // Chat only: the cloud-writes switch must be on. MCP has no such
+            // switch (its gate is `--mcp-read-only`, which drops write tools).
+            if let Some(settings) = &self.cloud_settings
+                && !settings.cloud_writes_enabled
+            {
+                anyhow::bail!(
+                    "Writing to cloud storage is turned off. Switch on \"Allow writing to cloud \
+storage\" in Settings > Cloud storage (the same setting a manual Save uses)."
+                );
+            }
+            let (conn, creds) = self.resolve_cloud(&loc)?;
+            let provider = octa::cloud::build_provider(&conn, &creds)?;
+            let ext = Path::new(&loc.key)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("bin");
+            let tmp = tempfile::Builder::new()
+                .prefix("octa-cloud-out-")
+                .suffix(&format!(".{ext}"))
+                .tempfile()?;
+            let path = tmp.path().to_path_buf();
+            let display = format!("{}://{}/{}", loc.kind.scheme(), loc.bucket, loc.key);
+            return Ok(WriteDest {
+                path,
+                cloud: Some(CloudUpload {
+                    provider,
+                    key: loc.key,
+                    display,
+                    _tmp: tmp,
+                }),
+            });
+        }
+        Ok(WriteDest {
+            path: self.resolve_write_path(requested)?,
+            cloud: None,
+        })
+    }
+
     /// Effective response row cap for one call. Precedence: caller's `Some(0)`
     /// -> unlimited; `Some(n)` -> that value; `None` -> the configured default.
     pub fn resolve_row_cap(&self, requested: Option<usize>) -> Option<usize> {
@@ -382,6 +539,55 @@ Octa will write it there; the user can change the directory in Settings > Chat."
                 Value::Object(m)
             })
             .collect()
+    }
+}
+
+/// A resolved write destination (from [`ToolContext::resolve_write_dest`]).
+/// Tools write to [`Self::path`], then call [`Self::finish`]: for a local
+/// target that just returns the path; for a cloud target it uploads the
+/// just-written temp file to the object and returns the cloud URL.
+pub struct WriteDest {
+    path: PathBuf,
+    cloud: Option<CloudUpload>,
+}
+
+struct CloudUpload {
+    provider: Box<dyn octa::cloud::CloudProvider>,
+    key: String,
+    display: String,
+    /// Kept alive so the temp file exists until `finish` reads it; dropped
+    /// (deleted) afterwards.
+    _tmp: tempfile::NamedTempFile,
+}
+
+impl WriteDest {
+    /// A plain local destination (no cloud upload). For callers that already
+    /// have a concrete local path (e.g. an open tab's file on disk).
+    pub fn local(path: PathBuf) -> Self {
+        Self { path, cloud: None }
+    }
+
+    /// Path the tool should write to (a temp file for cloud targets).
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// True for a cloud target (skip local-only steps like backups).
+    pub fn is_cloud(&self) -> bool {
+        self.cloud.is_some()
+    }
+
+    /// Finish the write: upload to the cloud object if this is a cloud target,
+    /// then return the human-readable destination (cloud URL or local path).
+    pub fn finish(self) -> anyhow::Result<String> {
+        match self.cloud {
+            None => Ok(self.path.display().to_string()),
+            Some(c) => {
+                let bytes = std::fs::read(&self.path)?;
+                c.provider.put(&c.key, bytes)?;
+                Ok(c.display)
+            }
+        }
     }
 }
 
@@ -473,6 +679,20 @@ pub fn table_to_json(table: &DataTable, row_cap: Option<usize>, cell_byte_cap: u
     out.insert("truncated".to_string(), Value::Bool(truncated));
     out.insert("total_rows_available".to_string(), Value::from(total));
     out.insert("cell_truncated".to_string(), Value::Bool(cell_truncated));
+    if truncated {
+        // The full result was computed but only the first `emit` rows are
+        // returned (the result-row limit keeps a big result out of the
+        // conversation). Tell the model what to do for the complete output.
+        out.insert(
+            "note".to_string(),
+            Value::String(format!(
+                "Showing the first {emit} of {total} rows; the result-row limit \
+omitted the rest. The query still ran over every row. To get the complete output, \
+write the full result to a file or a new tab (for example run_sql with `write_to`), \
+or narrow the query. Do not add a SQL LIMIT yourself."
+            )),
+        );
+    }
     Value::Object(out)
 }
 

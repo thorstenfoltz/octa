@@ -185,6 +185,22 @@ instead."
     }
 
     #[tool(
+        description = "List one folder level of a cloud object store by URL: `s3://bucket/prefix`, \
+`az://container/prefix`, or `gs://bucket/prefix` (empty prefix = bucket root). Returns `objects` \
+as `{name, key, url, is_folder, size, modified}`; open a listed file with `read_table` (or any \
+read tool) by passing its `url` as `path`. Read tools accept cloud URLs directly. Credentials use \
+the ambient chain: AWS_* env vars, a cached SSO session, Azure CLI login, or Google \
+application-default credentials. Azure needs AZURE_STORAGE_ACCOUNT set (an az:// URL cannot carry \
+the account name)."
+    )]
+    async fn list_objects(
+        &self,
+        Parameters(p): Parameters<tools::list_objects::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::list_objects::handle(self, p).await
+    }
+
+    #[tool(
         description = "Count rows in a tabular file. Loads the table and reports its row count. \
 For streaming formats (Parquet, CSV, TSV) the count is bounded by Octa's 5,000,000-row \
 initial-load cap; the response flags `initial_load_capped: true` when the count may not \
@@ -682,7 +698,7 @@ pub async fn run(
         format!("{file_cap}")
     };
     let mode_str = if read_only {
-        " [read-only: write_table/edit_table/convert disabled]"
+        " [read-only: write tools disabled]"
     } else {
         ""
     };

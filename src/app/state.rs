@@ -172,6 +172,30 @@ impl Default for MultiSortState {
     }
 }
 
+/// Revision-picker dialog for "Compare with git version" / "Open git version".
+pub(crate) struct GitCompareState {
+    /// Repository root.
+    pub(crate) repo_root: std::path::PathBuf,
+    /// File path relative to `repo_root`, forward-slashed.
+    pub(crate) relpath: String,
+    /// Original file extension (no dot), for the temp file.
+    pub(crate) ext: String,
+    /// Recent commits touching the file (newest first).
+    pub(crate) commits: Vec<octa::git::Commit>,
+    /// Selected revision; defaults to "HEAD".
+    pub(crate) selected_rev: String,
+    /// Human label for the selected revision (combo text / status message).
+    pub(crate) selected_label: String,
+    pub(crate) size: DialogSize,
+}
+
+/// Correlation-matrix dialog state: just the method (the engine correlates over
+/// every numeric column, so there is nothing else to pick).
+pub(crate) struct CorrelationState {
+    pub(crate) method: octa::data::correlation::CorrMethod,
+    pub(crate) size: DialogSize,
+}
+
 /// Which column-shaping transform the dialog is configured for. Maps onto the
 /// pure functions in [`octa::data::transform`] when the user applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -983,6 +1007,16 @@ impl SearchNavState {
     }
 }
 
+/// Where a tab was opened from in the cloud. Set when a file is downloaded
+/// from a [`octa::cloud::CloudConnection`]; the tab's `source_path` points at
+/// the downloaded temp copy. Save-back (gated by `cloud_writes_enabled`)
+/// uploads to `key` on the connection identified by `conn_id`.
+#[derive(Debug, Clone)]
+pub(crate) struct CloudOrigin {
+    pub(crate) conn_id: String,
+    pub(crate) key: String,
+}
+
 pub(crate) struct TabState {
     pub(crate) table: DataTable,
     /// Set when the chat assistant changed this tab's table in place
@@ -1365,6 +1399,10 @@ pub(crate) struct TabState {
     /// every change. Each buffer is empty when the corresponding `Option`
     /// is `None`, otherwise holds the f64 / usize formatted for display.
     pub(crate) chart_buffers: ChartInputBuffers,
+    /// Set when this tab was opened from cloud storage. Carries the connection
+    /// id + object key so a later save can write back (gated by
+    /// `cloud_writes_enabled`). `None` for local files.
+    pub(crate) cloud_origin: Option<CloudOrigin>,
 }
 
 /// Text-input staging buffers for the Chart Customise section. Kept on
@@ -1542,6 +1580,12 @@ pub(crate) struct OctaApp {
     /// Active multi-column sort dialog state, or `None` when closed. Sorts the
     /// active tab in place (see `src/app/dialogs/multi_sort.rs`).
     pub(crate) multi_sort_dialog: Option<MultiSortState>,
+    /// Active git revision-picker, or `None` when closed. Compares the active
+    /// tab against a committed version (see `src/app/dialogs/git_compare.rs`).
+    pub(crate) git_compare_dialog: Option<GitCompareState>,
+    /// Active correlation-matrix dialog, or `None` when closed. Computes a
+    /// correlation matrix into a detached tab (see `src/app/dialogs/correlation.rs`).
+    pub(crate) correlation_dialog: Option<CorrelationState>,
     /// Active Transform-column dialog state, or `None` when closed. Reshapes
     /// the active tab in place (see `src/app/dialogs/transform.rs`).
     pub(crate) transform_dialog: Option<TransformState>,
@@ -1633,6 +1677,10 @@ pub(crate) struct OctaApp {
     /// Live-tab edits queued by the chat `edit_open_tab` tool, drained per frame.
     pub(crate) pending_tab_edits:
         std::sync::Arc<std::sync::Mutex<Vec<crate::mcp::tools::PendingTabEdit>>>,
+    /// Sidebar cloud-storage browser: per-connection lazy listings + in-flight
+    /// downloads + sign-in status, all driven by background workers. Hidden
+    /// until toggled via **File -> Cloud connections**.
+    pub(crate) cloud_browser: super::cloud_browser::CloudBrowserState,
 }
 
 /// Snapshot of a read-only-toggle event used by the notice modal. Captures

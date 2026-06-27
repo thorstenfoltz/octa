@@ -48,10 +48,12 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         .unlimited
         .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
     let table = ctx.resolve(&source_from(&p.open_tab, &p.input, &p.table))?;
-    // Confine chat writes to the export dir (no-op for MCP / CLI).
-    let output = ctx.resolve_write_path(&p.output)?;
+    // Confine chat writes to the export dir (no-op for MCP / CLI); a cloud URL
+    // resolves to a temp file uploaded on `finish`.
+    let dest = ctx.resolve_write_dest(&p.output)?;
+    let output = dest.path();
     let registry = FormatRegistry::new();
-    let out_reader = registry.reader_for_path(&output).ok_or_else(|| {
+    let out_reader = registry.reader_for_path(output).ok_or_else(|| {
         anyhow::anyhow!(
             "no reader available for output extension on {}",
             output.display()
@@ -63,18 +65,16 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
             out_reader.name()
         );
     }
-    if ctx.backup_before_modify && output.exists() {
-        octa::formats::backup_existing_file(&output)?;
+    if ctx.backup_before_modify && !dest.is_cloud() && output.exists() {
+        octa::formats::backup_existing_file(output)?;
     }
-    out_reader.write_file_schema_aware(&output, &table, ctx.allow_schema_changes)?;
+    out_reader.write_file_schema_aware(output, &table, ctx.allow_schema_changes)?;
+    let target = dest.finish()?;
 
     let mut out = Map::new();
     out.insert("rows_written".to_string(), Value::from(table.row_count()));
     out.insert("cols_written".to_string(), Value::from(table.col_count()));
-    out.insert(
-        "output".to_string(),
-        Value::String(output.display().to_string()),
-    );
+    out.insert("output".to_string(), Value::String(target));
     Ok(Value::Object(out))
 }
 

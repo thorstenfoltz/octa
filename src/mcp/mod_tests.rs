@@ -26,6 +26,7 @@ fn read_only_drops_write_tools() {
         "pivot",
         "correlation",
         "grep_files",
+        "list_objects",
         "fuzzy_duplicates",
         "union_tables",
         "join_tables",

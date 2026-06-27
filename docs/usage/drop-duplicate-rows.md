@@ -1,6 +1,6 @@
 # Drop Duplicate Rows
 
-**Edit > Drop duplicate rows...** (Ctrl+Shift+H) removes repeated rows from
+**Data > Drop duplicate rows...** (Ctrl+Shift+H) removes repeated rows from
 the active table in one step.
 
 ## How it works

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use super::ToolContext;
+use super::{ToolContext, WriteDest};
 
 pub const DESCRIPTION: &str = "Write plain text (prose, source code, or Markdown) to a file. Give `content` plus either \
 `open_tab` (a handle like \"#2\", \"@active\", or the tab name) to overwrite that tab's file on \
@@ -32,7 +32,7 @@ pub struct Params {
 }
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
-    let dest: PathBuf = if let Some(tabref) = &p.open_tab {
+    let dest: WriteDest = if let Some(tabref) = &p.open_tab {
         // Resolve the open tab and write back to its source file. The path is
         // already in `allowed_read_paths`, so `ensure_readable` permits it.
         let snap = if tabref == "@active" {
@@ -49,25 +49,24 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         })?;
         let path = PathBuf::from(sp);
         ctx.ensure_readable(&path)?;
-        path
+        WriteDest::local(path)
     } else {
         if p.path.as_os_str().is_empty() {
             anyhow::bail!("provide either `open_tab` or a `path` to write to");
         }
-        ctx.resolve_write_path(&p.path)?
+        ctx.resolve_write_dest(&p.path)?
     };
 
-    if ctx.backup_before_modify && dest.exists() {
-        octa::formats::backup_existing_file(&dest)?;
+    if ctx.backup_before_modify && !dest.is_cloud() && dest.path().exists() {
+        octa::formats::backup_existing_file(dest.path())?;
     }
-    std::fs::write(&dest, &p.content)
-        .map_err(|e| anyhow::anyhow!("failed to write {}: {e}", dest.display()))?;
+    std::fs::write(dest.path(), &p.content)
+        .map_err(|e| anyhow::anyhow!("failed to write {}: {e}", dest.path().display()))?;
+    let bytes_written = p.content.len();
+    let target = dest.finish()?;
 
     let mut out = Map::new();
-    out.insert(
-        "path".to_string(),
-        Value::String(dest.display().to_string()),
-    );
-    out.insert("bytes_written".to_string(), Value::from(p.content.len()));
+    out.insert("path".to_string(), Value::String(target));
+    out.insert("bytes_written".to_string(), Value::from(bytes_written));
     Ok(Value::Object(out))
 }

@@ -30,6 +30,8 @@ pub struct ToolbarAction {
     pub open_table_folder: bool,
     pub open_directory: bool,
     pub close_directory: bool,
+    /// Toggle the sidebar cloud-storage browser (File -> Cloud connections).
+    pub toggle_cloud_browser: bool,
     pub open_recent: Option<String>,
     /// Right-click -> "Remove from list" on a single recent-files entry.
     pub remove_recent: Option<String>,
@@ -179,6 +181,13 @@ pub struct ToolbarAction {
     /// picker, loads the picked file as the right side, and flips the
     /// active tab into `ViewMode::Compare`.
     pub compare_with: bool,
+    /// User clicked View -> Compare with git version...  The app shell opens
+    /// the revision-picker dialog (or shows a status message when the file is
+    /// not in a git repo).
+    pub open_git_compare: bool,
+    /// Open the Correlation-matrix dialog for the active table.
+    /// Fired by **Analyse -> Correlation...**.
+    pub open_correlation: bool,
     /// Open the **Edit -> Find duplicates...** modal for the active tab.
     /// The dialog itself lives in `app::dialogs::find_duplicates`; the
     /// toolbar just signals "user wants it open".

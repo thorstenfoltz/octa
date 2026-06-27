@@ -1,6 +1,6 @@
 # Join Tables
 
-**Analyse > Join tables...** (Ctrl+Shift+Q) matches rows between two open
+**Data > Join tables...** (Ctrl+Shift+Q) matches rows between two open
 tabs, like a spreadsheet VLOOKUP or a SQL JOIN. You need a second table open
 in another tab first; otherwise Octa shows a reminder in the status bar.
 

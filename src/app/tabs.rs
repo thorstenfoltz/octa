@@ -155,6 +155,7 @@ impl TabState {
             map_memory: None,
             chart_config: data::chart::ChartConfig::default(),
             chart_buffers: super::state::ChartInputBuffers::default(),
+            cloud_origin: None,
         }
     }
 
@@ -435,6 +436,58 @@ impl OctaApp {
         new_tab.custom_tab_label = Some(format!(
             "{} - {source_label}",
             octa::i18n::t("summary.tab_label")
+        ));
+        self.tabs.push(new_tab);
+        self.active_tab = self.tabs.len() - 1;
+    }
+
+    /// Compute a correlation matrix over the active table's numeric columns and
+    /// open it as a detached tab (same pattern as `open_describe_tab`).
+    pub(crate) fn open_correlation_tab(&mut self, method: octa::data::correlation::CorrMethod) {
+        let Some(source) = self.tabs.get(self.active_tab) else {
+            return;
+        };
+        if source.table.col_count() == 0 {
+            self.status_message = Some((
+                "Open a file with columns first.".to_string(),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        let mut snap = source.table.clone();
+        snap.apply_edits();
+        let source_label = source
+            .table
+            .source_path
+            .as_ref()
+            .and_then(|p| {
+                std::path::Path::new(p)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| source.title_display());
+
+        let matrix = octa::data::correlation::correlation_matrix(&snap, method);
+        if matrix.columns.is_empty() {
+            self.status_message = Some((
+                octa::i18n::t("dialog.corr_no_numeric"),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        let table = octa::data::correlation::matrix_to_table(&matrix);
+        let method_label = match method {
+            octa::data::correlation::CorrMethod::Pearson => octa::i18n::t("dialog.corr_pearson"),
+            octa::data::correlation::CorrMethod::Spearman => octa::i18n::t("dialog.corr_spearman"),
+        };
+        let default_search_mode = self.settings.default_search_mode;
+        let mut new_tab = super::state::TabState::new(default_search_mode);
+        new_tab.table = table;
+        new_tab.table.source_path = None;
+        new_tab.table.format_name = None;
+        new_tab.custom_tab_label = Some(format!(
+            "{} ({method_label}) - {source_label}",
+            octa::i18n::t("dialog.corr_tab_label")
         ));
         self.tabs.push(new_tab);
         self.active_tab = self.tabs.len() - 1;

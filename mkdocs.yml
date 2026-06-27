@@ -121,6 +121,7 @@ nav:
       - Find Near-Duplicates: usage/find-near-duplicates.md
       - Summary: usage/summary.md
       - Pivot / Unpivot: usage/pivot.md
+      - Correlation: usage/correlation.md
       - Schema Export: usage/schema-export.md
       - Archive Viewer: usage/archive-viewer.md
       - Chart: usage/chart.md
@@ -128,6 +129,7 @@ nav:
       - Chat Assistant: usage/chatbot.md
       - Saving: usage/saving.md
       - Tabs & Folder Sidebar: usage/tabs-and-sidebar.md
+      - Cloud Storage: usage/cloud-storage.md
       - View Modes:
           - Overview: usage/view-modes/overview.md
           - Raw Text: usage/view-modes/raw-text.md
@@ -188,6 +190,7 @@ nav:
           - pivot: mcp/tools/pivot.md
           - correlation: mcp/tools/correlation.md
           - grep_files: mcp/tools/grep_files.md
+          - list_objects: mcp/tools/list_objects.md
           - write_table: mcp/tools/write_table.md
           - edit_table: mcp/tools/edit_table.md
           - transform_columns: mcp/tools/transform_columns.md

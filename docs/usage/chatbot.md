@@ -77,6 +77,12 @@ straight there. From there you can set:
   runaway loops, not a limit you normally need to touch (default 12).
 - **Max response tokens**: a cap on the length of each reply, with an
   **Unlimited** checkbox. Unlimited lets the model use its own maximum.
+- **Result row limit** (default 200): how many rows a tool result, such as a
+  SQL query, puts into the assistant's context. The query still runs over
+  every row; this only caps what the model sees so a large result never floods
+  the conversation. When a result is capped, the assistant tells you how many
+  of how many rows it saw and offers to write the full result to a file or a
+  tab. Tick the **Unlimited** checkbox for no cap (it may flood the chat).
 - **Panel position** (right / left / bottom / top).
 - **Export folder**: where the assistant writes files it creates. See
   [Saving results and charts](#saving-results-and-charts).
@@ -189,6 +195,12 @@ This keeps it from quietly reaching into arbitrary files on your disk.
 - It cannot open files that are not open in Octa. If you ask about a file
   that is not open, the assistant will tell you to open it first
   (**File -> Open**).
+- It can read and list **cloud objects** in buckets you have saved as a
+  connection (**Settings > Cloud storage**) by URL (`s3://`, `az://`, `gs://`).
+  Buckets you have not saved are refused, so the assistant stays confined to
+  the clouds you configured. It can also **write** to those buckets once
+  **Allow writing to cloud storage** is on. See
+  [Cloud Storage](cloud-storage.md).
 
 <!-- SCREENSHOT: chat-tab-chips.png: The chat panel header with two open tabs shown as chips ("#1 sales.csv" highlighted as active, "#2 returns.csv"), illustrating how the assistant addresses multiple open tables. -->
 
@@ -287,6 +299,23 @@ your config directory:
 - Linux: `~/.config/octa/chat_sessions/`
 - macOS: `~/Library/Application Support/Octa/chat_sessions/`
 - Windows: `%APPDATA%\Octa\chat_sessions\`
+
+## Exporting a conversation
+
+The **Export** button in the panel header saves the current conversation to a
+file you choose. The save dialog offers two formats, picked by the file
+extension:
+
+- **Markdown (`.md`)**: a readable transcript. It includes your prompts, the
+  assistant's replies, every SQL query it sent (rendered in `sql` code
+  blocks), any other tool calls, and each tool's result. Results are truncated
+  to keep the file manageable.
+- **JSON (`.json`)**: the exact saved session, the same format Octa stores on
+  disk, for archiving or feeding into other tools.
+
+Use Markdown when you want a human-readable record of the analysis (including
+the SQL that produced each answer); use JSON when you want a faithful,
+machine-readable copy.
 
 ## Saved prompts
 

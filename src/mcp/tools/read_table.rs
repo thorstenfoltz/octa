@@ -33,8 +33,8 @@ pub struct Params {
     #[serde(default)]
     pub open_tab: Option<String>,
 
-    /// Maximum rows to return. Default is the server's configured limit (1000
-    /// unless changed via Octa's Settings -> MCP). Pass 0 for unlimited.
+    /// Maximum rows to return. Omit to use the configured default; pass 0 for
+    /// unlimited.
     /// Note: this only slices the *response*. The file is still read with
     /// the streaming initial-load cap (5 M rows by default). Set `unlimited`
     /// to lift the file-loader cap as well.

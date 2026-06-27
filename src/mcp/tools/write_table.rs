@@ -94,9 +94,10 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         })
         .collect();
     let rows = &p.rows;
-    // Confine chat writes to the export dir (no-op for MCP / CLI).
-    let path = ctx.resolve_write_path(&p.path)?;
-    let path = &path;
+    // Confine chat writes to the export dir (no-op for MCP / CLI); a cloud URL
+    // resolves to a temp file uploaded on `finish`.
+    let dest = ctx.resolve_write_dest(&p.path)?;
+    let path = dest.path();
 
     let registry = FormatRegistry::new();
     let out_reader = registry.reader_for_path(path).ok_or_else(|| {
@@ -109,6 +110,14 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         anyhow::bail!(
             "format {} does not support writing - pick a different output extension",
             out_reader.name()
+        );
+    }
+    // The cloud target is a fresh temp file, so the create/append existence
+    // checks below don't apply; only overwrite (replace the object) makes sense.
+    if dest.is_cloud() && p.mode != "overwrite" {
+        anyhow::bail!(
+            "writing to a cloud URL supports only mode \"overwrite\" (the object is replaced). \
+To add rows, read the object first, then write the combined table."
         );
     }
 
@@ -164,18 +173,18 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         ),
     };
 
-    if ctx.backup_before_modify && path.exists() {
+    if ctx.backup_before_modify && !dest.is_cloud() && path.exists() {
         octa::formats::backup_existing_file(path)?;
     }
     out_reader.write_file_schema_aware(path, &table, ctx.allow_schema_changes)?;
+    let row_count = table.row_count();
+    let col_count = table.col_count();
+    let target = dest.finish()?;
 
     let mut out = Map::new();
-    out.insert("rows_written".to_string(), Value::from(table.row_count()));
-    out.insert("cols_written".to_string(), Value::from(table.col_count()));
-    out.insert(
-        "output".to_string(),
-        Value::String(path.display().to_string()),
-    );
+    out.insert("rows_written".to_string(), Value::from(row_count));
+    out.insert("cols_written".to_string(), Value::from(col_count));
+    out.insert("output".to_string(), Value::String(target));
     out.insert("mode".to_string(), Value::String(p.mode.clone()));
     Ok(Value::Object(out))
 }

@@ -18,6 +18,7 @@ fn sandbox_ctx(restrict: bool, allowed: &[&str], export: Option<&str>) -> ToolCo
         allow_schema_changes: false,
         backup_before_modify: true,
         pending_tab_edits: None,
+        cloud_settings: None,
     }
 }
 
@@ -123,6 +124,34 @@ fn write_path_unrestricted_passthrough() {
     assert_eq!(
         c.resolve_write_path(Path::new("rel.csv")).unwrap(),
         PathBuf::from("rel.csv")
+    );
+}
+
+#[test]
+fn cloud_write_chat_needs_writes_enabled() {
+    // Chat surface (settings present) with the cloud-writes switch off: refused
+    // before any provider is built.
+    let mut c = sandbox_ctx(true, &[], None);
+    c.cloud_settings = Some(octa::ui::settings::AppSettings::default());
+    let err = match c.resolve_write_dest(Path::new("s3://bucket/out.parquet")) {
+        Ok(_) => panic!("expected an error when cloud writes are off"),
+        Err(e) => e.to_string(),
+    };
+    assert!(err.contains("turned off"), "{err}");
+}
+
+#[test]
+fn cloud_write_mcp_uses_ambient() {
+    // MCP (no settings) is trusted, like its local writes: a cloud URL resolves
+    // to a temp file + provider with ambient creds (no network until finish()).
+    let c = sandbox_ctx(false, &[], None);
+    let dest = c
+        .resolve_write_dest(Path::new("s3://bucket/out.parquet"))
+        .expect("mcp cloud write should resolve");
+    assert!(dest.is_cloud());
+    assert_eq!(
+        dest.path().extension().and_then(|e| e.to_str()),
+        Some("parquet")
     );
 }
 

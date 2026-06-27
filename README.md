@@ -4,7 +4,7 @@
 <img src="assets/octa-rose.svg" alt="Octa" width="128" height="128">
 </p>
 
-An application for viewing data files. Octa opens files in a spreadsheet-like table view with sorting, filtering, and search options. Including CLI, MCP and a chat assistant within the GUI.
+An application for viewing data files. Octa opens files in a spreadsheet-like table view with sorting, filtering, and search options, locally or straight from cloud object storage (S3, Azure, GCS). Including CLI, MCP and a chat assistant within the GUI.
 
 📚 **Documentation:** <https://thorstenfoltz.github.io/octa/>
 
@@ -14,6 +14,7 @@ An application for viewing data files. Octa opens files in a spreadsheet-like ta
 - [Supported Formats](#supported-formats)
 - [Features](#features)
   - [Table View](#table-view)
+  - [Cloud Storage](#cloud-storage)
   - [Multiple View Modes](#multiple-view-modes)
   - [Editing](#editing)
   - [Inspecting data](#inspecting-data)
@@ -42,6 +43,8 @@ An application for viewing data files. Octa opens files in a spreadsheet-like ta
 
 One native tool to open, inspect, query, and compare data files across 25+ formats (Parquet, CSV, JSON, Excel, SQLite, DuckDB, GeoPackage, Arrow, Avro, ORC, SAS, SPSS, Stata, RDS, HDF5, NetCDF, DBF, NumPy, MessagePack, BSON, GeoJSON, Shapefile, Delta Lake, Apache Iceberg, EPUB, archives, and more)
 without spinning up Python, opening a browser, or installing a heavyweight database client. Octa runs as a standalone binary on Linux, macOS, and Windows.
+
+Files do not have to be local: Octa browses and opens objects directly from Amazon S3 (and S3-compatible providers), Azure Blob Storage, and Google Cloud Storage, with saving back to the cloud available as an opt-in.
 
 The same binary also speaks the Model Context Protocol over stdio (`octa --mcp`), so AI assistants and automation pipelines can read local files directly through Octa instead of round-tripping data through a custom script.
 
@@ -105,6 +108,14 @@ default, and keyboard shortcut in detail.
 - Excel-style formulas in cells (`=A1+B1`) and as the "Insert column" formula
 - Thousand separators for numeric cells (English / European styles) plus per-column rounding, all display-only and never written to saved data
 
+### Cloud Storage
+
+- Browse and open files directly from **Amazon S3** (and S3-compatible providers such as IONOS, MinIO, and Cloudflare R2), **Azure Blob Storage**, and **Google Cloud Storage**
+- A **File → Cloud connections** sidebar lists saved buckets; expand folders and click a file to open it in a tab, exactly like a local file, so every supported format works
+- Credentials your way: a static key / SAS token saved on the connection, browser SSO through the cloud's own CLI (`aws sso login`, `az login`, `gcloud auth ... login`), ambient environment credentials, or no credentials at all for public/anonymous buckets. Saved secrets go into the OS keyring when available
+- Saving back to the cloud is **off by default** (`Settings → Cloud storage → Allow writing to cloud storage`); cloud-opened files are read-only until you opt in
+- The CLI assistant and MCP server understand `s3://`, `az://`, and `gs://` URLs and can read (and, when allowed, write) cloud objects like local files; a `list_objects` MCP tool browses a bucket
+
 ### Multiple View Modes
 
 - **Table** — structured spreadsheet display (default)
@@ -121,7 +132,8 @@ the Compare toolbar: **Text Diff** (git-style line diff), **Row Hash Diff**
 (BLAKE3-hashed columns; uniques + shared rows bucketed), **Ordered** (rows lined
 up positionally with the exact changed cells), and **Join** (rows matched on a
 key column into added / removed / changed). Cross-format works since hashing
-sees cell text only.
+sees cell text only. For a file under git, you can compare the current version
+against a recent commit, or open an older revision in its own tab.
 - **SQL Query** — write a query against the current table (exposed as `data`) and see results beneath. Line numbers, chip-style autocomplete, UPPER/lower case conversion, a per-tab query **History**,
 a saved-**Snippets** library, and a brief green highlight of the cells a mutation changed.
 
@@ -203,7 +215,8 @@ to the files you have open, and writes go to a configurable export directory.
 
 A **Prompts** library lets you save and reuse common requests, and an optional
 tool-call audit log records every tool the assistant runs (metadata only, never
-cell contents) for review.
+cell contents) for review. A chat session can be exported to Markdown for a
+readable transcript or to JSON for an exact, reusable archive.
 
 ### Settings
 

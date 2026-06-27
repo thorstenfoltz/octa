@@ -1,6 +1,6 @@
 # Union Tables
 
-**Analyse > Union tables...** stacks two or more open tabs on
+**Data > Union tables...** stacks two or more open tabs on
 top of each other into one new table, like appending several exports of the
 same shape.
 

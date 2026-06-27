@@ -48,10 +48,11 @@ pub struct Params {
     /// SQL query string. The primary source is exposed as `data`.
     pub query: String,
 
-    /// Maximum rows to return. Default is the server's configured limit
-    /// (1000 unless changed via Octa's Settings -> MCP). Pass 0 for unlimited.
-    /// Slices the *response* - set `unlimited` to also lift the file-loader
-    /// cap so the query sees every row.
+    /// Caps how many rows the *response* carries (the query still runs over
+    /// every row). Omit to use the configured default; pass 0 for unlimited.
+    /// Do NOT add a SQL `LIMIT` to `query` to control this - that truncates the
+    /// computation itself. Set `unlimited` to also lift the file-loader cap so
+    /// the query sees every row on disk.
     #[serde(default)]
     pub limit: Option<usize>,
 
@@ -164,7 +165,9 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     }
 
     if let Some(spec) = &p.write_to {
-        let target_path = ctx.resolve_write_path(&spec.path)?;
+        // A cloud URL resolves to a temp file; `dest.finish()` uploads it.
+        let dest = ctx.resolve_write_dest(&spec.path)?;
+        let target_path = dest.path();
         let ext = target_path
             .extension()
             .and_then(|e| e.to_str())
@@ -175,14 +178,21 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         if is_db {
             let mode = WriteMode::parse(&spec.mode)?;
             let report = ws.write_result_to_db(&WriteTarget {
-                kind: AttachKind::from_path(&target_path),
-                path: target_path,
+                kind: AttachKind::from_path(target_path),
+                path: target_path.to_path_buf(),
                 schema: spec.schema.clone(),
                 table: spec.table.clone(),
                 mode,
                 source_query: p.query.clone(),
                 create_schema_if_missing: spec.create_schema_if_missing,
             })?;
+            // Local: keep the rich "<file> (schema.table)" display. Cloud:
+            // upload the temp DB and show the cloud URL.
+            let target = if dest.is_cloud() {
+                dest.finish()?
+            } else {
+                report.target_display.clone()
+            };
             let mut out = Map::new();
             out.insert("kind".to_string(), Value::String("write_back".to_string()));
             out.insert("rows_written".to_string(), Value::from(report.rows_written));
@@ -190,10 +200,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
                 "created_schema".to_string(),
                 Value::Bool(report.created_schema),
             );
-            out.insert(
-                "target".to_string(),
-                Value::String(report.target_display.clone()),
-            );
+            out.insert("target".to_string(), Value::String(target));
             return Ok(Value::Object(out));
         }
 
@@ -201,7 +208,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         // write the result table via the format registry (overwrites the file).
         let qo = ws.execute(&p.query)?;
         let registry = FormatRegistry::new();
-        let out_reader = registry.reader_for_path(&target_path).ok_or_else(|| {
+        let out_reader = registry.reader_for_path(target_path).ok_or_else(|| {
             anyhow::anyhow!(
                 "no writer available for the output extension on {}",
                 target_path.display()
@@ -213,20 +220,16 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
                 out_reader.name()
             );
         }
-        if ctx.backup_before_modify && target_path.exists() {
-            octa::formats::backup_existing_file(&target_path)?;
+        if ctx.backup_before_modify && !dest.is_cloud() && target_path.exists() {
+            octa::formats::backup_existing_file(target_path)?;
         }
-        out_reader.write_file_schema_aware(&target_path, &qo.table, ctx.allow_schema_changes)?;
+        out_reader.write_file_schema_aware(target_path, &qo.table, ctx.allow_schema_changes)?;
+        let rows_written = qo.table.row_count();
+        let target = dest.finish()?;
         let mut out = Map::new();
         out.insert("kind".to_string(), Value::String("write_back".to_string()));
-        out.insert(
-            "rows_written".to_string(),
-            Value::from(qo.table.row_count()),
-        );
-        out.insert(
-            "target".to_string(),
-            Value::String(target_path.display().to_string()),
-        );
+        out.insert("rows_written".to_string(), Value::from(rows_written));
+        out.insert("target".to_string(), Value::String(target));
         return Ok(Value::Object(out));
     }
 

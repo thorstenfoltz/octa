@@ -24,9 +24,9 @@ use super::chat::session::{ChatSessionState, TurnPhase};
 use super::chat::{agent, build_system_prompt, ollama, persist, secrets, tools};
 use super::state::OctaApp;
 
-/// Conservative response caps for tools driven by the chat agent - much
-/// tighter than the MCP defaults so one `read_table` can't swamp the model.
-const CHAT_ROW_CAP: usize = 200;
+/// Per-cell byte cap for chat tool results - tighter than the MCP default so
+/// one wide cell can't swamp the model. The row cap is user-configurable
+/// (`AppSettings.chat_result_row_limit`, default 200).
 const CHAT_CELL_CAP: usize = 4096;
 
 /// Shared (worker-updated) Ollama discovery state.
@@ -173,8 +173,8 @@ impl OctaApp {
             ChatPanelPosition::Right => {
                 egui::Panel::right("octa_chat_panel")
                     .resizable(true)
-                    .default_size(480.0)
-                    .min_size(340.0)
+                    .default_size(580.0)
+                    .min_size(380.0)
                     .show_inside(parent_ui, |ui| self.render_chat_body(ui))
                     .response
                     .rect
@@ -182,8 +182,8 @@ impl OctaApp {
             ChatPanelPosition::Left => {
                 egui::Panel::left("octa_chat_panel")
                     .resizable(true)
-                    .default_size(480.0)
-                    .min_size(340.0)
+                    .default_size(580.0)
+                    .min_size(380.0)
                     .show_inside(parent_ui, |ui| self.render_chat_body(ui))
                     .response
                     .rect
@@ -252,6 +252,13 @@ impl OctaApp {
                     if !text.is_empty() {
                         ui.ctx().copy_text(text);
                     }
+                }
+                if ui
+                    .button(t("chat.export"))
+                    .on_hover_text(t("chat.export_hint"))
+                    .clicked()
+                {
+                    self.export_chat_session();
                 }
             });
         });
@@ -1261,6 +1268,49 @@ impl OctaApp {
         out
     }
 
+    /// Save the active session as Markdown (.md) or JSON (.json). The picked
+    /// file extension selects the format.
+    fn export_chat_session(&mut self) {
+        use super::chat::{export, persist};
+        let saved = {
+            let guard = self.chat.session.lock().unwrap();
+            if guard.messages.is_empty() {
+                self.status_message = Some((t("chat.export_empty"), std::time::Instant::now()));
+                return;
+            }
+            persist::snapshot(&guard)
+        };
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Markdown", &["md"])
+            .add_filter("JSON", &["json"])
+            .set_file_name("chat-export.md")
+            .save_file()
+        else {
+            return;
+        };
+        let is_json = path
+            .extension()
+            .map(|e| e.eq_ignore_ascii_case("json"))
+            .unwrap_or(false);
+        let content = if is_json {
+            serde_json::to_string_pretty(&saved).unwrap_or_default()
+        } else {
+            export::to_markdown(&saved, export::EXPORT_RESULT_CAP_BYTES)
+        };
+        match std::fs::write(&path, content) {
+            Ok(()) => {
+                self.status_message = Some((
+                    format!("{}: {}", t("chat.export_done"), path.display()),
+                    std::time::Instant::now(),
+                ));
+            }
+            Err(e) => {
+                self.status_message =
+                    Some((format!("Export failed: {e}"), std::time::Instant::now()));
+            }
+        }
+    }
+
     pub(crate) fn cancel_chat(&mut self) {
         let mut guard = self.chat.session.lock().unwrap();
         // Signal the worker to stop, and make the UI responsive immediately:
@@ -1407,7 +1457,14 @@ impl OctaApp {
         ToolContext {
             open_tabs,
             active_tab: active_index,
-            default_row_limit: Some(CHAT_ROW_CAP),
+            // Cap how many rows a tool result puts into the model's context.
+            // User-configurable (Settings > Chat); the Unlimited checkbox sends
+            // `None` (no cap).
+            default_row_limit: if self.settings.chat_result_row_limit_unlimited {
+                None
+            } else {
+                Some(self.settings.chat_result_row_limit)
+            },
             cell_byte_cap: CHAT_CELL_CAP,
             restrict_filesystem: true,
             allowed_read_paths,
@@ -1416,6 +1473,9 @@ impl OctaApp {
             allow_schema_changes: !self.settings.write_protection,
             backup_before_modify: self.settings.backup_before_modify,
             pending_tab_edits: Some(self.pending_tab_edits.clone()),
+            // The assistant may reach saved cloud connections (creds resolved
+            // lazily on the worker thread).
+            cloud_settings: Some(self.settings.clone()),
         }
     }
 

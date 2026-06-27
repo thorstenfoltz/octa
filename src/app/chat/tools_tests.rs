@@ -39,6 +39,7 @@ fn sample_ctx() -> ToolContext {
         allow_schema_changes: false,
         backup_before_modify: true,
         pending_tab_edits: None,
+        cloud_settings: None,
     }
 }
 
@@ -75,6 +76,7 @@ fn multi_ctx() -> ToolContext {
         allow_schema_changes: false,
         backup_before_modify: true,
         pending_tab_edits: None,
+        cloud_settings: None,
     }
 }
 
@@ -205,6 +207,7 @@ fn text_ctx(lines: &[&str], source_path: Option<&str>) -> ToolContext {
         allow_schema_changes: false,
         backup_before_modify: true,
         pending_tab_edits: None,
+        cloud_settings: None,
     }
 }
 

@@ -65,7 +65,7 @@ sorting works as you'd expect.
 
 ### Sort by several columns
 
-For a multi-level sort, open **Analyse -> Sort by columns...**. The
+For a multi-level sort, open **Data -> Sort by columns...**. The
 dialog holds an ordered list of sort keys, each a column and a
 direction (ascending or descending). The first key is the primary
 sort; later keys break ties. Use the **^** / **v** buttons to reorder
@@ -124,7 +124,7 @@ raw values. Turn it off, or switch between **English** (`1,234.56`) and
 
 For a per-column rounding format, right-click a numeric column
 header and pick **Number format...** (also available as
-**Edit -> Number format...** for the selected column). The dialog
+**Columns -> Number format...** for the selected column). The dialog
 applies changes live as you edit (no Apply step), and is movable
 and resizable. Choose:
 
@@ -227,7 +227,7 @@ room again.
 Right-click any column header and pick **Hide column** to drop it
 from the view. Hidden columns are still part of the underlying
 table on disk: both **Save** and **Save As** write them out
-unchanged. Pull them back via **Edit → Show hidden columns** (the
+unchanged. Pull them back via **Columns → Show hidden columns** (the
 menu entry is greyed when nothing is hidden).
 
 Hidden state is **per tab and session-only**, so closing the tab or

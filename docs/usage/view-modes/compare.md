@@ -170,6 +170,27 @@ GUI, CLI, and MCP always agree.
 | Two same-ordered exports, see which cells changed                | Ordered                                                |
 | Same records by `id`, see what each record's fields changed to   | Join (by key)                                          |
 
+## Compare with a git version
+
+If the active file lives inside a git repository, **View → Compare with git
+version...** compares your current working copy (including any uncommitted
+changes) against a committed version.
+
+The dialog opens on **HEAD** (the last commit) and offers a dropdown of the
+recent commits that touched this file, so you can compare against any older
+revision without typing a SHA. Two buttons:
+
+- **Compare** loads the chosen committed version as the right side and
+  switches to Compare view (using whichever sub-mode fits, just like a normal
+  compare).
+- **Open in new tab** loads that past version on its own, so you can browse or
+  query it directly instead of diffing.
+
+It works for any tracked file, text or binary: the committed bytes are read
+straight from git (`git show <rev>:<file>`) into a temporary file, so Parquet,
+Excel, and the like compare just as well as CSV. If the file is not saved
+inside a git repository, a status-bar message says so and no dialog opens.
+
 ## Limitations
 
 - **Two-way only.** No three-way merge / compare.
