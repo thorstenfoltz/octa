@@ -1,6 +1,11 @@
 //! "Delete Columns" modal dialog: checkbox list with All/None buttons.
 
 use eframe::egui;
+use egui::RichText;
+
+use octa::ui::settings::{
+    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+};
 
 use super::super::state::OctaApp;
 
@@ -8,36 +13,88 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
     if !app.tabs[app.active_tab].show_delete_columns_dialog {
         return;
     }
-    let mut open = true;
     let mut should_delete = false;
+    let mut close = false;
     // Keep the selection vec in sync when the table shape changes while the
     // dialog is open (rare, but possible via SQL mutations).
     let tab = &mut app.tabs[app.active_tab];
     if tab.delete_col_selection.len() != tab.table.col_count() {
         tab.delete_col_selection = vec![false; tab.table.col_count()];
     }
-    egui::Window::new(octa::i18n::t("dialog.delete_columns_title"))
-        .open(&mut open)
-        .resizable(true)
+
+    let dialog_id = egui::Id::new("octa_delete_columns_dialog");
+    let size_key = dialog_id.with("octa_dlg_size");
+    let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
+    let minimized = size == DialogSize::Minimized;
+
+    let window = egui::Window::new("octa_delete_columns")
+        .title_bar(false)
         .collapsible(false)
-        .min_width(280.0)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
+    let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+        w.resizable(true).default_width(320.0).min_width(280.0)
+    });
+
+    let inner = window.show(ctx, |ui| {
+        egui::Panel::top("delete_columns_header")
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(octa::i18n::t("dialog.delete_columns_title"))
+                            .strong()
+                            .size(16.0),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if draw_window_controls(ui, &mut size) {
+                            close = true;
+                        }
+                    });
+                });
+            });
+
+        if minimized {
+            return;
+        }
+
+        let tab = &mut app.tabs[app.active_tab];
+        let selected_count = tab.delete_col_selection.iter().filter(|&&v| v).count();
+
+        egui::Panel::bottom("delete_columns_footer")
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let delete_btn = ui.add_enabled(
+                        selected_count > 0,
+                        egui::Button::new(format!(
+                            "{} ({} {})",
+                            octa::i18n::t("common.delete"),
+                            selected_count,
+                            octa::i18n::t("dialog.selected")
+                        )),
+                    );
+                    if delete_btn.clicked() {
+                        should_delete = true;
+                    }
+                    if ui.button(octa::i18n::t("common.cancel")).clicked() {
+                        close = true;
+                    }
+                });
+            });
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.label(octa::i18n::t("dialog.delete_columns_prompt"));
             ui.add_space(6.0);
 
-            let tab = &mut app.tabs[app.active_tab];
-            egui::ScrollArea::vertical()
-                .max_height(300.0)
-                .show(ui, |ui| {
-                    for (idx, col) in tab.table.columns.iter().enumerate() {
-                        let mut checked = tab.delete_col_selection[idx];
-                        let label = format!("{} [{}]", col.name, col.data_type);
-                        if ui.checkbox(&mut checked, label).changed() {
-                            tab.delete_col_selection[idx] = checked;
-                        }
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for (idx, col) in tab.table.columns.iter().enumerate() {
+                    let mut checked = tab.delete_col_selection[idx];
+                    let label = format!("{} [{}]", col.name, col.data_type);
+                    if ui.checkbox(&mut checked, label).changed() {
+                        tab.delete_col_selection[idx] = checked;
                     }
-                });
+                }
+            });
 
             ui.add_space(4.0);
             ui.horizontal(|ui| {
@@ -52,27 +109,22 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
                     }
                 }
             });
-
-            let selected_count = tab.delete_col_selection.iter().filter(|&&v| v).count();
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                let delete_btn = ui.add_enabled(
-                    selected_count > 0,
-                    egui::Button::new(format!(
-                        "{} ({} {})",
-                        octa::i18n::t("common.delete"),
-                        selected_count,
-                        octa::i18n::t("dialog.selected")
-                    )),
-                );
-                if delete_btn.clicked() {
-                    should_delete = true;
-                }
-                if ui.button(octa::i18n::t("common.cancel")).clicked() {
-                    tab.show_delete_columns_dialog = false;
-                }
-            });
         });
+    });
+
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(
+            size_key,
+            if close || should_delete {
+                DialogSize::Normal
+            } else {
+                size
+            },
+        )
+    });
 
     if should_delete {
         let tab = &mut app.tabs[app.active_tab];
@@ -101,7 +153,7 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
         tab.show_delete_columns_dialog = false;
     }
 
-    if !open {
+    if close {
         app.tabs[app.active_tab].show_delete_columns_dialog = false;
     }
 }

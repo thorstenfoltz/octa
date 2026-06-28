@@ -5,6 +5,10 @@
 use eframe::egui;
 use egui::RichText;
 
+use octa::ui::settings::{
+    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+};
+
 use super::super::sql_snippets::SqlSnippet;
 use super::super::state::OctaApp;
 
@@ -16,12 +20,43 @@ pub(crate) fn render_sql_snippet_dialog(app: &mut OctaApp, ctx: &egui::Context) 
     let mut close = false;
     let mut save = false;
 
-    egui::Window::new(octa::i18n::t("dialog.snip_title"))
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .resizable(false)
+    let dialog_id = egui::Id::new("octa_sql_snippet_dialog");
+    let size_key = dialog_id.with("octa_dlg_size");
+    let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
+    let minimized = size == DialogSize::Minimized;
+
+    let window = egui::Window::new("octa_sql_snippet")
+        .id(dialog_id)
+        .title_bar(false)
         .collapsible(false)
-        .default_width(420.0)
-        .show(ctx, |ui| {
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
+    let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+        w.resizable(false).default_width(420.0)
+    });
+
+    let inner = window.show(ctx, |ui| {
+        egui::Panel::top("sql_snippet_header")
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(octa::i18n::t("dialog.snip_title"))
+                            .strong()
+                            .size(16.0),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if draw_window_controls(ui, &mut size) {
+                            close = true;
+                        }
+                    });
+                });
+            });
+
+        if minimized {
+            return;
+        }
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             egui::Grid::new("snip_grid")
                 .num_columns(2)
                 .spacing([8.0, 8.0])
@@ -81,6 +116,21 @@ pub(crate) fn render_sql_snippet_dialog(app: &mut OctaApp, ctx: &egui::Context) 
                 });
             });
         });
+    });
+
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(
+            size_key,
+            if close || save {
+                DialogSize::Normal
+            } else {
+                size
+            },
+        )
+    });
 
     if save {
         let name = draft.name.trim().to_string();

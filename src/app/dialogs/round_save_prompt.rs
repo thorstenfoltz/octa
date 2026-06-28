@@ -14,15 +14,15 @@ pub(crate) fn render_round_save_prompt_dialog(app: &mut OctaApp, ctx: &egui::Con
 
     let mut decision: Option<bool> = None;
     let mut cancel = false;
-    let mut open = true;
 
     // Explicit, stable window id (not the title-derived default). The dialog
     // shipped for a while as a fixed-size, non-resizable window, and egui
     // persisted that locked size under the old key; bumping the suffix discards
     // it so the new resizable defaults take effect.
+    // No close 'x' (no `.open`): this is a forced-choice prompt dismissed by
+    // its own buttons, matching the other confirmation dialogs.
     egui::Window::new(octa::i18n::t("dialog.round_title"))
         .id(egui::Id::new("octa_round_save_dialog_v2"))
-        .open(&mut open)
         .resizable([true, true])
         .collapsible(false)
         .default_width(380.0)
@@ -70,7 +70,7 @@ pub(crate) fn render_round_save_prompt_dialog(app: &mut OctaApp, ctx: &egui::Con
             Some(round),
             None,
         );
-    } else if cancel || !open {
+    } else if cancel {
         app.pending_round_save = None;
     }
 }

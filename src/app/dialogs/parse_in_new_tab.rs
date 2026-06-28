@@ -11,6 +11,9 @@ use std::io::Write;
 
 use eframe::egui;
 
+use octa::ui::settings::{
+    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+};
 use octa::ui::toolbar::ParseScope;
 
 use super::super::state::{OctaApp, TabState};
@@ -91,11 +94,41 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
     let mut should_open = false;
     let mut should_cancel = false;
 
-    egui::Window::new(octa::i18n::t("edit_menu.parse_in_new_tab"))
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .resizable(false)
+    let dialog_id = egui::Id::new("octa_parse_in_new_tab_dialog");
+    let size_key = dialog_id.with("octa_dlg_size");
+    let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
+    let minimized = size == DialogSize::Minimized;
+
+    let window = egui::Window::new("octa_parse_in_new_tab")
+        .id(dialog_id)
+        .title_bar(false)
         .collapsible(false)
-        .show(ctx, |ui| {
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
+    let window = size_dialog_window(ctx, dialog_id, size, window, |w| w.resizable(false));
+
+    let inner = window.show(ctx, |ui| {
+        egui::Panel::top("parse_in_new_tab_header")
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(octa::i18n::t("edit_menu.parse_in_new_tab"))
+                            .strong()
+                            .size(16.0),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if draw_window_controls(ui, &mut size) {
+                            should_cancel = true;
+                        }
+                    });
+                });
+            });
+
+        if minimized {
+            return;
+        }
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             let Some(state) = app.pending_parse_modal.as_mut() else {
                 return;
             };
@@ -153,6 +186,21 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
                 }
             });
         });
+    });
+
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(
+            size_key,
+            if should_cancel || should_open {
+                DialogSize::Normal
+            } else {
+                size
+            },
+        )
+    });
 
     if should_open {
         if let Some(state) = app.pending_parse_modal.take() {

@@ -171,6 +171,7 @@ first_row_is_header = "Erste Zeile ist Kopfzeile"
 discard_all_edits = "Alle Änderungen verwerfen"
 
 [dialog]
+scs_cancelled = "Save cancelled"
 gitcmp_title = "Compare with git version"
 gitcmp_intro = "Compare the current file (with uncommitted changes) against a committed version."
 gitcmp_against = "Comparing against:"
@@ -699,6 +700,8 @@ move_left = "Nach links verschieben"
 move_right = "Nach rechts verschieben"
 
 [context_menu]
+copy_name = "Copy name"
+compare_active = "Compare with active tab"
 freeze_to_here = "Spalten bis hier fixieren"
 unfreeze = "Spaltenfixierung aufheben"
 sec_clipboard = "Zwischenablage"
@@ -1487,3 +1490,12 @@ secret_cleared = "Geheimnis gelöscht."
 secret_storage = "Gespeichert in:"
 need_name_bucket = "Name und Bucket/Container sind erforderlich."
 connection_saved = "Verbindung gespeichert."
+
+[table_picker]
+title = "Open table"
+open_btn = "Open table"
+contains = "contains"
+tables_pick = "tables. Pick one to open:"
+columns = "columns"
+col_header = "Column"
+type_header = "Type"

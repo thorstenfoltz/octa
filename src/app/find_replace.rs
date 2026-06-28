@@ -206,7 +206,10 @@ impl OctaApp {
                 }
             }
         }
-        self.status_message = Some(("No match found".to_string(), std::time::Instant::now()));
+        self.status_message = Some((
+            octa::i18n::t("search.no_matches"),
+            std::time::Instant::now(),
+        ));
     }
 
     /// Replace all matching cell values.

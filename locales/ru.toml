@@ -171,6 +171,7 @@ first_row_is_header = "Первая строка - заголовок"
 discard_all_edits = "Отменить все изменения"
 
 [dialog]
+scs_cancelled = "Save cancelled"
 gitcmp_title = "Compare with git version"
 gitcmp_intro = "Compare the current file (with uncommitted changes) against a committed version."
 gitcmp_against = "Comparing against:"
@@ -689,6 +690,8 @@ move_left = "Переместить влево"
 move_right = "Переместить вправо"
 
 [context_menu]
+copy_name = "Copy name"
+compare_active = "Compare with active tab"
 freeze_to_here = "Закрепить столбцы до этого места"
 unfreeze = "Открепить все столбцы"
 sec_clipboard = "Буфер обмена"
@@ -1475,3 +1478,12 @@ secret_cleared = "Секрет удалён."
 secret_storage = "Хранится в:"
 need_name_bucket = "Имя и бакет/контейнер обязательны."
 connection_saved = "Подключение сохранено."
+
+[table_picker]
+title = "Open table"
+open_btn = "Open table"
+contains = "contains"
+tables_pick = "tables. Pick one to open:"
+columns = "columns"
+col_header = "Column"
+type_header = "Type"

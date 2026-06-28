@@ -171,6 +171,7 @@ first_row_is_header = "Ensimmäinen rivi on otsikko"
 discard_all_edits = "Hylkää kaikki muokkaukset"
 
 [dialog]
+scs_cancelled = "Save cancelled"
 gitcmp_title = "Compare with git version"
 gitcmp_intro = "Compare the current file (with uncommitted changes) against a committed version."
 gitcmp_against = "Comparing against:"
@@ -699,6 +700,8 @@ move_left = "Siirrä vasemmalle"
 move_right = "Siirrä oikealle"
 
 [context_menu]
+copy_name = "Copy name"
+compare_active = "Compare with active tab"
 freeze_to_here = "Kiinnitä sarakkeet tähän asti"
 unfreeze = "Vapauta kaikki sarakkeet"
 sec_clipboard = "Leikepöytä"
@@ -1487,3 +1490,12 @@ secret_cleared = "Salaisuus poistettu."
 secret_storage = "Tallennettu kohteeseen:"
 need_name_bucket = "Nimi ja ämpäri/säilö ovat pakollisia."
 connection_saved = "Yhteys tallennettu."
+
+[table_picker]
+title = "Open table"
+open_btn = "Open table"
+contains = "contains"
+tables_pick = "tables. Pick one to open:"
+columns = "columns"
+col_header = "Column"
+type_header = "Type"

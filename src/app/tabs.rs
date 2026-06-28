@@ -691,7 +691,10 @@ impl OctaApp {
                                 // tab (active or not) but only file-backed
                                 // ones (scratch tabs have nowhere to persist).
                                 tab_label_resp.context_menu(|ui| {
-                                    if !is_active && ui.button("Compare with active tab").clicked()
+                                    if !is_active
+                                        && ui
+                                            .button(octa::i18n::t("context_menu.compare_active"))
+                                            .clicked()
                                     {
                                         tab_to_compare_with = Some(idx);
                                         ui.close();

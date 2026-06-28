@@ -11,6 +11,9 @@ use eframe::egui;
 
 use octa::data::CellValue;
 use octa::data::num_format::{NumberFormat, format_cell_number};
+use octa::ui::settings::{
+    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+};
 
 use super::super::state::OctaApp;
 
@@ -52,28 +55,56 @@ pub(crate) fn render_column_format_dialog(app: &mut OctaApp, ctx: &egui::Context
     let prev_cols = app.tabs[app.active_tab].column_format_cols.clone();
     let mut selected_cols = prev_cols.clone();
 
-    let mut open = true;
     let mut close = false;
     let mut clear = false;
     let mut new_buf = buf.clone();
 
-    egui::Window::new(format!(
-        "{} - {column_name}",
-        octa::i18n::t("column_format.title")
-    ))
     // Explicit, stable id so egui doesn't restore a size persisted while the
     // dialog was a smaller, fixed layout.
-    .id(egui::Id::new("octa_column_format_dialog_v2"))
-    .open(&mut open)
-    .resizable([true, true])
-    .collapsible(false)
-    .default_width(320.0)
-    .default_height(420.0)
-    .min_width(300.0)
-    .min_height(260.0)
-    .pivot(egui::Align2::CENTER_CENTER)
-    .default_pos(ctx.content_rect().center())
-    .show(ctx, |ui| {
+    let dialog_id = egui::Id::new("octa_column_format_dialog_v2");
+    let size_key = dialog_id.with("octa_dlg_size");
+    let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
+    let minimized = size == DialogSize::Minimized;
+
+    let window = egui::Window::new("octa_column_format")
+        .id(dialog_id)
+        .title_bar(false)
+        .collapsible(false)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center());
+    let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+        w.resizable([true, true])
+            .default_width(320.0)
+            .default_height(420.0)
+            .min_width(300.0)
+            .min_height(260.0)
+    });
+
+    let inner = window.show(ctx, |ui| {
+        egui::Panel::top("octa_column_format_header")
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} - {column_name}",
+                            octa::i18n::t("column_format.title")
+                        ))
+                        .strong()
+                        .size(16.0),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if draw_window_controls(ui, &mut size) {
+                            close = true;
+                        }
+                    });
+                });
+            });
+
+        if minimized {
+            return;
+        }
+
         // Footer first (bottom panel) so the buttons stay pinned and visible
         // no matter how tall the column list grows.
         egui::Panel::bottom("octa_column_format_footer").show_inside(ui, |ui| {
@@ -174,6 +205,20 @@ pub(crate) fn render_column_format_dialog(app: &mut OctaApp, ctx: &egui::Context
         });
     });
 
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(
+            size_key,
+            if close || clear {
+                DialogSize::Normal
+            } else {
+                size
+            },
+        )
+    });
+
     selected_cols.sort_unstable();
     selected_cols.dedup();
 
@@ -208,7 +253,7 @@ pub(crate) fn render_column_format_dialog(app: &mut OctaApp, ctx: &egui::Context
     }
     tab.column_format_cols = selected_cols;
 
-    if close || !open {
+    if close {
         tab.column_format_col = None;
     }
 }

@@ -3,6 +3,10 @@
 use eframe::egui;
 use egui::RichText;
 
+use octa::ui::settings::{
+    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+};
+
 use super::super::state::OctaApp;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -53,11 +57,43 @@ pub(crate) fn render_about_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     }
     let screen_center = ctx.content_rect().center();
     let default_pos = screen_center - egui::vec2(160.0, 100.0);
-    egui::Window::new(octa::i18n::t("dialog.about_title"))
-        .resizable(false)
+    let mut close = false;
+
+    let dialog_id = egui::Id::new("octa_about_dialog");
+    let size_key = dialog_id.with("octa_dlg_size");
+    let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
+    let minimized = size == DialogSize::Minimized;
+
+    let window = egui::Window::new("octa_about")
+        .id(dialog_id)
+        .title_bar(false)
         .collapsible(false)
-        .default_pos(default_pos)
-        .show(ctx, |ui| {
+        .default_pos(default_pos);
+    let window = size_dialog_window(ctx, dialog_id, size, window, |w| w.resizable(false));
+
+    let inner = window.show(ctx, |ui| {
+        egui::Panel::top("about_header")
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(octa::i18n::t("dialog.about_title"))
+                            .strong()
+                            .size(16.0),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if draw_window_controls(ui, &mut size) {
+                            close = true;
+                        }
+                    });
+                });
+            });
+
+        if minimized {
+            return;
+        }
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(8.0);
                 let title_id = egui::Id::new(TENTACLE_CLICK_ID);
@@ -116,4 +152,24 @@ pub(crate) fn render_about_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 }
             });
         });
+    });
+
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(
+            size_key,
+            if close || !app.show_about_dialog {
+                DialogSize::Normal
+            } else {
+                size
+            },
+        )
+    });
+
+    if close {
+        app.show_about_dialog = false;
+        ctx.data_mut(|d| d.remove::<u8>(egui::Id::new(TENTACLE_CLICK_ID)));
+    }
 }

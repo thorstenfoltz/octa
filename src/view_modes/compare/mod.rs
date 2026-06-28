@@ -100,7 +100,7 @@ pub fn render_compare_view(
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("Close compare").clicked() {
+            if ui.button(octa::i18n::t("common.close")).clicked() {
                 action.close = true;
             }
         });

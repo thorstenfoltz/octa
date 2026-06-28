@@ -47,7 +47,7 @@ table with auto-generated IDs where applicable (see
 
 ## Inserting columns
 
-**Edit → Insert Column…** opens a dialog with three fields:
+**Columns → Insert Column…** opens a dialog with three fields:
 
 - **Name**: the new column's name. Must be unique.
 - **Type**: pick from a dropdown (Int64, Float64, Utf8, Boolean,
@@ -76,7 +76,7 @@ they become DELETE statements in the diff-based save flow.
 ## Deleting columns
 
 - Right-click a column header → **Delete column**.
-- Or **Edit → Delete Columns…** opens a multi-select dialog for
+- Or **Columns → Delete Column** opens a multi-select dialog for
   bulk operations.
 
 For databases, see the schema-change note above.
@@ -84,7 +84,7 @@ For databases, see the schema-change note above.
 ## Moving rows and columns
 
 - **Edit → Move Row Up / Down** moves the selected row.
-- **Edit → Move Column Left / Right** moves the selected column.
+- **Columns → Move Column Left / Right** moves the selected column.
 - Or drag the row number / column header directly with the mouse.
 
 Reordering does not change the underlying data, just the display

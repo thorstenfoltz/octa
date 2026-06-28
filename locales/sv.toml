@@ -171,6 +171,7 @@ first_row_is_header = "Första raden är rubrik"
 discard_all_edits = "Ignorera alla ändringar"
 
 [dialog]
+scs_cancelled = "Save cancelled"
 gitcmp_title = "Compare with git version"
 gitcmp_intro = "Compare the current file (with uncommitted changes) against a committed version."
 gitcmp_against = "Comparing against:"
@@ -699,6 +700,8 @@ move_left = "Flytta vänster"
 move_right = "Flytta höger"
 
 [context_menu]
+copy_name = "Copy name"
+compare_active = "Compare with active tab"
 freeze_to_here = "Lås kolumner till hit"
 unfreeze = "Lås upp alla kolumner"
 sec_clipboard = "Urklipp"
@@ -1487,3 +1490,12 @@ secret_cleared = "Hemlighet borttagen."
 secret_storage = "Sparad i:"
 need_name_bucket = "Namn och bucket/container krävs."
 connection_saved = "Anslutning sparad."
+
+[table_picker]
+title = "Open table"
+open_btn = "Open table"
+contains = "contains"
+tables_pick = "tables. Pick one to open:"
+columns = "columns"
+col_header = "Column"
+type_header = "Type"

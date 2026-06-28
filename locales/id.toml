@@ -182,6 +182,7 @@ first_row_is_header = "Baris pertama adalah header"
 discard_all_edits = "Buang Semua Suntingan"
 
 [dialog]
+scs_cancelled = "Save cancelled"
 gitcmp_title = "Compare with git version"
 gitcmp_intro = "Compare the current file (with uncommitted changes) against a committed version."
 gitcmp_against = "Comparing against:"
@@ -700,6 +701,8 @@ move_left = "Pindah ke Kiri"
 move_right = "Pindah ke Kanan"
 
 [context_menu]
+copy_name = "Copy name"
+compare_active = "Compare with active tab"
 freeze_to_here = "Bekukan kolom hingga di sini"
 unfreeze = "Lepaskan semua kolom"
 sec_clipboard = "Papan klip"
@@ -1489,3 +1492,12 @@ secret_cleared = "Rahasia dihapus."
 secret_storage = "Disimpan di:"
 need_name_bucket = "Nama dan bucket/kontainer wajib diisi."
 connection_saved = "Koneksi disimpan."
+
+[table_picker]
+title = "Open table"
+open_btn = "Open table"
+contains = "contains"
+tables_pick = "tables. Pick one to open:"
+columns = "columns"
+col_header = "Column"
+type_header = "Type"

@@ -171,6 +171,7 @@ first_row_is_header = "首行为标题"
 discard_all_edits = "放弃所有编辑"
 
 [dialog]
+scs_cancelled = "Save cancelled"
 gitcmp_title = "Compare with git version"
 gitcmp_intro = "Compare the current file (with uncommitted changes) against a committed version."
 gitcmp_against = "Comparing against:"
@@ -689,6 +690,8 @@ move_left = "左移"
 move_right = "右移"
 
 [context_menu]
+copy_name = "Copy name"
+compare_active = "Compare with active tab"
 freeze_to_here = "冻结到此列"
 unfreeze = "取消冻结所有列"
 sec_clipboard = "剪贴板"
@@ -1475,3 +1478,12 @@ secret_cleared = "机密已删除。"
 secret_storage = "存储于："
 need_name_bucket = "名称和存储桶/容器为必填项。"
 connection_saved = "连接已保存。"
+
+[table_picker]
+title = "Open table"
+open_btn = "Open table"
+contains = "contains"
+tables_pick = "tables. Pick one to open:"
+columns = "columns"
+col_header = "Column"
+type_header = "Type"

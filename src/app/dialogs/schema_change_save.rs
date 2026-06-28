@@ -9,11 +9,11 @@ pub(crate) fn render_schema_change_save_dialog(app: &mut OctaApp, ctx: &egui::Co
     let Some(prompt) = app.pending_schema_change_save.clone() else {
         return;
     };
-    let mut open = true;
     let mut proceed = false;
     let mut cancel = false;
+    // No close 'x' (no `.open`): forced-choice prompt dismissed by its own
+    // Proceed / Cancel buttons, matching the other confirmation dialogs.
     egui::Window::new(octa::i18n::t("dialog.scs_title"))
-        .open(&mut open)
         .resizable(false)
         .collapsible(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -58,8 +58,11 @@ pub(crate) fn render_schema_change_save_dialog(app: &mut OctaApp, ctx: &egui::Co
             None,
             Some(true),
         );
-    } else if cancel || !open {
+    } else if cancel {
         app.pending_schema_change_save = None;
-        app.status_message = Some(("Save cancelled".to_string(), std::time::Instant::now()));
+        app.status_message = Some((
+            octa::i18n::t("dialog.scs_cancelled"),
+            std::time::Instant::now(),
+        ));
     }
 }

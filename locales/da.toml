@@ -171,6 +171,7 @@ first_row_is_header = "Første række er overskrift"
 discard_all_edits = "Kassér alle redigeringer"
 
 [dialog]
+scs_cancelled = "Save cancelled"
 gitcmp_title = "Compare with git version"
 gitcmp_intro = "Compare the current file (with uncommitted changes) against a committed version."
 gitcmp_against = "Comparing against:"
@@ -699,6 +700,8 @@ move_left = "Flyt til venstre"
 move_right = "Flyt til højre"
 
 [context_menu]
+copy_name = "Copy name"
+compare_active = "Compare with active tab"
 freeze_to_here = "Frys kolonner til her"
 unfreeze = "Frigør alle kolonner"
 sec_clipboard = "Udklipsholder"
@@ -1487,3 +1490,12 @@ secret_cleared = "Hemmelighed slettet."
 secret_storage = "Gemt i:"
 need_name_bucket = "Navn og bucket/container er påkrævet."
 connection_saved = "Forbindelse gemt."
+
+[table_picker]
+title = "Open table"
+open_btn = "Open table"
+contains = "contains"
+tables_pick = "tables. Pick one to open:"
+columns = "columns"
+col_header = "Column"
+type_header = "Type"

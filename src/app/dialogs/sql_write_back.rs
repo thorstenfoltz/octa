@@ -12,6 +12,9 @@ use std::path::{Path, PathBuf};
 use eframe::egui;
 
 use octa::sql::{AttachKind, WriteMode, WriteTarget};
+use octa::ui::settings::{
+    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+};
 
 use crate::app::state::OctaApp;
 
@@ -109,21 +112,50 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
     if app.tabs[app.active_tab].sql_write_back.is_none() {
         return;
     }
-    let mut open = true;
     let mut do_write = false;
-    let mut do_cancel = false;
+    let mut close = false;
 
     // Take the state out so we can hand `&mut OctaApp` to the helpers without
     // tripping the borrow checker.
     let mut state = app.tabs[app.active_tab].sql_write_back.take().unwrap();
     let preview_sql = compose_preview(&state, &app.tabs[app.active_tab].sql_last_query);
 
-    egui::Window::new(octa::i18n::t("dialog.swb_title"))
-        .collapsible(false)
-        .resizable(false)
-        .open(&mut open)
-        .default_width(560.0)
-        .show(ctx, |ui| {
+    let dialog_id = egui::Id::new("octa_sql_write_back_dialog");
+    let size_key = dialog_id.with("octa_dlg_size");
+    let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
+    let minimized = size == DialogSize::Minimized;
+
+    let window = egui::Window::new("octa_sql_write_back")
+        .id(dialog_id)
+        .title_bar(false)
+        .collapsible(false);
+    let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+        w.resizable(false).default_width(560.0)
+    });
+
+    let inner = window.show(ctx, |ui| {
+        egui::Panel::top("sql_write_back_header")
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(octa::i18n::t("dialog.swb_title"))
+                            .strong()
+                            .size(16.0),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if draw_window_controls(ui, &mut size) {
+                            close = true;
+                        }
+                    });
+                });
+            });
+
+        if minimized {
+            return;
+        }
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             egui::Grid::new("sql_write_back_grid")
                 .num_columns(2)
                 .spacing(egui::vec2(12.0, 6.0))
@@ -224,7 +256,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui.button(octa::i18n::t("common.cancel")).clicked() {
-                    do_cancel = true;
+                    close = true;
                 }
                 let enabled =
                     !state.target_path.as_os_str().is_empty() && !state.table.trim().is_empty();
@@ -239,8 +271,23 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                 }
             });
         });
+    });
 
-    if !open || do_cancel {
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(
+            size_key,
+            if close || do_write {
+                DialogSize::Normal
+            } else {
+                size
+            },
+        )
+    });
+
+    if close {
         return;
     }
 

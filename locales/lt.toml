@@ -178,6 +178,7 @@ first_row_is_header = "Pirma eilutė yra antraštė"
 discard_all_edits = "Atmesti visus pakeitimus"
 
 [dialog]
+scs_cancelled = "Save cancelled"
 gitcmp_title = "Compare with git version"
 gitcmp_intro = "Compare the current file (with uncommitted changes) against a committed version."
 gitcmp_against = "Comparing against:"
@@ -696,6 +697,8 @@ move_left = "Perkelti kairėn"
 move_right = "Perkelti dešinėn"
 
 [context_menu]
+copy_name = "Copy name"
+compare_active = "Compare with active tab"
 freeze_to_here = "Užfiksuoti stulpelius iki čia"
 unfreeze = "Atlaisvinti visus stulpelius"
 sec_clipboard = "Iškarpinė"
@@ -1484,3 +1487,12 @@ secret_cleared = "Paslaptis pašalinta."
 secret_storage = "Saugoma:"
 need_name_bucket = "Pavadinimas ir segmentas/konteineris yra privalomi."
 connection_saved = "Ryšys įrašytas."
+
+[table_picker]
+title = "Open table"
+open_btn = "Open table"
+contains = "contains"
+tables_pick = "tables. Pick one to open:"
+columns = "columns"
+col_header = "Column"
+type_header = "Type"

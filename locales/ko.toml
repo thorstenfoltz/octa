@@ -171,6 +171,7 @@ first_row_is_header = "첫 행을 머리글로"
 discard_all_edits = "모든 편집 취소"
 
 [dialog]
+scs_cancelled = "Save cancelled"
 gitcmp_title = "Compare with git version"
 gitcmp_intro = "Compare the current file (with uncommitted changes) against a committed version."
 gitcmp_against = "Comparing against:"
@@ -689,6 +690,8 @@ move_left = "왼쪽으로 이동"
 move_right = "오른쪽으로 이동"
 
 [context_menu]
+copy_name = "Copy name"
+compare_active = "Compare with active tab"
 freeze_to_here = "여기까지 열 고정"
 unfreeze = "모든 열 고정 해제"
 sec_clipboard = "클립보드"
@@ -1475,3 +1478,12 @@ secret_cleared = "비밀을 삭제했습니다."
 secret_storage = "저장 위치:"
 need_name_bucket = "이름과 버킷/컨테이너는 필수입니다."
 connection_saved = "연결을 저장했습니다."
+
+[table_picker]
+title = "Open table"
+open_btn = "Open table"
+contains = "contains"
+tables_pick = "tables. Pick one to open:"
+columns = "columns"
+col_header = "Column"
+type_header = "Type"
