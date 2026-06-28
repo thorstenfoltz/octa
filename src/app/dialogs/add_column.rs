@@ -5,6 +5,9 @@ use eframe::egui;
 use egui::RichText;
 
 use octa::data;
+use octa::ui::settings::{
+    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+};
 
 use super::super::file_io::shift_formula_row;
 use super::super::init::COLUMN_TYPES;
@@ -14,14 +17,63 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     if !app.tabs[app.active_tab].show_add_column_dialog {
         return;
     }
-    let mut open = true;
     let mut should_add = false;
-    egui::Window::new(octa::i18n::t("dialog.add_column_title"))
-        .open(&mut open)
-        .resizable(false)
+    let mut close = false;
+
+    // The dialog has no dedicated state struct (its fields live on TabState),
+    // so persist the window-size mode in egui temp memory keyed by the dialog
+    // id instead of adding another TabState field.
+    let dialog_id = egui::Id::new("octa_add_column_dialog");
+    let size_key = dialog_id.with("octa_dlg_size");
+    let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
+    let minimized = size == DialogSize::Minimized;
+
+    let window = egui::Window::new("octa_add_column")
+        .title_bar(false)
         .collapsible(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
+    let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+        w.resizable(false).default_width(360.0)
+    });
+
+    let inner = window.show(ctx, |ui| {
+        egui::Panel::top("add_column_header")
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(octa::i18n::t("dialog.add_column_title"))
+                            .strong()
+                            .size(16.0),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if draw_window_controls(ui, &mut size) {
+                            close = true;
+                        }
+                    });
+                });
+            });
+
+        if minimized {
+            return;
+        }
+
+        egui::Panel::bottom("add_column_footer")
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button(octa::i18n::t("common.add")).clicked()
+                        && !app.tabs[app.active_tab].new_col_name.is_empty()
+                    {
+                        should_add = true;
+                    }
+                    if ui.button(octa::i18n::t("common.cancel")).clicked() {
+                        close = true;
+                    }
+                });
+            });
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(octa::i18n::t("dialog.field_name"));
                 ui.text_edit_singleline(&mut app.tabs[app.active_tab].new_col_name);
@@ -120,18 +172,25 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     .size(10.0)
                     .color(ui.visuals().weak_text_color()),
             );
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                if ui.button(octa::i18n::t("common.add")).clicked()
-                    && !app.tabs[app.active_tab].new_col_name.is_empty()
-                {
-                    should_add = true;
-                }
-                if ui.button(octa::i18n::t("common.cancel")).clicked() {
-                    app.tabs[app.active_tab].show_add_column_dialog = false;
-                }
-            });
         });
+    });
+
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+    }
+    // Persist size for the next frame; reset to Normal once the dialog closes
+    // so a leftover Minimized/Maximized doesn't carry into the next open.
+    ctx.data_mut(|d| {
+        d.insert_temp(
+            size_key,
+            if close || should_add {
+                DialogSize::Normal
+            } else {
+                size
+            },
+        )
+    });
+
     if should_add {
         let idx = app.tabs[app.active_tab]
             .insert_col_at
@@ -203,7 +262,7 @@ pub(crate) fn render_add_column_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         app.tabs[app.active_tab].show_add_column_dialog = false;
         app.tabs[app.active_tab].insert_col_at_text.clear();
     }
-    if !open {
+    if close {
         app.tabs[app.active_tab].show_add_column_dialog = false;
         app.tabs[app.active_tab].insert_col_at_text.clear();
     }

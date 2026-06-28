@@ -178,6 +178,7 @@ first_row_is_header = "Први ред је заглавље"
 discard_all_edits = "Одбаци све измене"
 
 [dialog]
+scs_cancelled = "Save cancelled"
 gitcmp_title = "Compare with git version"
 gitcmp_intro = "Compare the current file (with uncommitted changes) against a committed version."
 gitcmp_against = "Comparing against:"
@@ -696,6 +697,8 @@ move_left = "Помери лево"
 move_right = "Помери десно"
 
 [context_menu]
+copy_name = "Copy name"
+compare_active = "Compare with active tab"
 freeze_to_here = "Закључај колоне до овде"
 unfreeze = "Откључај све колоне"
 sec_clipboard = "Клипборд"
@@ -1485,3 +1488,12 @@ secret_cleared = "Тајна избрисана."
 secret_storage = "Сачувано у:"
 need_name_bucket = "Назив и корпа/контејнер су обавезни."
 connection_saved = "Веза сачувана."
+
+[table_picker]
+title = "Open table"
+open_btn = "Open table"
+contains = "contains"
+tables_pick = "tables. Pick one to open:"
+columns = "columns"
+col_header = "Column"
+type_header = "Type"

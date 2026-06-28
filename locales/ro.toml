@@ -182,6 +182,7 @@ first_row_is_header = "Primul rând este antet"
 discard_all_edits = "Renunță la modificări"
 
 [dialog]
+scs_cancelled = "Save cancelled"
 gitcmp_title = "Compare with git version"
 gitcmp_intro = "Compare the current file (with uncommitted changes) against a committed version."
 gitcmp_against = "Comparing against:"
@@ -700,6 +701,8 @@ move_left = "Mută la stânga"
 move_right = "Mută la dreapta"
 
 [context_menu]
+copy_name = "Copy name"
+compare_active = "Compare with active tab"
 freeze_to_here = "Îngheață coloanele până aici"
 unfreeze = "Dezgheață toate coloanele"
 sec_clipboard = "Clipboard"
@@ -1489,3 +1492,12 @@ secret_cleared = "Secret șters."
 secret_storage = "Salvat în:"
 need_name_bucket = "Numele și bucketul/containerul sunt obligatorii."
 connection_saved = "Conexiune salvată."
+
+[table_picker]
+title = "Open table"
+open_btn = "Open table"
+contains = "contains"
+tables_pick = "tables. Pick one to open:"
+columns = "columns"
+col_header = "Column"
+type_header = "Type"

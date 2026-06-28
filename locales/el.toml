@@ -171,6 +171,7 @@ first_row_is_header = "Η πρώτη γραμμή είναι κεφαλίδα"
 discard_all_edits = "Απόρριψη όλων των αλλαγών"
 
 [dialog]
+scs_cancelled = "Save cancelled"
 gitcmp_title = "Compare with git version"
 gitcmp_intro = "Compare the current file (with uncommitted changes) against a committed version."
 gitcmp_against = "Comparing against:"
@@ -689,6 +690,8 @@ move_left = "Μετακίνηση αριστερά"
 move_right = "Μετακίνηση δεξιά"
 
 [context_menu]
+copy_name = "Copy name"
+compare_active = "Compare with active tab"
 freeze_to_here = "Σταθεροποίηση στηλών μέχρι εδώ"
 unfreeze = "Αποσταθεροποίηση όλων των στηλών"
 sec_clipboard = "Πρόχειρο"
@@ -1475,3 +1478,12 @@ secret_cleared = "Το μυστικό διαγράφηκε."
 secret_storage = "Αποθηκευμένο σε:"
 need_name_bucket = "Το όνομα και ο κάδος/κοντέινερ είναι υποχρεωτικά."
 connection_saved = "Η σύνδεση αποθηκεύτηκε."
+
+[table_picker]
+title = "Open table"
+open_btn = "Open table"
+contains = "contains"
+tables_pick = "tables. Pick one to open:"
+columns = "columns"
+col_header = "Column"
+type_header = "Type"

@@ -171,6 +171,7 @@ first_row_is_header = "Eerste rij is koptekst"
 discard_all_edits = "Alle bewerkingen verwerpen"
 
 [dialog]
+scs_cancelled = "Save cancelled"
 gitcmp_title = "Compare with git version"
 gitcmp_intro = "Compare the current file (with uncommitted changes) against a committed version."
 gitcmp_against = "Comparing against:"
@@ -699,6 +700,8 @@ move_left = "Naar links verplaatsen"
 move_right = "Naar rechts verplaatsen"
 
 [context_menu]
+copy_name = "Copy name"
+compare_active = "Compare with active tab"
 freeze_to_here = "Kolommen tot hier blokkeren"
 unfreeze = "Alle kolommen vrijgeven"
 sec_clipboard = "Klembord"
@@ -1487,3 +1490,12 @@ secret_cleared = "Geheim verwijderd."
 secret_storage = "Opgeslagen in:"
 need_name_bucket = "Naam en bucket/container zijn verplicht."
 connection_saved = "Verbinding opgeslagen."
+
+[table_picker]
+title = "Open table"
+open_btn = "Open table"
+contains = "contains"
+tables_pick = "tables. Pick one to open:"
+columns = "columns"
+col_header = "Column"
+type_header = "Type"

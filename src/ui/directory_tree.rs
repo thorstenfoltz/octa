@@ -199,7 +199,10 @@ fn draw_dir(
             .on_hover_text(entry.to_string_lossy().as_ref());
         let copy_name = name.clone();
         resp.context_menu(|ui| {
-            if ui.button("Copy name").clicked() {
+            if ui
+                .button(crate::i18n::t("context_menu.copy_name"))
+                .clicked()
+            {
                 ui.ctx().copy_text(copy_name.clone());
                 ui.close();
             }

@@ -178,6 +178,7 @@ first_row_is_header = "Перший рядок — заголовок"
 discard_all_edits = "Відхилити всі зміни"
 
 [dialog]
+scs_cancelled = "Save cancelled"
 gitcmp_title = "Compare with git version"
 gitcmp_intro = "Compare the current file (with uncommitted changes) against a committed version."
 gitcmp_against = "Comparing against:"
@@ -696,6 +697,8 @@ move_left = "Перемістити ліворуч"
 move_right = "Перемістити праворуч"
 
 [context_menu]
+copy_name = "Copy name"
+compare_active = "Compare with active tab"
 freeze_to_here = "Закріпити стовпці до цього місця"
 unfreeze = "Відкріпити всі стовпці"
 sec_clipboard = "Буфер обміну"
@@ -1484,3 +1487,12 @@ secret_cleared = "Секрет видалено."
 secret_storage = "Збережено у:"
 need_name_bucket = "Назва та бакет/контейнер обов'язкові."
 connection_saved = "З'єднання збережено."
+
+[table_picker]
+title = "Open table"
+open_btn = "Open table"
+contains = "contains"
+tables_pick = "tables. Pick one to open:"
+columns = "columns"
+col_header = "Column"
+type_header = "Type"

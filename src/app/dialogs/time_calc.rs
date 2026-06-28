@@ -15,6 +15,9 @@ use egui::RichText;
 
 use octa::data::time_calc::{DateComponent, TimeCalcOp, TimeUnit, UnixDirection, UnixUnit};
 use octa::data::{self, CellValue};
+use octa::ui::settings::{
+    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+};
 
 use super::super::state::{OctaApp, TimeCalcDialog, TimeCalcKind};
 
@@ -100,22 +103,51 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         .collect();
     let col_count = col_names.len();
 
-    let mut open = true;
     let mut apply = false;
-    let mut cancel = false;
+    let mut close = false;
 
-    egui::Window::new(octa::i18n::t("dialog.tc_title"))
-        .id(egui::Id::new("octa_time_calc_dialog_v2"))
-        .open(&mut open)
-        .resizable([true, true])
+    let dialog_id = egui::Id::new("octa_time_calc_dialog_v2");
+    let size_key = dialog_id.with("octa_dlg_size");
+    let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
+    let minimized = size == DialogSize::Minimized;
+
+    let window = egui::Window::new("octa_time_calc")
+        .id(dialog_id)
+        .title_bar(false)
         .collapsible(false)
-        .default_width(360.0)
-        .default_height(420.0)
-        .min_width(300.0)
-        .min_height(220.0)
         .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
-        .show(ctx, |ui| {
+        .default_pos(ctx.content_rect().center());
+    let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+        w.resizable([true, true])
+            .default_width(360.0)
+            .default_height(420.0)
+            .min_width(300.0)
+            .min_height(220.0)
+    });
+
+    let inner = window.show(ctx, |ui| {
+        egui::Panel::top("time_calc_header")
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+            .show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(octa::i18n::t("dialog.tc_title"))
+                            .strong()
+                            .size(16.0),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if draw_window_controls(ui, &mut size) {
+                            close = true;
+                        }
+                    });
+                });
+            });
+
+        if minimized {
+            return;
+        }
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             // Fill the window in both axes so the resize handles drag freely
             // instead of the window snapping back to content height.
             egui::ScrollArea::vertical()
@@ -309,17 +341,32 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                             apply = true;
                         }
                         if ui.button(octa::i18n::t("common.cancel")).clicked() {
-                            cancel = true;
+                            close = true;
                         }
                     });
                 });
         });
+    });
+
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(
+            size_key,
+            if close || apply {
+                DialogSize::Normal
+            } else {
+                size
+            },
+        )
+    });
 
     if apply {
         apply_time_calc(app);
         app.tabs[app.active_tab].time_calc = None;
     }
-    if cancel || !open {
+    if close {
         app.tabs[app.active_tab].time_calc = None;
     }
 }
