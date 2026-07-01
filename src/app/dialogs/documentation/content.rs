@@ -29,6 +29,10 @@ to open files.
 - Statistical: SPSS (`.sav`, `.zsav`), Stata (`.dta`)
 - Other: dBase / DBF, Jupyter notebooks (`.ipynb`), Markdown (`.md`),
   Plain Text
+- Source / config text with syntax highlighting (`.py`, `.rs`, `.go`, web
+  markup, ...). Extension-less container files (`Dockerfile`, `Dockerfile.*`,
+  `Containerfile`, `Containerfile.*`) are recognised by name, highlighted, and
+  listed in the sidebar file browser.
 
 ## Read-only formats
 
@@ -1093,6 +1097,18 @@ result is shown as one table: a **status** column (`only_in_a`,
 `only_in_b`, `changed_a`, `changed_b`), a **changed_columns** column, and
 the data columns. Cross-format comparison works throughout because only the
 textual representation of each cell is compared.
+
+## Copying
+
+In **Text Diff** the text is selectable: drag to mark, double-click a word,
+or triple-click a line, then copy with **Ctrl+C** or right-click **Copy
+selection**. The right-click menu also offers **Copy left side**, **Copy
+right side**, and **Copy as unified diff** for the whole comparison. Long
+lines scroll sideways within each pane rather than wrapping, so the line
+numbers stay aligned.
+
+Row Hash Diff, Ordered, and Join offer **Copy table** (Ctrl+C or right-click)
+for the visible result.
 "#;
 
 pub(super) const EPUB_VIEW: &str = r#"# EPUB Reader
@@ -1794,13 +1810,31 @@ Open **Settings > Cloud storage** and click **Add connection**:
 
 - **Name** - a label shown in the sidebar.
 - **Provider** - S3, Azure Blob, or GCS.
-- **Bucket / Container** - the S3 bucket, Azure container, or GCS bucket.
+- **Scope** - **Whole bucket** (target one bucket/container), **Path prefix**
+  (confine to a folder inside the bucket, e.g. `team-a/`; the browser roots
+  there and cannot go above it), or **Account level** (list every
+  bucket/container in the account and pick one to browse).
+- **Bucket / Container** - the S3 bucket, Azure container, or GCS bucket (not
+  shown for an account-level connection).
 - **S3 endpoint** - leave empty for real AWS. Set it for an S3-compatible
   provider (IONOS, MinIO, R2, ...); those usually also need **Path-style
   addressing** on, and a local MinIO may need **Allow HTTP**.
 - **AWS profile** - a named profile for SSO sign-in (resolved through the AWS
   CLI). Leave empty to use ambient credentials.
 - **Storage account** (Azure only).
+- **GCP project** / **gcloud account** (GCS account-level only) - GCS buckets
+  belong to a **project**, so account-level listing needs the project id
+  (empty = your active `gcloud` project) and optionally the gcloud identity
+  (email) if you have several logged-in accounts.
+
+### Several accounts or projects
+
+An account-level connection lists one account/project at a time, because each
+provider scopes bucket listing differently. To cover several, make one
+connection per scope: for **AWS/S3** set a different **Profile** per account;
+for **Azure** a different **Storage account**; for **GCS** a different **GCP
+project**. Account-level listing needs the provider CLI (`aws` / `az` /
+`gcloud`) installed and broader list permissions.
 
 ### Credentials
 
@@ -1854,6 +1888,10 @@ and are cached), and click a file to open it. The file is downloaded to a
 temporary copy and opened in a new tab, just like a local file, so every
 supported format works. **Refresh** re-lists a connection (for example after
 signing in or after the bucket changed).
+
+Use the **Sort** menu next to the Connections header to order files by name,
+last-modified date (newest / oldest), or size (largest / smallest). Folders
+always sort by name and stay at the top.
 
 ## Saving back
 

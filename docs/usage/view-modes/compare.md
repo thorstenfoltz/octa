@@ -193,9 +193,15 @@ inside a git repository, a status-bar message says so and no dialog opens.
 
 ## Copying from a diff
 
-You can copy from any sub-mode with **Ctrl+C** or right-click: Text Diff
-offers **Copy left side**, **Copy right side**, and **Copy as unified diff**;
-Row Hash Diff, Ordered, and Join offer **Copy table** for the visible result.
+In **Text Diff** you can select text directly: drag to mark, double-click a
+word, or triple-click a line, then copy with **Ctrl+C** or right-click **Copy
+selection**. The right-click menu also offers **Copy left side**, **Copy right
+side**, and **Copy as unified diff** for the whole comparison. Long lines
+scroll sideways within each pane instead of wrapping, so line numbers stay
+aligned.
+
+Row Hash Diff, Ordered, and Join offer **Copy table** (Ctrl+C or right-click)
+for the visible result.
 
 ## Limitations
 
