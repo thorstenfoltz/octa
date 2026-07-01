@@ -262,15 +262,23 @@ impl ToolContext {
     ) -> anyhow::Result<(octa::cloud::CloudConnection, octa::cloud::ProviderCreds)> {
         use octa::cloud::{CloudConnection, CloudKind, resolve_ambient_creds};
 
-        // A saved connection matching this bucket wins (carries the user's
-        // configured credentials / endpoint).
+        // A saved connection that covers this URL wins (carries the user's
+        // configured credentials / endpoint). `covers` matches an exact bucket,
+        // a prefix-scoped connection (only keys under its prefix), or an
+        // account-level connection (any bucket of the same kind).
         if let Some(settings) = &self.cloud_settings
             && let Some(conn) = settings
                 .cloud_connections
                 .iter()
-                .find(|c| c.kind == loc.kind && c.bucket == loc.bucket)
+                .find(|c| c.covers(loc))
                 .cloned()
         {
+            let mut conn = conn;
+            // An account-level connection has no fixed bucket; bind it to the
+            // bucket named in the URL so the provider targets the right one.
+            if conn.account_level {
+                conn.bucket = loc.bucket.clone();
+            }
             let creds = octa::ui::settings::cloud_secrets::resolve_creds(&conn, settings);
             return Ok((conn, creds));
         }

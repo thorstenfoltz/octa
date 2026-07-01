@@ -33,9 +33,12 @@ impl OctaApp {
             *self.update_state.lock().unwrap(),
             UpdateState::Checking | UpdateState::Updating
         );
-        let busy = bg_loading || update_busy;
+        let file_loading = self.pending_load.is_some();
+        let busy = bg_loading || update_busy || file_loading;
         let busy_hint = if update_busy {
             Some("Updating...")
+        } else if file_loading {
+            Some("Loading file...")
         } else if bg_loading {
             Some("Loading rows...")
         } else {

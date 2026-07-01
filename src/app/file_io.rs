@@ -30,6 +30,11 @@ fn format_is_text_fallback_eligible(format_name: &str) -> bool {
     )
 }
 
+/// Files at or above this size read on a background thread so the window stays
+/// responsive and a spinner can show. Smaller files read inline (instant, no
+/// spinner flash).
+const BACKGROUND_LOAD_MIN_BYTES: u64 = 8 * 1024 * 1024;
+
 /// Build a small preview grid (row 0 is the header) from a table, capped to
 /// `max_rows` data rows and `max_cols` columns. Used by the malformed-file
 /// repair dialog to show what the repaired result looks like.
@@ -462,8 +467,10 @@ impl OctaApp {
     }
 
     /// Write git bytes to a temp file and open it as a new tab (the "Open git
-    /// version" action). The temp file is kept alive until `load_file_in_new_tab`
-    /// has read it.
+    /// version" action). The temp file is leaked (`keep()`) rather than deleted
+    /// on return: a file >= `BACKGROUND_LOAD_MIN_BYTES` is read on a worker
+    /// thread that outlives this call, so deleting the temp here would race the
+    /// read. (Same reason `open_cloud_object` keeps its temp; the OS cleans /tmp.)
     pub(crate) fn open_git_bytes_in_new_tab(
         &mut self,
         bytes: Vec<u8>,
@@ -507,7 +514,8 @@ impl OctaApp {
                 .unwrap_or_else(|| relpath.to_string());
             tab.custom_tab_label = Some(format!("{name} @ {rev}"));
         }
-        drop(tmp);
+        // Leak the temp so a backgrounded (>= 8 MB) read still finds it.
+        let _ = tmp.keep();
     }
 
     /// Compare the active tab against a **sibling tab** (no file picker).
@@ -606,6 +614,11 @@ impl OctaApp {
     /// table-picker or date-ambiguity dialog is up so the user can resolve
     /// the modal before the next file potentially queues another one.
     pub(crate) fn drain_pending_open_queue(&mut self) {
+        // Wait for any in-flight background read to finish before starting the
+        // next queued file (one load at a time).
+        if self.pending_load.is_some() {
+            return;
+        }
         if self.pending_table_picker.is_some()
             || self.pending_sheet_picker.is_some()
             || self.pending_file_repair.is_some()
@@ -803,14 +816,82 @@ impl OctaApp {
             }
         }
 
-        match reader.read_file(&path) {
+        let format_name = reader.name().to_string();
+        let file_len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        if file_len >= BACKGROUND_LOAD_MIN_BYTES {
+            // Background the slow read so the window stays responsive. Re-resolve
+            // the reader inside the worker (FormatRegistry::new is cheap and
+            // IO-free) so we don't move a borrowed `&dyn FormatReader` across
+            // threads. Multi-table sources already returned earlier, so this is
+            // always a single read_file.
+            let (tx, rx) = std::sync::mpsc::channel();
+            let worker_path = path.clone();
+            let worker_format = format_name.clone();
+            let force_text_worker = force_text;
+            std::thread::spawn(move || {
+                let registry = formats::FormatRegistry::new();
+                let text_reader = formats::text_reader::TextReader;
+                // Re-resolve the reader by name so neither `registry` nor
+                // `text_reader` need to outlive the closure (both live for the
+                // whole body, avoiding lifetime trouble with the two borrows).
+                let result = if force_text_worker {
+                    text_reader.read_file(&worker_path)
+                } else {
+                    registry
+                        .reader_by_name(&worker_format)
+                        .unwrap_or(&text_reader)
+                        .read_file(&worker_path)
+                };
+                let _ = tx.send(result);
+            });
+            self.pending_load = Some(super::state::PendingLoad {
+                path,
+                format_name,
+                rx,
+            });
+            return;
+        }
+        let result = reader.read_file(&path);
+        self.finish_single_load(path, format_name, result);
+    }
+
+    /// Poll the background file-read worker (if any). On completion, apply the
+    /// result; while it runs, keep repainting so the status-bar spinner
+    /// animates and the window stays responsive.
+    pub(crate) fn drive_pending_load(&mut self, ctx: &eframe::egui::Context) {
+        let Some(pending) = self.pending_load.as_ref() else {
+            return;
+        };
+        match pending.rx.try_recv() {
+            Ok(result) => {
+                let pending = self.pending_load.take().unwrap();
+                self.finish_single_load(pending.path, pending.format_name, result);
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                ctx.request_repaint();
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                let pending = self.pending_load.take().unwrap();
+                self.finish_single_load(
+                    pending.path,
+                    pending.format_name,
+                    Err(anyhow::anyhow!("file read worker stopped unexpectedly")),
+                );
+            }
+        }
+    }
+
+    /// Apply the result of a single-table read (sync or backgrounded). On error,
+    /// try a content-sniff reload, then a raw-text fallback, else show a status.
+    pub(crate) fn finish_single_load(
+        &mut self,
+        path: std::path::PathBuf,
+        format_name: String,
+        result: anyhow::Result<DataTable>,
+    ) {
+        match result {
             Ok(table) => self.apply_loaded_table(path, table),
             Err(e) => {
-                let format_name = reader.name().to_string();
-                // The extension-chosen reader failed. Before giving up, see if
-                // the file's *content* identifies a different format (e.g. a
-                // Parquet file saved as `export.txt`). Only then try the raw
-                // text fallback.
                 if self.try_content_sniff_reload(&path, &format_name) {
                     return;
                 }

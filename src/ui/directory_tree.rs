@@ -82,17 +82,27 @@ pub fn render_directory_tree(
 }
 
 /// Whether a file is listed under the current filter. Directories are always
-/// shown; the filter only applies to files. A file with no extension is
-/// hidden when the filter is active (it can't be matched against the
-/// registry's openable-extension set).
+/// shown; the filter only applies to files. A file whose extension isn't in
+/// the set is hidden unless its filename is recognized by
+/// `filename_reader_name` (e.g. `Dockerfile`), which keeps extension-less
+/// openable files visible.
 fn file_is_listed(path: &Path, allowed_exts: Option<&HashSet<String>>) -> bool {
     let Some(set) = allowed_exts else {
         return true;
     };
-    match path.extension().and_then(|e| e.to_str()) {
+    let ext_ok = match path.extension().and_then(|e| e.to_str()) {
         Some(ext) => set.contains(&ext.to_ascii_lowercase()),
         None => false,
+    };
+    if ext_ok {
+        return true;
     }
+    // Extension-less / unknown-extension conventions we still open (e.g.
+    // `Dockerfile`, `Containerfile`). Reuses the reader's filename matcher.
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .map(|n| crate::formats::filename_reader_name(n).is_some())
+        .unwrap_or(false)
 }
 
 /// Render a single row that spans the full panel width and is clickable as a

@@ -1430,6 +1430,12 @@ pub struct SettingsDialog {
     cloud_form_allow_http: bool,
     /// Public / anonymous access (skip signing; no secret or sign-in needed).
     cloud_form_anonymous: bool,
+    /// Account-level connection: browse every bucket/container in the account.
+    cloud_form_account_level: bool,
+    /// Optional key prefix to confine the connection to a folder in the bucket.
+    cloud_form_prefix: String,
+    /// GCS project id for account-level bucket listing (empty = active project).
+    cloud_form_project: String,
     /// S3 access key id (secret entry).
     cloud_form_access_key_id: String,
     /// S3 secret access key / Azure account key / Azure SAS (per the toggle).
@@ -1574,8 +1580,18 @@ pub fn size_dialog_window<'a>(
 /// Record a dialog window's current rect so a later un-maximize can restore it.
 /// Call after `Window::show` with the inner response's rect. Only the Normal
 /// mode's rect is remembered (the Maximized/Minimized rects are derived).
+///
+/// The passed `size` cannot be trusted: `draw_window_controls` flips it to
+/// `Normal` on the click frame *while the window is still drawn maximized*, so
+/// trusting it would store the full-screen rect as the restore position (the
+/// "maximize, then can't go back" bug). Instead use the size the window was
+/// actually built with this frame, which `size_dialog_window` records under the
+/// shared `octa_dlg_prev_size` key.
 pub fn remember_dialog_rect(ctx: &egui::Context, id: egui::Id, size: DialogSize, rect: egui::Rect) {
-    if size == DialogSize::Normal {
+    let drawn = ctx
+        .data(|d| d.get_temp::<DialogSize>(id.with("octa_dlg_prev_size")))
+        .unwrap_or(size);
+    if drawn == DialogSize::Normal {
         ctx.data_mut(|d| d.insert_temp(id.with("octa_dlg_normal_rect"), rect));
     }
 }

@@ -60,6 +60,7 @@ impl eframe::App for OctaApp {
         self.handle_shortcuts(&ctx);
         self.update_easter_egg_inputs(&ctx);
         self.drain_background_rows(&ctx);
+        self.drive_pending_load(&ctx);
         self.drain_pending_open_queue();
         self.drain_pending_tab_edits();
         self.drain_cloud_pending_open();

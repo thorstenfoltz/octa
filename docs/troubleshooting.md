@@ -195,6 +195,18 @@ Common causes per format:
   position.
 - **TOML**: type-mismatched value or unrecognised key.
 
+### Opening a large file looks frozen
+
+When you open a single-table file over ~8 MB, Octa reads it on a background
+thread and shows a **"Loading file..."** spinner in the status bar, keeping
+the window responsive while the read is in progress. Smaller files load
+instantly inline (no spinner).
+
+If the window appears frozen with no spinner, the file likely hit a
+non-streaming reader (Excel, JSON, SPSS, Stata) that must load the whole
+file before the table can display - wait it out or use the CLI for a quick
+schema peek (`octa --schema huge.xlsx`).
+
 ### Large file takes forever to open
 
 Streaming readers (Parquet, CSV, TSV) cap initial-load at 1M

@@ -36,3 +36,20 @@ fn structured_formats_resolve_to_a_syntax() {
         );
     }
 }
+
+#[test]
+fn dockerfile_syntax_is_loaded() {
+    assert!(
+        super::syntax_set()
+            .find_syntax_by_name("Dockerfile")
+            .is_some()
+    );
+}
+
+#[test]
+fn dockerfile_filename_resolves_syntax() {
+    assert!(super::syntax_for_filename("Dockerfile").is_some());
+    assert!(super::syntax_for_filename("Dockerfile.dev").is_some());
+    assert!(super::syntax_for_filename("Containerfile").is_some());
+    assert!(super::syntax_for_filename("data.csv").is_none());
+}

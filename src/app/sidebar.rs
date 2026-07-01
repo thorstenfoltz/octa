@@ -69,6 +69,7 @@ impl OctaApp {
         let cli_cache: HashMap<CloudKind, bool> = self.cloud_browser.cli_cache.clone();
         let secret_cache: HashMap<String, bool> = self.cloud_browser.secret_cache.clone();
         let sign_out_confirm: Option<String> = self.cloud_browser.sign_out_confirm.clone();
+        let cloud_sort = self.cloud_browser.sort;
         let expanded: HashSet<ConnPrefix> = self.cloud_browser.expanded.clone();
         let listings_arc: Arc<Mutex<HashMap<ConnPrefix, ListState>>> =
             self.cloud_browser.listings.clone();
@@ -96,6 +97,7 @@ impl OctaApp {
                         cli_avail: &cli_cache,
                         secret_present: &secret_cache,
                         sign_out_confirm: sign_out_confirm.as_deref(),
+                        sort: cloud_sort,
                     };
                     cloud_action =
                         cloud_tree::render_cloud_tree(ui, &connections, &tree_ctx, dir_open);
@@ -129,6 +131,9 @@ impl OctaApp {
         // Dispatch cloud actions.
         if cloud_action.close {
             self.cloud_browser.visible = false;
+        }
+        if let Some(sort) = cloud_action.set_sort {
+            self.cloud_browser.sort = sort;
         }
         if let Some((conn_id, prefix)) = cloud_action.toggle {
             self.toggle_cloud_node(&ctx, conn_id, prefix);

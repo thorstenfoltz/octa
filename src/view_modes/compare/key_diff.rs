@@ -150,7 +150,32 @@ fn draw_result_table(ui: &mut egui::Ui, table: &DataTable, colors: &ui::theme::T
     let ncols = table.col_count();
     let shown = table.row_count().min(RESULT_DISPLAY_CAP);
 
-    ScrollArea::both()
+    // Build plain-text copy payload: header + shown rows, tab-separated.
+    let copy_text = {
+        let header: Vec<&str> = (0..ncols)
+            .map(|c| {
+                table
+                    .columns
+                    .get(c)
+                    .map(|ci| ci.name.as_str())
+                    .unwrap_or("?")
+            })
+            .collect();
+        let mut lines = vec![header.join("\t")];
+        for r in 0..shown {
+            let row: Vec<String> = (0..ncols)
+                .map(|c| match table.get(r, c) {
+                    Some(CellValue::Null) => "-".to_string(),
+                    Some(v) => v.to_string(),
+                    None => String::new(),
+                })
+                .collect();
+            lines.push(row.join("\t"));
+        }
+        lines.join("\n")
+    };
+
+    let scroll = ScrollArea::both()
         .id_salt("compare_key_diff_scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
@@ -200,6 +225,21 @@ fn draw_result_table(ui: &mut egui::Ui, table: &DataTable, colors: &ui::theme::T
                 );
             }
         });
+
+    let area_resp = ui.interact(
+        scroll.inner_rect,
+        ui.make_persistent_id("compare_key_diff_menu"),
+        egui::Sense::click(),
+    );
+    area_resp.context_menu(|ui| {
+        if ui.button(octa::i18n::t("compare.copy_table")).clicked() {
+            ui.ctx().copy_text(copy_text.clone());
+            ui.close();
+        }
+    });
+    if area_resp.hovered() && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::C)) {
+        ui.ctx().copy_text(copy_text);
+    }
 }
 
 /// Map a `status` cell value to a colour.
