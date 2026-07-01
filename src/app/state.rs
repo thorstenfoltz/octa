@@ -860,6 +860,14 @@ pub(crate) struct TimeCalcDialog {
     pub(crate) insert_at_text: String,
 }
 
+/// A file read running on a background thread so the UI stays responsive.
+/// `finish_single_load` consumes the result when the worker completes.
+pub(crate) struct PendingLoad {
+    pub(crate) path: std::path::PathBuf,
+    pub(crate) format_name: String,
+    pub(crate) rx: std::sync::mpsc::Receiver<anyhow::Result<DataTable>>,
+}
+
 /// State for the multi-select Excel sheet picker. `selected[i]` tracks
 /// whether `sheet_names[i]` is ticked; the first `excel_max_auto_sheets` are
 /// pre-checked when the picker opens.
@@ -1517,6 +1525,10 @@ pub(crate) struct OctaApp {
     /// more sheets than `excel_max_auto_sheets`. The user ticks which sheets
     /// to open (each in its own tab).
     pub(crate) pending_sheet_picker: Option<SheetPickerState>,
+    /// A single-table file read running on a background thread (size-gated at
+    /// `BACKGROUND_LOAD_MIN_BYTES`). Polled each frame by task C2; `None` when
+    /// no background load is in flight.
+    pub(crate) pending_load: Option<PendingLoad>,
     /// Files queued for batch open (e.g. from a multi-select File->Open dialog
     /// or multiple paths on the command line). Drained one per frame so that
     /// any modal picker that surfaces during a load (e.g. multi-table DB)

@@ -25,11 +25,74 @@ use super::state::{CloudOrigin, OctaApp};
 /// connection's bucket root.
 pub(crate) type ConnPrefix = (String, String);
 
+/// Map a browser node key to the connection+key to operate on.
+///
+/// For an account-level connection, node keys are bucket-qualified
+/// ("<bucket>/<subkey>"); this returns a clone bound to <bucket> (account_level
+/// cleared) and the bucket-relative <subkey>. For a normal connection it is a
+/// pass-through.
+pub(crate) fn bind_bucket(
+    conn: &octa::cloud::CloudConnection,
+    key: &str,
+) -> (octa::cloud::CloudConnection, String) {
+    if conn.account_level {
+        let (bucket, sub) = key.split_once('/').unwrap_or((key, ""));
+        let mut c = conn.clone();
+        c.bucket = bucket.to_string();
+        c.account_level = false;
+        (c, sub.to_string())
+    } else {
+        (conn.clone(), key.to_string())
+    }
+}
+
+/// The key a connection's tree roots at: its configured `prefix` (confining
+/// browsing to that folder), or "" for a whole-bucket connection.
+pub(crate) fn root_prefix(conn: &octa::cloud::CloudConnection) -> String {
+    conn.prefix.clone().unwrap_or_default()
+}
+
 /// Cached state of one expanded node's listing.
 pub(crate) enum ListState {
     Loading,
     Ready(Vec<ObjectEntry>),
     Error(String),
+}
+
+/// How the browser orders files within a folder. Folders are always listed
+/// first, by name; this only affects the file entries. Session-only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum CloudSort {
+    #[default]
+    NameAsc,
+    NameDesc,
+    ModifiedNewest,
+    ModifiedOldest,
+    SizeLargest,
+    SizeSmallest,
+}
+
+/// Order a folder's entries for display: folders first (by name), then files
+/// by the chosen key. Returns references (no clone of the cached entries).
+pub(crate) fn sorted_entries(entries: &[ObjectEntry], sort: CloudSort) -> Vec<&ObjectEntry> {
+    use std::cmp::Ordering;
+    let mut v: Vec<&ObjectEntry> = entries.iter().collect();
+    v.sort_by(|a, b| match (a.is_prefix, b.is_prefix) {
+        (true, true) => a.name.cmp(&b.name),
+        (true, false) => Ordering::Less,
+        (false, true) => Ordering::Greater,
+        // Option<T> orders None < Some, so files missing a size/date sort to
+        // the "smallest/oldest" end, which is the sensible place for them.
+        (false, false) => match sort {
+            CloudSort::NameAsc => a.name.cmp(&b.name),
+            CloudSort::NameDesc => b.name.cmp(&a.name),
+            CloudSort::ModifiedNewest => b.modified.cmp(&a.modified),
+            CloudSort::ModifiedOldest => a.modified.cmp(&b.modified),
+            CloudSort::SizeLargest => b.size.cmp(&a.size),
+            CloudSort::SizeSmallest => a.size.cmp(&b.size),
+        },
+    });
+    v
 }
 
 /// Per-connection sign-in progress, surfaced next to the connection row.
@@ -80,6 +143,8 @@ pub(crate) struct CloudBrowserState {
     /// Connection id whose "Sign out (clear saved keys)" is armed for an
     /// explicit confirm click. Mirrors the Settings Clear-secret guard.
     pub(crate) sign_out_confirm: Option<String>,
+    /// How files are ordered in every folder listing (session-only).
+    pub(crate) sort: CloudSort,
 }
 
 impl Default for CloudBrowserState {
@@ -94,6 +159,7 @@ impl Default for CloudBrowserState {
             cli_cache: HashMap::new(),
             secret_cache: HashMap::new(),
             sign_out_confirm: None,
+            sort: CloudSort::default(),
         }
     }
 }
@@ -173,10 +239,14 @@ impl OctaApp {
         self.cloud_browser
             .expanded
             .retain(|(c, p)| c != &conn_id || p.is_empty());
+        let root = self
+            .find_cloud_conn(&conn_id)
+            .map(|c| root_prefix(&c))
+            .unwrap_or_default();
         self.cloud_browser
             .expanded
-            .insert((conn_id.clone(), String::new()));
-        self.start_cloud_list(ctx, conn_id, String::new());
+            .insert((conn_id.clone(), root.clone()));
+        self.start_cloud_list(ctx, conn_id, root);
     }
 
     fn start_cloud_list(&mut self, ctx: &egui::Context, conn_id: String, prefix: String) {
@@ -192,6 +262,38 @@ impl OctaApp {
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             let result = (|| -> anyhow::Result<Vec<ObjectEntry>> {
+                if conn.account_level {
+                    if prefix.is_empty() {
+                        // Root of an account-level connection: list buckets.
+                        let buckets = cloud::list_account_buckets(&conn)?;
+                        return Ok(buckets
+                            .into_iter()
+                            .map(|b| ObjectEntry {
+                                name: b.clone(),
+                                key: format!("{b}/"),
+                                is_prefix: true,
+                                size: None,
+                                modified: None,
+                            })
+                            .collect());
+                    }
+                    // Inside a bucket: bind a provider to it, list the relative
+                    // subkey, then re-qualify keys with the bucket so the tree's
+                    // child node keys remain "<bucket>/<subkey>".
+                    let (bconn, sub) = bind_bucket(&conn, &prefix);
+                    let bucket = bconn.bucket.clone();
+                    let creds = resolve_creds(&bconn, &settings);
+                    let provider = cloud::build_provider(&bconn, &creds)?;
+                    let entries = provider.list(&sub)?;
+                    return Ok(entries
+                        .into_iter()
+                        .map(|mut e| {
+                            e.key = format!("{bucket}/{}", e.key);
+                            e
+                        })
+                        .collect());
+                }
+                // ponytail: account-level browse degrades to an error message when the CLI can't enumerate; bucket-scoped connections cover the no-CLI case.
                 let creds = resolve_creds(&conn, &settings);
                 let provider = cloud::build_provider(&conn, &creds)?;
                 provider.list(&prefix)
@@ -218,7 +320,13 @@ impl OctaApp {
         let Some(conn) = self.find_cloud_conn(&conn_id) else {
             return;
         };
-        let label = format!("{name} @ {}://{}/{}", conn.kind.scheme(), conn.bucket, key);
+        // Account-level connections have an empty `bucket`; the `key` already
+        // carries the bucket as its first segment, so don't double it up.
+        let label = if conn.account_level {
+            format!("{name} @ {}://{}", conn.kind.scheme(), key)
+        } else {
+            format!("{name} @ {}://{}/{}", conn.kind.scheme(), conn.bucket, key)
+        };
         let settings = self.settings.clone();
         let pending = self.cloud_browser.pending_open.clone();
         let ctx = ctx.clone();
@@ -228,9 +336,10 @@ impl OctaApp {
         ));
         std::thread::spawn(move || {
             let result = (|| -> anyhow::Result<PathBuf> {
-                let creds = resolve_creds(&conn, &settings);
-                let provider = cloud::build_provider(&conn, &creds)?;
-                let bytes = provider.get(&key)?;
+                let (bconn, real_key) = bind_bucket(&conn, &key);
+                let creds = resolve_creds(&bconn, &settings);
+                let provider = cloud::build_provider(&bconn, &creds)?;
+                let bytes = provider.get(&real_key)?;
                 // Suffix from the object name so the format registry routes the
                 // temp file to the right reader.
                 let ext = std::path::Path::new(&name)
@@ -323,12 +432,16 @@ impl OctaApp {
             // A successful sign-in usually means new credentials work, so the
             // saved-secret picture may have changed too; recompute on next open.
             self.cloud_browser.secret_cache.remove(&id);
+            let root = self
+                .find_cloud_conn(&id)
+                .map(|c| root_prefix(&c))
+                .unwrap_or_default();
             let root_open = self
                 .cloud_browser
                 .expanded
-                .contains(&(id.clone(), String::new()));
+                .contains(&(id.clone(), root.clone()));
             if root_open {
-                self.start_cloud_list(ctx, id.clone(), String::new());
+                self.start_cloud_list(ctx, id.clone(), root);
             }
             self.status_message =
                 Some((octa::i18n::t("cloud.signed_in"), std::time::Instant::now()));
@@ -357,16 +470,21 @@ impl OctaApp {
         };
         let settings = self.settings.clone();
         let status = self.cloud_browser.status.clone();
-        let url = format!("{}://{}/{}", conn.kind.scheme(), conn.bucket, origin.key);
+        let url = if conn.account_level {
+            format!("{}://{}", conn.kind.scheme(), origin.key)
+        } else {
+            format!("{}://{}/{}", conn.kind.scheme(), conn.bucket, origin.key)
+        };
         self.status_message = Some((
             format!("{} {url}", octa::i18n::t("cloud.uploading")),
             std::time::Instant::now(),
         ));
         std::thread::spawn(move || {
             let result = (|| -> anyhow::Result<()> {
-                let creds = resolve_creds(&conn, &settings);
-                let provider = cloud::build_provider(&conn, &creds)?;
-                provider.put(&origin.key, bytes)
+                let (bconn, real_key) = bind_bucket(&conn, &origin.key);
+                let creds = resolve_creds(&bconn, &settings);
+                let provider = cloud::build_provider(&bconn, &creds)?;
+                provider.put(&real_key, bytes)
             })();
             let msg = match result {
                 Ok(()) => format!("{} {url}", octa::i18n::t("cloud.uploaded")),
@@ -415,5 +533,46 @@ impl OctaApp {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod sort_tests {
+    use super::{CloudSort, sorted_entries};
+    use chrono::{TimeZone, Utc};
+    use octa::cloud::ObjectEntry;
+
+    fn file(name: &str, size: u64, day: u32) -> ObjectEntry {
+        ObjectEntry {
+            name: name.to_string(),
+            key: name.to_string(),
+            is_prefix: false,
+            size: Some(size),
+            modified: Some(Utc.with_ymd_and_hms(2026, 1, day, 0, 0, 0).unwrap()),
+        }
+    }
+    fn folder(name: &str) -> ObjectEntry {
+        ObjectEntry {
+            name: name.to_string(),
+            key: format!("{name}/"),
+            is_prefix: true,
+            size: None,
+            modified: None,
+        }
+    }
+
+    #[test]
+    fn folders_first_then_files_by_key() {
+        let entries = vec![file("b.csv", 10, 2), folder("zzz"), file("a.csv", 30, 1)];
+        // Size largest: folder still first, then a.csv (30) before b.csv (10).
+        let by_size = sorted_entries(&entries, CloudSort::SizeLargest);
+        assert_eq!(by_size[0].name, "zzz");
+        assert_eq!(by_size[1].name, "a.csv");
+        assert_eq!(by_size[2].name, "b.csv");
+        // Newest first: day 2 (b.csv) before day 1 (a.csv).
+        let by_date = sorted_entries(&entries, CloudSort::ModifiedNewest);
+        assert_eq!(by_date[0].name, "zzz");
+        assert_eq!(by_date[1].name, "b.csv");
+        assert_eq!(by_date[2].name, "a.csv");
     }
 }

@@ -70,6 +70,9 @@ mod tests {
             account: None,
             profile: None,
             anonymous: false,
+            prefix: None,
+            account_level: false,
+            project: None,
         }
     }
 

@@ -24,3 +24,30 @@ fn state_has_root_expanded_by_default() {
     let s = DirectoryTreeState::new(tmp.path().to_path_buf());
     assert!(s.expanded.contains(&tmp.path().to_path_buf()));
 }
+
+#[test]
+fn dockerfile_is_listed_even_with_filter() {
+    let mut set = std::collections::HashSet::new();
+    set.insert("csv".to_string());
+    let allowed = Some(&set);
+    // A known filename with no extension is shown despite the filter.
+    assert!(file_is_listed(
+        std::path::Path::new("/x/Dockerfile"),
+        allowed
+    ));
+    assert!(file_is_listed(
+        std::path::Path::new("/x/Dockerfile.dev"),
+        allowed
+    ));
+    // A genuinely unknown extension-less file stays hidden.
+    assert!(!file_is_listed(
+        std::path::Path::new("/x/randomfile"),
+        allowed
+    ));
+    // Normal extension filtering still works.
+    assert!(file_is_listed(std::path::Path::new("/x/data.csv"), allowed));
+    assert!(!file_is_listed(
+        std::path::Path::new("/x/data.parquet"),
+        allowed
+    ));
+}

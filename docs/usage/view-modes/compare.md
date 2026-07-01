@@ -191,6 +191,12 @@ straight from git (`git show <rev>:<file>`) into a temporary file, so Parquet,
 Excel, and the like compare just as well as CSV. If the file is not saved
 inside a git repository, a status-bar message says so and no dialog opens.
 
+## Copying from a diff
+
+You can copy from any sub-mode with **Ctrl+C** or right-click: Text Diff
+offers **Copy left side**, **Copy right side**, and **Copy as unified diff**;
+Row Hash Diff, Ordered, and Join offer **Copy table** for the visible result.
+
 ## Limitations
 
 - **Two-way only.** No three-way merge / compare.

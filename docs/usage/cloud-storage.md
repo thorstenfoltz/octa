@@ -37,6 +37,35 @@ Open **Settings > Cloud storage** and click **Add connection**:
 | **AWS profile**        | A named profile for SSO sign-in (resolved through the AWS CLI). Leave empty for ambient credentials.                                                             |
 | **Storage account**    | Azure only.                                                                                                                                                      |
 
+### Connection scope
+
+When you add a connection, the **Scope** field controls what it targets:
+
+- **Whole bucket** (default) - the connection targets one specific bucket or
+  container. The sidebar roots at that bucket.
+- **Path prefix** - confine the connection to a folder inside the bucket (for
+  example `team-a/`). Useful when you only have read access to part of a
+  bucket; the browser roots at that folder and cannot navigate above it.
+- **Account level** - the connection lists every bucket or container in the
+  account; you pick one to browse. This needs broader permissions (S3
+  `ListAllMyBuckets`, Azure container list, GCS bucket list) **and** the
+  provider CLI installed (`aws` / `az` / `gcloud`). If the CLI cannot
+  enumerate buckets, add a bucket-scoped connection instead.
+
+Because each provider scopes bucket listing differently, an account-level
+connection sees only one account/project at a time. To cover several, make one
+connection per scope:
+
+- **AWS / S3** - buckets belong to the credential's account. Set the **Profile**
+  field to a named AWS profile (for example an SSO profile); one connection per
+  account.
+- **Azure** - containers belong to a storage account. Set the **Account** field
+  to the storage account name; one connection per account.
+- **Google Cloud** - buckets belong to a **project**. For an account-level GCS
+  connection, set the **GCP project** field to the project id (leave empty for
+  your active `gcloud` project), and optionally the **gcloud account** email if
+  you have several logged-in accounts. Make one connection per project.
+
 ### Credentials
 
 Octa resolves credentials in this order:
@@ -99,6 +128,9 @@ its bucket root, expand folders to drill in, and click a file to open it.
   exactly like a local file, so every supported format works.
 - **Refresh** re-lists a connection (for example after signing in, or after the
   bucket changed underneath you).
+- **Sort** (next to the Connections header) orders the files in every folder by
+  name, last-modified date (newest / oldest), or size (largest / smallest).
+  Folders always sort by name and stay at the top.
 
 ## Saving back
 

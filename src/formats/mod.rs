@@ -214,6 +214,17 @@ pub trait FormatReader: Send + Sync {
     }
 }
 
+/// Bare filenames (no useful extension) that should open as text. Matched on
+/// the part before the first `.` (case-insensitive), so `Dockerfile`,
+/// `Dockerfile.dev`, `Containerfile`, and `Containerfile.prod` all match.
+pub fn filename_reader_name(file_name: &str) -> Option<&'static str> {
+    let stem = file_name.split('.').next().unwrap_or(file_name);
+    match stem.to_ascii_lowercase().as_str() {
+        "dockerfile" | "containerfile" => Some("Text"),
+        _ => None,
+    }
+}
+
 /// Registry of all available format readers.
 /// New formats are added here.
 pub struct FormatRegistry {
@@ -283,6 +294,15 @@ impl FormatRegistry {
                 .find(|r| r.extensions().contains(&ext.as_str()))
         {
             return Some(reader.as_ref());
+        }
+        // Filename match (extension-less conventions like `Dockerfile`). Runs
+        // only after an extension match fails, so `Dockerfile.json` still opens
+        // as JSON.
+        if let Some(file_name) = path.file_name().and_then(|n| n.to_str())
+            && let Some(name) = filename_reader_name(file_name)
+            && let Some(reader) = self.reader_by_name(name)
+        {
+            return Some(reader);
         }
         // No extension match (missing or unknown extension): try to identify
         // the file by content before falling back to plain text. This catches
@@ -378,5 +398,35 @@ mod backup_tests {
         let bak2 = backup_existing_file(&f).unwrap().expect("second backup");
         assert_ne!(bak1, bak2, "backup names are unique");
         assert!(bak2.exists());
+    }
+}
+
+#[cfg(test)]
+mod filename_reader_tests {
+    use super::*;
+
+    #[test]
+    fn dockerfile_matches_text_reader_by_filename() {
+        let reg = FormatRegistry::new();
+        // No extension, no file on disk needed: the filename step returns before sniff.
+        let r = reg
+            .reader_for_path(std::path::Path::new("Dockerfile"))
+            .unwrap();
+        assert_eq!(r.name(), "Text");
+        let r2 = reg
+            .reader_for_path(std::path::Path::new("Dockerfile.dev"))
+            .unwrap();
+        assert_eq!(r2.name(), "Text");
+        let r3 = reg
+            .reader_for_path(std::path::Path::new("Containerfile"))
+            .unwrap();
+        assert_eq!(r3.name(), "Text");
+    }
+
+    #[test]
+    fn filename_reader_name_is_case_insensitive_on_stem() {
+        assert_eq!(filename_reader_name("dockerfile"), Some("Text"));
+        assert_eq!(filename_reader_name("Dockerfile.prod"), Some("Text"));
+        assert_eq!(filename_reader_name("notes.txt"), None);
     }
 }

@@ -231,6 +231,10 @@ extensions include:
 - **Scripting** `.rb`, `.php`, `.pl`, `.lua`, `.swift`
 - **Data science** `.r`, `.jl`
 - **Terraform / HCL** `.tf`, `.tfvars`, `.hcl`
+- **Container files** `Dockerfile`, `Dockerfile.*` (e.g. `Dockerfile.dev`),
+  `Containerfile`, `Containerfile.*` - these have no extension but Octa
+  recognises them by name, opens them with syntax highlighting, and shows them
+  in the sidebar file browser.
 - **Misc** `.tex`, `.dart`, `.ex`, `.exs`, and the plain-text /
   config set (`.txt`, `.log`, `.ini`, `.cfg`, `.conf`, `.env`, ...)
 
