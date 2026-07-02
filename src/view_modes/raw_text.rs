@@ -307,16 +307,19 @@ pub fn render_raw_view(
         //     point per-line tokenisation on every layouter call is too slow.
         let syntect_syntax = (!use_col_colors && content.len() <= syntax_highlight_max_bytes)
             .then(|| {
-                tab.table
-                    .source_path
-                    .as_deref()
-                    .and_then(|p| {
-                        std::path::Path::new(p)
-                            .extension()
-                            .and_then(|e| e.to_str())
-                            .map(|e| e.to_lowercase())
+                tab.table.source_path.as_deref().and_then(|p| {
+                    let path = std::path::Path::new(p);
+                    let by_ext = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .map(|e| e.to_lowercase())
+                        .and_then(|ext| octa::ui::syntax::syntax_for_extension(&ext));
+                    by_ext.or_else(|| {
+                        path.file_name()
+                            .and_then(|n| n.to_str())
+                            .and_then(octa::ui::syntax::syntax_for_filename)
                     })
-                    .and_then(|ext| octa::ui::syntax::syntax_for_extension(&ext))
+                })
             })
             .flatten();
         let syntect_theme = octa::ui::syntax::theme_for_mode(theme_mode);

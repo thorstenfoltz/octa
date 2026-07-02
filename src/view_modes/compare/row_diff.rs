@@ -29,6 +29,43 @@ use ui::theme::ThemeMode;
 /// column pick to surface relevant rows.
 const BUCKET_DISPLAY_CAP: usize = 200;
 
+/// Build a TSV string for one side of a bucket list (single-side: left-only or
+/// right-only). Rows are capped at BUCKET_DISPLAY_CAP buckets x 50 per bucket,
+/// matching what is shown in the UI.
+fn bucket_to_tsv(
+    table: &DataTable,
+    buckets: &[(&[u8; 32], &Vec<usize>)],
+    cols: &[usize],
+) -> String {
+    let display_cols = effective_columns(table, cols);
+    let mut lines: Vec<String> = Vec::new();
+    // Header
+    let header: Vec<&str> = std::iter::once("row")
+        .chain(display_cols.iter().map(|&c| {
+            table
+                .columns
+                .get(c)
+                .map(|ci| ci.name.as_str())
+                .unwrap_or("?")
+        }))
+        .collect();
+    lines.push(header.join("\t"));
+    for (_, rows) in buckets.iter().take(BUCKET_DISPLAY_CAP) {
+        for &row_idx in rows.iter().take(50) {
+            let mut cells = vec![format!("{}", row_idx + 1 + table.row_offset)];
+            for &c in &display_cols {
+                cells.push(match table.get(row_idx, c) {
+                    Some(CellValue::Null) => "-".to_string(),
+                    Some(v) => v.to_string(),
+                    None => String::new(),
+                });
+            }
+            lines.push(cells.join("\t"));
+        }
+    }
+    lines.join("\n")
+}
+
 pub fn render(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMode) {
     let colors = ui::theme::ThemeColors::for_mode(theme_mode);
     let Some(ref right_box) = tab.compare_right_table else {
@@ -106,7 +143,25 @@ pub fn render(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMode) {
     });
     ui.add_space(6.0);
 
-    ScrollArea::vertical()
+    // Build copy payload upfront (header + all visible rows from both sides).
+    let copy_text = {
+        let mut sections: Vec<String> = Vec::new();
+        if !left_only.is_empty() {
+            sections.push(format!(
+                "# Left only\n{}",
+                bucket_to_tsv(left, &left_only, &tab.compare_columns_left)
+            ));
+        }
+        if !right_only.is_empty() {
+            sections.push(format!(
+                "# Right only\n{}",
+                bucket_to_tsv(right, &right_only, &tab.compare_columns_right)
+            ));
+        }
+        sections.join("\n\n")
+    };
+
+    let scroll = ScrollArea::vertical()
         .id_salt("compare_row_diff_scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
@@ -140,6 +195,21 @@ pub fn render(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMode) {
                 &colors,
             );
         });
+
+    let area_resp = ui.interact(
+        scroll.inner_rect,
+        ui.make_persistent_id("compare_row_diff_menu"),
+        egui::Sense::click(),
+    );
+    area_resp.context_menu(|ui| {
+        if ui.button(octa::i18n::t("compare.copy_table")).clicked() {
+            ui.ctx().copy_text(copy_text.clone());
+            ui.close();
+        }
+    });
+    if area_resp.hovered() && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::C)) {
+        ui.ctx().copy_text(copy_text);
+    }
 }
 
 /// One hash -> all row indices that produced it. Duplicates in one file

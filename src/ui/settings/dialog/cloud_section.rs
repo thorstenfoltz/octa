@@ -56,12 +56,17 @@ impl SettingsDialog {
             .spacing([8.0, 4.0])
             .show(ui, |ui| {
                 for (i, conn) in self.draft.cloud_connections.iter().enumerate() {
-                    ui.label(format!(
-                        "{}  ({}: {})",
-                        conn.name,
-                        kind_label(conn.kind),
-                        conn.bucket
-                    ));
+                    let label = if conn.account_level {
+                        format!("{}  ({}: account)", conn.name, kind_label(conn.kind))
+                    } else {
+                        format!(
+                            "{}  ({}: {})",
+                            conn.name,
+                            kind_label(conn.kind),
+                            conn.bucket
+                        )
+                    };
+                    ui.label(label);
                     if ui.small_button(t("cloud.edit")).clicked() {
                         edit_idx = Some(i);
                     }
@@ -130,15 +135,35 @@ impl SettingsDialog {
                     });
                 ui.end_row();
 
-                let (bucket_label, bucket_hint) = if self.cloud_form_kind == CloudKind::AzureBlob {
-                    (t("cloud.container"), t("cloud.container_hint"))
-                } else {
-                    (t("cloud.bucket"), t("cloud.bucket_hint"))
-                };
-                ui.label(bucket_label).on_hover_text(bucket_hint.clone());
-                ui.text_edit_singleline(&mut self.cloud_form_bucket)
-                    .on_hover_text(bucket_hint);
+                ui.label("");
+                ui.checkbox(&mut self.cloud_form_account_level, t("cloud.account_level"))
+                    .on_hover_text(t("cloud.account_level_hint"));
                 ui.end_row();
+
+                if self.cloud_form_account_level {
+                    ui.label("");
+                    ui.label(t("cloud.account_level_note"));
+                    ui.end_row();
+                } else {
+                    let (bucket_label, bucket_hint) =
+                        if self.cloud_form_kind == CloudKind::AzureBlob {
+                            (t("cloud.container"), t("cloud.container_hint"))
+                        } else {
+                            (t("cloud.bucket"), t("cloud.bucket_hint"))
+                        };
+                    ui.label(bucket_label).on_hover_text(bucket_hint.clone());
+                    ui.text_edit_singleline(&mut self.cloud_form_bucket)
+                        .on_hover_text(bucket_hint);
+                    ui.end_row();
+
+                    ui.label(t("cloud.prefix"))
+                        .on_hover_text(t("cloud.prefix_hint"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.cloud_form_prefix)
+                            .hint_text(t("cloud.prefix_hint")),
+                    );
+                    ui.end_row();
+                }
 
                 match self.cloud_form_kind {
                     CloudKind::S3 => {
@@ -176,7 +201,28 @@ impl SettingsDialog {
                             .on_hover_text(t("cloud.account_hint"));
                         ui.end_row();
                     }
-                    CloudKind::Gcs => {}
+                    CloudKind::Gcs => {
+                        // Buckets in GCP belong to a project; for account-level
+                        // listing let the user name the project (and optionally
+                        // which gcloud identity) so several projects/accounts
+                        // each get their own connection.
+                        if self.cloud_form_account_level {
+                            ui.label(t("cloud.gcs_project"))
+                                .on_hover_text(t("cloud.gcs_project_hint"));
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.cloud_form_project)
+                                    .hint_text(t("cloud.gcs_project_hint")),
+                            );
+                            ui.end_row();
+                            ui.label(t("cloud.gcs_account"))
+                                .on_hover_text(t("cloud.gcs_account_hint"));
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.cloud_form_account)
+                                    .hint_text(t("cloud.gcs_account_hint")),
+                            );
+                            ui.end_row();
+                        }
+                    }
                 }
 
                 // Public / anonymous access applies to every provider.
@@ -324,6 +370,9 @@ impl SettingsDialog {
         self.cloud_form_path_style = conn.force_path_style;
         self.cloud_form_allow_http = conn.allow_http;
         self.cloud_form_anonymous = conn.anonymous;
+        self.cloud_form_account_level = conn.account_level;
+        self.cloud_form_prefix = conn.prefix.clone().unwrap_or_default();
+        self.cloud_form_project = conn.project.clone().unwrap_or_default();
         self.cloud_form_access_key_id.clear();
         self.cloud_form_secret.clear();
         self.cloud_form_azure_is_sas = false;
@@ -345,6 +394,9 @@ impl SettingsDialog {
         self.cloud_form_path_style = false;
         self.cloud_form_allow_http = false;
         self.cloud_form_anonymous = false;
+        self.cloud_form_account_level = false;
+        self.cloud_form_prefix.clear();
+        self.cloud_form_project.clear();
         self.cloud_form_access_key_id.clear();
         self.cloud_form_secret.clear();
         self.cloud_form_azure_is_sas = false;
@@ -355,7 +407,7 @@ impl SettingsDialog {
     fn save_cloud_form(&mut self) {
         let name = self.cloud_form_name.trim().to_string();
         let bucket = self.cloud_form_bucket.trim().to_string();
-        if name.is_empty() || bucket.is_empty() {
+        if name.is_empty() || (!self.cloud_form_account_level && bucket.is_empty()) {
             self.cloud_secret_status_msg = Some(t("cloud.need_name_bucket"));
             return;
         }
@@ -381,6 +433,12 @@ impl SettingsDialog {
             account: opt(&self.cloud_form_account),
             profile: opt(&self.cloud_form_profile),
             anonymous: self.cloud_form_anonymous,
+            prefix: {
+                let p = self.cloud_form_prefix.trim().trim_end_matches('/');
+                (!p.is_empty()).then(|| format!("{p}/"))
+            },
+            account_level: self.cloud_form_account_level,
+            project: opt(&self.cloud_form_project),
         };
         match self.draft.cloud_connections.iter().position(|c| c.id == id) {
             Some(i) => self.draft.cloud_connections[i] = conn,

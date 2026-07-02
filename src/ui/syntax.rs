@@ -49,6 +49,16 @@ fn syntax_set() -> &'static SyntaxSet {
                 );
             }
         }
+        static DOCKERFILE_YAML: &str = include_str!("../../assets/Dockerfile.sublime-syntax");
+        match SyntaxDefinition::load_from_str(DOCKERFILE_YAML, true, Some("source.dockerfile")) {
+            Ok(def) => builder.add(def),
+            Err(e) => {
+                eprintln!(
+                    "warning: bundled Dockerfile.sublime-syntax failed to load: {e}; \
+                     Dockerfiles will render as plain text"
+                );
+            }
+        }
         builder.build()
     })
 }
@@ -100,6 +110,16 @@ pub fn syntax_for_extension(ext: &str) -> Option<&'static SyntaxReference> {
         return None;
     }
     syntax_set().find_syntax_by_extension(ext)
+}
+
+/// Resolve a bare filename (e.g. `Dockerfile`, `Dockerfile.dev`) to a syntax
+/// by the bundled syntax name. Used when the extension yields no syntax.
+pub fn syntax_for_filename(file_name: &str) -> Option<&'static SyntaxReference> {
+    let stem = file_name.split('.').next().unwrap_or(file_name);
+    match stem.to_ascii_lowercase().as_str() {
+        "dockerfile" | "containerfile" => syntax_set().find_syntax_by_name("Dockerfile"),
+        _ => None,
+    }
 }
 
 /// Resolve by syntect's syntax name (e.g. `"Python"`, `"JSON"`). Used by

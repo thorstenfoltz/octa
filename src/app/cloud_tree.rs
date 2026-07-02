@@ -10,7 +10,9 @@ use eframe::egui;
 
 use octa::cloud::{CloudConnection, CloudKind};
 
-use super::cloud_browser::{ConnPrefix, ListState, SignInState};
+use super::cloud_browser::{
+    CloudSort, ConnPrefix, ListState, SignInState, root_prefix, sorted_entries,
+};
 
 const INDENT_PER_LEVEL: f32 = 14.0;
 
@@ -31,6 +33,8 @@ pub(crate) struct CloudTreeAction {
     pub(crate) sign_out_cancel: bool,
     /// Refresh a connection's listings.
     pub(crate) refresh: Option<String>,
+    /// Change the file sort order.
+    pub(crate) set_sort: Option<CloudSort>,
     /// Hide the cloud section.
     pub(crate) close: bool,
 }
@@ -48,6 +52,8 @@ pub(crate) struct TreeCtx<'a> {
     pub(crate) secret_present: &'a HashMap<String, bool>,
     /// Connection id with an armed "Sign out" confirm, if any.
     pub(crate) sign_out_confirm: Option<&'a str>,
+    /// Current file sort order.
+    pub(crate) sort: CloudSort,
 }
 
 /// Render the cloud section. `share_with_dir` caps the list at half height when
@@ -68,6 +74,7 @@ pub(crate) fn render_cloud_tree(
         {
             action.close = true;
         }
+        draw_sort_menu(ui, ctx.sort, &mut action);
     });
 
     if connections.is_empty() {
@@ -96,13 +103,38 @@ pub(crate) fn render_cloud_tree(
     action
 }
 
+/// A compact "Sort" menu: pick how files are ordered in every folder.
+fn draw_sort_menu(ui: &mut egui::Ui, current: CloudSort, action: &mut CloudTreeAction) {
+    ui.menu_button(octa::i18n::t("cloud.sort"), |ui| {
+        for (opt, key) in [
+            (CloudSort::NameAsc, "cloud.sort_name_asc"),
+            (CloudSort::NameDesc, "cloud.sort_name_desc"),
+            (CloudSort::ModifiedNewest, "cloud.sort_newest"),
+            (CloudSort::ModifiedOldest, "cloud.sort_oldest"),
+            (CloudSort::SizeLargest, "cloud.sort_largest"),
+            (CloudSort::SizeSmallest, "cloud.sort_smallest"),
+        ] {
+            if ui
+                .selectable_label(current == opt, octa::i18n::t(key))
+                .clicked()
+            {
+                action.set_sort = Some(opt);
+                ui.close();
+            }
+        }
+    })
+    .response
+    .on_hover_text(octa::i18n::t("cloud.sort_hint"));
+}
+
 fn draw_connection(
     ui: &mut egui::Ui,
     ctx: &TreeCtx,
     conn: &CloudConnection,
     action: &mut CloudTreeAction,
 ) {
-    let root_key = (conn.id.clone(), String::new());
+    let root = root_prefix(conn);
+    let root_key = (conn.id.clone(), root.clone());
     let is_open = ctx.expanded.contains(&root_key);
     let has_cli = ctx.cli_avail.get(&conn.kind).copied().unwrap_or(false);
     let has_secret = ctx.secret_present.get(&conn.id).copied().unwrap_or(false);
@@ -210,7 +242,7 @@ fn draw_connection(
     }
 
     if is_open {
-        draw_listing(ui, ctx, &conn.id, "", 1, action);
+        draw_listing(ui, ctx, &conn.id, &root, 1, action);
     }
 }
 
@@ -232,7 +264,7 @@ fn draw_status_line(ui: &mut egui::Ui, ctx: &TreeCtx, conn: &CloudConnection, ha
                 .small()
                 .color(ui.visuals().weak_text_color()),
         );
-        match ctx.listings.get(&(conn.id.clone(), String::new())) {
+        match ctx.listings.get(&(conn.id.clone(), root_prefix(conn))) {
             Some(ListState::Ready(_)) => {
                 ui.label(
                     egui::RichText::new(octa::i18n::t("cloud.reachable"))
@@ -284,7 +316,7 @@ fn draw_listing(
                 });
                 return;
             }
-            for entry in entries {
+            for entry in sorted_entries(entries, ctx.sort) {
                 if entry.is_prefix {
                     let key = (conn_id.to_string(), entry.key.clone());
                     let is_open = ctx.expanded.contains(&key);

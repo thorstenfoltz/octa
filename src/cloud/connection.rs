@@ -34,7 +34,9 @@ pub struct CloudConnection {
     /// Keyring reference for this connection's static key, if any.
     #[serde(default)]
     pub secret_ref: Option<String>,
-    /// Azure storage account name (Azure only; the container is `bucket`).
+    /// Azure storage account name (the container is `bucket`). For GCS this
+    /// doubles as the optional gcloud identity (`--account` email) to list
+    /// buckets as, when you have several logged-in accounts. Unused for S3.
     #[serde(default)]
     pub account: Option<String>,
     /// AWS named profile to resolve via the CLI (real AWS SSO). None = ambient.
@@ -46,6 +48,19 @@ pub struct CloudConnection {
     /// needed or used.
     #[serde(default)]
     pub anonymous: bool,
+    /// Confine this connection to a key prefix inside `bucket` (e.g.
+    /// `team-a/`). None = whole bucket. Stored with a trailing `/`.
+    #[serde(default)]
+    pub prefix: Option<String>,
+    /// Account-level: browse every bucket/container in the account rather than
+    /// a single `bucket`. When true, `bucket` may be empty.
+    #[serde(default)]
+    pub account_level: bool,
+    /// GCS project id to scope account-level bucket listing to (buckets in GCP
+    /// belong to a project; `gcloud storage buckets list` only sees the active
+    /// project otherwise). None = the gcloud active project. Ignored elsewhere.
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 impl CloudConnection {
@@ -67,6 +82,9 @@ impl CloudConnection {
             account: None,
             profile: None,
             anonymous: false,
+            prefix: None,
+            account_level: false,
+            project: None,
         }
     }
 
@@ -89,6 +107,9 @@ impl CloudConnection {
             account: Some(account),
             profile: None,
             anonymous: false,
+            prefix: None,
+            account_level: false,
+            project: None,
         }
     }
 
@@ -108,6 +129,29 @@ impl CloudConnection {
             account: None,
             profile: None,
             anonymous: false,
+            prefix: None,
+            account_level: false,
+            project: None,
+        }
+    }
+
+    /// Does this connection cover the given parsed URL (kind + bucket + prefix)?
+    pub fn covers(&self, loc: &crate::cloud::CloudLocation) -> bool {
+        if self.kind != loc.kind {
+            return false;
+        }
+        if self.account_level {
+            return true;
+        }
+        if self.bucket != loc.bucket {
+            return false;
+        }
+        match &self.prefix {
+            None => true,
+            Some(p) => {
+                let p = p.trim_end_matches('/');
+                loc.key == p || loc.key.starts_with(&format!("{p}/"))
+            }
         }
     }
 }
@@ -140,6 +184,9 @@ mod tests {
             account: None,
             profile: None,
             anonymous: false,
+            prefix: None,
+            account_level: false,
+            project: None,
         };
         let json = serde_json::to_string(&c).unwrap();
         let back: CloudConnection = serde_json::from_str(&json).unwrap();
@@ -152,5 +199,34 @@ mod tests {
         assert_eq!(c.kind, CloudKind::AzureBlob);
         assert_eq!(c.account.as_deref(), Some("acct"));
         assert_eq!(c.bucket, "cont");
+    }
+
+    #[test]
+    fn covers_respects_prefix_and_account_level() {
+        use crate::cloud::parse_cloud_url;
+        let mut c = CloudConnection::ephemeral_s3("data");
+        // Plain bucket scope: covers its bucket, not another.
+        assert!(c.covers(&parse_cloud_url("s3://data/x.csv").unwrap()));
+        assert!(!c.covers(&parse_cloud_url("s3://other/x.csv").unwrap()));
+
+        // Prefix scope: only keys under the prefix.
+        c.prefix = Some("team-a/".into());
+        assert!(c.covers(&parse_cloud_url("s3://data/team-a/x.csv").unwrap()));
+        assert!(c.covers(&parse_cloud_url("s3://data/team-a/").unwrap()));
+        assert!(!c.covers(&parse_cloud_url("s3://data/team-b/x.csv").unwrap()));
+
+        // Account scope: any bucket of the same kind.
+        let mut a = CloudConnection::ephemeral_s3("");
+        a.account_level = true;
+        assert!(a.covers(&parse_cloud_url("s3://anything/x.csv").unwrap()));
+        assert!(!a.covers(&parse_cloud_url("gs://anything/x.csv").unwrap()));
+    }
+
+    #[test]
+    fn old_settings_without_new_fields_still_deserialize() {
+        let json = r#"{"id":"c1","name":"n","kind":"S3","bucket":"b"}"#;
+        let c: CloudConnection = serde_json::from_str(json).unwrap();
+        assert!(c.prefix.is_none());
+        assert!(!c.account_level);
     }
 }

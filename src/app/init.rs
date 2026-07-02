@@ -133,6 +133,7 @@ impl OctaApp {
             show_reload_confirm: false,
             pending_table_picker: None,
             pending_sheet_picker: None,
+            pending_load: None,
             pending_open_queue: std::collections::VecDeque::new(),
             recently_closed_tabs: std::collections::VecDeque::new(),
             tab_multi_selection: std::collections::HashSet::new(),
