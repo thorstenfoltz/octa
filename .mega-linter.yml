@@ -53,7 +53,7 @@ REPOSITORY_LS_LINT_RULES_PATH: .linters
 # actions/checkout@v5, docker/build-push-action@v7), not full commit SHAs -- see
 # CLAUDE.md. Exclude semgrep's mutable-action-tag rule rather than reverse that
 # documented policy across ci/docs/release.yml.
-REPOSITORY_SEMGREP_ARGUMENTS: '--exclude-rule yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag'
+REPOSITORY_SEMGREP_ARGUMENTS: "--exclude-rule yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag"
 REPOSITORY_SEMGREP_RULESETS:
   [
     "p/comment",
