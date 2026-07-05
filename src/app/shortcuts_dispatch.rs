@@ -522,6 +522,31 @@ impl OctaApp {
             if action_fired(SA::OpenPii) && self.tabs[self.active_tab].table.col_count() > 0 {
                 self.open_pii_dialog();
             }
+            if action_fired(SA::FilterToMarked) {
+                self.toggle_filter_to_marked();
+            }
+            if action_fired(SA::OpenQualityReport) {
+                self.open_quality_tab();
+            }
+            if action_fired(SA::OpenRenameColumns)
+                && self.tabs[self.active_tab].table.col_count() > 0
+                && !self.is_readonly()
+            {
+                let columns: Vec<String> = self.tabs[self.active_tab]
+                    .table
+                    .columns
+                    .iter()
+                    .map(|c| c.name.clone())
+                    .collect();
+                self.rename_columns_state =
+                    Some(super::state::RenameColumnsState::from_columns(&columns));
+            }
+            if action_fired(SA::AddBookmark) {
+                self.begin_add_bookmark();
+            }
+            if action_fired(SA::RenameActiveTab) {
+                self.begin_rename_tab(self.active_tab);
+            }
         }
 
         // --- Handle close request ---

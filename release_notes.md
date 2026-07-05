@@ -1,63 +1,83 @@
 # Release notes
 
-This release focuses on cloud storage, comparing files, and staying responsive
-on big files. Cloud connections can now span whole accounts or a single folder,
-cope with several accounts or GCP projects, and sort a bucket's files by date or
-size. The git-style diff view is now fully selectable, Dockerfiles open with
-highlighting, and large files load without freezing the window.
+This release adds a batch of productivity features across saving, reshaping,
+tidying, and inspecting data, plus friendlier tabs and a set of new keyboard
+shortcuts. Octa can now save your work automatically, transpose or sample a
+table in a click, tidy up a table on demand, open web links from cells, bookmark
+spots in a large file, score a table's data quality, rename many columns at once,
+and give tabs your own names.
 
-## Cloud storage
+## Saving
 
-**Browse a whole account, or just one folder.** A cloud connection now has a
-**Scope**: target one bucket as before, confine it to a **path prefix** (a
-folder inside a bucket, handy when you only have access to part of it), or go
-**account level** to list every bucket or container in the account and pick one
-to browse. Account-level browsing uses the provider CLI (`aws` / `az` /
-`gcloud`) and needs broader list permissions.
+**Auto-save.** Octa can now save your open files automatically on a timer.
+Turn it on under **Settings > Files** and set an interval in minutes (for
+example 5, to save every five minutes). It is off by default. Each interval it
+writes every open tab that has unsaved changes and already exists as a file on
+disk, and shows a brief "Auto-saved N files" note when it does. It never
+interrupts you: tabs never saved to disk, cloud tabs while cloud writing is off,
+saves that would normally ask a question (a rounding format, or a database schema
+change), and a tab you are editing at that moment are all skipped quietly.
 
-**Several accounts or projects.** Buckets are scoped differently by each
-provider, so an account-level connection covers one account or project at a
-time. To see them all, make one connection per scope: an **AWS profile** per
-account, an Azure **storage account** per account, or, for Google Cloud, a
-**GCP project** per project. GCS connections gained a **GCP project** field
-(buckets belong to a project) and an optional **gcloud account** for when you
-have several logged-in identities.
+## Reshaping and tidying
 
-**Sort files by name, date, or size.** A **Sort** menu next to the Connections
-header orders the files in every folder by name (A-Z / Z-A), last-modified date
-(newest / oldest), or size (largest / smallest). Folders always sort by name and
-stay at the top.
+**Transpose.** **Analyse > Transpose** swaps a table's rows and columns into a
+new tab: the original column names become the first column, and each original row
+becomes a column. Limited to tables of at most 1000 rows.
 
-## Comparing files
+**Tidy up.** **Data > Tidy up...** cleans the current table in one undoable step:
+trim stray spaces from cells and column titles, and optionally convert the column
+names to `snake_case`. Octa could already do this when opening a file; now you
+can run it at any time.
 
-**Select and copy from a diff.** In the side-by-side **Text Diff** you can now
-mark text with the mouse (drag, double-click a word, triple-click a line) and
-copy it with **Ctrl+C** or right-click **Copy selection**. The same menu still
-offers **Copy left side**, **Copy right side**, and **Copy as unified diff** for
-the whole comparison, and the Row Hash, Ordered, and Join modes offer **Copy
-table**. Long lines now scroll sideways within each pane instead of wrapping, so
-the line numbers stay aligned.
+**Rename many columns at once.** **Columns > Rename columns...** opens a box
+pre-filled with every column of the active table, one per line. Add a comma and a
+new name to rename a column, and leave a line unchanged to keep it. A live preview
+shows what will be renamed, warns about names that clash, and the whole batch
+reverts with a single Undo.
 
-## More file types
+## Looking at your data
 
-**Dockerfiles open as text.** Files named `Dockerfile`, `Containerfile`, and
-their variants (for example `Dockerfile.dev`) have no extension, but Octa now
-recognises them by name, opens them with syntax highlighting, and lists them in
-the sidebar file browser.
+**Data quality report.** **Analyse > Data quality report...** opens a scored,
+per-column report (missing values, distinct ratio, outliers, likely personal
+data, type consistency, with a 0-100 score per column) and shows the overall
+score in the status bar.
 
-## Performance
+**Random sample.** **Analyse > Random sample...** opens a new tab with a number
+of rows you choose, picked at random from the active table, for eyeballing a fair
+cross-section of a big file without scrolling all of it.
 
-**Large files stay responsive.** Opening a single-table file over about 8 MB now
-reads it on a background thread and shows a **"Loading file..."** spinner in the
-status bar, so the window keeps responding while the read runs. Smaller files
-still load instantly inline.
+**Filter to marked.** **Edit > Filter to marked** hides everything except the
+rows and columns you have marked, so you can zoom in on just the cells you care
+about; run it again to clear. While it is active, the sequential row-number
+column appears alongside the original numbers, as with any other filter.
 
-## Fixes
+**Clickable web links.** A cell that holds a web address (`http` or `https`) now
+shows as an underlined link; **Ctrl+click** opens it in your browser, while a
+plain click still selects the cell. Turn it off under **Settings > Table View**.
 
-**Maximised dialogs restore correctly.** A dialog that you maximise now returns
-to its previous size when you restore it, instead of getting stuck full-screen.
+## Tabs
+
+**Bookmarks.** Mark a spot in a table and jump back to it later. Add a bookmark
+from the toolbar **Bookmarks** dropdown, from **Data > Add bookmark...**, by
+right-clicking a cell, or with **Ctrl+Alt+B**; pick one from the dropdown to jump
+straight to it. Bookmarks last for the session.
+
+**Rename a tab.** Right-click a tab and choose **Rename tab...** (or press
+**Ctrl+Alt+T**) to give it your own label. This changes only what the tab shows;
+the file path and the name on disk are unchanged, and hovering the tab still
+reveals the full path. Clear the name to go back to the file name.
+
+## Keyboard shortcuts
+
+New shortcuts, all in the **Ctrl+Alt** family so nothing existing is replaced:
+Filter to marked (**Ctrl+Alt+M**), Data quality report (**Ctrl+Alt+Q**), Rename
+columns (**Ctrl+Alt+R**), Add bookmark (**Ctrl+Alt+B**), Rename tab
+(**Ctrl+Alt+T**), plus default bindings for Fill missing values
+(**Ctrl+Alt+I**), Union tables (**Ctrl+Alt+N**), Detect outliers
+(**Ctrl+Alt+O**), and Detect PII (**Ctrl+Alt+P**). All remain remappable in
+Settings.
 
 ## Translations
 
-The new cloud, sort, and diff labels are available in all 32 supported
-languages.
+The new menu items, dialogs, and settings are available in all 32 supported
+languages (with English text as the fallback for the newest strings).

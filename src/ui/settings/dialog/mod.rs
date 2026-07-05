@@ -50,6 +50,7 @@ impl SettingsDialog {
         self.excel_max_auto_sheets_buf =
             crate::ui::status_bar::format_number(current.excel_max_auto_sheets);
         self.search_history_limit_buf = current.search_history_limit.to_string();
+        self.auto_save_interval_buf = current.auto_save_interval_minutes.to_string();
         self.chat_temperature_buf = format!("{:.2}", current.chat_temperature);
         self.chat_max_iterations_buf = current.chat_max_tool_iterations.to_string();
         self.chat_max_tokens_buf = crate::ui::status_bar::format_number(current.chat_max_tokens);
@@ -217,6 +218,10 @@ impl SettingsDialog {
                             // Search history size: 0 is valid (disables history).
                             if let Ok(n) = parse_comma_number(&self.search_history_limit_buf) {
                                 self.draft.search_history_limit = n;
+                            }
+                            // Auto-save interval: minutes, clamped to >= 1.
+                            if let Ok(n) = parse_comma_number(&self.auto_save_interval_buf) {
+                                self.draft.auto_save_interval_minutes = (n as u32).max(1);
                             }
                             // Chat temperature / iterations: parse + clamp;
                             // invalid input keeps the existing draft value.
@@ -533,6 +538,22 @@ impl SettingsDialog {
                             .hint_text("log4j, myproj, rawdata"),
                     );
                     ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.auto_save"))
+                        .on_hover_text(crate::i18n::t("settings_hint.auto_save"));
+                    ui.checkbox(&mut self.draft.auto_save_enabled, "");
+                    ui.end_row();
+
+                    if self.draft.auto_save_enabled {
+                        ui.label(crate::i18n::t("settings.auto_save_interval"))
+                            .on_hover_text(crate::i18n::t("settings_hint.auto_save_interval"));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.auto_save_interval_buf)
+                                .desired_width(120.0)
+                                .hint_text("5"),
+                        );
+                        ui.end_row();
+                    }
                 });
         });
 
@@ -642,6 +663,24 @@ impl SettingsDialog {
                     ui.checkbox(&mut self.draft.negative_numbers_red, "");
                     ui.end_row();
 
+                    ui.label(crate::i18n::t("settings.mark_filter_cell_mode"))
+                        .on_hover_text(crate::i18n::t("settings_hint.mark_filter_cell_mode"));
+                    egui::ComboBox::from_id_salt("settings_mark_filter_cell_mode")
+                        .selected_text(crate::i18n::t(self.draft.mark_filter_cell_mode.i18n_key()))
+                        .show_ui(ui, |ui| {
+                            for mode in crate::data::mark_filter::MarkFilterCellMode::ALL
+                                .iter()
+                                .copied()
+                            {
+                                ui.selectable_value(
+                                    &mut self.draft.mark_filter_cell_mode,
+                                    mode,
+                                    crate::i18n::t(mode.i18n_key()),
+                                );
+                            }
+                        });
+                    ui.end_row();
+
                     ui.label(crate::i18n::t("settings.thousand_sep"))
                         .on_hover_text(crate::i18n::t("settings_hint.thousand_sep"));
                     ui.checkbox(&mut self.draft.thousands_separators_in_cells, "");
@@ -672,6 +711,11 @@ impl SettingsDialog {
                     ui.label(crate::i18n::t("settings.cell_line_breaks"))
                         .on_hover_text(crate::i18n::t("settings_hint.cell_line_breaks"));
                     ui.checkbox(&mut self.draft.cell_line_breaks, "");
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.clickable_links"))
+                        .on_hover_text(crate::i18n::t("settings_hint.clickable_links"));
+                    ui.checkbox(&mut self.draft.clickable_links, "");
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.binary_display"))

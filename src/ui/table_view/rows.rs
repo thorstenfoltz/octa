@@ -33,6 +33,7 @@ pub(super) fn draw_data_row_direct(
     highlight_edits: bool,
     font_size: f32,
     cell_line_breaks: bool,
+    clickable_links: bool,
     binary_display_mode: BinaryDisplayMode,
     row_height: f32,
     readonly: bool,
@@ -119,6 +120,23 @@ pub(super) fn draw_data_row_direct(
                 .as_ref()
                 .map(|(r, c, _)| *r == actual_row && *c == col_idx)
                 .unwrap_or(false);
+            // Detect a web link in this cell (non-numeric columns only) so it
+            // can be styled as a hyperlink and opened on Ctrl+click. Computed
+            // here so both the draw and click blocks can see it. Cheap: skipped
+            // entirely when the setting is off.
+            let cell_link: Option<String> = if clickable_links
+                && !table
+                    .columns
+                    .get(col_idx)
+                    .is_some_and(|c| is_numeric_data_type(&c.data_type))
+            {
+                table.get(actual_row, col_idx).and_then(|v| {
+                    let text = v.display_with_binary_mode(binary_display_mode);
+                    crate::data::links::detect_url(&text).map(|u| u.to_string())
+                })
+            } else {
+                None
+            };
             let is_selected = state
                 .selected_cell
                 .map(|(r, c)| r == actual_row && c == col_idx)
@@ -342,6 +360,15 @@ pub(super) fn draw_data_row_direct(
                             _ => colors.text_primary,
                         }
                     };
+                    // Link cells read in the theme's hyperlink colour, unless a
+                    // selection / mark background needs the high-contrast colour
+                    // already chosen above.
+                    let text_color =
+                        if cell_link.is_some() && !(is_any_selected || mark_color.is_some()) {
+                            ui.visuals().hyperlink_color
+                        } else {
+                            text_color
+                        };
 
                     let text_rect = rect.shrink2(Vec2::new(6.0, 0.0));
                     let cell_clip = egui::Rect::from_min_max(
@@ -350,7 +377,28 @@ pub(super) fn draw_data_row_direct(
                     )
                     .intersect(col_clip);
 
-                    let galley = if cell_line_breaks {
+                    let galley = if cell_link.is_some() {
+                        // Underline link cells so the hyperlink affordance is
+                        // visible. Built as a LayoutJob because the plain
+                        // painter.layout helpers cannot carry an underline.
+                        let mut job = egui::text::LayoutJob::default();
+                        job.wrap.max_width = if cell_line_breaks {
+                            text_rect.width()
+                        } else {
+                            f32::INFINITY
+                        };
+                        job.append(
+                            &display_text,
+                            0.0,
+                            egui::TextFormat {
+                                font_id: egui::FontId::new(font_size, egui::FontFamily::Monospace),
+                                color: text_color,
+                                underline: egui::Stroke::new(1.0, text_color),
+                                ..Default::default()
+                            },
+                        );
+                        painter.layout_job(job)
+                    } else if cell_line_breaks {
                         painter.layout(
                             display_text,
                             egui::FontId::new(font_size, egui::FontFamily::Monospace),
@@ -398,7 +446,14 @@ pub(super) fn draw_data_row_direct(
                 if response.clicked() {
                     let modifiers = ui.input(|i| i.modifiers);
                     state.editing_cell = None;
-                    if modifiers.command {
+                    if modifiers.command && cell_link.is_some() {
+                        // Ctrl/Cmd+click on a link cell opens the URL and takes
+                        // precedence over the disjoint multi-select toggle for
+                        // that cell. Selection is left as it was.
+                        if let Some(url) = &cell_link {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        }
+                    } else if modifiers.command {
                         // Ctrl/Cmd+click toggles the clicked cell in the
                         // disjoint multi-cell selection. Promote the prior
                         // single `selected_cell` into the set on the first
@@ -586,6 +641,16 @@ pub(super) fn draw_data_row_direct(
                     }
                     if ui.button(crate::i18n::t("header.sort_za")).clicked() {
                         interaction.sort_rows_desc_by = Some(col_idx);
+                        ui.close();
+                    }
+
+                    ui.separator();
+                    if ui
+                        .button(crate::i18n::t("bookmarks.add"))
+                        .on_hover_text(crate::i18n::t("bookmarks.add_hint"))
+                        .clicked()
+                    {
+                        interaction.ctx_add_bookmark = true;
                         ui.close();
                     }
 

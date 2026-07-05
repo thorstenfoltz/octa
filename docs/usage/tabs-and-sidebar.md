@@ -21,6 +21,9 @@ even when only one tab is open. Each tab shows the filename and an
 - **Right-click** a tab for the context menu:
   - Pin tab
   - Compare with active tab
+  - Rename tab... (or <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd>) sets a display-only label;
+    the file path and name on disk are unchanged, and hovering still shows the
+    full path. Clear the name to revert to the file name.
 - **Ctrl-click** a non-active tab to add it to a multi-selection
   set (visualised as a soft accent tint). Currently used by the
   [Compare view](view-modes/compare.md)'s "Compare selected tabs"

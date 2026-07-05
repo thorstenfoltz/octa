@@ -124,6 +124,31 @@ pub struct ToolbarAction {
     /// Open the Conditional-column (CASE / if-elseif-else) dialog for the
     /// active table. Fired by **Edit -> Conditional column...**.
     pub open_conditional_column: bool,
+    /// Toggle "Filter to marked": keep only marked rows/columns/cells.
+    /// Fired by **Edit -> Filter to marked**.
+    pub filter_to_marked: bool,
+    /// Open the bulk "Rename columns" dialog for the active table.
+    /// Fired by **Columns -> Rename columns...**.
+    pub open_rename_columns: bool,
+    /// Open a Data-quality report tab for the active table.
+    /// Fired by **Analyse -> Data quality report...**.
+    pub open_quality: bool,
+    /// Open a transposed (rows <-> columns) copy of the active table in a new
+    /// tab. Fired by **Analyse -> Transpose**.
+    pub open_transpose: bool,
+    /// Open the Random-sample dialog for the active table.
+    /// Fired by **Analyse -> Random sample...**.
+    pub open_random_sample: bool,
+    /// Open the Tidy-up dialog (trim / clean headers) for the active table.
+    /// Fired by **Data -> Tidy up...**.
+    pub open_tidy_up: bool,
+    /// Start adding a bookmark at the current selection (opens the naming
+    /// dialog). Fired by the toolbar **Bookmarks -> Add bookmark...** entry.
+    pub add_bookmark: bool,
+    /// Jump to the bookmark at this index in the active tab's list.
+    pub jump_bookmark: Option<usize>,
+    /// Delete the bookmark at this index in the active tab's list.
+    pub delete_bookmark: Option<usize>,
     /// Open the Anonymise-columns dialog for the active table.
     /// Fired by **Edit -> Anonymise columns...**.
     pub open_anonymize: bool,

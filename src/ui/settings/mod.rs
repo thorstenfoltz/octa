@@ -591,6 +591,10 @@ pub struct AppSettings {
     /// while filtered; redundant otherwise.
     #[serde(default = "default_true")]
     pub show_sequential_row_numbers: bool,
+    /// How "Filter to marked" treats marked *cells* (marked rows/columns always
+    /// keep their row/column). Default `RowsOnly`.
+    #[serde(default)]
+    pub mark_filter_cell_mode: crate::data::mark_filter::MarkFilterCellMode,
     /// Whether to use alternating row background colors.
     #[serde(default = "default_true")]
     pub alternating_row_colors: bool,
@@ -632,9 +636,20 @@ pub struct AppSettings {
     /// Maximum number of recently opened files shown in the File menu.
     #[serde(default = "default_max_recent")]
     pub max_recent_files: usize,
+    /// Periodically write modified file-backed tabs to disk. Off by default.
+    #[serde(default)]
+    pub auto_save_enabled: bool,
+    /// Minutes between auto-saves when `auto_save_enabled`. Clamped to >= 1 on
+    /// apply; default 5.
+    #[serde(default = "default_auto_save_interval")]
+    pub auto_save_interval_minutes: u32,
     /// Whether to allow line breaks in table cells (wraps long text).
     #[serde(default)]
     pub cell_line_breaks: bool,
+    /// Style cells that hold a web address as a hyperlink and open it on
+    /// Ctrl+click. On by default.
+    #[serde(default = "default_true")]
+    pub clickable_links: bool,
     /// How to display binary data columns (Binary, Hex, or Text).
     #[serde(default)]
     pub binary_display_mode: BinaryDisplayMode,
@@ -1019,6 +1034,10 @@ fn default_max_recent() -> usize {
     5
 }
 
+fn default_auto_save_interval() -> u32 {
+    5
+}
+
 fn default_search_history_limit() -> usize {
     5
 }
@@ -1099,6 +1118,7 @@ impl Default for AppSettings {
             default_search_mode: SearchMode::Plain,
             show_row_numbers: true,
             show_sequential_row_numbers: true,
+            mark_filter_cell_mode: crate::data::mark_filter::MarkFilterCellMode::default(),
             alternating_row_colors: true,
             negative_numbers_red: true,
             debug_mode: false,
@@ -1108,10 +1128,13 @@ impl Default for AppSettings {
             search_history_limit: default_search_history_limit(),
             highlight_edits: false,
             cell_line_breaks: false,
+            clickable_links: true,
             binary_display_mode: BinaryDisplayMode::default(),
             color_aligned_columns: true,
             notebook_output_layout: NotebookOutputLayout::default(),
             max_recent_files: 10,
+            auto_save_enabled: false,
+            auto_save_interval_minutes: default_auto_save_interval(),
             tab_size: 4,
             body_font: BodyFont::Proportional,
             custom_font_path: String::new(),
@@ -1372,6 +1395,9 @@ pub struct SettingsDialog {
     /// Buffer backing the search-history-size input (text, not a DragValue, so
     /// Settings shows no horizontal-drag cursor). Parsed on Apply.
     search_history_limit_buf: String,
+    /// Buffer backing the auto-save interval input (minutes). Parsed + clamped
+    /// to >= 1 on Apply. Only used when `auto_save_enabled`.
+    auto_save_interval_buf: String,
     /// Buffer backing the chat temperature input (text, not a slider, so
     /// Settings shows no drag cursor). Parsed + clamped 0.0..=2.0 on Apply.
     chat_temperature_buf: String,

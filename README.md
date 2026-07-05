@@ -107,6 +107,7 @@ default, and keyboard shortcut in detail.
 - Search and filter across all columns in real time (Plain / Wildcard / Regex modes), with match-case and whole-word toggles, a single-column scope, and a persistent **Recent** history
 - Excel-style formulas in cells (`=A1+B1`) and as the "Insert column" formula
 - Thousand separators for numeric cells (English / European styles) plus per-column rounding, all display-only and never written to saved data
+- Clickable web links: cells holding an `http`/`https` address show as underlined links and **Ctrl+click** opens them in your browser (on by default, toggle in Settings)
 
 ### Cloud Storage
 
@@ -148,8 +149,10 @@ a saved-**Snippets** library, and a brief green highlight of the cells a mutatio
 - Copy the current selection as a GitHub-flavoured Markdown table
 - Undo / Redo for cell edits, structural changes, and colour marks
 - Leading/trailing whitespace trimmed from string cells and column titles on load (configurable, with a banner listing the affected columns)
+- Tidy up (**Data → Tidy up...**): trim stray spaces and optionally convert column names to `snake_case` for the current table, on demand and in one undoable step
 - Unsaved-changes guards on close and file open
 - Save in the original format or export to a different one via Save As
+- Optional auto-save writes changed files back to disk on a timer (off by default; enable it and set the interval in minutes under **Settings → Files**)
 - Reopen Last Closed Tab (default **Ctrl+Shift+T**) restores accidentally-closed tabs
 - Find duplicates (default **Ctrl+Shift+D**) picks dedupe-key columns and either highlights duplicate rows or opens them in a new tab
 
@@ -161,6 +164,8 @@ you choose which statistics appear under **Settings → Summary**
 - **Value Frequency** — `value_counts()`-style top-N values for any column.
 Numeric columns can be turned into a histogram: type a bin count (or leave it for automatic Sturges binning) and get that many equal-width ranges with their counts
 - **Pivot / Unpivot** — reshape a table between long and wide form (DuckDB `PIVOT` / `UNPIVOT`) into a new tab
+- **Transpose** — swap the table's rows and columns into a new tab (**Analyse → Transpose**)
+- **Random sample** — open a new tab of a chosen number of randomly picked rows (**Analyse → Random sample...**)
 - **Schema Export** — render the column list as Postgres / MySQL / SQLite / Databricks / Snowflake DDL, Pydantic v2, TypeScript interface, JSON Schema, or a Rust struct. Also available from the CLI (`octa --export-schema`) and over MCP.
 - **Chart** — open a new tab plotting the active table as a histogram, bar, line, scatter, or box chart via `egui_plot`.
 Customisable title / axis / legend / per-series colour, PNG/SVG/PDF export, log scale.

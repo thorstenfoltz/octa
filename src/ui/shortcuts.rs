@@ -365,6 +365,20 @@ pub enum ShortcutAction {
     OpenOutliers,
     /// Open the Detect-PII dialog. Also **Analyse -> Detect PII...**.
     OpenPii,
+    /// Toggle "Filter to marked" for the active tab. Also
+    /// **Edit -> Filter to marked**.
+    FilterToMarked,
+    /// Open a Data-quality report tab. Also **Analyse -> Data quality report...**.
+    OpenQualityReport,
+    /// Open the bulk "Rename columns" dialog. Also
+    /// **Columns -> Rename columns...**.
+    OpenRenameColumns,
+    /// Add a bookmark at the current selection (opens the naming dialog).
+    /// Also the toolbar **Bookmarks -> Add bookmark...** entry.
+    AddBookmark,
+    /// Rename the active tab (display name only; the file path is unchanged).
+    /// Also the tab right-click **Rename tab...** entry.
+    RenameActiveTab,
 }
 
 impl ShortcutAction {
@@ -442,6 +456,11 @@ impl ShortcutAction {
             Self::OpenPartition => "Partition by column",
             Self::OpenOutliers => "Detect outliers...",
             Self::OpenPii => "Detect PII...",
+            Self::FilterToMarked => "Filter to marked",
+            Self::OpenQualityReport => "Data quality report...",
+            Self::OpenRenameColumns => "Rename columns...",
+            Self::AddBookmark => "Add bookmark...",
+            Self::RenameActiveTab => "Rename tab...",
         }
     }
 
@@ -530,18 +549,20 @@ impl ShortcutAction {
             Self::OpenJoin => KeyCombo::ctrl_shift(Key::Q),
             // Ctrl+Shift+Z is free here: undo is Ctrl+Z, redo is Ctrl+Y.
             Self::OpenPartition => KeyCombo::ctrl_shift(Key::Z),
-            // Impute, Union, Outliers and PII have no default binding. Every
-            // clipboard-safe Ctrl+Shift letter is already taken, and the
-            // clipboard letters are off-limits: egui-winit's
-            // is_copy/cut/paste_command match on `command && C/X/V` ignoring
-            // Shift, so Ctrl+Shift+C/X/V also fire Event::Copy/Cut/Paste on
-            // the table (Ctrl+Shift+V would *paste into* the table). Ctrl+Alt
-            // risks AltGr on non-English keyboards. These open from the menu;
-            // users can bind them in Settings.
-            Self::OpenImpute => KeyCombo::UNBOUND,
-            Self::OpenUnion => KeyCombo::UNBOUND,
-            Self::OpenOutliers => KeyCombo::UNBOUND,
-            Self::OpenPii => KeyCombo::UNBOUND,
+            // The Ctrl+Shift+<letter> space is exhausted, so these use
+            // Ctrl+Alt+<letter> (the text-case actions already live there:
+            // Ctrl+Alt+L / Ctrl+Alt+U). Ctrl+Alt stays clear of the
+            // clipboard-event trap that rules out Ctrl+Shift+C/X/V. Union uses
+            // N ("u-N-ion") because Ctrl+Alt+U is UppercaseSelection.
+            Self::OpenImpute => KeyCombo::ctrl_alt(Key::I),
+            Self::OpenUnion => KeyCombo::ctrl_alt(Key::N),
+            Self::OpenOutliers => KeyCombo::ctrl_alt(Key::O),
+            Self::OpenPii => KeyCombo::ctrl_alt(Key::P),
+            Self::FilterToMarked => KeyCombo::ctrl_alt(Key::M),
+            Self::OpenQualityReport => KeyCombo::ctrl_alt(Key::Q),
+            Self::OpenRenameColumns => KeyCombo::ctrl_alt(Key::R),
+            Self::AddBookmark => KeyCombo::ctrl_alt(Key::B),
+            Self::RenameActiveTab => KeyCombo::ctrl_alt(Key::T),
         }
     }
 }
@@ -620,7 +641,7 @@ impl ShortcutAction {
             | Self::CloseTab
             | Self::ReopenLastClosedTab
             | Self::QuitApp => G::File,
-            Self::NextTab | Self::PrevTab => G::Tabs,
+            Self::NextTab | Self::PrevTab | Self::RenameActiveTab => G::Tabs,
             Self::FocusSearch
             | Self::ToggleFindReplace
             | Self::OpenColumnFilter
@@ -647,7 +668,8 @@ impl ShortcutAction {
             | Self::Undo
             | Self::Redo => G::Editing,
             Self::Copy | Self::Cut | Self::Paste => G::Clipboard,
-            Self::Mark => G::Marking,
+            Self::Mark | Self::FilterToMarked => G::Marking,
+            Self::AddBookmark => G::Navigation,
             Self::UppercaseSelection | Self::LowercaseSelection => G::TextCase,
             Self::ZoomIn | Self::ZoomOut | Self::ZoomReset => G::Zoom,
             Self::CycleViewMode
@@ -675,7 +697,9 @@ impl ShortcutAction {
             | Self::OpenJoin
             | Self::OpenPartition
             | Self::OpenOutliers
-            | Self::OpenPii => G::Dialogs,
+            | Self::OpenPii
+            | Self::OpenQualityReport
+            | Self::OpenRenameColumns => G::Dialogs,
         }
     }
 }

@@ -347,8 +347,11 @@ impl OctaApp {
                 tab.column_filters.keys().copied().collect();
             // The sequential 1..N row column only adds information when the
             // displayed rows are a filtered subset; otherwise it duplicates the
-            // original numbers. Show it only while a filter is active.
-            let filter_active = !tab.search_text.is_empty() || !tab.column_filters.is_empty();
+            // original numbers. Show it while a search, column filter, or
+            // "Filter to marked" is narrowing the visible rows.
+            let filter_active = !tab.search_text.is_empty()
+                || !tab.column_filters.is_empty()
+                || tab.mark_filter_active;
             let show_sequential = self.settings.show_sequential_row_numbers && filter_active;
             let hidden_cols = tab.hidden_columns.clone();
             let col_number_formats = tab.column_number_formats.clone();
@@ -370,6 +373,7 @@ impl OctaApp {
                 self.settings.highlight_edits,
                 self.settings.font_size * self.zoom_percent as f32 / 100.0,
                 self.settings.cell_line_breaks,
+                self.settings.clickable_links,
                 self.settings.binary_display_mode,
                 self.welcome_logo_texture.as_ref(),
                 &self.settings.shortcuts,
@@ -761,6 +765,12 @@ impl OctaApp {
         }
         if interaction.ctx_paste {
             self.do_paste(interaction.paste_text);
+        }
+        // --- Add bookmark (cell right-click "Add bookmark...") ---
+        // The context menu sets `selected_cell` to the clicked cell, so
+        // `begin_add_bookmark` bookmarks that row + column.
+        if interaction.ctx_add_bookmark {
+            self.begin_add_bookmark();
         }
 
         // --- Parse in new tab (from cell right-click context menu) ---

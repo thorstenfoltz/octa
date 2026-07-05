@@ -46,6 +46,98 @@ pub(crate) enum FindDuplicatesMode {
     NewTab,
 }
 
+/// A named jump target within a tab. Session-only and fixed-position: a
+/// bookmark points at a row (and optionally a column) index and does not track
+/// later row inserts or deletes.
+#[derive(Debug, Clone)]
+pub(crate) struct Bookmark {
+    pub name: String,
+    pub row: usize,
+    pub col: Option<usize>,
+}
+
+/// Draft state for the "name this bookmark" dialog.
+#[derive(Clone)]
+pub(crate) struct BookmarkDraft {
+    pub name_buf: String,
+    pub row: usize,
+    pub col: Option<usize>,
+    pub size: ui::settings::DialogSize,
+}
+
+/// State for the "Rename columns" dialog: an editable list of the active tab's
+/// columns and its window sizing. The buffer is seeded with one column name per
+/// line; the user appends `,newname` to a line to rename it and leaves the rest
+/// untouched. The parsed preview is recomputed each frame from `input_buf`
+/// against the active tab's column names.
+#[derive(Clone, Default)]
+pub(crate) struct RenameColumnsState {
+    pub input_buf: String,
+    pub size: ui::settings::DialogSize,
+}
+
+impl RenameColumnsState {
+    /// Seed the dialog with every column of the active tab, one per line, so the
+    /// user only has to append `,newname` to the columns they want to rename.
+    pub(crate) fn from_columns(columns: &[String]) -> Self {
+        let mut input_buf = columns.join("\n");
+        if !input_buf.is_empty() {
+            input_buf.push('\n');
+        }
+        Self {
+            input_buf,
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
+/// State for the "Random sample" dialog: the requested row count (text buffer)
+/// and window sizing. Apply builds a detached tab of N random rows.
+#[derive(Clone)]
+pub(crate) struct RandomSampleState {
+    pub n_buf: String,
+    pub size: ui::settings::DialogSize,
+}
+
+impl Default for RandomSampleState {
+    fn default() -> Self {
+        Self {
+            n_buf: "100".to_string(),
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
+/// State for the "Tidy up" dialog: which clean-up passes to run on the active
+/// table. Apply runs the chosen passes as one undoable step.
+#[derive(Clone)]
+pub(crate) struct TidyUpState {
+    /// Trim leading/trailing whitespace from string cells and column titles.
+    pub trim: bool,
+    /// Convert column names to snake_case.
+    pub headers: bool,
+    pub size: ui::settings::DialogSize,
+}
+
+impl Default for TidyUpState {
+    fn default() -> Self {
+        Self {
+            trim: true,
+            headers: false,
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
+/// Draft state for the "Rename tab" dialog. Renames the tab's display name only
+/// (the file path is unchanged); an empty name reverts to the file name.
+#[derive(Clone)]
+pub(crate) struct TabRenameDraft {
+    pub tab_index: usize,
+    pub name_buf: String,
+    pub size: ui::settings::DialogSize,
+}
+
 /// Cache entry for the SQL workspace inspector. Stores either the
 /// successful introspection or the error message returned by the workspace
 /// so the inspector can render the error inline instead of refetching every
@@ -1277,6 +1369,17 @@ pub(crate) struct TabState {
     /// disappear from view. Transient - not persisted across sessions, same
     /// precedent as `column_filters`.
     pub(crate) hidden_columns: std::collections::HashSet<usize>,
+    /// Whether "Filter to marked" is active on this tab. While active,
+    /// `recompute_filter` keeps only marked rows and unmarked columns are added
+    /// to `hidden_columns`. Session-only.
+    pub(crate) mark_filter_active: bool,
+    /// Snapshot of `hidden_columns` taken when "Filter to marked" was engaged,
+    /// so toggling it off restores exactly the columns the user had hidden
+    /// manually (rather than un-hiding everything). `None` when inactive.
+    pub(crate) mark_filter_hidden_snapshot: Option<std::collections::HashSet<usize>>,
+    /// Named jump targets within this tab (session-only, fixed position: they
+    /// do not track later row inserts/deletes). See [`Bookmark`].
+    pub(crate) bookmarks: Vec<Bookmark>,
     /// Whether this tab is pinned. Pinned tabs render with a 📌 prefix,
     /// hide their × close button, and refuse to close via Ctrl+W or the
     /// unsaved-changes path. File-backed pinned tabs survive across
@@ -1297,6 +1400,11 @@ pub(crate) struct TabState {
     /// "Summary - sales.parquet"). When set it overrides the
     /// source-path-based title; `None` keeps the normal behaviour.
     pub(crate) custom_tab_label: Option<String>,
+    /// User-chosen display name for this tab (via tab right-click ->
+    /// "Rename tab..."). Overrides the auto-generated title in the tab strip
+    /// only; the file path and on-disk name are unchanged. `None` = show the
+    /// file name. Session-only.
+    pub(crate) user_tab_name: Option<String>,
     /// Excel-style per-column value-set filters. Keys are column indices;
     /// values are the set of cell `to_string()` representations that should
     /// remain visible. Absent key = no filter on that column. Empty set is
@@ -1506,6 +1614,9 @@ pub(crate) struct OctaApp {
     /// Update check state shared with background thread
     pub(crate) update_state: Arc<Mutex<UpdateState>>,
     pub(crate) status_message: Option<(String, std::time::Instant)>,
+    /// Last time the auto-save timer ran a pass (transient, set at startup and
+    /// after each pass / Settings apply). Drives `drive_auto_save`.
+    pub(crate) last_auto_save: std::time::Instant,
     /// Set at startup when the previous run ended uncleanly or a crash file is
     /// waiting; drives a one-shot "export a debug report?" dialog.
     pub(crate) pending_crash_offer: bool,
@@ -1605,6 +1716,22 @@ pub(crate) struct OctaApp {
     /// Builds a new column from an if / else-if / else rule chain over the
     /// active tab (see `src/app/dialogs/conditional_column.rs`).
     pub(crate) conditional_column_dialog: Option<ConditionalColumnState>,
+    /// Active "Rename columns" dialog state, or `None` when closed.
+    /// Bulk-renames columns of the active tab (see
+    /// `src/app/dialogs/rename_columns.rs`).
+    pub(crate) rename_columns_state: Option<RenameColumnsState>,
+    /// Active "Random sample" dialog state, or `None` when closed
+    /// (`src/app/dialogs/random_sample.rs`).
+    pub(crate) random_sample_dialog: Option<RandomSampleState>,
+    /// Active "Tidy up" dialog state, or `None` when closed
+    /// (`src/app/dialogs/tidy_up.rs`).
+    pub(crate) tidy_up_dialog: Option<TidyUpState>,
+    /// Pending "name this bookmark" dialog, or `None` when closed. On save,
+    /// pushes a session bookmark onto the active tab.
+    pub(crate) bookmark_draft: Option<BookmarkDraft>,
+    /// Pending "rename tab" dialog, or `None` when closed. On save, sets the
+    /// target tab's `user_tab_name`.
+    pub(crate) tab_rename_draft: Option<TabRenameDraft>,
     /// Active Anonymise-columns dialog state, or `None` when closed. Masks or
     /// scrambles chosen columns of the active tab (see
     /// `src/app/dialogs/anonymize.rs`).
