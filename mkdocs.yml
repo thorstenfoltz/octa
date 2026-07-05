@@ -105,9 +105,12 @@ nav:
       - Formulas: usage/formulas.md
       - Date / Time Calculation: usage/date-time-calculation.md
       - Colour Marking: usage/colour-marking.md
+      - Filter to Marked: usage/filter-to-marked.md
+      - Bookmarks: usage/bookmarks.md
       - Conditional Formatting: usage/conditional-formatting.md
       - Data Validation: usage/data-validation.md
       - Transform Column: usage/transform-column.md
+      - Rename Columns: usage/rename-columns.md
       - Anonymise Columns: usage/anonymize-columns.md
       - Detect PII: usage/detect-pii.md
       - Detect Outliers: usage/detect-outliers.md
@@ -117,9 +120,12 @@ nav:
       - Join Tables: usage/join-tables.md
       - Partition by Column: usage/partition-by-column.md
       - Clean Headers on Load: usage/clean-headers.md
+      - Table Tools: usage/table-tools.md
+      - Auto-save: usage/auto-save.md
       - Value Frequency: usage/value-frequency.md
       - Find Near-Duplicates: usage/find-near-duplicates.md
       - Summary: usage/summary.md
+      - Data Quality Report: usage/data-quality-report.md
       - Pivot / Unpivot: usage/pivot.md
       - Correlation: usage/correlation.md
       - Schema Export: usage/schema-export.md

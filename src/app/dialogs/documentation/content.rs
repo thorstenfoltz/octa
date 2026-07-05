@@ -1261,6 +1261,11 @@ pub(super) const TABS: &str = r#"# Tabs & Folder Sidebar
 Every opened file has a tab, even when only one is open. Hovering a tab
 reveals the full file path, useful when several tabs share a file name.
 
+**Rename a tab.** Right-click a tab and choose **Rename tab...** (or press
+Ctrl+Alt+T) to give it any label you like. This changes only what the tab shows; the
+file path and the name on disk are unchanged, and hovering the tab still reveals
+the full path. Clear the name to go back to the file name.
+
 **File > Open Directory...** opens a folder browser docked as a sidebar (left
 by default; switch to the right under **Settings > Directory Tree**). Click
 any file in the tree to open it in a new tab. **File > Close Directory**
@@ -1481,6 +1486,38 @@ pub(super) const SAVING: &str = r#"# Saving
   precision either way.
 - Excel **write** emits a single `.xlsx` sheet (the active tab); there is no
   multi-sheet write even when the source workbook had several sheets.
+
+**Auto-save.** Turn on **Settings > Files > Auto-save** and set an interval in
+minutes (minimum 1). Every interval, Octa writes each open tab that has unsaved
+changes and already lives as a file on disk. It is off by default. It never
+interrupts you: tabs never saved to disk, cloud tabs when cloud writing is off,
+and saves that would normally ask a question (a rounding format, or a database
+schema change) are skipped quietly. When it writes something, the status bar
+shows a brief "Auto-saved N files" note.
+"#;
+
+pub(super) const TABLE_TOOLS: &str = r#"# Table Tools
+
+A few quick utilities for reshaping and tidying the active table.
+
+**Transpose** (**Analyse > Transpose**). Swaps rows and columns into a new tab:
+the original column names become the first column, and each original row becomes
+a column. Everything is shown as text. Limited to tables of at most 1000 rows,
+since each row becomes a column.
+
+**Random sample** (**Analyse > Random sample...**). Opens a new tab with a number
+of rows you choose, picked at random from the active table. Handy for eyeballing
+a fair cross-section of a big file without scrolling all of it. If you ask for
+more rows than the table has, you get them all.
+
+**Tidy up** (**Data > Tidy up...**). Cleans the current table in one undoable
+step: trim stray spaces from cells and column titles, and optionally tidy the
+column names to snake_case. A single Undo reverts the whole thing.
+
+**Clickable links.** When a cell holds a web address (http/https), it is shown
+as an underlined link. **Ctrl+click** opens it in your browser; a plain click
+still selects the cell. Turn this off with **Settings > Table View > Clickable
+web links**.
 "#;
 
 pub(super) const SETTINGS_REFERENCE: &str = r#"# Settings Reference
@@ -1492,7 +1529,9 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
 - **Table View**: row numbers, alternating row colors, negative-number
   highlight, thousand separators + number style (English / European)
   for numeric cells, edit highlight, default mark color, line breaks,
-  binary display mode (Binary / Hex / Text).
+  clickable web links, binary display mode (Binary / Hex / Text).
+- **Files**: recent-files count, "open as text" extensions, and
+  **Auto-save** (on/off + interval in minutes). See the **Saving** section.
 - **Search & Editor**: default search mode, search result display, search
   history size, tab size.
 - **Summary**: a checkbox per statistic the **Analyse > Summary** tab can
@@ -1527,7 +1566,6 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
   file read fully into the raw editor, default 500 MB, with an Unlimited
   toggle), a user-extensible list of file extensions to open as plain
   text, and how many Excel sheets to auto-open.
-- **Files**: how many recent files to remember.
 - **Window**: initial size, start maximised. The initial size is the
   pixel size of the window when it is *not* maximised. A maximised window
   always fills the screen, so the size only takes effect once you
@@ -1933,4 +1971,102 @@ an independent request. A saved connection is just **configuration** (the
 bucket plus how to authenticate), like a bookmark; it stays in the list across
 restarts but nothing is "connected" in between. There is nothing to keep open
 and nothing that drains while idle.
+"#;
+
+pub(super) const DATA_QUALITY: &str = r#"# Data Quality Report
+
+**Analyse > Data quality report...** opens a new tab that scores each column of
+the active table, so you can see at a glance where the data needs cleaning.
+
+## What it shows
+
+One row per source column, with these columns (hover any header for a full
+explanation):
+
+- **null_percentage** - percentage of missing values.
+- **distinct_ratio** - distinct values divided by non-null values (1.0 means
+  every value is unique).
+- **outlier_count** - number of numeric outliers, using the same IQR method as
+  Detect outliers.
+- **pii_flag** / **pii_kind** - whether the column looks like personal data,
+  and what kind, reusing Detect PII.
+- **type_consistency** - the share of values that actually match the column's
+  declared type.
+- **score** - an overall 0-100 quality score for the column, combining
+  completeness, uniqueness and type consistency, with a small penalty for
+  outliers.
+
+The overall table score (the average of the column scores) is shown in the
+status bar when the report opens.
+
+The report is an ordinary table tab: sort it, filter it, or save it like any
+other file. Re-run the report after cleaning to see the score improve.
+"#;
+
+pub(super) const FILTER_TO_MARKED: &str = r#"# Filter to Marked
+
+**Edit > Filter to marked** hides everything except what you have colour-marked,
+so you can drill down to the rows and columns you care about. Choose the same
+menu entry again (now labelled "Clear filter to marked") to restore the full
+view.
+
+## What stays
+
+- **Marked rows** stay; unmarked rows are hidden.
+- **Marked columns** stay; unmarked columns are hidden.
+- **Marked cells** are handled per a setting (**Settings > Filter to marked:
+  cells**): keep the cell's row (the default), keep its column, or keep both.
+
+Filter to marked combines with the search box and column filters, exactly like
+every other filter - they all apply together. Turning it off restores any
+columns you had hidden manually beforehand.
+"#;
+
+pub(super) const BOOKMARKS: &str = r#"# Bookmarks
+
+Bookmarks are named jump points inside a table, handy for returning to the same
+spots in a large file.
+
+## Using bookmarks
+
+- Select a cell (or a row), then add a bookmark to name it. You can do this from
+  the toolbar **Bookmarks** dropdown (**Add bookmark...**), from **Data > Add
+  bookmark...**, by right-clicking a cell and choosing **Add bookmark...**, or
+  with the Ctrl+Alt+B shortcut.
+- Pick a bookmark from the toolbar **Bookmarks** dropdown to jump straight to it.
+- Use the small **x** next to a bookmark in that dropdown to delete it.
+
+Bookmarks are session-only and fixed-position: they live while the tab is open
+and point at a row/column position, so they do not follow later row inserts or
+deletes.
+"#;
+
+pub(super) const RENAME_COLUMNS: &str = r#"# Rename Columns
+
+**Columns > Rename columns...** renames many columns at once, instead of editing
+each header by hand.
+
+## The list
+
+When you open it, the box is pre-filled with every column of the active tab, one
+name per line. To rename a column, add a comma (or a tab) and the new name to its
+line; leave a line unchanged to keep that column's name:
+
+```
+id,user_id
+dob,date_of_birth
+amount
+```
+
+Here `id` and `dob` are renamed and `amount` is left as it is.
+
+As you edit, a live preview shows:
+
+- **Will rename** - lines whose old name was found.
+- **Not found** - old names that do not match any current column.
+- **Collisions** - a new name that clashes with an existing column or is used
+  twice. Apply stays disabled until you resolve them.
+
+**Load from file...** appends more lines from a text file. Applying renames every
+matched column as one step, so a single Undo reverts the whole batch.
 "#;

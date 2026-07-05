@@ -16,12 +16,16 @@ pub mod geo_detect;
 pub mod impute;
 pub mod join;
 pub mod json_util;
+pub mod links;
+pub mod mark_filter;
 pub mod multi_search;
 pub mod num_format;
 pub mod outliers;
 pub mod partition;
 pub mod pii;
 pub mod pivot;
+pub mod quality;
+pub mod rename_map;
 pub mod sample;
 pub mod schema_export;
 pub mod search;
@@ -29,6 +33,7 @@ pub mod summary;
 pub mod table_edits;
 pub mod time_calc;
 pub mod transform;
+pub mod transpose;
 pub mod trim;
 pub mod union;
 pub mod unique_columns;
@@ -584,6 +589,13 @@ pub enum UndoAction {
         new_type: String,
         old_values: Vec<CellValue>,
         new_values: Vec<CellValue>,
+    },
+    /// A column title change (from bulk rename-from-mapping). Undo restores the
+    /// old name, redo re-applies the new one.
+    RenameColumn {
+        index: usize,
+        old: String,
+        new: String,
     },
     /// A group of actions applied as one logical operation, so a single
     /// undo/redo reverts/replays all of them (e.g. anonymising a column writes
@@ -1557,6 +1569,12 @@ impl DataTable {
                         }
                     }
                 }
+                UndoAction::RenameColumn { index, ref old, .. } => {
+                    if index < self.columns.len() {
+                        self.columns[index].name = old.clone();
+                        self.structural_changes = true;
+                    }
+                }
                 UndoAction::Batch(_) => {}
             }
             self.redo_stack.push(action);
@@ -1730,6 +1748,12 @@ impl DataTable {
                         }
                     }
                 }
+                UndoAction::RenameColumn { index, ref new, .. } => {
+                    if index < self.columns.len() {
+                        self.columns[index].name = new.clone();
+                        self.structural_changes = true;
+                    }
+                }
                 UndoAction::Batch(_) => {}
             }
             self.undo_stack.push(action);
@@ -1748,6 +1772,25 @@ impl DataTable {
         }
         let children: Vec<UndoAction> = self.undo_stack.split_off(start_len);
         self.undo_stack.push(UndoAction::Batch(children));
+    }
+
+    /// Rename column `index` to `new`, recording an undoable action. No-op if
+    /// the index is out of range or the name is unchanged. Marks the table as
+    /// structurally changed (a schema change). Bulk callers wrap several of
+    /// these with [`coalesce_undo_since`](Self::coalesce_undo_since).
+    pub fn rename_column(&mut self, index: usize, new: String) {
+        if index >= self.columns.len() || self.columns[index].name == new {
+            return;
+        }
+        let old = self.columns[index].name.clone();
+        self.undo_stack.push(UndoAction::RenameColumn {
+            index,
+            old,
+            new: new.clone(),
+        });
+        self.redo_stack.clear();
+        self.columns[index].name = new;
+        self.structural_changes = true;
     }
 }
 
@@ -1944,5 +1987,47 @@ mod undo_tests {
         let one = t.undo_stack.len();
         t.coalesce_undo_since(one - 1);
         assert_eq!(t.undo_stack.len(), one);
+    }
+
+    #[test]
+    fn rename_column_undo_redo_round_trip() {
+        let mut t = one_col(&["x"]);
+        t.rename_column(0, "renamed".into());
+        assert_eq!(t.columns[0].name, "renamed");
+        assert!(t.structural_changes);
+        assert!(t.undo());
+        assert_eq!(t.columns[0].name, "a");
+        assert!(t.redo());
+        assert_eq!(t.columns[0].name, "renamed");
+    }
+
+    #[test]
+    fn rename_column_noop_when_unchanged() {
+        let mut t = one_col(&["x"]);
+        let start = t.undo_stack.len();
+        t.rename_column(0, "a".into());
+        assert_eq!(t.undo_stack.len(), start, "no-op rename must not push undo");
+    }
+
+    #[test]
+    fn bulk_rename_undoes_as_one_step() {
+        let mut t = DataTable::empty();
+        for n in ["a", "b"] {
+            t.columns.push(ColumnInfo {
+                name: n.into(),
+                data_type: "Utf8".into(),
+            });
+        }
+        let start = t.undo_stack.len();
+        t.rename_column(0, "x".into());
+        t.rename_column(1, "y".into());
+        t.coalesce_undo_since(start);
+        assert_eq!(t.undo_stack.len(), start + 1);
+        assert!(t.undo());
+        assert_eq!(t.columns[0].name, "a");
+        assert_eq!(t.columns[1].name, "b");
+        assert!(t.redo());
+        assert_eq!(t.columns[0].name, "x");
+        assert_eq!(t.columns[1].name, "y");
     }
 }

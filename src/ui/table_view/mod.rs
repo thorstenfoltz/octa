@@ -407,6 +407,11 @@ pub struct TableInteraction {
     pub change_col_type: Option<(usize, String)>,
     /// Copy just the selected cell's value (not row/column selection).
     pub ctx_copy_cell: bool,
+    /// Add a session bookmark for the right-clicked cell (its row + column).
+    /// Fired by the cell context menu's "Add bookmark..." entry; handled via
+    /// `begin_add_bookmark`, the same path as the toolbar Bookmarks dropdown
+    /// and the `Ctrl+Alt+B` shortcut.
+    pub ctx_add_bookmark: bool,
     /// Signal that more rows should be loaded (scroll near bottom with truncated data).
     pub needs_more_rows: bool,
     /// Set a color mark on one or more keys. The list lets the right-click
@@ -463,6 +468,8 @@ pub fn draw_table(
     highlight_edits: bool,
     font_size: f32,
     cell_line_breaks: bool,
+    // Style cells that hold a web URL as a hyperlink and open on Ctrl+click.
+    clickable_links: bool,
     binary_display_mode: BinaryDisplayMode,
     welcome_logo_texture: Option<&egui::TextureHandle>,
     shortcuts: &Shortcuts,
@@ -1067,6 +1074,7 @@ pub fn draw_table(
                 highlight_edits,
                 font_size,
                 cell_line_breaks,
+                clickable_links,
                 binary_display_mode,
                 actual_row_height,
                 readonly,

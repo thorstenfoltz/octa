@@ -168,6 +168,13 @@ impl OctaApp {
                 };
                 let search_col_names: Vec<String> =
                     tab.table.columns.iter().map(|c| c.name.clone()).collect();
+                // Library-safe shape for the toolbar's Bookmarks dropdown
+                // (the `Bookmark` type lives in the binary-side `app` module).
+                let bookmark_tuples: Vec<(String, usize, Option<usize>)> = tab
+                    .bookmarks
+                    .iter()
+                    .map(|b| (b.name.clone(), b.row, b.col))
+                    .collect();
                 let action = ui::toolbar::draw_toolbar(
                     ui,
                     self.theme_mode,
@@ -203,6 +210,8 @@ impl OctaApp {
                     tab.json_value.is_some(),
                     tab.yaml_value.is_some(),
                     self.readonly_mode,
+                    tab.mark_filter_active,
+                    &bookmark_tuples,
                     tab.sql_panel_open,
                     self.zoom_percent,
                     self.logo_texture.as_ref(),
@@ -696,6 +705,50 @@ impl OctaApp {
         }
         if action.open_multi_sort && self.tabs[self.active_tab].table.col_count() > 0 {
             self.multi_sort_dialog = Some(crate::app::state::MultiSortState::default());
+        }
+        if action.open_quality {
+            self.open_quality_tab();
+        }
+        if action.open_transpose {
+            self.open_transpose_tab();
+        }
+        if action.open_random_sample && self.tabs[self.active_tab].table.col_count() > 0 {
+            self.random_sample_dialog = Some(crate::app::state::RandomSampleState::default());
+        }
+        if action.open_tidy_up
+            && self.tabs[self.active_tab].table.col_count() > 0
+            && !self.is_readonly()
+        {
+            self.tidy_up_dialog = Some(crate::app::state::TidyUpState::default());
+        }
+        if action.open_rename_columns
+            && self.tabs[self.active_tab].table.col_count() > 0
+            && !self.is_readonly()
+        {
+            let columns: Vec<String> = self.tabs[self.active_tab]
+                .table
+                .columns
+                .iter()
+                .map(|c| c.name.clone())
+                .collect();
+            self.rename_columns_state = Some(crate::app::state::RenameColumnsState::from_columns(
+                &columns,
+            ));
+        }
+        if action.filter_to_marked {
+            self.toggle_filter_to_marked();
+        }
+        if action.add_bookmark {
+            self.begin_add_bookmark();
+        }
+        if let Some(i) = action.jump_bookmark {
+            self.jump_to_bookmark(i);
+        }
+        if let Some(i) = action.delete_bookmark {
+            let tab = &mut self.tabs[self.active_tab];
+            if i < tab.bookmarks.len() {
+                tab.bookmarks.remove(i);
+            }
         }
         if action.open_partition
             && !self.tabs.is_empty()

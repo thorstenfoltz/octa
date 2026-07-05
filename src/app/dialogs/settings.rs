@@ -22,6 +22,10 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     app.settings = new_settings;
     app.settings.save();
 
+    // Give auto-save a full fresh interval after any Settings apply (also the
+    // moment the user flips the toggle on), so it never fires immediately.
+    app.last_auto_save = std::time::Instant::now();
+
     // A secret added / cleared in Settings changes whether a connection shows
     // Sign in vs Sign out, so drop the memoised secret-presence cache.
     app.cloud_browser.secret_cache.clear();

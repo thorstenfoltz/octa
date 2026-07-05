@@ -4,6 +4,7 @@
 //! of the public library surface.
 
 pub(crate) mod archives;
+pub(crate) mod auto_save;
 pub(crate) mod bg_rows;
 pub(crate) mod central_panel;
 pub(crate) mod chat;
@@ -18,6 +19,7 @@ pub(crate) mod edit_ops;
 pub(crate) mod file_io;
 pub(crate) mod find_replace;
 pub(crate) mod init;
+pub(crate) mod mark_bookmark;
 pub(crate) mod multi_search;
 pub(crate) mod search_history;
 pub(crate) mod shortcuts_dispatch;

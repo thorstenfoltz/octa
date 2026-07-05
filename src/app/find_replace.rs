@@ -47,8 +47,17 @@ impl OctaApp {
             let tab = &self.tabs[self.active_tab];
             (!tab.search_text.is_empty()).then(|| tab.search_matcher())
         };
+        let mark_mode = self.settings.mark_filter_cell_mode;
         let tab = &mut self.tabs[self.active_tab];
         let has_column_filters = !tab.column_filters.is_empty();
+        // "Filter to marked": when active, keep only marked rows (union with
+        // cell-derived rows per the mode). An empty row set means the marks
+        // constrain columns only, so all rows are kept. ANDs with the text /
+        // column filters below, consistent with every other filter.
+        let mark_keep = tab
+            .mark_filter_active
+            .then(|| octa::data::mark_filter::mark_keep_set(&tab.table.marks, mark_mode));
+        let mark_hides_rows = mark_keep.as_ref().is_some_and(|k| !k.rows.is_empty());
         // In highlight mode the text search no longer hides rows; it only paints
         // matches. Excel-style column filters still hide rows in both modes.
         let highlight = super::state::effective_highlight(tab.view_mode, mode);
@@ -60,11 +69,19 @@ impl OctaApp {
             _ => (0, col_count),
         };
 
-        if !text_hides_rows && !has_column_filters {
+        if !text_hides_rows && !has_column_filters && !mark_hides_rows {
             tab.filtered_rows = (0..tab.table.row_count()).collect();
         } else {
             tab.filtered_rows = (0..tab.table.row_count())
                 .filter(|&row_idx| {
+                    // 0. Filter to marked (row set): keep only marked rows when
+                    //    the mark set constrains rows.
+                    if let Some(k) = mark_keep.as_ref()
+                        && !k.rows.is_empty()
+                        && !k.rows.contains(&row_idx)
+                    {
+                        return false;
+                    }
                     // 1. Text search (filter mode only): any in-scope cell must match.
                     let text_ok = !text_hides_rows
                         || matcher.as_ref().is_none_or(|m| {

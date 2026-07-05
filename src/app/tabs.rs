@@ -122,10 +122,14 @@ impl TabState {
             find_duplicates_key_cols: std::collections::HashSet::new(),
             find_duplicates_mode: super::state::FindDuplicatesMode::default(),
             hidden_columns: std::collections::HashSet::new(),
+            mark_filter_active: false,
+            mark_filter_hidden_snapshot: None,
+            bookmarks: Vec::new(),
             pinned: false,
             is_chart_tab: false,
             chart_tab_label: None,
             custom_tab_label: None,
+            user_tab_name: None,
             column_filters: std::collections::HashMap::new(),
             show_column_filter: false,
             column_filter_size: octa::ui::settings::DialogSize::default(),
@@ -244,6 +248,15 @@ impl TabState {
     }
 
     pub(crate) fn title_display(&self) -> String {
+        // A user-chosen name (via "Rename tab...") overrides every auto label.
+        // For an editable file tab keep the " *" modified marker so unsaved
+        // changes are still visible.
+        if let Some(name) = &self.user_tab_name {
+            if !self.is_chart_tab && self.custom_tab_label.is_none() && self.is_modified() {
+                return format!("{} *", name);
+            }
+            return name.clone();
+        }
         if self.is_chart_tab {
             return self
                 .chart_tab_label
@@ -441,6 +454,219 @@ impl OctaApp {
         self.active_tab = self.tabs.len() - 1;
     }
 
+    /// Transpose the active table (rows <-> columns) into a detached tab. Capped
+    /// at `TRANSPOSE_MAX_ROWS` source rows, since each row becomes a column.
+    pub(crate) fn open_transpose_tab(&mut self) {
+        let Some(source) = self.tabs.get(self.active_tab) else {
+            return;
+        };
+        if source.table.col_count() == 0 {
+            return;
+        }
+        if source.table.row_count() > octa::data::transpose::TRANSPOSE_MAX_ROWS {
+            self.status_message = Some((
+                octa::i18n::t("transpose.too_many_rows").replace(
+                    "{n}",
+                    &octa::data::transpose::TRANSPOSE_MAX_ROWS.to_string(),
+                ),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        let mut snap = source.table.clone();
+        snap.apply_edits();
+        let source_label = source
+            .table
+            .source_path
+            .as_ref()
+            .and_then(|p| {
+                std::path::Path::new(p)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| source.title_display());
+
+        let table = octa::data::transpose::transpose_table(&snap);
+        let default_search_mode = self.settings.default_search_mode;
+        let mut new_tab = super::state::TabState::new(default_search_mode);
+        new_tab.table = table;
+        new_tab.table.source_path = None;
+        new_tab.table.format_name = None;
+        new_tab.custom_tab_label = Some(format!(
+            "{} - {source_label}",
+            octa::i18n::t("transpose.tab_label")
+        ));
+        self.tabs.push(new_tab);
+        self.active_tab = self.tabs.len() - 1;
+    }
+
+    /// Open a detached tab holding `n` randomly chosen rows from the active
+    /// table (all rows if `n` exceeds the row count). Same pattern as
+    /// `open_describe_tab`.
+    pub(crate) fn open_random_sample_tab(&mut self, n: usize) {
+        let Some(source) = self.tabs.get(self.active_tab) else {
+            return;
+        };
+        if source.table.col_count() == 0 {
+            return;
+        }
+        let mut snap = source.table.clone();
+        snap.apply_edits();
+        let source_label = source
+            .table
+            .source_path
+            .as_ref()
+            .and_then(|p| {
+                std::path::Path::new(p)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| source.title_display());
+
+        let seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        let table = octa::data::sample::sample_table(&snap, n, seed);
+        let rows = table.row_count();
+
+        let default_search_mode = self.settings.default_search_mode;
+        let mut new_tab = super::state::TabState::new(default_search_mode);
+        new_tab.table = table;
+        new_tab.table.source_path = None;
+        new_tab.table.format_name = None;
+        new_tab.custom_tab_label = Some(format!(
+            "{} - {source_label}",
+            octa::i18n::t("sample.tab_label").replace("{n}", &rows.to_string())
+        ));
+        self.tabs.push(new_tab);
+        self.active_tab = self.tabs.len() - 1;
+    }
+
+    /// Run the chosen tidy-up passes on the active table as one undoable step:
+    /// trim whitespace from string cells + titles, and/or snake_case the column
+    /// names. Reuses the same engines as the on-load passes, applied through the
+    /// undoable edit path so a single Undo reverts everything.
+    pub(crate) fn apply_tidy_up(&mut self, trim: bool, headers: bool) {
+        if self.is_readonly() {
+            return;
+        }
+        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+            return;
+        };
+        // Compute the target state on a clone using the existing engines, then
+        // apply the diff to the live table via set() / rename_column() so it is
+        // undoable. Materialise pending edits on both so indices line up.
+        let mut target = tab.table.clone();
+        target.apply_edits();
+        if trim {
+            octa::data::trim::trim_string_columns(&mut target);
+        }
+        if headers {
+            octa::data::trim::clean_headers(&mut target);
+        }
+        tab.table.apply_edits();
+
+        let start = tab.table.undo_stack.len();
+        let rows = tab.table.row_count();
+        let cols = tab.table.col_count().min(target.col_count());
+        let mut changed = 0usize;
+        for c in 0..cols {
+            for r in 0..rows {
+                let new_val = target.get(r, c).cloned();
+                if let Some(new_val) = new_val
+                    && tab.table.get(r, c) != Some(&new_val)
+                {
+                    tab.table.set(r, c, new_val);
+                    changed += 1;
+                }
+            }
+        }
+        for c in 0..cols {
+            let new_name = target.columns[c].name.clone();
+            if tab.table.columns[c].name != new_name {
+                tab.table.rename_column(c, new_name);
+                changed += 1;
+            }
+        }
+        tab.table.apply_edits();
+        tab.table.coalesce_undo_since(start);
+        // Keep the DB diff-save baseline in step so a later save is not rejected
+        // as a schema change (same as bulk rename / clean-headers-on-load).
+        crate::app::file_io::resync_db_meta_baseline(tab);
+        tab.filter_dirty = true;
+        tab.table_state.widths_initialized = false;
+
+        self.status_message = Some((
+            octa::i18n::t("tidyup.done").replace("{n}", &changed.to_string()),
+            std::time::Instant::now(),
+        ));
+    }
+
+    /// Build a data-quality report for the active table and open it as a
+    /// detached tab (same pattern as `open_describe_tab`). Surfaces the overall
+    /// score in the status bar.
+    pub(crate) fn open_quality_tab(&mut self) {
+        let Some(source) = self.tabs.get(self.active_tab) else {
+            return;
+        };
+        if source.table.col_count() == 0 {
+            self.status_message = Some((
+                "Open a file with columns first.".to_string(),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        let mut snap = source.table.clone();
+        snap.apply_edits();
+        let source_label = source
+            .table
+            .source_path
+            .as_ref()
+            .and_then(|p| {
+                std::path::Path::new(p)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| source.title_display());
+
+        let report = match octa::data::quality::build_quality_report(&snap) {
+            Ok(r) => r,
+            Err(e) => {
+                self.status_message = Some((
+                    format!("Quality report failed: {e}"),
+                    std::time::Instant::now(),
+                ));
+                return;
+            }
+        };
+
+        // Header tooltips: one localized hint per report column, in the same
+        // order the engine emitted them.
+        let header_tooltips: Vec<String> = octa::data::quality::quality_column_hint_keys()
+            .iter()
+            .map(|k| octa::i18n::t(k))
+            .collect();
+
+        let overall = report.overall_score.round() as i64;
+        let default_search_mode = self.settings.default_search_mode;
+        let mut new_tab = super::state::TabState::new(default_search_mode);
+        new_tab.table = report.table;
+        new_tab.table.source_path = None;
+        new_tab.table.format_name = None;
+        new_tab.table_state.header_tooltips = header_tooltips;
+        new_tab.custom_tab_label = Some(format!(
+            "{} - {source_label}",
+            octa::i18n::t("quality.tab_label")
+        ));
+        self.tabs.push(new_tab);
+        self.active_tab = self.tabs.len() - 1;
+        self.status_message = Some((
+            format!("{}: {}/100", octa::i18n::t("quality.overall"), overall),
+            std::time::Instant::now(),
+        ));
+    }
+
     /// Compute a correlation matrix over the active table's numeric columns and
     /// open it as a detached tab (same pattern as `open_describe_tab`).
     pub(crate) fn open_correlation_tab(&mut self, method: octa::data::correlation::CorrMethod) {
@@ -631,11 +857,14 @@ impl OctaApp {
                     let mut tab_to_compare_with: Option<usize> = None;
                     // Set when the user picks "Pin tab" / "Unpin tab".
                     let mut tab_to_toggle_pin: Option<usize> = None;
+                    // Set when the user picks "Rename tab..." from the menu.
+                    let mut tab_to_rename: Option<usize> = None;
 
                     for (idx, tab) in self.tabs.iter().enumerate() {
                         let is_active = idx == self.active_tab;
                         let is_multi_selected = self.tab_multi_selection.contains(&idx);
-                        let raw_label = tab.title_display();
+                        let full_label = tab.title_display();
+                        let raw_label = full_label.clone();
                         // 📌 prefix marks pinned tabs at a glance. U+1F4CC,
                         // supplementary plane - covered by the bundled
                         // NotoEmoji font.
@@ -646,11 +875,14 @@ impl OctaApp {
                         };
                         let pinned = tab.pinned;
                         let has_source = tab.table.source_path.is_some();
+                        // Hover shows the full path when file-backed, else the
+                        // full (untruncated) tab title, so a shortened title is
+                        // always recoverable on hover.
                         let hover_path = tab
                             .table
                             .source_path
                             .clone()
-                            .unwrap_or_else(|| "Untitled".to_string());
+                            .unwrap_or_else(|| full_label.clone());
 
                         // Distinct visual states: active uses the accent at
                         // 30% alpha; Ctrl-click-selected (but not active) uses
@@ -721,6 +953,13 @@ impl OctaApp {
                                     };
                                     if pin_btn.clicked() {
                                         tab_to_toggle_pin = Some(idx);
+                                        ui.close();
+                                    }
+                                    if ui
+                                        .button(octa::i18n::t("context_menu.rename_tab"))
+                                        .clicked()
+                                    {
+                                        tab_to_rename = Some(idx);
                                         ui.close();
                                     }
                                 });
@@ -820,6 +1059,9 @@ impl OctaApp {
                     }
                     if let Some(idx) = tab_to_toggle_pin {
                         self.toggle_tab_pinned(idx);
+                    }
+                    if let Some(idx) = tab_to_rename {
+                        self.begin_rename_tab(idx);
                     }
                 });
             });

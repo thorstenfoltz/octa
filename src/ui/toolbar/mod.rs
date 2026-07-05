@@ -60,6 +60,13 @@ pub fn draw_toolbar(
     has_json: bool,
     has_yaml: bool,
     readonly_mode: bool,
+    // Whether "Filter to marked" is currently active for the active tab (so the
+    // Edit menu can show the clear variant).
+    mark_filter_active: bool,
+    // Session bookmarks for the active tab as `(name, row, col)`, so the
+    // Bookmarks dropdown can list them. A library-safe shape (the `Bookmark`
+    // type lives in the binary-side `app` module).
+    bookmarks: &[(String, usize, Option<usize>)],
     // Kept on the signature so callers don't have to know whether the
     // Analyse dropdown still reflects panel state - currently it does not
     // (just two flat buttons), but flipping that back is a one-line edit.
@@ -587,6 +594,14 @@ pub fn draw_toolbar(
                         action.delete_column = true;
                         ui.close();
                     }
+                    if ui
+                        .button(crate::i18n::t("edit_menu.rename_columns"))
+                        .on_hover_text(crate::i18n::t("edit_menu.rename_columns_hint"))
+                        .clicked()
+                    {
+                        action.open_rename_columns = true;
+                        ui.close();
+                    }
 
                     let can_move_left = selected_cell.is_some_and(|(_, c)| c > 0);
                     let can_move_right = selected_cell.is_some_and(|(_, c)| c + 1 < col_count);
@@ -716,6 +731,29 @@ pub fn draw_toolbar(
                         action.open_conditional_column = true;
                         ui.close();
                     }
+                    // Filter to marked: label flips to the "clear" variant when
+                    // the filter is already active on this tab.
+                    let filter_marked_label = if mark_filter_active {
+                        crate::i18n::t("edit_menu.filter_to_marked_clear")
+                    } else {
+                        crate::i18n::t("edit_menu.filter_to_marked")
+                    };
+                    if ui
+                        .button(filter_marked_label)
+                        .on_hover_text(crate::i18n::t("edit_menu.filter_to_marked_hint"))
+                        .clicked()
+                    {
+                        action.filter_to_marked = true;
+                        ui.close();
+                    }
+                    if ui
+                        .button(crate::i18n::t("bookmarks.add"))
+                        .on_hover_text(crate::i18n::t("bookmarks.add_hint"))
+                        .clicked()
+                    {
+                        action.add_bookmark = true;
+                        ui.close();
+                    }
 
                     ui.separator();
 
@@ -741,6 +779,14 @@ pub fn draw_toolbar(
                         .clicked()
                     {
                         action.open_anonymize = true;
+                        ui.close();
+                    }
+                    if ui
+                        .button(crate::i18n::t("tidyup.menu"))
+                        .on_hover_text(crate::i18n::t("tidyup.menu_hint"))
+                        .clicked()
+                    {
+                        action.open_tidy_up = true;
                         ui.close();
                     }
 
@@ -1033,6 +1079,14 @@ pub fn draw_toolbar(
                             ui.close();
                         }
                         if ui
+                            .button(crate::i18n::t("analyse_menu.random_sample"))
+                            .on_hover_text(crate::i18n::t("analyse_menu.random_sample_hint"))
+                            .clicked()
+                        {
+                            action.open_random_sample = true;
+                            ui.close();
+                        }
+                        if ui
                             .button(crate::i18n::t("analyse_menu.describe"))
                             .on_hover_text(crate::i18n::t("analyse_menu.describe_hint"))
                             .clicked()
@@ -1041,11 +1095,27 @@ pub fn draw_toolbar(
                             ui.close();
                         }
                         if ui
+                            .button(crate::i18n::t("analyse_menu.quality"))
+                            .on_hover_text(crate::i18n::t("analyse_menu.quality_hint"))
+                            .clicked()
+                        {
+                            action.open_quality = true;
+                            ui.close();
+                        }
+                        if ui
                             .button(crate::i18n::t("analyse_menu.pivot"))
                             .on_hover_text(crate::i18n::t("analyse_menu.pivot_hint"))
                             .clicked()
                         {
                             action.open_pivot = true;
+                            ui.close();
+                        }
+                        if ui
+                            .button(crate::i18n::t("analyse_menu.transpose"))
+                            .on_hover_text(crate::i18n::t("analyse_menu.transpose_hint"))
+                            .clicked()
+                        {
+                            action.open_transpose = true;
                             ui.close();
                         }
                         if ui
@@ -1269,6 +1339,51 @@ pub fn draw_toolbar(
                 .response
                 .on_hover_text(crate::i18n::t("search.history_hint"));
             }
+
+            // Bookmarks dropdown: jump to a named row/cell, delete one, or add a
+            // bookmark at the current selection. Session-only per tab.
+            ui.menu_button(crate::i18n::t("bookmarks.title"), |ui| {
+                ui.set_min_width(180.0);
+                if bookmarks.is_empty() {
+                    ui.label(
+                        RichText::new(crate::i18n::t("bookmarks.empty"))
+                            .size(10.0)
+                            .color(colors.text_secondary),
+                    );
+                } else {
+                    for (i, (name, row, col)) in bookmarks.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            let pos = match col {
+                                Some(c) => format!("R{}:C{}", row + 1, c + 1),
+                                None => format!("R{}", row + 1),
+                            };
+                            if ui.button(format!("{name}  ({pos})")).clicked() {
+                                action.jump_bookmark = Some(i);
+                                ui.close();
+                            }
+                            if ui
+                                .small_button("x")
+                                .on_hover_text(crate::i18n::t("bookmarks.delete"))
+                                .clicked()
+                            {
+                                action.delete_bookmark = Some(i);
+                                ui.close();
+                            }
+                        });
+                    }
+                }
+                ui.separator();
+                if ui
+                    .button(crate::i18n::t("bookmarks.add"))
+                    .on_hover_text(crate::i18n::t("bookmarks.add_hint"))
+                    .clicked()
+                {
+                    action.add_bookmark = true;
+                    ui.close();
+                }
+            })
+            .response
+            .on_hover_text(crate::i18n::t("bookmarks.title"));
 
             // Enter / Shift+Enter while the search box is focused step through
             // matches (highlight mode only). Re-grab focus so repeated presses

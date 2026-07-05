@@ -24,10 +24,11 @@ of them, or clear the binding on one) before applying.
 
 ## Tabs
 
-| Action       | Default                                         | Notes           |
-|--------------|-------------------------------------------------|-----------------|
-| Next tab     | <kbd>Ctrl</kbd>+<kbd>Tab</kbd>                  | Wraps to first. |
-| Previous tab | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | Wraps to last.  |
+| Action       | Default                                         | Notes                                                                |
+|--------------|-------------------------------------------------|----------------------------------------------------------------------|
+| Next tab     | <kbd>Ctrl</kbd>+<kbd>Tab</kbd>                  | Wraps to first.                                                      |
+| Previous tab | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> | Wraps to last.                                                       |
+| Rename tab   | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd>     | Display name only; the file path is unchanged. Also tab right-click. |
 
 ## Search
 
@@ -52,6 +53,7 @@ of them, or clear the binding on one) before applying.
 | Jump to last column          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd> |                                                            |
 | Scroll up one page           | <kbd>Ctrl</kbd>+<kbd>PgUp</kbd>               | Advances selection by one visible page; spreadsheet-style. |
 | Scroll down one page         | <kbd>Ctrl</kbd>+<kbd>PgDn</kbd>               | Mirror of **Scroll up one page** in the other direction.   |
+| Add bookmark...              | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd>   | Names the current selection as a session bookmark.         |
 
 ## Selection
 
@@ -90,9 +92,10 @@ same precedence Ctrl+M uses from the keyboard.
 
 ## Marking
 
-| Action                          | Default                      | Notes                                                 |
-|---------------------------------|------------------------------|-------------------------------------------------------|
-| Mark selection (default colour) | <kbd>Ctrl</kbd>+<kbd>M</kbd> | Colour is **Settings → Table → Default mark colour**. |
+| Action                          | Default                                     | Notes                                                 |
+|---------------------------------|---------------------------------------------|-------------------------------------------------------|
+| Mark selection (default colour) | <kbd>Ctrl</kbd>+<kbd>M</kbd>                | Colour is **Settings → Table → Default mark colour**. |
+| Filter to marked                | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>M</kbd> | Keep only marked rows/columns; press again to clear.  |
 
 ## Text-case
 
@@ -141,6 +144,12 @@ same precedence Ctrl+M uses from the keyboard.
 | Data validation...          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | See [Data validation](../usage/data-validation.md).                                                            |
 | Sort by columns...          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> | Multi-column sort.                                                                                             |
 | Summary tab                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | See [Summary](../usage/summary.md).                                                                            |
+| Data quality report...      | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Q</kbd>   | See [Data Quality Report](../usage/data-quality-report.md).                                                    |
+| Rename columns              | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>R</kbd>   | Bulk column rename. See [Rename Columns](../usage/rename-columns.md).                                          |
+| Fill missing values...      | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd>   | See [Fill Missing Values](../usage/fill-missing-values.md).                                                    |
+| Union tables...             | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd>   | Needs two open tabs. See [Union Tables](../usage/union-tables.md).                                             |
+| Detect outliers...          | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>O</kbd>   | See [Detect Outliers](../usage/detect-outliers.md).                                                            |
+| Detect PII...               | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd>   | See [Detect PII](../usage/detect-pii.md).                                                                      |
 
 All of these are rebindable in **Settings → Shortcuts**, which refuses to let two
 actions share the same combination.

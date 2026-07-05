@@ -66,6 +66,7 @@ impl eframe::App for OctaApp {
         self.drain_cloud_pending_open();
         self.drain_cloud_sign_ins(&ctx);
         self.expire_sql_diff_highlights(&ctx);
+        self.drive_auto_save(&ctx);
 
         if self.tabs[self.active_tab].filter_dirty {
             self.recompute_filter();
