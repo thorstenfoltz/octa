@@ -1017,7 +1017,7 @@ pub fn draw_table(
             egui::pos2(panel_rect.left(), header_bottom),
             egui::pos2(panel_rect.right(), header_bottom),
         ],
-        egui::Stroke::new(1.0, colors.border),
+        egui::Stroke::new(1.0_f32, colors.border),
     );
 
     // --- Visible row range ---
@@ -1105,7 +1105,7 @@ pub fn draw_table(
                 egui::pos2(sep_x, panel_rect.top()),
                 egui::pos2(sep_x, data_area_bottom),
             ],
-            egui::Stroke::new(2.0, colors.border),
+            egui::Stroke::new(2.0_f32, colors.border),
         );
     }
 

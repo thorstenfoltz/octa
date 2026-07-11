@@ -307,16 +307,16 @@ pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font: FontSettings) {
     } else {
         Color32::from_rgb(237, 240, 245)
     };
-    visuals.window_stroke = Stroke::new(1.0, colors.border);
+    visuals.window_stroke = Stroke::new(1.0_f32, colors.border);
 
     visuals.widgets.noninteractive.bg_fill = colors.bg_secondary;
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, colors.text_primary);
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(0.5, colors.border);
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, colors.text_primary);
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(0.5_f32, colors.border);
     visuals.widgets.noninteractive.corner_radius = CornerRadius::same(4);
 
     visuals.widgets.inactive.bg_fill = colors.bg_secondary;
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, colors.text_primary);
-    visuals.widgets.inactive.bg_stroke = Stroke::new(0.5, colors.border);
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, colors.text_primary);
+    visuals.widgets.inactive.bg_stroke = Stroke::new(0.5_f32, colors.border);
     visuals.widgets.inactive.corner_radius = CornerRadius::same(4);
 
     // Hover highlighting needs to read clearly on small icon-style widgets
@@ -324,20 +324,20 @@ pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font: FontSettings) {
     // accent stroke so the whole hit-target lights up - the previous bg_hover
     // fill alone was too subtle to spot on the close button.
     visuals.widgets.hovered.bg_fill = colors.accent.linear_multiply(0.28);
-    visuals.widgets.hovered.fg_stroke = Stroke::new(2.0, colors.accent);
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.5, colors.accent);
+    visuals.widgets.hovered.fg_stroke = Stroke::new(2.0_f32, colors.accent);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.5_f32, colors.accent);
     visuals.widgets.hovered.corner_radius = CornerRadius::same(4);
 
     visuals.widgets.active.bg_fill = colors.accent;
     visuals.widgets.active.fg_stroke = Stroke::new(
-        1.0,
+        1.0_f32,
         if is_dark {
             Color32::WHITE
         } else {
             colors.text_primary
         },
     );
-    visuals.widgets.active.bg_stroke = Stroke::new(1.0, colors.accent);
+    visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, colors.accent);
     visuals.widgets.active.corner_radius = CornerRadius::same(4);
 
     visuals.selection.bg_fill = colors.bg_selected;
@@ -351,7 +351,7 @@ pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font: FontSettings) {
     } else {
         colors.text_primary
     };
-    visuals.selection.stroke = Stroke::new(1.0, selection_stroke_color);
+    visuals.selection.stroke = Stroke::new(1.0_f32, selection_stroke_color);
 
     visuals.hyperlink_color = colors.accent;
     visuals.warn_fg_color = colors.warning;

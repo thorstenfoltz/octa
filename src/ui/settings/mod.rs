@@ -569,7 +569,7 @@ fn paint_icon_swatch(ui: &mut egui::Ui, color: egui::Color32) {
     ui.painter().rect_stroke(
         rect,
         2.0,
-        egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
+        egui::Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color),
         egui::StrokeKind::Outside,
     );
 }

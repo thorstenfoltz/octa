@@ -817,7 +817,7 @@ pub(crate) fn render_parse_error_banner(
     let mut dismissed = false;
     egui::Frame::new()
         .fill(bg)
-        .stroke(egui::Stroke::new(1.0, fg))
+        .stroke(egui::Stroke::new(1.0_f32, fg))
         .corner_radius(4.0)
         .inner_margin(egui::Margin::symmetric(10, 8))
         .show(ui, |ui| {

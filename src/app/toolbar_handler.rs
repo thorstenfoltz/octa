@@ -150,7 +150,7 @@ impl OctaApp {
         let toolbar_frame = egui::Frame::new()
             .fill(header_colors.bg_header)
             .inner_margin(egui::Margin::symmetric(4, 4))
-            .stroke(egui::Stroke::new(1.0, header_colors.border_subtle));
+            .stroke(egui::Stroke::new(1.0_f32, header_colors.border_subtle));
         egui::Panel::top("toolbar")
             .exact_size(40.0)
             .frame(toolbar_frame)

@@ -217,7 +217,7 @@ fn render_picker_body(ui: &mut egui::Ui, state: &mut TablePickerState) {
                 egui::pos2(mid_x, splitter.rect.top() + 4.0),
                 egui::pos2(mid_x, splitter.rect.bottom() - 4.0),
             ],
-            egui::Stroke::new(1.0, stroke_col),
+            egui::Stroke::new(1.0_f32, stroke_col),
         );
         ui.ctx().data_mut(|d| d.insert_persisted(split_id, split_w));
         ui.allocate_ui_with_layout(

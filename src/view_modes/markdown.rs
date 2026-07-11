@@ -798,10 +798,10 @@ fn render_runs(
         };
         fmt.italics = style.italic;
         if style.strikethrough {
-            fmt.strikethrough = egui::Stroke::new(1.0, body_color);
+            fmt.strikethrough = egui::Stroke::new(1.0_f32, body_color);
         }
         if style.link.is_some() {
-            fmt.underline = egui::Stroke::new(1.0, link_color);
+            fmt.underline = egui::Stroke::new(1.0_f32, link_color);
         }
         if style.code {
             fmt.background = ui.visuals().code_bg_color;
@@ -999,10 +999,10 @@ fn render_cell_runs(
         };
         fmt.italics = style.italic;
         if style.strikethrough {
-            fmt.strikethrough = egui::Stroke::new(1.0, body_color);
+            fmt.strikethrough = egui::Stroke::new(1.0_f32, body_color);
         }
         if style.link.is_some() {
-            fmt.underline = egui::Stroke::new(1.0, link_color);
+            fmt.underline = egui::Stroke::new(1.0_f32, link_color);
         }
         if style.code {
             fmt.background = ui.visuals().code_bg_color;

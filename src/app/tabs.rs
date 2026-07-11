@@ -851,7 +851,7 @@ impl OctaApp {
         let tab_frame = egui::Frame::new()
             .fill(colors.bg_secondary)
             .inner_margin(egui::Margin::symmetric(4, 2))
-            .stroke(egui::Stroke::new(1.0, colors.border_subtle));
+            .stroke(egui::Stroke::new(1.0_f32, colors.border_subtle));
         egui::Panel::top("tab_bar")
             // Tall enough for a tab row (28) plus the scrollbar strip beneath
             // it (`SCROLL_BAR_STRIP`), so the bar never sits on top of the tab
