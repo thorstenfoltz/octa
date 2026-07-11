@@ -922,7 +922,7 @@ fn draw_plot_items(
                 }
                 let label = series_display_name(cfg, si, &ser.name);
                 let mut pts_widget = Points::new(label, PlotPoints::from(pts))
-                    .radius(2.5)
+                    .radius(2.5_f32)
                     .shape(MarkerShape::Circle);
                 if let Some(color) = series_color_override(cfg, si) {
                     pts_widget = pts_widget.color(color);
