@@ -32,15 +32,15 @@ of them, or clear the binding on one) before applying.
 
 ## Search
 
-| Action                | Default                                       | Notes                                                                                                                 |
-|-----------------------|-----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
-| Focus search box      | <kbd>Ctrl</kbd>+<kbd>F</kbd>                  | Filter the table in real time.                                                                                        |
-| Toggle find & replace | <kbd>Ctrl</kbd>+<kbd>H</kbd>                  | Replace bar above the table.                                                                                          |
-| Open column filter    | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | Per-column value filter. See [Column Filter](../usage/search-and-filter.md#column-filter).                            |
-| Find duplicate rows…  | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Dedupe-key picker + Highlight / New-tab output. See [Editing → Find duplicates](../usage/editing.md#find-duplicates). |
-| Find near-duplicates… | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd> | Fuzzy duplicate clusters (typos, spacing, word order). See [Find Near-Duplicates](../usage/find-near-duplicates.md).  |
-| Multi-search panel    | <kbd>F6</kbd>                                 | Cross-tab + directory grep with a docked result list. See [Multi-search](../usage/search-and-filter.md#multi-search). |
-| Open Chart tab        | <kbd>F5</kbd>                                 | Open a new tab dedicated to plotting the active table. Same as **Analyse → Chart**. See [Chart](../usage/chart.md).   |
+| Action                | Default                                       | Notes                                                                                                                  |
+|-----------------------|-----------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| Focus search box      | <kbd>Ctrl</kbd>+<kbd>F</kbd>                  | Filter the table in real time.                                                                                         |
+| Toggle find & replace | <kbd>Ctrl</kbd>+<kbd>H</kbd>                  | Replace bar above the table.                                                                                           |
+| Open column filter    | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | Per-column value filter. See [Column Filter](../usage/search-and-filter.md#column-filter).                             |
+| Find duplicate rows…  | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Dedupe-key picker + Highlight / New-tab output. See [Editing → Find duplicates](../usage/editing.md#find-duplicates).  |
+| Find near-duplicates… | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd> | Fuzzy duplicate clusters (typos, spacing, word order). See [Find Near-Duplicates](../usage/find-near-duplicates.md).   |
+| Multi-search panel    | <kbd>F6</kbd>                                 | Cross-tab + directory grep with a docked result list. See [Multi-search](../usage/search-and-filter.md#multi-search).  |
+| Open Chart tab        | <kbd>F5</kbd>                                 | Open a new tab dedicated to plotting the active table. Same as **Analyse → Chart...**. See [Chart](../usage/chart.md). |
 
 ## Navigation in the table
 

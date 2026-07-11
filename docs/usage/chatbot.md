@@ -29,9 +29,25 @@ There are three ways to open it, and it stays where it is across tabs:
 You can dock the panel to the right (the default), left, bottom, or top of the
 window from Settings.
 
-## Choosing a provider and model
+## Model profiles
 
-Octa speaks to five kinds of backend, one at a time:
+A **profile** is one saved setup: a provider, a model, a temperature, an
+optional thinking budget, and a name you choose. The panel header has a single
+**Profile** dropdown that switches between them.
+
+You can create as many as you like, **including several for the same
+provider**. A typical set:
+
+| Profile          | Provider  | Model    | Temperature | Thinking |
+|------------------|-----------|----------|-------------|----------|
+| Opus, deep       | Anthropic | Opus     | 0           | `8000`   |
+| Sonnet, quick    | Anthropic | Sonnet   | 0           | (none)   |
+| Local, free      | Ollama    | llama3.2 | 0.2         | (none)   |
+| GPT, high effort | OpenAI    | GPT      | 0           | `high`   |
+
+Switching model is then one click, with no re-editing of settings.
+
+Octa speaks to five kinds of backend:
 
 | Provider               | Notes                                                                                                                                            |
 |------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -41,13 +57,57 @@ Octa speaks to five kinds of backend, one at a time:
 | **OpenAI-compatible**  | Any other endpoint that speaks the OpenAI dialect: OpenRouter, Groq, LM Studio, a self-hosted gateway. Set a Base URL.                           |
 | **Google Gemini**      | Gemini models via the `generateContent` API.                                                                                                     |
 
-Switch the active provider and pick a model straight from the panel header. The
-model picker offers a dropdown of common models for the provider plus a
-free-text box, so you can always type the exact model name (model names change
-often). Octa remembers the last model you used per provider, so flipping
-between, say, Claude and a local Ollama model never makes you retype anything.
+### Creating a profile
 
-The dropdown's preset list is **hand-editable**. It lives in a plain
+In **Settings → Chat / Assistant**, under **Model profiles**, fill in the form
+and click **Save profile**. The **Profiles...** button in the panel header
+jumps straight there. Each profile has:
+
+- **Name**: how it appears in the dropdown ("Opus, deep").
+- **Description** (optional): a note to yourself, shown beside the name in the
+  dropdown ("cheap, for bulk work").
+- **Provider** and **Model**: a dropdown of common models plus a free-text box,
+  so you can always type the exact model name (model names change often).
+- **Temperature** (0 to 2; default 0, which is best for data tasks where you
+  want consistent, focused answers).
+- **Thinking / reasoning**: see below.
+- **Base URL** (OpenAI-compatible and Ollama only).
+- **Use its own API key**: see [Setting an API key](#setting-an-api-key).
+
+**Edit** re-opens a profile in the same form; **Remove** deletes it, along with
+its own key if it had one. The profile the assistant is currently using is
+marked with an asterisk.
+
+Your existing setup is carried over automatically: on first run after
+upgrading, Octa turns your old provider, model and temperature into a single
+profile, so nothing changes until you add more.
+
+### Thinking / reasoning
+
+The **Thinking / reasoning** field is free text, passed to the provider as-is.
+It means something different for each one:
+
+| Provider      | Expects                     | Example |
+|---------------|-----------------------------|---------|
+| **OpenAI**    | An effort level             | `high`  |
+| **Anthropic** | A thinking budget in tokens | `8000`  |
+| **Gemini**    | A thinking budget in tokens | `8000`  |
+
+Leave it **empty** for no thinking, which is the default.
+
+It is free text rather than a fixed list on purpose: providers keep adding
+values, and a hard-coded dropdown would go stale. The cost is that a wrong
+value is only caught when it is used. Give Anthropic a word like `high` and
+Octa tells you it wants a number; give a provider a value it does not accept
+and you get that provider's own error message back in the chat.
+
+For Anthropic, turning thinking on also forces temperature to 1 and raises the
+response-token cap above the budget, because the API requires both. You do not
+need to do anything: Octa adjusts the request for you.
+
+### The preset model list
+
+The model dropdown's preset list is **hand-editable**. It lives in a plain
 `models.toml` next to your `settings.toml` (`~/.config/octa/` on Linux,
 `~/Library/Application Support/Octa/` on macOS, `%APPDATA%\Octa\` on Windows),
 seeded on first run from Octa's built-in lists. Add or remove model names there
@@ -66,12 +126,14 @@ a stray edit can never leave a provider with no usable model.
 
 The assistant's settings live in Octa's main **Settings** dialog under the
 **Chat / Assistant** section. Click **Settings** in the panel header to jump
-straight there. From there you can set:
+straight there.
 
-- **Provider** and **Default model** (per provider).
-- **Base URL** (OpenAI-compatible) or **Ollama URL** (Ollama).
-- **Temperature** (0 to 2; default 0, which is best for data tasks where you
-  want consistent, focused answers).
+Provider, model, temperature and thinking belong to a
+[model profile](#model-profiles), not to this section. What is set here applies
+to every profile:
+
+- **Ollama URL**: the address of the local Ollama server Octa probes and can
+  start or stop. A profile may override it with its own Base URL.
 - **Max tool iterations**: how many rounds of tool calls the assistant may run
   within a single message before it has to stop. It is a safety guard against
   runaway loops, not a limit you normally need to touch (default 12).
@@ -102,7 +164,24 @@ for a provider replaces that provider's old key (keys for other providers
 are kept). A small **Stored keys** list shows, for every provider, whether a key
 is configured and where it resolves from.
 
-Octa resolves a key in this order:
+**Keys are shared by every profile of a provider.** Three Anthropic profiles
+all use the one Anthropic key, which is what you want almost always: you enter
+it once.
+
+### A key for one profile only
+
+A profile can opt out of the shared key. Tick **Use its own API key** on the
+profile and give it a key of its own. Use it when a profile should bill a
+different account, or when you want one profile on a spend-limited key.
+
+The profile's key is stored under the profile, separately from the shared
+provider key, so the two never overwrite each other, and deleting the profile
+deletes its key. Untick the box and the key is removed, and the profile goes
+back to the shared one.
+
+### Where a key comes from
+
+Octa resolves a shared provider key in this order:
 
 1. an **environment variable** (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
    `GEMINI_API_KEY`, or `OCTA_OPENAI_COMPAT_API_KEY`),
@@ -124,6 +203,9 @@ doubt about where your secret lives.
       Windows.
     - To avoid any on-disk secret, set the matching environment variable
       instead; it always wins.
+    - A **profile's own key** follows the same keyring-then-plaintext chain,
+      but has no environment variable: it is an explicit override, and the
+      environment variable already backs the shared key.
 
 ## Using Ollama
 

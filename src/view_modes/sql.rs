@@ -690,6 +690,8 @@ fn draw_sql_editor(
                         .lock_focus(true)
                         .hint_text(hint.as_str()),
                 );
+                // Follow a selection dragged past the edge of the editor.
+                super::text_ops::autoscroll_while_selecting(ui, &resp);
                 // Grab keyboard focus the frame after the panel opens so the
                 // user can start typing immediately without clicking first.
                 if tab.sql_editor_focus_pending {

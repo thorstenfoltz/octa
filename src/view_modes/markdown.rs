@@ -253,6 +253,10 @@ fn render_editor_pane(
                     .layouter(&mut layouter)
                     .show(ui);
 
+                // Follow a selection dragged past the edge of the pane, so it is
+                // not capped at the lines currently on screen.
+                super::text_ops::autoscroll_while_selecting(ui, &output.response);
+
                 // Replace any inserted \t with spaces and re-anchor the cursor
                 // to account for the expansion. Skipped under read-only since
                 // `interactive(false)` blocks new insertions.

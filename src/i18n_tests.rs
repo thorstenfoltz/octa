@@ -63,3 +63,92 @@ fn every_language_covers_every_english_key() {
         );
     }
 }
+
+/// Menu entries whose click opens a new tab or window (a dialog, a file picker,
+/// a result tab). These must end in an ellipsis, in every language: the "..."
+/// is the promise that something is about to open.
+const OPENS_SOMETHING: &[&str] = &[
+    "file_menu.new_file",           // new tab
+    "file_menu.open_as",            // file picker
+    "file_menu.open_table_folder",  // folder picker
+    "file_menu.open_directory",     // folder picker
+    "file_menu.export_schema",      // dialog
+    "common.open",                  // file picker
+    "common.save_as",               // file picker
+    "edit_menu.rename_columns",     // dialog
+    "edit_menu.conditional_format", // dialog
+    "edit_menu.validation",         // dialog
+    "edit_menu.scope_cell",         // parse dialog
+    "edit_menu.scope_row",
+    "edit_menu.scope_column",
+    "edit_menu.scope_table",
+    "view_menu.compare_with",       // file picker
+    "view_menu.compare_git",        // dialog
+    "analyse_menu.chart",           // new tab
+    "analyse_menu.transpose",       // new tab
+    "analyse_menu.describe",        // new tab
+    "analyse_menu.quality",         // new tab
+    "analyse_menu.pivot",           // dialog
+    "analyse_menu.correlation",     // dialog
+    "analyse_menu.multi_sort",      // dialog
+    "analyse_menu.random_sample",   // dialog
+    "analyse_menu.value_frequency", // dialog
+    "help_menu.documentation",      // window
+    "help_menu.settings",           // window
+    "help_menu.about",              // window
+    "help_menu.check_updates",      // window
+];
+
+/// Menu entries that just do the thing, in place: no tab, no window, nothing to
+/// fill in. An ellipsis on these is a broken promise.
+const JUST_EXECUTES: &[&str] = &[
+    "file_menu.close_directory",
+    "file_menu.cloud_connections", // toggles the sidebar
+    "file_menu.exit",
+    "common.save",
+    "edit_menu.fit_all_columns",
+    "edit_menu.copy_markdown",
+    "edit_menu.insert_row",
+    "edit_menu.clear_all_marks",
+    "edit_menu.discard_all_edits",
+    "view_menu.reopen_as", // re-reads the file in place
+    "view_menu.readonly",
+    "view_menu.zoom_reset",
+    "search_menu.find",
+    "search_menu.find_replace",
+    "search_menu.multi_search", // toggles a docked panel, like SQL / Assistant
+    "analyse_menu.sql",         // toggles a docked panel
+    "analyse_menu.assistant",   // toggles a docked panel
+    "diagnostics.menu_export",  // writes the report and reveals it
+];
+
+/// Whether a label carries an ellipsis at all. Deliberately not "ends with":
+/// languages whose word order differs put it mid-string (Chinese renders
+/// "Compare with..." as "与...比较"), and the ellipsis still means the same thing
+/// there.
+fn has_ellipsis(s: &str) -> bool {
+    s.contains("...") || s.contains('\u{2026}')
+}
+
+#[test]
+fn menu_ellipsis_means_something_opens() {
+    let _g = LANG_LOCK.lock().unwrap();
+    for (lang, _) in LANGUAGES {
+        set_language(lang);
+        for key in OPENS_SOMETHING {
+            assert!(
+                has_ellipsis(&t(key)),
+                "[{lang}] {key} opens a tab or window, so it must carry '...': {:?}",
+                t(key)
+            );
+        }
+        for key in JUST_EXECUTES {
+            assert!(
+                !has_ellipsis(&t(key)),
+                "[{lang}] {key} just executes, so it must NOT carry '...': {:?}",
+                t(key)
+            );
+        }
+    }
+    set_language("en");
+}

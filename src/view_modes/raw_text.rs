@@ -498,6 +498,11 @@ pub fn render_raw_view(
                         tab.raw_content_modified = true;
                     }
 
+                    // Drag a selection past the bottom (or top, or sides) of the
+                    // view and the view follows, so a selection is not limited to
+                    // the lines that happen to be on screen.
+                    super::text_ops::autoscroll_while_selecting(ui, &output.response);
+
                     // Highlight-search jump: place the cursor on the current
                     // match and scroll it into view.
                     if do_scroll && let Some(r) = current_range.as_ref() {

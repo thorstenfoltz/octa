@@ -56,7 +56,7 @@ like Claude can answer questions about your local files.
     ---
 
     Histogram, bar, line, scatter, and box plots open in their own
-    tab via **Analyse → Chart**. Style the title, axes, legend, and
+    tab via **Analyse → Chart...**. Style the title, axes, legend, and
     per-series colours, then export to PNG, SVG, or PDF for a report
     or slide deck.
 

@@ -14,8 +14,8 @@ use octa::data::DataTable;
 
 use crate::mcp::tools::{TableSnapshot, ToolContext};
 use crate::ui::settings::{
-    AppSettings, ChatPanelPosition, ChatProviderKind, DialogSize, draw_window_controls,
-    remember_dialog_rect, size_dialog_window,
+    AppSettings, ChatPanelPosition, ChatProviderKind, DialogSize, chat_profiles,
+    draw_window_controls, remember_dialog_rect, size_dialog_window,
 };
 use octa::i18n::t;
 
@@ -118,15 +118,17 @@ pub(crate) struct ChatPanelState {
 
 impl ChatPanelState {
     pub fn new(settings: &AppSettings) -> Self {
-        let provider = settings.chat_provider;
-        let model = current_model(settings, provider);
+        let profile = chat_profiles::active_profile(settings);
         ChatPanelState {
             visible: false,
             input: String::new(),
             focus_input: false,
             ac_visible: false,
             ac_selected: 0,
-            session: Arc::new(Mutex::new(ChatSessionState::new(provider.id(), model))),
+            session: Arc::new(Mutex::new(ChatSessionState::new(
+                profile.kind.id(),
+                profile.model,
+            ))),
             session_list_open: false,
             session_list_size: octa::ui::settings::DialogSize::default(),
             prompts_window_open: false,
@@ -138,14 +140,17 @@ impl ChatPanelState {
     }
 }
 
-/// The model configured for `provider`, falling back to its built-in default.
-fn current_model(settings: &AppSettings, provider: ChatProviderKind) -> String {
-    settings
-        .chat_models
-        .get(provider.id())
-        .filter(|m| !m.trim().is_empty())
-        .cloned()
-        .unwrap_or_else(|| octa::ui::settings::chat_models::default_model(provider))
+/// The key a profile will actually use: its own when it opted into one, else
+/// the key shared by every profile of that provider.
+fn profile_api_key(
+    profile: &octa::ui::settings::chat_profiles::ChatModelProfile,
+    settings: &AppSettings,
+) -> Option<String> {
+    if profile.use_own_key {
+        secrets::get_profile_key(&profile.id, settings)
+    } else {
+        secrets::get_api_key(profile.kind, settings)
+    }
 }
 
 impl OctaApp {
@@ -265,41 +270,75 @@ impl OctaApp {
         self.render_chat_history_window(ui.ctx());
         self.render_prompts_window(ui.ctx());
 
-        // Provider + model quick-switch row.
-        let mut provider_changed = false;
+        // Profile quick-switch row. One dropdown replaces the old provider +
+        // model pair: everything about "who am I talking to" now lives in the
+        // named profile, which is configured in Settings.
+        let mut profile_changed = false;
         ui.horizontal_wrapped(|ui| {
-            let mut provider = self.settings.chat_provider;
-            egui::ComboBox::from_id_salt("octa_chat_provider")
-                .selected_text(provider.label())
+            ui.label(t("chat.profile"));
+            let active_id = self.settings.chat_active_profile.clone();
+            let active_name = self
+                .settings
+                .chat_profiles
+                .iter()
+                .find(|p| p.id == active_id)
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| t("chat.no_profiles"));
+
+            let mut chosen: Option<String> = None;
+            egui::ComboBox::from_id_salt("octa_chat_profile")
+                .selected_text(active_name)
                 .show_ui(ui, |ui| {
-                    for p in ChatProviderKind::ALL {
-                        ui.selectable_value(&mut provider, *p, p.label());
+                    for p in &self.settings.chat_profiles {
+                        let label = if p.description.trim().is_empty() {
+                            format!("{}  ({})", p.name, p.model)
+                        } else {
+                            format!("{}  ({}) - {}", p.name, p.model, p.description)
+                        };
+                        if ui.selectable_label(p.id == active_id, label).clicked() {
+                            chosen = Some(p.id.clone());
+                        }
                     }
                 });
-            if provider != self.settings.chat_provider {
-                self.settings.chat_provider = provider;
+            if let Some(id) = chosen
+                && id != self.settings.chat_active_profile
+            {
+                self.settings.chat_active_profile = id;
                 self.settings.save();
-                provider_changed = true;
+                profile_changed = true;
             }
 
-            let provider = self.settings.chat_provider;
-            ui.label(t("chat.model"));
-            if provider == ChatProviderKind::Ollama {
-                self.render_ollama_model_row(ui);
-            } else {
-                self.render_model_picker(ui, provider);
+            if ui
+                .small_button(t("chat.manage_profiles"))
+                .on_hover_text(t("chat.manage_profiles_hint"))
+                .clicked()
+            {
+                self.settings_dialog.open(&self.settings);
+                self.settings_dialog.focus_chat_section = true;
             }
         });
 
-        if provider_changed {
+        if profile_changed {
+            // A different profile may point at a different Ollama server, so
+            // the cached probe result no longer applies.
             self.chat.ollama.auto_probed = false;
             self.chat.ollama.last_probe = None;
         }
 
-        // For Ollama, probe once per selection and then on a timer, so a server
-        // stopped outside Octa (or one that just came up) is reflected without
-        // the user clicking Refresh.
-        if self.settings.chat_provider == ChatProviderKind::Ollama {
+        let profile = chat_profiles::active_profile(&self.settings);
+
+        // Ollama: keep the local-server controls (and the list of installed
+        // models) in the panel, since they are about the running server rather
+        // than the profile. Picking a model here writes it into the profile.
+        if profile.kind == ChatProviderKind::Ollama {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(t("chat.model"));
+                self.render_ollama_model_row(ui, &profile.model);
+            });
+
+            // Probe once per selection and then on a timer, so a server stopped
+            // outside Octa (or one that just came up) is reflected without the
+            // user clicking Refresh.
             let busy = self.chat.ollama.busy.load(Ordering::Relaxed);
             let first = !self.chat.ollama.auto_probed;
             let due = self
@@ -315,10 +354,8 @@ impl OctaApp {
             ui.ctx().request_repaint_after(OLLAMA_POLL_INTERVAL);
         }
 
-        // Provider readiness hint.
-        if self.settings.chat_provider.needs_api_key()
-            && secrets::get_api_key(self.settings.chat_provider, &self.settings).is_none()
-        {
+        // Profile readiness hint.
+        if profile.kind.needs_api_key() && profile_api_key(&profile, &self.settings).is_none() {
             ui.colored_label(
                 egui::Color32::from_rgb(0xc0, 0x60, 0x10),
                 t("chat.no_key_hint"),
@@ -326,6 +363,21 @@ impl OctaApp {
         }
 
         self.render_tab_context_chips(ui);
+    }
+
+    /// Write a model name back into the active profile (used by the Ollama
+    /// model dropdown, which discovers models the profile form cannot).
+    fn set_active_profile_model(&mut self, model: String) {
+        let id = self.settings.chat_active_profile.clone();
+        if let Some(p) = self
+            .settings
+            .chat_profiles
+            .iter_mut()
+            .find(|p| p.id == id && p.model != model)
+        {
+            p.model = model;
+            self.settings.save();
+        }
     }
 
     /// A chip row of the open tabs the assistant can see, active one
@@ -377,59 +429,15 @@ impl OctaApp {
         }
     }
 
-    /// Model picker for cloud providers: a dropdown of common / recent models
-    /// (quick picks) plus a free-text field so the newest or any custom model
-    /// can always be typed. The text field is the source of truth, stored as
-    /// the per-provider default in `chat_models`.
-    fn render_model_picker(&mut self, ui: &mut egui::Ui, provider: ChatProviderKind) {
-        let presets = octa::ui::settings::chat_models::preset_models(provider);
-        let mut model = current_model(&self.settings, provider);
-        let mut changed = false;
-
-        if !presets.is_empty() {
-            egui::ComboBox::from_id_salt(("octa_chat_model_preset", provider.id()))
-                .selected_text(if model.is_empty() {
-                    "(model)".to_string()
-                } else {
-                    model.clone()
-                })
-                .width(200.0)
-                .show_ui(ui, |ui| {
-                    for m in &presets {
-                        if ui.selectable_label(&model == m, m.as_str()).clicked() {
-                            model = m.clone();
-                            changed = true;
-                        }
-                    }
-                });
-        }
-
-        let resp = ui.add(
-            egui::TextEdit::singleline(&mut model)
-                .desired_width(200.0)
-                .hint_text(octa::ui::settings::chat_models::default_model(provider)),
-        );
-        if resp.changed() {
-            changed = true;
-        }
-
-        if changed {
-            self.settings
-                .chat_models
-                .insert(provider.id().to_string(), model);
-            self.settings.save();
-        }
-    }
-
     /// The Ollama model picker: a dropdown of locally-installed models plus
     /// Refresh / Start controls and a running-status chip.
-    fn render_ollama_model_row(&mut self, ui: &mut egui::Ui) {
+    fn render_ollama_model_row(&mut self, ui: &mut egui::Ui, current: &str) {
         let (models, running, checked, error) = {
             let s = self.chat.ollama.shared.lock().unwrap();
             (s.models.clone(), s.running, s.checked, s.error.clone())
         };
         let busy = self.chat.ollama.busy.load(Ordering::Relaxed);
-        let mut model = current_model(&self.settings, ChatProviderKind::Ollama);
+        let mut model = current.to_string();
 
         if models.is_empty() {
             // No models discovered yet: free-text plus the discovery hint below.
@@ -441,12 +449,12 @@ impl OctaApp {
                     )),
             );
             if resp.changed() {
-                self.settings
-                    .chat_models
-                    .insert("ollama".to_string(), model.clone());
-                self.settings.save();
+                self.set_active_profile_model(model.clone());
             }
         } else {
+            // The installed-model list is discovered from the running server,
+            // which the Settings form cannot do, so this picker stays in the
+            // panel and writes the choice back into the active profile.
             egui::ComboBox::from_id_salt("octa_chat_ollama_model")
                 .selected_text(if model.is_empty() {
                     "(pick)".to_string()
@@ -460,11 +468,8 @@ impl OctaApp {
                         }
                     }
                 });
-            if model != current_model(&self.settings, ChatProviderKind::Ollama) {
-                self.settings
-                    .chat_models
-                    .insert("ollama".to_string(), model.clone());
-                self.settings.save();
+            if model != current {
+                self.set_active_profile_model(model.clone());
             }
         }
 
@@ -1055,11 +1060,12 @@ impl OctaApp {
         out
     }
 
-    /// Whether the active provider can run: local providers (Ollama) are always
-    /// ready; cloud providers need a resolvable API key.
+    /// Whether the active profile can run: local providers (Ollama) are always
+    /// ready; cloud providers need a resolvable API key (the profile's own, or
+    /// the shared one for its provider).
     fn provider_ready(&self) -> bool {
-        let provider = self.settings.chat_provider;
-        !provider.needs_api_key() || secrets::get_api_key(provider, &self.settings).is_some()
+        let profile = chat_profiles::active_profile(&self.settings);
+        !profile.kind.needs_api_key() || profile_api_key(&profile, &self.settings).is_some()
     }
 
     /// The saved-session browser window (load / delete past chats).
@@ -1201,9 +1207,11 @@ impl OctaApp {
     /// Start a fresh session, persisting the previous one if it had content.
     pub(crate) fn new_chat_session(&mut self) {
         self.persist_current_session();
-        let provider = self.settings.chat_provider;
-        let model = current_model(&self.settings, provider);
-        self.chat.session = Arc::new(Mutex::new(ChatSessionState::new(provider.id(), model)));
+        let profile = chat_profiles::active_profile(&self.settings);
+        self.chat.session = Arc::new(Mutex::new(ChatSessionState::new(
+            profile.kind.id(),
+            profile.model,
+        )));
         self.chat.last_saved_len = 0;
         self.chat.focus_input = true;
     }
@@ -1329,10 +1337,13 @@ impl OctaApp {
     /// Build the tool context, system prompt, provider config, push the user
     /// message, and spawn the worker turn.
     fn send_chat_message(&mut self, ctx: &egui::Context) {
-        let provider_kind = self.settings.chat_provider;
+        // Everything about the request comes from the active profile: provider,
+        // model, temperature and thinking. Only the caps stay global.
+        let profile = chat_profiles::active_profile(&self.settings);
+        let provider_kind = profile.kind;
         // Cloud providers need a key; Ollama runs locally and does not.
         let api_key = if provider_kind.needs_api_key() {
-            match secrets::get_api_key(provider_kind, &self.settings) {
+            match profile_api_key(&profile, &self.settings) {
                 Some(k) => k,
                 None => return,
             }
@@ -1349,20 +1360,40 @@ impl OctaApp {
         let system = build_system_prompt(&tool_ctx.open_tab_summaries());
         let tool_defs = tools::tool_defs();
 
-        let model = current_model(&self.settings, provider_kind);
+        let model = if profile.model.trim().is_empty() {
+            octa::ui::settings::chat_models::default_model(provider_kind)
+        } else {
+            profile.model.clone()
+        };
         let cfg = ProviderConfig {
             model: model.clone(),
             base_url: match provider_kind {
-                ChatProviderKind::OpenAiCompatible => Some(self.settings.chat_base_url.clone()),
-                ChatProviderKind::Ollama => Some(self.settings.chat_ollama_url.clone()),
+                // The profile's base URL wins; an empty one falls back to the
+                // global setting, so an existing Ollama / compatible setup keeps
+                // working after the migration without re-entering the URL.
+                ChatProviderKind::OpenAiCompatible | ChatProviderKind::Ollama => {
+                    let own = profile.base_url.trim();
+                    Some(if own.is_empty() {
+                        match provider_kind {
+                            ChatProviderKind::Ollama => self.settings.chat_ollama_url.clone(),
+                            _ => self.settings.chat_base_url.clone(),
+                        }
+                    } else {
+                        own.to_string()
+                    })
+                }
                 _ => None,
             },
             api_key,
-            temperature: self.settings.chat_temperature,
+            temperature: profile.temperature,
             max_tokens: if self.settings.chat_max_tokens_unlimited {
                 None
             } else {
                 Some(self.settings.chat_max_tokens)
+            },
+            reasoning: {
+                let r = profile.reasoning.trim();
+                (!r.is_empty()).then(|| r.to_string())
             },
         };
         let provider = make_provider(provider_kind);

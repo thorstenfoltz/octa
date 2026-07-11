@@ -4,7 +4,7 @@ A few quick utilities for reshaping and tidying the active table.
 
 ## Transpose
 
-**Analyse > Transpose** swaps rows and columns into a new tab. The original
+**Analyse > Transpose...** swaps rows and columns into a new tab. The original
 column names become the first column, and each original row becomes a column.
 Everything is shown as text, since a transposed mix of column types has no single
 type.

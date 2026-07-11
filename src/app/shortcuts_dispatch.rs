@@ -497,6 +497,9 @@ impl OctaApp {
                     plan,
                     error: None,
                     size: octa::ui::settings::DialogSize::default(),
+                    file_sources: Vec::new(),
+                    file_tables: Vec::new(),
+                    file_selected: Vec::new(),
                 });
             }
             if action_fired(SA::OpenPartition)

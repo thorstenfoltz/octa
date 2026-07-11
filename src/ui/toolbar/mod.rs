@@ -12,6 +12,24 @@ mod types;
 use menu_button::top_menu_button;
 pub use types::{ParseScope, ToolbarAction};
 
+/// Formats offered by **File -> Open as...** and **View -> Reopen as...**:
+/// `(i18n label key, reader name as registered in `FormatRegistry::new`)`.
+///
+/// These are the text-shaped readers, the ones worth forcing a file through when
+/// its extension is misleading. Kept in step with the registry by
+/// `open_as_tests::every_open_as_reader_name_resolves`.
+const OPEN_AS_FORMATS: &[(&str, &str)] = &[
+    ("open_as.json", "JSON"),
+    ("open_as.jsonl", "JSON Lines"),
+    ("open_as.csv", "CSV"),
+    ("open_as.tsv", "TSV"),
+    ("open_as.yaml", "YAML"),
+    ("open_as.toml", "TOML"),
+    ("open_as.xml", "XML"),
+    ("open_as.markdown", "Markdown"),
+    ("open_as.text", "Text"),
+];
+
 #[allow(clippy::too_many_arguments)]
 pub fn draw_toolbar(
     ui: &mut Ui,
@@ -171,6 +189,21 @@ pub fn draw_toolbar(
                     action.open_file = true;
                     ui.close();
                 }
+                // Open as... - pick the reader first, then the files. Opening the
+                // picker straight from the chosen format keeps this to one step
+                // and lets the picker stay unfiltered, which is the point: the
+                // files worth opening this way are exactly the ones whose
+                // extension Octa would otherwise route somewhere unhelpful.
+                ui.menu_button(crate::i18n::t("file_menu.open_as"), |ui| {
+                    for (key, reader) in OPEN_AS_FORMATS {
+                        if ui.button(crate::i18n::t(key)).clicked() {
+                            action.open_as_files = Some(reader);
+                            ui.close();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(crate::i18n::t("file_menu.open_as_hint"));
                 if ui
                     .button(crate::i18n::t("file_menu.open_table_folder"))
                     .on_hover_text(crate::i18n::t("file_menu.open_table_folder_hint"))
@@ -928,6 +961,25 @@ pub fn draw_toolbar(
                     {
                         action.open_git_compare = true;
                         ui.close();
+                    }
+
+                    // Reopen as... - re-read the file *already in this tab*
+                    // through a reader the user picks, for a file whose
+                    // extension lies about its format (a .log that is really
+                    // JSON). The File menu's "Open as..." is the same idea for a
+                    // file that is not open yet.
+                    if has_source_path {
+                        ui.separator();
+                        ui.menu_button(crate::i18n::t("view_menu.reopen_as"), |ui| {
+                            for (key, reader) in OPEN_AS_FORMATS {
+                                if ui.button(crate::i18n::t(key)).clicked() {
+                                    action.open_as = Some(reader);
+                                    ui.close();
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("view_menu.reopen_as_hint"));
                     }
 
                     ui.separator();

@@ -91,7 +91,7 @@ read the raw details directly in `logs/last_crash.txt` and `logs/octa.log`.
 
 ## Exporting a report
 
-Use **Help -> Export debug report...** at any time. Octa writes a single text
+Use **Help -> Export debug report** at any time. Octa writes a single text
 file, `octa-debug-<timestamp>.txt`, into the `logs` folder and reveals it in
 your file manager. The report contains your Octa version, operating system,
 theme and language, the tail of the log (about the last 256 KB), the last crash

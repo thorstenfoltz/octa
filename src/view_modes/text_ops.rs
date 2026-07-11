@@ -98,3 +98,84 @@ pub fn selected_text(ctx: &egui::Context, text_edit_id: egui::Id, buffer: &str) 
 #[cfg(test)]
 #[path = "text_ops_tests.rs"]
 mod tests;
+
+/// How close to the edge of the visible area the pointer has to get before the
+/// view starts scrolling itself, in points.
+const AUTOSCROLL_MARGIN: f32 = 24.0;
+/// Fastest the view scrolls itself, in points per frame.
+const AUTOSCROLL_MAX_SPEED: f32 = 24.0;
+
+/// Scroll speed for a pointer `overshoot` points into (or past) the edge zone.
+/// Ramps up with distance so a small overshoot creeps and dragging well outside
+/// the window moves quickly, the way a text editor or spreadsheet behaves.
+fn autoscroll_speed(overshoot: f32) -> f32 {
+    (overshoot * 0.5).clamp(1.0, AUTOSCROLL_MAX_SPEED)
+}
+
+/// Keep scrolling while the user drag-selects text past the edge of the view.
+///
+/// egui's `TextEdit` extends its selection to wherever the pointer is, but it
+/// never scrolls the surrounding `ScrollArea`, so a selection could not be
+/// dragged beyond the rows that happened to be on screen: you had to select
+/// what was visible, act on it, scroll, and start again. This nudges the
+/// enclosing scroll area whenever the pointer nears (or leaves) its edge during
+/// a drag, so the selection can run past the bottom of the screen.
+///
+/// Call this **inside** the `ScrollArea`'s closure, passing the editor's
+/// response; `ui.clip_rect()` there is the scroll area's visible viewport.
+pub fn autoscroll_while_selecting(ui: &egui::Ui, response: &egui::Response) {
+    if !response.dragged() {
+        return;
+    }
+    // `pointer_latest_pos` (not `interact_pos`) so we keep tracking once the
+    // pointer has left the widget, which is exactly when scrolling is wanted.
+    let Some(pos) = ui.ctx().pointer_latest_pos() else {
+        return;
+    };
+    let view = ui.clip_rect();
+    if !view.is_positive() {
+        return;
+    }
+
+    // egui applies `scroll_with_delta` inverted: a negative y scrolls *down*
+    // (towards later lines), matching the mouse-wheel convention.
+    let mut delta = egui::Vec2::ZERO;
+    let past_bottom = pos.y - (view.bottom() - AUTOSCROLL_MARGIN);
+    let past_top = (view.top() + AUTOSCROLL_MARGIN) - pos.y;
+    if past_bottom > 0.0 {
+        delta.y = -autoscroll_speed(past_bottom);
+    } else if past_top > 0.0 {
+        delta.y = autoscroll_speed(past_top);
+    }
+
+    let past_right = pos.x - (view.right() - AUTOSCROLL_MARGIN);
+    let past_left = (view.left() + AUTOSCROLL_MARGIN) - pos.x;
+    if past_right > 0.0 {
+        delta.x = -autoscroll_speed(past_right);
+    } else if past_left > 0.0 {
+        delta.x = autoscroll_speed(past_left);
+    }
+
+    if delta != egui::Vec2::ZERO {
+        ui.scroll_with_delta(delta);
+        // The pointer may not move again, so ask for the next frame ourselves;
+        // otherwise the scroll would stall as soon as the user holds still.
+        ui.ctx().request_repaint();
+    }
+}
+
+#[cfg(test)]
+mod autoscroll_tests {
+    use super::*;
+
+    #[test]
+    fn speed_ramps_with_distance_and_is_capped() {
+        // Just inside the edge zone: a slow creep, never zero (holding the
+        // pointer on the boundary must still make progress).
+        assert!(autoscroll_speed(0.5) >= 1.0);
+        // Further out is faster.
+        assert!(autoscroll_speed(20.0) > autoscroll_speed(4.0));
+        // Dragging far outside the window does not fling the view.
+        assert_eq!(autoscroll_speed(10_000.0), AUTOSCROLL_MAX_SPEED);
+    }
+}

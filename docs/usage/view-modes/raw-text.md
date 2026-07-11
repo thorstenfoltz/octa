@@ -25,6 +25,11 @@ The Raw view is a multi-line text editor:
 - **Line numbers** in the left gutter, monospace.
 - **Word wrap** off by default; horizontal scrolling enabled.
 - **Standard editing**: type, paste, select with the keyboard, etc.
+- **Selecting past the edge**: drag a selection to the bottom (or top,
+  or either side) of the view and the view keeps scrolling on its own,
+  so a selection can run well past the lines that happen to be on
+  screen. It speeds up the further out you drag. The same applies to
+  the [Markdown](markdown.md) editor and the [SQL](../sql.md) editor.
 - **Ctrl+F** / **Ctrl+H** focus the toolbar's search box (no
   in-editor search yet; the toolbar search applies to the buffer).
 - **Right-click** opens the context menu with Copy (greyed when

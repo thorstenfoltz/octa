@@ -36,9 +36,14 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let mut apply = false;
     let mut st = app.union_dialog.take().unwrap();
 
+    // File mode: the sources are files picked in the directory sidebar, already
+    // read into `file_tables`. The open-tab machinery below is bypassed.
+    let file_mode = !st.file_sources.is_empty();
+
     // Guard: if tabs were added or closed since the dialog opened, resize the
-    // selection vector so we never index out of bounds.
-    if st.selected_tabs.len() != app.tabs.len() {
+    // selection vector so we never index out of bounds. Not applicable in file
+    // mode, where the sources have nothing to do with the open tabs.
+    if !file_mode && st.selected_tabs.len() != app.tabs.len() {
         let active = app.active_tab;
         st.selected_tabs = vec![false; app.tabs.len()];
         if active < st.selected_tabs.len() {
@@ -62,9 +67,13 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             .min_height(300.0)
     });
 
-    // Track whether the tab selection changes so we know when to recompute
+    // Track whether the source selection changes so we know when to recompute
     // the plan.
-    let prev_selected = st.selected_tabs.clone();
+    let prev_selected = if file_mode {
+        st.file_selected.clone()
+    } else {
+        st.selected_tabs.clone()
+    };
 
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("union_header")
@@ -111,34 +120,63 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     .size(13.0),
             );
 
-            // Collect tab display labels once (avoid borrow conflicts inside
-            // the closure below).
-            let tab_labels: Vec<String> = app
-                .tabs
-                .iter()
-                .enumerate()
-                .map(|(i, tab)| {
-                    tab.table
-                        .source_path
-                        .as_ref()
-                        .and_then(|p| {
-                            std::path::Path::new(p)
-                                .file_name()
-                                .map(|n| n.to_string_lossy().to_string())
-                        })
-                        .or_else(|| tab.custom_tab_label.clone())
-                        .unwrap_or_else(|| format!("Untitled {}", i + 1))
-                })
-                .collect();
+            // Collect the source labels once (avoid borrow conflicts inside the
+            // closure below). In file mode these are the picked files' names,
+            // otherwise the open tabs' labels.
+            let labels: Vec<String> = if file_mode {
+                st.file_sources
+                    .iter()
+                    .map(|p| {
+                        p.file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| p.to_string_lossy().to_string())
+                    })
+                    .collect()
+            } else {
+                app.tabs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, tab)| {
+                        tab.table
+                            .source_path
+                            .as_ref()
+                            .and_then(|p| {
+                                std::path::Path::new(p)
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().to_string())
+                            })
+                            .or_else(|| tab.custom_tab_label.clone())
+                            .unwrap_or_else(|| format!("Untitled {}", i + 1))
+                    })
+                    .collect()
+            };
+            // Full paths for the hover tooltips (file mode only): several files
+            // in different folders can share a name.
+            let hovers: Vec<String> = if file_mode {
+                st.file_sources
+                    .iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
             egui::ScrollArea::vertical()
                 .id_salt("union_tab_list")
                 .max_height(140.0)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    for (idx, label) in tab_labels.iter().enumerate() {
-                        if idx < st.selected_tabs.len() {
-                            ui.checkbox(&mut st.selected_tabs[idx], label.as_str());
+                    for (idx, label) in labels.iter().enumerate() {
+                        let sel = if file_mode {
+                            st.file_selected.get_mut(idx)
+                        } else {
+                            st.selected_tabs.get_mut(idx)
+                        };
+                        if let Some(sel) = sel {
+                            let resp = ui.checkbox(sel, label.as_str());
+                            if let Some(hover) = hovers.get(idx) {
+                                resp.on_hover_text(hover);
+                            }
                         }
                     }
                 });
@@ -226,8 +264,17 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
     // Recompute plan when the selection changes (user's manual type/keep edits
     // are discarded on source-set change; that is intentional).
-    if st.selected_tabs != prev_selected {
-        st.plan = recompute_plan(app, &st.selected_tabs);
+    let sel_now = if file_mode {
+        &st.file_selected
+    } else {
+        &st.selected_tabs
+    };
+    if *sel_now != prev_selected {
+        st.plan = if file_mode {
+            recompute_plan_for_files(&st.file_tables, &st.file_selected)
+        } else {
+            recompute_plan(app, &st.selected_tabs)
+        };
         st.error = None;
     }
 
@@ -261,22 +308,47 @@ fn recompute_plan(app: &OctaApp, selected: &[bool]) -> UnionPlan {
     }
 }
 
+/// Recompute the `UnionPlan` from the currently-selected files (file mode).
+fn recompute_plan_for_files(tables: &[octa::data::DataTable], selected: &[bool]) -> UnionPlan {
+    let schemas: Vec<&[octa::data::ColumnInfo]> = tables
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| selected.get(*i).copied().unwrap_or(false))
+        .map(|(_, t)| t.columns.as_slice())
+        .collect();
+    if schemas.is_empty() {
+        UnionPlan { columns: vec![] }
+    } else {
+        plan_union(&schemas)
+    }
+}
+
 /// Run the union engine and open the result in a new tab.
 fn apply_union(app: &mut OctaApp, st: &UnionState) -> Result<(), String> {
-    let selected_count = st.selected_tabs.iter().filter(|&&b| b).count();
-    if selected_count < 2 {
+    // Sources are either files read from disk (picked in the sidebar) or
+    // snapshots of the selected open tabs.
+    let owned_tables: Vec<octa::data::DataTable> = if !st.file_sources.is_empty() {
+        st.file_tables
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| st.file_selected.get(*i).copied().unwrap_or(false))
+            .map(|(_, t)| t.clone())
+            .collect()
+    } else {
+        // Apply pending cell edits so the engine sees the visible values.
+        st.selected_tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, sel)| **sel)
+            .map(|(i, _)| {
+                let mut snap = app.tabs[i].table.clone();
+                snap.apply_edits();
+                snap
+            })
+            .collect()
+    };
+    if owned_tables.len() < 2 {
         return Err(octa::i18n::t("union.need_two"));
-    }
-
-    // Snapshot each selected tab (apply pending cell edits so the engine sees
-    // the visible values, then clone the resulting table).
-    let mut owned_tables: Vec<octa::data::DataTable> = Vec::with_capacity(selected_count);
-    for (i, &sel) in st.selected_tabs.iter().enumerate() {
-        if sel {
-            let mut snap = app.tabs[i].table.clone();
-            snap.apply_edits();
-            owned_tables.push(snap);
-        }
     }
 
     let borrow_refs: Vec<&octa::data::DataTable> = owned_tables.iter().collect();
@@ -297,4 +369,58 @@ fn apply_union(app: &mut OctaApp, st: &UnionState) -> Result<(), String> {
     app.active_tab = app.tabs.len() - 1;
 
     Ok(())
+}
+
+impl OctaApp {
+    /// Open the Union dialog over a set of files picked in the directory
+    /// sidebar, without opening a tab per file. Each file is read once through
+    /// the registry; files that cannot be read are skipped and reported.
+    ///
+    /// This is the "I have 40 parquet files in a folder and want one table"
+    /// path: the dialog then behaves exactly as it does for open tabs, with the
+    /// same column reconciliation plan.
+    pub(crate) fn open_union_for_files(&mut self, files: Vec<std::path::PathBuf>) {
+        let mut file_sources = Vec::new();
+        let mut file_tables = Vec::new();
+        let mut skipped = 0usize;
+
+        for path in files {
+            let read = self
+                .registry
+                .reader_for_path(&path)
+                .ok_or_else(|| anyhow::anyhow!("no reader"))
+                .and_then(|r| r.read_file(&path));
+            match read {
+                Ok(table) => {
+                    file_sources.push(path);
+                    file_tables.push(table);
+                }
+                Err(_) => skipped += 1,
+            }
+        }
+
+        if file_tables.len() < 2 {
+            self.status_message =
+                Some((octa::i18n::t("union.need_two"), std::time::Instant::now()));
+            return;
+        }
+        if skipped > 0 {
+            self.status_message = Some((
+                format!("{} {skipped}", octa::i18n::t("union_tree.skipped")),
+                std::time::Instant::now(),
+            ));
+        }
+
+        let file_selected = vec![true; file_tables.len()];
+        let plan = recompute_plan_for_files(&file_tables, &file_selected);
+        self.union_dialog = Some(UnionState {
+            selected_tabs: Vec::new(),
+            plan,
+            error: None,
+            size: octa::ui::settings::DialogSize::default(),
+            file_sources,
+            file_tables,
+            file_selected,
+        });
+    }
 }

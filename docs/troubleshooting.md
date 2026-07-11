@@ -165,14 +165,21 @@ passthrough: a recent Windows 11, up-to-date GPU drivers, and the
 ### No reader available
 
 The error reads *"no reader available for FILE"*, meaning Octa
-doesn't recognise the extension. Three things to try:
+doesn't recognise the extension. Things to try:
 
 - Check the extension spelling. `.parquet`, not `.parq`. `.csv`,
   not `.csv.txt`.
+- Use [**File → Open as...**](usage/view-modes/overview.md#open-as-files-with-a-misleading-extension)
+  and pick the format the file really is. This is the one to reach for
+  when the extension lies about the content, such as a `.log` that
+  actually holds JSON. The file picker there shows every file, not just
+  the recognised ones, and you can pick several at once. If the file is
+  already open, **View → Reopen as** does the same thing in place.
 - Add the extension to [**Settings → Files → Open as text**](reference/settings.md#files)
-  for log / config files Octa doesn't ship a reader for.
-- Force open as text: rename the file with a `.txt` extension, or
-  open via the [Raw view](usage/view-modes/raw-text.md)
+  to make Octa *always* treat that extension as plain text, for log /
+  config files you open often.
+- As a last resort, force text: rename the file with a `.txt` extension,
+  or open it via the [Raw view](usage/view-modes/raw-text.md)
   ([`octa --schema FILE`](cli/schema.md) won't work but the GUI
   can open anything via the text-reader fallback).
 

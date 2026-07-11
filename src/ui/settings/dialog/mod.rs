@@ -68,6 +68,8 @@ impl SettingsDialog {
         // Reset here; the chat panel re-sets it to true right after calling
         // open() so the Chat section starts expanded only when launched there.
         self.focus_chat_section = false;
+        // Same contract for the sidebar's "Add connection" button.
+        self.focus_cloud_section = false;
         self.recording = None;
         self.shortcut_conflict = None;
         self.show_reset_confirm = false;
@@ -252,6 +254,10 @@ impl SettingsDialog {
                             if let Ok(mb) = parse_comma_number(&self.chat_audit_warn_mb_buf) {
                                 self.draft.chat_audit_log_warn_bytes = (mb as u64) * 1024 * 1024;
                             }
+                            // Re-seed if the user deleted every profile, and
+                            // re-point a dangling active id, so the assistant
+                            // always comes back to a usable model.
+                            crate::ui::settings::chat_profiles::ensure_profiles(&mut self.draft);
                             applied = Some(self.draft.clone());
                             self.open = false;
                         }
@@ -1033,31 +1039,18 @@ impl SettingsDialog {
             );
             ui.add_space(6.0);
 
+            // Model profiles: provider, model, temperature and thinking are all
+            // per profile now, so they live in the profile form rather than as
+            // single global fields here.
+            self.chat_profiles_section(ui);
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(4.0);
+
             egui::Grid::new("settings_chat")
                 .num_columns(2)
                 .spacing([16.0, 8.0])
                 .show(ui, |ui| {
-                    ui.label(crate::i18n::t("chat.provider"))
-                        .on_hover_text(crate::i18n::t("settings_hint.chat_provider"));
-                    egui::ComboBox::from_id_salt("settings_chat_provider")
-                        .selected_text(self.draft.chat_provider.label())
-                        .show_ui(ui, |ui| {
-                            for kind in ChatProviderKind::ALL {
-                                ui.selectable_value(
-                                    &mut self.draft.chat_provider,
-                                    *kind,
-                                    kind.label(),
-                                );
-                            }
-                        });
-                    ui.end_row();
-
-                    let provider = self.draft.chat_provider;
-                    ui.label(crate::i18n::t("chat.default_model"))
-                        .on_hover_text(crate::i18n::t("settings_hint.chat_model"));
-                    self.chat_model_picker(ui, provider);
-                    ui.end_row();
-
                     // The preset model lists come from a hand-editable
                     // models.toml beside settings.toml; let the user reload it
                     // after editing without restarting.
@@ -1078,35 +1071,15 @@ impl SettingsDialog {
                     });
                     ui.end_row();
 
-                    if provider == ChatProviderKind::OpenAiCompatible {
-                        ui.label(crate::i18n::t("chat.base_url"))
-                            .on_hover_text(crate::i18n::t("settings_hint.chat_base_url"));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.draft.chat_base_url)
-                                .desired_width(280.0)
-                                .hint_text("https://openrouter.ai/api/v1"),
-                        );
-                        ui.end_row();
-                    }
-                    if provider == ChatProviderKind::Ollama {
-                        ui.label(crate::i18n::t("chat.ollama_url"))
-                            .on_hover_text(crate::i18n::t("settings_hint.chat_ollama_url"));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.draft.chat_ollama_url)
-                                .desired_width(280.0)
-                                .hint_text("http://localhost:11434"),
-                        );
-                        ui.end_row();
-                    }
-
-                    // Text inputs (not Slider/DragValue) so Settings never shows
-                    // the drag-resize cursor; parsed + clamped on Apply.
-                    ui.label(crate::i18n::t("chat.temperature"))
-                        .on_hover_text(crate::i18n::t("settings_hint.chat_temperature"));
+                    // The Ollama server address stays global: it is the local
+                    // server the panel probes and can start/stop, not a property
+                    // of any one profile. A profile may still override it.
+                    ui.label(crate::i18n::t("chat.ollama_url"))
+                        .on_hover_text(crate::i18n::t("settings_hint.chat_ollama_url"));
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.chat_temperature_buf)
-                            .desired_width(100.0)
-                            .hint_text("0.0"),
+                        egui::TextEdit::singleline(&mut self.draft.chat_ollama_url)
+                            .desired_width(280.0)
+                            .hint_text("http://localhost:11434"),
                     );
                     ui.end_row();
 
@@ -1345,7 +1318,7 @@ impl SettingsDialog {
                 .size(13.0),
         )
         .id_salt("settings_section_cloud")
-        .default_open(false)
+        .default_open(std::mem::take(&mut self.focus_cloud_section))
         .show(ui, |ui| {
             self.cloud_section_body(ui);
         });

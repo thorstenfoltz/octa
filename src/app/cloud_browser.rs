@@ -52,6 +52,38 @@ pub(crate) fn root_prefix(conn: &octa::cloud::CloudConnection) -> String {
     conn.prefix.clone().unwrap_or_default()
 }
 
+/// Download one cloud object into a temp file and return its path. Runs on a
+/// worker thread (it does network IO and, for S3 SSO, shells out to the AWS
+/// CLI), so it takes owned/borrowed data rather than `&OctaApp`.
+///
+/// The temp file keeps the object's extension so the format registry routes it
+/// to the right reader, and the handle is leaked (`tmp.keep()`) so streaming
+/// readers can keep reading from disk after this returns. The OS clears /tmp on
+/// reboot, the same trick the archive viewer uses.
+fn fetch_object_to_temp(
+    conn: &octa::cloud::CloudConnection,
+    key: &str,
+    name: &str,
+    settings: &octa::ui::settings::AppSettings,
+) -> anyhow::Result<PathBuf> {
+    let (bconn, real_key) = bind_bucket(conn, key);
+    let creds = resolve_creds(&bconn, settings);
+    let provider = cloud::build_provider(&bconn, &creds)?;
+    let bytes = provider.get(&real_key)?;
+    let ext = std::path::Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("bin");
+    let tmp = tempfile::Builder::new()
+        .prefix("octa-cloud-")
+        .suffix(&format!(".{ext}"))
+        .tempfile()?;
+    tmp.as_file().write_all(&bytes)?;
+    let path = tmp.path().to_path_buf();
+    let _ = tmp.keep();
+    Ok(path)
+}
+
 /// Cached state of one expanded node's listing.
 pub(crate) enum ListState {
     Loading,
@@ -114,12 +146,31 @@ pub(crate) enum CloudOpenResult {
         conn_id: String,
         key: String,
     },
+    /// Several objects were downloaded for a Union (the sidebar's "Union
+    /// selected files..."). `skipped` counts the ones that could not be read.
+    UnionReady {
+        paths: Vec<PathBuf>,
+        skipped: usize,
+    },
     Failed(String),
+}
+
+/// One cloud object the user has ticked in the sidebar for a batch action.
+/// Carries the name as well as the key because the download needs the file
+/// extension to route the temp file to the right reader.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub(crate) struct CloudSelection {
+    pub(crate) conn_id: String,
+    pub(crate) key: String,
+    pub(crate) name: String,
 }
 
 pub(crate) struct CloudBrowserState {
     /// Whether the sidebar's cloud section is shown.
     pub(crate) visible: bool,
+    /// Objects Ctrl-clicked for a batch action (Union). Mirrors the directory
+    /// tree's `selected`: a plain click still just opens the file.
+    pub(crate) selected: HashSet<CloudSelection>,
     /// Cached per-node listings, written by list workers.
     pub(crate) listings: Arc<Mutex<HashMap<ConnPrefix, ListState>>>,
     /// Which nodes the user has expanded (connection roots + sub-prefixes).
@@ -151,6 +202,7 @@ impl Default for CloudBrowserState {
     fn default() -> Self {
         Self {
             visible: false,
+            selected: HashSet::new(),
             listings: Arc::new(Mutex::new(HashMap::new())),
             expanded: HashSet::new(),
             pending_open: Arc::new(Mutex::new(Vec::new())),
@@ -335,30 +387,7 @@ impl OctaApp {
             std::time::Instant::now(),
         ));
         std::thread::spawn(move || {
-            let result = (|| -> anyhow::Result<PathBuf> {
-                let (bconn, real_key) = bind_bucket(&conn, &key);
-                let creds = resolve_creds(&bconn, &settings);
-                let provider = cloud::build_provider(&bconn, &creds)?;
-                let bytes = provider.get(&real_key)?;
-                // Suffix from the object name so the format registry routes the
-                // temp file to the right reader.
-                let ext = std::path::Path::new(&name)
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("bin");
-                let suffix = format!(".{ext}");
-                let tmp = tempfile::Builder::new()
-                    .prefix("octa-cloud-")
-                    .suffix(&suffix)
-                    .tempfile()?;
-                tmp.as_file().write_all(&bytes)?;
-                let path = tmp.path().to_path_buf();
-                // Leak the handle so streaming readers can keep reading from
-                // disk past this call. OS cleans /tmp on reboot (same trick the
-                // archive viewer uses).
-                let _ = tmp.keep();
-                Ok(path)
-            })();
+            let result = fetch_object_to_temp(&conn, &key, &name, &settings);
             let item = match result {
                 Ok(path) => CloudOpenResult::Ready {
                     path,
@@ -370,6 +399,73 @@ impl OctaApp {
                     "{} {name}: {e:#}",
                     octa::i18n::t("cloud.open_failed")
                 )),
+            };
+            if let Ok(mut p) = pending.lock() {
+                p.push(item);
+            }
+            ctx.request_repaint();
+        });
+    }
+
+    /// Download every cloud object the user has selected in the sidebar and open
+    /// the Union dialog over them, the same way "Union selected files..." works
+    /// in the local directory tree.
+    ///
+    /// The downloads run on one worker thread (the network calls must not block
+    /// the UI); the main thread picks the temp paths up in
+    /// `drain_cloud_pending_open` and hands them to `open_union_for_files`.
+    pub(crate) fn union_cloud_selection(&mut self, ctx: &egui::Context) {
+        let selection: Vec<CloudSelection> = self.cloud_browser.selected.iter().cloned().collect();
+        if selection.len() < 2 {
+            self.status_message =
+                Some((octa::i18n::t("union.need_two"), std::time::Instant::now()));
+            return;
+        }
+        // Resolve each selection against its connection here, on the main
+        // thread: `find_cloud_conn` borrows self, and the worker cannot.
+        let mut jobs: Vec<(octa::cloud::CloudConnection, CloudSelection)> = Vec::new();
+        for sel in selection {
+            if let Some(conn) = self.find_cloud_conn(&sel.conn_id) {
+                jobs.push((conn, sel));
+            }
+        }
+        if jobs.len() < 2 {
+            self.status_message =
+                Some((octa::i18n::t("union.need_two"), std::time::Instant::now()));
+            return;
+        }
+
+        let settings = self.settings.clone();
+        let pending = self.cloud_browser.pending_open.clone();
+        let ctx = ctx.clone();
+        self.status_message = Some((
+            format!(
+                "{} {}",
+                octa::i18n::t("cloud.union_downloading"),
+                jobs.len()
+            ),
+            std::time::Instant::now(),
+        ));
+        std::thread::spawn(move || {
+            let mut paths = Vec::new();
+            let mut failed = Vec::new();
+            for (conn, sel) in &jobs {
+                match fetch_object_to_temp(conn, &sel.key, &sel.name, &settings) {
+                    Ok(p) => paths.push(p),
+                    Err(e) => failed.push(format!("{}: {e:#}", sel.name)),
+                }
+            }
+            let item = if paths.len() < 2 {
+                CloudOpenResult::Failed(format!(
+                    "{} {}",
+                    octa::i18n::t("cloud.union_failed"),
+                    failed.join("; ")
+                ))
+            } else {
+                CloudOpenResult::UnionReady {
+                    paths,
+                    skipped: failed.len(),
+                }
             };
             if let Ok(mut p) = pending.lock() {
                 p.push(item);
@@ -527,6 +623,17 @@ impl OctaApp {
                         tab.cloud_origin = Some(CloudOrigin { conn_id, key });
                         tab.custom_tab_label = Some(label);
                     }
+                }
+                CloudOpenResult::UnionReady { paths, skipped } => {
+                    if skipped > 0 {
+                        self.status_message = Some((
+                            format!("{} {skipped}", octa::i18n::t("union_tree.skipped")),
+                            std::time::Instant::now(),
+                        ));
+                    }
+                    // Same dialog, same reconciliation plan as the local
+                    // directory tree: the files just came from a bucket.
+                    self.open_union_for_files(paths);
                 }
                 CloudOpenResult::Failed(msg) => {
                     self.status_message = Some((msg, std::time::Instant::now()));

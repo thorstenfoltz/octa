@@ -34,6 +34,44 @@ JSONL and every other format still open in Table view.
 | [**Map**](map.md)                      | `.geojson`                           | Yes (geometry rendering only) |
 | [**Compare**](compare.md)              | Any file (compared against another)  | Yes (it's a diff viewer)      |
 
+## Open as... (files with a misleading extension)
+
+Which view modes a file offers depends on how it was parsed, and Octa
+parses by extension. A `.log` file that actually holds JSON is read as
+plain text, so the JSON Tree never appears in the View menu.
+
+Two menu entries fix that, depending on whether the file is open yet:
+
+- **File → Open as...** for a file you have not opened. Pick the format,
+  then pick **one or more files** in the file dialog. The dialog is
+  deliberately unfiltered (it shows every file), because the files worth
+  opening this way are exactly the ones whose extension Octa would
+  otherwise route somewhere unhelpful. Each file opens in its own tab.
+- **View → Reopen as** for the file already in the current tab. It
+  re-reads that one file in place.
+
+Both offer the same formats:
+
+| Choose            | Reads the file as                              |
+|-------------------|------------------------------------------------|
+| **JSON**          | A single JSON document (tree view available)   |
+| **JSON Lines**    | One JSON object per line (the usual log shape) |
+| **CSV** / **TSV** | Delimited text, into a table                   |
+| **YAML**          | A YAML document                                |
+| **TOML**          | A TOML document                                |
+| **XML**           | An XML document                                |
+| **Markdown**      | CommonMark, with the rendered preview          |
+| **Plain text**    | Raw text, no parsing                           |
+
+Pick **JSON** for that `.log` and it parses as JSON, tree view and all,
+exactly as though the file had been named `.json`. Log files that hold one
+JSON object per line want **JSON Lines** instead.
+
+This changes only how Octa reads the file. Nothing on disk is renamed or
+rewritten. Reopening re-reads from disk, so any unsaved edits in that tab
+are discarded, and if the content does not parse as the chosen format the
+tab is left exactly as it was, with the error shown in the status bar.
+
 ## Cycling view modes
 
 **F4**
@@ -44,7 +82,7 @@ Table → Raw → Markdown → Notebook → JsonTree → YamlTree → EpubReader
 ```
 
 > **Note**: Neither [Chart](../chart.md) nor the [SQL panel](../sql.md)
-> are view modes. Chart opens in its own tab via **Analyse → Chart**
+> are view modes. Chart opens in its own tab via **Analyse → Chart...**
 > or <kbd>F5</kbd>; the SQL panel docks alongside the table via
 > **Analyse → SQL** or <kbd>Ctrl</kbd>+<kbd>J</kbd>. The cycling list
 > above only walks true view modes, and cycling inside a chart tab is
