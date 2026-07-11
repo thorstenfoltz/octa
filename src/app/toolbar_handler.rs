@@ -150,7 +150,7 @@ impl OctaApp {
         let toolbar_frame = egui::Frame::new()
             .fill(header_colors.bg_header)
             .inner_margin(egui::Margin::symmetric(4, 4))
-            .stroke(egui::Stroke::new(1.0, header_colors.border_subtle));
+            .stroke(egui::Stroke::new(1.0_f32, header_colors.border_subtle));
         egui::Panel::top("toolbar")
             .exact_size(40.0)
             .frame(toolbar_frame)
@@ -626,6 +626,12 @@ impl OctaApp {
         if action.open_git_compare {
             self.open_git_compare_dialog();
         }
+        if let Some(reader_name) = action.open_as {
+            self.reopen_active_as(reader_name);
+        }
+        if let Some(reader_name) = action.open_as_files {
+            self.open_files_as(reader_name);
+        }
         if action.open_correlation && self.tabs[self.active_tab].table.col_count() > 0 {
             self.correlation_dialog = Some(crate::app::state::CorrelationState {
                 method: octa::data::correlation::CorrMethod::Pearson,
@@ -788,6 +794,9 @@ impl OctaApp {
                 plan,
                 error: None,
                 size: octa::ui::settings::DialogSize::default(),
+                file_sources: Vec::new(),
+                file_tables: Vec::new(),
+                file_selected: Vec::new(),
             });
         }
         if action.open_join && self.tabs.len() >= 2 {

@@ -210,7 +210,7 @@ pub fn render_notebook_view(
                                 };
                                 let out_frame = egui::Frame::new()
                                     .fill(out_bg)
-                                    .stroke(Stroke::new(1.0, border_color))
+                                    .stroke(Stroke::new(1.0_f32, border_color))
                                     .corner_radius(4.0)
                                     .inner_margin(8.0)
                                     .show(ui, |ui| {
@@ -277,7 +277,7 @@ pub fn render_notebook_view(
                             // Cell content area with separate gutter + source
                             let frame_response = egui::Frame::new()
                                 .fill(cell_bg)
-                                .stroke(Stroke::new(1.0, border_color))
+                                .stroke(Stroke::new(1.0_f32, border_color))
                                 .corner_radius(4.0)
                                 .inner_margin(8.0)
                                 .show(ui, |ui| {

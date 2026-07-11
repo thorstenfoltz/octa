@@ -200,6 +200,18 @@ pub(crate) fn build_body(
     body.insert("model".into(), json!(cfg.model));
     body.insert("messages".into(), json!(wire_messages));
     body.insert("temperature".into(), json!(cfg.temperature));
+    // The profile's thinking value maps to `reasoning_effort` (low/medium/high
+    // on current models). Passed through verbatim: an unsupported value is the
+    // API's to reject, and hard-coding the accepted set here would go stale.
+    // Blank means "no thinking", so the field is omitted rather than sent empty.
+    if let Some(effort) = cfg
+        .reasoning
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        body.insert("reasoning_effort".into(), json!(effort));
+    }
     // `None` => unlimited: omit the cap entirely so the model uses its default.
     if let Some(max) = cfg.max_tokens {
         body.insert(token_field.into(), json!(max));

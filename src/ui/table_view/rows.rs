@@ -218,7 +218,7 @@ pub(super) fn draw_data_row_direct(
 
             col_painter.line_segment(
                 [rect.right_top(), rect.right_bottom()],
-                egui::Stroke::new(0.5, colors.border_subtle),
+                egui::Stroke::new(0.5_f32, colors.border_subtle),
             );
 
             if is_editing {
@@ -393,7 +393,7 @@ pub(super) fn draw_data_row_direct(
                             egui::TextFormat {
                                 font_id: egui::FontId::new(font_size, egui::FontFamily::Monospace),
                                 color: text_color,
-                                underline: egui::Stroke::new(1.0, text_color),
+                                underline: egui::Stroke::new(1.0_f32, text_color),
                                 ..Default::default()
                             },
                         );
@@ -728,7 +728,7 @@ pub(super) fn draw_data_row_direct(
                 egui::pos2(seq_rect.left(), rn_rect.top() + 2.0),
                 egui::pos2(seq_rect.left(), rn_rect.bottom() - 2.0),
             ],
-            egui::Stroke::new(1.0, colors.border),
+            egui::Stroke::new(1.0_f32, colors.border),
         );
         painter.text(
             seq_rect.center(),

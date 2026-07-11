@@ -350,7 +350,7 @@ impl Plugin for GeoJsonPlugin {
         // dominating the map; the low fill alpha keeps polygon interiors
         // legible (street labels still readable through them).
         let fill = egui::Color32::from_rgba_unmultiplied(0x46, 0x82, 0xb4, 70);
-        let stroke = egui::Stroke::new(2.0, egui::Color32::from_rgb(0x1f, 0x3d, 0x5c));
+        let stroke = egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(0x1f, 0x3d, 0x5c));
         let point_color = egui::Color32::from_rgb(0x1f, 0x3d, 0x5c);
 
         let painter = ui.painter().clone();

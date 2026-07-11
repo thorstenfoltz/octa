@@ -52,7 +52,7 @@ jobs:
         run: cargo deny --all-features check licenses
 
   test:
-    needs: [changes]
+    needs: [changes, megalinter]
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -80,8 +80,6 @@ jobs:
         run: cargo test
 
   megalinter:
-    needs: [test, licenses]
-    if: always() && !failure()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

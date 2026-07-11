@@ -25,7 +25,14 @@ checkboxes, and the Secret section with Access key ID + Secret fields and a
 "Save secret" button. -->
 ![Settings cloud storage section](../assets/screenshots/cloud-settings.png){ .screenshot-placeholder }
 
-Open **Settings > Cloud storage** and click **Add connection**:
+Open **Settings → Cloud storage** and click **Add connection**.
+
+You can also start from the sidebar: the **Cloud connections** header has a
+**+ Add** button that opens Settings at the Cloud storage section with a
+blank form. It sits in the header rather than the connection list, so it is
+there even when you have no connections yet and the list is empty.
+
+The form fields:
 
 | Field                  | Meaning                                                                                                                                                          |
 |------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -131,6 +138,20 @@ its bucket root, expand folders to drill in, and click a file to open it.
 - **Sort** (next to the Connections header) orders the files in every folder by
   name, last-modified date (newest / oldest), or size (largest / smallest).
   Folders always sort by name and stay at the top.
+
+## Union several objects
+
+**Ctrl-click** objects to select them instead of opening them. A **_N_
+selected** bar appears at the top of the cloud section with a **Union...**
+button.
+
+Octa downloads the selected objects in the background and opens the
+[Union](union-tables.md) dialog over them, with the same column
+reconciliation as any other union. A folder of partitioned `part-*.parquet`
+files becomes one table without opening a tab per object, and the objects
+need not share a format.
+
+A plain click still just opens the object, and clears the selection.
 
 ## Saving back
 

@@ -9,6 +9,7 @@ prompt_file: ""
 squash_prompt_file: ""
 token_logging: true
 measure_time: true
+stats: true
 anthropic:
   model: claude-haiku-4-5
   temperature: 0
@@ -28,8 +29,7 @@ ollama:
   model: llama3.1
   temperature: 0
 openai:
-  model: gpt-5.4
-  temperature: 0
+  model: gpt-5.5
 xai:
   model: grok-4-1-fast-reasoning
   temperature: 0

@@ -498,6 +498,11 @@ pub fn render_raw_view(
                         tab.raw_content_modified = true;
                     }
 
+                    // Drag a selection past the bottom (or top, or sides) of the
+                    // view and the view follows, so a selection is not limited to
+                    // the lines that happen to be on screen.
+                    super::text_ops::autoscroll_while_selecting(ui, &output.response);
+
                     // Highlight-search jump: place the cursor on the current
                     // match and scroll it into view.
                     if do_scroll && let Some(r) = current_range.as_ref() {
@@ -812,7 +817,7 @@ pub(crate) fn render_parse_error_banner(
     let mut dismissed = false;
     egui::Frame::new()
         .fill(bg)
-        .stroke(egui::Stroke::new(1.0, fg))
+        .stroke(egui::Stroke::new(1.0_f32, fg))
         .corner_radius(4.0)
         .inner_margin(egui::Margin::symmetric(10, 8))
         .show(ui, |ui| {

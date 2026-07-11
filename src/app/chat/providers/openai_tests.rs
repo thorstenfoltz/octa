@@ -40,6 +40,7 @@ fn tool_schema_wraps_under_function() {
         api_key: "k".into(),
         temperature: 0.5,
         max_tokens: Some(100),
+        reasoning: None,
     };
     let tools = vec![ToolDef {
         name: "schema".into(),
@@ -70,8 +71,41 @@ fn unlimited_tokens_omits_the_field() {
         api_key: "k".into(),
         temperature: 0.5,
         max_tokens: None,
+        reasoning: None,
     };
     let body = build_body(&cfg, "sys", &[Message::user_text("hi")], &[], "max_tokens");
     assert!(body.get("max_tokens").is_none());
     assert!(body.get("max_completion_tokens").is_none());
+}
+
+#[test]
+fn reasoning_sets_the_effort_field() {
+    let cfg = ProviderConfig {
+        model: "gpt-5.4".into(),
+        base_url: None,
+        api_key: "k".into(),
+        temperature: 0.0,
+        max_tokens: Some(1000),
+        reasoning: Some("high".into()),
+    };
+    let body = build_body(&cfg, "sys", &[], &[], "max_completion_tokens");
+    assert_eq!(body["reasoning_effort"], json!("high"));
+}
+
+#[test]
+fn blank_reasoning_omits_the_effort_field() {
+    // Empty is "no thinking", not "effort = empty string", which the API would
+    // reject.
+    for value in [None, Some(String::new()), Some("   ".to_string())] {
+        let cfg = ProviderConfig {
+            model: "gpt-5.4".into(),
+            base_url: None,
+            api_key: "k".into(),
+            temperature: 0.0,
+            max_tokens: Some(1000),
+            reasoning: value,
+        };
+        let body = build_body(&cfg, "sys", &[], &[], "max_completion_tokens");
+        assert!(body.get("reasoning_effort").is_none());
+    }
 }

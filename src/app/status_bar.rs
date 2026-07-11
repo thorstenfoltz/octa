@@ -18,7 +18,7 @@ impl OctaApp {
         let status_frame = egui::Frame::new()
             .fill(status_colors.bg_header)
             .inner_margin(egui::Margin::symmetric(4, 2))
-            .stroke(egui::Stroke::new(1.0, status_colors.border_subtle));
+            .stroke(egui::Stroke::new(1.0_f32, status_colors.border_subtle));
 
         // Busy indicator state: a long-running operation is either a
         // background row-load draining into the active tab or an

@@ -28,6 +28,10 @@ even when only one tab is open. Each tab shows the filename and an
   set (visualised as a soft accent tint). Currently used by the
   [Compare view](view-modes/compare.md)'s "Compare selected tabs"
   shortcut.
+- **Scroll sideways** when there are more tabs than fit the window.
+  The mouse wheel over the tab strip scrolls it horizontally (no
+  modifier needed), and a scrollbar appears beneath the tabs. Tabs
+  are never clipped out of reach.
 
 ### Reopening a closed tab
 
@@ -68,12 +72,14 @@ proceeds.
 ## The folder sidebar
 
 **File → Open Directory…** opens a directory picker and installs a
-sidebar showing the folder's tree. It's an `egui::SidePanel` docked
-on the **left** by default; switch to the right under
-[**Settings → Directory Tree → Sidebar position**](../reference/settings.md#directory-tree).
+sidebar showing the folder's tree. It's a resizable panel docked
+on the **left** by default; dock it on the right, top or bottom under
+[**Settings → Directory Tree → Sidebar position**](../reference/settings.md#directory-tree)
+(the same setting also positions the cloud-connections browser).
 
-The sidebar takes 50% of the window width on first open; drag the
-splitter to resize.
+Left/right docks resize by width, top/bottom by height. The sidebar
+takes up part of the window on first open; drag the splitter to resize
+it, including all the way down narrow so the table gets the full width.
 
 ### Sidebar behaviour
 
@@ -85,8 +91,22 @@ splitter to resize.
 - Long filenames are truncated with an ellipsis, so the row never
   exceeds the panel width.
 - **Right-click a file row** for the context menu:
-  - Open
   - Copy name (basename only)
+  - Union selected files... (see below)
+
+### Selecting several files (Union)
+
+**Ctrl-click** file rows to select them instead of opening them;
+**Shift-click** takes a whole run between the last click and this one.
+Selected rows stay highlighted and an **_N_ selected** bar appears at
+the top of the sidebar with a **Union...** button. Right-clicking a
+selected file offers the same action.
+
+That stacks the selected files into one table, reconciling their
+columns, which is the quick way to combine a folder of partitioned
+exports without opening a tab per file. See
+[Union tables](union-tables.md). A plain click still just opens the
+file, and clears the selection.
 
 ### Closing the sidebar
 
@@ -99,7 +119,10 @@ again.
 The same sidebar also hosts your **cloud connections**. **File → Cloud
 connections** shows a browser for saved S3 / Azure / GCS buckets above
 the folder tree; expand a connection to list its objects and click a
-file to open it. See [Cloud storage](cloud-storage.md).
+file to open it. **+ Add** in that header jumps to Settings to create a
+new connection, and Ctrl-clicking objects selects them for a
+**Union...** just as in the folder tree. See
+[Cloud storage](cloud-storage.md).
 
 ## Multi-table databases (table picker)
 

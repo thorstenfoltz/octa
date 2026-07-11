@@ -342,10 +342,11 @@ fn optional_f64_input(
     value: &mut Option<f64>,
     positive_only: bool,
 ) {
-    let response = ui.add(
+    let response = control_text_edit(
+        ui,
+        80.0,
         egui::TextEdit::singleline(buffer)
             .id_salt(id_salt)
-            .desired_width(80.0)
             .hint_text(t("chart.auto_placeholder")),
     );
     if response.changed() {
@@ -366,9 +367,42 @@ fn optional_f64_input(
     }
 }
 
+/// The height every interactive control in the chart control bar is given.
+///
+/// Left to themselves a ComboBox, a `TextEdit` and a checkbox each take a
+/// slightly different natural height, so a row of them (and the labels between)
+/// ends up visibly out of line. Pinning them all to one height, derived from the
+/// button metrics so it follows the theme's font size, keeps every row level.
+fn control_height(ui: &egui::Ui) -> f32 {
+    ui.text_style_height(&egui::TextStyle::Button) + 2.0 * ui.spacing().button_padding.y
+}
+
+/// One row of the chart control bar: wraps when the window is narrow, and forces
+/// every interactive widget inside it to [`control_height`] so labels, combos,
+/// text fields and checkboxes all line up.
+fn control_row<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    let h = control_height(ui);
+    ui.horizontal_wrapped(|ui| {
+        // `interact_size` is the *minimum* size of an interactive widget, which
+        // is what ComboBox and checkbox size themselves against.
+        ui.spacing_mut().interact_size.y = h;
+        ui.set_min_height(h);
+        body(ui)
+    })
+    .inner
+}
+
+/// A text field of the control bar's uniform height. `TextEdit` sizes itself
+/// from its font and frame margin, which does not match the combos next to it,
+/// so the height is imposed rather than left to the widget.
+fn control_text_edit(ui: &mut egui::Ui, width: f32, edit: egui::TextEdit<'_>) -> egui::Response {
+    let h = control_height(ui);
+    ui.add_sized([width, h], edit)
+}
+
 fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
     // Row 1: kind + X/Y pickers + agg / bin picker.
-    ui.horizontal_wrapped(|ui| {
+    control_row(ui, |ui| {
         ui.label(
             egui::RichText::new(t("chart.chart_label"))
                 .color(colors.text_primary)
@@ -429,10 +463,11 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
                     }
                 }
                 if !auto {
-                    let response = ui.add(
+                    let response = control_text_edit(
+                        ui,
+                        80.0,
                         egui::TextEdit::singleline(&mut tab.chart_buffers.hist_bins)
                             .id_salt("chart_hist_bins")
-                            .desired_width(80.0)
                             .hint_text("20"),
                     );
                     if response.changed() {
@@ -460,25 +495,28 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
         .default_open(false)
         .show(ui, |ui| {
             // Group A - Labels + legend + grid toggle. One row.
-            ui.horizontal_wrapped(|ui| {
+            control_row(ui, |ui| {
                 ui.label(t("chart.title"));
-                ui.add(
+                control_text_edit(
+                    ui,
+                    160.0,
                     egui::TextEdit::singleline(&mut tab.chart_config.title)
-                        .desired_width(160.0)
                         .hint_text(t("chart.placeholder_none")),
                 );
                 ui.separator();
                 ui.label(t("chart.x_label"));
-                ui.add(
+                control_text_edit(
+                    ui,
+                    120.0,
                     egui::TextEdit::singleline(&mut tab.chart_config.x_label_override)
-                        .desired_width(120.0)
                         .hint_text(t("chart.placeholder_auto")),
                 );
                 ui.separator();
                 ui.label(t("chart.y_label"));
-                ui.add(
+                control_text_edit(
+                    ui,
+                    120.0,
                     egui::TextEdit::singleline(&mut tab.chart_config.y_label_override)
-                        .desired_width(120.0)
                         .hint_text(t("chart.placeholder_auto")),
                 );
                 ui.separator();
@@ -498,7 +536,7 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
             // so users can clamp either dimension. For categorical Bar / Box
             // charts the bounds are interpreted as category indices.
             ui.add_space(2.0);
-            ui.horizontal_wrapped(|ui| {
+            control_row(ui, |ui| {
                 ui.label(egui::RichText::new(t("chart.x_axis")).strong());
                 ui.label(t("chart.min"))
                     .on_hover_text(t("chart.x_min_hint"));
@@ -530,7 +568,7 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
 
             // Group C - Y axis. One row.
             ui.add_space(2.0);
-            ui.horizontal_wrapped(|ui| {
+            control_row(ui, |ui| {
                 ui.label(egui::RichText::new(t("chart.y_axis")).strong());
                 ui.label(t("chart.min"))
                     .on_hover_text(t("chart.y_min_hint"));
@@ -572,7 +610,7 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
             // so multi-Y charts still fit a narrow window.
             if tab.chart_config.kind.needs_y() && !tab.chart_config.y_cols.is_empty() {
                 ui.add_space(2.0);
-                ui.horizontal_wrapped(|ui| {
+                control_row(ui, |ui| {
                     ui.label(egui::RichText::new(t("chart.series")).strong());
                     let y_cols = tab.chart_config.y_cols.clone();
                     let column_names: Vec<String> =
@@ -587,9 +625,10 @@ fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {
                             .unwrap_or_else(|| format!("col_{col_idx}"));
                         ui.label(egui::RichText::new(&col_name).monospace().small());
                         let style = tab.chart_config.series_styles.entry(*col_idx).or_default();
-                        ui.add(
+                        control_text_edit(
+                            ui,
+                            120.0,
                             egui::TextEdit::singleline(&mut style.display_name)
-                                .desired_width(120.0)
                                 .hint_text(&col_name),
                         );
                         let mut on = style.color.is_some();
@@ -883,7 +922,7 @@ fn draw_plot_items(
                 }
                 let label = series_display_name(cfg, si, &ser.name);
                 let mut pts_widget = Points::new(label, PlotPoints::from(pts))
-                    .radius(2.5)
+                    .radius(2.5_f32)
                     .shape(MarkerShape::Circle);
                 if let Some(color) = series_color_override(cfg, si) {
                     pts_widget = pts_widget.color(color);

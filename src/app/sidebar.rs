@@ -9,7 +9,7 @@ use eframe::egui;
 use octa::cloud::{CloudConnection, CloudKind};
 use octa::ui;
 
-use super::cloud_browser::{ConnPrefix, ListState, SignInState};
+use super::cloud_browser::{CloudSelection, ConnPrefix, ListState, SignInState};
 use super::cloud_tree::{self, CloudTreeAction, TreeCtx};
 use super::state::OctaApp;
 
@@ -70,6 +70,7 @@ impl OctaApp {
         let secret_cache: HashMap<String, bool> = self.cloud_browser.secret_cache.clone();
         let sign_out_confirm: Option<String> = self.cloud_browser.sign_out_confirm.clone();
         let cloud_sort = self.cloud_browser.sort;
+        let cloud_selected: HashSet<CloudSelection> = self.cloud_browser.selected.clone();
         let expanded: HashSet<ConnPrefix> = self.cloud_browser.expanded.clone();
         let listings_arc: Arc<Mutex<HashMap<ConnPrefix, ListState>>> =
             self.cloud_browser.listings.clone();
@@ -80,9 +81,14 @@ impl OctaApp {
         let allowed_ref = allowed_exts.as_ref();
         let mut dir_state = self.directory_tree.as_mut();
 
-        let screen_w = parent_ui.ctx().content_rect().width();
+        let content_rect = parent_ui.ctx().content_rect();
+        let screen_w = content_rect.width();
+        let screen_h = content_rect.height();
+        // Left/right dock: resize by width. Top/bottom dock: resize by height.
         let default_w = (screen_w * 0.5).clamp(160.0, screen_w - 160.0);
         let max_w = (screen_w - 80.0).max(160.0);
+        let default_h = (screen_h * 0.35).clamp(120.0, (screen_h - 120.0).max(120.0));
+        let max_h = (screen_h - 80.0).max(120.0);
 
         let mut cloud_action = CloudTreeAction::default();
         let mut tree_action = ui::directory_tree::TreeAction::default();
@@ -98,6 +104,7 @@ impl OctaApp {
                         secret_present: &secret_cache,
                         sign_out_confirm: sign_out_confirm.as_deref(),
                         sort: cloud_sort,
+                        selected: &cloud_selected,
                     };
                     cloud_action =
                         cloud_tree::render_cloud_tree(ui, &connections, &tree_ctx, dir_open);
@@ -126,11 +133,42 @@ impl OctaApp {
                     .size_range(80.0..=max_w)
                     .show_inside(parent_ui, &mut body);
             }
+            ui::settings::DirectoryTreePosition::Top => {
+                egui::Panel::top("directory_tree_panel")
+                    .resizable(true)
+                    .default_size(default_h)
+                    .size_range(80.0..=max_h)
+                    .show_inside(parent_ui, &mut body);
+            }
+            ui::settings::DirectoryTreePosition::Bottom => {
+                egui::Panel::bottom("directory_tree_panel")
+                    .resizable(true)
+                    .default_size(default_h)
+                    .size_range(80.0..=max_h)
+                    .show_inside(parent_ui, &mut body);
+            }
         }
 
         // Dispatch cloud actions.
         if cloud_action.close {
             self.cloud_browser.visible = false;
+        }
+        if cloud_action.add_connection {
+            // `open` already clears the cloud form, so the Cloud section comes
+            // up expanded with a blank connection ready to fill in.
+            self.settings_dialog.open(&self.settings);
+            self.settings_dialog.focus_cloud_section = true;
+        }
+        if let Some(sel) = cloud_action.toggle_select
+            && !self.cloud_browser.selected.remove(&sel)
+        {
+            self.cloud_browser.selected.insert(sel);
+        }
+        if cloud_action.clear_selection {
+            self.cloud_browser.selected.clear();
+        }
+        if cloud_action.union_selected {
+            self.union_cloud_selection(&ctx);
         }
         if let Some(sort) = cloud_action.set_sort {
             self.cloud_browser.sort = sort;
@@ -160,6 +198,8 @@ impl OctaApp {
         // Dispatch directory-tree actions.
         if tree_action.close {
             self.directory_tree = None;
+        } else if let Some(files) = tree_action.union_files {
+            self.open_union_for_files(files);
         } else if let Some(path) = tree_action.open_file {
             self.load_file(path);
         }

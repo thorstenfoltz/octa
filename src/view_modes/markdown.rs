@@ -253,6 +253,10 @@ fn render_editor_pane(
                     .layouter(&mut layouter)
                     .show(ui);
 
+                // Follow a selection dragged past the edge of the pane, so it is
+                // not capped at the lines currently on screen.
+                super::text_ops::autoscroll_while_selecting(ui, &output.response);
+
                 // Replace any inserted \t with spaces and re-anchor the cursor
                 // to account for the expansion. Skipped under read-only since
                 // `interactive(false)` blocks new insertions.
@@ -794,10 +798,10 @@ fn render_runs(
         };
         fmt.italics = style.italic;
         if style.strikethrough {
-            fmt.strikethrough = egui::Stroke::new(1.0, body_color);
+            fmt.strikethrough = egui::Stroke::new(1.0_f32, body_color);
         }
         if style.link.is_some() {
-            fmt.underline = egui::Stroke::new(1.0, link_color);
+            fmt.underline = egui::Stroke::new(1.0_f32, link_color);
         }
         if style.code {
             fmt.background = ui.visuals().code_bg_color;
@@ -995,10 +999,10 @@ fn render_cell_runs(
         };
         fmt.italics = style.italic;
         if style.strikethrough {
-            fmt.strikethrough = egui::Stroke::new(1.0, body_color);
+            fmt.strikethrough = egui::Stroke::new(1.0_f32, body_color);
         }
         if style.link.is_some() {
-            fmt.underline = egui::Stroke::new(1.0, link_color);
+            fmt.underline = egui::Stroke::new(1.0_f32, link_color);
         }
         if style.code {
             fmt.background = ui.visuals().code_bg_color;

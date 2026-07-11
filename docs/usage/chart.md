@@ -6,7 +6,7 @@ several charts of the same data running at once.
 
 Trigger via:
 
-- **Analyse → Chart** in the toolbar
+- **Analyse → Chart...** in the toolbar
 - <kbd>F5</kbd>
 
 The entry is hidden on string-only tables since there's nothing to

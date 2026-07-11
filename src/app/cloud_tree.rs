@@ -11,7 +11,7 @@ use eframe::egui;
 use octa::cloud::{CloudConnection, CloudKind};
 
 use super::cloud_browser::{
-    CloudSort, ConnPrefix, ListState, SignInState, root_prefix, sorted_entries,
+    CloudSelection, CloudSort, ConnPrefix, ListState, SignInState, root_prefix, sorted_entries,
 };
 
 const INDENT_PER_LEVEL: f32 = 14.0;
@@ -37,6 +37,15 @@ pub(crate) struct CloudTreeAction {
     pub(crate) set_sort: Option<CloudSort>,
     /// Hide the cloud section.
     pub(crate) close: bool,
+    /// User clicked "+ Add connection": open Settings at the Cloud section
+    /// with an empty connection form.
+    pub(crate) add_connection: bool,
+    /// Ctrl-clicked a file: toggle it in the batch selection (do not open it).
+    pub(crate) toggle_select: Option<CloudSelection>,
+    /// Union every selected object (downloads them, then opens the Union dialog).
+    pub(crate) union_selected: bool,
+    /// Drop the batch selection.
+    pub(crate) clear_selection: bool,
 }
 
 /// Shared, read-only borrows the caller assembles and threads through the
@@ -54,6 +63,8 @@ pub(crate) struct TreeCtx<'a> {
     pub(crate) sign_out_confirm: Option<&'a str>,
     /// Current file sort order.
     pub(crate) sort: CloudSort,
+    /// Objects Ctrl-clicked for a batch action (Union).
+    pub(crate) selected: &'a HashSet<CloudSelection>,
 }
 
 /// Render the cloud section. `share_with_dir` caps the list at half height when
@@ -66,16 +77,78 @@ pub(crate) fn render_cloud_tree(
 ) -> CloudTreeAction {
     let mut action = CloudTreeAction::default();
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(octa::i18n::t("cloud.connections")).strong());
+        // The header label has to match the buttons beside it in *box* size, not
+        // just font size: a bare `Label` allocates only its text, while a Button
+        // adds `button_padding` around it, so the label came out visibly smaller
+        // however the text was styled. Giving it the same padding (and the same
+        // Button text style, unbolded) makes all four controls one uniform row.
+        egui::Frame::NONE
+            .inner_margin(ui.style().spacing.button_padding)
+            .show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new(octa::i18n::t("cloud.connections"))
+                        .text_style(egui::TextStyle::Button),
+                );
+            });
+        // All three controls are plain `Button`s of the same text size, so they
+        // line up as one row. `small_button` shrinks the padding and a
+        // `menu_button` cannot be small at all, so mixing them (as this header
+        // used to) gives every control a different height.
         if ui
-            .small_button("×")
-            .on_hover_text(octa::i18n::t("cloud.close_hint"))
+            .button(octa::i18n::t("cloud.add_connection_btn"))
+            .on_hover_text(octa::i18n::t("cloud.add_connection_btn_hint"))
             .clicked()
         {
-            action.close = true;
+            // Sits in the header, above the `connections.is_empty()` early
+            // return below, so it is reachable precisely when there is nothing
+            // to browse yet and the user needs their first connection.
+            action.add_connection = true;
         }
         draw_sort_menu(ui, ctx.sort, &mut action);
+        // Close sits last, hard right, away from the two it is easy to misclick.
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .button("×")
+                .on_hover_text(octa::i18n::t("cloud.close_hint"))
+                .clicked()
+            {
+                action.close = true;
+            }
+        });
     });
+
+    // Selection bar, present only while objects are Ctrl-clicked. Mirrors the
+    // directory tree: a context menu alone is too easy to miss, and the count
+    // is worth seeing while a selection is being built.
+    if !ctx.selected.is_empty() {
+        let count = ctx.selected.len();
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!(
+                    "{count} {}",
+                    octa::i18n::t("union_tree.n_selected")
+                ))
+                .size(11.0),
+            );
+            if ui
+                .add_enabled(
+                    count >= 2,
+                    egui::Button::new(octa::i18n::t("union_tree.union_btn")).small(),
+                )
+                .on_hover_text(octa::i18n::t("cloud.union_hint"))
+                .clicked()
+            {
+                action.union_selected = true;
+            }
+            if ui
+                .small_button("×")
+                .on_hover_text(octa::i18n::t("union_tree.clear"))
+                .clicked()
+            {
+                action.clear_selection = true;
+            }
+        });
+    }
 
     if connections.is_empty() {
         ui.label(
@@ -96,6 +169,11 @@ pub(crate) fn render_cloud_tree(
         .id_salt("cloud_tree_scroll")
         .max_height(max_height)
         .show(ui, |ui| {
+            // Truncate long names/keys to the panel width instead of letting
+            // them force the panel wider than the widest filename (which would
+            // block the user from dragging the divider narrower). Full names
+            // stay reachable via the per-row hover tooltips.
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
             for conn in connections {
                 draw_connection(ui, ctx, conn, &mut action);
             }
@@ -336,18 +414,11 @@ fn draw_listing(
                         draw_listing(ui, ctx, conn_id, &entry.key, depth + 1, action);
                     }
                 } else {
-                    // Compact inline metadata (size + last-modified date);
-                    // the hover tooltip carries the full key, exact size, and
-                    // timestamp. Object stores expose only a last-modified time,
-                    // not a separate creation time.
-                    let meta = match (entry.size, entry.modified.as_ref()) {
-                        (Some(sz), Some(m)) => {
-                            format!("  ({}, {})", human_size(sz), m.format("%Y-%m-%d"))
-                        }
-                        (Some(sz), None) => format!("  ({})", human_size(sz)),
-                        (None, Some(m)) => format!("  ({})", m.format("%Y-%m-%d")),
-                        (None, None) => String::new(),
-                    };
+                    // Compact inline metadata (size + full last-modified
+                    // timestamp); the hover tooltip carries the full key and
+                    // exact byte count. Object stores expose only a
+                    // last-modified time, not a separate creation time.
+                    let meta = format_entry_meta(entry.size, entry.modified.as_ref());
                     let label = format!("{}{}", entry.name, meta);
                     let mut tip = entry.key.clone();
                     if let Some(sz) = entry.size {
@@ -365,15 +436,34 @@ fn draw_listing(
                             m.format("%Y-%m-%d %H:%M:%S")
                         ));
                     }
-                    let clicked = indented(ui, indent, |ui| {
-                        ui.add(egui::Label::new(label).sense(egui::Sense::click()))
+                    let sel = CloudSelection {
+                        conn_id: conn_id.to_string(),
+                        key: entry.key.clone(),
+                        name: entry.name.clone(),
+                    };
+                    let is_selected = ctx.selected.contains(&sel);
+                    let resp = indented(ui, indent, |ui| {
+                        let text = if is_selected {
+                            // Selected rows are tinted, matching the local tree.
+                            egui::RichText::new(label)
+                                .background_color(ui.visuals().selection.bg_fill)
+                        } else {
+                            egui::RichText::new(label)
+                        };
+                        ui.add(egui::Label::new(text).sense(egui::Sense::click()))
                             .on_hover_cursor(egui::CursorIcon::PointingHand)
                             .on_hover_text(tip)
-                            .clicked()
                     });
-                    if clicked {
-                        action.open =
-                            Some((conn_id.to_string(), entry.key.clone(), entry.name.clone()));
+                    if resp.clicked() {
+                        let mods = ui.input(|i| i.modifiers);
+                        if mods.ctrl || mods.command {
+                            // Ctrl-click builds a batch selection to Union; it
+                            // must not also open the file.
+                            action.toggle_select = Some(sel);
+                        } else {
+                            action.open =
+                                Some((conn_id.to_string(), entry.key.clone(), entry.name.clone()));
+                        }
                     }
                 }
             }
@@ -400,6 +490,21 @@ fn kind_short(kind: CloudKind) -> &'static str {
     }
 }
 
+/// Inline metadata shown after a file's name: its size and/or the full
+/// last-modified timestamp (to the second, UTC). Empty when neither is known.
+fn format_entry_meta(
+    size: Option<u64>,
+    modified: Option<&chrono::DateTime<chrono::Utc>>,
+) -> String {
+    let ts = modified.map(|m| m.format("%Y-%m-%d %H:%M:%S").to_string());
+    match (size, ts) {
+        (Some(sz), Some(t)) => format!("  ({}, {})", human_size(sz), t),
+        (Some(sz), None) => format!("  ({})", human_size(sz)),
+        (None, Some(t)) => format!("  ({})", t),
+        (None, None) => String::new(),
+    }
+}
+
 /// Compact human-readable byte size (B/KB/MB/GB).
 fn human_size(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
@@ -418,7 +523,8 @@ fn human_size(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::human_size;
+    use super::{format_entry_meta, human_size};
+    use chrono::{TimeZone, Utc};
 
     #[test]
     fn human_size_scales_units() {
@@ -426,5 +532,21 @@ mod tests {
         assert_eq!(human_size(1024), "1.0 KB");
         assert_eq!(human_size(1536), "1.5 KB");
         assert_eq!(human_size(5 * 1024 * 1024), "5.0 MB");
+    }
+
+    #[test]
+    fn entry_meta_shows_full_timestamp() {
+        let m = Utc.with_ymd_and_hms(2026, 7, 6, 14, 8, 33).unwrap();
+        // Both size and time -> full timestamp to the second, not date-only.
+        assert_eq!(
+            format_entry_meta(Some(1024), Some(&m)),
+            "  (1.0 KB, 2026-07-06 14:08:33)"
+        );
+        // Time only.
+        assert_eq!(format_entry_meta(None, Some(&m)), "  (2026-07-06 14:08:33)");
+        // Size only.
+        assert_eq!(format_entry_meta(Some(512), None), "  (512 B)");
+        // Neither.
+        assert_eq!(format_entry_meta(None, None), "");
     }
 }

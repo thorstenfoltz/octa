@@ -328,7 +328,7 @@ pub(super) fn draw_header_direct(
         // Right border
         region_painter.line_segment(
             [rect.right_top(), rect.right_bottom()],
-            egui::Stroke::new(0.5, colors.border_subtle),
+            egui::Stroke::new(0.5_f32, colors.border_subtle),
         );
 
         // Resize handle
@@ -700,7 +700,7 @@ pub(super) fn draw_header_direct(
                 egui::pos2(indicator_x, top_y),
                 egui::pos2(indicator_x, top_y + HEADER_HEIGHT),
             ],
-            egui::Stroke::new(3.0, colors.accent),
+            egui::Stroke::new(3.0_f32, colors.accent),
         );
     }
 

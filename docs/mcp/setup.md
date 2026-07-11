@@ -130,32 +130,81 @@ Claude should call `schema` and report the result.
 
 ## Claude Code
 
-Claude Code supports `claude mcp add` for one-line registration:
+Claude Code registers MCP servers with `claude mcp add`. No config file
+to edit:
 
 ```bash
-# User-scoped (available in every project)
-claude mcp add octa --scope user -- octa --mcp
-
-# Project-scoped (available only in the current project)
-claude mcp add octa --scope project -- octa --mcp
+claude mcp add octa -- octa --mcp
 ```
 
-Verify:
+The bare `--` separates Claude Code's own flags from the command it
+should spawn. Everything after it is the command line Octa is launched
+with, so `octa --mcp` is what actually runs.
+
+### Choosing a scope
+
+`claude mcp add` writes to one of three scopes. Without `--scope` you
+get **local**, which only applies in the directory you ran the command
+from. That is rarely what you want:
+
+```bash
+# Every project, just for you (the usual choice)
+claude mcp add --scope user octa -- octa --mcp
+
+# This project only, checked into the repo as .mcp.json
+claude mcp add --scope project octa -- octa --mcp
+
+# This project, just for you (the default if --scope is omitted)
+claude mcp add --scope local octa -- octa --mcp
+```
+
+Use **project** scope when you want the server to travel with the
+repository, so anyone who clones it picks Octa up automatically. Use
+**user** scope for a personal setup that follows you everywhere. `-s` is
+accepted as a short form of `--scope`.
+
+### Read-only registration
+
+Append `--mcp-read-only` to drop the file-writing tools (see
+[Read-only mode](#read-only-mode) above). It goes after `--mcp`, on
+Octa's side of the `--`:
+
+```bash
+claude mcp add --scope user octa -- octa --mcp --mcp-read-only
+```
+
+### Verify
 
 ```bash
 claude mcp list
-# octa  user  /home/you/.local/bin/octa --mcp
 ```
 
-Then in any Claude Code session, ask things like:
+This runs a health check against each registered server, so a broken
+`command` path shows up immediately rather than at first use:
+
+```text
+octa: octa --mcp - Connected
+```
+
+Start a new Claude Code session (existing sessions do not pick up newly
+registered servers) and the tools appear namespaced as
+`mcp__octa__read_table`, `mcp__octa__run_sql`, `mcp__octa__schema`, and
+so on. Then ask things like:
 
 > Use the octa MCP server to read the schema of `tests/fixtures/sample.csv`.
 
-To remove:
+### Removing
 
 ```bash
 claude mcp remove octa --scope user
 ```
+
+!!! note "Multiple Claude Code configurations"
+
+    `claude mcp add` writes into whichever configuration directory is
+    active, which `CLAUDE_CONFIG_DIR` controls. If you run more than one
+    Claude Code identity from separate config directories, register Octa
+    once per directory. `claude mcp list` always reports the active one.
 
 ## MCP Inspector
 

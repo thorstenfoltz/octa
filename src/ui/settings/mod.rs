@@ -1,4 +1,5 @@
 pub mod chat_models;
+pub mod chat_profiles;
 pub mod cloud_secrets;
 mod dialog;
 pub mod secrets;
@@ -45,15 +46,21 @@ pub enum DirectoryTreePosition {
     Left,
     /// Docked to the right of the main area.
     Right,
+    /// Docked above the main area (full width).
+    Top,
+    /// Docked below the main area (full width).
+    Bottom,
 }
 
 impl DirectoryTreePosition {
-    pub const ALL: &[DirectoryTreePosition] = &[Self::Left, Self::Right];
+    pub const ALL: &[DirectoryTreePosition] = &[Self::Left, Self::Right, Self::Top, Self::Bottom];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Left => "Left",
             Self::Right => "Right",
+            Self::Top => "Top",
+            Self::Bottom => "Bottom",
         }
     }
 
@@ -61,6 +68,8 @@ impl DirectoryTreePosition {
         crate::i18n::t(match self {
             Self::Left => "enum.pos_left",
             Self::Right => "enum.pos_right",
+            Self::Top => "enum.pos_top",
+            Self::Bottom => "enum.pos_bottom",
         })
     }
 }
@@ -560,7 +569,7 @@ fn paint_icon_swatch(ui: &mut egui::Ui, color: egui::Color32) {
     ui.painter().rect_stroke(
         rect,
         2.0,
-        egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
+        egui::Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color),
         egui::StrokeKind::Outside,
     );
 }
@@ -887,8 +896,19 @@ pub struct AppSettings {
     /// confirms it in the prompt.
     #[serde(default)]
     pub offer_repair_on_malformed: bool,
-    /// The currently selected chat provider. Keys and per-provider model
-    /// choices are stored separately so switching providers never re-prompts.
+    /// Named chat model profiles: as many provider+model+params combinations as
+    /// the user wants, each with its own name. This is what the assistant panel
+    /// actually picks from. Empty only on legacy settings;
+    /// [`chat_profiles::ensure_profiles`] seeds one from the `chat_provider` /
+    /// `chat_models` / `chat_temperature` fields below on first load.
+    #[serde(default)]
+    pub chat_profiles: Vec<chat_profiles::ChatModelProfile>,
+    /// [`ChatModelProfile::id`] of the profile the assistant is using.
+    #[serde(default)]
+    pub chat_active_profile: String,
+    /// Legacy: the single selected chat provider. Superseded by
+    /// `chat_profiles`, kept as the migration source and as the fallback that
+    /// `seed_profile_from_legacy` reads.
     #[serde(default)]
     pub chat_provider: ChatProviderKind,
     /// Last-used model name per provider, keyed by [`ChatProviderKind::id`].
@@ -1178,6 +1198,8 @@ impl Default for AppSettings {
             warn_on_whitespace_trim: true,
             offer_repair_on_malformed: false,
             language: default_language(),
+            chat_profiles: Vec::new(),
+            chat_active_profile: String::new(),
             chat_provider: ChatProviderKind::default(),
             chat_models: std::collections::BTreeMap::new(),
             chat_base_url: String::new(),
@@ -1246,6 +1268,16 @@ impl AppSettings {
     /// alongside as `settings.toml.bak-<unix-timestamp>` before defaults are
     /// returned, so the user can recover their values manually.
     pub fn load() -> Self {
+        let mut settings = Self::load_raw();
+        // Every load path (fresh install, unreadable config, parse failure,
+        // normal load) must come out with at least one chat profile and a
+        // valid active one, so the assistant panel always has a model to use.
+        chat_profiles::ensure_profiles(&mut settings);
+        settings
+    }
+
+    /// The raw load, before any post-load normalisation. See [`Self::load`].
+    fn load_raw() -> Self {
         let Some(path) = Self::config_path() else {
             return Self::default();
         };
@@ -1400,7 +1432,28 @@ pub struct SettingsDialog {
     auto_save_interval_buf: String,
     /// Buffer backing the chat temperature input (text, not a slider, so
     /// Settings shows no drag cursor). Parsed + clamped 0.0..=2.0 on Apply.
+    /// Legacy: temperature is per profile now, so this only seeds a migration.
     chat_temperature_buf: String,
+
+    // --- Chat profile add/edit form ---
+    // The form doubles as "add" and "edit": a non-empty `chat_profile_form_id`
+    // means we are editing that existing profile, empty means adding a new one.
+    /// Id of the profile being edited; empty when adding a new one.
+    chat_profile_form_id: String,
+    chat_profile_form_name: String,
+    chat_profile_form_desc: String,
+    chat_profile_form_kind: ChatProviderKind,
+    chat_profile_form_model: String,
+    /// Comma-tolerant text buffer (Settings never shows a drag cursor).
+    chat_profile_form_temp: String,
+    chat_profile_form_reasoning: String,
+    chat_profile_form_base_url: String,
+    chat_profile_form_use_own_key: bool,
+    /// Password buffer for a profile's own key. Never populated from storage;
+    /// typing into it is the only way it gains a value.
+    chat_profile_form_key: String,
+    /// Inline result of the last profile save (validation error or confirmation).
+    chat_profile_status: Option<String>,
     /// Buffer backing the chat max-tool-iterations input. Parsed + clamped
     /// 1..=30 on Apply.
     chat_max_iterations_buf: String,
@@ -1431,6 +1484,9 @@ pub struct SettingsDialog {
     /// Set by the chat panel's Settings button so the Chat section opens
     /// expanded; consumed (reset) once the dialog has honoured it.
     pub focus_chat_section: bool,
+    /// Set by the sidebar's "Add connection" button so the Cloud storage
+    /// section opens expanded; consumed (reset) once the dialog has honoured it.
+    pub focus_cloud_section: bool,
     /// When the user clicks "Record" for a shortcut, the action is stored here
     /// and the next key press captures a new binding. `None` = not recording.
     recording: Option<ShortcutAction>,

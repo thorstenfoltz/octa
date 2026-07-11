@@ -45,7 +45,7 @@ pub(super) fn apply_theme_decoration(style: &mut Style, mode: ThemeMode, colors:
 /// `widgets.active.fg_stroke`) stays readable on every background.
 fn apply_soft_decoration(style: &mut Style, colors: &ThemeColors) {
     let radius = CornerRadius::same(8);
-    let hairline = Stroke::new(1.0, colors.border);
+    let hairline = Stroke::new(1.0_f32, colors.border);
     let v = &mut style.visuals;
 
     v.widgets.noninteractive.corner_radius = radius;
@@ -59,11 +59,11 @@ fn apply_soft_decoration(style: &mut Style, colors: &ThemeColors) {
     v.widgets.hovered.corner_radius = radius;
     v.widgets.hovered.bg_fill = colors.accent.linear_multiply(0.18);
     v.widgets.hovered.weak_bg_fill = colors.accent.linear_multiply(0.18);
-    v.widgets.hovered.bg_stroke = Stroke::new(1.0, colors.accent);
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, colors.accent);
     v.widgets.hovered.expansion = 0.5;
 
     v.widgets.active.corner_radius = radius;
-    v.widgets.active.bg_stroke = Stroke::new(1.0, colors.accent);
+    v.widgets.active.bg_stroke = Stroke::new(1.0_f32, colors.accent);
 
     v.widgets.open.corner_radius = radius;
 
@@ -81,28 +81,28 @@ fn apply_manga_decoration(style: &mut Style, colors: &ThemeColors) {
     // legible and doubles as a workable strong-text color on the cream panel.
     let radius = CornerRadius::same(12);
     let ink = colors.text_primary;
-    let ink_border = Stroke::new(2.0, ink);
-    let ink_thick = Stroke::new(2.5, ink);
+    let ink_border = Stroke::new(2.0_f32, ink);
+    let ink_thick = Stroke::new(2.5_f32, ink);
     let paper_white = Color32::from_rgb(0xff, 0xff, 0xff);
 
     let v = &mut style.visuals;
 
     v.widgets.noninteractive.corner_radius = radius;
     v.widgets.noninteractive.bg_fill = colors.bg_secondary;
-    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, colors.border);
-    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, ink);
+    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, colors.border);
+    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, ink);
 
     v.widgets.inactive.corner_radius = radius;
     v.widgets.inactive.bg_fill = paper_white;
     v.widgets.inactive.weak_bg_fill = paper_white;
     v.widgets.inactive.bg_stroke = ink_thick;
-    v.widgets.inactive.fg_stroke = Stroke::new(1.5, ink);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.5_f32, ink);
 
     v.widgets.hovered.corner_radius = radius;
     v.widgets.hovered.bg_fill = colors.accent;
     v.widgets.hovered.weak_bg_fill = colors.accent;
     v.widgets.hovered.bg_stroke = ink_thick;
-    v.widgets.hovered.fg_stroke = Stroke::new(2.0, ink);
+    v.widgets.hovered.fg_stroke = Stroke::new(2.0_f32, ink);
     v.widgets.hovered.expansion = 3.0;
 
     v.widgets.active.corner_radius = radius;
@@ -110,14 +110,14 @@ fn apply_manga_decoration(style: &mut Style, colors: &ThemeColors) {
     v.widgets.active.weak_bg_fill = colors.accent.linear_multiply(0.82);
     v.widgets.active.bg_stroke = ink_thick;
     // Ink so RichText::strong() stays readable on cream panel bg.
-    v.widgets.active.fg_stroke = Stroke::new(2.0, ink);
+    v.widgets.active.fg_stroke = Stroke::new(2.0_f32, ink);
     v.widgets.active.expansion = 1.0;
 
     v.widgets.open.corner_radius = radius;
     v.widgets.open.bg_fill = colors.accent.linear_multiply(0.45);
     v.widgets.open.weak_bg_fill = colors.accent.linear_multiply(0.45);
     v.widgets.open.bg_stroke = ink_border;
-    v.widgets.open.fg_stroke = Stroke::new(2.0, ink);
+    v.widgets.open.fg_stroke = Stroke::new(2.0_f32, ink);
 
     v.window_corner_radius = CornerRadius::same(14);
     v.menu_corner_radius = CornerRadius::same(10);
@@ -139,8 +139,8 @@ fn apply_north_decoration(style: &mut Style, colors: &ThemeColors) {
     // calm minimalism, not pop.
     let radius = CornerRadius::same(8);
     let frost = Color32::from_rgb(0xd8, 0xde, 0xe9); // snow text color
-    let ice_border = Stroke::new(1.0, colors.border);
-    let aurora_border = Stroke::new(1.5, colors.accent);
+    let ice_border = Stroke::new(1.0_f32, colors.border);
+    let aurora_border = Stroke::new(1.5_f32, colors.accent);
 
     let v = &mut style.visuals;
 
@@ -151,13 +151,13 @@ fn apply_north_decoration(style: &mut Style, colors: &ThemeColors) {
     v.widgets.inactive.bg_fill = colors.bg_tertiary;
     v.widgets.inactive.weak_bg_fill = colors.bg_tertiary;
     v.widgets.inactive.bg_stroke = ice_border;
-    v.widgets.inactive.fg_stroke = Stroke::new(1.0, frost);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, frost);
 
     v.widgets.hovered.corner_radius = radius;
     v.widgets.hovered.bg_fill = colors.accent.linear_multiply(0.35);
     v.widgets.hovered.weak_bg_fill = colors.accent.linear_multiply(0.35);
     v.widgets.hovered.bg_stroke = aurora_border;
-    v.widgets.hovered.fg_stroke = Stroke::new(1.5, frost);
+    v.widgets.hovered.fg_stroke = Stroke::new(1.5_f32, frost);
     v.widgets.hovered.expansion = 1.0;
 
     v.widgets.active.corner_radius = radius;
@@ -165,7 +165,7 @@ fn apply_north_decoration(style: &mut Style, colors: &ThemeColors) {
     v.widgets.active.bg_fill = Color32::from_rgb(0x4d, 0x80, 0x8e);
     v.widgets.active.weak_bg_fill = Color32::from_rgb(0x4d, 0x80, 0x8e);
     v.widgets.active.bg_stroke = aurora_border;
-    v.widgets.active.fg_stroke = Stroke::new(1.5, frost);
+    v.widgets.active.fg_stroke = Stroke::new(1.5_f32, frost);
 
     v.widgets.open.corner_radius = radius;
     v.widgets.open.bg_fill = colors.accent.linear_multiply(0.4);
@@ -181,27 +181,27 @@ fn apply_dracula_decoration(style: &mut Style, colors: &ThemeColors) {
     // Cyber-gothic: sharp 4px corners, neon purple borders, glowing pink
     // hover. Thin, cold, edgy - feels like a terminal in a vampire club.
     let radius = CornerRadius::same(4);
-    let neon_border = Stroke::new(1.5, colors.accent);
-    let pink_border = Stroke::new(2.0, colors.accent_hover);
+    let neon_border = Stroke::new(1.5_f32, colors.accent);
+    let pink_border = Stroke::new(2.0_f32, colors.accent_hover);
     let snow = Color32::from_rgb(0xf8, 0xf8, 0xf2);
 
     let v = &mut style.visuals;
 
     v.widgets.noninteractive.corner_radius = radius;
-    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, colors.border);
+    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, colors.border);
 
     v.widgets.inactive.corner_radius = radius;
     v.widgets.inactive.bg_fill = colors.bg_tertiary;
     v.widgets.inactive.weak_bg_fill = colors.bg_tertiary;
     v.widgets.inactive.bg_stroke = neon_border;
-    v.widgets.inactive.fg_stroke = Stroke::new(1.0, snow);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, snow);
 
     v.widgets.hovered.corner_radius = radius;
     // Glowing neon-pink hover.
     v.widgets.hovered.bg_fill = colors.accent_hover.linear_multiply(0.5);
     v.widgets.hovered.weak_bg_fill = colors.accent_hover.linear_multiply(0.5);
     v.widgets.hovered.bg_stroke = pink_border;
-    v.widgets.hovered.fg_stroke = Stroke::new(1.5, snow);
+    v.widgets.hovered.fg_stroke = Stroke::new(1.5_f32, snow);
     v.widgets.hovered.expansion = 1.5;
 
     v.widgets.active.corner_radius = radius;
@@ -209,7 +209,7 @@ fn apply_dracula_decoration(style: &mut Style, colors: &ThemeColors) {
     v.widgets.active.bg_fill = Color32::from_rgb(0x6b, 0x4d, 0x9c);
     v.widgets.active.weak_bg_fill = Color32::from_rgb(0x6b, 0x4d, 0x9c);
     v.widgets.active.bg_stroke = pink_border;
-    v.widgets.active.fg_stroke = Stroke::new(1.5, snow);
+    v.widgets.active.fg_stroke = Stroke::new(1.5_f32, snow);
 
     v.widgets.open.corner_radius = radius;
     v.widgets.open.bg_fill = colors.accent.linear_multiply(0.5);
@@ -225,8 +225,8 @@ fn apply_gruvbox_decoration(style: &mut Style, colors: &ThemeColors) {
     // Retro terminal warmth: 2px chunky amber borders, soft rounded corners,
     // warm hover. Feels like a 90s text-mode UI.
     let radius = CornerRadius::same(5);
-    let amber_border = Stroke::new(1.5, colors.border);
-    let amber_strong = Stroke::new(2.0, colors.accent);
+    let amber_border = Stroke::new(1.5_f32, colors.border);
+    let amber_strong = Stroke::new(2.0_f32, colors.accent);
     let cream = Color32::from_rgb(0xfb, 0xf1, 0xc7);
 
     let v = &mut style.visuals;
@@ -238,13 +238,13 @@ fn apply_gruvbox_decoration(style: &mut Style, colors: &ThemeColors) {
     v.widgets.inactive.bg_fill = colors.bg_tertiary;
     v.widgets.inactive.weak_bg_fill = colors.bg_tertiary;
     v.widgets.inactive.bg_stroke = amber_border;
-    v.widgets.inactive.fg_stroke = Stroke::new(1.0, cream);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, cream);
 
     v.widgets.hovered.corner_radius = radius;
     v.widgets.hovered.bg_fill = colors.accent.linear_multiply(0.35);
     v.widgets.hovered.weak_bg_fill = colors.accent.linear_multiply(0.35);
     v.widgets.hovered.bg_stroke = amber_strong;
-    v.widgets.hovered.fg_stroke = Stroke::new(1.5, cream);
+    v.widgets.hovered.fg_stroke = Stroke::new(1.5_f32, cream);
     v.widgets.hovered.expansion = 1.5;
 
     v.widgets.active.corner_radius = radius;
@@ -253,7 +253,7 @@ fn apply_gruvbox_decoration(style: &mut Style, colors: &ThemeColors) {
     v.widgets.active.bg_fill = Color32::from_rgb(0xaf, 0x6f, 0x1c);
     v.widgets.active.weak_bg_fill = Color32::from_rgb(0xaf, 0x6f, 0x1c);
     v.widgets.active.bg_stroke = amber_strong;
-    v.widgets.active.fg_stroke = Stroke::new(1.5, cream);
+    v.widgets.active.fg_stroke = Stroke::new(1.5_f32, cream);
 
     v.widgets.open.corner_radius = radius;
     v.widgets.open.bg_fill = colors.accent.linear_multiply(0.4);
@@ -269,26 +269,26 @@ fn apply_high_contrast_decoration(style: &mut Style, colors: &ThemeColors) {
     // Sharp, no-nonsense: zero corner radius, thick borders, no expansion
     // (motion is distracting in an accessibility theme).
     let radius = CornerRadius::same(0);
-    let gold_border = Stroke::new(2.0, colors.accent);
-    let gold_thick = Stroke::new(3.0, colors.accent);
+    let gold_border = Stroke::new(2.0_f32, colors.accent);
+    let gold_thick = Stroke::new(3.0_f32, colors.accent);
 
     let v = &mut style.visuals;
 
     v.widgets.noninteractive.corner_radius = radius;
-    v.widgets.noninteractive.bg_stroke = Stroke::new(1.5, colors.border);
-    v.widgets.noninteractive.fg_stroke = Stroke::new(1.5, Color32::WHITE);
+    v.widgets.noninteractive.bg_stroke = Stroke::new(1.5_f32, colors.border);
+    v.widgets.noninteractive.fg_stroke = Stroke::new(1.5_f32, Color32::WHITE);
 
     v.widgets.inactive.corner_radius = radius;
     v.widgets.inactive.bg_fill = colors.bg_secondary;
     v.widgets.inactive.weak_bg_fill = colors.bg_secondary;
     v.widgets.inactive.bg_stroke = gold_border;
-    v.widgets.inactive.fg_stroke = Stroke::new(1.5, Color32::WHITE);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.5_f32, Color32::WHITE);
 
     v.widgets.hovered.corner_radius = radius;
     v.widgets.hovered.bg_fill = colors.accent;
     v.widgets.hovered.weak_bg_fill = colors.accent;
     v.widgets.hovered.bg_stroke = gold_thick;
-    v.widgets.hovered.fg_stroke = Stroke::new(2.0, Color32::BLACK);
+    v.widgets.hovered.fg_stroke = Stroke::new(2.0_f32, Color32::BLACK);
     v.widgets.hovered.expansion = 0.0;
 
     v.widgets.active.corner_radius = radius;
@@ -298,7 +298,7 @@ fn apply_high_contrast_decoration(style: &mut Style, colors: &ThemeColors) {
     // Black on gold: max contrast for both pressed buttons and strong text.
     // (Strong text appears on gold-yellow Heading panels in this theme,
     // matching `text_header` already.)
-    v.widgets.active.fg_stroke = Stroke::new(2.0, Color32::BLACK);
+    v.widgets.active.fg_stroke = Stroke::new(2.0_f32, Color32::BLACK);
 
     v.widgets.open.corner_radius = radius;
     v.widgets.open.bg_fill = colors.accent.linear_multiply(0.4);
@@ -318,8 +318,8 @@ fn apply_gentleman_decoration(style: &mut Style, colors: &ThemeColors) {
     // Refined library / smoking-room: pill-shaped buttons, thin gold borders,
     // warm gold-glow hover. Old-world, restrained, never garish.
     let radius = CornerRadius::same(10);
-    let gold_thin = Stroke::new(1.0, colors.border);
-    let gold_strong = Stroke::new(1.5, colors.accent);
+    let gold_thin = Stroke::new(1.0_f32, colors.border);
+    let gold_strong = Stroke::new(1.5_f32, colors.accent);
     let parchment = colors.text_primary;
 
     let v = &mut style.visuals;
@@ -330,14 +330,14 @@ fn apply_gentleman_decoration(style: &mut Style, colors: &ThemeColors) {
     v.widgets.inactive.corner_radius = radius;
     v.widgets.inactive.bg_fill = colors.bg_tertiary;
     v.widgets.inactive.weak_bg_fill = colors.bg_tertiary;
-    v.widgets.inactive.bg_stroke = Stroke::new(1.0, colors.border);
-    v.widgets.inactive.fg_stroke = Stroke::new(1.0, parchment);
+    v.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, colors.border);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, parchment);
 
     v.widgets.hovered.corner_radius = radius;
     v.widgets.hovered.bg_fill = colors.accent.linear_multiply(0.35);
     v.widgets.hovered.weak_bg_fill = colors.accent.linear_multiply(0.35);
     v.widgets.hovered.bg_stroke = gold_strong;
-    v.widgets.hovered.fg_stroke = Stroke::new(1.5, parchment);
+    v.widgets.hovered.fg_stroke = Stroke::new(1.5_f32, parchment);
     v.widgets.hovered.expansion = 1.5;
 
     v.widgets.active.corner_radius = radius;
@@ -346,7 +346,7 @@ fn apply_gentleman_decoration(style: &mut Style, colors: &ThemeColors) {
     v.widgets.active.bg_fill = Color32::from_rgb(0x4a, 0x35, 0x1f);
     v.widgets.active.weak_bg_fill = Color32::from_rgb(0x4a, 0x35, 0x1f);
     v.widgets.active.bg_stroke = gold_strong;
-    v.widgets.active.fg_stroke = Stroke::new(1.5, colors.accent);
+    v.widgets.active.fg_stroke = Stroke::new(1.5_f32, colors.accent);
 
     v.widgets.open.corner_radius = radius;
     v.widgets.open.bg_fill = colors.accent.linear_multiply(0.4);
@@ -363,8 +363,8 @@ fn apply_deep_sea_decoration(style: &mut Style, colors: &ThemeColors) {
     // Calm rounded panels with a thin lagoon-blue rim. Less aggressive than
     // Nord's frosted glass; the feel is "something glowing under the water".
     let radius = CornerRadius::same(8);
-    let rim = Stroke::new(1.0, colors.border);
-    let glow = Stroke::new(1.5, colors.accent);
+    let rim = Stroke::new(1.0_f32, colors.border);
+    let glow = Stroke::new(1.5_f32, colors.accent);
     let foam = Color32::from_rgb(0xe6, 0xf0, 0xf7);
 
     let v = &mut style.visuals;
@@ -376,13 +376,13 @@ fn apply_deep_sea_decoration(style: &mut Style, colors: &ThemeColors) {
     v.widgets.inactive.bg_fill = colors.bg_tertiary;
     v.widgets.inactive.weak_bg_fill = colors.bg_tertiary;
     v.widgets.inactive.bg_stroke = rim;
-    v.widgets.inactive.fg_stroke = Stroke::new(1.0, foam);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, foam);
 
     v.widgets.hovered.corner_radius = radius;
     v.widgets.hovered.bg_fill = colors.accent.linear_multiply(0.35);
     v.widgets.hovered.weak_bg_fill = colors.accent.linear_multiply(0.35);
     v.widgets.hovered.bg_stroke = glow;
-    v.widgets.hovered.fg_stroke = Stroke::new(1.5, foam);
+    v.widgets.hovered.fg_stroke = Stroke::new(1.5_f32, foam);
     v.widgets.hovered.expansion = 1.0;
 
     v.widgets.active.corner_radius = radius;
@@ -390,7 +390,7 @@ fn apply_deep_sea_decoration(style: &mut Style, colors: &ThemeColors) {
     v.widgets.active.bg_fill = Color32::from_rgb(0x29, 0x65, 0x86);
     v.widgets.active.weak_bg_fill = Color32::from_rgb(0x29, 0x65, 0x86);
     v.widgets.active.bg_stroke = glow;
-    v.widgets.active.fg_stroke = Stroke::new(1.5, foam);
+    v.widgets.active.fg_stroke = Stroke::new(1.5_f32, foam);
 
     v.widgets.open.corner_radius = radius;
     v.widgets.open.bg_fill = colors.accent.linear_multiply(0.4);
@@ -406,8 +406,8 @@ fn apply_frost_decoration(style: &mut Style, colors: &ThemeColors) {
     // Crisp, near-monochrome ice palette. Slightly larger corners, very thin
     // borders, and almost no hover expansion - keep it pristine.
     let radius = CornerRadius::same(8);
-    let rim = Stroke::new(0.8, colors.border);
-    let chill = Stroke::new(1.5, colors.accent);
+    let rim = Stroke::new(0.8_f32, colors.border);
+    let chill = Stroke::new(1.5_f32, colors.accent);
     let slate = colors.text_primary;
 
     let v = &mut style.visuals;
@@ -419,13 +419,13 @@ fn apply_frost_decoration(style: &mut Style, colors: &ThemeColors) {
     v.widgets.inactive.bg_fill = colors.bg_secondary;
     v.widgets.inactive.weak_bg_fill = colors.bg_secondary;
     v.widgets.inactive.bg_stroke = rim;
-    v.widgets.inactive.fg_stroke = Stroke::new(1.0, slate);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, slate);
 
     v.widgets.hovered.corner_radius = radius;
     v.widgets.hovered.bg_fill = colors.accent.linear_multiply(0.25);
     v.widgets.hovered.weak_bg_fill = colors.accent.linear_multiply(0.25);
     v.widgets.hovered.bg_stroke = chill;
-    v.widgets.hovered.fg_stroke = Stroke::new(1.2, slate);
+    v.widgets.hovered.fg_stroke = Stroke::new(1.2_f32, slate);
     v.widgets.hovered.expansion = 0.5;
 
     // egui aliases `RichText::strong()` text color to `widgets.active.fg_stroke.color`.
@@ -437,7 +437,7 @@ fn apply_frost_decoration(style: &mut Style, colors: &ThemeColors) {
     v.widgets.active.bg_fill = Color32::from_rgb(0x29, 0x6e, 0x90);
     v.widgets.active.weak_bg_fill = Color32::from_rgb(0x29, 0x6e, 0x90);
     v.widgets.active.bg_stroke = chill;
-    v.widgets.active.fg_stroke = Stroke::new(1.5, slate);
+    v.widgets.active.fg_stroke = Stroke::new(1.5_f32, slate);
 
     v.widgets.open.corner_radius = radius;
     v.widgets.open.bg_fill = colors.accent.linear_multiply(0.3);
@@ -567,7 +567,7 @@ fn paint_dracula_background(painter: &egui::Painter, rect: egui::Rect) {
     while y < rect.bottom() {
         painter.line_segment(
             [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-            Stroke::new(1.0, line_color),
+            Stroke::new(1.0_f32, line_color),
         );
         y += 3.0;
     }
@@ -614,7 +614,7 @@ fn paint_gentleman_background(painter: &egui::Painter, rect: egui::Rect) {
     // without competing for the reader's attention. Diagonals only, drawn at
     // wide spacing so the eye reads "pattern" not "noise".
     let line_color = Color32::from_rgba_unmultiplied(0xc8, 0x9b, 0x3c, 14);
-    let stroke = Stroke::new(0.7, line_color);
+    let stroke = Stroke::new(0.7_f32, line_color);
     let step = 36.0_f32;
     // Down-right diagonals.
     let mut start = rect.left() - rect.height();

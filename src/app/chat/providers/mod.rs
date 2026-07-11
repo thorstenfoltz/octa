@@ -30,6 +30,13 @@ pub struct ProviderConfig {
     /// Response-token cap. `None` means "unlimited": providers omit the field
     /// (Anthropic, which requires it, substitutes a high default instead).
     pub max_tokens: Option<usize>,
+    /// Free-text thinking/reasoning value from the profile; `None`/empty omits
+    /// it entirely. Each provider maps it to its own knob: OpenAI (and the
+    /// compatible/Ollama endpoints) to `reasoning_effort`, Anthropic to a
+    /// numeric `thinking.budget_tokens`, Gemini to `thinkingConfig`. A value a
+    /// provider cannot use surfaces as an error rather than being silently
+    /// dropped.
+    pub reasoning: Option<String>,
 }
 
 /// A chat backend. `stream_turn` blocks until the turn finishes or `cancel`

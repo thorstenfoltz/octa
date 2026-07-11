@@ -708,7 +708,7 @@ pub(crate) struct PiiState {
 /// a new tab. App-level (source data spans multiple tabs).
 pub(crate) struct UnionState {
     /// One bool per open tab (parallel to `app.tabs` at the time the dialog
-    /// was opened): `true` = include this tab in the union.
+    /// was opened): `true` = include this tab in the union. Empty in file mode.
     pub(crate) selected_tabs: Vec<bool>,
     /// Reconciliation plan: which output columns to keep and at what type.
     /// Recomputed from scratch whenever the tab selection changes.
@@ -717,6 +717,15 @@ pub(crate) struct UnionState {
     pub(crate) error: Option<String>,
     /// Dialog window sizing (Normal / Maximized / Minimized).
     pub(crate) size: ui::settings::DialogSize,
+    /// **File mode.** When non-empty the union runs over these files, read from
+    /// disk, instead of over open tabs. Populated by "Union selected files..."
+    /// in the directory sidebar, so files can be unioned without opening a tab
+    /// per file. `file_sources` / `file_tables` / `file_selected` are parallel.
+    pub(crate) file_sources: Vec<std::path::PathBuf>,
+    /// Tables read once from `file_sources` when the dialog opened.
+    pub(crate) file_tables: Vec<octa::data::DataTable>,
+    /// Per-file "include in the union" checkbox.
+    pub(crate) file_selected: Vec<bool>,
 }
 
 /// Live state for the "Partition by column" dialog (Analyse -> Partition by

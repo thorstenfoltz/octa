@@ -233,7 +233,7 @@ The toolbar **Search** field filters the active tab. **Multi-search**
 covers the other half of the problem: find the same string across
 **every open tab** or **every file in a directory** at once.
 
-Open via **Search > Multi-search...** or **F6** (remappable). A docked
+Open via **Search > Multi-search** or **F6** (remappable). A docked
 panel slides up at the bottom of the window with its own query box,
 mode picker, and scope selector.
 
@@ -1021,7 +1021,9 @@ enabled.
   with per-column coloring. Syntect-based syntax highlighting kicks in for
   source-code extensions (Python, Rust, shell, Terraform, ...) and also for
   JSON, YAML, XML and TOML files; the size cap is configurable under
-  **Settings -> Performance**.
+  **Settings -> Performance**. Dragging a selection to the edge of the view
+  keeps scrolling, so a selection can run past the lines on screen (the
+  Markdown and SQL editors do the same).
 - **Markdown View**: rendered markdown for `.md` files. Files open in
   **Preview** mode by default (rendered output only). A toolbar toggle
   switches between Preview / Split / Edit. Split places a TextEdit beside the
@@ -1050,6 +1052,31 @@ file opens in the JSON Tree, and a `.yml` / `.yaml` file opens in Raw
 Text. You can always switch to another mode from the View menu; this
 just picks a sensible starting point. JSONL and every other format
 still open in Table View.
+
+## Open as... (a file with a misleading extension)
+
+Which views a file offers depends on how it was parsed, and Octa parses it
+by extension. A `.log` file that actually contains JSON is read as plain
+text, so the JSON Tree is not on offer.
+
+Two entries fix that, depending on whether the file is open yet:
+
+- **File > Open as...** for a file you have not opened. Pick the format,
+  then pick one or more files. The file dialog is deliberately unfiltered
+  (every file is shown), since these are exactly the files whose extension
+  Octa would otherwise route somewhere unhelpful. Each opens in its own tab.
+- **View > Reopen as** for the file already in the current tab, which is
+  re-read in place.
+
+Both offer JSON, JSON Lines, CSV, TSV, YAML, TOML, XML, Markdown, and Plain
+text. Pick JSON for that `.log` and it parses as JSON, tree view and all,
+exactly as if the file had been named `.json`. Log files holding one JSON
+object per line want **JSON Lines** instead.
+
+Nothing on disk is renamed or rewritten: this only changes how Octa reads
+the file. Reopening re-reads from disk, so unsaved edits in that tab are
+discarded. If the content does not parse as the chosen format, the tab is
+left as it was and the status bar reports the error.
 "#;
 
 pub(super) const COMPARE_VIEW: &str = r#"# Compare View
@@ -1173,7 +1200,7 @@ Plot the active table as a histogram, bar, line, scatter, or box chart.
 The chart opens as its own **tab** -- not a mode of the source tab --
 so you can have several charts of the same data running at once.
 
-Trigger via **Analyse > Chart** or **F5** (remappable). The entry is
+Trigger via **Analyse > Chart...** or **F5** (remappable). The entry is
 hidden on string-only tables since there's nothing to plot.
 
 ## Chart kinds
@@ -1367,6 +1394,13 @@ Add Octa as an MCP server to any compatible client (Claude Desktop,
 Claude Code, MCP Inspector) pointing the `command` at the `octa`
 binary with `--mcp` as the argument.
 
+In **Claude Code** this is a single command, where `--scope user`
+registers Octa for every project instead of just the current directory:
+
+```
+claude mcp add --scope user octa -- octa --mcp
+```
+
 Add `--mcp-read-only` alongside `--mcp` for a read-only server: the
 file-writing tools (`write_table`, `edit_table`, `convert`) are
 dropped, so an agent can read and query but not modify files.
@@ -1378,13 +1412,53 @@ A built-in chat assistant can drive Octa's tools over your open tabs.
 Toggle the docked chat panel from **Analyse > Assistant**, the **View**
 menu, or **Ctrl+Shift+A**. It is GUI-only.
 
-## Providers
+## Model profiles
 
-Pick a provider and model in the panel header. Supported backends:
-Anthropic, OpenAI, Google Gemini, any OpenAI-compatible endpoint, and
-local **Ollama** (no API key needed). Cloud providers need an API key,
-entered under **Settings > Chat / Assistant**; keys are read from the
-environment, then the OS keyring, then `settings.toml` (in that order).
+A **profile** is one saved setup: a provider, a model, a temperature, an
+optional thinking budget, and a name you pick. The panel header has one
+**Profile** dropdown to switch between them.
+
+Make as many as you like, including several for the same provider: an
+Anthropic "Opus, deep" beside an Anthropic "Sonnet, quick" beside a local
+"Ollama, free". Switching model is then one click.
+
+Create and edit them under **Settings > Chat / Assistant > Model
+profiles** (the **Profiles...** button in the panel header goes straight
+there). Each has a name, an optional description, a provider, a model, a
+temperature, and a thinking value. Your existing setup migrates into one
+profile automatically, so nothing changes until you add more.
+
+Supported backends: Anthropic, OpenAI, Google Gemini, any
+OpenAI-compatible endpoint, and local **Ollama** (no API key needed).
+
+## Thinking / reasoning
+
+The profile's **Thinking / reasoning** field is free text, handed to the
+provider as-is. Each one wants something different:
+
+- **OpenAI**: an effort level, e.g. `high`.
+- **Anthropic**: a thinking budget in tokens, e.g. `8000`.
+- **Gemini**: a thinking budget in tokens, e.g. `8000`.
+
+Leave it empty for no thinking (the default). It is free text rather than
+a fixed list because providers keep adding values. A wrong value is
+reported when used: give Anthropic a word like `high` and Octa tells you
+it wants a number; anything the provider itself rejects comes back as
+that provider's error. For Anthropic, thinking also forces temperature to
+1 and lifts the token cap above the budget, as the API demands. Octa
+adjusts the request for you.
+
+## API keys
+
+Cloud providers need an API key, entered under **Settings > Chat /
+Assistant**; keys are read from the environment, then the OS keyring,
+then `settings.toml` (in that order).
+
+A key is **shared by every profile of a provider**, so three Anthropic
+profiles all use the one Anthropic key. A profile can opt out with **Use
+its own API key** and carry a key of its own, for a separate account or a
+spend-limited key. Its key is stored apart from the shared one, and
+removing the profile removes it.
 
 ## What it can access
 
@@ -1500,7 +1574,7 @@ pub(super) const TABLE_TOOLS: &str = r#"# Table Tools
 
 A few quick utilities for reshaping and tidying the active table.
 
-**Transpose** (**Analyse > Transpose**). Swaps rows and columns into a new tab:
+**Transpose** (**Analyse > Transpose...**). Swaps rows and columns into a new tab:
 the original column names become the first column, and each original row becomes
 a column. Everything is shown as text. Limited to tables of at most 1000 rows,
 since each row becomes a column.
@@ -1557,8 +1631,9 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
   the **Cloud Storage** section.
 - **Map**: default mode (Tiles / Geometry only), tile URL template,
   fall-back-to-geometry toggle for offline / blocked tile fetches.
-- **Directory Tree**: sidebar position (left / right), and "show only
-  openable files" (on by default) to hide files Octa can't open.
+- **Directory Tree**: sidebar position (left / right / top / bottom, for
+  both the folder browser and the cloud-connections browser), and "show
+  only openable files" (on by default) to hide files Octa can't open.
 - **Shortcuts**: rebind any keyboard shortcut. Conflicting bindings are
   flagged.
 - **Performance**: initial-load row cap (streaming readers), syntax-
@@ -1646,6 +1721,31 @@ widen to a common number type; otherwise the column falls back to text.
 Apply opens the combined result in a new tab, leaving the sources
 untouched. Also available as `octa --union` and the `union_tables`
 assistant/MCP tool.
+
+## Union files straight from the sidebar
+
+You do not have to open a tab per file first. In the directory sidebar,
+**Ctrl-click** each file you want (**Shift-click** takes a whole run).
+Selected rows stay highlighted and an "N selected" bar appears at the top
+of the sidebar; click **Union...** there, or right-click a selected file
+and choose **Union selected files...**.
+
+Octa reads the files and shows the same reconciliation plan, with one
+checkbox per file instead of per tab. This is the quick way to stack a
+folder of partitioned exports: forty part-*.parquet files become one table
+without forty tabs. The files need not share a format, since the columns
+are reconciled either way.
+
+A plain click still opens a file and clears the selection. Unreadable files
+are skipped and counted in the status bar.
+
+## Union files in the cloud
+
+The same works in the cloud sidebar. **Ctrl-click** the objects you want,
+then click **Union...** in the selection bar at the top of the cloud
+section. Octa downloads them in the background and opens the same
+reconciliation dialog, so a folder of partitioned parquet parts in S3,
+Azure Blob or GCS becomes one table without a tab per object.
 "#;
 
 pub(super) const JOIN: &str = r#"# Join Tables
@@ -1828,7 +1928,7 @@ way, the next launch offers to export a report.
 
 ## Exporting a report
 
-Use **Help > Export debug report...** to write a single text file (in the logs
+Use **Help > Export debug report** to write a single text file (in the logs
 folder) with your app version, operating system, theme and language, the tail
 of the log, the last crash if any, and your settings. Secrets are stripped and
 your home folder and username are masked, so it is safe to attach to a GitHub
@@ -1844,7 +1944,12 @@ turned on.
 
 ## Add a connection
 
-Open **Settings > Cloud storage** and click **Add connection**:
+Open **Settings > Cloud storage** and click **Add connection**. The
+sidebar's cloud header also has a **+ Add** button that jumps straight
+there with a blank form, which is the quickest route when you have no
+connections yet.
+
+The form fields:
 
 - **Name** - a label shown in the sidebar.
 - **Provider** - S3, Azure Blob, or GCS.
@@ -1930,6 +2035,15 @@ signing in or after the bucket changed).
 Use the **Sort** menu next to the Connections header to order files by name,
 last-modified date (newest / oldest), or size (largest / smallest). Folders
 always sort by name and stay at the top.
+
+## Union several objects
+
+**Ctrl-click** objects to select them rather than open them. An "N selected"
+bar appears at the top of the cloud section with a **Union...** button:
+Octa downloads the selected objects and opens the Union dialog over them,
+with the same column reconciliation as any other union. A folder of
+partitioned parquet parts becomes one table without a tab per object. A
+plain click still just opens the object.
 
 ## Saving back
 

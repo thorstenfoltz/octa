@@ -173,7 +173,7 @@ sign-in, public buckets, and saving back.
 
 | Setting                      | Default | Notes                                                                                                                                                                                 |
 |------------------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Sidebar position**         | Left    | Side the directory tree sidebar docks on (`Left` or `Right`).                                                                                                                         |
+| **Sidebar position**         | Left    | Edge the sidebar (folder browser and cloud-connections browser) docks on (`Left`, `Right`, `Top` or `Bottom`). Left/right resize by width, top/bottom by height.                      |
 | **Show only openable files** | On      | List only sub-folders and files Octa can open (by extension). Files without an extension are hidden while on. Turn off to list every file. TOML key: `directory_tree_filter_enabled`. |
 
 ## Shortcuts

@@ -25,6 +25,14 @@ pub enum ParseScope {
 pub struct ToolbarAction {
     pub new_file: bool,
     pub open_file: bool,
+    /// User picked **View -> Reopen as -> <format>**: re-read the active tab's
+    /// file through the named reader, for a file whose extension lies about its
+    /// format. Carries the `FormatRegistry` reader name (e.g. "JSON").
+    pub open_as: Option<&'static str>,
+    /// User picked **File -> Open as -> <format>**: pick one or more files and
+    /// open them all through the named reader. Same idea as `open_as`, but for
+    /// files that are not open yet.
+    pub open_as_files: Option<&'static str>,
     /// Open a folder as a Delta Lake / Apache Iceberg table (the table format
     /// is a directory, not a file). Fired by **File -> Open table folder...**.
     pub open_table_folder: bool,

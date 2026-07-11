@@ -199,7 +199,7 @@ fn paint_confetti(painter: &egui::Painter, screen: egui::Rect, t: f32) {
         painter.rect_stroke(
             rect,
             egui::CornerRadius::same(1),
-            Stroke::new(0.5, faded),
+            Stroke::new(0.5_f32, faded),
             egui::StrokeKind::Outside,
         );
     }
@@ -249,7 +249,7 @@ fn paint_arrow(
     painter.add(egui::Shape::convex_polygon(
         pts,
         color,
-        Stroke::new(1.0, color),
+        Stroke::new(1.0_f32, color),
     ));
 }
 
@@ -280,7 +280,7 @@ fn paint_konami_banner(painter: &egui::Painter, screen: egui::Rect, t: f32) {
     painter.rect_stroke(
         rect,
         egui::CornerRadius::same(6),
-        Stroke::new(1.0, border),
+        Stroke::new(1.0_f32, border),
         egui::StrokeKind::Outside,
     );
 
@@ -510,7 +510,7 @@ fn paint_fireworks(painter: &egui::Painter, screen: egui::Rect, is_dark: bool, t
             painter.line_segment(
                 [egui::pos2(burst_x, y + 14.0), egui::pos2(burst_x, y)],
                 Stroke::new(
-                    1.6,
+                    1.6_f32,
                     Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), a / 3),
                 ),
             );
@@ -570,7 +570,7 @@ fn paint_snowfall(painter: &egui::Painter, screen: egui::Rect, t: f32, is_dark: 
         None
     } else {
         Some(Stroke::new(
-            0.8,
+            0.8_f32,
             Color32::from_rgba_unmultiplied(60, 95, 150, (alpha as u16 * 180 / 255) as u8),
         ))
     };
@@ -654,12 +654,15 @@ fn paint_snow_drift(painter: &egui::Painter, screen: egui::Rect, t: f32, is_dark
 
     // Top crust ribbon: a thicker translucent stroke right on the curve,
     // selling the "icy crust on top of fresh snow" look.
-    painter.add(egui::Shape::line(top_pts.clone(), Stroke::new(2.5, crust)));
+    painter.add(egui::Shape::line(
+        top_pts.clone(),
+        Stroke::new(2.5_f32, crust),
+    ));
 
     // Sharper outline for definition (especially important in light mode).
     painter.add(egui::Shape::line(
         top_pts.clone(),
-        Stroke::new(1.0, stroke_col),
+        Stroke::new(1.0_f32, stroke_col),
     ));
 
     // Sparkle dots: a handful of bright pinpricks scattered on the drift
@@ -729,7 +732,7 @@ fn paint_christmas_decorations(painter: &egui::Painter, screen: egui::Rect, is_d
 /// segments so it stays crisp at any size and never overlaps the underlying
 /// content visibly.
 fn paint_snowflake(painter: &egui::Painter, center: egui::Pos2, radius: f32, color: Color32) {
-    let stroke = Stroke::new(1.4, color);
+    let stroke = Stroke::new(1.4_f32, color);
     for arm in 0..6 {
         let angle = arm as f32 * std::f32::consts::TAU / 6.0;
         let (s, c) = angle.sin_cos();
@@ -816,13 +819,13 @@ fn paint_santa_hat(painter: &egui::Painter, logo_rect: egui::Rect) {
     painter.add(egui::Shape::convex_polygon(
         vec![base_left, base_right, tip],
         red,
-        Stroke::new(1.2, red_shade),
+        Stroke::new(1.2_f32, red_shade),
     ));
 
     // --- Pompom (white circle at the tip) ---
     let pompom_r = scale * 0.075;
     painter.circle_filled(tip, pompom_r, white);
-    painter.circle_stroke(tip, pompom_r, Stroke::new(1.0, white_shade));
+    painter.circle_stroke(tip, pompom_r, Stroke::new(1.0_f32, white_shade));
 
     // --- Fluffy white band along the base ---
     //
@@ -838,6 +841,6 @@ fn paint_santa_hat(painter: &egui::Painter, logo_rect: egui::Rect) {
         let cy = base_left.y + (base_right.y - base_left.y) * t;
         let c = egui::pos2(cx, cy);
         painter.circle_filled(c, band_r, white);
-        painter.circle_stroke(c, band_r, Stroke::new(0.8, white_shade));
+        painter.circle_stroke(c, band_r, Stroke::new(0.8_f32, white_shade));
     }
 }

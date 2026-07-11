@@ -28,7 +28,7 @@ impl ChatProvider for Anthropic {
         cancel: &AtomicBool,
         sink: &mut dyn FnMut(ChatEvent),
     ) -> Result<(), String> {
-        let body = build_body(cfg, system, messages, tools);
+        let body = build_body(cfg, system, messages, tools)?;
         let headers = [
             ("x-api-key", cfg.api_key.clone()),
             ("anthropic-version", API_VERSION.to_string()),
@@ -139,12 +139,31 @@ fn map_stop_reason(s: &str) -> StopReason {
     }
 }
 
+/// Turn the profile's free-text reasoning value into an Anthropic thinking
+/// budget. Anthropic takes a token count, not an effort word, so `"high"` is a
+/// user error worth reporting rather than silently ignoring: the alternative is
+/// a profile that quietly never thinks.
+///
+/// Empty / absent -> `Ok(None)` (thinking off). A positive integer ->
+/// `Ok(Some(n))`. Anything else -> `Err`, surfaced in the chat panel.
+fn parse_thinking_budget(reasoning: Option<&str>) -> Result<Option<u32>, String> {
+    let Some(s) = reasoning.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    match s.parse::<u32>() {
+        Ok(n) if n > 0 => Ok(Some(n)),
+        _ => Err(format!(
+            "Anthropic thinking needs a token budget as a number (for example 8000), not '{s}'."
+        )),
+    }
+}
+
 fn build_body(
     cfg: &ProviderConfig,
     system: &str,
     messages: &[Message],
     tools: &[ToolDef],
-) -> Value {
+) -> Result<Value, String> {
     let wire_messages: Vec<Value> = messages.iter().map(message_to_wire).collect();
     let wire_tools: Vec<Value> = tools
         .iter()
@@ -164,6 +183,22 @@ fn build_body(
     body.insert("max_tokens".into(), json!(cfg.max_tokens.unwrap_or(16_384)));
     body.insert("temperature".into(), json!(cfg.temperature));
     body.insert("stream".into(), json!(true));
+
+    // Extended thinking. Anthropic constrains the rest of the request when it
+    // is on: temperature must be 1, and max_tokens must leave room for the
+    // budget on top of the visible answer. Both are fixed up here so a thinking
+    // profile cannot produce a request the API rejects on arrival.
+    if let Some(budget) = parse_thinking_budget(cfg.reasoning.as_deref())? {
+        body.insert(
+            "thinking".into(),
+            json!({ "type": "enabled", "budget_tokens": budget }),
+        );
+        body.insert("temperature".into(), json!(1.0));
+        let needed = budget as usize + 1;
+        let max = cfg.max_tokens.unwrap_or(16_384).max(needed);
+        body.insert("max_tokens".into(), json!(max));
+    }
+
     if !system.is_empty() {
         body.insert("system".into(), json!(system));
     }
@@ -171,7 +206,7 @@ fn build_body(
     if !wire_tools.is_empty() {
         body.insert("tools".into(), json!(wire_tools));
     }
-    Value::Object(body)
+    Ok(Value::Object(body))
 }
 
 fn message_to_wire(m: &Message) -> Value {
@@ -201,5 +236,87 @@ fn block_to_wire(b: &ContentBlock) -> Value {
             "content": content,
             "is_error": is_error,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cfg_with_reasoning(reasoning: Option<&str>, max_tokens: Option<usize>) -> ProviderConfig {
+        ProviderConfig {
+            model: "claude-opus-4-8".into(),
+            base_url: None,
+            api_key: "k".into(),
+            temperature: 0.0,
+            max_tokens,
+            reasoning: reasoning.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn thinking_budget_parses_a_number() {
+        assert_eq!(parse_thinking_budget(Some("8000")).unwrap(), Some(8000));
+    }
+
+    #[test]
+    fn blank_thinking_budget_is_none() {
+        assert_eq!(parse_thinking_budget(None).unwrap(), None);
+        assert_eq!(parse_thinking_budget(Some("")).unwrap(), None);
+        assert_eq!(parse_thinking_budget(Some("   ")).unwrap(), None);
+    }
+
+    #[test]
+    fn effort_words_are_rejected_for_anthropic() {
+        // "high" is the OpenAI spelling; Anthropic wants a token count. The
+        // user gets told, rather than the profile silently not thinking.
+        let err = parse_thinking_budget(Some("high")).unwrap_err();
+        assert!(err.contains("number"));
+        assert!(parse_thinking_budget(Some("0")).is_err());
+        assert!(parse_thinking_budget(Some("-5")).is_err());
+    }
+
+    #[test]
+    fn no_reasoning_leaves_the_request_untouched() {
+        let body = build_body(&cfg_with_reasoning(None, Some(4096)), "sys", &[], &[]).unwrap();
+        assert!(body.get("thinking").is_none());
+        assert_eq!(body["temperature"], json!(0.0));
+        assert_eq!(body["max_tokens"], json!(4096));
+    }
+
+    #[test]
+    fn thinking_forces_temperature_one_and_room_above_the_budget() {
+        // Anthropic rejects thinking with temperature != 1, and requires
+        // max_tokens to exceed the budget. A profile with temperature 0 and a
+        // budget larger than its cap must still produce a valid request.
+        let body = build_body(
+            &cfg_with_reasoning(Some("8000"), Some(4096)),
+            "sys",
+            &[],
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(body["thinking"]["type"], json!("enabled"));
+        assert_eq!(body["thinking"]["budget_tokens"], json!(8000));
+        assert_eq!(body["temperature"], json!(1.0));
+        assert!(body["max_tokens"].as_u64().unwrap() > 8000);
+    }
+
+    #[test]
+    fn thinking_keeps_a_generous_max_tokens() {
+        let body = build_body(
+            &cfg_with_reasoning(Some("1024"), Some(32_000)),
+            "sys",
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(body["max_tokens"], json!(32_000));
+    }
+
+    #[test]
+    fn a_bad_reasoning_value_fails_the_request() {
+        assert!(build_body(&cfg_with_reasoning(Some("high"), None), "sys", &[], &[]).is_err());
     }
 }
