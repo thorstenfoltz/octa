@@ -26,3 +26,16 @@ GHSA-rhfx-m35p-ff5j
 # the file's own metadata cap bounds the allocation). Revisit when the
 # upstream advisory publishes a fixed crate version.
 CVE-2026-43868
+
+# `rustls-webpki` 0.101.7 — pulled in transitively via the MSSQL driver
+# `tiberius` 0.12.3 (the latest release) -> `tokio-rustls` 0.24 -> `rustls`
+# 0.21. tiberius has not published a release on newer rustls, so there is no
+# upgrade path from our side. The HIGH advisory is a DoS panic when parsing a
+# malformed CRL BIT STRING; Octa connects to user-configured SQL Server
+# instances (trust_cert for password auth) and does not perform CRL validation
+# against untrusted certificate revocation lists, so the panic path is not
+# reachable in practice. The two LOW findings are name-constraint parsing
+# quirks in the same crate. Revisit when tiberius ships on rustls 0.23+.
+GHSA-82j2-j2ch-gfr8
+GHSA-965h-392x-2mh5
+GHSA-xgp8-3hg3-c2mh

@@ -9,6 +9,7 @@ pub mod gemini;
 pub mod ollama;
 pub mod openai;
 pub mod openai_compat;
+pub mod openai_responses;
 
 use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicBool, Ordering};

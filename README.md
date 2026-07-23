@@ -4,7 +4,7 @@
 <img src="assets/octa-rose.svg" alt="Octa" width="128" height="128">
 </p>
 
-An application for viewing data files. Octa opens files in a spreadsheet-like table view with sorting, filtering, and search options, locally or straight from cloud object storage (S3, Azure, GCS). Including CLI, MCP and a chat assistant within the GUI.
+An application for viewing data files. Octa opens files in a spreadsheet-like table view with sorting, filtering, and search options, locally or straight from cloud object storage (S3, Azure, GCS). It also connects to nine live SQL databases and cloud data warehouses. Including CLI, MCP and a chat assistant within the GUI.
 
 📚 **Documentation:** <https://thorstenfoltz.github.io/octa/>
 
@@ -15,6 +15,7 @@ An application for viewing data files. Octa opens files in a spreadsheet-like ta
 - [Features](#features)
   - [Table View](#table-view)
   - [Cloud Storage](#cloud-storage)
+  - [Database Connections](#database-connections)
   - [Multiple View Modes](#multiple-view-modes)
   - [Editing](#editing)
   - [Inspecting data](#inspecting-data)
@@ -44,7 +45,7 @@ An application for viewing data files. Octa opens files in a spreadsheet-like ta
 One native tool to open, inspect, query, and compare data files across 25+ formats (Parquet, CSV, JSON, Excel, SQLite, DuckDB, GeoPackage, Arrow, Avro, ORC, SAS, SPSS, Stata, RDS, HDF5, NetCDF, DBF, NumPy, MessagePack, BSON, GeoJSON, Shapefile, Delta Lake, Apache Iceberg, EPUB, archives, and more)
 without spinning up Python, opening a browser, or installing a heavyweight database client. Octa runs as a standalone binary on Linux, macOS, and Windows.
 
-Files do not have to be local: Octa browses and opens objects directly from Amazon S3 (and S3-compatible providers), Azure Blob Storage, and Google Cloud Storage, with saving back to the cloud available as an opt-in.
+Files do not have to be local: Octa browses and opens objects directly from Amazon S3 (and S3-compatible providers), Azure Blob Storage, and Google Cloud Storage, with saving back to the cloud available as an opt-in. Your data does not even have to be a file: Octa connects to nine live SQL databases and cloud data warehouses (from PostgreSQL and MySQL to Snowflake, Databricks, and BigQuery), browses their tables, queries them in their own dialect, and (when you opt in) writes edits back.
 
 The same binary also speaks the Model Context Protocol over stdio (`octa --mcp`), so AI assistants and automation pipelines can read local files directly through Octa instead of round-tripping data through a custom script.
 
@@ -116,6 +117,16 @@ default, and keyboard shortcut in detail.
 - Credentials your way: a static key / SAS token saved on the connection, browser SSO through the cloud's own CLI (`aws sso login`, `az login`, `gcloud auth ... login`), ambient environment credentials, or no credentials at all for public/anonymous buckets. Saved secrets go into the OS keyring when available
 - Saving back to the cloud is **off by default** (`Settings → Cloud storage → Allow writing to cloud storage`); cloud-opened files are read-only until you opt in
 - The CLI assistant and MCP server understand `s3://`, `az://`, and `gs://` URLs and can read (and, when allowed, write) cloud objects like local files; a `list_objects` MCP tool browses a bucket
+
+### Database Connections
+
+- Connect to nine live SQL databases and cloud data warehouses: **PostgreSQL**, **MySQL/MariaDB**, **SQL Server**, **Amazon Redshift**, **ClickHouse**, **Exasol**, **Snowflake**, **Databricks**, and **Google BigQuery** (managed services such as **Amazon RDS/Aurora**, **Azure Database**, and **Google Cloud SQL** connect through the Postgres/MySQL engines)
+- **File → Databases** browses connections, schemas, and tables (a catalog level too for Snowflake / Databricks / BigQuery); click a table to open its rows, or right-click for **Show metadata...**
+- Authenticate the way each engine expects: password, cloud IAM (AWS / Azure / Google), key-pair, personal access token, OAuth, or service-account key, with **browser sign-in** for Azure, Google, AWS IAM Identity Center, and Databricks
+- **Read-only by default**; opt in per connection to edit and write back (one-transaction diff keyed by the primary key), run SQL on the server or local DuckDB, join server tables against local files, and copy tables server-to-server
+- Reachable from the CLI and from the assistant / MCP
+
+The [documentation](https://thorstenfoltz.github.io/octa/) covers engines, authentication, write-back, and every database option in full.
 
 ### Multiple View Modes
 
@@ -198,7 +209,7 @@ Output format is selectable with `-f / --format {tsv|json|csv}` (TSV default). R
 
 ### MCP server
 
-`octa --mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io/) server on stdio that exposes Octa's reading, inspection, analysis, and write capabilities as MCP tools, including SQL, schema export, profiling, diffing, pivot / unpivot, correlation, and directory-wide search. Point any MCP client (Claude Desktop, Claude Code,
+`octa --mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io/) server on stdio that exposes Octa's reading, inspection, analysis, and write capabilities as MCP tools, including SQL, schema export, profiling, diffing, pivot / unpivot, correlation, directory-wide search, and querying your saved database connections. Point any MCP client (Claude Desktop, Claude Code,
 MCP Inspector, or any compatible client) at the same binary and the model can query your local data files directly, no scripting in between. Add `--mcp-read-only` to drop the data-writing tools for clients that should only ever read.
 
 ### Assistant (in-app chat)

@@ -40,6 +40,8 @@ fn sample_ctx() -> ToolContext {
         backup_before_modify: true,
         pending_tab_edits: None,
         cloud_settings: None,
+        db_connections: Vec::new(),
+        read_only: false,
     }
 }
 
@@ -77,6 +79,8 @@ fn multi_ctx() -> ToolContext {
         backup_before_modify: true,
         pending_tab_edits: None,
         cloud_settings: None,
+        db_connections: Vec::new(),
+        read_only: false,
     }
 }
 
@@ -208,6 +212,8 @@ fn text_ctx(lines: &[&str], source_path: Option<&str>) -> ToolContext {
         backup_before_modify: true,
         pending_tab_edits: None,
         cloud_settings: None,
+        db_connections: Vec::new(),
+        read_only: false,
     }
 }
 
@@ -266,6 +272,57 @@ fn write_text_outside_export_dir_is_refused_when_sandboxed() {
             .starts_with(std::fs::canonicalize(export.path()).expect("canonical export dir")),
         "{written}"
     );
+}
+
+#[test]
+fn tool_defs_for_filters_the_write_tools() {
+    let restricted = tool_defs_for(false);
+    for name in WRITE_TOOL_NAMES {
+        assert!(
+            !restricted.iter().any(|d| d.name == *name),
+            "{name} must be hidden without writes"
+        );
+    }
+    // Every write tool actually names a registered tool (no typo drift).
+    let all = tool_defs_for(true);
+    for name in WRITE_TOOL_NAMES {
+        assert!(all.iter().any(|d| d.name == *name), "{name} unknown");
+    }
+    assert_eq!(all.len(), tool_defs().len());
+    assert_eq!(all.len(), restricted.len() + WRITE_TOOL_NAMES.len());
+}
+
+#[test]
+fn dispatch_refuses_write_tools_on_a_read_only_ctx() {
+    let mut ctx = sample_ctx();
+    ctx.read_only = true;
+    let err = dispatch(
+        &ctx,
+        "write_table",
+        serde_json::json!({"path": "/tmp/never-written.csv", "columns": [{"name": "a"}]}),
+    )
+    .unwrap_err();
+    assert!(err.contains("does not allow writes"), "{err}");
+    assert!(!std::path::Path::new("/tmp/never-written.csv").exists());
+}
+
+#[test]
+fn run_sql_write_to_refuses_on_a_read_only_ctx() {
+    // run_sql stays advertised (core read tool), so its write_to branch must
+    // gate itself on ctx.read_only.
+    let mut ctx = sample_ctx();
+    ctx.read_only = true;
+    let err = dispatch(
+        &ctx,
+        "run_sql",
+        serde_json::json!({
+            "open_tab": "#1",
+            "query": "SELECT * FROM data",
+            "write_to": {"path": "/tmp/never-written.duckdb", "table": "t", "mode": "create"}
+        }),
+    )
+    .unwrap_err();
+    assert!(err.contains("write_to is not available"), "{err}");
 }
 
 #[test]

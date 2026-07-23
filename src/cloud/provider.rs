@@ -31,6 +31,10 @@ pub struct ObjectEntry {
     pub size: Option<u64>,
     /// Last-modified timestamp (files only).
     pub modified: Option<DateTime<Utc>>,
+    /// Provider ETag (files only, where the backend returns one).
+    pub etag: Option<String>,
+    /// Object version id (files only; versioned buckets only).
+    pub version: Option<String>,
 }
 
 /// Sync interface every cloud provider implements. `prefix` and `key` are
@@ -38,6 +42,12 @@ pub struct ObjectEntry {
 pub trait CloudProvider: Send + Sync {
     /// List one directory level under `prefix`.
     fn list(&self, prefix: &str) -> Result<Vec<ObjectEntry>>;
+    /// List *everything* under `prefix` (recursive, flat: no folder entries),
+    /// stopping after `cap` objects. The bool is true when the cap was hit.
+    fn list_recursive(&self, prefix: &str, cap: usize) -> Result<(Vec<ObjectEntry>, bool)> {
+        let _ = (prefix, cap);
+        anyhow::bail!("recursive listing is not supported by this provider")
+    }
     /// Download an object's full bytes.
     fn get(&self, key: &str) -> Result<Vec<u8>>;
     /// Upload bytes to `key` (overwrites).
@@ -85,6 +95,8 @@ impl CloudProvider for ObjectStoreProvider {
                 is_prefix: true,
                 size: None,
                 modified: None,
+                etag: None,
+                version: None,
             });
         }
         for meta in result.objects {
@@ -95,9 +107,42 @@ impl CloudProvider for ObjectStoreProvider {
                 is_prefix: false,
                 size: Some(meta.size),
                 modified: Some(meta.last_modified),
+                etag: meta.e_tag.clone(),
+                version: meta.version.clone(),
             });
         }
         Ok(entries)
+    }
+
+    fn list_recursive(&self, prefix: &str, cap: usize) -> Result<(Vec<ObjectEntry>, bool)> {
+        use futures_util::TryStreamExt;
+        let p = if prefix.is_empty() {
+            None
+        } else {
+            Some(ObjPath::from(prefix))
+        };
+        runtime()
+            .block_on(async {
+                let mut stream = self.store.list(p.as_ref());
+                let mut out: Vec<ObjectEntry> = Vec::new();
+                while let Some(meta) = stream.try_next().await.map_err(anyhow::Error::from)? {
+                    if out.len() >= cap {
+                        return Ok((out, true));
+                    }
+                    let key = meta.location.as_ref().to_string();
+                    out.push(ObjectEntry {
+                        name: last_segment(&key),
+                        key,
+                        is_prefix: false,
+                        size: Some(meta.size),
+                        modified: Some(meta.last_modified),
+                        etag: meta.e_tag.clone(),
+                        version: meta.version.clone(),
+                    });
+                }
+                anyhow::Ok((out, false))
+            })
+            .with_context(|| format!("recursively listing cloud prefix {prefix:?}"))
     }
 
     fn get(&self, key: &str) -> Result<Vec<u8>> {
@@ -150,6 +195,35 @@ mod tests {
         assert_eq!(file.name, "top.csv");
         assert_eq!(file.size, Some(8));
         assert!(file.modified.is_some());
+    }
+
+    #[test]
+    fn list_recursive_flattens_everything() {
+        let provider = ObjectStoreProvider::new(seed_store());
+        provider.put("sub/deep/c.csv", b"x\n1\n".to_vec()).unwrap();
+        let (entries, truncated) = provider.list_recursive("", 10).unwrap();
+        assert!(!truncated);
+        assert_eq!(entries.len(), 3);
+        assert!(entries.iter().all(|e| !e.is_prefix));
+        assert!(entries.iter().all(|e| e.size.is_some()));
+        assert!(entries.iter().any(|e| e.key == "sub/deep/c.csv"));
+    }
+
+    #[test]
+    fn list_recursive_cap_truncates() {
+        let provider = ObjectStoreProvider::new(seed_store());
+        provider.put("sub/deep/c.csv", b"x".to_vec()).unwrap();
+        let (entries, truncated) = provider.list_recursive("", 2).unwrap();
+        assert!(truncated);
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn list_recursive_scopes_to_prefix() {
+        let provider = ObjectStoreProvider::new(seed_store());
+        let (entries, _) = provider.list_recursive("sub", 10).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "inner.txt");
     }
 
     #[test]

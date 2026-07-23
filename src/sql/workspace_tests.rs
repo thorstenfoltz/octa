@@ -101,3 +101,118 @@ fn add_table_replaces_existing_registration() {
     let out = ws.execute("SELECT name FROM foo").unwrap();
     assert_eq!(out.table.get(0, 0).unwrap().to_string(), "v2");
 }
+
+#[test]
+fn duckdb_attach_sql_builds_each_dialect() {
+    let mut conn = crate::db::DbConnection {
+        id: "db-1".into(),
+        name: "prod".into(),
+        engine: crate::db::DbEngine::Postgres,
+        host: "db.example.com".into(),
+        port: 5432,
+        database: "app".into(),
+        username: "octa".into(),
+        auth: crate::db::DbAuth::Password,
+        allow_writes: false,
+        oauth_client_id: None,
+        oauth_tenant: None,
+    };
+    assert_eq!(
+        duckdb_attach_sql(&conn, "pw", "prod", true),
+        "ATTACH 'host=db.example.com port=5432 dbname=app user=octa password=pw' \
+         AS \"prod\" (TYPE postgres, READ_ONLY)"
+    );
+    conn.engine = crate::db::DbEngine::MySql;
+    conn.port = 3306;
+    assert_eq!(
+        duckdb_attach_sql(&conn, "pw", "prod", true),
+        "ATTACH 'host=db.example.com port=3306 database=app user=octa password=pw' \
+         AS \"prod\" (TYPE mysql, READ_ONLY)"
+    );
+    // The writable form (the server-to-server copy's target) drops READ_ONLY.
+    assert!(
+        duckdb_attach_sql(&conn, "pw", "prod", false).ends_with("(TYPE mysql)"),
+        "{}",
+        duckdb_attach_sql(&conn, "pw", "prod", false)
+    );
+}
+
+#[test]
+fn duckdb_attach_sql_escapes_awkward_values() {
+    let conn = crate::db::DbConnection {
+        id: "db-2".into(),
+        name: "odd".into(),
+        engine: crate::db::DbEngine::Postgres,
+        host: "h".into(),
+        port: 5432,
+        database: "d b".into(),
+        username: "u".into(),
+        auth: crate::db::DbAuth::Password,
+        allow_writes: false,
+        oauth_client_id: None,
+        oauth_tenant: None,
+    };
+    let sql = duckdb_attach_sql(&conn, "p'w \\x", "a", true);
+    // libpq quoting inside ('' doubled for the outer SQL literal): the space
+    // forces quotes, the quote and backslash are backslash-escaped.
+    assert_eq!(
+        sql,
+        "ATTACH 'host=h port=5432 dbname=''d b'' user=u password=''p\\''w \\\\x''' \
+         AS \"a\" (TYPE postgres, READ_ONLY)"
+    );
+}
+
+#[test]
+fn attached_table_listing_serves_from_cache_until_invalidated() {
+    // White-box: seed the cache directly (a real remote attachment would need
+    // a live server). Cache keys are a subset of live attachments by
+    // construction (detach removes its entry), so the cache is consulted
+    // before the attachment lookup.
+    let ws = SqlWorkspace::new().unwrap();
+    ws.attached_tables_cache.borrow_mut().insert(
+        "wh".to_string(),
+        vec![AttachedTable {
+            schema: "public".into(),
+            table: "cached_tbl".into(),
+            row_count: None,
+        }],
+    );
+    let listed = ws.list_attached_tables("wh").unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].table, "cached_tbl");
+
+    // Invalidation drops the entry; with no real attachment behind it the
+    // next listing errors instead of re-serving stale data.
+    ws.invalidate_attached_cache();
+    assert!(ws.list_attached_tables("wh").is_err());
+}
+
+#[test]
+fn attach_kind_native_vs_import() {
+    use crate::db::DbEngine;
+    assert!(matches!(
+        attach_kind_for(DbEngine::Redshift),
+        AttachStrategy::Native {
+            ext: "postgres",
+            ..
+        }
+    ));
+    assert!(matches!(
+        attach_kind_for(DbEngine::MySql),
+        AttachStrategy::Native { ext: "mysql", .. }
+    ));
+    // SQL Server and the warehouse engines have no DuckDB extension.
+    for e in [
+        DbEngine::Mssql,
+        DbEngine::ClickHouse,
+        DbEngine::Exasol,
+        DbEngine::Snowflake,
+        DbEngine::Databricks,
+        DbEngine::BigQuery,
+    ] {
+        assert!(
+            matches!(attach_kind_for(e), AttachStrategy::Import),
+            "{e:?}"
+        );
+    }
+}

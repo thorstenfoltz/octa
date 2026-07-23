@@ -93,6 +93,7 @@ impl TabState {
             sql_error: None,
             sql_result_selected: None,
             sql_panel_open: false,
+            sql_run_on_server: false,
             sql_editor_focus_pending: false,
             sql_ac_selected: 0,
             sql_ac_visible: true,
@@ -168,6 +169,8 @@ impl TabState {
             chart_config: data::chart::ChartConfig::default(),
             chart_buffers: super::state::ChartInputBuffers::default(),
             cloud_origin: None,
+            db_origin: None,
+            compressed_origin: None,
         }
     }
 

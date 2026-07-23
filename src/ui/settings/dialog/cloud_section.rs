@@ -27,18 +27,39 @@ impl SettingsDialog {
 
         self.cloud_connection_list(ui);
         ui.separator();
-        self.cloud_connection_form(ui);
+        // The add/edit form (plus its secret controls) lives behind its own
+        // sub-header so the section opens as a readable connection list;
+        // clicking Edit on a row, or the sidebar's "+ Add", forces it open.
+        let editing = !self.cloud_form_id.is_empty();
+        let force_open = editing || std::mem::take(&mut self.focus_cloud_form);
+        egui::CollapsingHeader::new(egui::RichText::new(t("settings.sub_conn_form")).strong())
+            .id_salt("settings_cloud_sub_form")
+            .open(force_open.then_some(true))
+            .show(ui, |ui| {
+                self.cloud_connection_form(ui);
 
-        // Secrets only apply to S3 + Azure; GCS uses ambient ADC / env. An
-        // anonymous (public) connection needs no secret at all.
-        if !self.cloud_form_anonymous
-            && matches!(self.cloud_form_kind, CloudKind::S3 | CloudKind::AzureBlob)
-        {
-            ui.separator();
-            ui.label(egui::RichText::new(t("cloud.secret")).strong())
-                .on_hover_text(t("cloud.secret_hint"));
-            self.cloud_secret_controls(ui);
-        }
+                // Secrets apply to S3 + Azure (keys/SAS) and to GCS only when a
+                // browser OAuth client id is set (the secret is then the Google
+                // client secret). An anonymous connection needs no secret.
+                let has_oauth = !self.cloud_form_oauth_client_id.trim().is_empty();
+                let show_secret = !self.cloud_form_anonymous
+                    && (matches!(self.cloud_form_kind, CloudKind::S3 | CloudKind::AzureBlob)
+                        || (self.cloud_form_kind == CloudKind::Gcs && has_oauth));
+                if show_secret {
+                    ui.separator();
+                    ui.label(egui::RichText::new(t("cloud.secret")).strong())
+                        .on_hover_text(t("cloud.secret_hint"));
+                    self.cloud_secret_controls(ui);
+                }
+
+                // Browser sign-in for Azure Blob / GCS once a client id is set.
+                if matches!(self.cloud_form_kind, CloudKind::AzureBlob | CloudKind::Gcs)
+                    && has_oauth
+                {
+                    ui.separator();
+                    self.cloud_browser_signin_controls(ui);
+                }
+            });
     }
 
     /// The saved-connection list with per-row Edit / Remove.
@@ -56,7 +77,7 @@ impl SettingsDialog {
             .spacing([8.0, 4.0])
             .show(ui, |ui| {
                 for (i, conn) in self.draft.cloud_connections.iter().enumerate() {
-                    let label = if conn.account_level {
+                    let mut label = if conn.account_level {
                         format!("{}  ({}: account)", conn.name, kind_label(conn.kind))
                     } else {
                         format!(
@@ -66,6 +87,12 @@ impl SettingsDialog {
                             conn.bucket
                         )
                     };
+                    if !conn.allow_writes {
+                        label.push_str(&format!("  [{}]", t("db.copy_writes_off")));
+                    }
+                    if crate::cloud::has_cloud_browser_token(&conn.id) {
+                        label.push_str(&format!("  [{}]", t("db.signed_in_browser")));
+                    }
                     ui.label(label);
                     if ui.small_button(t("cloud.edit")).clicked() {
                         edit_idx = Some(i);
@@ -200,6 +227,19 @@ impl SettingsDialog {
                         ui.text_edit_singleline(&mut self.cloud_form_account)
                             .on_hover_text(t("cloud.account_hint"));
                         ui.end_row();
+                        ui.label(t("db.field_oauth_client_id"))
+                            .on_hover_text(t("db.field_oauth_client_id_hint"));
+                        ui.text_edit_singleline(&mut self.cloud_form_oauth_client_id)
+                            .on_hover_text(t("db.field_oauth_client_id_hint"));
+                        ui.end_row();
+                        ui.label(t("db.field_oauth_tenant"))
+                            .on_hover_text(t("db.field_oauth_tenant_hint"));
+                        ui.text_edit_singleline(&mut self.cloud_form_oauth_tenant)
+                            .on_hover_text(t("db.field_oauth_tenant_hint"));
+                        ui.end_row();
+                        ui.label("");
+                        ui.label(t("db.browser_signin_hint"));
+                        ui.end_row();
                     }
                     CloudKind::Gcs => {
                         // Buckets in GCP belong to a project; for account-level
@@ -222,6 +262,14 @@ impl SettingsDialog {
                             );
                             ui.end_row();
                         }
+                        ui.label(t("db.field_oauth_client_id"))
+                            .on_hover_text(t("db.field_oauth_client_id_hint"));
+                        ui.text_edit_singleline(&mut self.cloud_form_oauth_client_id)
+                            .on_hover_text(t("db.field_oauth_client_id_hint"));
+                        ui.end_row();
+                        ui.label("");
+                        ui.label(t("db.browser_signin_hint"));
+                        ui.end_row();
                     }
                 }
 
@@ -229,6 +277,16 @@ impl SettingsDialog {
                 ui.label("");
                 ui.checkbox(&mut self.cloud_form_anonymous, t("cloud.anonymous"))
                     .on_hover_text(t("cloud.anonymous_hint"));
+                ui.end_row();
+
+                // Per-connection write permission (AND-ed with the global
+                // "Allow writing to cloud storage" switch above).
+                ui.label("");
+                ui.checkbox(
+                    &mut self.cloud_form_allow_writes,
+                    t("cloud.conn_allow_writes"),
+                )
+                .on_hover_text(t("cloud.conn_allow_writes_hint"));
                 ui.end_row();
             });
 
@@ -243,6 +301,82 @@ impl SettingsDialog {
         if let Some(msg) = &self.cloud_secret_status_msg {
             ui.colored_label(egui::Color32::from_rgb(0x30, 0x80, 0x30), msg);
         }
+    }
+
+    /// The "Sign in with browser" button + status for Azure Blob / GCS.
+    fn cloud_browser_signin_controls(&mut self, ui: &mut egui::Ui) {
+        // Drain a finished sign-in into the status line.
+        if let Some(slot) = &self.cloud_signin_result
+            && let Some(res) = slot.lock().ok().and_then(|mut g| g.take())
+        {
+            self.cloud_signin_msg = Some(match res {
+                Ok(()) => (true, t("db.signed_in_browser")),
+                Err(e) => (false, e),
+            });
+            self.cloud_signin_result = None;
+        }
+        ui.label(t("db.browser_signin_hint"));
+        ui.horizontal(|ui| {
+            let signing_in = self.cloud_signin_result.is_some();
+            if ui
+                .add_enabled(!signing_in, egui::Button::new(t("db.signin_button")))
+                .on_hover_text(t("db.signin_button_hint"))
+                .clicked()
+            {
+                self.start_cloud_browser_signin(ui.ctx().clone());
+            }
+            if signing_in {
+                ui.spinner();
+                ui.label(t("db.signin_needed"));
+            }
+        });
+        if let Some((ok, msg)) = &self.cloud_signin_msg {
+            let color = if *ok {
+                egui::Color32::from_rgb(0x30, 0x80, 0x30)
+            } else {
+                egui::Color32::from_rgb(0xd9, 0x53, 0x4f)
+            };
+            ui.colored_label(color, msg);
+        }
+    }
+
+    /// Run the cloud browser OAuth sign-in on a worker thread, caching the token
+    /// so every cloud connect path uses it.
+    fn start_cloud_browser_signin(&mut self, ctx: egui::Context) {
+        let id = if self.cloud_form_id.is_empty() {
+            format!("cloud-{}", self.cloud_form_name.trim())
+        } else {
+            self.cloud_form_id.clone()
+        };
+        let conn = self.form_cloud_connection(id.clone());
+        // The Google client secret (GCS) lives in the secret buffer or the
+        // stored keyring secret; Azure needs none.
+        let typed = self.cloud_form_secret.trim();
+        let client_secret = if !typed.is_empty() {
+            Some(typed.to_string())
+        } else {
+            cloud_secrets::get_cloud_secret(&id, &self.draft)
+                .and_then(|s| s.oauth_client_secret().map(str::to_string))
+        };
+        let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
+        self.cloud_signin_result = Some(slot.clone());
+        self.cloud_signin_msg = None;
+        std::thread::spawn(move || {
+            let res =
+                match crate::cloud::cloud_browser_oauth_config(&conn, client_secret.as_deref()) {
+                    Some(cfg) => crate::auth::oauth_browser::acquire_token(
+                        &cfg,
+                        crate::auth::oauth_browser::open_url_in_browser,
+                    )
+                    .map(|token| crate::cloud::cache_cloud_browser_token(&conn.id, token))
+                    .map_err(|e| format!("{e:#}")),
+                    None => Err(t("db.browser_signin_hint")),
+                };
+            if let Ok(mut g) = slot.lock() {
+                *g = Some(res);
+            }
+            ctx.request_repaint();
+        });
     }
 
     /// Secret inputs + Save / armed Clear + storage-location label.
@@ -338,7 +472,9 @@ impl SettingsDialog {
             } else {
                 CloudSecret::AzureKey(secret.to_string())
             }),
-            CloudKind::Gcs => None,
+            // The GCS secret slot holds the Google OAuth client secret for the
+            // browser sign-in fallback.
+            CloudKind::Gcs => Some(CloudSecret::GcsOAuthClientSecret(secret.to_string())),
         }
     }
 
@@ -370,9 +506,12 @@ impl SettingsDialog {
         self.cloud_form_path_style = conn.force_path_style;
         self.cloud_form_allow_http = conn.allow_http;
         self.cloud_form_anonymous = conn.anonymous;
+        self.cloud_form_allow_writes = conn.allow_writes;
         self.cloud_form_account_level = conn.account_level;
         self.cloud_form_prefix = conn.prefix.clone().unwrap_or_default();
         self.cloud_form_project = conn.project.clone().unwrap_or_default();
+        self.cloud_form_oauth_client_id = conn.oauth_client_id.clone().unwrap_or_default();
+        self.cloud_form_oauth_tenant = conn.oauth_tenant.clone().unwrap_or_default();
         self.cloud_form_access_key_id.clear();
         self.cloud_form_secret.clear();
         self.cloud_form_azure_is_sas = false;
@@ -394,37 +533,29 @@ impl SettingsDialog {
         self.cloud_form_path_style = false;
         self.cloud_form_allow_http = false;
         self.cloud_form_anonymous = false;
+        self.cloud_form_allow_writes = false;
         self.cloud_form_account_level = false;
         self.cloud_form_prefix.clear();
         self.cloud_form_project.clear();
         self.cloud_form_access_key_id.clear();
         self.cloud_form_secret.clear();
         self.cloud_form_azure_is_sas = false;
+        self.cloud_form_oauth_client_id.clear();
+        self.cloud_form_oauth_tenant.clear();
     }
 
     /// Validate + upsert the form into `draft.cloud_connections`, storing any
     /// entered secret. Stable id: kept on edit, slugged from the name on add.
-    fn save_cloud_form(&mut self) {
-        let name = self.cloud_form_name.trim().to_string();
-        let bucket = self.cloud_form_bucket.trim().to_string();
-        if name.is_empty() || (!self.cloud_form_account_level && bucket.is_empty()) {
-            self.cloud_secret_status_msg = Some(t("cloud.need_name_bucket"));
-            return;
-        }
+    /// Build a `CloudConnection` from the current form buffers.
+    fn form_cloud_connection(&self, id: String) -> CloudConnection {
         let opt = |s: &str| {
             let t = s.trim();
             (!t.is_empty()).then(|| t.to_string())
         };
-        let id = if self.cloud_form_id.is_empty() {
-            self.fresh_connection_id(&name)
-        } else {
-            self.cloud_form_id.clone()
-        };
-        let conn = CloudConnection {
-            id: id.clone(),
-            name,
+        CloudConnection {
+            name: self.cloud_form_name.trim().to_string(),
             kind: self.cloud_form_kind,
-            bucket,
+            bucket: self.cloud_form_bucket.trim().to_string(),
             region: opt(&self.cloud_form_region),
             endpoint: opt(&self.cloud_form_endpoint),
             force_path_style: self.cloud_form_path_style,
@@ -433,13 +564,32 @@ impl SettingsDialog {
             account: opt(&self.cloud_form_account),
             profile: opt(&self.cloud_form_profile),
             anonymous: self.cloud_form_anonymous,
+            allow_writes: self.cloud_form_allow_writes,
             prefix: {
                 let p = self.cloud_form_prefix.trim().trim_end_matches('/');
                 (!p.is_empty()).then(|| format!("{p}/"))
             },
             account_level: self.cloud_form_account_level,
             project: opt(&self.cloud_form_project),
+            oauth_client_id: opt(&self.cloud_form_oauth_client_id),
+            oauth_tenant: opt(&self.cloud_form_oauth_tenant),
+            id,
+        }
+    }
+
+    fn save_cloud_form(&mut self) {
+        let name = self.cloud_form_name.trim().to_string();
+        let bucket = self.cloud_form_bucket.trim().to_string();
+        if name.is_empty() || (!self.cloud_form_account_level && bucket.is_empty()) {
+            self.cloud_secret_status_msg = Some(t("cloud.need_name_bucket"));
+            return;
+        }
+        let id = if self.cloud_form_id.is_empty() {
+            self.fresh_connection_id(&name)
+        } else {
+            self.cloud_form_id.clone()
         };
+        let conn = self.form_cloud_connection(id.clone());
         match self.draft.cloud_connections.iter().position(|c| c.id == id) {
             Some(i) => self.draft.cloud_connections[i] = conn,
             None => self.draft.cloud_connections.push(conn),

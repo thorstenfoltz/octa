@@ -237,6 +237,9 @@ impl OctaApp {
                 }
                 return;
             }
+            // Hoisted: `is_readonly()` reads the active tab, so it cannot be
+            // called while `self.tabs` is mutably borrowed in the calls below.
+            let readonly = self.is_readonly();
             if self.tabs[self.active_tab].view_mode == ViewMode::Notebook {
                 view_modes::render_notebook_view(
                     ctx,
@@ -244,7 +247,7 @@ impl OctaApp {
                     &mut self.tabs[self.active_tab],
                     self.theme_mode,
                     self.settings.notebook_output_layout,
-                    self.readonly_mode,
+                    readonly,
                 );
                 return;
             }
@@ -252,7 +255,7 @@ impl OctaApp {
                 view_modes::render_markdown_view(
                     ui,
                     &mut self.tabs[self.active_tab],
-                    self.readonly_mode,
+                    readonly,
                     self.settings.tab_size,
                 );
                 return;
@@ -292,7 +295,7 @@ impl OctaApp {
                         color_aligned_columns: self.settings.color_aligned_columns,
                         tab_size: self.settings.tab_size,
                         warn_unalign: self.settings.warn_raw_align_reload,
-                        readonly: self.readonly_mode,
+                        readonly,
                         syntax_highlight_max_bytes: self.settings.syntax_highlight_max_bytes,
                     },
                 );
@@ -337,7 +340,7 @@ impl OctaApp {
             self.apply_table_search_jump();
 
             let os_has_clipboard = self.os_clipboard_has_text();
-            let readonly = self.readonly_mode;
+            let readonly = self.is_readonly();
             let tab = &mut self.tabs[self.active_tab];
             let filtered = tab.filtered_rows.clone();
             let search_matches: std::collections::HashSet<(usize, usize)> =

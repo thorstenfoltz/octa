@@ -1,6 +1,8 @@
-//! OpenAI Chat Completions adapter. The wire helpers here are reused by the
-//! OpenAI-compatible provider (`openai_compat.rs`) against a different base
-//! URL.
+//! OpenAI adapter. OpenAI proper streams via the Responses API
+//! (`openai_responses.rs`): gpt-5.x rejects `reasoning_effort` together with
+//! function tools on Chat Completions. The Chat Completions wire helpers
+//! below stay because the OpenAI-compatible provider (`openai_compat.rs`) and
+//! Ollama reuse them against their own base URLs.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::AtomicBool;
@@ -10,8 +12,6 @@ use serde_json::{Map, Value, json};
 use crate::app::chat::types::{ChatEvent, ContentBlock, Message, Role, StopReason, ToolDef};
 
 use super::{ChatProvider, ProviderConfig, stream_sse};
-
-const ENDPOINT: &str = "https://api.openai.com/v1/chat/completions";
 
 pub struct OpenAi;
 
@@ -29,20 +29,7 @@ impl ChatProvider for OpenAi {
         cancel: &AtomicBool,
         sink: &mut dyn FnMut(ChatEvent),
     ) -> Result<(), String> {
-        let headers = [("authorization", format!("Bearer {}", cfg.api_key))];
-        // Newer OpenAI models reject the legacy `max_tokens` field and require
-        // `max_completion_tokens`.
-        run_openai(
-            ENDPOINT,
-            &headers,
-            cfg,
-            system,
-            messages,
-            tools,
-            "max_completion_tokens",
-            cancel,
-            sink,
-        )
+        super::openai_responses::run_responses(cfg, system, messages, tools, cancel, sink)
     }
 }
 

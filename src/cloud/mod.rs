@@ -16,8 +16,10 @@ pub use url::{CloudKind, CloudLocation, parse_cloud_url};
 
 mod credentials;
 pub use credentials::{
-    AzureCreds, CloudAuthError, StaticKeys, auth_hint, aws_export_credentials, gcs_adc_path,
-    parse_export_credentials_json, parse_sas, resolve_s3_keys, s3_keys_from_env,
+    AzureCreds, CloudAuthError, StaticKeys, auth_hint, aws_export_credentials,
+    cache_cloud_browser_token, cached_cloud_browser_token, cloud_browser_oauth_config,
+    gcs_adc_path, has_cloud_browser_token, parse_export_credentials_json, parse_sas,
+    resolve_s3_keys, s3_keys_from_env,
 };
 
 mod connection;
@@ -30,7 +32,7 @@ mod s3;
 pub use s3::build_s3_provider;
 
 mod gcs;
-pub use gcs::build_gcs_provider;
+pub use gcs::{build_gcs_provider, build_gcs_provider_with_token};
 
 mod azure;
 pub use azure::build_azure_provider;

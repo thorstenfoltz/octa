@@ -1,6 +1,7 @@
 pub mod chat_models;
 pub mod chat_profiles;
 pub mod cloud_secrets;
+pub mod db_secrets;
 mod dialog;
 pub mod secrets;
 
@@ -778,6 +779,17 @@ pub struct AppSettings {
     /// [`raw_view_max_bytes`](Self::raw_view_max_bytes). Default `false`.
     #[serde(default)]
     pub raw_view_max_bytes_unlimited: bool,
+    /// Decompressed-size cap (in bytes) for transparently opened `.gz` /
+    /// `.zst` files. A tiny compressed file can inflate to terabytes
+    /// (a "decompression bomb"); past this cap the open is refused with a
+    /// clear error. Default 4 GB. Overridden by
+    /// [`max_decompressed_unlimited`](Self::max_decompressed_unlimited).
+    #[serde(default = "default_max_decompressed_bytes")]
+    pub max_decompressed_bytes: u64,
+    /// When `true`, removes the decompression cap entirely. Trumps
+    /// [`max_decompressed_bytes`](Self::max_decompressed_bytes). Default `false`.
+    #[serde(default)]
+    pub max_decompressed_unlimited: bool,
     /// Master gate for modifying existing data. Default **true** (protected).
     /// While true: the assistant cannot write to existing files, the chat
     /// live-edit tool refuses, and schema-changing DuckDB/SQLite/GeoPackage
@@ -999,6 +1011,15 @@ pub struct AppSettings {
     /// unavailable; the keyring is preferred and the UI warns about plaintext.
     #[serde(default)]
     pub cloud_secrets: std::collections::BTreeMap<String, String>,
+    /// Saved live database connections (no secrets here; secrets live in the
+    /// keyring / `db_secrets` fallback, keyed by connection id).
+    #[serde(default)]
+    pub db_connections: Vec<crate::db::DbConnection>,
+    /// Plaintext per-connection database passwords/tokens, keyed by
+    /// connection id. Only populated when the OS keyring is unavailable;
+    /// the keyring is preferred and the UI warns about plaintext.
+    #[serde(default)]
+    pub db_secrets: std::collections::BTreeMap<String, String>,
 }
 
 fn default_summary_stats() -> Vec<crate::data::summary::SummaryStat> {
@@ -1084,6 +1105,10 @@ fn default_initial_load_rows() -> usize {
 
 fn default_raw_view_max_bytes() -> usize {
     500_000_000
+}
+
+fn default_max_decompressed_bytes() -> u64 {
+    crate::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES
 }
 
 // Kept literal here (rather than referencing `crate::mcp::DEFAULT_*`)
@@ -1179,6 +1204,8 @@ impl Default for AppSettings {
             initial_load_rows_unlimited: false,
             raw_view_max_bytes: default_raw_view_max_bytes(),
             raw_view_max_bytes_unlimited: false,
+            max_decompressed_bytes: default_max_decompressed_bytes(),
+            max_decompressed_unlimited: false,
             write_protection: true,
             backup_before_modify: true,
             text_mode_extensions: Vec::new(),
@@ -1221,6 +1248,8 @@ impl Default for AppSettings {
             cloud_writes_enabled: false,
             cloud_connections: Vec::new(),
             cloud_secrets: std::collections::BTreeMap::new(),
+            db_connections: Vec::new(),
+            db_secrets: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -1364,6 +1393,10 @@ fn dirs_path_home() -> Option<PathBuf> {
     }
 }
 
+/// Shared slot a "Test connection" worker writes its outcome into
+/// (`Ok(())` or `Err(message)`), drained by the DB form per frame.
+pub(crate) type DbTestSlot = std::sync::Arc<std::sync::Mutex<Option<Result<(), String>>>>;
+
 /// Transient state for the settings dialog.
 #[derive(Default)]
 pub struct SettingsDialog {
@@ -1393,6 +1426,9 @@ pub struct SettingsDialog {
     /// Buffer backing the raw-view size cap input, in whole MB (the stored
     /// value is bytes; converted on open / Apply). Parsed on Apply.
     raw_view_max_mb_buf: String,
+    /// Buffer backing the transparent-decompression size cap input, in whole
+    /// MB (the stored value is bytes; converted on open / Apply).
+    max_decompressed_mb_buf: String,
     /// Buffer backing the user-extensible "treat as text" extensions input.
     /// Comma- or space-separated; canonicalised on Apply (lowercased,
     /// leading dot stripped). Parsed on Apply.
@@ -1449,6 +1485,7 @@ pub struct SettingsDialog {
     chat_profile_form_reasoning: String,
     chat_profile_form_base_url: String,
     chat_profile_form_use_own_key: bool,
+    chat_profile_form_allow_writes: bool,
     /// Password buffer for a profile's own key. Never populated from storage;
     /// typing into it is the only way it gains a value.
     chat_profile_form_key: String,
@@ -1484,9 +1521,15 @@ pub struct SettingsDialog {
     /// Set by the chat panel's Settings button so the Chat section opens
     /// expanded; consumed (reset) once the dialog has honoured it.
     pub focus_chat_section: bool,
+    /// One-shot: also expand the Model profiles sub-section inside Chat
+    /// (set alongside `focus_chat_section`; consumed on render).
+    pub focus_chat_profiles: bool,
     /// Set by the sidebar's "Add connection" button so the Cloud storage
     /// section opens expanded; consumed (reset) once the dialog has honoured it.
     pub focus_cloud_section: bool,
+    /// One-shot: also expand the add/edit-connection sub-section inside
+    /// Cloud storage (the sidebar's "+ Add" sets it; consumed on render).
+    pub focus_cloud_form: bool,
     /// When the user clicks "Record" for a shortcut, the action is stored here
     /// and the next key press captures a new binding. `None` = not recording.
     recording: Option<ShortcutAction>,
@@ -1514,6 +1557,10 @@ pub struct SettingsDialog {
     cloud_form_anonymous: bool,
     /// Account-level connection: browse every bucket/container in the account.
     cloud_form_account_level: bool,
+    /// Per-connection write permission (checked alongside the global cloud
+    /// writes switch). Defaults false: a new connection is read-only until
+    /// the user opts it in.
+    cloud_form_allow_writes: bool,
     /// Optional key prefix to confine the connection to a folder in the bucket.
     cloud_form_prefix: String,
     /// GCS project id for account-level bucket listing (empty = active project).
@@ -1524,11 +1571,76 @@ pub struct SettingsDialog {
     cloud_form_secret: String,
     /// For Azure: the secret buffer is a SAS token rather than an account key.
     cloud_form_azure_is_sas: bool,
+    /// BYO OAuth client-id buffer for native browser sign-in (Azure Blob / GCS
+    /// fallback); maps to `CloudConnection.oauth_client_id`.
+    cloud_form_oauth_client_id: String,
+    /// Azure tenant buffer for native browser sign-in; maps to
+    /// `CloudConnection.oauth_tenant`.
+    cloud_form_oauth_tenant: String,
     /// Status line after a cloud secret save / clear.
     cloud_secret_status_msg: Option<String>,
     /// Armed Clear-secret confirmation: holds the connection id awaiting an
     /// explicit second click. Guards against a one-click secret wipe.
     cloud_secret_clear_confirm: Option<String>,
+    /// In-flight cloud browser sign-in slot (Azure Blob / GCS).
+    cloud_signin_result: Option<DbTestSlot>,
+    /// Last finished cloud browser sign-in outcome (ok flag + message).
+    cloud_signin_msg: Option<(bool, String)>,
+    /// Set by the sidebar's Databases "+ Add" button so the Databases section
+    /// opens expanded; consumed (reset) once the dialog has honoured it.
+    pub focus_db_section: bool,
+    /// Id of the DB connection being edited (empty = new); keeps the stable
+    /// id across the form so its keyring secret stays addressable.
+    db_form_id: String,
+    db_form_name: String,
+    db_form_engine: crate::db::DbEngine,
+    db_form_host: String,
+    /// Port as a text buffer; parsed on Save (falls back to the engine
+    /// default on unparsable input).
+    db_form_port: String,
+    db_form_database: String,
+    db_form_username: String,
+    db_form_auth: crate::db::DbAuth,
+    /// AWS region buffer for the IAM auth mode (empty = CLI default).
+    db_form_region: String,
+    /// IAM Identity Center (SSO) buffers for the AWS in-app browser sign-in;
+    /// all empty = ambient AWS credentials (`aws sso login`).
+    db_form_sso_start_url: String,
+    db_form_sso_region: String,
+    db_form_sso_account: String,
+    db_form_sso_role: String,
+    /// RSA private-key path buffer (Snowflake KeyPairJwt auth).
+    db_form_private_key: String,
+    /// OAuth client-id buffer (OAuthClientCredentials auth).
+    db_form_client_id: String,
+    /// OAuth token-URL buffer (OAuthClientCredentials auth; empty = default).
+    db_form_token_url: String,
+    /// Service-account key path buffer (BigQuery GcpServiceAccount auth).
+    db_form_sa_key: String,
+    /// BYO OAuth client-id buffer for native browser sign-in (Azure AD / GCP
+    /// IAM fallback); maps to `DbConnection.oauth_client_id`.
+    db_form_oauth_client_id: String,
+    /// Azure tenant buffer for native browser sign-in; maps to
+    /// `DbConnection.oauth_tenant`.
+    db_form_oauth_tenant: String,
+    db_form_allow_writes: bool,
+    /// Secret buffer (password / PAT / passphrase / client secret depending on
+    /// the auth kind); stored to the keyring on Save.
+    db_form_secret: String,
+    /// Status line after a DB connection / secret save.
+    db_secret_status_msg: Option<String>,
+    /// Armed Clear-secret confirmation for the DB form.
+    db_secret_clear_confirm: Option<String>,
+    /// In-flight "Test connection" slot: Some while a test worker runs; the
+    /// worker writes Ok(()) or Err(message) and the form drains it per frame.
+    db_test_result: Option<DbTestSlot>,
+    /// Last finished connection-test outcome (ok flag + message).
+    db_test_msg: Option<(bool, String)>,
+    /// In-flight browser sign-in slot (Azure AD / GCP IAM): the worker writes
+    /// Ok(()) once the token is cached, or Err(message).
+    db_signin_result: Option<DbTestSlot>,
+    /// Last finished browser sign-in outcome (ok flag + message).
+    db_signin_msg: Option<(bool, String)>,
     /// Window-size mode for the dialog (Normal / Maximized / Minimized).
     /// Persists across re-opens within the same app session - closing and
     /// reopening Settings keeps the size choice the user last picked.

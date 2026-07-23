@@ -53,7 +53,7 @@ Octa speaks to five kinds of backend:
 |------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Ollama (local)**     | Runs entirely on your machine. No API key. Octa can start the server and lists the models you have installed. See [Using Ollama](#using-ollama). |
 | **Anthropic (Claude)** | Claude models via the Anthropic Messages API.                                                                                                    |
-| **OpenAI**             | GPT models via the Chat Completions API.                                                                                                         |
+| **OpenAI**             | GPT models via the Responses API (reasoning + tools together).                                                                                   |
 | **OpenAI-compatible**  | Any other endpoint that speaks the OpenAI dialect: OpenRouter, Groq, LM Studio, a self-hosted gateway. Set a Base URL.                           |
 | **Google Gemini**      | Gemini models via the `generateContent` API.                                                                                                     |
 
@@ -73,6 +73,9 @@ jumps straight there. Each profile has:
 - **Thinking / reasoning**: see below.
 - **Base URL** (OpenAI-compatible and Ollama only).
 - **Use its own API key**: see [Setting an API key](#setting-an-api-key).
+- **Allow writes**: whether this profile's assistant may modify files, open
+  tabs, and writable database connections. Off by default; see
+  [Editing open data](#editing-open-data).
 
 **Edit** re-opens a profile in the same form; **Remove** deletes it, along with
 its own key if it had one. The profile the assistant is currently using is
@@ -102,8 +105,14 @@ Octa tells you it wants a number; give a provider a value it does not accept
 and you get that provider's own error message back in the chat.
 
 For Anthropic, turning thinking on also forces temperature to 1 and raises the
-response-token cap above the budget, because the API requires both. You do not
-need to do anything: Octa adjusts the request for you.
+response-token cap above the budget, because the API requires both. For OpenAI,
+setting an effort level omits temperature from the request (reasoning models
+reject it). You do not need to do anything: Octa adjusts the request for you.
+
+OpenAI requests go through the **Responses API** (`/v1/responses`), which is
+the endpoint where reasoning and tools work together on current models
+(gpt-5.x refuses `reasoning_effort` with tools on the older Chat Completions
+endpoint). OpenAI-compatible providers and Ollama stay on Chat Completions.
 
 ### The preset model list
 
@@ -302,8 +311,8 @@ schema, and list unique columns. Beyond reading, it can:
 
 ## Editing open data
 
-With **Write protection** turned off (see below), the assistant can change
-your data directly:
+With **Allow writes** ticked on the active model profile (see below), the
+assistant can change your data directly:
 
 - Edit the open tab live (`edit_open_tab`). Ask it to add a computed column
   (a DuckDB expression such as a moving average), insert rows, set cells,
@@ -311,14 +320,19 @@ your data directly:
   It is a normal edit, so <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes it, and nothing
   is written to disk until **you** save.
 - Edit a file on disk that is not open (`edit_table`), including adding or
-  dropping a column. Adding or removing a column on a DuckDB, SQLite, or
-  GeoPackage file is a schema change and also needs Write protection off.
+  dropping a column on a DuckDB, SQLite, or GeoPackage file (a schema change).
+- Write to live databases (`write_db_table`, `query_db` mutations, and the
+  server-to-server `copy_db_table`) whose connection also has **Allow
+  writes** on under **Settings > Databases**; both switches must permit it.
 
-**Write protection is on by default.** While it is on the assistant cannot
-modify existing files: ask it to change a table and it says so and offers to
-save the result as a new file in your
-[Export folder](#saving-results-and-charts) instead. Turn it off under
-**Settings > Chat / Assistant > Write protection** to allow in-place edits.
+**Write permission is per model profile and off by default.** A profile
+without **Allow writes** never even sees the write tools: ask it to change a
+table and it says so and offers to save the result as a new file in your
+[Export folder](#saving-results-and-charts) instead. Tick **Allow writes** on
+the profile (Settings > Chat / Assistant) to allow in-place edits - you might
+keep a trusted "editor" profile with writes on and leave your everyday one
+read-only. The global **Write protection** switch no longer applies to the
+assistant; it still governs GUI file saves and the MCP server default.
 
 Before the assistant (or a schema-changing database save) overwrites an
 existing file, Octa first copies it to a timestamped `.bak-*` sidecar next to

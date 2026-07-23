@@ -174,7 +174,14 @@ impl FormatReader for DuckDbReader {
 
         let conn = Connection::open(path)
             .with_context(|| format!("opening DuckDB at {}", path.display()))?;
-        ensure_row_id_column(&conn, schema_str, &table_name)?;
+        // Reading must NEVER mutate the file: the synthetic id column is only
+        // materialised on save (`ensure_row_id_column` in the write path).
+        // Until then DuckDB's implicit `rowid` provides the row tags; the
+        // save-time backfill assigns `__octa_row_id = rowid`, so tags
+        // collected here still address the same rows (under the same
+        // file-unchanged-between-load-and-save assumption diff-saves already
+        // make). Files that were saved before keep using their id column.
+        let has_row_id = has_row_id_column(&conn, schema_str, &table_name)?;
 
         let columns = read_table_columns(&conn, schema_str, &table_name)?
             .into_iter()
@@ -189,8 +196,9 @@ impl FormatReader for DuckDbReader {
             .map(|c| quote_ident(&c.name))
             .collect::<Vec<_>>()
             .join(", ");
+        let tag_col = if has_row_id { ROW_ID_COL } else { "rowid" };
         let sql = format!(
-            "SELECT {ROW_ID_COL}, {select_cols} FROM {} ORDER BY {ROW_ID_COL}",
+            "SELECT {tag_col}, {select_cols} FROM {} ORDER BY {tag_col}",
             qualified_quote(schema_str, &table_name)
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -297,11 +305,9 @@ fn read_table_columns(conn: &Connection, schema: &str, table: &str) -> Result<Ve
     Ok(cols)
 }
 
-/// Add a stable per-row id column if missing. Each existing row gets a unique
-/// sequential value. Subsequent INSERTs assign `MAX+1`. This sidesteps the
-/// fact that DuckDB has no stable rowid for arbitrary tables.
-fn ensure_row_id_column(conn: &Connection, schema: &str, table: &str) -> Result<()> {
-    let table_q = qualified_quote(schema, table);
+/// Whether the table already carries the synthetic id column (i.e. it was
+/// diff-saved by Octa before).
+fn has_row_id_column(conn: &Connection, schema: &str, table: &str) -> Result<bool> {
     let exists: Option<String> = conn
         .query_row(
             "SELECT column_name FROM information_schema.columns \
@@ -310,33 +316,27 @@ fn ensure_row_id_column(conn: &Connection, schema: &str, table: &str) -> Result<
             |r| r.get(0),
         )
         .ok();
-    if exists.is_some() {
+    Ok(exists.is_some())
+}
+
+/// Add a stable per-row id column if missing (SAVE time only - reading never
+/// mutates the file). Existing rows are backfilled with their current
+/// `rowid`, which is exactly what the read path used as row tags, so the
+/// in-memory diff still addresses the right rows. Subsequent INSERTs assign
+/// `MAX+1`. This sidesteps the fact that DuckDB's rowid is not stable across
+/// deletes.
+fn ensure_row_id_column(conn: &Connection, schema: &str, table: &str) -> Result<()> {
+    let table_q = qualified_quote(schema, table);
+    if has_row_id_column(conn, schema, table)? {
         return Ok(());
     }
     conn.execute(
         &format!("ALTER TABLE {table_q} ADD COLUMN {ROW_ID_COL} BIGINT"),
         [],
     )?;
-    // Backfill with a row-number sequence.
-    conn.execute(
-        &format!(
-            "UPDATE {table_q} SET {ROW_ID_COL} = sub.rn FROM \
-             (SELECT rowid AS rid, ROW_NUMBER() OVER () AS rn FROM {table_q}) AS sub \
-             WHERE {table_q}.rowid = sub.rid"
-        ),
-        [],
-    )
-    .or_else(|_| {
-        // Fallback if rowid isn't supported here: assign sequential ids by ordinal.
-        conn.execute(
-            &format!(
-                "UPDATE {table_q} SET {ROW_ID_COL} = sub.rn FROM \
-                 (SELECT *, ROW_NUMBER() OVER () AS rn FROM {table_q}) AS sub \
-                 WHERE FALSE"
-            ),
-            [],
-        )
-    })?;
+    // Backfill with the current rowid: it must match the tags the read path
+    // collected for this load, not an arbitrary row-number sequence.
+    conn.execute(&format!("UPDATE {table_q} SET {ROW_ID_COL} = rowid"), [])?;
     Ok(())
 }
 

@@ -100,10 +100,16 @@ it opens with no credentials and no sign-in. Without it, a public Azure
 container would redirect to a login and fail. The sidebar shows the connection
 as `(public)`.
 
-## Sign in (browser SSO)
+## Signing in: CLI or browser
 
-A **Sign in** button is only needed for **browser SSO** sign-in, and only
-appears for connections that use it. It shells out to the cloud's official CLI:
+Connections that authenticate a user (rather than using static keys, a SAS
+token, a service-account key, or being public) can sign in two ways.
+
+### With the vendor CLI (the default)
+
+A **Sign in** button appears for connections that use the cloud's official CLI.
+It shells out to the CLI, which opens your browser, completes the sign-in, and
+keeps a long-lived session on disk that it refreshes for you:
 
 | Provider | Command                                   |
 |----------|-------------------------------------------|
@@ -111,11 +117,39 @@ appears for connections that use it. It shells out to the cloud's official CLI:
 | Azure    | `az login`                                |
 | GCS      | `gcloud auth application-default login`   |
 
-You do **not** need any CLI for static keys, a SAS token, ambient environment
-credentials, a GCS service-account key, or a public connection - only for the
-in-app browser sign-in. When the CLI is missing, the connection shows a
-**"Sign in needs CLI"** note instead of the button (hover it for the full
-reason). Octa never implements the OAuth flow itself.
+The CLI path needs no setup in Octa and rarely re-prompts (it refreshes
+automatically), so it is recommended on a workstation you control. Its one
+requirement is that the CLI is installed and signed in.
+
+When the CLI is missing, the connection shows a **"Sign in needs CLI"** note
+instead of the button (hover it for the reason).
+
+### Browser sign-in without a CLI (bring your own OAuth client)
+
+For **Azure Blob** and **GCS**, you can instead sign in through your browser
+with no CLI at all, using an OAuth client you register once in your own cloud
+console. This is the fallback for machines where the CLI is not available, and
+is set per connection.
+
+- Pros: needs no CLI; works anywhere a browser does.
+- Cons: a one-time app registration, and in this first version the browser
+  session lasts about an hour with no background refresh, so you sign in again
+  when it expires. For long unattended sessions, prefer the CLI.
+
+Setup is a one-time registration per provider:
+
+- **Google**: create an OAuth client of type **Desktop app** in the Google
+  Cloud console; put its client ID in **OAuth client ID** and its client secret
+  in the connection's secret field.
+- **Azure**: register an application as a **public client** in Microsoft Entra
+  ID with the redirect URI `http://localhost` and public-client flows enabled;
+  put its client ID in **OAuth client ID** and your directory (tenant) ID in
+  **Azure tenant**.
+
+Once a client ID is set, a **Sign in with browser** button appears on the
+connection form. It opens your browser, catches the redirect on a local port,
+and caches the resulting access token for this session. The connection is then
+marked **Signed in via browser** in the connection list.
 
 !!! note "Windows: no WSL required"
     All three CLIs ship native Windows installers (the AWS CLI MSI, the Azure
@@ -143,7 +177,8 @@ its bucket root, expand folders to drill in, and click a file to open it.
 
 **Ctrl-click** objects to select them instead of opening them. A **_N_
 selected** bar appears at the top of the cloud section with a **Union...**
-button.
+button; right-clicking any selected object offers the same **Union** in its
+context menu.
 
 Octa downloads the selected objects in the background and opens the
 [Union](union-tables.md) dialog over them, with the same column
@@ -163,6 +198,14 @@ To save back to the object, turn on **Allow writing to cloud storage** in
 **Settings > Cloud storage**. Then **Save** writes the tab back to its original
 object. Uploads run in the background; the status bar reports success or
 failure.
+
+Writes are also permitted **per connection**: each connection has its own
+**Allow writes on this connection** checkbox (off by default), checked
+together with the global switch - both must allow a write. Tick it only on
+the connections you actually want to write to; the rest stay strictly
+read-only and the connection list marks them with "writes off". After
+upgrading, existing connections start read-only too - re-enable the ones you
+save back to.
 
 !!! note "Why writing is off by default"
     The write toggle mirrors Octa's other write-protection switches. Cloud

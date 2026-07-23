@@ -76,6 +76,10 @@ pub struct SqlAction {
     pub delete_snippet: Option<String>,
     /// User clicked the **Snippets** button to open the snippet manager window.
     pub open_snippets_window: bool,
+    /// User clicked **Cancel** on an in-flight "Run on server" query.
+    pub cancel_server: bool,
+    /// User picked a saved live-database connection to ATTACH (its id).
+    pub attach_db_connection: Option<String>,
 }
 
 /// Persistent id of the SQL editor TextEdit. Exposed so the global keyboard
@@ -253,11 +257,28 @@ pub struct SqlViewContext<'a> {
     /// the panel waits for the first fetch; `Some(Ok)` or `Some(Err)`
     /// otherwise.
     pub inspector_entry: Option<&'a crate::app::state::InspectorCacheEntry>,
+    /// Name of the live-database connection the tab was opened from, when
+    /// any: enables the "Run on: server | local" toggle.
+    pub server_conn_name: Option<String>,
+    /// Whether a "Run on server" query is currently in flight.
+    pub server_running: bool,
+    /// Saved live-database connections as (id, name), for the attach menu.
+    pub db_connections: Vec<(String, String)>,
 }
 
 /// Render a split-pane SQL editor (top) and result table (bottom).
 /// The current tab's table is exposed in queries as `data`.
 /// `partial_rows` carries `(loaded, total)` when the table isn't fully loaded.
+/// Row-counter text for a result grid. Fetches stop exactly at the
+/// initial-load row cap, so a result sitting on the cap means truncation.
+fn result_rows_label(rows: usize) -> String {
+    if rows >= octa::formats::initial_load_rows() {
+        format!("{} {}", rows, octa::i18n::t("sql.result_rows_capped"))
+    } else {
+        format!("{} {}", rows, octa::i18n::t("sql.result_rows"))
+    }
+}
+
 pub fn render_sql_view(
     ui: &mut egui::Ui,
     tab: &mut TabState,
@@ -273,14 +294,52 @@ pub fn render_sql_view(
         workspace_attachments,
         inspector_selection,
         inspector_entry,
+        server_conn_name,
+        server_running,
+        db_connections,
     } = ctx_args;
     let mut action = SqlAction::default();
     let editor_id = editor_id();
 
+    // Calm hover feedback for the whole panel: several themes paint hovered
+    // widgets 1-3px larger (`widgets.hovered.expansion`), which in this dense
+    // grid of cells, rows and small buttons reads as everything twitching
+    // under the pointer. Zeroing it here is local to the SQL panel; hover
+    // colours still change, nothing grows.
+    {
+        let style = ui.style_mut();
+        style.visuals.widgets.hovered.expansion = 0.0;
+        style.visuals.widgets.active.expansion = 0.0;
+    }
+
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(octa::i18n::t("sql.query_against_data")).strong());
         ui.add_space(8.0);
-        if ui
+        // Live-database tab: pick where the query runs (server default).
+        if let Some(conn_name) = &server_conn_name {
+            ui.label(octa::i18n::t("sql.run_on"));
+            if ui
+                .selectable_label(tab.sql_run_on_server, conn_name)
+                .on_hover_text(octa::i18n::t("sql.run_on_server_hint"))
+                .clicked()
+            {
+                tab.sql_run_on_server = true;
+            }
+            if ui
+                .selectable_label(!tab.sql_run_on_server, octa::i18n::t("sql.run_local"))
+                .on_hover_text(octa::i18n::t("sql.run_local_hint"))
+                .clicked()
+            {
+                tab.sql_run_on_server = false;
+            }
+            ui.add_space(4.0);
+        }
+        if server_running {
+            ui.add(egui::Spinner::new().size(12.0));
+            if ui.button(octa::i18n::t("common.cancel")).clicked() {
+                action.cancel_server = true;
+            }
+        } else if ui
             .button(octa::i18n::t("sql.run"))
             .on_hover_text(octa::i18n::t("sql.run_hint"))
             .clicked()
@@ -341,7 +400,7 @@ pub fn render_sql_view(
         });
         if let Some(rows) = tab.sql_result.as_ref().map(|t| t.row_count()) {
             ui.add_space(12.0);
-            ui.label(format!("{} {}", rows, octa::i18n::t("sql.result_rows")));
+            ui.label(result_rows_label(rows));
         }
         // Close (×) button on the right - flips `sql_panel_open` to false.
         // The Analyse dropdown is two clicks away, so without an in-panel
@@ -361,8 +420,11 @@ pub fn render_sql_view(
     render_workspace_section(
         ui,
         tab,
-        workspace_tables,
-        workspace_attachments,
+        &WorkspaceData {
+            tables: workspace_tables,
+            attachments: workspace_attachments,
+            db_connections: &db_connections,
+        },
         inspector_selection,
         inspector_entry,
         &mut action,
@@ -485,6 +547,13 @@ pub fn render_sql_view(
             ui.add_space(4.0);
         }
         if let Some(result) = tab.sql_result.as_ref() {
+            // Row counter directly at the result, so the count is always in
+            // view without adding COUNT(*) to the query or exporting.
+            ui.label(
+                egui::RichText::new(result_rows_label(result.row_count()))
+                    .small()
+                    .color(ui.visuals().weak_text_color()),
+            );
             // Disjoint field borrows: the result table (read) + its selection
             // (write).
             render_result_table(ui, result, &mut tab.sql_result_selected);
@@ -656,7 +725,20 @@ fn draw_sql_editor(
     editor_font: octa::ui::settings::SqlEditorFont,
 ) -> egui::Response {
     let mono = egui::FontId::new(13.0, sql_font_family(editor_font, ui));
-    let hint = format!("SELECT * FROM data LIMIT {default_row_limit}");
+    // Server mode queries the live table, not the local `data` snapshot, so
+    // the template names the tab's origin table instead.
+    let hint = match tab.db_origin.as_ref().filter(|_| tab.sql_run_on_server) {
+        Some(o) => {
+            // Catalog engines (Snowflake/Databricks/BigQuery) need the full
+            // three-part name; two-level engines just schema.table.
+            let name = match &o.catalog {
+                Some(cat) => format!("{cat}.{}.{}", o.schema, o.table),
+                None => format!("{}.{}", o.schema, o.table),
+            };
+            format!("SELECT * FROM {name} LIMIT {default_row_limit}")
+        }
+        None => format!("SELECT * FROM data LIMIT {default_row_limit}"),
+    };
     let weak = ui.visuals().weak_text_color();
 
     egui::ScrollArea::vertical()
@@ -738,17 +820,24 @@ fn apply_suggestion_later(
     }
 }
 
+/// Read-only workspace data threaded from the panel into the workspace
+/// section renderers (bundled to keep the functions under the arg limit).
+struct WorkspaceData<'a> {
+    tables: &'a [WorkspaceRow],
+    attachments: &'a [WorkspaceAttachment],
+    db_connections: &'a [(String, String)],
+}
+
 fn render_workspace_section(
     ui: &mut egui::Ui,
     tab: &mut TabState,
-    tables: &[WorkspaceRow],
-    attachments: &[WorkspaceAttachment],
+    data: &WorkspaceData<'_>,
     inspector_selection: Option<&crate::app::sql_panel::InspectorTarget>,
     inspector_entry: Option<&crate::app::state::InspectorCacheEntry>,
     action: &mut SqlAction,
 ) {
-    let extras = tables.iter().filter(|t| !t.is_active).count();
-    let attached = attachments.len();
+    let extras = data.tables.iter().filter(|t| !t.is_active).count();
+    let attached = data.attachments.len();
     let summary = if extras == 0 && attached == 0 {
         octa::i18n::t("sql.ws_only_data")
     } else {
@@ -778,14 +867,7 @@ fn render_workspace_section(
                 .min_height(80.0)
                 .default_height(140.0)
                 .show(ui, |ui| {
-                    render_workspace_list(
-                        ui,
-                        tab,
-                        tables,
-                        attachments,
-                        inspector_selection,
-                        action,
-                    );
+                    render_workspace_list(ui, tab, data, inspector_selection, action);
                 });
             ui.add_space(2.0);
             ui.separator();
@@ -796,7 +878,29 @@ fn render_workspace_section(
                 .min_height(120.0)
                 .default_height(240.0)
                 .show(ui, |ui| {
-                    render_workspace_inspector(ui, inspector_selection, inspector_entry, action);
+                    if data.attachments.is_empty() {
+                        render_workspace_inspector(
+                            ui,
+                            inspector_selection,
+                            inspector_entry,
+                            action,
+                        );
+                    } else {
+                        // With servers attached, the spare width next to the
+                        // Inspector carries a cheat-sheet of the attachments:
+                        // the alias to type (connection names get sanitised,
+                        // which is not obvious) and a ready-made query per
+                        // connection.
+                        ui.columns(2, |cols| {
+                            render_workspace_inspector(
+                                &mut cols[0],
+                                inspector_selection,
+                                inspector_entry,
+                                action,
+                            );
+                            render_attachment_info(&mut cols[1], data.attachments, action);
+                        });
+                    }
                 });
         });
     tab.sql_workspace_open = resp.openness > 0.5;
@@ -807,11 +911,15 @@ fn render_workspace_section(
 fn render_workspace_list(
     ui: &mut egui::Ui,
     tab: &mut TabState,
-    tables: &[WorkspaceRow],
-    attachments: &[WorkspaceAttachment],
+    data: &WorkspaceData<'_>,
     inspector_selection: Option<&crate::app::sql_panel::InspectorTarget>,
     action: &mut SqlAction,
 ) {
+    let WorkspaceData {
+        tables,
+        attachments,
+        db_connections,
+    } = *data;
     let weak = ui.visuals().weak_text_color();
     egui::ScrollArea::vertical()
         .id_salt("sql_workspace_list_scroll")
@@ -915,6 +1023,19 @@ fn render_workspace_list(
                 {
                     action.attach_db = true;
                 }
+                // Saved live-database connections (Settings -> Databases).
+                if !db_connections.is_empty() {
+                    ui.menu_button(octa::i18n::t("sql.attach_db_connection"), |ui| {
+                        for (id, name) in db_connections {
+                            if ui.button(name).clicked() {
+                                action.attach_db_connection = Some(id.clone());
+                                ui.close();
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text(octa::i18n::t("sql.attach_db_connection_hint"));
+                }
             });
         });
 }
@@ -1011,6 +1132,77 @@ fn render_attached_tree(
             }
         }
     }
+}
+
+/// The attachments cheat-sheet next to the Inspector: what each attached
+/// connection is called in SQL (the sanitised alias - "Post-Test" becomes
+/// `post_test`, which users cannot guess), where it points, and a one-click
+/// example query per connection.
+fn render_attachment_info(
+    ui: &mut egui::Ui,
+    attachments: &[WorkspaceAttachment],
+    action: &mut SqlAction,
+) {
+    let weak = ui.visuals().weak_text_color();
+    let strong = ui.visuals().strong_text_color();
+    ui.label(
+        egui::RichText::new(octa::i18n::t("sql.att_info"))
+            .strong()
+            .color(strong),
+    );
+    ui.label(
+        egui::RichText::new(octa::i18n::t("sql.att_info_note"))
+            .weak()
+            .size(10.0),
+    );
+    ui.add_space(4.0);
+    egui::ScrollArea::vertical()
+        .id_salt("sql_att_info_scroll")
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for att in attachments {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(&att.alias)
+                            .strong()
+                            .monospace()
+                            .color(strong),
+                    );
+                    ui.label(
+                        egui::RichText::new(format!("[{}]", att.kind_label))
+                            .small()
+                            .color(weak),
+                    );
+                });
+                ui.label(egui::RichText::new(&att.source).small().color(weak));
+                // A ready-made query against the first table, so the alias
+                // never has to be typed by hand.
+                if let Some(schema) = att.schemas.first()
+                    && let Some(t0) = schema.tables.first()
+                {
+                    let qualified = format!("{}.{}.{}", att.alias, t0.schema, t0.table);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("{qualified}, ..."))
+                                .small()
+                                .monospace()
+                                .color(weak),
+                        );
+                        if ui
+                            .small_button(octa::i18n::t("sql.insert"))
+                            .on_hover_text(format!(
+                                "{} `SELECT * FROM {qualified} LIMIT 100;`",
+                                octa::i18n::t("sql.insert_hint")
+                            ))
+                            .clicked()
+                        {
+                            action.insert_qualified = Some(qualified.clone());
+                        }
+                    });
+                }
+                ui.add_space(6.0);
+            }
+        });
 }
 
 fn render_workspace_inspector(

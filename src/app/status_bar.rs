@@ -34,9 +34,13 @@ impl OctaApp {
             UpdateState::Checking | UpdateState::Updating
         );
         let file_loading = self.pending_load.is_some();
-        let busy = bg_loading || update_busy || file_loading;
+        let db_writing = self.db_write_back_job.is_some();
+        let busy = bg_loading || update_busy || file_loading || db_writing;
+        let db_writing_hint = octa::i18n::t("db.writing_back");
         let busy_hint = if update_busy {
             Some("Updating...")
+        } else if db_writing {
+            Some(db_writing_hint.as_str())
         } else if file_loading {
             Some("Loading file...")
         } else if bg_loading {
@@ -56,6 +60,7 @@ impl OctaApp {
             .table_state
             .selected_cells
             .clone();
+        let readonly = self.is_readonly();
 
         let status_action = egui::Panel::bottom("status_bar")
             .exact_size(28.0)
@@ -71,7 +76,7 @@ impl OctaApp {
                     &mut self.nav_input,
                     std::mem::take(&mut self.nav_focus_requested),
                     self.zoom_percent,
-                    self.readonly_mode,
+                    readonly,
                     busy,
                     busy_hint,
                     column_filter_count,

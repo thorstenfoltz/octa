@@ -379,6 +379,16 @@ pub enum ShortcutAction {
     /// Rename the active tab (display name only; the file path is unchanged).
     /// Also the tab right-click **Rename tab...** entry.
     RenameActiveTab,
+    /// Open a Delta/Iceberg/parts dataset directory. Also
+    /// **File -> Open table folder...**.
+    OpenTableFolder,
+    /// Run a recursive inventory of the first expanded cloud connection
+    /// into a detached tab. Also the cloud tree's right-click
+    /// **List contents as table...**.
+    ListCloudInventory,
+    /// Run the SQL editor's query on the active tab's live database server
+    /// (only meaningful on a tab opened from the Databases tree).
+    RunSqlOnServer,
 }
 
 impl ShortcutAction {
@@ -461,6 +471,9 @@ impl ShortcutAction {
             Self::OpenRenameColumns => "Rename columns...",
             Self::AddBookmark => "Add bookmark...",
             Self::RenameActiveTab => "Rename tab...",
+            Self::OpenTableFolder => "Open table folder",
+            Self::ListCloudInventory => "Run inventory on expanded cloud connection",
+            Self::RunSqlOnServer => "Run SQL on server",
         }
     }
 
@@ -563,6 +576,12 @@ impl ShortcutAction {
             Self::OpenRenameColumns => KeyCombo::ctrl_alt(Key::R),
             Self::AddBookmark => KeyCombo::ctrl_alt(Key::B),
             Self::RenameActiveTab => KeyCombo::ctrl_alt(Key::T),
+            // Ctrl+Shift+G is taken (Data validation); every clipboard-safe
+            // Ctrl+Shift letter is spoken for, so these ship unbound like
+            // Impute/Union/Outliers/PII.
+            Self::OpenTableFolder => KeyCombo::UNBOUND,
+            Self::ListCloudInventory => KeyCombo::UNBOUND,
+            Self::RunSqlOnServer => KeyCombo::UNBOUND,
         }
     }
 }
@@ -640,6 +659,7 @@ impl ShortcutAction {
             | Self::ReloadFile
             | Self::CloseTab
             | Self::ReopenLastClosedTab
+            | Self::OpenTableFolder
             | Self::QuitApp => G::File,
             Self::NextTab | Self::PrevTab | Self::RenameActiveTab => G::Tabs,
             Self::FocusSearch
@@ -678,7 +698,8 @@ impl ShortcutAction {
             | Self::ToggleChatPanel
             | Self::FitAllColumns
             | Self::CompareSelectedTabs => G::View,
-            Self::ExportSqlResult => G::SqlPanel,
+            Self::ExportSqlResult | Self::RunSqlOnServer => G::SqlPanel,
+            Self::ListCloudInventory => G::Search,
             Self::OpenNumberFormat | Self::CopyAsMarkdown => G::Editing,
             Self::OpenDocumentation
             | Self::OpenSettings

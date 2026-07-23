@@ -34,7 +34,7 @@ use serde_json::Value;
 
 /// Build the system prompt, embedding a compact description of what tabs the
 /// user currently has open so the model can reach for `open_tab: "@active"`.
-pub fn build_system_prompt(tab_summaries: &[Value]) -> String {
+pub fn build_system_prompt(tab_summaries: &[Value], allow_writes: bool) -> String {
     let mut s = String::new();
     s.push_str(
         "You are Octa's built-in data assistant. Octa is a desktop viewer/editor for tabular \
@@ -71,18 +71,29 @@ chat.\n\
 to a new file or back to the open tab's file on disk (the user reloads with Ctrl+R to see it). \
 Use these to summarise, explain, refactor, or edit prose and code.\n\
 - Keep responses concise. Report concrete numbers from tool results rather than guessing.\n\
-- To save results, give a bare filename; Octa writes it into the user's export directory (all \
-file writes are confined there). To save a query or JOIN result, use \
+",
+    );
+    if allow_writes {
+        s.push_str(
+            "- To save results, give a bare filename; Octa writes it into the user's export \
+directory (all file writes are confined there). To save a query or JOIN result, use \
 `run_sql` with `write_to` (the extension picks the format: csv / parquet / xlsx / ... or \
 duckdb / sqlite). Use `write_table` for inline data, `convert` to transcode a whole source, and \
 `create_chart` for charts. To edit data the user has OPEN, use `edit_open_tab` (add a computed \
 column via a DuckDB expression, insert rows, set cells, delete rows, drop columns) - it applies to the live tab \
-so the user sees it immediately and can undo it; the user then saves to persist. This only works \
-when Write protection is off; if it is on, `edit_open_tab` will say so - relay that and offer to \
-save the result as a new file in the export directory instead. Use `edit_table` to edit a file on \
-disk that is not open. Adding or removing columns on a DuckDB/SQLite file is a schema change and \
-also needs Write protection off.\n",
-    );
+so the user sees it immediately and can undo it; the user then saves to persist. Use `edit_table` \
+to edit a file on disk that is not open (adding or removing columns on a DuckDB/SQLite file is a \
+schema change).\n",
+        );
+    } else {
+        s.push_str(
+            "- This chat profile is READ-ONLY: the write tools (editing tabs or files, writing \
+files, database writes) are not available. If the user asks you to change, insert, delete, or \
+save data, do not speculate about missing tools - explain that the active model profile has \
+\"Allow writes\" turned off and that they can enable it under Settings > Chat / Assistant by \
+editing the profile. You can still show them the exact values or SQL they would need.\n",
+        );
+    }
 
     if tab_summaries.is_empty() {
         s.push_str("\nThe user currently has no tabs open.\n");

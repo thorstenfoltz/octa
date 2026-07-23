@@ -28,7 +28,8 @@ impl WriteBackKind {
     fn from_path(p: &Path) -> Self {
         match AttachKind::from_path(p) {
             AttachKind::DuckDb => WriteBackKind::DuckDb,
-            AttachKind::Sqlite => WriteBackKind::Sqlite,
+            // from_path only ever yields the two file kinds.
+            _ => WriteBackKind::Sqlite,
         }
     }
     fn to_attach(self) -> AttachKind {
@@ -59,6 +60,9 @@ impl WriteBackMode {
 pub struct SqlWriteBackState {
     pub target_path: PathBuf,
     pub kind: WriteBackKind,
+    /// `Some(id)` targets a saved live-database connection instead of a
+    /// file; the path/format rows are ignored then.
+    pub db_conn_id: Option<String>,
     pub schema: String,
     pub table: String,
     pub mode: WriteBackMode,
@@ -85,6 +89,7 @@ impl SqlWriteBackState {
         Self {
             target_path,
             kind,
+            db_conn_id: None,
             schema: "main".to_string(),
             table: default_table_hint.to_string(),
             mode: WriteBackMode::Create,
@@ -118,7 +123,13 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
     // Take the state out so we can hand `&mut OctaApp` to the helpers without
     // tripping the borrow checker.
     let mut state = app.tabs[app.active_tab].sql_write_back.take().unwrap();
-    let preview_sql = compose_preview(&state, &app.tabs[app.active_tab].sql_last_query);
+    let preview_sql = if state.db_conn_id.is_some() {
+        // A live-DB write is batched INSERTs through the connector, not the
+        // DuckDB SQL shown for file targets.
+        octa::i18n::t("dialog.swb_db_preview")
+    } else {
+        compose_preview(&state, &app.tabs[app.active_tab].sql_last_query)
+    };
 
     let dialog_id = egui::Id::new("octa_sql_write_back_dialog");
     let size_key = dialog_id.with("octa_dlg_size");
@@ -160,40 +171,89 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                 .num_columns(2)
                 .spacing(egui::vec2(12.0, 6.0))
                 .show(ui, |ui| {
-                    ui.label(octa::i18n::t("dialog.swb_target_file"));
-                    ui.horizontal(|ui| {
-                        let mut tmp = state.target_path.to_string_lossy().into_owned();
-                        if ui
-                            .add(egui::TextEdit::singleline(&mut tmp).desired_width(380.0))
-                            .changed()
-                        {
-                            state.target_path = PathBuf::from(&tmp);
-                            state.kind = WriteBackKind::from_path(&state.target_path);
-                        }
-                        if ui.button(octa::i18n::t("dialog.swb_browse")).clicked()
-                            && let Some(p) = rfd::FileDialog::new()
-                                .set_title(octa::i18n::t("dialog.swb_browse_title"))
-                                .add_filter(
-                                    "DuckDB / SQLite",
-                                    &["duckdb", "ddb", "sqlite", "db", "sqlite3"],
-                                )
-                                .save_file()
-                        {
-                            state.target_path = p;
-                            state.kind = WriteBackKind::from_path(&state.target_path);
-                        }
+                    // Target picker: a file (original behaviour) or one of the
+                    // saved live-database connections.
+                    if !app.settings.db_connections.is_empty() {
+                        ui.label(octa::i18n::t("dialog.swb_target"));
+                        let selected_label = state
+                            .db_conn_id
+                            .as_ref()
+                            .and_then(|id| {
+                                app.settings
+                                    .db_connections
+                                    .iter()
+                                    .find(|c| &c.id == id)
+                                    .map(|c| c.name.clone())
+                            })
+                            .unwrap_or_else(|| octa::i18n::t("dialog.swb_target_is_file"));
+                        egui::ComboBox::from_id_salt("swb_target_pick")
+                            .selected_text(selected_label)
+                            .show_ui(ui, |ui| {
+                                if ui
+                                    .selectable_label(
+                                        state.db_conn_id.is_none(),
+                                        octa::i18n::t("dialog.swb_target_is_file"),
+                                    )
+                                    .clicked()
+                                {
+                                    state.db_conn_id = None;
+                                }
+                                for c in &app.settings.db_connections {
+                                    if ui
+                                        .selectable_label(
+                                            state.db_conn_id.as_deref() == Some(&c.id),
+                                            &c.name,
+                                        )
+                                        .clicked()
+                                    {
+                                        state.db_conn_id = Some(c.id.clone());
+                                    }
+                                }
+                            });
+                        ui.end_row();
+                    }
+
+                    let file_target = state.db_conn_id.is_none();
+                    ui.add_enabled_ui(file_target, |ui| {
+                        ui.label(octa::i18n::t("dialog.swb_target_file"));
+                    });
+                    ui.add_enabled_ui(file_target, |ui| {
+                        ui.horizontal(|ui| {
+                            let mut tmp = state.target_path.to_string_lossy().into_owned();
+                            if ui
+                                .add(egui::TextEdit::singleline(&mut tmp).desired_width(380.0))
+                                .changed()
+                            {
+                                state.target_path = PathBuf::from(&tmp);
+                                state.kind = WriteBackKind::from_path(&state.target_path);
+                            }
+                            if ui.button(octa::i18n::t("dialog.swb_browse")).clicked()
+                                && let Some(p) = rfd::FileDialog::new()
+                                    .set_title(octa::i18n::t("dialog.swb_browse_title"))
+                                    .add_filter(
+                                        "DuckDB / SQLite",
+                                        &["duckdb", "ddb", "sqlite", "db", "sqlite3"],
+                                    )
+                                    .save_file()
+                            {
+                                state.target_path = p;
+                                state.kind = WriteBackKind::from_path(&state.target_path);
+                            }
+                        });
                     });
                     ui.end_row();
 
                     ui.label(octa::i18n::t("dialog.swb_format"));
-                    ui.horizontal(|ui| {
-                        ui.radio_value(&mut state.kind, WriteBackKind::DuckDb, "DuckDB");
-                        ui.radio_value(&mut state.kind, WriteBackKind::Sqlite, "SQLite");
+                    ui.add_enabled_ui(file_target, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.radio_value(&mut state.kind, WriteBackKind::DuckDb, "DuckDB");
+                            ui.radio_value(&mut state.kind, WriteBackKind::Sqlite, "SQLite");
+                        });
                     });
                     ui.end_row();
 
                     ui.label(octa::i18n::t("dialog.swb_schema"));
-                    ui.add_enabled_ui(state.kind == WriteBackKind::DuckDb, |ui| {
+                    ui.add_enabled_ui(!file_target || state.kind == WriteBackKind::DuckDb, |ui| {
                         ui.add(egui::TextEdit::singleline(&mut state.schema).desired_width(200.0));
                     });
                     ui.end_row();
@@ -223,7 +283,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                     ui.end_row();
 
                     ui.label("");
-                    ui.add_enabled_ui(state.kind == WriteBackKind::DuckDb, |ui| {
+                    ui.add_enabled_ui(file_target && state.kind == WriteBackKind::DuckDb, |ui| {
                         ui.checkbox(
                             &mut state.create_schema_if_missing,
                             octa::i18n::t("dialog.swb_create_schema"),
@@ -258,8 +318,8 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                 if ui.button(octa::i18n::t("common.cancel")).clicked() {
                     close = true;
                 }
-                let enabled =
-                    !state.target_path.as_os_str().is_empty() && !state.table.trim().is_empty();
+                let enabled = !state.table.trim().is_empty()
+                    && (state.db_conn_id.is_some() || !state.target_path.as_os_str().is_empty());
                 if ui
                     .add_enabled(
                         enabled,
@@ -288,6 +348,77 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
     });
 
     if close {
+        return;
+    }
+
+    if do_write && state.db_conn_id.is_some() {
+        // Live-database target: write the displayed result rows through the
+        // engine connector (batched INSERTs), gated on the connection's
+        // allow-writes switch. Synchronous like the file path beside it.
+        let conn_id = state.db_conn_id.clone().expect("checked");
+        let Some(conn) = app
+            .settings
+            .db_connections
+            .iter()
+            .find(|c| c.id == conn_id)
+            .cloned()
+        else {
+            state.error = Some(octa::i18n::t("sql.server_conn_gone"));
+            app.tabs[app.active_tab].sql_write_back = Some(state);
+            return;
+        };
+        let Some(result) = app.tabs[app.active_tab].sql_result.clone() else {
+            state.error = Some(octa::i18n::t("dialog.swb_run_select_first"));
+            app.tabs[app.active_tab].sql_write_back = Some(state);
+            return;
+        };
+        let schema = if state.schema.trim().is_empty() || state.schema.trim() == "main" {
+            match conn.engine {
+                octa::db::DbEngine::Postgres | octa::db::DbEngine::Redshift => "public".to_string(),
+                octa::db::DbEngine::MySql
+                | octa::db::DbEngine::Exasol
+                | octa::db::DbEngine::BigQuery => conn.database.clone(),
+                octa::db::DbEngine::Mssql => "dbo".to_string(),
+                octa::db::DbEngine::ClickHouse => "default".to_string(),
+                octa::db::DbEngine::Snowflake => "PUBLIC".to_string(),
+                octa::db::DbEngine::Databricks => "default".to_string(),
+            }
+        } else {
+            state.schema.trim().to_string()
+        };
+        let mode = match state.mode {
+            WriteBackMode::Create => octa::db::DbWriteMode::Create,
+            WriteBackMode::Replace => octa::db::DbWriteMode::Replace,
+            WriteBackMode::Append => octa::db::DbWriteMode::Append,
+        };
+        let outcome = octa::db::ensure_write_allowed(&conn, None).and_then(|_| {
+            let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &app.settings);
+            // Reused connector; safe to retry on a stale cached connection
+            // because write_table runs in one rolled-back-on-error transaction.
+            app.db_conn_cache.with_conn(&conn, secret.as_deref(), |c| {
+                c.write_table(None, &schema, state.table.trim(), mode, &result)
+            })
+        });
+        match outcome {
+            Ok(report) => {
+                app.status_message = Some((
+                    format!(
+                        "{} {} {} {}.{} @ {}",
+                        octa::i18n::t("dialog.swb_wrote"),
+                        report.rows_written,
+                        octa::i18n::t("dialog.swb_rows_to"),
+                        schema,
+                        state.table.trim(),
+                        conn.name
+                    ),
+                    std::time::Instant::now(),
+                ));
+            }
+            Err(e) => {
+                state.error = Some(format!("{e:#}"));
+                app.tabs[app.active_tab].sql_write_back = Some(state);
+            }
+        }
         return;
     }
 

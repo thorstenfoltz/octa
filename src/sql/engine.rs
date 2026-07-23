@@ -37,8 +37,9 @@ pub struct QueryOutcome {
 
 /// Classify `query` by its leading keyword. Mutating statements do not return
 /// rows via `query()` in DuckDB's Rust bindings, so they must be run through
-/// `execute()` instead.
-pub(super) fn is_mutation(query: &str) -> bool {
+/// `execute()` instead. Also the write-classification the live-DB read-only
+/// gate uses (`crate::db::ensure_write_allowed`), hence `pub`.
+pub fn is_mutation(query: &str) -> bool {
     let first = query
         .split(|c: char| c.is_whitespace() || c == '(')
         .find(|s| !s.is_empty())
@@ -126,6 +127,9 @@ pub(super) fn execute_query(conn: &Connection, query: &str) -> Result<DataTable>
         })
         .collect();
 
+    // Results honour the same initial-load row cap as file opens: an
+    // unbounded SELECT must not materialise the whole result in memory.
+    let cap = crate::formats::initial_load_rows();
     let mut rows: Vec<Vec<CellValue>> = Vec::new();
     while let Some(r) = q.next()? {
         let mut row = Vec::with_capacity(col_count);
@@ -133,6 +137,9 @@ pub(super) fn execute_query(conn: &Connection, query: &str) -> Result<DataTable>
             row.push(value_ref_to_cell(r.get_ref(i)?));
         }
         rows.push(row);
+        if rows.len() >= cap {
+            break;
+        }
     }
 
     Ok(DataTable {

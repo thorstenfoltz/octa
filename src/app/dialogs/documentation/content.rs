@@ -1317,10 +1317,39 @@ query under the cursor.
   via right-click, and a chip-style autocomplete row showing matching column
   names and SQL keywords. Disable autocomplete in
   **Settings > SQL > Autocomplete** (on by default).
-- Results render under the editor; errors render in red.
+- Results render under the editor with a **row counter** above the grid
+  (display-only; it is never part of the data or an export); errors render
+  in red.
+- Results honour the initial-load row cap (**Settings > Performance**,
+  default 5,000,000): a bigger SELECT stops there instead of exhausting
+  memory, and the counter notes "row cap reached". Applies to local DuckDB
+  and to queries run on a live database connection alike.
 - **Ctrl+Shift+E** (default) exports the current SQL result.
 - The panel can be docked Bottom (default), Top, Left, or Right via
   **Settings > SQL > Panel position**.
+
+## Workspace
+
+Each tab owns a persistent SQL **workspace** that outlives individual
+runs. The collapsible Workspace section above the editor lists what is
+queryable:
+
+- `data` - the active table. SQL sees a snapshot; after editing cells,
+  click **refresh** next to `data` to push your edits into the workspace.
+- **+ Add table...** loads more files as extra tables (any readable
+  format), for cross-file JOINs.
+- **Attach database...** ATTACHes a DuckDB or SQLite file
+  (`alias.schema.table`).
+- **Attach connection** ATTACHes a saved live-database connection
+  (PostgreSQL / MySQL read-only via DuckDB extensions; SQL Server tables
+  import individually). The alias is the connection name lowercased with
+  punctuation as `_`; the **Attached connections** box next to the
+  Inspector lists each alias with a one-click example query.
+
+Clicking any table shows it in the **Inspector** (columns, sample rows,
+Copy / Insert / Run buttons). The SQL panel also opens on an **empty
+tab** (Analyse > SQL): attach connections and query servers without
+opening a file - there is just no `data` table then.
 
 ## History and snippets
 
@@ -1345,8 +1374,10 @@ you can see what the query did. Turn this off, or change how long it stays
 (in seconds), under **Settings -> SQL** (**Highlight SQL changes** /
 **Highlight duration**). The marks clear themselves automatically.
 
-Each query opens a fresh connection; there is no persistent SQL state
-between runs.
+The workspace's DuckDB connection is per tab and persistent: added
+tables and attachments stay across runs and are dropped when the tab
+closes. Mutations change the in-memory table only; save the file to
+persist them.
 "#;
 
 pub(super) const CLI_AND_MCP: &str = r#"# Command-line & MCP
@@ -1481,19 +1512,23 @@ rows it got and offers to write the full result to a file or a tab. Tick
 
 ## Editing your data
 
-By default the assistant cannot change your files (Write protection, on
-under **Settings > Chat / Assistant**). Ask it to change an open table and
-it says so and offers to save a new file in the export directory instead.
+Write permission is set **per model profile**: the **Allow writes**
+checkbox on the profile (under **Settings > Chat / Assistant**), off by
+default. A profile without it never even sees the write tools; ask it to
+change an open table and it says so and offers a read-only alternative.
+The global **Write protection** switch governs GUI file saves and the MCP
+server default, not the assistant.
 
-Turn Write protection off to let it edit in place:
+Tick **Allow writes** on a profile to let it edit in place:
 
 - Edit the open tab live: add a computed column (a DuckDB expression,
   including window functions like a moving average), insert rows, set
   cells, delete rows, or drop columns. The change shows up in the tab at
   once and Ctrl+Z undoes it. Nothing reaches disk until you save.
 - Edit a file on disk that is not open, including adding or dropping a
-  column. Adding or removing a column on a DuckDB, SQLite, or GeoPackage
-  file is a schema change and also needs Write protection off.
+  column on a DuckDB, SQLite, or GeoPackage file (a schema change).
+- Write to databases whose connection also has **Allow writes** on
+  (Settings > Databases) - both switches must permit it.
 
 Before the assistant (or a schema-changing database save) overwrites an
 existing file, Octa first copies it to a timestamped .bak sidecar next to it
@@ -1621,11 +1656,13 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
 - **MCP**: default row limit (with **Unlimited** toggle) and per-cell
   byte cap for the `octa --mcp` server. Read at server startup, so
   changes require a restart.
-- **Chat / Assistant**: provider + model, API keys, temperature, max
-  tool iterations, max response tokens, the result row limit (with an
-  **Unlimited** checkbox), panel position, export directory, write
-  protection, and the tool-call audit log. See the **Assistant**
-  section.
+- **Chat / Assistant**: model profiles (provider + model + reasoning +
+  per-profile **Allow writes**), API keys, temperature, max tool
+  iterations, max response tokens, the result row limit (with an
+  **Unlimited** checkbox), panel position, export directory, and the
+  tool-call audit log. **Write protection** governs GUI file saves and
+  the MCP default; the assistant is governed per profile. See the
+  **Assistant** section.
 - **Cloud storage**: the **Allow writing to cloud storage** switch and
   your saved S3 / Azure / GCS connections (with their credentials). See
   the **Cloud Storage** section.
@@ -1743,7 +1780,8 @@ are skipped and counted in the status bar.
 
 The same works in the cloud sidebar. **Ctrl-click** the objects you want,
 then click **Union...** in the selection bar at the top of the cloud
-section. Octa downloads them in the background and opens the same
+section, or right-click a selected object and choose **Union** from the
+context menu. Octa downloads them in the background and opens the same
 reconciliation dialog, so a folder of partitioned parquet parts in S3,
 Azure Blob or GCS becomes one table without a tab per object.
 "#;
@@ -2003,20 +2041,30 @@ it opens with no credentials and no sign-in. (Without this, a public Azure
 container would redirect to a login and fail.) No secret is needed, and the
 sidebar shows the connection as `(public)`.
 
-## Sign in (browser SSO)
+## Signing in: CLI or browser
 
-A **Sign in** button is only needed for **browser SSO** sign-in, and only
-appears for connections that use it. It shells out to the cloud's official CLI:
+There are two ways to sign a connection in (static keys, a SAS token, a
+service-account key, and public connections need neither).
+
+**With the vendor CLI (the default).** A **Sign in** button shells out to the
+cloud's official CLI, which opens your browser and keeps a session it refreshes
+for you:
 
 - S3: `aws sso login` (with `--profile` if set)
 - Azure: `az login`
 - GCS: `gcloud auth application-default login`
 
-You do **not** need any CLI for static keys, a SAS token, ambient environment
-credentials, a GCS service-account key, or a public connection - only for the
-in-app browser sign-in. When the CLI is missing, the connection shows a
-**"Sign in needs CLI"** note instead of the button (hover it for the full
-reason). Octa never implements the OAuth flow itself.
+The CLI path needs no setup and rarely re-prompts, but the CLI must be
+installed and signed in; when it is missing the connection shows a "Sign in
+needs CLI" note instead.
+
+**With your browser, no CLI (the fallback).** For **Azure Blob** and **GCS**,
+you can also sign in through your browser with
+no CLI at all: set an **OAuth client ID** on the connection (a Desktop-app
+client for Google with its client secret, or a public-client app for Azure with
+its tenant, both registered once in your own cloud console), and a **Sign in
+with browser** button appears. It caches the token for the session; the session
+lasts about an hour, then Octa asks again (no background refresh yet).
 
 On **Windows**, all three CLIs have native installers (the AWS CLI MSI, the
 Azure CLI MSI, the Google Cloud SDK installer); WSL is not required. If your
@@ -2039,7 +2087,8 @@ always sort by name and stay at the top.
 ## Union several objects
 
 **Ctrl-click** objects to select them rather than open them. An "N selected"
-bar appears at the top of the cloud section with a **Union...** button:
+bar appears at the top of the cloud section with a **Union...** button
+(also on the right-click menu of any selected object):
 Octa downloads the selected objects and opens the Union dialog over them,
 with the same column reconciliation as any other union. A folder of
 partitioned parquet parts becomes one table without a tab per object. A
@@ -2054,7 +2103,9 @@ detaches the tab from the cloud).
 To save back to the object, turn on **Allow writing to cloud storage** in
 **Settings > Cloud storage**. Then **Save** writes the tab back to its
 original object. Uploads run in the background; the status bar reports success
-or failure.
+or failure. Each connection also has its own **Allow writes on this
+connection** checkbox (off by default): both it and the global switch must
+allow a write, so only the connections you opt in are writable.
 
 The same switch also lets the **assistant** write to the cloud: ask it to save
 a result to a cloud URL (e.g. `s3://bucket/out.parquet`) and its write tools
@@ -2183,4 +2234,274 @@ As you edit, a live preview shows:
 
 **Load from file...** appends more lines from a text file. Applying renames every
 matched column as one step, so a single Undo reverts the whole batch.
+"#;
+
+pub(super) const COMPRESSED_FILES: &str = r#"# Compressed Files
+
+Octa reads gzip (`.gz`) and Zstandard (`.zst`) compressed files
+transparently: open `data.csv.gz` and it decompresses to a temporary file
+and loads as a normal CSV. This works everywhere a file can be opened:
+the GUI, the folder sidebar, the CLI actions, and the MCP tools.
+
+- The inner format comes from the middle extension (`.csv.gz` -> CSV,
+  `.json.zst` -> JSON, and so on).
+- **Saving** a compressed file recompresses it back to the original
+  path with the same codec. Save As to a plain extension writes
+  uncompressed.
+- A decompression size cap guards against decompression bombs:
+  **Settings > Files > Max decompressed size** (default 4 GB, with an
+  Unlimited override). Files that inflate past the cap are refused with
+  a clear error.
+"#;
+
+pub(super) const DATASETS: &str = r#"# Datasets (Folder of Parts)
+
+Many tools write a *table* as a *folder*: Spark and friends produce
+`part-00000.parquet`, `part-00001.parquet`, ...; lakehouses store Delta
+Lake or Apache Iceberg directories. Octa opens all of these as one table.
+
+- **File > Open table folder...** picks a directory. Delta Lake
+  (`_delta_log/`) and Iceberg (`metadata/`) directories load through
+  DuckDB's extensions (installed over the network on first use, then
+  cached).
+- Any other directory is scanned (up to 8 levels deep) for data parts:
+  Parquet, CSV/TSV, or JSON Lines. The majority family wins, and the
+  matching files are read as one table; a banner lists skipped files.
+- In the folder sidebar, right-click a directory and choose **Open as
+  dataset...** for the same behaviour without the picker.
+
+The initial-load row cap applies as usual for very large datasets.
+"#;
+
+pub(super) const CLOUD_INVENTORY: &str = r#"# Cloud Inventory
+
+List everything under a bucket or folder into a table, without opening
+any of it: right-click a connection or folder in the cloud sidebar and
+choose **List contents as table...**.
+
+- The listing is recursive and lands in a detached tab with one row per
+  object: `path`, `name`, `extension`, `size`, `modified`, `etag`,
+  `version`.
+- Capped at 100,000 objects; a banner tells you when the cap was hit.
+- Works on a whole connection, or scoped to the folder you clicked.
+  For an account-level connection, run it on a bucket (or deeper), not
+  on the account root.
+- From an agent, the MCP tool `list_objects` does the same with
+  `recursive: true`.
+
+The result is a normal table: filter it, chart it, run SQL over it, or
+save it like any other data.
+"#;
+
+pub(super) const DATABASES: &str = r#"# Database Connections
+
+Connect to nine live database engines: PostgreSQL, MySQL/MariaDB,
+Microsoft SQL Server, Amazon Redshift, ClickHouse, Exasol, Snowflake,
+Databricks, and Google BigQuery. Connections are managed under
+**Settings > Databases**; each one stores engine, host, port, database,
+username, and how to sign in. For the warehouse engines the Database
+field carries the Databricks SQL warehouse id or the BigQuery project
+id; the Snowflake account comes from the Host.
+
+The PostgreSQL and MySQL engines also reach any wire-compatible managed
+service: Amazon RDS and Aurora, Azure Database for PostgreSQL / MySQL,
+and Google Cloud SQL - pick PostgreSQL or MySQL and point the host at the
+managed endpoint.
+
+## Authentication
+
+A password is only one option; several engines never use one (they take a
+token, a key, a browser sign-in, or ambient cloud credentials). The engine
+picker gates which methods are offered:
+
+- **Password** - a username and password, stored in the system keyring,
+  never in `settings.toml`. Most engines offer it; BigQuery has none.
+- **AWS IAM (RDS)** (PostgreSQL / MySQL / Redshift) - a token minted per
+  connection via the aws CLI (`aws rds generate-db-auth-token`); sign in
+  first with `aws sso login`. Or fill the **IAM Identity Center** fields
+  (start URL, account ID, role) to sign in with your browser from inside
+  Octa - it runs the Identity Center device flow and mints role
+  credentials for you (the aws CLI is still used for the final signing).
+- **Microsoft Entra (Azure AD)** (SQL Server / PostgreSQL / MySQL /
+  Databricks) - no password; a token either from the `az` CLI (after
+  `az login`) or via browser sign-in from inside Octa. Octa picks the
+  right token audience per engine.
+- **Google Cloud SQL IAM** (PostgreSQL / MySQL) - no password; a token
+  either from the `gcloud` CLI (after `gcloud auth login`) or via browser
+  sign-in from inside Octa. The username must be the IAM principal.
+- **Key-pair (JWT)** (Snowflake) - an unencrypted PKCS#8 RSA private
+  key; Octa mints a signed login JWT locally.
+- **OAuth (browser SSO)** (Snowflake / Databricks) - sign-in opens in
+  your browser, caught on a local port. Databricks uses user-to-machine
+  OAuth against the workspace with the built-in `databricks-cli` client,
+  so no client id or secret is needed.
+- **OAuth (client credentials)** (Snowflake / Databricks) - a
+  machine-to-machine grant with a client id and secret.
+- **Personal access token** (Databricks) - a Databricks PAT.
+- **Application Default Credentials** (BigQuery) - gcloud ADC; sign in
+  with `gcloud auth application-default login`.
+- **Service-account key** (BigQuery) - a service-account JSON key file.
+
+The **Test connection** button in the form connects with the current
+values and runs `SELECT 1`, so a wrong host, password, or database name
+surfaces immediately instead of on first use.
+
+### Browser sign-in
+
+When the vendor CLI is not installed or not signed in, Octa can sign you
+in through your browser with no CLI needed:
+
+- **Azure AD** / **Google Cloud SQL IAM**: uses an OAuth client you
+  register once in your own cloud console - a **Desktop app** client for
+  Google (client id + client secret), or a **public client** app for
+  Azure with the `http://localhost` redirect (client id + tenant). Put it
+  in the **OAuth client ID** field.
+- **AWS IAM (RDS)**: no registration. Fill the **Identity Center start
+  URL**, **AWS account ID** and **IAM role name** on the connection; Octa
+  runs the IAM Identity Center device sign-in and mints role credentials
+  (aws CLI still used for the final RDS-token signing).
+- **Databricks**: pick the **OAuth (browser SSO)** auth mode; the
+  built-in `databricks-cli` client is used, so no fields are needed.
+
+Once configured, a **Sign in with browser** button appears; signing in
+caches the token for the session and every connection then uses it. The
+session lasts about an hour, then Octa asks again (no background refresh
+yet) - use the CLI for seamless long sessions.
+
+## Browsing
+
+**File > Databases** toggles a sidebar tree of your connections:
+expand one to list its schemas, expand a schema to list tables, click a
+table to open its first rows in a tab. Connections are reused across
+listings, table opens, and server queries, so browsing several servers
+side by side stays snappy. Right-click a table for **Show metadata...**,
+which opens a read-only tab with its columns; on Databricks it runs
+`DESCRIBE TABLE EXTENDED`, so the tab also shows the detailed table
+information (location, format, owner, properties).
+
+Snowflake, Databricks and BigQuery add a **catalog > schema > table**
+level (a Snowflake database, a Databricks catalog, a BigQuery project),
+loaded lazily as you expand it. Browsing every BigQuery project needs
+the cloud-platform token scope. The other engines stay two-level:
+MySQL/MariaDB, ClickHouse and Exasol are genuinely two-level, and a
+PostgreSQL / Redshift / SQL Server connection browses its one connected
+database.
+
+## Editing and write-back
+
+A database tab is **editable** when its connection has **Allow writes**
+on and Octa can discover a primary key; the [Read-only] pill disappears and
+you can edit cells, insert or delete rows, and add columns as in any
+file tab. Ctrl+S then shows exactly what would change on the server
+(updates / inserts / deletes / added columns) and, after you confirm,
+applies it in **one transaction**, keyed by the primary key. On failure
+everything rolls back and your edits stay in the tab.
+
+Notes:
+- Without a primary key the tab stays read-only (edits could not be
+  addressed to server rows); a banner says so. ClickHouse and BigQuery
+  tables have no discoverable primary key, so they always open
+  read-only.
+- Only the loaded rows (the initial-load window) are compared; rows
+  beyond it are never touched. Concurrent server edits between load and
+  save are overwritten (last writer wins).
+- A local SQL mutation on the tab rewrites the snapshot and loses row
+  identity; save then refuses and suggests reloading or **Run on
+  server**.
+- **Save As** exports the tab to a file and detaches it from the
+  server.
+
+## Copying a table between servers
+
+Right-click a table in the sidebar tree and pick **Copy to another
+connection...**: choose a target connection, schema, table, and a mode
+(Create new / Append / Replace). Copy works between any two of the nine
+engines, either direction, via two lanes (the dialog says which):
+
+- **Fast** - both sides DuckDB-attachable (PostgreSQL / MySQL / Redshift):
+  streams server-to-server through DuckDB, no row cap, no memory
+  blow-up; Postgres writes use the binary COPY protocol.
+- **Universal** - any other pair (a warehouse, ClickHouse, Exasol, SQL
+  Server): Octa pulls the source in batches and writes them to the
+  target. Slower, but works for every combination.
+
+The target connection needs **Allow writes**. Agents can do the same via
+the `copy_db_table` tool.
+
+## SQL: server or local
+
+On a database tab the SQL panel gains a **Run on** toggle: the
+connection name runs the query on the server, in the engine's own SQL
+dialect; **local DuckDB** queries the loaded snapshot as usual. Server
+queries run in the background with a Cancel button that works on every
+engine (see "Cancelling a running query" below).
+
+The SQL workspace can also **Attach connection** to a saved database
+so its tables join against local files (`alias.schema.table`). The
+alias is the connection name lowercased with punctuation as `_`
+("Post-Test" becomes `post_test`); the **Attached connections** box
+next to the Inspector lists each alias with a one-click example query,
+and clicking an attached table offers Copy / Insert / Run. PostgreSQL,
+MySQL and Redshift attach natively through DuckDB extensions; the other
+engines' tables are imported individually (row-capped). The SQL panel
+also opens on an empty tab,
+so you can attach and query servers without opening any file first;
+results always show a row counter above the grid.
+
+## Cancelling a running query
+
+The SQL panel's Cancel button stops a running statement on every engine:
+
+- **PostgreSQL, Redshift**: protocol-level cancel request.
+- **Snowflake, Databricks, BigQuery**: the vendor's cancel API, so the
+  warehouse stops billing for the statement.
+- **ClickHouse**: `KILL QUERY` by query id.
+- **MySQL/MariaDB**: `KILL QUERY` from a second connection.
+- **Exasol**: `KILL STATEMENT IN SESSION` from a second connection.
+- **SQL Server**: `KILL` from a second connection.
+
+Two limits: SQL Server's `KILL` ends the whole session rather than the
+one statement and needs the `ALTER ANY CONNECTION` permission, so Octa
+reconnects afterwards. And cancellation covers the SQL panel: opening a
+large table from the sidebar and copying a table both run to completion.
+
+## Writes
+
+Every connection is **read-only by default**. Mutations (INSERT /
+UPDATE / DDL), the write-back target in the SQL panel, the CLI
+`--db-write-table`, and the MCP `write_db_table` tool are all refused
+until you switch on **Allow writes** for that connection.
+
+## CLI and agents
+
+```
+octa --db-tables --db warehouse
+octa --db-query "SELECT * FROM public.users LIMIT 10" --db warehouse
+octa --db-write-table staging.users --db warehouse users.parquet
+```
+
+On Snowflake, Databricks and BigQuery, `--db-catalog NAME` picks the
+catalog for `--db-tables` and `--db-write-table`; without it
+`--db-tables` lists the catalogs themselves. The other six engines have
+no catalog level, so passing it there is an error.
+
+`--db-copy` copies a table to another saved connection, server to
+server:
+
+```
+octa --db source_conn --db-copy analytics.orders \
+     --db-copy-to target_conn \
+     --db-copy-target reporting.orders \
+     --db-write-mode replace
+```
+
+`--db-copy-target` defaults to the source schema and table, and
+`--db-copy-target-catalog` names the target catalog on a three-level
+engine. The target connection needs **Allow writes**.
+
+MCP / Assistant tools: `list_db_connections`, `list_db_tables`,
+`query_db`, `write_db_table`, `copy_db_table`. On the three-level
+engines `list_db_tables` and `write_db_table` take a `catalog`
+parameter and `copy_db_table` takes `source_catalog` and
+`target_catalog`.
 "#;

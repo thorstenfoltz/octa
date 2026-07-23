@@ -10,7 +10,6 @@ use std::path::PathBuf;
 
 use octa::data::compare_schemas::{SchemaDiff, compare_schemas};
 use octa::data::{CellValue, ColumnInfo, DataTable};
-use octa::formats::FormatRegistry;
 
 use super::OutputFormat;
 use super::output::write_table;
@@ -31,14 +30,11 @@ pub fn run(
 }
 
 fn read_one(path: &std::path::Path, table: Option<&str>) -> anyhow::Result<DataTable> {
-    let registry = FormatRegistry::new();
-    let reader = registry
-        .reader_for_path(path)
-        .ok_or_else(|| anyhow::anyhow!("no reader available for {}", path.display()))?;
-    match table {
-        Some(name) => reader.read_table(path, name),
-        None => reader.read_file(path),
-    }
+    octa::formats::read_table_auto(
+        path,
+        table,
+        octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
+    )
 }
 
 /// Flatten the diff into a single four-column table that the shared

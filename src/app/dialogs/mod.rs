@@ -17,6 +17,8 @@ pub(crate) mod conditional_column;
 pub(crate) mod conditional_format;
 pub(crate) mod correlation;
 pub(crate) mod date_ambiguity;
+pub(crate) mod db_copy;
+pub(crate) mod db_write_back;
 pub(crate) mod dedupe;
 pub(crate) mod delete_columns;
 pub(crate) mod documentation;
@@ -78,6 +80,8 @@ impl OctaApp {
         documentation::render_documentation_dialog(self, ctx);
         round_save_prompt::render_round_save_prompt_dialog(self, ctx);
         schema_change_save::render_schema_change_save_dialog(self, ctx);
+        db_write_back::render_db_write_back_dialog(self, ctx);
+        db_copy::render_db_copy_dialog(self, ctx);
         reload_confirm::render_unalign_confirm_dialog(self, ctx);
         reload_confirm::render_reload_confirm_dialog(self, ctx);
         about::render_about_dialog(self, ctx);

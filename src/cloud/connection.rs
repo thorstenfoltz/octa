@@ -61,6 +61,19 @@ pub struct CloudConnection {
     /// project otherwise). None = the gcloud active project. Ignored elsewhere.
     #[serde(default)]
     pub project: Option<String>,
+    /// Per-connection write permission, checked IN ADDITION to the global
+    /// "Allow writing to cloud storage" switch (both must allow). Default
+    /// false: every connection is read-only until the user opts it in
+    /// (existing saved connections need the tick after upgrading).
+    #[serde(default)]
+    pub allow_writes: bool,
+    /// BYO OAuth client id for native browser sign-in (Azure Blob / GCS
+    /// fallback when the vendor CLI is unavailable). None = not configured.
+    #[serde(default)]
+    pub oauth_client_id: Option<String>,
+    /// Azure tenant for the browser endpoints (Azure only). None = "organizations".
+    #[serde(default)]
+    pub oauth_tenant: Option<String>,
 }
 
 impl CloudConnection {
@@ -85,6 +98,9 @@ impl CloudConnection {
             prefix: None,
             account_level: false,
             project: None,
+            allow_writes: false,
+            oauth_client_id: None,
+            oauth_tenant: None,
         }
     }
 
@@ -110,6 +126,9 @@ impl CloudConnection {
             prefix: None,
             account_level: false,
             project: None,
+            allow_writes: false,
+            oauth_client_id: None,
+            oauth_tenant: None,
         }
     }
 
@@ -132,6 +151,9 @@ impl CloudConnection {
             prefix: None,
             account_level: false,
             project: None,
+            allow_writes: false,
+            oauth_client_id: None,
+            oauth_tenant: None,
         }
     }
 
@@ -187,6 +209,9 @@ mod tests {
             prefix: None,
             account_level: false,
             project: None,
+            allow_writes: false,
+            oauth_client_id: None,
+            oauth_tenant: None,
         };
         let json = serde_json::to_string(&c).unwrap();
         let back: CloudConnection = serde_json::from_str(&json).unwrap();
@@ -228,5 +253,8 @@ mod tests {
         let c: CloudConnection = serde_json::from_str(json).unwrap();
         assert!(c.prefix.is_none());
         assert!(!c.account_level);
+        // Secure by default: a connection saved before the field existed is
+        // read-only until the user opts it in.
+        assert!(!c.allow_writes);
     }
 }

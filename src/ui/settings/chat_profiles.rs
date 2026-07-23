@@ -52,6 +52,13 @@ pub struct ChatModelProfile {
     /// of the key shared by every profile of the same provider.
     #[serde(default)]
     pub use_own_key: bool,
+    /// When true this profile's assistant may use the write tools (files,
+    /// open tabs, writable database connections). Default false: a new
+    /// profile is read-only until the user opts in. Replaces the global
+    /// Write protection switch for the chat surface only (that switch still
+    /// governs GUI file saves and the MCP server default).
+    #[serde(default)]
+    pub allow_writes: bool,
 }
 
 impl ChatModelProfile {
@@ -121,6 +128,9 @@ pub fn seed_profile_from_legacy(settings: &AppSettings) -> ChatModelProfile {
         reasoning: String::new(),
         base_url,
         use_own_key: false,
+        // First migration keeps the behaviour the install had under the
+        // global switch; profiles created later default to read-only.
+        allow_writes: !settings.write_protection,
     }
 }
 
@@ -220,6 +230,7 @@ mod tests {
             reasoning: String::new(),
             base_url: String::new(),
             use_own_key: false,
+            allow_writes: false,
         });
 
         // Same name again gets a distinct id, so the two profiles' own-keys
@@ -265,6 +276,7 @@ mod tests {
             reasoning: "8000".into(),
             base_url: String::new(),
             use_own_key: true,
+            allow_writes: true,
         });
         s.chat_active_profile = "opus-deep".into();
 
@@ -283,6 +295,22 @@ mod tests {
         assert_eq!(p.reasoning, "8000");
         assert_eq!(p.description, "for the hard questions");
         assert!(p.use_own_key);
+        assert!(p.allow_writes);
+    }
+
+    #[test]
+    fn legacy_seed_inherits_the_global_write_switch() {
+        // The first migration keeps the behaviour the install already had:
+        // write protection OFF meant the assistant could write, so the seeded
+        // profile allows writes; protection ON seeds a read-only profile.
+        for (write_protection, expect_allow) in [(false, true), (true, false)] {
+            let mut s = AppSettings {
+                write_protection,
+                ..Default::default()
+            };
+            ensure_profiles(&mut s);
+            assert_eq!(s.chat_profiles[0].allow_writes, expect_allow);
+        }
     }
 
     #[test]
@@ -317,6 +345,7 @@ mod tests {
             reasoning: String::new(),
             base_url: String::new(),
             use_own_key: false,
+            allow_writes: false,
         });
         s.chat_active_profile = "sonnet-quick".into();
 

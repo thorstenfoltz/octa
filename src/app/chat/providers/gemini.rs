@@ -283,12 +283,20 @@ fn message_to_wire(m: &Message) -> Value {
         Role::Assistant => "model",
         _ => "user",
     };
-    let parts: Vec<Value> = m.blocks.iter().map(block_to_wire).collect();
+    let parts: Vec<Value> = m
+        .blocks
+        .iter()
+        .map(block_to_wire)
+        .filter(|v| !v.is_null())
+        .collect();
     json!({ "role": role, "parts": parts })
 }
 
 fn block_to_wire(b: &ContentBlock) -> Value {
     match b {
+        // Another provider's opaque payload (e.g. OpenAI reasoning items);
+        // filtered out of the wire message above.
+        ContentBlock::ProviderData { .. } => Value::Null,
         ContentBlock::Text { text } => json!({ "text": text }),
         ContentBlock::ToolUse { name, input, .. } => {
             json!({ "functionCall": { "name": name, "args": input } })

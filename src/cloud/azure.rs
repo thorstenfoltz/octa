@@ -37,6 +37,7 @@ pub fn build_azure_provider(
             AzureCreds::Cli => builder.with_use_azure_cli(true),
             AzureCreds::AccessKey(k) => builder.with_access_key(k),
             AzureCreds::Sas(s) => builder.with_sas_authorization(parse_sas(s)),
+            AzureCreds::BearerToken(t) => builder.with_bearer_token_authorization(t.clone()),
         }
     };
     let store = builder
@@ -61,6 +62,12 @@ mod tests {
         // `with_use_azure_cli` does not invoke `az` at build time, so this is
         // hermetic.
         let provider = build_azure_provider(&azure_conn(), &AzureCreds::Cli);
+        assert!(provider.is_ok());
+    }
+
+    #[test]
+    fn builds_with_bearer_token() {
+        let provider = build_azure_provider(&azure_conn(), &AzureCreds::BearerToken("tok".into()));
         assert!(provider.is_ok());
     }
 

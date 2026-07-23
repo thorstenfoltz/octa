@@ -134,6 +134,7 @@ impl OctaApp {
             show_reload_confirm: false,
             pending_table_picker: None,
             pending_sheet_picker: None,
+            pending_compressed_origin: None,
             pending_load: None,
             pending_open_queue: std::collections::VecDeque::new(),
             recently_closed_tabs: std::collections::VecDeque::new(),
@@ -149,6 +150,9 @@ impl OctaApp {
             pending_file_repair: None,
             pending_round_save: None,
             pending_schema_change_save: None,
+            pending_db_write_back: None,
+            db_write_back_job: None,
+            db_copy_dialog: None,
             pending_parse_modal: None,
             schema_export: None,
             pivot_dialog: None,
@@ -183,6 +187,9 @@ impl OctaApp {
             multi_search: super::multi_search::MultiSearchState::new(search_mode),
             pending_tab_edits: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             cloud_browser: super::cloud_browser::CloudBrowserState::default(),
+            db_browser: super::db_browser::DbBrowserState::default(),
+            db_conn_cache: super::db_conn_cache::DbConnCache::default(),
+            sql_server_job: None,
         }
     }
 
