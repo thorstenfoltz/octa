@@ -474,55 +474,46 @@ jobs:
 
           ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
 
-      - name: Push octa to AUR
+      - name: Push to AUR
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          git -c init.defaultBranch=master clone \
-            ssh://aur@aur.archlinux.org/octa.git /tmp/aur-octa
+          # One function, both packages. AUR's SSH occasionally drops the
+          # connection mid-clone ("Connection closed ... port 22"), so retry.
+          # "Nothing changed" (files already match the AUR repo, e.g. a partial
+          # previous run) is a graceful skip, not a failure.
+          push_pkg() {
+            repo="$1"; srcdir="$2"; dest="/tmp/aur-$repo"
 
-          cp .github/aur/PKGBUILD .github/aur/.SRCINFO /tmp/aur-octa/
-          cd /tmp/aur-octa
+            for attempt in 1 2 3; do
+              git -c init.defaultBranch=master clone \
+                "ssh://aur@aur.archlinux.org/$repo.git" "$dest" && break
+              echo "clone $repo attempt $attempt failed; retrying in 10s"
+              rm -rf "$dest"
+              sleep 10
+            done
+            test -d "$dest" || { echo "clone $repo failed after retries"; exit 1; }
 
-          echo "--- PKGBUILD ---"
-          cat PKGBUILD
-          echo "--- .SRCINFO ---"
-          cat .SRCINFO
+            cp "$srcdir/PKGBUILD" "$srcdir/.SRCINFO" "$dest/"
+            cd "$dest"
 
-          STATUS="$(git status --porcelain)"
-          echo "$STATUS" | grep -q 'PKGBUILD'
-          echo "$STATUS" | grep -q '.SRCINFO'
+            echo "--- $repo PKGBUILD ---"; cat PKGBUILD
+            echo "--- $repo .SRCINFO ---"; cat .SRCINFO
 
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add PKGBUILD .SRCINFO
-          git commit -m "release $VERSION"
-          git push
+            git config user.name "GitHub Actions"
+            git config user.email "actions@github.com"
+            git add PKGBUILD .SRCINFO
+            if git diff --cached --quiet; then
+              echo "$repo: already up to date, nothing to push"
+            else
+              git commit -m "release $VERSION"
+              git push
+            fi
+            cd - >/dev/null
+          }
 
-      - name: Push octa-bin to AUR
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          git -c init.defaultBranch=master clone \
-            ssh://aur@aur.archlinux.org/octa-bin.git /tmp/aur-octa-bin
-
-          cp .github/aur-bin/PKGBUILD .github/aur-bin/.SRCINFO /tmp/aur-octa-bin/
-          cd /tmp/aur-octa-bin
-
-          echo "--- PKGBUILD ---"
-          cat PKGBUILD
-          echo "--- .SRCINFO ---"
-          cat .SRCINFO
-
-          STATUS="$(git status --porcelain)"
-          echo "$STATUS" | grep -q 'PKGBUILD'
-          echo "$STATUS" | grep -q '.SRCINFO'
-
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add PKGBUILD .SRCINFO
-          git commit -m "release $VERSION"
-          git push
+          push_pkg octa .github/aur
+          push_pkg octa-bin .github/aur-bin
 
   # Publish the headless image to GitHub Container Registry. Runs in PARALLEL
   # with the build-* jobs (no `needs:`), not after `publish`: the Dockerfile
