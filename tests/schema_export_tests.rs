@@ -22,7 +22,7 @@ fn target_all_contains_every_variant() {
     // Sanity: ALL must list every public variant once. If a variant is
     // added without updating ALL the export menu would silently miss
     // it. Length check catches the common drift.
-    assert_eq!(SchemaTarget::ALL.len(), 9);
+    assert_eq!(SchemaTarget::ALL.len(), 10);
 }
 
 #[test]
@@ -313,4 +313,53 @@ fn pure_numeric_table_name_falls_back_to_row_prefix() {
     let c = cols(&[("a", "Int64")]);
     let py = SchemaTarget::PydanticV2.export(&c, "123");
     assert!(py.contains("class Row_23(BaseModel):"), "got: {}", py);
+}
+
+#[test]
+fn mssql_types() {
+    let c = cols(&[
+        ("id", "Int64"),
+        ("name", "Utf8"),
+        ("score", "Float64"),
+        ("active", "Boolean"),
+        ("born", "Date32"),
+        ("when", "Timestamp(Microsecond, None)"),
+    ]);
+    let out = SchemaTarget::MssqlSqlDdl.export(&c, "people");
+    assert!(out.contains("CREATE TABLE people"), "got: {out}");
+    assert!(out.contains("id BIGINT"));
+    assert!(out.contains("name NVARCHAR(MAX)"));
+    assert!(out.contains("score FLOAT"));
+    assert!(out.contains("active BIT"));
+    assert!(out.contains("born DATE"));
+    assert!(out.contains("when DATETIME2"));
+}
+
+#[test]
+fn mssql_quotes_with_brackets_and_flags_unknowns() {
+    let c = cols(&[("my col", "Utf8"), ("weird", "Duration(ns)")]);
+    let out = SchemaTarget::MssqlSqlDdl.export(&c, "t");
+    assert!(out.contains("[my col] NVARCHAR(MAX)"), "got: {out}");
+    assert!(out.contains("unknown"), "got: {out}");
+}
+
+#[test]
+fn live_ddl_is_schema_qualified_and_always_quoted() {
+    use octa::data::schema_export::sql::{LiveSqlDialect, create_table_qualified};
+    let c = cols(&[("id", "Int64"), ("name", "Utf8")]);
+    let pg = create_table_qualified(&c, LiveSqlDialect::Postgres, "reports", "q4");
+    assert_eq!(pg, "CREATE TABLE reports.q4 (id BIGINT, name TEXT)");
+    let my = create_table_qualified(&c, LiveSqlDialect::Mysql, "", "q4");
+    assert_eq!(my, "CREATE TABLE q4 (id BIGINT, name TEXT)");
+    let ms = create_table_qualified(&c, LiveSqlDialect::Mssql, "dbo", "my table");
+    assert!(ms.starts_with("CREATE TABLE dbo.[my table] ("), "got: {ms}");
+}
+
+#[test]
+fn db_create_table_sql_dispatches_per_engine() {
+    use octa::db::{DbEngine, create_table_sql};
+    let c = cols(&[("x", "Boolean")]);
+    assert!(create_table_sql(DbEngine::Postgres, "s", "t", &c).contains("x BOOLEAN"));
+    assert!(create_table_sql(DbEngine::Mssql, "s", "t", &c).contains("x BIT"));
+    assert!(create_table_sql(DbEngine::MySql, "s", "t", &c).contains("x BOOLEAN"));
 }

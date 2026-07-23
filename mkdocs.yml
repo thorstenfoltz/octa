@@ -136,6 +136,8 @@ nav:
       - Saving: usage/saving.md
       - Tabs & Folder Sidebar: usage/tabs-and-sidebar.md
       - Cloud Storage: usage/cloud-storage.md
+      - Cloud Inventory: usage/cloud-inventory.md
+      - Database Connections: usage/database-connections.md
       - View Modes:
           - Overview: usage/view-modes/overview.md
           - Raw Text: usage/view-modes/raw-text.md

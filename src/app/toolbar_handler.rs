@@ -3,10 +3,9 @@
 
 use eframe::egui;
 
-use octa::data::ViewMode;
 use octa::ui;
 
-use super::state::{OctaApp, TabState};
+use super::state::OctaApp;
 
 impl OctaApp {
     /// Paint invisible resize-grab strips along the window edges and corners
@@ -297,11 +296,7 @@ impl OctaApp {
 
     fn dispatch_toolbar_action(&mut self, ctx: &egui::Context, action: ui::toolbar::ToolbarAction) {
         if action.new_file {
-            let mut new_tab = TabState::new(self.settings.default_search_mode);
-            new_tab.view_mode = ViewMode::Raw;
-            new_tab.raw_content = Some(String::new());
-            self.tabs.push(new_tab);
-            self.active_tab = self.tabs.len() - 1;
+            self.new_file();
         }
         if action.open_file {
             self.open_file();
@@ -323,6 +318,9 @@ impl OctaApp {
         }
         if action.toggle_cloud_browser {
             self.toggle_cloud_browser();
+        }
+        if action.toggle_db_browser {
+            self.toggle_db_browser();
         }
         if let Some(ref path) = action.open_recent {
             let path_buf = std::path::PathBuf::from(path);

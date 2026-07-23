@@ -19,7 +19,7 @@ fn ctx_with_tab(unlocked: bool) -> ToolContext {
         vec![CellValue::Int(1), CellValue::Int(10)],
         vec![CellValue::Int(2), CellValue::Int(20)],
     ];
-    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true);
+    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false);
     ctx.open_tabs = vec![TableSnapshot {
         handle: "#1".into(),
         display_name: "t".into(),
@@ -33,7 +33,7 @@ fn ctx_with_tab(unlocked: bool) -> ToolContext {
 }
 
 #[test]
-fn refuses_when_write_protection_on() {
+fn refuses_when_existing_writes_disallowed() {
     let ctx = ctx_with_tab(false);
     let p = Params {
         open_tab: "#1".into(),

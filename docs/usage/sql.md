@@ -56,10 +56,42 @@ can start typing immediately without clicking into it first.
 - A **Run** button in the toolbar does the same as Ctrl+Enter.
 - A **Clear** button empties the editor.
 
-Each run creates a **fresh DuckDB connection**, so there is no
-persistent SQL state between queries. Accidental mutations therefore
-do not accumulate across runs; an `UPDATE` in one query does not
-carry over to the next.
+Each tab owns a **persistent DuckDB workspace**: added tables and
+attached databases survive across runs and are dropped when the tab
+closes. See [The workspace](#the-workspace) below.
+
+## The workspace
+
+<!-- SCREENSHOT: sql-workspace-attachments.png: The SQL panel's Workspace section expanded. The table list shows "data (3 rows)" plus two attached connections "post_test [Postgres]" and "mariadb_test [MySQL]", one expanded to its schemas/tables. Right of the Inspector the "Attached connections" box lists both aliases with an Insert button each. In the editor below, a UNION ALL query across post_test.public.people and mariadb_test.admin.people. -->
+![SQL workspace with two attached connections](../assets/screenshots/sql-workspace-attachments.png){ .screenshot-placeholder }
+
+The collapsible **Workspace** section above the editor lists everything
+your queries can reach:
+
+- **`data`** - the active table. Queries see a snapshot taken when the
+  workspace was built; after editing cells in the table view, click
+  **refresh** next to `data` to push the edits in.
+- **+ Add table...** loads additional files (any readable format) as
+  extra tables for cross-file JOINs.
+- **Attach database...** ATTACHes a DuckDB or SQLite *file*; its inner
+  tables are addressed as `alias.schema.table`.
+- **Attach connection** ATTACHes a saved
+  [live database connection](database-connections.md) read-only
+  (PostgreSQL / MySQL natively via DuckDB extensions; SQL Server tables
+  are imported individually). The **alias** you use in SQL is the
+  connection name lowercased with spaces and punctuation as `_`
+  ("Post-Test" becomes `post_test`). You never have to guess it: the
+  **Attached connections** box next to the Inspector lists every alias
+  with a one-click example query, and clicking any attached table in
+  the tree offers **Copy / Insert / Run** for its qualified name.
+
+Clicking a table in the list opens it in the **Inspector**: columns,
+types, and a sample of rows.
+
+The workspace also works with **no table open at all**: open the panel
+via **Analyse > SQL** on an empty tab, attach your connections, and
+query the servers directly (cross-server JOINs and UNIONs included);
+there is simply no `data` table until you open a file.
 
 ## History and snippets
 
@@ -98,10 +130,20 @@ replace.
 
 ## Result rendering
 
-Results render in a table below the editor. The result table is a
+Results render in a table below the editor, with a **row counter**
+directly above the grid. The counter is display-only: it is never a
+column of the result and never lands in an export. The result table is a
 separate `egui_extras::TableBuilder` from the main
 [Table view](table-view.md) (no edit overlay, no row selection
 beyond click-to-select-text).
+
+Results honour the same **initial-load row cap** as file opens
+([**Settings → Performance**](../reference/settings.md#performance),
+default 5,000,000): a SELECT that would return more rows stops there
+instead of exhausting memory, and the row counter says so
+("row cap reached, result truncated"). This applies to local DuckDB
+queries and to queries run on a live database connection alike. Raise
+the cap, or narrow the query, to see more.
 
 Errors render in **red** below the editor.
 
@@ -121,9 +163,9 @@ highlight is a temporary display mark and clears itself.
 
 !!! warning "Mutations don't persist back to disk by default"
 
-    The in-memory DuckDB connection is recreated on every Ctrl+Enter,
-    so any mutation is **lost** when you close Octa unless you also
-    save the file via **File → Save**.
+    A mutation changes the **in-memory** table only, so it is lost
+    when you close Octa unless you also save the file via
+    **File → Save**.
 
     For files Octa supports
     [writing](saving.md) (CSV, Parquet, SQLite, …), saving after

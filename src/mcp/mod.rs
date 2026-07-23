@@ -55,6 +55,11 @@ pub struct OctaMcpServer {
     pub allow_schema_changes: bool,
     /// Back up an existing file before modifying it in place.
     pub backup_before_modify: bool,
+    /// `--mcp-read-only`: write tools are dropped from the router and
+    /// `query_db` refuses mutations.
+    pub read_only: bool,
+    /// Saved live-database connections, read once at startup.
+    pub db_connections: Vec<octa::db::DbConnection>,
     /// rmcp tool routing table (populated by `#[tool_router]`).
     pub tool_router: ToolRouter<OctaMcpServer>,
 }
@@ -70,6 +75,8 @@ impl OctaMcpServer {
             self.cell_byte_cap,
             self.allow_schema_changes,
             self.backup_before_modify,
+            self.db_connections.clone(),
+            self.read_only,
         )
     }
 }
@@ -94,6 +101,8 @@ impl OctaMcpServer {
                 "transform_columns",
                 "anonymize",
                 "partition_table",
+                "write_db_table",
+                "copy_db_table",
             ] {
                 tool_router.remove_route(name);
             }
@@ -103,6 +112,9 @@ impl OctaMcpServer {
             cell_byte_cap,
             allow_schema_changes,
             backup_before_modify,
+            read_only,
+            // Settings are read once at server startup, like the caps above.
+            db_connections: octa::ui::settings::AppSettings::load().db_connections,
             tool_router,
         }
     }
@@ -198,6 +210,76 @@ the account name)."
         Parameters(p): Parameters<tools::list_objects::Params>,
     ) -> Result<CallToolResult, McpError> {
         tools::list_objects::handle(self, p).await
+    }
+
+    #[tool(
+        description = "List the saved live-database connections (Settings -> Databases): name, \
+engine (PostgreSQL / MySQL / SQL Server), host, port, database, and whether writes are allowed. \
+Use a connection's `name` with `list_db_tables`, `query_db`, `write_db_table`, and \
+`copy_db_table`. Read-only; does not contact any server."
+    )]
+    async fn list_db_connections(
+        &self,
+        Parameters(p): Parameters<tools::list_db_connections::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::list_db_connections::handle(self, p).await
+    }
+
+    #[tool(
+        description = "List the schemas and tables of a saved live-database connection (see \
+`list_db_connections` for the names). Pass `schema` to list only that schema's tables. Returns \
+`tables` as an array of `{schema, table}`. Query a listed table with `query_db` (e.g. SELECT * \
+FROM schema.table). Read-only."
+    )]
+    async fn list_db_tables(
+        &self,
+        Parameters(p): Parameters<tools::list_db_tables::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::list_db_tables::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Run one SQL statement on a saved live-database connection (see \
+`list_db_connections`), server-side and in the engine's NATIVE dialect (PostgreSQL, \
+MySQL/MariaDB, or SQL Server - not DuckDB SQL). SELECTs return `{schema, rows, ...}` like \
+`read_table` (the `limit` param caps the response). Mutations (INSERT/UPDATE/DELETE/DDL) return \
+`{rows_affected}` and are refused unless the connection's \"Allow writes\" switch is on. Add \
+your own LIMIT/TOP for large tables - the whole result is fetched from the server."
+    )]
+    async fn query_db(
+        &self,
+        Parameters(p): Parameters<tools::query_db::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::query_db::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Write a table into a saved live-database connection (see \
+`list_db_connections`): source rows come from `path` (any readable file, cloud URLs included) \
+or `open_tab` (in-GUI assistant only). Target is `schema` + `table`; `mode` is `create` \
+(default, error if the table exists), `append`, or `replace` (DROP + CREATE). Refused unless \
+the connection's \"Allow writes\" switch is on. Returns `{rows_written, created}`."
+    )]
+    async fn write_db_table(
+        &self,
+        Parameters(p): Parameters<tools::write_db_table::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::write_db_table::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Copy a table from one saved live-database connection to another (see \
+`list_db_connections`), streamed server-to-server through DuckDB - fast for large tables and \
+not limited by any row cap. Postgres and MySQL/MariaDB only (SQL Server is not supported); the \
+target connection's \"Allow writes\" switch must be on. `mode` is `create` (default, error if \
+the target table exists), `append`, or `replace` (DROP + CREATE). Target schema/table default \
+to the source's. Returns `{rows_copied, created}`."
+    )]
+    async fn copy_db_table(
+        &self,
+        Parameters(p): Parameters<tools::copy_db_table::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::copy_db_table::handle(self, p).await
     }
 
     #[tool(
@@ -666,7 +748,8 @@ impl ServerHandler for OctaMcpServer {
              Available tools: read_table, tail, sample, schema, list_tables, count_rows, \
              run_sql, convert, export_schema, profile, find_duplicates, value_frequency, \
              search, compare_schemas, diff_tables, union_tables, validate_against_schema, \
-             describe_file, unique_columns, pivot, correlation, grep_files, transform_columns."
+             describe_file, unique_columns, pivot, correlation, grep_files, transform_columns, \
+             list_db_connections, list_db_tables, query_db, write_db_table, copy_db_table."
         );
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::from_build_env())

@@ -42,6 +42,11 @@ pub enum ContentBlock {
         content: String,
         is_error: bool,
     },
+    /// Opaque provider-specific payload carried in the transcript and replayed
+    /// verbatim to the same provider (e.g. OpenAI Responses reasoning items
+    /// with encrypted_content, which gpt-5.x requires alongside a replayed
+    /// function_call). Other providers skip it.
+    ProviderData { provider: String, data: Value },
 }
 
 impl ContentBlock {
@@ -121,6 +126,10 @@ pub enum ChatEvent {
         name: String,
         input: Value,
     },
+    /// A provider-specific item to attach to the assistant turn verbatim
+    /// (ordering preserved relative to tool calls). See
+    /// [`ContentBlock::ProviderData`].
+    ProviderData(Value),
     /// Token usage, if the provider reports it.
     Usage {
         input_tokens: u32,

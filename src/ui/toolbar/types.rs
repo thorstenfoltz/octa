@@ -40,6 +40,8 @@ pub struct ToolbarAction {
     pub close_directory: bool,
     /// Toggle the sidebar cloud-storage browser (File -> Cloud connections).
     pub toggle_cloud_browser: bool,
+    /// Toggle the sidebar live-database browser (File -> Databases).
+    pub toggle_db_browser: bool,
     pub open_recent: Option<String>,
     /// Right-click -> "Remove from list" on a single recent-files entry.
     pub remove_recent: Option<String>,

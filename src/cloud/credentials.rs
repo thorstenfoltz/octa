@@ -6,7 +6,80 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use super::CloudKind;
+use crate::auth::oauth_browser::{CachedToken, OAuthBrowserConfig, token_still_valid, unix_now};
+
+use super::{CloudConnection, CloudKind};
+
+/// Process-global cache of cloud browser access tokens, keyed by connection id.
+/// Session-only (MVP: not persisted). ponytail: one global lock is fine here.
+fn cloud_token_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, CachedToken>>
+{
+    static CACHE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, CachedToken>>,
+    > = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Store a browser access token for a cloud connection (GUI sign-in flow).
+pub fn cache_cloud_browser_token(conn_id: &str, token: CachedToken) {
+    if let Ok(mut c) = cloud_token_cache().lock() {
+        c.insert(conn_id.to_string(), token);
+    }
+}
+
+/// A still-valid cached browser token for the cloud connection, if any.
+pub fn cached_cloud_browser_token(conn_id: &str) -> Option<CachedToken> {
+    let c = cloud_token_cache().lock().ok()?;
+    c.get(conn_id)
+        .filter(|t| token_still_valid(t, unix_now()))
+        .cloned()
+}
+
+/// Whether a valid browser token is cached for the connection.
+pub fn has_cloud_browser_token(conn_id: &str) -> bool {
+    cached_cloud_browser_token(conn_id).is_some()
+}
+
+/// Build the browser sign-in config for a cloud connection, or None when no
+/// client id is configured or the kind has no browser flow (S3/AWS). Azure is a
+/// public client (no secret, PKCE); Google needs the client secret in the
+/// exchange.
+pub fn cloud_browser_oauth_config(
+    conn: &CloudConnection,
+    client_secret: Option<&str>,
+) -> Option<OAuthBrowserConfig> {
+    let client_id = conn
+        .oauth_client_id
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())?;
+    match conn.kind {
+        CloudKind::AzureBlob => {
+            let tenant = conn
+                .oauth_tenant
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or("organizations");
+            let base = format!("https://login.microsoftonline.com/{tenant}/oauth2/v2.0");
+            Some(OAuthBrowserConfig {
+                authorize_url: format!("{base}/authorize"),
+                token_url: format!("{base}/token"),
+                client_id: client_id.to_string(),
+                client_secret: None,
+                scope: "https://storage.azure.com/.default".into(),
+                extra_auth_params: vec![],
+            })
+        }
+        CloudKind::Gcs => Some(OAuthBrowserConfig {
+            authorize_url: "https://accounts.google.com/o/oauth2/v2/auth".into(),
+            token_url: "https://oauth2.googleapis.com/token".into(),
+            client_id: client_id.to_string(),
+            client_secret: client_secret.map(str::to_string),
+            scope: "https://www.googleapis.com/auth/cloud-platform".into(),
+            extra_auth_params: vec![],
+        }),
+        CloudKind::S3 => None, // AWS out of scope for browser OAuth
+    }
+}
 
 /// Static access credentials for an S3 / S3-compatible provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,6 +174,8 @@ pub enum AzureCreds {
     AccessKey(String),
     /// Shared Access Signature token, e.g. `sv=...&sig=...`.
     Sas(String),
+    /// OAuth bearer access token from native browser sign-in.
+    BearerToken(String),
 }
 
 /// Split a SAS token query string into `(key, value)` pairs for
@@ -172,6 +247,36 @@ pub fn resolve_s3_keys(conn: &super::CloudConnection) -> Option<StaticKeys> {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn cloud_browser_config_azure_storage_scope() {
+        let mut c = CloudConnection::ephemeral_azure("acct", "cont");
+        c.oauth_client_id = Some("cid".into());
+        c.oauth_tenant = Some("contoso".into());
+        let cfg = cloud_browser_oauth_config(&c, None).expect("azure cfg");
+        assert_eq!(cfg.scope, "https://storage.azure.com/.default");
+        assert!(cfg.authorize_url.contains("contoso"));
+        assert!(cfg.client_secret.is_none());
+    }
+
+    #[test]
+    fn cloud_browser_config_gcs_scope_and_secret() {
+        let mut c = CloudConnection::ephemeral_gcs("bucket");
+        c.oauth_client_id = Some("cid".into());
+        let cfg = cloud_browser_oauth_config(&c, Some("gsecret")).expect("gcs cfg");
+        assert_eq!(cfg.scope, "https://www.googleapis.com/auth/cloud-platform");
+        assert_eq!(cfg.token_url, "https://oauth2.googleapis.com/token");
+        assert_eq!(cfg.client_secret.as_deref(), Some("gsecret"));
+    }
+
+    #[test]
+    fn cloud_browser_config_none_for_s3_or_no_client() {
+        let mut s3 = CloudConnection::ephemeral_s3("b");
+        s3.oauth_client_id = Some("cid".into());
+        assert!(cloud_browser_oauth_config(&s3, None).is_none());
+        let gcs = CloudConnection::ephemeral_gcs("bucket");
+        assert!(cloud_browser_oauth_config(&gcs, None).is_none());
+    }
 
     #[test]
     fn resolves_keys_when_env_present() {

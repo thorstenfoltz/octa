@@ -14,6 +14,8 @@ fn read_only_drops_write_tools() {
         "transform_columns",
         "anonymize",
         "partition_table",
+        "write_db_table",
+        "copy_db_table",
     ] {
         assert!(
             !ro.tool_router.has_route(name),
@@ -27,6 +29,9 @@ fn read_only_drops_write_tools() {
         "correlation",
         "grep_files",
         "list_objects",
+        "list_db_connections",
+        "list_db_tables",
+        "query_db",
         "fuzzy_duplicates",
         "union_tables",
         "join_tables",
@@ -44,6 +49,7 @@ fn default_keeps_write_tools() {
     let rw = OctaMcpServer::new(Some(1000), 65536, false, false, true);
     for name in [
         "write_table",
+        "write_db_table",
         "edit_table",
         "convert",
         "read_table",

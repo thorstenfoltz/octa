@@ -27,11 +27,11 @@ use anyhow::Result;
 
 use crate::data::DataTable;
 
-pub use engine::{QueryKind, QueryOutcome};
+pub use engine::{QueryKind, QueryOutcome, is_mutation};
 pub use workspace::{
     AttachKind, AttachedTable, Attachment, ColumnInspection, RegisteredTable, SqlWorkspace,
     TableInspection, TableOrigin, WriteMode, WriteReport, WriteTarget, dedupe_sql_name,
-    sanitize_sql_name,
+    duckdb_attach_sql, sanitize_sql_name,
 };
 
 /// Execute `query` against `table`, returning a classified outcome.

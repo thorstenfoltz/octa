@@ -20,6 +20,7 @@ use octa::data::schema_export::SchemaTarget;
 pub mod anonymize;
 pub mod compare_schemas;
 pub mod convert;
+pub mod db;
 pub mod dedupe;
 pub mod describe;
 pub mod diff;
@@ -139,7 +140,7 @@ Notes:
     formats (SAS, R datasets, HDF5, NetCDF) are rejected with a clear
     error.
   * --export-schema / -e renders FILE's column list as SQL DDL (Postgres,
-    MySQL, SQLite, Databricks, Snowflake), a Pydantic v2 model, a
+    MySQL, SQLite, Databricks, Snowflake, MS SQL Server), a Pydantic v2 model, a
     TypeScript interface, JSON Schema, or a Rust struct; pick the target
     with -t / --target (default postgres). Output goes to stdout.
   * --format / -f governs stdout for every action that prints a table.
@@ -177,14 +178,24 @@ Notes:
     entirely; --union-cast COL=TYPE overrides the resolved Arrow type for
     a column. A summary line (source count, output columns, output rows)
     goes to stderr; the result table goes to stdout in --format.
+  * Database connections (saved in Settings -> Databases; secrets stay in
+    the system keyring):
+      octa --db-tables --db warehouse
+      octa --db-query \"SELECT * FROM public.users LIMIT 10\" --db warehouse
+      octa --db-write-table staging.users --db warehouse users.parquet
+    Queries run on the server in its native SQL dialect (PostgreSQL,
+    MySQL/MariaDB, SQL Server). Mutations and --db-write-table are refused
+    unless the connection's \"Allow writes\" switch is on.
   * --mcp starts an MCP (Model Context Protocol) server on stdio. Tools:
     read_table, tail, sample, schema, list_tables, count_rows, run_sql,
     convert, export_schema, profile, find_duplicates, fuzzy_duplicates,
     value_frequency, search, compare_schemas, diff_tables, union_tables,
     validate_against_schema, describe_file, unique_columns, pivot,
     correlation, grep_files, list_objects, write_table, edit_table,
-    transform_columns, anonymize. The file-writing tools (convert, write_table,
-    edit_table, transform_columns, anonymize) are dropped under
+    transform_columns, anonymize, list_db_connections, list_db_tables,
+    query_db, write_db_table, copy_db_table. The file-writing tools (convert,
+    write_table, edit_table, transform_columns, anonymize) and the database
+    write tools (write_db_table, copy_db_table) are dropped under
     --mcp-read-only. Read tools also accept cloud URLs (s3://, az://, gs://)
     in their `path`, and `list_objects` browses a bucket; both use ambient
     cloud credentials. Default row + cell caps come from Settings -> MCP.
@@ -469,6 +480,59 @@ pub struct Cli {
     #[arg(long = "partition-format", value_name = "EXT")]
     pub partition_format: Option<String>,
 
+    /// Run SQL on a saved database connection (server-side, in the engine's
+    /// native dialect). Needs --db NAME. Mutations require the connection's
+    /// "Allow writes" switch.
+    #[arg(long = "db-query", value_name = "SQL", group = "action")]
+    pub db_query: Option<String>,
+
+    /// List schemas and tables of a saved database connection. Needs --db.
+    #[arg(long = "db-tables", group = "action")]
+    pub db_tables: bool,
+
+    /// Write the positional FILE into a database table (SCHEMA.TABLE).
+    /// Needs --db; refused unless the connection allows writes.
+    #[arg(long = "db-write-table", value_name = "SCHEMA.TABLE", group = "action")]
+    pub db_write_table: Option<String>,
+
+    /// Saved connection name or id (Settings -> Databases) for the --db-*
+    /// actions.
+    #[arg(long = "db", value_name = "CONNECTION")]
+    pub db: Option<String>,
+
+    /// Write mode for --db-write-table.
+    #[arg(long = "db-write-mode", value_enum, default_value_t = SqlWriteModeArg::Create)]
+    pub db_write_mode: SqlWriteModeArg,
+
+    /// Catalog (top namespace level) for a three-level engine. Only
+    /// Snowflake, Databricks and BigQuery have one; passing it to any other
+    /// engine is an error. With --db-tables and no catalog, the catalogs
+    /// themselves are listed.
+    #[arg(long = "db-catalog", value_name = "NAME", requires = "db")]
+    pub db_catalog: Option<String>,
+
+    /// Copy SCHEMA.TABLE from --db to another saved connection, server to
+    /// server. Requires --db-copy-to.
+    #[arg(
+        long = "db-copy",
+        value_name = "SCHEMA.TABLE",
+        group = "action",
+        requires = "db"
+    )]
+    pub db_copy: Option<String>,
+
+    /// Target connection for --db-copy (a saved connection name or id).
+    #[arg(long = "db-copy-to", value_name = "CONNECTION")]
+    pub db_copy_to: Option<String>,
+
+    /// Target SCHEMA.TABLE for --db-copy. Default: the source's.
+    #[arg(long = "db-copy-target", value_name = "SCHEMA.TABLE")]
+    pub db_copy_target: Option<String>,
+
+    /// Target catalog for --db-copy on a three-level engine.
+    #[arg(long = "db-copy-target-catalog", value_name = "NAME")]
+    pub db_copy_target_catalog: Option<String>,
+
     /// Start the MCP (Model Context Protocol) server on stdin/stdout.
     /// Mutually exclusive with the other action flags. Tools mirror the
     /// CLI surface: read_table, schema, list_tables, count_rows, run_sql,
@@ -661,6 +725,32 @@ pub enum Action {
         out_dir: PathBuf,
         /// Output extension override (e.g. `csv`). `None` = use source extension.
         format: Option<String>,
+    },
+    DbQuery {
+        conn: String,
+        sql: String,
+    },
+    DbTables {
+        conn: String,
+        catalog: Option<String>,
+    },
+    DbWrite {
+        conn: String,
+        catalog: Option<String>,
+        /// `SCHEMA.TABLE` target.
+        target: String,
+        mode: octa::db::DbWriteMode,
+        /// Positional source file to upload.
+        file: PathBuf,
+    },
+    DbCopy {
+        conn: String,
+        catalog: Option<String>,
+        source: String,
+        target_conn: String,
+        target: Option<String>,
+        target_catalog: Option<String>,
+        mode: octa::db::DbWriteMode,
     },
     Mcp,
 }
@@ -883,6 +973,63 @@ impl Cli {
                 format: self.partition_format.clone(),
             }));
         }
+        if let Some(sql) = &self.db_query {
+            let conn = self
+                .db
+                .clone()
+                .ok_or("--db-query requires --db CONNECTION")?;
+            return Ok(Some(Action::DbQuery {
+                conn,
+                sql: sql.clone(),
+            }));
+        }
+        if self.db_tables {
+            let conn = self
+                .db
+                .clone()
+                .ok_or("--db-tables requires --db CONNECTION")?;
+            return Ok(Some(Action::DbTables {
+                conn,
+                catalog: self.db_catalog.clone(),
+            }));
+        }
+        if let Some(target) = &self.db_write_table {
+            let conn = self
+                .db
+                .clone()
+                .ok_or("--db-write-table requires --db CONNECTION")?;
+            let file = self
+                .files
+                .first()
+                .cloned()
+                .ok_or("--db-write-table requires a positional FILE argument")?;
+            return Ok(Some(Action::DbWrite {
+                conn,
+                catalog: self.db_catalog.clone(),
+                target: target.clone(),
+                mode: self.db_write_mode.to_db_write_mode(),
+                file,
+            }));
+        }
+        if let Some(source) = &self.db_copy {
+            let conn = self
+                .db
+                .clone()
+                .ok_or("--db-copy requires --db CONNECTION")?;
+            let target_conn = self
+                .db_copy_to
+                .clone()
+                .ok_or("--db-copy requires --db-copy-to CONNECTION")?;
+            return Ok(Some(Action::DbCopy {
+                conn,
+                catalog: self.db_catalog.clone(),
+                source: source.clone(),
+                target_conn,
+                target: self.db_copy_target.clone(),
+                target_catalog: self.db_copy_target_catalog.clone(),
+                mode: self.db_write_mode.to_db_write_mode(),
+            }));
+        }
         if self.mcp {
             return Ok(Some(Action::Mcp));
         }
@@ -920,6 +1067,8 @@ pub enum SchemaTargetArg {
     Databricks,
     /// SQL DDL - Snowflake dialect.
     Snowflake,
+    /// SQL DDL - Microsoft SQL Server (T-SQL) dialect.
+    Mssql,
     /// Pydantic v2 `BaseModel`.
     Pydantic,
     /// TypeScript `interface`.
@@ -939,6 +1088,7 @@ impl SchemaTargetArg {
             Self::Sqlite => SchemaTarget::SqliteSqlDdl,
             Self::Databricks => SchemaTarget::DatabricksSqlDdl,
             Self::Snowflake => SchemaTarget::SnowflakeSqlDdl,
+            Self::Mssql => SchemaTarget::MssqlSqlDdl,
             Self::Pydantic => SchemaTarget::PydanticV2,
             Self::Typescript => SchemaTarget::TypeScript,
             Self::JsonSchema => SchemaTarget::JsonSchema,
@@ -966,6 +1116,15 @@ impl SqlWriteModeArg {
             Self::Create => octa::sql::WriteMode::Create,
             Self::Replace => octa::sql::WriteMode::Replace,
             Self::Append => octa::sql::WriteMode::Append,
+        }
+    }
+
+    /// The same three modes, as the live-database write enum.
+    fn to_db_write_mode(self) -> octa::db::DbWriteMode {
+        match self {
+            Self::Create => octa::db::DbWriteMode::Create,
+            Self::Replace => octa::db::DbWriteMode::Replace,
+            Self::Append => octa::db::DbWriteMode::Append,
         }
     }
 }
@@ -1136,6 +1295,32 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             out_dir,
             format: partition_format,
         } => partition::run(path, col, out_dir, partition_format),
+        Action::DbQuery { conn, sql } => db::run_query(conn, sql, format),
+        Action::DbTables { conn, catalog } => db::run_tables(conn, catalog, format),
+        Action::DbWrite {
+            conn,
+            catalog,
+            target,
+            mode,
+            file,
+        } => db::run_write(conn, catalog, target, mode, file),
+        Action::DbCopy {
+            conn,
+            catalog,
+            source,
+            target_conn,
+            target,
+            target_catalog,
+            mode,
+        } => db::run_copy(
+            conn,
+            catalog,
+            source,
+            target_conn,
+            target,
+            target_catalog,
+            mode,
+        ),
         Action::ValidateSchema { .. } => unreachable!("handled above"),
         Action::Mcp => {
             eprintln!("error: --mcp must be dispatched from main, not via cli::dispatch");
@@ -1153,12 +1338,12 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
 
 /// Helper used by every reading action: resolve a path to a reader and
 /// load the table. Centralises the "no reader available" error message
-/// so every action surfaces consistent wording.
+/// so every action surfaces consistent wording. Transparently decompresses
+/// `.gz` / `.zst` inputs.
 pub(crate) fn read_table(path: &std::path::Path) -> anyhow::Result<octa::data::DataTable> {
-    use octa::formats::FormatRegistry;
-    let registry = FormatRegistry::new();
-    let reader = registry
-        .reader_for_path(path)
-        .ok_or_else(|| anyhow::anyhow!("no reader available for {}", path.display()))?;
-    reader.read_file(path)
+    octa::formats::read_table_auto(
+        path,
+        None,
+        octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
+    )
 }

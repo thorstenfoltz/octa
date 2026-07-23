@@ -21,6 +21,10 @@ pub enum CloudSecret {
     AzureKey(String),
     /// Azure SAS token.
     AzureSas(String),
+    /// Google OAuth client secret for native browser sign-in (GCS). Not a
+    /// provider credential by itself: the browser flow exchanges it for a
+    /// bearer token.
+    GcsOAuthClientSecret(String),
 }
 
 impl CloudSecret {
@@ -38,6 +42,17 @@ impl CloudSecret {
             }),
             CloudSecret::AzureKey(k) => ProviderCreds::Azure(AzureCreds::AccessKey(k.clone())),
             CloudSecret::AzureSas(s) => ProviderCreds::Azure(AzureCreds::Sas(s.clone())),
+            // The client secret alone cannot authenticate; the browser flow
+            // yields the real bearer token. Fall back to ambient otherwise.
+            CloudSecret::GcsOAuthClientSecret(_) => ProviderCreds::Ambient,
+        }
+    }
+
+    /// The Google OAuth client secret string, if this is that variant.
+    pub fn oauth_client_secret(&self) -> Option<&str> {
+        match self {
+            CloudSecret::GcsOAuthClientSecret(s) => Some(s),
+            _ => None,
         }
     }
 }

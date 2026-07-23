@@ -52,6 +52,14 @@ octa - multi-format tabular data viewer, editor, CLI tool, and MCP server
 
 *octa* *--partition-by* _COL_ *--out-dir* _DIR_ _FILE_ [*--partition-format* _EXT_]
 
+*octa* *--db-tables* *--db* _CONNECTION_ [*--db-catalog* _NAME_] [*-f* _FORMAT_]
+
+*octa* *--db-query* _SQL_ *--db* _CONNECTION_ [*-f* _FORMAT_]
+
+*octa* *--db-write-table* _SCHEMA_._TABLE_ *--db* _CONNECTION_ _FILE_ [*--db-write-mode* _MODE_] [*--db-catalog* _NAME_]
+
+*octa* *--db-copy* _SCHEMA_._TABLE_ *--db* _CONNECTION_ *--db-copy-to* _CONNECTION_ [*--db-copy-target* _SCHEMA_._TABLE_] [*--db-write-mode* _MODE_]
+
 *octa* *--mcp*
 
 == Description
@@ -212,6 +220,52 @@ ignored (with a warning) when an action flag is set.
   written into *--out-dir* _DIR_ (required). *--partition-format* _EXT_
   sets the output extension (defaults to the source's).
 
+*--db-tables*::
+  List every schema and table of the saved database connection named by
+  *--db* _CONNECTION_ (Settings -> Databases) as a two-column table. On
+  Snowflake, Databricks and BigQuery, which have a catalog level above
+  the schema, the catalogs themselves are listed unless *--db-catalog*
+  names one.
+
+*--db-query* _SQL_::
+  Run one SQL statement on the saved connection named by *--db*,
+  server-side and in the engine's native dialect. SELECT results print in *-f* _FORMAT_;
+  mutations report rows affected and are refused unless the
+  connection's "Allow writes" switch is on. Results stop at the
+  initial-load row cap; use *--rows* to raise or lift it.
+
+*--db-write-table* _SCHEMA_._TABLE_::
+  Write the positional _FILE_ into the given server table on the *--db*
+  connection. *--db-write-mode* is *create* (default; error if the
+  table exists), *append*, or *replace*. Refused unless the connection
+  allows writes.
+
+*--db-catalog* _NAME_::
+  Catalog (the top namespace level) for a three-level engine, used by
+  *--db-tables* and *--db-write-table*. Only Snowflake, Databricks and
+  BigQuery have one; passing it to any other engine is an error. With
+  *--db-tables* and no catalog, the catalogs themselves are listed.
+
+*--db-copy* _SCHEMA_._TABLE_::
+  Copy a table from the *--db* connection to another saved connection,
+  server to server. Requires *--db-copy-to*. *--db-write-mode* selects
+  *create* (default), *append* or *replace*. Refused unless the target
+  connection allows writes.
+
+*--db-copy-to* _CONNECTION_::
+  Target connection for *--db-copy*, a saved connection name or id.
+
+*--db-copy-target* _SCHEMA_._TABLE_::
+  Target table for *--db-copy*. Defaults to the source schema and table.
+
+*--db-copy-target-catalog* _NAME_::
+  Target catalog for *--db-copy* on a three-level engine.
+
+*--db* _CONNECTION_::
+  Saved connection name (case-insensitive) or id for the *--db-** actions.
+  Connections are managed in Settings -> Databases; passwords stay in
+  the system keyring.
+
 *--mcp*::
   Start a Model Context Protocol (MCP) server on standard input /
   output. The tools exposed are: *read_table*, *tail*, *sample*,
@@ -222,8 +276,10 @@ ignored (with a warning) when an action flag is set.
   *pivot*, *correlation*, *grep_files*, *write_table*, *edit_table*,
   *transform_columns*, *anonymize*, *detect_pii*, *detect_outliers*,
   *fill_missing*, *drop_duplicates*, *union_tables*, *join_tables*,
-  *partition_table*. The file-writing tools (*convert*, *write_table*,
-  *edit_table*, *transform_columns*, *anonymize*, *partition_table*)
+  *partition_table*, *list_db_connections*, *list_db_tables*, *query_db*,
+  *write_db_table*, *copy_db_table*. The file-writing tools (*convert*, *write_table*,
+  *edit_table*, *transform_columns*, *anonymize*, *partition_table*, *write_db_table*,
+  *copy_db_table*)
   are dropped when *--mcp-read-only* is given. Defaults for the row
   limit and per-cell byte cap come from the user's Octa settings
   (Settings → MCP).
@@ -527,6 +583,23 @@ Find primary-key candidates::
 ----
 octa --unique-columns users.csv
 octa --unique-columns orders.parquet --max-combo 2 -f json
+----
+
+Browse a live database connection::
++
+[source,sh]
+----
+octa --db-tables --db warehouse
+octa --db-tables --db warehouse --db-catalog sales_prod
+octa --db-query "SELECT * FROM public.users LIMIT 10" --db prod
+----
+
+Copy a table between two servers, replacing the target::
++
+[source,sh]
+----
+octa --db prod --db-copy analytics.orders \
+     --db-copy-to warehouse --db-write-mode replace
 ----
 
 Start the MCP server::

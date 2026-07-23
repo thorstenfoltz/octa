@@ -9,7 +9,7 @@ use anyhow::Result;
 use super::credentials::{AzureCreds, StaticKeys, resolve_s3_keys};
 use super::{
     CloudConnection, CloudKind, CloudProvider, build_azure_provider, build_gcs_provider,
-    build_s3_provider,
+    build_gcs_provider_with_token, build_s3_provider,
 };
 
 /// Resolved credential material for a provider, per cloud.
@@ -23,6 +23,9 @@ pub enum ProviderCreds {
     Azure(AzureCreds),
     /// GCS service-account JSON file path.
     GcsServiceAccountPath(String),
+    /// A raw OAuth bearer access token from native browser sign-in (Azure /
+    /// GCS). Session-only; the caller re-mints on expiry.
+    BrowserToken(String),
 }
 
 /// Resolve ambient credentials for a connection (no stored secret).
@@ -47,10 +50,17 @@ pub fn build_provider(
     let provider: Box<dyn CloudProvider> = match (conn.kind, creds) {
         (CloudKind::S3, ProviderCreds::S3(keys)) => Box::new(build_s3_provider(conn, Some(keys))?),
         (CloudKind::S3, _) => Box::new(build_s3_provider(conn, None)?),
+        (CloudKind::AzureBlob, ProviderCreds::BrowserToken(t)) => Box::new(build_azure_provider(
+            conn,
+            &AzureCreds::BearerToken(t.clone()),
+        )?),
         (CloudKind::AzureBlob, ProviderCreds::Azure(az)) => {
             Box::new(build_azure_provider(conn, az)?)
         }
         (CloudKind::AzureBlob, _) => Box::new(build_azure_provider(conn, &AzureCreds::Cli)?),
+        (CloudKind::Gcs, ProviderCreds::BrowserToken(t)) => {
+            Box::new(build_gcs_provider_with_token(conn, t)?)
+        }
         (CloudKind::Gcs, ProviderCreds::GcsServiceAccountPath(p)) => {
             Box::new(build_gcs_provider(conn, Some(p))?)
         }

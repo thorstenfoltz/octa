@@ -8,7 +8,7 @@ use eframe::egui;
 use octa::data::ViewMode;
 use octa::ui::shortcuts::ShortcutAction as SA;
 
-use super::state::{OctaApp, TabState};
+use super::state::OctaApp;
 use crate::view_modes;
 
 impl OctaApp {
@@ -17,11 +17,7 @@ impl OctaApp {
         let action_fired = |a: SA| ctx.input(|i| shortcuts.triggered(a, i));
 
         if action_fired(SA::NewFile) {
-            let mut new_tab = TabState::new(self.settings.default_search_mode);
-            new_tab.view_mode = ViewMode::Raw;
-            new_tab.raw_content = Some(String::new());
-            self.tabs.push(new_tab);
-            self.active_tab = self.tabs.len() - 1;
+            self.new_file();
         }
         if action_fired(SA::OpenFile) {
             self.open_file();
@@ -550,6 +546,31 @@ impl OctaApp {
             if action_fired(SA::RenameActiveTab) {
                 self.begin_rename_tab(self.active_tab);
             }
+            if action_fired(SA::OpenTableFolder)
+                && let Some(path) = rfd::FileDialog::new().pick_folder()
+            {
+                // Same handler as File -> Open table folder...
+                self.load_file_in_new_tab(path);
+            }
+            if action_fired(SA::ListCloudInventory) && self.cloud_browser.visible {
+                // Inventory the first cloud connection whose root is expanded.
+                let target = self.settings.cloud_connections.iter().find_map(|c| {
+                    let root = super::cloud_browser::root_prefix(c);
+                    self.cloud_browser
+                        .expanded
+                        .contains(&(c.id.clone(), root.clone()))
+                        .then_some((c.id.clone(), root))
+                });
+                if let Some((conn_id, prefix)) = target {
+                    self.cloud_inventory(ctx, conn_id, prefix);
+                }
+            }
+            if action_fired(SA::RunSqlOnServer) {
+                let tab = &self.tabs[self.active_tab];
+                if tab.sql_panel_open && tab.db_origin.is_some() && tab.sql_run_on_server {
+                    self.run_server_query(ctx);
+                }
+            }
         }
 
         // --- Handle close request ---
@@ -566,7 +587,27 @@ impl OctaApp {
     /// path that gates on read-only mode should call this rather than
     /// reading `self.readonly_mode` directly, so the gate stays auditable.
     pub(crate) fn is_readonly(&self) -> bool {
+        // Live-database tabs are read-only unless their connection allows
+        // writes AND the table has a primary key (row identity for the
+        // confirmed write-back on Save). Computed live so editing the
+        // connection in Settings takes effect immediately.
         self.readonly_mode
+            || self.tabs.get(self.active_tab).is_some_and(|t| {
+                t.db_origin
+                    .as_ref()
+                    .is_some_and(|o| !self.db_origin_writable(o))
+            })
+    }
+
+    /// A db-origin tab is editable iff its connection still exists, allows
+    /// writes, and the table has a primary key (row identity for write-back).
+    pub(crate) fn db_origin_writable(&self, o: &super::state::DbOrigin) -> bool {
+        !o.pk_cols.is_empty()
+            && self
+                .settings
+                .db_connections
+                .iter()
+                .any(|c| c.id == o.conn_id && c.allow_writes)
     }
 
     /// Flip the read-only mode flag. Queues a notice modal unless the user

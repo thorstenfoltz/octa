@@ -1,0 +1,19 @@
+# gitleaks configuration.
+#
+# Extend the default ruleset (do NOT replace it), then allowlist the single
+# throwaway RSA key that lives only as a unit-test fixture in
+# `src/db/auth.rs` (`TEST_RSA_PEM`, used to exercise Snowflake key-pair JWT
+# signing). It is generated for the test and is not a real credential.
+#
+# The allowlist is keyed on a distinctive slice of that key's base64 body, so
+# it silences exactly this fixture and nothing else: any other private key,
+# anywhere in the repo, still trips the `private-key` rule.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Throwaway RSA private key used only by a unit test (Snowflake key-pair JWT). Not a real credential."
+regexes = [
+  '''MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC6LGcSVtbOGtq8''',
+]

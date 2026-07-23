@@ -48,6 +48,9 @@ pub struct TreeAction {
     /// User chose "Union selected files..." from a selected file's context
     /// menu. Carries the selected paths (always 2 or more).
     pub union_files: Option<Vec<PathBuf>>,
+    /// User chose "Open as dataset..." on a directory: open the folder of
+    /// part files as one table (Hive partitioning).
+    pub open_dataset: Option<PathBuf>,
 }
 
 const INDENT_PER_LEVEL: f32 = 14.0;
@@ -294,6 +297,7 @@ fn draw_dir(
         let selection_len = state.selected.len();
         let mut clear_selection = false;
         let mut union_now = false;
+        let mut open_dataset = false;
         resp.context_menu(|ui| {
             if ui
                 .button(crate::i18n::t("context_menu.copy_name"))
@@ -301,6 +305,17 @@ fn draw_dir(
             {
                 ui.ctx().copy_text(copy_name.clone());
                 ui.close();
+            }
+            if is_dir {
+                ui.separator();
+                if ui
+                    .button(crate::i18n::t("dataset.open_as_dataset"))
+                    .on_hover_text(crate::i18n::t("dataset.open_as_dataset_hint"))
+                    .clicked()
+                {
+                    open_dataset = true;
+                    ui.close();
+                }
             }
             // Union is offered on a row that is part of a 2+ selection. On any
             // other row we explain how to build one rather than silently
@@ -335,6 +350,9 @@ fn draw_dir(
             let mut files: Vec<PathBuf> = state.selected.iter().cloned().collect();
             files.sort();
             action.union_files = Some(files);
+        }
+        if open_dataset {
+            action.open_dataset = Some(entry.clone());
         }
         if clear_selection {
             state.selected.clear();

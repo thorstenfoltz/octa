@@ -30,6 +30,11 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     // Sign in vs Sign out, so drop the memoised secret-presence cache.
     app.cloud_browser.secret_cache.clear();
 
+    // DB connections may have been edited, deleted, or re-secreted: drop the
+    // cached live connectors so the next operation reconnects with the new
+    // definition.
+    app.db_conn_cache.clear();
+
     // Re-seed the session search behaviour from the (possibly changed) default
     // so the search-bar toggle reflects the new preference immediately.
     app.search_result_mode = app.settings.search_result_mode;

@@ -150,6 +150,7 @@ fn attach_duckdb_file_and_join_cross_attachment() {
             .iter()
             .any(|t| t.schema == "main" && t.table == "products")
     );
+
     ws.detach("wh").unwrap();
 }
 

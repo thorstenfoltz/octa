@@ -60,6 +60,9 @@ pub enum TableOrigin {
     /// In-memory clone of another tab. The string is the source description
     /// shown in the panel (file stem or "untitled").
     TabClone(String),
+    /// Snapshot imported from a live database connection (the SQL Server
+    /// attach fallback). The string is "conn-name schema.table".
+    Db(String),
 }
 
 impl TableOrigin {
@@ -77,6 +80,7 @@ impl TableOrigin {
                 }
             }
             TableOrigin::TabClone(label) => format!("tab: {label}"),
+            TableOrigin::Db(label) => format!("db: {label}"),
         }
     }
 }
@@ -92,6 +96,13 @@ pub struct RegisteredTable {
 pub enum AttachKind {
     DuckDb,
     Sqlite,
+    /// Live PostgreSQL server via the DuckDB `postgres` extension.
+    Postgres,
+    /// Live MySQL / MariaDB server via the DuckDB `mysql` extension.
+    MySql,
+    /// Live SQL Server; no DuckDB extension exists, so its tables are
+    /// imported as workspace tables (never a native ATTACH).
+    Mssql,
 }
 
 impl AttachKind {
@@ -105,6 +116,32 @@ impl AttachKind {
             "duckdb" | "ddb" => AttachKind::DuckDb,
             _ => AttachKind::Sqlite,
         }
+    }
+}
+
+/// How a live-database connection is attached to the workspace.
+enum AttachStrategy {
+    /// A native DuckDB `ATTACH` via the named extension.
+    Native { ext: &'static str, kind: AttachKind },
+    /// No DuckDB extension: import the tables as workspace tables.
+    Import,
+}
+
+/// Pick the attach strategy for an engine. Mirrors
+/// [`crate::db::DbEngine::duckdb_attachable`]: Postgres/Redshift/MySQL attach
+/// natively, everything else (SQL Server + the warehouses) is imported.
+fn attach_kind_for(engine: crate::db::DbEngine) -> AttachStrategy {
+    use crate::db::DbEngine;
+    match engine {
+        DbEngine::Postgres | DbEngine::Redshift => AttachStrategy::Native {
+            ext: "postgres",
+            kind: AttachKind::Postgres,
+        },
+        DbEngine::MySql => AttachStrategy::Native {
+            ext: "mysql",
+            kind: AttachKind::MySql,
+        },
+        _ => AttachStrategy::Import,
     }
 }
 
@@ -200,6 +237,10 @@ pub struct SqlWorkspace {
     conn: Connection,
     tables: BTreeMap<String, RegisteredTable>,
     attachments: BTreeMap<String, Attachment>,
+    /// Per-alias cache of [`Self::list_attached_tables`] (interior mutability
+    /// so the `&self` listing keeps its signature). See that method for why
+    /// this must exist.
+    attached_tables_cache: std::cell::RefCell<BTreeMap<String, Vec<AttachedTable>>>,
     /// `Some(true)` once `INSTALL sqlite; LOAD sqlite;` has succeeded;
     /// `Some(false)` once it has failed (we skip retrying); `None` until the
     /// first SQLite attach attempt.
@@ -212,6 +253,7 @@ impl SqlWorkspace {
             conn: Connection::open_in_memory().context("opening in-memory DuckDB")?,
             tables: BTreeMap::new(),
             attachments: BTreeMap::new(),
+            attached_tables_cache: std::cell::RefCell::new(BTreeMap::new()),
             sqlite_extension: None,
         })
     }
@@ -344,10 +386,117 @@ impl SqlWorkspace {
                 // capability on every install.
                 self.attach_sqlite_fallback(path, alias)
             }
+            AttachKind::Postgres | AttachKind::MySql | AttachKind::Mssql => {
+                bail!("live database connections attach via attach_db, not a file path")
+            }
         }
     }
 
+    /// Attach a saved live-database connection read-only. PostgreSQL, Redshift
+    /// and MySQL go through the DuckDB `postgres` / `mysql` extensions (which
+    /// install over the network on first use, like the lakehouse readers);
+    /// SQL Server and the warehouse engines (ClickHouse, Exasol, Snowflake,
+    /// Databricks, BigQuery) have no extension, so their tables are imported as
+    /// workspace tables under `alias__schema__table` (mirrors the SQLite
+    /// fallback). `secret` is the stored password; IAM/AD auth modes mint their
+    /// own token inside `db::connect` / `duckdb_attach_sql`'s password.
+    pub fn attach_db(
+        &mut self,
+        db_conn: &crate::db::DbConnection,
+        secret: Option<&str>,
+        alias: &str,
+    ) -> Result<Attachment> {
+        if self.attachments.contains_key(alias) {
+            bail!("alias '{alias}' is already attached");
+        }
+        let display = PathBuf::from(format!(
+            "{}:{}/{}",
+            db_conn.host, db_conn.port, db_conn.database
+        ));
+        match attach_kind_for(db_conn.engine) {
+            AttachStrategy::Native { ext, kind } => {
+                let password = crate::db::auth::resolve_password(db_conn, secret)?;
+                self.conn
+                    .execute_batch(&format!("INSTALL {ext}; LOAD {ext};"))
+                    .with_context(|| {
+                        format!("installing the DuckDB {ext} extension (network on first use)")
+                    })?;
+                let sql = duckdb_attach_sql(db_conn, &password, alias, true);
+                self.conn
+                    .execute(&sql, [])
+                    .with_context(|| format!("ATTACHing {ext} server {}", display.display()))?;
+                let attachment = Attachment {
+                    alias: alias.to_string(),
+                    path: display,
+                    kind,
+                    native: true,
+                };
+                self.attachments
+                    .insert(alias.to_string(), attachment.clone());
+                Ok(attachment)
+            }
+            // SQL Server and the warehouse engines have no DuckDB extension, so
+            // their tables are imported as workspace tables.
+            AttachStrategy::Import => self.attach_import(db_conn, secret, alias, display),
+        }
+    }
+
+    /// Import every table of a non-attachable connection (SQL Server or a
+    /// warehouse) as a workspace table (`alias__schema__table`), each capped at
+    /// the streaming initial-load row count.
+    // ponytail: imports all tables up to a hard count cap; a table
+    // multi-select picker is the upgrade path if servers routinely exceed it.
+    fn attach_import(
+        &mut self,
+        db_conn: &crate::db::DbConnection,
+        secret: Option<&str>,
+        alias: &str,
+        display: PathBuf,
+    ) -> Result<Attachment> {
+        const MAX_TABLES: usize = 60;
+        let mut c = crate::db::connect(db_conn, secret)?;
+        let mut pairs: Vec<(String, String)> = Vec::new();
+        for schema in c.list_schemas(None)? {
+            for t in c.list_tables(None, &schema)? {
+                pairs.push((schema.clone(), t));
+            }
+        }
+        if pairs.len() > MAX_TABLES {
+            bail!(
+                "'{}' has {} tables; attaching imports each one, which is too much. \
+                 Query the server directly instead (Run on server).",
+                db_conn.name,
+                pairs.len()
+            );
+        }
+        let cap = crate::formats::initial_load_rows();
+        for (schema, t) in pairs {
+            let sql = crate::db::select_sample_sql(db_conn.engine, None, &schema, &t, cap);
+            let table = c.query(&sql)?;
+            let name = format!(
+                "{alias}__{}__{}",
+                sanitize_sql_name(&schema),
+                sanitize_sql_name(&t)
+            );
+            self.add_table(
+                &name,
+                &table,
+                TableOrigin::Db(format!("{} {schema}.{t}", db_conn.name)),
+            )?;
+        }
+        let attachment = Attachment {
+            alias: alias.to_string(),
+            path: display,
+            kind: AttachKind::Mssql,
+            native: false,
+        };
+        self.attachments
+            .insert(alias.to_string(), attachment.clone());
+        Ok(attachment)
+    }
+
     pub fn detach(&mut self, alias: &str) -> Result<()> {
+        self.attached_tables_cache.borrow_mut().remove(alias);
         let attachment = self
             .attachments
             .remove(alias)
@@ -429,11 +578,20 @@ impl SqlWorkspace {
         out
     }
 
-    /// Enumerate tables inside an attached DuckDB or SQLite database via the
-    /// live DuckDB connection's `information_schema`. Returns an empty Vec
-    /// for fallback attachments (the user already sees those tables as
-    /// regular workspace entries).
+    /// Enumerate tables inside an attached database via the live DuckDB
+    /// connection's `information_schema`. Returns an empty Vec for fallback
+    /// attachments (the user already sees those tables as regular workspace
+    /// entries).
+    ///
+    /// **Cached per alias**: the SQL panel rebuilds its workspace snapshot
+    /// every frame, and for a Postgres/MySQL attachment this listing is a
+    /// network round trip - uncached, two attached servers made the whole
+    /// editor unusable. The cache is dropped on detach and by
+    /// [`Self::invalidate_attached_cache`] (the panel's refresh button).
     pub fn list_attached_tables(&self, alias: &str) -> Result<Vec<AttachedTable>> {
+        if let Some(cached) = self.attached_tables_cache.borrow().get(alias) {
+            return Ok(cached.clone());
+        }
         let attachment = self
             .attachments
             .get(alias)
@@ -441,6 +599,10 @@ impl SqlWorkspace {
         if !attachment.native {
             return Ok(Vec::new());
         }
+        // Row counts only for local file attachments: on a remote server
+        // COUNT(*) is a per-table scan (InnoDB counts by walking the rows),
+        // so listing a big database would hammer it just to draw the tree.
+        let count_rows = matches!(attachment.kind, AttachKind::DuckDb | AttachKind::Sqlite);
         let mut stmt = self.conn.prepare(
             "SELECT table_schema, table_name FROM information_schema.tables \
              WHERE table_catalog = ? AND table_type = 'BASE TABLE' \
@@ -453,24 +615,37 @@ impl SqlWorkspace {
             .collect::<Result<_, _>>()?;
         let mut out = Vec::with_capacity(rows.len());
         for (schema, table) in rows {
-            let count_sql = format!(
-                "SELECT COUNT(*) FROM {}.{}.{}",
-                quote_ident(alias),
-                quote_ident(&schema),
-                quote_ident(&table)
-            );
-            let row_count: Option<usize> = self
-                .conn
-                .query_row(&count_sql, [], |r| r.get::<_, i64>(0))
-                .ok()
-                .map(|n| n as usize);
+            let row_count: Option<usize> = if count_rows {
+                let count_sql = format!(
+                    "SELECT COUNT(*) FROM {}.{}.{}",
+                    quote_ident(alias),
+                    quote_ident(&schema),
+                    quote_ident(&table)
+                );
+                self.conn
+                    .query_row(&count_sql, [], |r| r.get::<_, i64>(0))
+                    .ok()
+                    .map(|n| n as usize)
+            } else {
+                None
+            };
             out.push(AttachedTable {
                 schema,
                 table,
                 row_count,
             });
         }
+        self.attached_tables_cache
+            .borrow_mut()
+            .insert(alias.to_string(), out.clone());
         Ok(out)
+    }
+
+    /// Drop the cached attached-table listings so the next
+    /// [`Self::list_attached_tables`] re-queries the servers (the panel's
+    /// refresh action calls this; remote table lists can drift).
+    pub fn invalidate_attached_cache(&self) {
+        self.attached_tables_cache.borrow_mut().clear();
     }
 
     /// Inspect a registered workspace table by its SQL name. Returns column
@@ -639,6 +814,9 @@ impl SqlWorkspace {
         match target.kind {
             AttachKind::DuckDb => self.write_to_duckdb(target),
             AttachKind::Sqlite => self.write_to_sqlite(target),
+            AttachKind::Postgres | AttachKind::MySql | AttachKind::Mssql => {
+                bail!("write-back to a live database goes through db::write_table, not ATTACH")
+            }
         }
     }
 
@@ -920,6 +1098,51 @@ pub fn sanitize_sql_name(input: &str) -> String {
     } else {
         trimmed
     }
+}
+
+/// Build the full `ATTACH ... (TYPE postgres|mysql[, READ_ONLY])` statement
+/// for a live connection. Pure so the escaping is unit-testable. Only
+/// meaningful for Postgres/MySQL (SQL Server has no DuckDB extension).
+/// `read_only: false` attaches writable (the server-to-server copy's target);
+/// everything else attaches READ_ONLY.
+///
+/// The inner connection string is libpq-style `key=value` pairs, which both
+/// extensions parse: values containing whitespace, quotes or backslashes are
+/// single-quoted with backslash escapes (libpq rules); the assembled string
+/// is then embedded in the SQL literal with `''` doubling.
+pub fn duckdb_attach_sql(
+    db_conn: &crate::db::DbConnection,
+    password: &str,
+    alias: &str,
+    read_only: bool,
+) -> String {
+    fn val(v: &str) -> String {
+        if v.is_empty() || v.contains(|c: char| c.is_whitespace() || c == '\'' || c == '\\') {
+            format!("'{}'", v.replace('\\', "\\\\").replace('\'', "\\'"))
+        } else {
+            v.to_string()
+        }
+    }
+    // The postgres extension speaks libpq (`dbname`); the mysql one uses
+    // `database`.
+    let (ty, db_key) = match db_conn.engine {
+        crate::db::DbEngine::MySql => ("mysql", "database"),
+        _ => ("postgres", "dbname"),
+    };
+    let inner = format!(
+        "host={} port={} {db_key}={} user={} password={}",
+        val(&db_conn.host),
+        db_conn.port,
+        val(&db_conn.database),
+        val(&db_conn.username),
+        val(password)
+    );
+    let ro = if read_only { ", READ_ONLY" } else { "" };
+    format!(
+        "ATTACH '{}' AS {} (TYPE {ty}{ro})",
+        inner.replace('\'', "''"),
+        quote_ident(alias)
+    )
 }
 
 // --- SQLite write helpers ---

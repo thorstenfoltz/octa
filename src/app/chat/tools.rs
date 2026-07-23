@@ -65,6 +65,13 @@ macro_rules! define_chat_tools {
 
         /// Run a model-issued tool call against the shared `ToolContext`.
         pub fn dispatch(ctx: &ToolContext, name: &str, args: Value) -> Result<Value, String> {
+            if ctx.read_only && WRITE_TOOL_NAMES.contains(&name) {
+                return Err(
+                    "writes are disabled: this chat profile does not allow writes \
+                     (enable \"Allow writes\" on the profile in Settings)"
+                        .to_string(),
+                );
+            }
             match name {
                 $(
                     $name => run_typed(ctx, args, $module::run),
@@ -73,6 +80,33 @@ macro_rules! define_chat_tools {
             }
         }
     };
+}
+
+/// Tools that create or mutate files, open tabs, or databases. Hidden from
+/// the model and refused by `dispatch` when the profile disallows writes
+/// (`ctx.read_only`).
+pub const WRITE_TOOL_NAMES: &[&str] = &[
+    "write_table",
+    "edit_table",
+    "edit_open_tab",
+    "convert",
+    "transform_columns",
+    "anonymize",
+    "partition_table",
+    "write_db_table",
+    "copy_db_table",
+    "write_text",
+    "create_chart",
+];
+
+/// The tool list for a profile: everything, minus the write tools when the
+/// profile does not allow writes.
+pub fn tool_defs_for(allow_writes: bool) -> Vec<ToolDef> {
+    let mut defs = tool_defs();
+    if !allow_writes {
+        defs.retain(|d| !WRITE_TOOL_NAMES.contains(&d.name.as_str()));
+    }
+    defs
 }
 
 define_chat_tools! {
@@ -103,6 +137,11 @@ define_chat_tools! {
     "correlation"              => correlation,
     "grep_files"               => grep_files,
     "list_objects"             => list_objects,
+    "list_db_connections"      => list_db_connections,
+    "list_db_tables"           => list_db_tables,
+    "query_db"                 => query_db,
+    "write_db_table"           => write_db_table,
+    "copy_db_table"            => copy_db_table,
     "write_table"              => write_table,
     "edit_table"               => edit_table,
     "edit_open_tab"            => edit_open_tab,

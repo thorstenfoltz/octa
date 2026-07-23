@@ -19,6 +19,8 @@ fn sandbox_ctx(restrict: bool, allowed: &[&str], export: Option<&str>) -> ToolCo
         backup_before_modify: true,
         pending_tab_edits: None,
         cloud_settings: None,
+        db_connections: Vec::new(),
+        read_only: false,
     }
 }
 
@@ -105,7 +107,7 @@ fn write_path_rejects_symlink_escape() {
 fn resolve_write_path_allows_existing_when_unlocked() {
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join("outside.csv");
-    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true);
+    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false);
     // Simulate the chat sandbox with the unlock on.
     ctx.restrict_filesystem = true;
     ctx.export_dir = Some(dir.path().join("exports"));

@@ -73,6 +73,9 @@ mod tests {
             prefix: None,
             account_level: false,
             project: None,
+            allow_writes: true,
+            oauth_client_id: None,
+            oauth_tenant: None,
         }
     }
 

@@ -81,6 +81,12 @@ pub fn cloud_secret_storage(connection_id: &str, settings: &AppSettings) -> KeyS
 /// Resolve the credentials to build a provider for `conn`: a stored secret if
 /// present, otherwise the ambient environment / CLI / ADC chain.
 pub fn resolve_creds(conn: &CloudConnection, settings: &AppSettings) -> ProviderCreds {
+    // A cached browser token wins (checked first: a stored GCS OAuth client
+    // secret resolves to Ambient, not a usable credential, so it must not
+    // shadow the token).
+    if let Some(t) = crate::cloud::cached_cloud_browser_token(&conn.id) {
+        return ProviderCreds::BrowserToken(t.access_token);
+    }
     if let Some(secret) = get_cloud_secret(&conn.id, settings) {
         return secret.to_provider_creds();
     }

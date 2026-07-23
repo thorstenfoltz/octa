@@ -10,6 +10,7 @@ use crate::ui::theme::{BodyFont, ThemeMode};
 
 mod chat_section;
 mod cloud_section;
+mod db_section;
 mod shortcuts_grid;
 
 impl SettingsDialog {
@@ -33,6 +34,9 @@ impl SettingsDialog {
             crate::ui::status_bar::format_number(current.initial_load_rows);
         self.raw_view_max_mb_buf =
             crate::ui::status_bar::format_number(current.raw_view_max_bytes / 1_000_000);
+        self.max_decompressed_mb_buf = crate::ui::status_bar::format_number(
+            (current.max_decompressed_bytes / 1_000_000) as usize,
+        );
         self.text_mode_extensions_buf = current.text_mode_extensions.join(", ");
         // MCP buffers seed from the live settings.
         self.mcp_unlimited_rows = current.mcp_default_row_limit.is_none();
@@ -65,11 +69,14 @@ impl SettingsDialog {
         self.clear_cloud_form();
         self.cloud_secret_status_msg = None;
         self.cloud_secret_clear_confirm = None;
+        self.clear_db_form();
         // Reset here; the chat panel re-sets it to true right after calling
         // open() so the Chat section starts expanded only when launched there.
         self.focus_chat_section = false;
         // Same contract for the sidebar's "Add connection" button.
         self.focus_cloud_section = false;
+        // And for the Databases tree's "+ Add" button.
+        self.focus_db_section = false;
         self.recording = None;
         self.shortcut_conflict = None;
         self.show_reset_confirm = false;
@@ -178,6 +185,12 @@ impl SettingsDialog {
                             // in bytes. 0 is valid ("never load raw text").
                             if let Ok(mb) = parse_comma_number(&self.raw_view_max_mb_buf) {
                                 self.draft.raw_view_max_bytes = mb.saturating_mul(1_000_000);
+                            }
+                            // Decompression cap, entered in whole MB, stored
+                            // in bytes.
+                            if let Ok(mb) = parse_comma_number(&self.max_decompressed_mb_buf) {
+                                self.draft.max_decompressed_bytes =
+                                    (mb as u64).saturating_mul(1_000_000);
                             }
                             self.draft.text_mode_extensions = self
                                 .text_mode_extensions_buf
@@ -1029,8 +1042,13 @@ impl SettingsDialog {
         )
         .id_salt("settings_section_chat")
         // Opens expanded only when launched from the chat panel's Settings
-        // button (consumes the one-shot flag).
-        .default_open(std::mem::take(&mut self.focus_chat_section))
+        // button (consumes the one-shot flag; also opens the profiles
+        // sub-section below, which is what that button is usually after).
+        .default_open({
+            let focus = std::mem::take(&mut self.focus_chat_section);
+            self.focus_chat_profiles = self.focus_chat_profiles || focus;
+            focus
+        })
         .show(ui, |ui| {
             ui.label(
                 egui::RichText::new(crate::i18n::t("settings_hint.chat_intro"))
@@ -1039,276 +1057,37 @@ impl SettingsDialog {
             );
             ui.add_space(6.0);
 
-            // Model profiles: provider, model, temperature and thinking are all
-            // per profile now, so they live in the profile form rather than as
-            // single global fields here.
-            self.chat_profiles_section(ui);
-            ui.add_space(8.0);
-            ui.separator();
-            ui.add_space(4.0);
+            // The section splits into three sub-menus so per-profile options
+            // (the profile list + form), global options, and API keys don't
+            // pile into one overwhelming scroll.
+            //
+            // Model profiles: provider, model, temperature, thinking and the
+            // write permission are all per profile, so they live in the
+            // profile form rather than as single global fields here.
+            egui::CollapsingHeader::new(
+                egui::RichText::new(crate::i18n::t("chat.profiles")).strong(),
+            )
+            .id_salt("settings_chat_sub_profiles")
+            .default_open(std::mem::take(&mut self.focus_chat_profiles))
+            .show(ui, |ui| {
+                self.chat_profiles_section(ui);
+            });
 
-            egui::Grid::new("settings_chat")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    // The preset model lists come from a hand-editable
-                    // models.toml beside settings.toml; let the user reload it
-                    // after editing without restarting.
-                    ui.label(crate::i18n::t("chat.models_file"));
-                    ui.vertical(|ui| {
-                        if ui.button(crate::i18n::t("chat.reload_models")).clicked() {
-                            crate::ui::settings::chat_models::reload();
-                        }
-                        ui.label(
-                            egui::RichText::new(
-                                crate::ui::settings::chat_models::path()
-                                    .display()
-                                    .to_string(),
-                            )
-                            .weak()
-                            .size(11.0),
-                        );
-                    });
-                    ui.end_row();
+            egui::CollapsingHeader::new(
+                egui::RichText::new(crate::i18n::t("settings.sub_chat_global")).strong(),
+            )
+            .id_salt("settings_chat_sub_global")
+            .show(ui, |ui| {
+                self.chat_global_options_grid(ui);
+            });
 
-                    // The Ollama server address stays global: it is the local
-                    // server the panel probes and can start/stop, not a property
-                    // of any one profile. A profile may still override it.
-                    ui.label(crate::i18n::t("chat.ollama_url"))
-                        .on_hover_text(crate::i18n::t("settings_hint.chat_ollama_url"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.draft.chat_ollama_url)
-                            .desired_width(280.0)
-                            .hint_text("http://localhost:11434"),
-                    );
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("chat.max_iterations"))
-                        .on_hover_text(crate::i18n::t("settings_hint.chat_max_iterations"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.chat_max_iterations_buf)
-                            .desired_width(100.0)
-                            .hint_text("12"),
-                    );
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("chat.max_tokens"))
-                        .on_hover_text(crate::i18n::t("settings_hint.chat_max_tokens"));
-                    ui.horizontal(|ui| {
-                        let edit = egui::TextEdit::singleline(&mut self.chat_max_tokens_buf)
-                            .desired_width(100.0)
-                            .hint_text("16,384");
-                        ui.add_enabled(!self.chat_unlimited_tokens, edit);
-                        ui.checkbox(
-                            &mut self.chat_unlimited_tokens,
-                            crate::i18n::t("settings.unlimited"),
-                        );
-                    });
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("chat.result_row_limit"))
-                        .on_hover_text(crate::i18n::t("settings_hint.chat_result_row_limit"));
-                    ui.horizontal(|ui| {
-                        let edit = egui::TextEdit::singleline(&mut self.chat_result_row_limit_buf)
-                            .desired_width(100.0)
-                            .hint_text("200");
-                        ui.add_enabled(!self.chat_unlimited_rows, edit);
-                        ui.checkbox(
-                            &mut self.chat_unlimited_rows,
-                            crate::i18n::t("settings.unlimited"),
-                        );
-                    });
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("chat.position"))
-                        .on_hover_text(crate::i18n::t("settings_hint.chat_position"));
-                    egui::ComboBox::from_id_salt("settings_chat_position")
-                        .selected_text(self.draft.chat_panel_position.label_t())
-                        .show_ui(ui, |ui| {
-                            for option in ChatPanelPosition::ALL {
-                                ui.selectable_value(
-                                    &mut self.draft.chat_panel_position,
-                                    *option,
-                                    option.label_t(),
-                                );
-                            }
-                        });
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("chat.export_dir"))
-                        .on_hover_text(crate::i18n::t("settings_hint.chat_export_dir"));
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.draft.chat_export_dir)
-                                .desired_width(280.0),
-                        );
-                        if ui.button(crate::i18n::t("chat.browse")).clicked()
-                            && let Some(dir) = rfd::FileDialog::new().pick_folder()
-                        {
-                            self.draft.chat_export_dir = dir.to_string_lossy().into_owned();
-                        }
-                    });
-                    ui.end_row();
-
-                    // Write protection + backups gate what the assistant (and
-                    // schema-changing database saves) may do to existing files.
-                    ui.label(crate::i18n::t("settings.write_protection"))
-                        .on_hover_text(crate::i18n::t("settings_hint.write_protection"));
-                    ui.checkbox(&mut self.draft.write_protection, "");
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.backup_before_modify"))
-                        .on_hover_text(crate::i18n::t("settings_hint.backup_before_modify"));
-                    ui.checkbox(&mut self.draft.backup_before_modify, "");
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("chat.audit_log"))
-                        .on_hover_text(crate::i18n::t("settings_hint.chat_audit_log"));
-                    ui.checkbox(&mut self.draft.chat_audit_log_enabled, "");
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("chat.audit_warn"))
-                        .on_hover_text(crate::i18n::t("settings_hint.chat_audit_warn"));
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.draft.chat_audit_log_warn_enabled, "");
-                        ui.add_enabled_ui(self.draft.chat_audit_log_warn_enabled, |ui| {
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.chat_audit_warn_mb_buf)
-                                    .desired_width(56.0),
-                            );
-                            ui.label(crate::i18n::t("chat.audit_warn_mb"));
-                        });
-                    });
-                    ui.end_row();
-                });
-
-            // API-key management for the active provider; keyless providers
-            // (Ollama) just show a note. Keyring writes are immediate; the
-            // plaintext fallback commits with the rest of the draft on Apply.
-            let provider = self.draft.chat_provider;
-            if provider.needs_api_key() {
-                ui.separator();
-                ui.label(crate::i18n::t("chat.api_key"))
-                    .on_hover_text(crate::i18n::t("settings_hint.chat_api_key"));
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.chat_key_input_buf)
-                            .password(true)
-                            .hint_text(crate::i18n::t("chat.api_key_hint"))
-                            .desired_width(220.0),
-                    );
-                    if ui.button(crate::i18n::t("chat.save_key")).clicked()
-                        && !self.chat_key_input_buf.trim().is_empty()
-                    {
-                        let key = self.chat_key_input_buf.trim().to_string();
-                        match secrets::set_api_key(provider, &key, &mut self.draft) {
-                            Ok(true) => {
-                                self.chat_key_status_msg =
-                                    Some(crate::i18n::t("chat.key_stored_keyring"));
-                            }
-                            Ok(false) => {
-                                self.chat_key_status_msg = Some(format!(
-                                    "{} {}",
-                                    crate::i18n::t("chat.key_stored_plaintext"),
-                                    secrets::plaintext_path().display()
-                                ));
-                            }
-                            Err(e) => self.chat_key_status_msg = Some(e),
-                        }
-                        self.chat_key_input_buf.clear();
-                    }
-                    if ui.button(crate::i18n::t("chat.clear_key")).clicked() {
-                        // Don't wipe the key on a single click - arm a
-                        // confirmation row instead (rendered just below).
-                        self.chat_key_clear_confirm = Some(provider);
-                        self.chat_key_status_msg = None;
-                    }
-                });
-                // Confirmation row: only an explicit second click deletes the
-                // saved key. Cancel disarms it.
-                if self.chat_key_clear_confirm == Some(provider) {
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(crate::i18n::t("chat.clear_key_confirm"))
-                                .color(egui::Color32::from_rgb(0xd9, 0x53, 0x4f)),
-                        );
-                        if ui.button(crate::i18n::t("chat.clear_key_yes")).clicked() {
-                            secrets::delete_api_key(provider, &mut self.draft);
-                            self.chat_key_status_msg = Some(crate::i18n::t("chat.key_cleared"));
-                            self.chat_key_clear_confirm = None;
-                        }
-                        if ui.button(crate::i18n::t("chat.clear_key_cancel")).clicked() {
-                            self.chat_key_clear_confirm = None;
-                        }
-                    });
-                }
-                let where_msg = match secrets::storage_location(provider, &self.draft) {
-                    secrets::KeyStorage::Env(var) => {
-                        format!("{} {var}", crate::i18n::t("chat.key_source_env"))
-                    }
-                    secrets::KeyStorage::Keyring => crate::i18n::t("chat.key_source_keyring"),
-                    secrets::KeyStorage::Plaintext(path) => format!(
-                        "{} {}",
-                        crate::i18n::t("chat.key_source_plaintext"),
-                        path.display()
-                    ),
-                    secrets::KeyStorage::None => crate::i18n::t("chat.key_source_none"),
-                };
-                ui.label(format!("{} {where_msg}", crate::i18n::t("chat.key_source")));
-                if let Some(msg) = &self.chat_key_status_msg {
-                    ui.colored_label(egui::Color32::from_rgb(0x30, 0x80, 0x30), msg);
-                }
-                // Keys stored in the keyring take effect at once, but the
-                // plaintext fallback only commits with the rest of the dialog -
-                // tell the user to Apply.
-                ui.label(
-                    egui::RichText::new(crate::i18n::t("chat.key_apply_hint"))
-                        .weak()
-                        .size(11.0),
-                );
-            } else {
-                ui.separator();
-                ui.label(crate::i18n::t("chat.ollama_no_key"));
-            }
-
-            // Per-provider key overview, so the user can see at a glance which
-            // providers are configured (not just the selected one).
-            ui.separator();
-            ui.label(egui::RichText::new(crate::i18n::t("chat.key_status_title")).strong());
-            egui::Grid::new("settings_chat_keystatus")
-                .num_columns(2)
-                .spacing([16.0, 4.0])
-                .show(ui, |ui| {
-                    for kind in ChatProviderKind::ALL {
-                        ui.label(kind.label());
-                        if !kind.needs_api_key() {
-                            ui.weak(crate::i18n::t("chat.ollama_no_key_short"));
-                            ui.end_row();
-                            continue;
-                        }
-                        let (text, set) = match secrets::storage_location(*kind, &self.draft) {
-                            secrets::KeyStorage::Env(var) => (
-                                format!("{} ({var})", crate::i18n::t("chat.key_source_env")),
-                                true,
-                            ),
-                            secrets::KeyStorage::Keyring => {
-                                (crate::i18n::t("chat.key_source_keyring"), true)
-                            }
-                            secrets::KeyStorage::Plaintext(_) => {
-                                (crate::i18n::t("chat.key_source_plaintext_short"), true)
-                            }
-                            secrets::KeyStorage::None => {
-                                (crate::i18n::t("chat.key_source_none"), false)
-                            }
-                        };
-                        if set {
-                            ui.colored_label(egui::Color32::from_rgb(0x30, 0x80, 0x30), text);
-                        } else {
-                            ui.weak(text);
-                        }
-                        ui.end_row();
-                    }
-                });
+            egui::CollapsingHeader::new(
+                egui::RichText::new(crate::i18n::t("settings.sub_api_keys")).strong(),
+            )
+            .id_salt("settings_chat_sub_keys")
+            .show(ui, |ui| {
+                self.chat_api_keys_body(ui);
+            });
         });
 
         // ── Cloud storage ──
@@ -1321,6 +1100,18 @@ impl SettingsDialog {
         .default_open(std::mem::take(&mut self.focus_cloud_section))
         .show(ui, |ui| {
             self.cloud_section_body(ui);
+        });
+
+        // ── Databases ──
+        egui::CollapsingHeader::new(
+            egui::RichText::new(crate::i18n::t("settings.sec_db"))
+                .strong()
+                .size(13.0),
+        )
+        .id_salt("settings_section_db")
+        .default_open(std::mem::take(&mut self.focus_db_section))
+        .show(ui, |ui| {
+            self.db_section_body(ui);
         });
 
         // ── Map ──
@@ -1470,6 +1261,23 @@ impl SettingsDialog {
                             crate::i18n::t("settings.unlimited"),
                         )
                         .on_hover_text(crate::i18n::t("settings_hint.raw_view_unlimited"));
+                    });
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.decompress_cap"))
+                        .on_hover_text(crate::i18n::t("settings_hint.decompress_cap"));
+                    ui.horizontal(|ui| {
+                        ui.add_enabled(
+                            !self.draft.max_decompressed_unlimited,
+                            egui::TextEdit::singleline(&mut self.max_decompressed_mb_buf)
+                                .desired_width(120.0)
+                                .hint_text("4,295"),
+                        );
+                        ui.checkbox(
+                            &mut self.draft.max_decompressed_unlimited,
+                            crate::i18n::t("settings.unlimited"),
+                        )
+                        .on_hover_text(crate::i18n::t("settings_hint.decompress_unlimited"));
                     });
                     ui.end_row();
 

@@ -92,9 +92,12 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
         }
         ctx.request_repaint();
 
-        // Accumulators for this iteration's assistant turn.
+        // Accumulators for this iteration's assistant turn. `raw_blocks` keeps
+        // tool calls and provider-specific items (e.g. OpenAI Responses
+        // reasoning) in event order, so a replay to the provider preserves the
+        // ordering it produced.
         let mut text = String::new();
-        let mut tool_calls: Vec<(String, String, Value)> = Vec::new();
+        let mut raw_blocks: Vec<ContentBlock> = Vec::new();
         let mut error: Option<String> = None;
         let mut stop = StopReason::EndTurn;
 
@@ -110,7 +113,13 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
                     ctx.request_repaint();
                 }
                 ChatEvent::ToolCall { id, name, input } => {
-                    tool_calls.push((id, name, input));
+                    raw_blocks.push(ContentBlock::ToolUse { id, name, input });
+                }
+                ChatEvent::ProviderData(data) => {
+                    raw_blocks.push(ContentBlock::ProviderData {
+                        provider: provider.name().to_string(),
+                        data,
+                    });
                 }
                 ChatEvent::Usage {
                     input_tokens,
@@ -139,18 +148,22 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
             return;
         }
 
-        // Commit the assistant turn (prose + tool_use blocks).
+        // Commit the assistant turn (prose + tool_use / provider blocks, in
+        // the order the provider emitted them).
+        let tool_calls: Vec<(String, String, Value)> = raw_blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::ToolUse { id, name, input } => {
+                    Some((id.clone(), name.clone(), input.clone()))
+                }
+                _ => None,
+            })
+            .collect();
         let mut blocks: Vec<ContentBlock> = Vec::new();
         if !text.trim().is_empty() {
             blocks.push(ContentBlock::text(text));
         }
-        for (id, name, input) in &tool_calls {
-            blocks.push(ContentBlock::ToolUse {
-                id: id.clone(),
-                name: name.clone(),
-                input: input.clone(),
-            });
-        }
+        blocks.extend(raw_blocks);
         if !blocks.is_empty() {
             state
                 .lock()

@@ -2,6 +2,7 @@ pub mod archive_reader;
 pub mod arrow_ipc_reader;
 pub mod avro_reader;
 pub mod bson_reader;
+pub mod compression;
 pub mod csv_reader;
 pub mod dbf_reader;
 pub mod duckdb_reader;
@@ -72,6 +73,39 @@ pub fn backup_existing_file(path: &std::path::Path) -> anyhow::Result<Option<std
         )
     })?;
     Ok(Some(candidate))
+}
+
+/// Read any supported file, transparently decompressing `.gz` / `.zst` first
+/// (bounded by `max_decompressed` bytes; see `compression`). Honours `table`
+/// on multi-table sources. This is the shared read path behind the CLI's
+/// `read_table` helper and the MCP server's `read_with_registry`; the GUI has
+/// its own hook in `load_file` because it keeps the temp file alive for the
+/// tab's lifetime.
+pub fn read_table_auto(
+    path: &Path,
+    table: Option<&str>,
+    max_decompressed: u64,
+) -> anyhow::Result<DataTable> {
+    let registry = FormatRegistry::new();
+    let mut _tmp = None;
+    let read_path = if let Some(codec) = compression::detect_codec(path) {
+        let tmp = compression::decompress_to_temp(path, codec, max_decompressed)?;
+        let p = tmp.path().to_path_buf();
+        _tmp = Some(tmp);
+        p
+    } else {
+        path.to_path_buf()
+    };
+    let reader = registry
+        .reader_for_path(&read_path)
+        .ok_or_else(|| anyhow::anyhow!("no reader available for {}", path.display()))?;
+    let mut t = match table {
+        Some(name) => reader.read_table(&read_path, name)?,
+        None => reader.read_file(&read_path)?,
+    };
+    // Point provenance at the file the user named, not the temp.
+    t.source_path = Some(path.to_string_lossy().to_string());
+    Ok(t)
 }
 
 /// Initial-load row cap shared by the streaming readers (Parquet, CSV, TSV).

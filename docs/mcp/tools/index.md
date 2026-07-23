@@ -6,8 +6,9 @@ output file), `write_table` (writes model-supplied rows to a new file),
 `edit_table` (edits an existing file in place), `transform_columns`
 (rename / cast / drop columns, writes back), `anonymize` (mask /
 scramble columns, writes the result), and `partition_table` (writes one
-file per group). These are dropped when the server is started with
-`--mcp-read-only`.
+file per group). The live-database write tools (`write_db_table`,
+`copy_db_table`) and `run_sql`'s `write_to` are gated the same way. All
+of these are dropped when the server is started with `--mcp-read-only`.
 
 ## At-a-glance
 
@@ -47,6 +48,21 @@ file per group). These are dropped when the server is started with
 | **[`union_tables`](union_tables.md)**                       | Stack tables vertically                                 | No                              |
 | **[`join_tables`](join_tables.md)**                         | Join tables on key columns                              | No                              |
 | **[`partition_table`](partition_table.md)**                 | One file per distinct column value                      | Writes one file per group       |
+| **`list_db_connections`** [^db]                             | List saved live-database connections                    | No                              |
+| **`list_db_tables`** [^db]                                  | List schemas / tables on a live connection              | No                              |
+| **`query_db`** [^db]                                        | Run SQL on a live database server                       | Mutations need Allow writes     |
+| **`write_db_table`** [^db]                                  | Write a table into a live database                      | Yes (server table)              |
+| **`copy_db_table`** [^db]                                   | Copy a table server-to-server through DuckDB            | Yes (target server table)       |
+
+[^db]: The live-database tools work on the connections saved under
+    **Settings -> Databases** (loaded once at server startup) and are
+    described in [Database Connections](../../usage/database-connections.md).
+    Every write is additionally gated on the connection's own
+    **Allow writes** switch. On Snowflake, Databricks and BigQuery, which
+    have a catalog level above the schema, `list_db_tables` and
+    `write_db_table` take a `catalog` parameter and `copy_db_table` takes
+    `source_catalog` and `target_catalog`; `list_db_tables` without a
+    catalog returns the catalog list itself.
 
 \* `run_sql` accepts mutation queries (`INSERT` / `UPDATE` / `DELETE`)
 but the in-memory DuckDB connection is discarded at the end of the

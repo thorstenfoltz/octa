@@ -58,6 +58,17 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # ubuntu-latest ships ~20 GB of preinstalled toolchains (dotnet/android/
+      # ghc) this build never touches, leaving only ~21 GB on /. `cargo test`
+      # builds lib + bin + every test target (bundled DuckDB C++ + two Arrow
+      # versions), which overruns it and crashes the runner with "No space left
+      # on device". Reclaim the bloat before compiling.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/boost /usr/local/lib/node_modules "$AGENT_TOOLSDIRECTORY"
+          df -h /
+
       - name: Install system dependencies
         run: |
           sudo apt-get update

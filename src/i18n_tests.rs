@@ -104,6 +104,7 @@ const OPENS_SOMETHING: &[&str] = &[
 const JUST_EXECUTES: &[&str] = &[
     "file_menu.close_directory",
     "file_menu.cloud_connections", // toggles the sidebar
+    "file_menu.databases",         // toggles the sidebar
     "file_menu.exit",
     "common.save",
     "edit_menu.fit_all_columns",

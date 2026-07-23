@@ -49,6 +49,43 @@ serde_yaml_ng = "0.10"
 resvg = "0.47"
 ureq = { version = "3", features = ["json"] }
 flate2 = "1"
+# Transparent .zst decompression (compression.rs); gzip rides on flate2.
+zstd = "0.13"
+# Consuming object_store's listing streams (already in the tree via
+# object_store itself; this only makes the extension traits importable).
+futures-util = { version = "0.3", default-features = false }
+# Live database connections (src/db/, one file per engine). All three clients
+# are async; src/db/runtime() blocks on them like the cloud module does.
+# rustls everywhere (no OpenSSL), ring provider for a lighter native build.
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+tokio-postgres-rustls = "0.14"
+mysql_async = { version = "0.37", default-features = false, features = [
+    "default-rustls-ring",
+    "chrono",
+] }
+tiberius = { version = "0.12", default-features = false, features = [
+    "tds73",
+    "rustls",
+    "chrono",
+] }
+sqlx-exasol = { version = "0.9", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls",
+] }
+# Snowflake key-pair auth: sign the login JWT (RS256) and compute the public-key
+# SHA256 fingerprint. `rsa` re-exports the pkcs8/spki traits; both were already
+# in the tree transitively. jsonwebtoken is deliberately NOT used - it cannot
+# expose the public-key DER the fingerprint needs.
+rsa = { version = "0.9", features = ["sha2"] }
+base64 = "0.21"
+tokio-util = { version = "0.7", features = ["compat"] }
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+    "logging",
+] }
+rustls-native-certs = "0.8"
 tar = "0.4"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 regex = "1"
@@ -98,7 +135,7 @@ rmcp = { version = "1", features = ["server", "transport-io", "macros"] }
 schemars = "1"
 # Async runtime for the MCP server only — the GUI process stays sync. We
 # spawn a current-thread runtime in `main` exclusively on the `--mcp` path.
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "io-std", "io-util"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "io-std", "io-util", "net", "time"] }
 # Structured logs from rmcp emit through `tracing`; route to stderr so they
 # don't collide with the JSON-RPC traffic on stdout.
 tracing = "0.1"

@@ -45,10 +45,10 @@ impl SettingsDialog {
             ui.add_space(4.0);
         }
 
-        // One section per group, in `ShortcutGroup::ALL` order. Rows use fixed
-        // column widths (`add_sized`) so the action / combo columns line up
-        // across *every* group, and each group gets a full-width highlighted
-        // header bar so the sections are easy to scan.
+        // One collapsible sub-section per group, in `ShortcutGroup::ALL`
+        // order, so the section opens as a short scannable list of group
+        // names instead of one very long grid. Rows use fixed column widths
+        // so the action / combo columns line up across every group.
         const LABEL_W: f32 = 250.0;
         const COMBO_W: f32 = 160.0;
         for group in crate::ui::shortcuts::ShortcutGroup::ALL {
@@ -58,68 +58,60 @@ impl SettingsDialog {
             if actions.is_empty() {
                 continue;
             }
-            ui.add_space(8.0);
-            // Highlighted header bar spanning the panel width.
-            egui::Frame::NONE
-                .fill(ui.visuals().faint_bg_color)
-                .inner_margin(egui::Margin::symmetric(6, 3))
-                .corner_radius(4.0)
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.label(
-                        egui::RichText::new(crate::i18n::t(group.i18n_key()))
-                            .strong()
-                            .size(14.0)
-                            .color(ui.visuals().strong_text_color()),
-                    );
-                });
-            ui.add_space(2.0);
-            let row_h = ui.spacing().interact_size.y;
-            for action in actions {
-                ui.horizontal(|ui| {
-                    // Fixed-width columns kept for cross-row alignment, but the
-                    // action and combo text are left-aligned within them (a bare
-                    // `add_sized` centres its content).
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(LABEL_W, row_h),
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            ui.set_min_width(LABEL_W);
-                            ui.add(
-                                egui::Label::new(action.label())
-                                    .wrap_mode(egui::TextWrapMode::Truncate),
-                            );
-                        },
-                    );
-                    let combo = self.draft.shortcuts.combo(action);
-                    let label_text = if self.recording == Some(action) {
-                        egui::RichText::new("Press any key...").italics()
-                    } else {
-                        egui::RichText::new(combo.label()).monospace()
-                    };
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(COMBO_W, row_h),
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            ui.set_min_width(COMBO_W);
-                            ui.add(egui::Label::new(label_text));
-                        },
-                    );
-                    if self.recording == Some(action) {
-                        if ui.button(crate::i18n::t("settings.sc_stop")).clicked() {
-                            self.recording = None;
+            egui::CollapsingHeader::new(
+                egui::RichText::new(crate::i18n::t(group.i18n_key()))
+                    .strong()
+                    .size(14.0),
+            )
+            .id_salt(("settings_shortcuts_group", group.i18n_key()))
+            .show(ui, |ui| {
+                let row_h = ui.spacing().interact_size.y;
+                for action in actions {
+                    ui.horizontal(|ui| {
+                        // Fixed-width columns kept for cross-row alignment, but the
+                        // action and combo text are left-aligned within them (a bare
+                        // `add_sized` centres its content).
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(LABEL_W, row_h),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.set_min_width(LABEL_W);
+                                ui.add(
+                                    egui::Label::new(action.label())
+                                        .wrap_mode(egui::TextWrapMode::Truncate),
+                                );
+                            },
+                        );
+                        let combo = self.draft.shortcuts.combo(action);
+                        let label_text = if self.recording == Some(action) {
+                            egui::RichText::new("Press any key...").italics()
+                        } else {
+                            egui::RichText::new(combo.label()).monospace()
+                        };
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(COMBO_W, row_h),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.set_min_width(COMBO_W);
+                                ui.add(egui::Label::new(label_text));
+                            },
+                        );
+                        if self.recording == Some(action) {
+                            if ui.button(crate::i18n::t("settings.sc_stop")).clicked() {
+                                self.recording = None;
+                            }
+                        } else if ui.button(crate::i18n::t("settings.sc_record")).clicked() {
+                            self.recording = Some(action);
                         }
-                    } else if ui.button(crate::i18n::t("settings.sc_record")).clicked() {
-                        self.recording = Some(action);
-                    }
-                    if ui.button(crate::i18n::t("settings.clear")).clicked() {
-                        self.draft.shortcuts.set(action, KeyCombo::UNBOUND);
-                    }
-                    if ui.button(crate::i18n::t("settings.reset")).clicked() {
-                        self.draft.shortcuts.reset(action);
-                    }
-                });
-            }
+                        if ui.button(crate::i18n::t("settings.clear")).clicked() {
+                            self.draft.shortcuts.set(action, KeyCombo::UNBOUND);
+                        }
+                        if ui.button(crate::i18n::t("settings.reset")).clicked() {
+                            self.draft.shortcuts.reset(action);
+                        }
+                    });
+                }
+            });
         }
     }
 }

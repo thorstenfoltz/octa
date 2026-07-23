@@ -152,8 +152,19 @@ pub(crate) enum CloudOpenResult {
         paths: Vec<PathBuf>,
         skipped: usize,
     },
+    /// A finished recursive inventory listing ("List contents as table...").
+    InventoryReady {
+        /// Boxed: a `DataTable` inline would dwarf the other variants.
+        table: Box<octa::data::DataTable>,
+        label: String,
+        truncated: bool,
+    },
     Failed(String),
 }
+
+/// Recursive-inventory object cap: a data-lake bucket can hold millions of
+/// keys; past this the listing stops and the tab shows a truncation notice.
+pub(crate) const INVENTORY_CAP: usize = 100_000;
 
 /// One cloud object the user has ticked in the sidebar for a batch action.
 /// Carries the name as well as the key because the download needs the file
@@ -326,6 +337,8 @@ impl OctaApp {
                                 is_prefix: true,
                                 size: None,
                                 modified: None,
+                                etag: None,
+                                version: None,
                             })
                             .collect());
                     }
@@ -397,6 +410,85 @@ impl OctaApp {
                 },
                 Err(e) => CloudOpenResult::Failed(format!(
                     "{} {name}: {e:#}",
+                    octa::i18n::t("cloud.open_failed")
+                )),
+            };
+            if let Ok(mut p) = pending.lock() {
+                p.push(item);
+            }
+            ctx.request_repaint();
+        });
+    }
+
+    /// Recursively list everything under (conn, prefix) into a detached
+    /// inventory tab. The listing (network, possibly a CLI shell-out for
+    /// credentials) runs on a worker thread; `drain_cloud_pending_open`
+    /// opens the tab on the main thread.
+    pub(crate) fn cloud_inventory(&mut self, ctx: &egui::Context, conn_id: String, prefix: String) {
+        let Some(conn) = self.find_cloud_conn(&conn_id) else {
+            return;
+        };
+        // An account-level root has no bucket to list yet; ask the user to
+        // run the inventory on a bucket (or deeper) instead.
+        if conn.account_level && prefix.is_empty() {
+            self.status_message = Some((
+                octa::i18n::t("inventory.account_root"),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        let label = if conn.account_level {
+            format!("{}://{}", conn.kind.scheme(), prefix.trim_end_matches('/'))
+        } else if prefix.is_empty() {
+            format!("{}://{}", conn.kind.scheme(), conn.bucket)
+        } else {
+            format!(
+                "{}://{}/{}",
+                conn.kind.scheme(),
+                conn.bucket,
+                prefix.trim_end_matches('/')
+            )
+        };
+        let settings = self.settings.clone();
+        let pending = self.cloud_browser.pending_open.clone();
+        let ctx = ctx.clone();
+        self.status_message = Some((
+            format!("{} {label}", octa::i18n::t("inventory.listing")),
+            std::time::Instant::now(),
+        ));
+        std::thread::spawn(move || {
+            let result = (|| -> anyhow::Result<(Vec<ObjectEntry>, bool)> {
+                if conn.account_level {
+                    // Bind the bucket named by the prefix's first segment and
+                    // re-qualify keys so paths read "<bucket>/<key>".
+                    let (bconn, sub) = bind_bucket(&conn, &prefix);
+                    let bucket = bconn.bucket.clone();
+                    let creds = resolve_creds(&bconn, &settings);
+                    let provider = cloud::build_provider(&bconn, &creds)?;
+                    let (entries, truncated) = provider.list_recursive(&sub, INVENTORY_CAP)?;
+                    return Ok((
+                        entries
+                            .into_iter()
+                            .map(|mut e| {
+                                e.key = format!("{bucket}/{}", e.key);
+                                e
+                            })
+                            .collect(),
+                        truncated,
+                    ));
+                }
+                let creds = resolve_creds(&conn, &settings);
+                let provider = cloud::build_provider(&conn, &creds)?;
+                provider.list_recursive(&prefix, INVENTORY_CAP)
+            })();
+            let item = match result {
+                Ok((entries, truncated)) => CloudOpenResult::InventoryReady {
+                    table: Box::new(octa::data::inventory::build_inventory_table(&entries)),
+                    label,
+                    truncated,
+                },
+                Err(e) => CloudOpenResult::Failed(format!(
+                    "{} {label}: {e:#}",
                     octa::i18n::t("cloud.open_failed")
                 )),
             };
@@ -635,6 +727,33 @@ impl OctaApp {
                     // directory tree: the files just came from a bucket.
                     self.open_union_for_files(paths);
                 }
+                CloudOpenResult::InventoryReady {
+                    table,
+                    label,
+                    truncated,
+                } => {
+                    let rows = table.row_count();
+                    let mut new_tab =
+                        super::state::TabState::new(self.settings.default_search_mode);
+                    new_tab.table = *table;
+                    new_tab.custom_tab_label = Some(format!(
+                        "{} - {label}",
+                        octa::i18n::t("inventory.tab_label")
+                    ));
+                    if truncated {
+                        new_tab.parse_error_banner =
+                            Some(octa::i18n::t("inventory.truncated").replace(
+                                "{n}",
+                                &octa::ui::status_bar::format_number(INVENTORY_CAP),
+                            ));
+                    }
+                    self.tabs.push(new_tab);
+                    self.active_tab = self.tabs.len() - 1;
+                    self.status_message = Some((
+                        format!("{} {rows} ({label})", octa::i18n::t("inventory.done")),
+                        std::time::Instant::now(),
+                    ));
+                }
                 CloudOpenResult::Failed(msg) => {
                     self.status_message = Some((msg, std::time::Instant::now()));
                 }
@@ -656,6 +775,8 @@ mod sort_tests {
             is_prefix: false,
             size: Some(size),
             modified: Some(Utc.with_ymd_and_hms(2026, 1, day, 0, 0, 0).unwrap()),
+            etag: None,
+            version: None,
         }
     }
     fn folder(name: &str) -> ObjectEntry {
@@ -665,6 +786,8 @@ mod sort_tests {
             is_prefix: true,
             size: None,
             modified: None,
+            etag: None,
+            version: None,
         }
     }
 

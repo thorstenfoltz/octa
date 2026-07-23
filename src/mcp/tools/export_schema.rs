@@ -15,7 +15,7 @@ use crate::mcp::OctaMcpServer;
 use super::{Source, ToolContext, source_from};
 
 pub const DESCRIPTION: &str = "Generate a schema artifact from a tabular file or open tab: SQL DDL (postgres, mysql, \
-sqlite, databricks, snowflake) or a Pydantic v2 model, TypeScript interface, JSON Schema, or \
+sqlite, databricks, snowflake, mssql) or a Pydantic v2 model, TypeScript interface, JSON Schema, or \
 Rust struct. Pick the output with `target`. Returns `target`, `table_name`, `column_count`, and \
 `code`.";
 
@@ -30,6 +30,7 @@ pub enum Target {
     Sqlite,
     Databricks,
     Snowflake,
+    Mssql,
     Pydantic,
     Typescript,
     JsonSchema,
@@ -44,6 +45,7 @@ impl Target {
             Self::Sqlite => SchemaTarget::SqliteSqlDdl,
             Self::Databricks => SchemaTarget::DatabricksSqlDdl,
             Self::Snowflake => SchemaTarget::SnowflakeSqlDdl,
+            Self::Mssql => SchemaTarget::MssqlSqlDdl,
             Self::Pydantic => SchemaTarget::PydanticV2,
             Self::Typescript => SchemaTarget::TypeScript,
             Self::JsonSchema => SchemaTarget::JsonSchema,
@@ -69,7 +71,7 @@ pub struct Params {
     pub table: Option<String>,
 
     /// Output target: a SQL DDL dialect (`postgres`, `mysql`, `sqlite`,
-    /// `databricks`, `snowflake`) or a language target (`pydantic`,
+    /// `databricks`, `snowflake`, `mssql`) or a language target (`pydantic`,
     /// `typescript`, `json-schema`, `rust`).
     pub target: Target,
 }

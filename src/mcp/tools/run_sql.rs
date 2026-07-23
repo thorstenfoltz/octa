@@ -165,6 +165,12 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     }
 
     if let Some(spec) = &p.write_to {
+        // run_sql stays advertised read-only surfaces (it is a core read tool),
+        // so its write branch must gate itself: --mcp-read-only and chat
+        // profiles without writes both land here with `read_only` set.
+        if ctx.read_only {
+            anyhow::bail!("writes are disabled for this session; write_to is not available");
+        }
         // A cloud URL resolves to a temp file; `dest.finish()` uploads it.
         let dest = ctx.resolve_write_dest(&spec.path)?;
         let target_path = dest.path();

@@ -44,13 +44,40 @@ impl InspectorTarget {
     }
 }
 
+/// Outcome of a finished "Run on server" query, written by the worker.
+pub(crate) enum ServerQueryDone {
+    /// A SELECT: the fetched rows (boxed: a `DataTable` inline would dwarf
+    /// the other variants).
+    Rows(Box<octa::data::DataTable>),
+    /// A mutation: rows affected.
+    Affected(u64),
+    Failed(String),
+}
+
+/// One in-flight "Run on server" query (at most one at a time, app-wide).
+pub(crate) struct SqlServerJob {
+    /// Tab index the query was started from; the drain re-checks the tab
+    /// still shows the same connection before applying the result.
+    pub(crate) tab_idx: usize,
+    pub(crate) conn_id: String,
+    pub(crate) query: String,
+    pub(crate) result: std::sync::Arc<std::sync::Mutex<Option<ServerQueryDone>>>,
+    /// Cancel handle delivered by the worker once the connection is up.
+    pub(crate) cancel: SharedCancel,
+}
+
+/// Shared slot for a connector's thread-safe cancel closure.
+pub(crate) type SharedCancel = std::sync::Arc<std::sync::Mutex<Option<Box<dyn Fn() + Send>>>>;
+
 impl OctaApp {
     pub(crate) fn render_sql_panel(&mut self, parent_ui: &mut egui::Ui) {
         let ctx = parent_ui.ctx().clone();
         let ctx = &ctx;
         let sql_panel_visible = {
             let tab = &self.tabs[self.active_tab];
-            tab.sql_panel_open && tab.table.col_count() > 0 && tab.view_mode == ViewMode::Table
+            // No col_count gate: an empty tab can still ATTACH saved
+            // connections and query servers directly (no `data` table then).
+            tab.sql_panel_open && tab.view_mode == ViewMode::Table
         };
         if !sql_panel_visible {
             return;
@@ -67,6 +94,25 @@ impl OctaApp {
             let tab = &self.tabs[self.active_tab];
             workspace_snapshot(tab)
         };
+
+        // Server-mode context: the connection name behind the active tab's
+        // db_origin (if it still exists), whether a server query is running,
+        // and the saved connections for the attach menu.
+        let server_conn_name: Option<String> =
+            self.tabs[self.active_tab].db_origin.as_ref().and_then(|o| {
+                self.settings
+                    .db_connections
+                    .iter()
+                    .find(|c| c.id == o.conn_id)
+                    .map(|c| c.name.clone())
+            });
+        let server_running = self.sql_server_job.is_some();
+        let db_connections: Vec<(String, String)> = self
+            .settings
+            .db_connections
+            .iter()
+            .map(|c| (c.id.clone(), c.name.clone()))
+            .collect();
 
         let tab = &mut self.tabs[self.active_tab];
         let partial_rows = tab.table.total_rows.and_then(|total| {
@@ -105,6 +151,9 @@ impl OctaApp {
                     workspace_attachments: &workspace_attachments,
                     inspector_selection: inspector_selection_owned.as_ref(),
                     inspector_entry: inspector_entry_owned.as_ref(),
+                    server_conn_name: server_conn_name.clone(),
+                    server_running,
+                    db_connections: db_connections.clone(),
                 },
             )
         };
@@ -152,7 +201,15 @@ impl OctaApp {
             tab.sql_error = None;
         }
         if sql_action.run {
-            self.run_workspace_query(ctx);
+            let tab = &self.tabs[self.active_tab];
+            if tab.db_origin.is_some() && tab.sql_run_on_server {
+                self.run_server_query(ctx);
+            } else {
+                self.run_workspace_query(ctx);
+            }
+        }
+        if sql_action.cancel_server {
+            self.cancel_server_query();
         }
         if sql_action.export {
             self.export_sql_result();
@@ -169,6 +226,9 @@ impl OctaApp {
         }
         if sql_action.attach_db {
             self.workspace_attach_db_via_picker();
+        }
+        if let Some(conn_id) = sql_action.attach_db_connection {
+            self.workspace_attach_db_connection(&conn_id);
         }
         if let Some(name) = sql_action.remove_table {
             self.workspace_remove_table(&name);
@@ -323,11 +383,193 @@ impl OctaApp {
         }
     }
 
+    /// Run the editor's query on the live database server the active tab was
+    /// opened from, on a worker thread (network). One in-flight query at a
+    /// time; the result lands via `drain_sql_server_job`.
+    pub(crate) fn run_server_query(&mut self, ctx: &egui::Context) {
+        if self.sql_server_job.is_some() {
+            return;
+        }
+        let tab_idx = self.active_tab;
+        let Some(origin) = self.tabs[tab_idx].db_origin.clone() else {
+            return;
+        };
+        let query = self.tabs[tab_idx].sql_query.clone();
+        if query.trim().is_empty() {
+            return;
+        }
+        let Some(conn) = self
+            .settings
+            .db_connections
+            .iter()
+            .find(|c| c.id == origin.conn_id)
+            .cloned()
+        else {
+            self.tabs[tab_idx].sql_error = Some(octa::i18n::t("sql.server_conn_gone"));
+            return;
+        };
+        self.tabs[tab_idx].sql_error = None;
+        let result = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let cancel = std::sync::Arc::new(std::sync::Mutex::new(None));
+        self.sql_server_job = Some(SqlServerJob {
+            tab_idx,
+            conn_id: conn.id.clone(),
+            query: query.clone(),
+            result: result.clone(),
+            cancel: cancel.clone(),
+        });
+        let settings = self.settings.clone();
+        let ctx = ctx.clone();
+        let cache = self.db_conn_cache.clone();
+        std::thread::spawn(move || {
+            let done = (|| -> Result<ServerQueryDone, String> {
+                let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
+                if octa::sql::is_mutation(&query) {
+                    octa::db::ensure_write_allowed(&conn, Some(&query))
+                        .map_err(|e| format!("{e:#}"))?;
+                }
+                // No `with_conn` auto-retry here: a user cancel surfaces as a
+                // query error, and a retry would silently re-run the very
+                // statement that was just cancelled. Single attempt; drop the
+                // cached connector on failure so the next run reconnects.
+                let (shared, _) = cache
+                    .get_or_connect(&conn, secret.as_deref())
+                    .map_err(|e| format!("{e:#}"))?;
+                let res = {
+                    let mut c = super::db_conn_cache::lock_connector(&shared);
+                    if let Ok(mut slot) = cancel.lock() {
+                        *slot = c.cancel_handle();
+                    }
+                    if octa::sql::is_mutation(&query) {
+                        c.execute(&query).map(ServerQueryDone::Affected)
+                    } else {
+                        c.query(&query).map(|t| ServerQueryDone::Rows(Box::new(t)))
+                    }
+                };
+                res.map_err(|e| {
+                    cache.invalidate(&conn.id);
+                    format!("{e:#}")
+                })
+            })();
+            let done = done.unwrap_or_else(ServerQueryDone::Failed);
+            if let Ok(mut r) = result.lock() {
+                *r = Some(done);
+            }
+            ctx.request_repaint();
+        });
+    }
+
+    /// Best-effort cancel of the in-flight server query (Postgres only; the
+    /// other engines have no cross-thread cancel).
+    fn cancel_server_query(&mut self) {
+        if let Some(job) = &self.sql_server_job
+            && let Ok(c) = job.cancel.lock()
+            && let Some(f) = c.as_ref()
+        {
+            f();
+        }
+    }
+
+    /// Apply a finished server query to its tab. Called once per frame from
+    /// the update loop.
+    pub(crate) fn drain_sql_server_job(&mut self) {
+        let Some(job) = &self.sql_server_job else {
+            return;
+        };
+        let done = {
+            let Ok(mut r) = job.result.lock() else {
+                return;
+            };
+            r.take()
+        };
+        let Some(done) = done else {
+            return;
+        };
+        let job = self.sql_server_job.take().expect("job checked above");
+        // Only apply if the originating tab still shows the same connection
+        // (tabs may have been closed/reordered while the query ran).
+        let Some(tab) = self.tabs.get_mut(job.tab_idx).filter(|t| {
+            t.db_origin
+                .as_ref()
+                .is_some_and(|o| o.conn_id == job.conn_id)
+        }) else {
+            self.status_message = Some((
+                octa::i18n::t("sql.server_tab_gone"),
+                std::time::Instant::now(),
+            ));
+            return;
+        };
+        match done {
+            ServerQueryDone::Rows(t) => {
+                tab.sql_result = Some(*t);
+                tab.sql_error = None;
+                record_sql_history(tab, &job.query);
+                tab.sql_last_query = job.query;
+            }
+            ServerQueryDone::Affected(n) => {
+                record_sql_history(tab, &job.query);
+                tab.sql_result = None;
+                tab.sql_error = None;
+                self.status_message = Some((
+                    format!("SQL applied on server: {n} row(s) affected"),
+                    std::time::Instant::now(),
+                ));
+            }
+            ServerQueryDone::Failed(msg) => {
+                tab.sql_error = Some(msg);
+            }
+        }
+    }
+
+    /// ATTACH a saved live-database connection into the active tab's SQL
+    /// workspace. Synchronous: the DuckDB extension handshake runs on the UI
+    /// thread, like the file ATTACH beside it.
+    // ponytail: blocks the UI for the handshake (and the whole import for
+    // SQL Server); move onto a worker if users attach slow servers.
+    fn workspace_attach_db_connection(&mut self, conn_id: &str) {
+        let Some(conn) = self
+            .settings
+            .db_connections
+            .iter()
+            .find(|c| c.id == conn_id)
+            .cloned()
+        else {
+            return;
+        };
+        let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &self.settings);
+        let tab = &mut self.tabs[self.active_tab];
+        ensure_workspace(tab);
+        let base = octa::sql::sanitize_sql_name(&conn.name);
+        let ws_imm = tab.sql_workspace.as_ref().expect("ensured");
+        let existing_aliases: std::collections::HashSet<String> = ws_imm
+            .list_attached()
+            .iter()
+            .map(|a| a.alias.clone())
+            .collect();
+        let alias = octa::sql::dedupe_sql_name(&base, |s| existing_aliases.contains(s));
+        let ws = tab.sql_workspace.as_mut().expect("ensured");
+        match ws.attach_db(&conn, secret.as_deref(), &alias) {
+            Ok(att) => {
+                tab.sql_workspace_open = true;
+                let label = if att.native { "" } else { " (fallback)" };
+                self.status_message = Some((
+                    format!("Attached `{alias}` to SQL workspace{label}"),
+                    std::time::Instant::now(),
+                ));
+            }
+            Err(e) => {
+                tab.sql_error = Some(e.to_string());
+            }
+        }
+        Self::prune_inspector_cache(&mut self.tabs[self.active_tab]);
+    }
+
     fn run_workspace_query(&mut self, ctx: &egui::Context) {
         // Captured before the `tab` borrow; used by the post-mutation row-diff
         // highlight below.
         let diff_enabled = self.settings.sql_row_diff_highlight_enabled;
         let diff_secs = self.settings.sql_row_diff_highlight_secs;
+        let readonly = self.is_readonly();
         let tab = &mut self.tabs[self.active_tab];
         let query = tab.sql_query.clone();
         // Refresh `data` from the live edited table on every run so the
@@ -337,7 +579,11 @@ impl OctaApp {
         ensure_workspace(tab);
         let outcome = {
             let ws = tab.sql_workspace.as_mut().expect("workspace just ensured");
-            if let Err(e) = ws.set_active_table(&snapshot) {
+            // An empty tab registers no `data` (zero columns); attached
+            // servers stay queryable.
+            if snapshot.col_count() > 0
+                && let Err(e) = ws.set_active_table(&snapshot)
+            {
                 tab.sql_error = Some(e.to_string());
                 return;
             }
@@ -352,6 +598,13 @@ impl OctaApp {
                     tab.sql_last_query = query;
                 }
                 octa::sql::QueryKind::Mutation => {
+                    // Read-only (mode or a live-database tab): the mutation
+                    // ran against the workspace temp table only; refuse to
+                    // fold it back into the tab.
+                    if readonly {
+                        tab.sql_error = Some(octa::i18n::t("db.tab_readonly_note"));
+                        return;
+                    }
                     // Apply the mutation to the base table directly so
                     // INSERT / UPDATE / DELETE affect the data, not just
                     // a result set. Selection / widths / per-tab UI state
@@ -363,7 +616,14 @@ impl OctaApp {
                     mutated.source_path = tab.table.source_path.clone();
                     mutated.format_name = tab.table.format_name.clone();
                     mutated.structural_changes = true;
-                    if let Some(meta) = tab.table.db_meta.as_ref() {
+                    if tab.db_origin.is_some() {
+                        // A local DuckDB rewrite destroys server row identity.
+                        // Rebuilding all-None tags would turn the next Save
+                        // into DELETE-all + INSERT-all on the server; dropping
+                        // the meta makes Save report "row identity lost"
+                        // instead.
+                        mutated.db_meta = None;
+                    } else if let Some(meta) = tab.table.db_meta.as_ref() {
                         let row_count = mutated.row_count();
                         mutated.db_meta = Some(octa::data::DbRowMeta {
                             table_name: meta.table_name.clone(),
@@ -407,7 +667,11 @@ impl OctaApp {
         snapshot.apply_edits();
         ensure_workspace(tab);
         if let Some(ws) = tab.sql_workspace.as_mut() {
-            if let Err(e) = ws.set_active_table(&snapshot) {
+            // Remote table lists can drift; refresh re-queries them too.
+            ws.invalidate_attached_cache();
+            if snapshot.col_count() == 0 {
+                tab.sql_error = None;
+            } else if let Err(e) = ws.set_active_table(&snapshot) {
                 tab.sql_error = Some(e.to_string());
             } else {
                 tab.sql_error = None;
@@ -630,16 +894,19 @@ fn workspace_snapshot(tab: &TabState) -> (Vec<WorkspaceRow>, Vec<WorkspaceAttach
                 kind_label: match a.kind {
                     AttachKind::DuckDb => "DuckDB",
                     AttachKind::Sqlite => "SQLite",
+                    AttachKind::Postgres => "Postgres",
+                    AttachKind::MySql => "MySQL",
+                    AttachKind::Mssql => "MSSQL",
                 },
                 native: a.native,
                 table_count,
                 schemas,
             });
         }
-    } else {
+    } else if tab.table.col_count() > 0 {
         // Stub row so the panel header reads "Workspace (only `data`)" even
         // before the user has triggered any SQL action. The actual workspace
-        // is built on first action.
+        // is built on first action. An empty tab has no `data` at all.
         let origin_display = match &tab.table.source_path {
             Some(p) => format!("active tab | {p}"),
             None => "active tab".to_string(),
@@ -722,7 +989,12 @@ fn ensure_workspace(tab: &mut TabState) {
         Ok(mut ws) => {
             let mut snapshot = tab.table.clone();
             snapshot.apply_edits();
-            if let Err(e) = ws.set_active_table(&snapshot) {
+            // An empty tab (no table open yet) still gets a workspace so the
+            // user can ATTACH servers and query them directly; `data` is just
+            // not registered (a zero-column table cannot be).
+            if snapshot.col_count() > 0
+                && let Err(e) = ws.set_active_table(&snapshot)
+            {
                 tab.sql_error = Some(e.to_string());
                 return;
             }

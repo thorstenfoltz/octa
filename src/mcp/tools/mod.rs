@@ -5,6 +5,7 @@
 pub mod anonymize;
 pub mod compare_schemas;
 pub mod convert;
+pub mod copy_db_table;
 pub mod correlation;
 pub mod count_rows;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
@@ -21,6 +22,8 @@ pub mod fuzzy_duplicates;
 pub mod grep_files;
 pub mod impute;
 pub mod join;
+pub mod list_db_connections;
+pub mod list_db_tables;
 pub mod list_objects;
 pub mod list_tables;
 pub mod outliers;
@@ -28,6 +31,7 @@ pub mod partition;
 pub mod pii;
 pub mod pivot;
 pub mod profile;
+pub mod query_db;
 pub mod read_table;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
 pub mod read_text;
@@ -41,6 +45,7 @@ pub mod union;
 pub mod unique_columns;
 pub mod validate_schema;
 pub mod value_frequency;
+pub mod write_db_table;
 pub mod write_table;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
 pub mod write_text;
@@ -50,7 +55,6 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value};
 
 use octa::data::{CellValue, ColumnInfo, DataTable};
-use octa::formats::FormatRegistry;
 
 /// A snapshot of an open GUI tab's table. Handed to the in-GUI chat agent so
 /// tools can read in-memory (possibly edited) data from a worker thread
@@ -156,6 +160,12 @@ pub struct ToolContext {
     /// can shell out to the cloud CLI - runs lazily on the worker, not the UI
     /// thread.
     pub cloud_settings: Option<octa::ui::settings::AppSettings>,
+    /// Saved live-database connections (Settings -> Databases). Loaded once
+    /// at server startup for MCP, from live settings for chat.
+    pub db_connections: Vec<octa::db::DbConnection>,
+    /// `--mcp-read-only`: refuse database mutations in `query_db` even when
+    /// the connection itself allows writes. Chat leaves this `false`.
+    pub read_only: bool,
 }
 
 impl ToolContext {
@@ -166,6 +176,8 @@ impl ToolContext {
         cell_byte_cap: usize,
         allow_schema_changes: bool,
         backup_before_modify: bool,
+        db_connections: Vec<octa::db::DbConnection>,
+        read_only: bool,
     ) -> Self {
         Self {
             open_tabs: Vec::new(),
@@ -180,7 +192,57 @@ impl ToolContext {
             backup_before_modify,
             pending_tab_edits: None,
             cloud_settings: None,
+            db_connections,
+            read_only,
         }
+    }
+
+    /// Look a saved database connection up by name (case-insensitive) or id.
+    /// The error lists what exists so the model can self-correct.
+    pub fn find_db_connection(&self, name: &str) -> anyhow::Result<octa::db::DbConnection> {
+        if let Some(c) = self
+            .db_connections
+            .iter()
+            .find(|c| c.name.eq_ignore_ascii_case(name) || c.id == name)
+        {
+            return Ok(c.clone());
+        }
+        let names: Vec<&str> = self
+            .db_connections
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
+        if names.is_empty() {
+            anyhow::bail!(
+                "no saved database connection named '{name}' \
+                 (none exist - add one in Settings -> Databases)"
+            );
+        }
+        anyhow::bail!(
+            "no saved database connection named '{name}'. Available: {}",
+            names.join(", ")
+        );
+    }
+
+    /// Open a connector for a saved connection, resolving its stored secret
+    /// (keyring, or the plaintext settings fallback).
+    /// The stored secret for a connection (keyring / plaintext fallback).
+    pub fn db_secret(&self, conn: &octa::db::DbConnection) -> Option<String> {
+        use octa::ui::settings::db_secrets::get_db_secret;
+        match &self.cloud_settings {
+            Some(s) => get_db_secret(&conn.id, s),
+            // MCP/CLI: no live settings on the context; a fresh load is a
+            // small TOML read ahead of a network connect.
+            None => get_db_secret(&conn.id, &octa::ui::settings::AppSettings::load()),
+        }
+    }
+
+    pub fn db_connect(
+        &self,
+        conn: &octa::db::DbConnection,
+    ) -> anyhow::Result<Box<dyn octa::db::DbConnector>> {
+        let secret = self.db_secret(conn);
+        octa::db::connect(conn, secret.as_deref())
     }
 
     /// Resolve a [`Source`] into a concrete [`DataTable`]. File sources read
@@ -472,6 +534,16 @@ storage\" in Settings > Cloud storage (the same setting a manual Save uses)."
                 );
             }
             let (conn, creds) = self.resolve_cloud(&loc)?;
+            // Chat only: the matched saved connection's own write permission
+            // must also allow it (MCP resolves ephemeral connections, which
+            // default to writable; its gate is `--mcp-read-only`).
+            if self.cloud_settings.is_some() && !conn.allow_writes {
+                anyhow::bail!(
+                    "cloud connection '{}' does not allow writes; enable \"Allow writes on this \
+connection\" for it in Settings > Cloud storage",
+                    conn.name
+                );
+            }
             let provider = octa::cloud::build_provider(&conn, &creds)?;
             let ext = Path::new(&loc.key)
                 .extension()
@@ -616,15 +688,13 @@ pub fn source_from(open_tab: &Option<String>, path: &Path, table: &Option<String
 /// Read a file with the registry. Honours `table` when the source supports
 /// multi-table dispatch (SQLite, DuckDB, GeoPackage), otherwise falls back
 /// to `read_file`. Returns a friendly error when no reader claims the path.
+/// Transparently decompresses `.gz` / `.zst` inputs.
 pub fn read_with_registry(path: &Path, table: Option<&str>) -> anyhow::Result<DataTable> {
-    let registry = FormatRegistry::new();
-    let reader = registry
-        .reader_for_path(path)
-        .ok_or_else(|| anyhow::anyhow!("no reader available for {}", path.display()))?;
-    match table {
-        Some(name) => reader.read_table(path, name),
-        None => reader.read_file(path),
-    }
+    octa::formats::read_table_auto(
+        path,
+        table,
+        octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
+    )
 }
 
 /// Serialise a `DataTable` into MCP-friendly JSON, capping the number of

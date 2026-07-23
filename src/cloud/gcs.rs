@@ -32,3 +32,32 @@ pub fn build_gcs_provider(
         .with_context(|| format!("building GCS client for bucket {}", conn.bucket))?;
     Ok(ObjectStoreProvider::new(Arc::new(store)))
 }
+
+/// Build a GCS provider authenticated with a raw OAuth bearer token (native
+/// browser sign-in). The token is session-only; the caller re-mints on expiry.
+pub fn build_gcs_provider_with_token(
+    conn: &CloudConnection,
+    token: &str,
+) -> Result<ObjectStoreProvider> {
+    let store = GoogleCloudStorageBuilder::from_env()
+        .with_bucket_name(&conn.bucket)
+        .with_bearer_token(token)
+        .build()
+        .with_context(|| format!("building GCS client for bucket {}", conn.bucket))?;
+    Ok(ObjectStoreProvider::new(Arc::new(store)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cloud::CloudConnection;
+
+    fn gcs_conn() -> CloudConnection {
+        CloudConnection::ephemeral_gcs("bucket")
+    }
+
+    #[test]
+    fn builds_gcs_with_bearer_token() {
+        assert!(build_gcs_provider_with_token(&gcs_conn(), "tok").is_ok());
+    }
+}

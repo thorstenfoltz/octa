@@ -11,13 +11,16 @@ use octa::ui;
 
 use super::cloud_browser::{CloudSelection, ConnPrefix, ListState, SignInState};
 use super::cloud_tree::{self, CloudTreeAction, TreeCtx};
+use super::db_browser::{ConnSchema, DbListState};
+use super::db_tree::{self, DbTreeAction};
 use super::state::OctaApp;
 
 impl OctaApp {
     pub(crate) fn render_sidebar(&mut self, parent_ui: &mut egui::Ui) {
         let cloud_visible = self.cloud_browser.visible;
+        let db_visible = self.db_browser.visible;
         let dir_open = self.directory_tree.is_some();
-        if !cloud_visible && !dir_open {
+        if !cloud_visible && !db_visible && !dir_open {
             return;
         }
         let ctx = parent_ui.ctx().clone();
@@ -77,6 +80,12 @@ impl OctaApp {
         let signin_arc: Arc<Mutex<HashMap<String, SignInState>>> =
             self.cloud_browser.sign_in_status.clone();
 
+        // Database-browser data the body closure reads (same borrow dance).
+        let db_connections: Vec<octa::db::DbConnection> = self.settings.db_connections.clone();
+        let db_expanded: HashSet<ConnSchema> = self.db_browser.expanded.clone();
+        let db_listings_arc: Arc<Mutex<HashMap<ConnSchema, DbListState>>> =
+            self.db_browser.listings.clone();
+
         let position = self.settings.directory_tree_position;
         let allowed_ref = allowed_exts.as_ref();
         let mut dir_state = self.directory_tree.as_mut();
@@ -91,6 +100,7 @@ impl OctaApp {
         let max_h = (screen_h - 80.0).max(120.0);
 
         let mut cloud_action = CloudTreeAction::default();
+        let mut db_action = DbTreeAction::default();
         let mut tree_action = ui::directory_tree::TreeAction::default();
 
         let mut body = |ui: &mut egui::Ui| {
@@ -106,8 +116,26 @@ impl OctaApp {
                         sort: cloud_sort,
                         selected: &cloud_selected,
                     };
-                    cloud_action =
-                        cloud_tree::render_cloud_tree(ui, &connections, &tree_ctx, dir_open);
+                    cloud_action = cloud_tree::render_cloud_tree(
+                        ui,
+                        &connections,
+                        &tree_ctx,
+                        dir_open || db_visible,
+                    );
+                }
+                if dir_open || db_visible {
+                    ui.separator();
+                }
+            }
+            if db_visible {
+                if let Ok(listings) = db_listings_arc.lock() {
+                    db_action = db_tree::render_db_tree(
+                        ui,
+                        &db_connections,
+                        &listings,
+                        &db_expanded,
+                        dir_open,
+                    );
                 }
                 if dir_open {
                     ui.separator();
@@ -158,6 +186,7 @@ impl OctaApp {
             // up expanded with a blank connection ready to fill in.
             self.settings_dialog.open(&self.settings);
             self.settings_dialog.focus_cloud_section = true;
+            self.settings_dialog.focus_cloud_form = true;
         }
         if let Some(sel) = cloud_action.toggle_select
             && !self.cloud_browser.selected.remove(&sel)
@@ -194,12 +223,43 @@ impl OctaApp {
         if let Some(conn_id) = cloud_action.refresh {
             self.refresh_cloud_conn(&ctx, conn_id);
         }
+        if let Some((conn_id, prefix)) = cloud_action.inventory {
+            self.cloud_inventory(&ctx, conn_id, prefix);
+        }
+
+        // Dispatch database-tree actions.
+        if db_action.close {
+            self.db_browser.visible = false;
+        }
+        if db_action.add_connection {
+            self.settings_dialog.open(&self.settings);
+            self.settings_dialog.focus_db_section = true;
+        }
+        if let Some((conn_id, schema)) = db_action.toggle {
+            self.toggle_db_node(&ctx, conn_id, schema);
+        }
+        if let Some((conn_id, catalog, schema, table)) = db_action.open {
+            self.open_db_table(&ctx, conn_id, catalog, schema, table);
+        }
+        if let Some((conn_id, catalog, schema, table)) = db_action.copy {
+            self.open_db_copy_dialog(conn_id, catalog, schema, table);
+        }
+        if let Some((conn_id, catalog, schema, table)) = db_action.metadata {
+            self.open_db_metadata(&ctx, conn_id, catalog, schema, table);
+        }
+        if let Some(conn_id) = db_action.refresh {
+            self.refresh_db_conn(&ctx, conn_id);
+        }
 
         // Dispatch directory-tree actions.
         if tree_action.close {
             self.directory_tree = None;
         } else if let Some(files) = tree_action.union_files {
             self.open_union_for_files(files);
+        } else if let Some(dir) = tree_action.open_dataset {
+            // Routes through load_file's `is_dir()` branch -> dataset /
+            // lakehouse detection.
+            self.load_file_in_new_tab(dir);
         } else if let Some(path) = tree_action.open_file {
             self.load_file(path);
         }

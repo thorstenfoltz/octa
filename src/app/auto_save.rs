@@ -65,9 +65,10 @@ impl OctaApp {
         if !(tab.is_modified() || tab.raw_content_modified) {
             return false;
         }
-        // Cloud tab with writing turned off: the manual save would just toast a
-        // "writes disabled" message, so skip silently.
-        if tab.cloud_origin.is_some() && !self.settings.cloud_writes_enabled {
+        // Cloud tab with writing turned off (globally or per connection): the
+        // manual save would just toast a "writes disabled" message, so skip
+        // silently.
+        if !self.cloud_tab_writable(idx) {
             return false;
         }
         // A read-only format (SAS, HDF5, ...) can't be written, so a save would

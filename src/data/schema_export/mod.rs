@@ -41,6 +41,7 @@ pub enum SchemaTarget {
     SqliteSqlDdl,
     DatabricksSqlDdl,
     SnowflakeSqlDdl,
+    MssqlSqlDdl,
     PydanticV2,
     TypeScript,
     JsonSchema,
@@ -55,6 +56,7 @@ impl SchemaTarget {
     pub const ALL: &'static [SchemaTarget] = &[
         SchemaTarget::DatabricksSqlDdl,
         SchemaTarget::JsonSchema,
+        SchemaTarget::MssqlSqlDdl,
         SchemaTarget::MysqlSqlDdl,
         SchemaTarget::PostgresSqlDdl,
         SchemaTarget::PydanticV2,
@@ -71,6 +73,7 @@ impl SchemaTarget {
             Self::SqliteSqlDdl => "SQLite",
             Self::DatabricksSqlDdl => "Databricks",
             Self::SnowflakeSqlDdl => "Snowflake",
+            Self::MssqlSqlDdl => "MS SQL Server",
             Self::PydanticV2 => "Pydantic v2",
             Self::TypeScript => "TypeScript interface",
             Self::JsonSchema => "JSON Schema",
@@ -85,7 +88,8 @@ impl SchemaTarget {
             | Self::MysqlSqlDdl
             | Self::SqliteSqlDdl
             | Self::DatabricksSqlDdl
-            | Self::SnowflakeSqlDdl => "sql",
+            | Self::SnowflakeSqlDdl
+            | Self::MssqlSqlDdl => "sql",
             Self::PydanticV2 => "py",
             Self::TypeScript => "ts",
             Self::JsonSchema => "json",
@@ -103,7 +107,8 @@ impl SchemaTarget {
             | Self::MysqlSqlDdl
             | Self::SqliteSqlDdl
             | Self::DatabricksSqlDdl
-            | Self::SnowflakeSqlDdl => "sql",
+            | Self::SnowflakeSqlDdl
+            | Self::MssqlSqlDdl => "sql",
             Self::PydanticV2 => "py",
             Self::TypeScript => "ts",
             Self::JsonSchema => "json",
@@ -122,6 +127,7 @@ impl SchemaTarget {
             Self::SqliteSqlDdl => sql::export_sqlite(columns, table_name),
             Self::DatabricksSqlDdl => sql::export_databricks(columns, table_name),
             Self::SnowflakeSqlDdl => sql::export_snowflake(columns, table_name),
+            Self::MssqlSqlDdl => sql::export_mssql(columns, table_name),
             Self::PydanticV2 => pydantic::export(columns, table_name),
             Self::TypeScript => typescript::export(columns, table_name),
             Self::JsonSchema => json_schema::export(columns, table_name),

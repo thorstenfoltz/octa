@@ -79,6 +79,9 @@ pub fn to_markdown(session: &SavedSession, cap_bytes: usize) -> String {
                         shown.trim_end()
                     ));
                 }
+                // Opaque provider payloads (e.g. encrypted reasoning items)
+                // carry nothing readable; skip them in the export.
+                ContentBlock::ProviderData { .. } => {}
             }
         }
     }

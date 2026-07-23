@@ -335,6 +335,28 @@ own tab.
 The first row of each sheet is used as the header row, the same as the
 single-sheet behaviour.
 
+## Compressed files
+
+Gzip (`.gz`) and Zstandard (`.zst`) inputs decompress transparently:
+`data.csv.gz` opens as a normal CSV, in the GUI, the CLI, and the MCP
+tools alike. The inner format comes from the middle extension. Saving a
+compressed file recompresses it back with the same codec. A
+decompression size cap (Settings > Files > Max decompressed size,
+default 4 GB) guards against decompression bombs.
+
+## Datasets (folder of parts)
+
+A directory can be a table too. **File > Open table folder...** (or
+right-click a directory in the folder sidebar and pick **Open as
+dataset...**) opens:
+
+- **Delta Lake** directories (marked by `_delta_log/`) and **Apache
+  Iceberg** directories (marked by `metadata/`), read through DuckDB's
+  extensions (installed over the network on first use, then cached).
+- Any other directory holding data parts: Parquet, CSV/TSV, or JSON
+  Lines files (scanned up to 8 levels deep). The majority family is
+  read as one table and a banner lists any skipped files.
+
 ## Format conversion
 
 The CLI's [`octa --convert IN OUT`](../cli/convert.md) routes through

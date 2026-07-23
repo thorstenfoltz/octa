@@ -21,16 +21,25 @@ pub(crate) fn render_close_confirm_dialog(app: &mut OctaApp, ctx: &egui::Context
                     app.show_close_confirm = false;
                     if let Some(tab_idx) = app.pending_close_tab {
                         app.save_tab(tab_idx);
-                        app.close_tab(tab_idx);
                         app.pending_close_tab = None;
+                        // A live-database tab's Save raised the write-back
+                        // confirmation instead of saving; closing now would
+                        // discard the very edits being confirmed.
+                        if app.pending_db_write_back.is_none() {
+                            app.close_tab(tab_idx);
+                        }
                     } else {
-                        if app.tabs[app.active_tab].table.source_path.is_some() {
+                        if app.tabs[app.active_tab].table.source_path.is_some()
+                            || app.tabs[app.active_tab].db_origin.is_some()
+                        {
                             app.save_file();
                         } else {
                             app.save_file_as();
                         }
-                        app.confirmed_close = true;
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        if app.pending_db_write_back.is_none() {
+                            app.confirmed_close = true;
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
                     }
                 }
                 if ui.button(octa::i18n::t("dialog.dont_save")).clicked() {

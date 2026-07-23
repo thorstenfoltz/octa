@@ -10,6 +10,9 @@ squash_prompt_file: ""
 token_logging: true
 measure_time: true
 stats: true
+secret_scan: true
+timeout: 60
+signoff: true
 anthropic:
   model: claude-haiku-4-5
   temperature: 0

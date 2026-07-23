@@ -1,5 +1,7 @@
+pub mod auth;
 pub mod cloud;
 pub mod data;
+pub mod db;
 pub mod diagnostics;
 pub mod formats;
 pub mod git;

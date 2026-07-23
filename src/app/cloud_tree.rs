@@ -44,6 +44,9 @@ pub(crate) struct CloudTreeAction {
     pub(crate) toggle_select: Option<CloudSelection>,
     /// Union every selected object (downloads them, then opens the Union dialog).
     pub(crate) union_selected: bool,
+    /// "List contents as table...": recursively inventory (conn_id, prefix)
+    /// into a detached tab.
+    pub(crate) inventory: Option<(String, String)>,
     /// Drop the batch selection.
     pub(crate) clear_selection: bool,
 }
@@ -219,17 +222,26 @@ fn draw_connection(
     let sign_out_armed = ctx.sign_out_confirm == Some(conn.id.as_str());
     ui.horizontal(|ui| {
         let caret = if is_open { "▼" } else { "▶" };
-        if ui
+        let resp = ui
             .add(
                 egui::Label::new(format!("{caret} {} ({})", conn.name, kind_short(conn.kind)))
                     .sense(egui::Sense::click()),
             )
             .on_hover_text(format!("{}://{}", conn.kind.scheme(), conn.bucket))
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .clicked()
-        {
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        if resp.clicked() {
             action.toggle = Some(root_key.clone());
         }
+        resp.context_menu(|ui| {
+            if ui
+                .button(octa::i18n::t("inventory.list_contents"))
+                .on_hover_text(octa::i18n::t("inventory.list_contents_hint"))
+                .clicked()
+            {
+                action.inventory = Some((conn.id.clone(), root.clone()));
+                ui.close();
+            }
+        });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Refresh (only meaningful once expanded).
             if is_open
@@ -399,17 +411,26 @@ fn draw_listing(
                     let key = (conn_id.to_string(), entry.key.clone());
                     let is_open = ctx.expanded.contains(&key);
                     let caret = if is_open { "▼" } else { "▶" };
-                    let clicked = indented(ui, indent, |ui| {
+                    let resp = indented(ui, indent, |ui| {
                         ui.add(
                             egui::Label::new(format!("{caret} {}", entry.name))
                                 .sense(egui::Sense::click()),
                         )
                         .on_hover_cursor(egui::CursorIcon::PointingHand)
-                        .clicked()
                     });
-                    if clicked {
+                    if resp.clicked() {
                         action.toggle = Some(key.clone());
                     }
+                    resp.context_menu(|ui| {
+                        if ui
+                            .button(octa::i18n::t("inventory.list_contents"))
+                            .on_hover_text(octa::i18n::t("inventory.list_contents_hint"))
+                            .clicked()
+                        {
+                            action.inventory = Some((conn_id.to_string(), entry.key.clone()));
+                            ui.close();
+                        }
+                    });
                     if is_open {
                         draw_listing(ui, ctx, conn_id, &entry.key, depth + 1, action);
                     }
@@ -465,6 +486,34 @@ fn draw_listing(
                                 Some((conn_id.to_string(), entry.key.clone(), entry.name.clone()));
                         }
                     }
+                    // Union via right-click, mirroring the directory tree:
+                    // offered on a row that is part of a 2+ selection, a
+                    // disabled how-to hint otherwise.
+                    let count = ctx.selected.len();
+                    resp.context_menu(|ui| {
+                        if is_selected && count >= 2 {
+                            if ui
+                                .button(format!(
+                                    "{} ({count})",
+                                    octa::i18n::t("union_tree.selected")
+                                ))
+                                .on_hover_text(octa::i18n::t("cloud.union_hint"))
+                                .clicked()
+                            {
+                                action.union_selected = true;
+                                ui.close();
+                            }
+                        } else {
+                            ui.add_enabled(
+                                false,
+                                egui::Button::new(octa::i18n::t("union_tree.need_two")),
+                            );
+                        }
+                        if count > 0 && ui.button(octa::i18n::t("union_tree.clear")).clicked() {
+                            action.clear_selection = true;
+                            ui.close();
+                        }
+                    });
                 }
             }
         }

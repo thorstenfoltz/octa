@@ -237,6 +237,14 @@ pub fn draw_toolbar(
                     action.toggle_cloud_browser = true;
                     ui.close();
                 }
+                if ui
+                    .button(crate::i18n::t("file_menu.databases"))
+                    .on_hover_text(crate::i18n::t("file_menu.databases_hint"))
+                    .clicked()
+                {
+                    action.toggle_db_browser = true;
+                    ui.close();
+                }
                 if has_data {
                     ui.separator();
                     if has_source_path
@@ -314,11 +322,18 @@ pub fn draw_toolbar(
         );
 
         // --- Edit menu ---
-        if has_data {
+        // Every menu stays visible even before a table is open (the SQL
+        // panel and the Assistant work with attached servers alone); menus
+        // whose entries all need a table show a short note instead.
+        {
             top_menu_button(
                 ui,
                 RichText::new(crate::i18n::t("menu.edit")).color(colors.text_primary),
                 |ui| {
+                    if !has_data {
+                        ui.weak(crate::i18n::t("menu.need_table"));
+                        return;
+                    }
                     // Edit menu entries deliberately omit shortcut suffixes -
                     // bindings are discoverable via Settings -> Shortcuts; cramming
                     // them into the menu was visually noisy.
@@ -608,6 +623,10 @@ pub fn draw_toolbar(
                 ui,
                 RichText::new(crate::i18n::t("menu.columns")).color(colors.text_primary),
                 |ui| {
+                    if !has_data {
+                        ui.weak(crate::i18n::t("menu.need_table"));
+                        return;
+                    }
                     ui.set_min_width(200.0);
                     if ui
                         .button(crate::i18n::t("toolbar.insert_column"))
@@ -739,6 +758,10 @@ pub fn draw_toolbar(
                 ui,
                 RichText::new(crate::i18n::t("menu.data")).color(colors.text_primary),
                 |ui| {
+                    if !has_data {
+                        ui.weak(crate::i18n::t("menu.need_table"));
+                        return;
+                    }
                     ui.set_min_width(200.0);
                     if ui
                         .button(crate::i18n::t("toolbar.time_calc"))
@@ -870,6 +893,10 @@ pub fn draw_toolbar(
                 ui,
                 RichText::new(crate::i18n::t("menu.view")).color(colors.text_primary),
                 |ui| {
+                    if !has_data {
+                        ui.weak(crate::i18n::t("menu.need_table"));
+                        return;
+                    }
                     let is_table = current_view_mode == ViewMode::Table;
                     let is_raw = current_view_mode == ViewMode::Raw;
 
@@ -1028,6 +1055,10 @@ pub fn draw_toolbar(
                 ui,
                 RichText::new(crate::i18n::t("menu.search")).color(colors.text_primary),
                 |ui| {
+                    if !has_data {
+                        ui.weak(crate::i18n::t("menu.need_table"));
+                        return;
+                    }
                     ui.set_min_width(180.0);
                     if ui
                         .button(crate::i18n::t("search_menu.find"))
@@ -1104,16 +1135,20 @@ pub fn draw_toolbar(
                 RichText::new(crate::i18n::t("menu.analyse")).color(colors.text_primary),
                 |ui| {
                     ui.set_min_width(120.0);
-                    let table_actions = current_view_mode == ViewMode::Table;
-                    if table_actions {
-                        if ui
+                    // SQL works even with no table open: attach a saved
+                    // database connection in the panel and query the servers
+                    // directly.
+                    if current_view_mode == ViewMode::Table
+                        && ui
                             .button(crate::i18n::t("analyse_menu.sql"))
                             .on_hover_text(crate::i18n::t("analyse_menu.sql_hint"))
                             .clicked()
-                        {
-                            action.toggle_sql_panel = true;
-                            ui.close();
-                        }
+                    {
+                        action.toggle_sql_panel = true;
+                        ui.close();
+                    }
+                    let table_actions = current_view_mode == ViewMode::Table && has_data;
+                    if table_actions {
                         if ui
                             .button(crate::i18n::t("analyse_menu.chart"))
                             .on_hover_text(crate::i18n::t("analyse_menu.chart_hint"))

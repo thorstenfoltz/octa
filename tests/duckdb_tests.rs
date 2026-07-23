@@ -221,23 +221,42 @@ fn test_extension_recognition() {
     assert!(DuckDbReader.supports_write());
 }
 
+/// The synthetic id column appears on SAVE only. Reading must never mutate
+/// the file: users export a result to .duckdb, open it once in Octa, and
+/// other tools must not suddenly see an `__octa_row_id` counter column.
 #[test]
-fn test_synthetic_row_id_persisted_after_write() {
+fn test_synthetic_row_id_added_on_save_not_on_read() {
     let dir = TempDir::new().unwrap();
     let path = fresh_db_path(&dir, "users.duckdb");
     seed_users_db(&path);
-    DuckDbReader.read_table(&path, "users").unwrap();
 
-    let conn = Connection::open(&path).unwrap();
-    let count: i64 = conn
-        .query_row(
+    let row_id_count = |path: &std::path::Path| -> i64 {
+        let conn = Connection::open(path).unwrap();
+        conn.query_row(
             "SELECT COUNT(*) FROM information_schema.columns \
              WHERE table_name='users' AND column_name='__octa_row_id'",
             [],
             |r| r.get(0),
         )
-        .unwrap();
-    assert_eq!(count, 1, "synthetic id column should be added on read");
+        .unwrap()
+    };
+
+    let mut table = DuckDbReader.read_table(&path, "users").unwrap();
+    assert_eq!(row_id_count(&path), 0, "reading must not mutate the file");
+
+    // A save materialises the id column (diff-saves need row identity), and
+    // the edit lands on the right row even though the tags were collected
+    // before the column existed (backfill = rowid keeps them aligned).
+    table.set(1, 1, CellValue::String("Edited".into()));
+    table.apply_edits();
+    DuckDbReader.write_file(&path, &table).unwrap();
+    assert_eq!(row_id_count(&path), 1, "save materialises the id column");
+    let reloaded = DuckDbReader.read_table(&path, "users").unwrap();
+    assert_eq!(
+        reloaded.get(1, 1),
+        Some(&CellValue::String("Edited".into()))
+    );
+    assert_eq!(reloaded.get(0, 1), table.get(0, 1), "other rows untouched");
 }
 
 #[test]
