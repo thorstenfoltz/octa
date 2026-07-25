@@ -963,6 +963,58 @@ pub(crate) struct PendingLoad {
     pub(crate) rx: std::sync::mpsc::Receiver<anyhow::Result<DataTable>>,
 }
 
+/// Files being read for the Union dialog on a background thread, so picking 40
+/// parquet parts does not freeze the window. `drive_union_prep` consumes the
+/// result and opens the dialog.
+pub(crate) struct UnionPrep {
+    pub(crate) rx: std::sync::mpsc::Receiver<UnionReadResult>,
+}
+
+/// What the union read worker sends back: the files it managed to read, their
+/// tables (index-aligned), and how many files it had to skip.
+pub(crate) type UnionReadResult = (Vec<std::path::PathBuf>, Vec<DataTable>, usize);
+
+/// Progress of a running union phase, shared with its worker thread. Drives the
+/// status-bar spinner: cloud download first, then the local read, so the two
+/// phases hand over without the spinner blinking out.
+///
+/// `total == 0` means "not known yet" - the cloud folder listing has to finish
+/// before it can say how many objects there are.
+pub(crate) struct UnionProgress {
+    pub(crate) label: std::sync::Arc<std::sync::Mutex<String>>,
+    pub(crate) done: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub(crate) total: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl UnionProgress {
+    /// Install a fresh progress object for `label`, with `total` items (0 when
+    /// the count is not known yet). Returns the shared handles for the worker.
+    pub(crate) fn new(label: &str, total: usize) -> Self {
+        use std::sync::atomic::AtomicUsize;
+        Self {
+            label: std::sync::Arc::new(std::sync::Mutex::new(label.to_string())),
+            done: std::sync::Arc::new(AtomicUsize::new(0)),
+            total: std::sync::Arc::new(AtomicUsize::new(total)),
+        }
+    }
+
+    /// Status-bar hint: the label, plus "done/total" once the total is known.
+    pub(crate) fn hint(&self) -> String {
+        use std::sync::atomic::Ordering::Relaxed;
+        let label = self
+            .label
+            .lock()
+            .map(|l| l.clone())
+            .unwrap_or_else(|_| String::new());
+        let total = self.total.load(Relaxed);
+        if total == 0 {
+            label
+        } else {
+            format!("{label} {}/{total}", self.done.load(Relaxed))
+        }
+    }
+}
+
 /// State for the multi-select Excel sheet picker. `selected[i]` tracks
 /// whether `sheet_names[i]` is ticked; the first `excel_max_auto_sheets` are
 /// pre-checked when the picker opens.

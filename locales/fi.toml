@@ -1408,6 +1408,7 @@ apply = "Käytä"
 cancel = "Peruuta"
 need_two = "Valitse vähintään kaksi taulukkoa."
 need_open = "Avaa ensin toinen taulukko toiseen välilehteen."
+reading = "Luetaan tiedostoja yhdistettäväksi:"
 
 [join]
 title = "Liitä taulukot"
@@ -1722,6 +1723,10 @@ n_selected = "valittu"
 union_btn = "Yhdistä..."
 clear = "Tyhjennä valinta"
 skipped = "Ohitetut tiedostot (ei voitu lukea):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Listaa sisältö tauluna..."

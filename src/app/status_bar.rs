@@ -35,9 +35,14 @@ impl OctaApp {
         );
         let file_loading = self.pending_load.is_some();
         let db_writing = self.db_write_back_job.is_some();
-        let busy = bg_loading || update_busy || file_loading || db_writing;
+        // Union: cloud listing/download and the local read phase all report
+        // through one progress object, so the spinner spans them.
+        let union_hint = self.union_progress.as_ref().map(|p| p.hint());
+        let busy = bg_loading || update_busy || file_loading || db_writing || union_hint.is_some();
         let db_writing_hint = octa::i18n::t("db.writing_back");
-        let busy_hint = if update_busy {
+        let busy_hint = if let Some(hint) = union_hint.as_deref() {
+            Some(hint)
+        } else if update_busy {
             Some("Updating...")
         } else if db_writing {
             Some(db_writing_hint.as_str())

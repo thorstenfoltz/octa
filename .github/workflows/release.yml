@@ -478,24 +478,20 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          # One function, both packages. AUR's SSH occasionally drops the
-          # connection mid-clone ("Connection closed ... port 22"), so retry.
+          # One clone-commit-push cycle for one package. Runs in a subshell
+          # (`()` body, not `{}`) so its `cd` cannot leak into the caller and an
+          # early `return` needs no cleanup. Non-zero on any failure.
           # "Nothing changed" (files already match the AUR repo, e.g. a partial
           # previous run) is a graceful skip, not a failure.
-          push_pkg() {
+          publish_pkg() (
             repo="$1"; srcdir="$2"; dest="/tmp/aur-$repo"
 
-            for attempt in 1 2 3; do
-              git -c init.defaultBranch=master clone \
-                "ssh://aur@aur.archlinux.org/$repo.git" "$dest" && break
-              echo "clone $repo attempt $attempt failed; retrying in 10s"
-              rm -rf "$dest"
-              sleep 10
-            done
-            test -d "$dest" || { echo "clone $repo failed after retries"; exit 1; }
+            rm -rf "$dest"
+            git -c init.defaultBranch=master clone \
+              "ssh://aur@aur.archlinux.org/$repo.git" "$dest" || return 1
 
             cp "$srcdir/PKGBUILD" "$srcdir/.SRCINFO" "$dest/"
-            cd "$dest"
+            cd "$dest" || return 1
 
             echo "--- $repo PKGBUILD ---"; cat PKGBUILD
             echo "--- $repo .SRCINFO ---"; cat .SRCINFO
@@ -505,11 +501,33 @@ jobs:
             git add PKGBUILD .SRCINFO
             if git diff --cached --quiet; then
               echo "$repo: already up to date, nothing to push"
-            else
-              git commit -m "release $VERSION"
-              git push
+              return 0
             fi
-            cd - >/dev/null
+            git commit -m "release $VERSION"
+            git push || return 1
+          )
+
+          # Retry the WHOLE cycle, not just the clone: AUR's SSH drops mid-push
+          # ("Connection closed ... port 22") as readily as mid-clone, and a
+          # push that failed after `octa` had already landed left the two
+          # packages on different versions. Each attempt re-clones, so it also
+          # picks up anything the remote gained meanwhile instead of retrying a
+          # stale non-fast-forward. Backoff 5s / 15s / 30s, four attempts, no
+          # sleep after the last one.
+          #
+          # Re-running this job after a partial failure is safe: the package
+          # that already landed hits the "nothing to push" skip.
+          push_pkg() {
+            repo="$1"; srcdir="$2"; attempt=0
+            for delay in 5 15 30; do
+              attempt=$((attempt + 1))
+              publish_pkg "$repo" "$srcdir" && return 0
+              echo "$repo: attempt $attempt failed; retrying in ${delay}s"
+              sleep "$delay"
+            done
+            publish_pkg "$repo" "$srcdir" && return 0
+            echo "$repo: failed after 4 attempts"
+            return 1
           }
 
           push_pkg octa .github/aur

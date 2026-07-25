@@ -405,20 +405,9 @@ impl OctaApp {
     }
 
     /// Place a finished DB result tab: reuse the active tab when it is
-    /// completely blank (the tab Octa starts with), else push a new one. Same
-    /// stray-"Untitled" guard as `load_file_in_new_tab`.
+    /// completely blank (the tab Octa starts with), else push a new one.
     fn open_db_result_tab(&mut self, new_tab: super::state::TabState) {
-        let blank = self
-            .tabs
-            .get(self.active_tab)
-            .map(|t| t.table.col_count() == 0 && t.raw_content.is_none() && !t.is_modified())
-            .unwrap_or(false);
-        if blank {
-            self.tabs[self.active_tab] = new_tab;
-        } else {
-            self.tabs.push(new_tab);
-            self.active_tab = self.tabs.len() - 1;
-        }
+        self.push_result_tab(new_tab);
     }
 }
 

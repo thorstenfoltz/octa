@@ -61,6 +61,13 @@ impl eframe::App for OctaApp {
         self.update_easter_egg_inputs(&ctx);
         self.drain_background_rows(&ctx);
         self.drive_pending_load(&ctx);
+        self.drive_union_prep(&ctx);
+        // The cloud union phases (listing, downloading) run on their own threads
+        // and only notify when finished, so keep frames coming while any union
+        // job is live - otherwise its spinner and counter sit frozen.
+        if self.union_progress.is_some() {
+            ctx.request_repaint();
+        }
         self.drain_pending_open_queue();
         self.drain_pending_tab_edits();
         self.drain_cloud_pending_open();

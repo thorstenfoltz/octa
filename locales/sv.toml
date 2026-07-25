@@ -1408,6 +1408,7 @@ apply = "Tillämpa"
 cancel = "Avbryt"
 need_two = "Välj minst två tabeller."
 need_open = "Öppna först en andra tabell i en annan flik."
+reading = "Läser filer att slå samman:"
 
 [join]
 title = "Koppla tabeller"
@@ -1722,6 +1723,10 @@ n_selected = "valda"
 union_btn = "Slå samman..."
 clear = "Rensa markeringen"
 skipped = "Överhoppade filer (kunde inte läsas):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Lista innehållet som tabell..."

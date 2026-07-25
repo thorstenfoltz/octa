@@ -14,6 +14,13 @@ octa path/to/file.parquet other.csv
 
 Multiple files open into separate tabs.
 
+## A toolbar too wide for the window
+
+On a small screen the toolbar holds more than fits. It scrolls sideways: point
+at it and use the mouse wheel, or drag the slim scrollbar under the row. The
+window buttons on the right (with a custom title bar) keep their place and are
+never pushed off the edge.
+
 Drag-and-drop from the OS file manager is **not** wired up. On Linux
 Wayland sessions winit does not deliver drop events, and Octa does not
 subscribe to them on the other platforms either. Use **File > Open**
@@ -1028,6 +1035,8 @@ enabled.
   **Preview** mode by default (rendered output only). A toolbar toggle
   switches between Preview / Split / Edit. Split places a TextEdit beside the
   preview for live editing. Links in the preview open in your system browser.
+  The preview follows the app's body text size, so the **Font size** setting
+  and Ctrl+Plus / Ctrl+Minus zoom scale the rendered document too.
 - **Notebook View**: rendered Jupyter notebook with cell outputs. Code cells
   use syntect highlighting.
 - **JSON Tree** / **YAML Tree**: collapsible tree view for JSON / JSONL /
@@ -1759,6 +1768,15 @@ Apply opens the combined result in a new tab, leaving the sources
 untouched. Also available as `octa --union` and the `union_tables`
 assistant/MCP tool.
 
+## Saving the result back in its own format
+
+When every source shares one format, the result tab remembers it, and Save As
+opens pre-filled with a matching name - so forty JSON files in, one JSON file
+out, in a single click. A mixed selection has no single answer, so the picker
+opens with no suggestion. Nothing is written until you save; Apply only opens
+a tab. Note that nested JSON comes back flattened (one column per leaf, e.g.
+`address.city`), because the union reconciles columns rather than trees.
+
 ## Union files straight from the sidebar
 
 You do not have to open a tab per file first. In the directory sidebar,
@@ -1776,6 +1794,10 @@ are reconciled either way.
 A plain click still opens a file and clears the selection. Unreadable files
 are skipped and counted in the status bar.
 
+Reading many files runs in the background, so the window stays responsive: the
+status bar shows a spinner and a running count (`Reading files for union:
+12/40`) until the dialog opens.
+
 ## Union files in the cloud
 
 The same works in the cloud sidebar. **Ctrl-click** the objects you want,
@@ -1784,6 +1806,9 @@ section, or right-click a selected object and choose **Union** from the
 context menu. Octa downloads them in the background and opens the same
 reconciliation dialog, so a folder of partitioned parquet parts in S3,
 Azure Blob or GCS becomes one table without a tab per object.
+
+Both stages report progress in the status bar - first the download count, then
+the reading count - so a slow bucket never looks like a freeze.
 "#;
 
 pub(super) const JOIN: &str = r#"# Join Tables

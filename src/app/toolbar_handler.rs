@@ -7,6 +7,13 @@ use octa::ui;
 
 use super::state::OctaApp;
 
+/// Height of the toolbar's widget row plus its frame margins.
+const TOOLBAR_ROW_H: f32 = 40.0;
+/// Total height of the toolbar panel: the widget row plus the strip its
+/// horizontal scrollbar lives in. One definition, used both for the panel itself
+/// and to keep the window resize-grab strips clear of it.
+const TOOLBAR_H: f32 = TOOLBAR_ROW_H + ui::toolbar::SCROLL_BAR_STRIP;
+
 impl OctaApp {
     /// Paint invisible resize-grab strips along the window edges and corners
     /// when running with a custom title bar.
@@ -53,10 +60,8 @@ impl OctaApp {
         const CORNER: f32 = 20.0; // bottom corners: big and easy to hit
         const TOP_CORNER: f32 = 8.0; // top corners: small, above the toolbar
         // Keep the side strips clear of the toolbar's interactive row (menus +
-        // window-control buttons live here). Matches `Panel::top("toolbar")
-        // .exact_size(40.0)` in `render_toolbar`.
-        const TOOLBAR_H: f32 = 40.0;
-
+        // window-control buttons live here); `TOOLBAR_H` is the same const
+        // `render_toolbar` sizes the panel with.
         let rect = ctx.viewport_rect();
         let (l, r, t, b) = (rect.left(), rect.right(), rect.top(), rect.bottom());
         let side_top = t + TOOLBAR_H;
@@ -151,7 +156,7 @@ impl OctaApp {
             .inner_margin(egui::Margin::symmetric(4, 4))
             .stroke(egui::Stroke::new(1.0_f32, header_colors.border_subtle));
         egui::Panel::top("toolbar")
-            .exact_size(40.0)
+            .exact_size(TOOLBAR_H)
             .frame(toolbar_frame)
             .show_inside(parent_ui, |ui| {
                 self.ensure_logo_textures(ctx);

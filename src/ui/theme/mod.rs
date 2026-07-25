@@ -356,11 +356,12 @@ pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font: FontSettings) {
     visuals.hyperlink_color = colors.accent;
     visuals.warn_fg_color = colors.warning;
     visuals.error_fg_color = colors.error;
-    visuals.code_bg_color = if is_dark {
-        Color32::from_rgb(40, 40, 48)
-    } else {
-        Color32::from_rgb(230, 233, 240)
-    };
+    // Code surfaces (markdown inline code + fenced blocks, `RichText::code`)
+    // come from the palette so every theme gets its own. The previous fixed
+    // rgb(40,40,48) sat ~16 units off `bg_primary` in dark themes, i.e. barely
+    // visible. A theme can still override it in `apply_theme_decoration`, which
+    // runs after this (Manga does).
+    visuals.code_bg_color = colors.bg_tertiary;
     visuals.override_text_color = None;
 
     style.visuals = visuals;

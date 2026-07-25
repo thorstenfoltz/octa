@@ -1408,6 +1408,7 @@ apply = "Appliquer"
 cancel = "Annuler"
 need_two = "Sélectionnez au moins deux tables."
 need_open = "Ouvrez d'abord une seconde table dans un autre onglet."
+reading = "Lecture des fichiers à fusionner :"
 
 [join]
 title = "Joindre des tables"
@@ -1722,6 +1723,10 @@ n_selected = "sélectionné(s)"
 union_btn = "Fusionner..."
 clear = "Effacer la sélection"
 skipped = "Fichiers ignorés (illisibles) :"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Lister le contenu sous forme de tableau..."

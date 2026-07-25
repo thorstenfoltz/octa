@@ -1410,6 +1410,7 @@ apply = "Terapkan"
 cancel = "Batal"
 need_two = "Pilih setidaknya dua tabel."
 need_open = "Buka dulu tabel kedua di tab lain."
+reading = "Membaca berkas untuk digabung:"
 
 [join]
 title = "Gabungkan tabel (join)"
@@ -1724,6 +1725,10 @@ n_selected = "terpilih"
 union_btn = "Gabungkan..."
 clear = "Bersihkan pilihan"
 skipped = "Berkas dilewati (tidak dapat dibaca):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Daftarkan isi sebagai tabel..."

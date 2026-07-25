@@ -1396,6 +1396,7 @@ apply = "적용"
 cancel = "취소"
 need_two = "테이블을 두 개 이상 선택하세요."
 need_open = "먼저 다른 탭에서 두 번째 테이블을 여세요."
+reading = "유니온할 파일 읽는 중:"
 
 [join]
 title = "테이블 조인"
@@ -1710,6 +1711,10 @@ n_selected = "개 선택됨"
 union_btn = "합치기..."
 clear = "선택 해제"
 skipped = "읽지 못해 건너뛴 파일:"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "내용을 테이블로 나열..."

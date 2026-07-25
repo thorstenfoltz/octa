@@ -104,3 +104,33 @@ fn union_works_across_formats() {
 
     assert_eq!(out.row_count(), 2);
 }
+
+#[test]
+fn shared_format_name_only_when_every_input_agrees() {
+    // The union result tab inherits the format so Save As can default back to
+    // it. Unanimous inputs -> that format; a mixed selection -> no suggestion.
+    use octa::data::union::shared_format_name;
+
+    let mut a = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+    write!(a, r#"[{{"id": 1}}]"#).unwrap();
+    a.flush().unwrap();
+    let mut b = tempfile::Builder::new().suffix(".json").tempfile().unwrap();
+    write!(b, r#"[{{"id": 2}}]"#).unwrap();
+    b.flush().unwrap();
+    let mut c = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+    writeln!(c, "id").unwrap();
+    writeln!(c, "3").unwrap();
+    c.flush().unwrap();
+
+    let (ta, tb, tc) = (read(a.path()), read(b.path()), read(c.path()));
+    assert_eq!(ta.format_name.as_deref(), Some("JSON"));
+
+    assert_eq!(shared_format_name(&[&ta, &tb]), Some("JSON".to_string()));
+    assert_eq!(shared_format_name(&[&ta, &tb, &tc]), None);
+    assert_eq!(shared_format_name(&[]), None);
+
+    // A table with no format at all (e.g. a previous union result) blocks it.
+    let mut no_format = ta.clone();
+    no_format.format_name = None;
+    assert_eq!(shared_format_name(&[&ta, &no_format]), None);
+}

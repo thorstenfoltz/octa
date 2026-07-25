@@ -1396,6 +1396,7 @@ apply = "Применить"
 cancel = "Отмена"
 need_two = "Выберите хотя бы две таблицы."
 need_open = "Сначала откройте вторую таблицу в другой вкладке."
+reading = "Чтение файлов для объединения:"
 
 [join]
 title = "Соединить таблицы"
@@ -1710,6 +1711,10 @@ n_selected = "выбрано"
 union_btn = "Объединить..."
 clear = "Снять выбор"
 skipped = "Пропущенные файлы (не удалось прочитать):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Показать содержимое как таблицу..."

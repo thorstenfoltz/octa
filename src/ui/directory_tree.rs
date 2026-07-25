@@ -23,6 +23,18 @@ pub struct DirectoryTreeState {
     /// Anchor for Shift-range selection: the last file clicked with Ctrl or
     /// plainly. A Shift-click selects every file between it and the anchor.
     pub select_anchor: Option<PathBuf>,
+    /// While a press-and-drag marquee is active: the pointer position where the
+    /// drag began, plus the selection that existed at that moment (so a
+    /// Ctrl-drag adds to it instead of replacing). `None` when not dragging.
+    pub marquee: Option<Marquee>,
+}
+
+/// In-progress rubber-band selection anchor.
+pub struct Marquee {
+    /// Screen-space position where the drag started.
+    pub start: egui::Pos2,
+    /// Selection to union the band into (empty unless the drag began with Ctrl).
+    pub base: HashSet<PathBuf>,
 }
 
 impl DirectoryTreeState {
@@ -34,6 +46,7 @@ impl DirectoryTreeState {
             expanded,
             selected: HashSet::new(),
             select_anchor: None,
+            marquee: None,
         }
     }
 }
@@ -56,6 +69,23 @@ pub struct TreeAction {
 const INDENT_PER_LEVEL: f32 = 14.0;
 const ARROW_WIDTH: f32 = 16.0;
 const ROW_PADDING_X: f32 = 4.0;
+
+/// Indices of rows whose vertical centre lies strictly within the band
+/// between `a` and `b` (inclusive of the bounds, exclusive of a zero-height
+/// band). `a`/`b` need not be ordered, so an upward drag works like a
+/// downward one. Shared by the cloud tree's marquee.
+pub fn indices_in_band(centers: &[f32], a: f32, b: f32) -> Vec<usize> {
+    let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+    if lo == hi {
+        return Vec::new();
+    }
+    centers
+        .iter()
+        .enumerate()
+        .filter(|&(_, &c)| c >= lo && c <= hi)
+        .map(|(i, _)| i)
+        .collect()
+}
 
 /// Render the directory tree. Callers wrap this in a `SidePanel`.
 ///
@@ -135,8 +165,19 @@ pub fn render_directory_tree(
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
+            // Marquee background: interact with the whole content rect FIRST,
+            // with a drag sense, so the file rows drawn afterwards keep click
+            // priority (a click opens a file) while a press-and-drag on empty
+            // space -- or that falls through from a click-only row -- drives the
+            // rubber-band. Same trick the custom title bar uses.
+            let bg_id = ui.id().with("dir_marquee_bg");
+            let bg = ui.interact(ui.max_rect(), bg_id, egui::Sense::drag());
+
             let root = state.root.clone();
-            draw_dir(ui, &root, state, &mut action, 0, allowed_exts);
+            let mut rows: Vec<(egui::Rect, PathBuf)> = Vec::new();
+            draw_dir(ui, &root, state, &mut action, 0, allowed_exts, &mut rows);
+
+            apply_marquee(ui, state, &bg, &rows);
         });
     action
 }
@@ -261,6 +302,7 @@ fn draw_dir(
     action: &mut TreeAction,
     depth: usize,
     allowed_exts: Option<&HashSet<String>>,
+    rows: &mut Vec<(egui::Rect, PathBuf)>,
 ) {
     let entries = match read_sorted_dir(dir) {
         Ok(e) => e,
@@ -292,6 +334,9 @@ fn draw_dir(
         let is_selected = !is_dir && state.selected.contains(&entry);
         let resp = draw_row(ui, depth, is_dir, is_open, &name, is_selected)
             .on_hover_text(entry.to_string_lossy().as_ref());
+        if !is_dir {
+            rows.push((resp.rect, entry.clone()));
+        }
 
         let copy_name = name.clone();
         let selection_len = state.selected.len();
@@ -411,8 +456,70 @@ fn draw_dir(
         }
 
         if is_dir && state.expanded.contains(&entry) {
-            draw_dir(ui, &entry, state, action, depth + 1, allowed_exts);
+            draw_dir(ui, &entry, state, action, depth + 1, allowed_exts, rows);
         }
+    }
+}
+
+/// Drive the rubber-band selection for one frame: start/continue/end the drag,
+/// paint the translucent band, and set `state.selected` to `base ∪ rows-in-band`.
+fn apply_marquee(
+    ui: &egui::Ui,
+    state: &mut DirectoryTreeState,
+    bg: &egui::Response,
+    rows: &[(egui::Rect, PathBuf)],
+) {
+    if bg.drag_started() {
+        let ctrl = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
+        let start = ui
+            .input(|i| i.pointer.interact_pos())
+            .unwrap_or(bg.rect.min);
+        state.marquee = Some(Marquee {
+            start,
+            base: if ctrl {
+                state.selected.clone()
+            } else {
+                HashSet::new()
+            },
+        });
+    }
+    let Some(marquee) = state.marquee.as_ref() else {
+        return;
+    };
+    let current = ui
+        .input(|i| i.pointer.interact_pos())
+        .unwrap_or(marquee.start);
+
+    // Recompute selection = base ∪ file rows whose centre is in the band.
+    let centers: Vec<f32> = rows.iter().map(|(r, _)| r.center().y).collect();
+    let mut selected = marquee.base.clone();
+    for i in indices_in_band(&centers, marquee.start.y, current.y) {
+        selected.insert(rows[i].1.clone());
+    }
+    state.selected = selected;
+    if let Some(last) = rows.iter().rev().find(|(r, _)| r.center().y <= current.y) {
+        state.select_anchor = Some(last.1.clone());
+    }
+
+    // Paint the band across the panel width (feedback only).
+    let band = egui::Rect::from_x_y_ranges(
+        bg.rect.x_range(),
+        egui::Rangef::new(
+            marquee.start.y.min(current.y),
+            marquee.start.y.max(current.y),
+        ),
+    );
+    let fill = ui.visuals().selection.bg_fill.linear_multiply(0.25);
+    ui.painter().rect_filled(band, 2.0, fill);
+    ui.painter().rect_stroke(
+        band,
+        2.0,
+        egui::Stroke::new(1.0_f32, ui.visuals().selection.stroke.color),
+        egui::StrokeKind::Inside,
+    );
+
+    if bg.drag_stopped() {
+        state.marquee = None;
     }
 }
 

@@ -21,6 +21,28 @@ use octa::ui::settings::cloud_secrets::resolve_creds;
 
 use super::state::{CloudOrigin, OctaApp};
 
+/// From a flat cloud object listing, keep only real files (not sub-prefixes)
+/// whose lowercased extension is one the reader registry supports. Returns
+/// `(key, name)` pairs in listing order. Filtering here avoids downloading
+/// obviously-irrelevant blobs before the Union dialog even reads them.
+pub(crate) fn data_objects(
+    entries: &[ObjectEntry],
+    allowed_exts: &HashSet<String>,
+) -> Vec<(String, String)> {
+    entries
+        .iter()
+        .filter(|e| !e.is_prefix)
+        .filter(|e| {
+            std::path::Path::new(&e.name)
+                .extension()
+                .and_then(|x| x.to_str())
+                .map(|x| allowed_exts.contains(&x.to_ascii_lowercase()))
+                .unwrap_or(false)
+        })
+        .map(|e| (e.key.clone(), e.name.clone()))
+        .collect()
+}
+
 /// (connection id, prefix) key into the listings cache. `prefix == ""` is a
 /// connection's bucket root.
 pub(crate) type ConnPrefix = (String, String);
@@ -165,6 +187,14 @@ pub(crate) enum CloudOpenResult {
 /// Recursive-inventory object cap: a data-lake bucket can hold millions of
 /// keys; past this the listing stops and the tab shows a truncation notice.
 pub(crate) const INVENTORY_CAP: usize = 100_000;
+
+/// How many files a folder-union will download before it stops. Each file is
+/// downloaded to a temp and then fully read into memory by the Union dialog,
+/// so an unbounded folder (a data lake with tens of thousands of parts) would
+/// OOM. Past this, the union runs on the first `FOLDER_UNION_CAP` files and a
+/// status note reports the rest were skipped.
+// ponytail: fixed cap; make it a setting only if a real folder exceeds it.
+pub(crate) const FOLDER_UNION_CAP: usize = 500;
 
 /// One cloud object the user has ticked in the sidebar for a batch action.
 /// Carries the name as well as the key because the download needs the file
@@ -499,6 +529,127 @@ impl OctaApp {
         });
     }
 
+    /// Union every readable table under a cloud folder into one table, the same
+    /// way the sidebar's "Union selected files..." does, but without the user
+    /// ticking each file. `recursive` also descends into subfolders.
+    ///
+    /// Listing + downloading run on one worker thread; the main thread picks up
+    /// the temp paths in `drain_cloud_pending_open` and hands them to
+    /// `open_union_for_files` (`CloudOpenResult::UnionReady`).
+    pub(crate) fn cloud_union_folder(
+        &mut self,
+        ctx: &egui::Context,
+        conn_id: String,
+        prefix: String,
+        recursive: bool,
+    ) {
+        let Some(conn) = self.find_cloud_conn(&conn_id) else {
+            return;
+        };
+        if conn.account_level && prefix.is_empty() {
+            // No bucket chosen yet: same guard as the inventory action.
+            self.status_message = Some((
+                octa::i18n::t("inventory.account_root"),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        // Extension allowlist, computed on the main thread (the registry lives
+        // on `self`; the worker cannot borrow it).
+        let allowed_exts: HashSet<String> = self
+            .registry
+            .all_extensions()
+            .into_iter()
+            .map(|e| e.to_ascii_lowercase())
+            .collect();
+        let settings = self.settings.clone();
+        let pending = self.cloud_browser.pending_open.clone();
+        let ctx = ctx.clone();
+        // Total is unknown until the listing returns, so start at 0 (= no
+        // counter yet) and let the worker fill it in.
+        let progress =
+            super::state::UnionProgress::new(&octa::i18n::t("union_tree.folder_listing"), 0);
+        let (label, done, total) = (
+            progress.label.clone(),
+            progress.done.clone(),
+            progress.total.clone(),
+        );
+        self.union_progress = Some(progress);
+        std::thread::spawn(move || {
+            let item = (|| -> CloudOpenResult {
+                // 1. List the folder (recursive or one level), then filter to
+                //    readable files.
+                let list_result = (|| -> anyhow::Result<Vec<ObjectEntry>> {
+                    if conn.account_level {
+                        let (bconn, sub) = bind_bucket(&conn, &prefix);
+                        let bucket = bconn.bucket.clone();
+                        let creds = resolve_creds(&bconn, &settings);
+                        let provider = cloud::build_provider(&bconn, &creds)?;
+                        let entries = if recursive {
+                            provider.list_recursive(&sub, INVENTORY_CAP)?.0
+                        } else {
+                            provider.list(&sub)?
+                        };
+                        Ok(entries
+                            .into_iter()
+                            .map(|mut e| {
+                                e.key = format!("{bucket}/{}", e.key);
+                                e
+                            })
+                            .collect())
+                    } else {
+                        let creds = resolve_creds(&conn, &settings);
+                        let provider = cloud::build_provider(&conn, &creds)?;
+                        if recursive {
+                            Ok(provider.list_recursive(&prefix, INVENTORY_CAP)?.0)
+                        } else {
+                            provider.list(&prefix)
+                        }
+                    }
+                })();
+                let entries = match list_result {
+                    Ok(e) => e,
+                    Err(e) => {
+                        return CloudOpenResult::Failed(format!(
+                            "{} {e:#}",
+                            octa::i18n::t("cloud.open_failed")
+                        ));
+                    }
+                };
+                let mut files = data_objects(&entries, &allowed_exts);
+                if files.len() < 2 {
+                    return CloudOpenResult::Failed(octa::i18n::t("union.need_two"));
+                }
+                // 2. Cap, then download each to a temp.
+                let mut skipped = files.len().saturating_sub(FOLDER_UNION_CAP);
+                files.truncate(FOLDER_UNION_CAP);
+                // Listing done: switch the status-bar spinner over to the
+                // download phase, now that the count is known.
+                if let Ok(mut l) = label.lock() {
+                    *l = octa::i18n::t("cloud.union_downloading");
+                }
+                total.store(files.len(), std::sync::atomic::Ordering::Relaxed);
+                let mut paths = Vec::new();
+                for (key, name) in &files {
+                    match fetch_object_to_temp(&conn, key, name, &settings) {
+                        Ok(p) => paths.push(p),
+                        Err(_) => skipped += 1,
+                    }
+                    done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                if paths.len() < 2 {
+                    CloudOpenResult::Failed(octa::i18n::t("union.need_two"))
+                } else {
+                    CloudOpenResult::UnionReady { paths, skipped }
+                }
+            })();
+            if let Ok(mut p) = pending.lock() {
+                p.push(item);
+            }
+            ctx.request_repaint();
+        });
+    }
+
     /// Download every cloud object the user has selected in the sidebar and open
     /// the Union dialog over them, the same way "Union selected files..." works
     /// in the local directory tree.
@@ -530,14 +681,10 @@ impl OctaApp {
         let settings = self.settings.clone();
         let pending = self.cloud_browser.pending_open.clone();
         let ctx = ctx.clone();
-        self.status_message = Some((
-            format!(
-                "{} {}",
-                octa::i18n::t("cloud.union_downloading"),
-                jobs.len()
-            ),
-            std::time::Instant::now(),
-        ));
+        let progress =
+            super::state::UnionProgress::new(&octa::i18n::t("cloud.union_downloading"), jobs.len());
+        let done = progress.done.clone();
+        self.union_progress = Some(progress);
         std::thread::spawn(move || {
             let mut paths = Vec::new();
             let mut failed = Vec::new();
@@ -546,6 +693,7 @@ impl OctaApp {
                     Ok(p) => paths.push(p),
                     Err(e) => failed.push(format!("{}: {e:#}", sel.name)),
                 }
+                done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             let item = if paths.len() < 2 {
                 CloudOpenResult::Failed(format!(
@@ -717,6 +865,10 @@ impl OctaApp {
                     }
                 }
                 CloudOpenResult::UnionReady { paths, skipped } => {
+                    // Download phase over; `open_union_for_files` installs its
+                    // own read-phase progress right after, so the spinner runs
+                    // continuously from download to dialog.
+                    self.union_progress = None;
                     if skipped > 0 {
                         self.status_message = Some((
                             format!("{} {skipped}", octa::i18n::t("union_tree.skipped")),
@@ -747,18 +899,59 @@ impl OctaApp {
                                 &octa::ui::status_bar::format_number(INVENTORY_CAP),
                             ));
                     }
-                    self.tabs.push(new_tab);
-                    self.active_tab = self.tabs.len() - 1;
+                    self.push_result_tab(new_tab);
                     self.status_message = Some((
                         format!("{} {rows} ({label})", octa::i18n::t("inventory.done")),
                         std::time::Instant::now(),
                     ));
                 }
                 CloudOpenResult::Failed(msg) => {
+                    // Covers a failed union listing/download too, so the
+                    // spinner never outlives its job.
+                    self.union_progress = None;
                     self.status_message = Some((msg, std::time::Instant::now()));
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod union_folder_tests {
+    use super::data_objects;
+    use octa::cloud::ObjectEntry;
+    use std::collections::HashSet;
+
+    fn entry(key: &str, name: &str, is_prefix: bool) -> ObjectEntry {
+        ObjectEntry {
+            name: name.to_string(),
+            key: key.to_string(),
+            is_prefix,
+            size: None,
+            modified: None,
+            etag: None,
+            version: None,
+        }
+    }
+
+    #[test]
+    fn keeps_only_supported_files_not_prefixes() {
+        let entries = vec![
+            entry("data/a.csv", "a.csv", false),
+            entry("data/sub/", "sub", true), // a folder: excluded
+            entry("data/notes.txt", "notes.txt", false), // unsupported ext
+            entry("data/b.parquet", "b.parquet", false),
+            entry("data/noext", "noext", false), // no extension
+        ];
+        let allowed: HashSet<String> = ["csv", "parquet"].into_iter().map(String::from).collect();
+        let got = data_objects(&entries, &allowed);
+        assert_eq!(
+            got,
+            vec![
+                ("data/a.csv".to_string(), "a.csv".to_string()),
+                ("data/b.parquet".to_string(), "b.parquet".to_string()),
+            ]
+        );
     }
 }
 

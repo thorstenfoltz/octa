@@ -365,6 +365,28 @@ fn render_preview_pane(
     });
 }
 
+/// Vertical rhythm of the rendered preview, in points. Rendered prose needs
+/// visibly more air than a dense data grid; the old uniform 4-6px let headings,
+/// paragraphs and lists run into each other.
+const GAP_PARAGRAPH: f32 = 10.0;
+/// Space above a heading. Much larger than the gap below it, so a heading
+/// visually belongs to the section it introduces.
+const GAP_BEFORE_HEADING: f32 = 16.0;
+const GAP_AFTER_HEADING: f32 = 8.0;
+/// Space after a self-contained block (code, table, quote, rule).
+const GAP_BLOCK: f32 = 12.0;
+/// Space between list items (on top of the global item spacing).
+const GAP_LIST_ITEM: f32 = 2.0;
+/// Line height as a multiple of the font size. Body prose gets generous
+/// leading; headings are usually one line, so they stay tighter.
+const LEADING_BODY: f32 = 1.5;
+const LEADING_HEADING: f32 = 1.25;
+/// Width reserved for a list marker on a continuation paragraph, so its text
+/// lines up with the bulleted first paragraph of the same item.
+// ponytail: one width for every marker; long ordered markers ("10. ") drift a
+// few px. Measure the galley if that ever shows up in a real document.
+const LIST_MARKER_WIDTH: f32 = 14.0;
+
 /// Custom markdown renderer using `pulldown_cmark`. `**bold**` runs use the
 /// bundled `FontFamily::Name("bold")` family (registered in `apply_fonts`)
 /// instead of egui's color-only `RichText::strong()`.
@@ -376,7 +398,14 @@ pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str, hl: Option<&(RowMatc
     opts.insert(Options::ENABLE_TABLES);
     opts.insert(Options::ENABLE_STRIKETHROUGH);
     let parser = Parser::new_ext(src, opts);
-    let body_size = 13.0;
+    // Follow the app's body text size, so the font-size setting and Ctrl+Plus
+    // zoom reach the preview (both feed `TextStyle::Body`).
+    let body_size = ui
+        .style()
+        .text_styles
+        .get(&egui::TextStyle::Body)
+        .map(|f| f.size)
+        .unwrap_or(13.0);
     let mut state = InlineState::default();
 
     // Buffer pending inline runs for the current block. Flushed when the
@@ -390,17 +419,48 @@ pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str, hl: Option<&(RowMatc
     // `TagEnd::Table` after rendering.
     let mut table: Option<TableState> = None;
     let mut table_counter: u64 = 0;
+    // An open list item that still owes its bullet. A *loose* list wraps each
+    // item's text in a paragraph, so the bullet is drawn by whichever flush
+    // comes first - and only once, so a second paragraph in the same item keeps
+    // the indent without sprouting a second bullet.
+    let mut bullet_pending = false;
+    // Open block quotes. A quote wraps its text in a paragraph exactly like a
+    // loose list item does, so without this the paragraph would flush as
+    // ordinary prose and the quote's frame would never be drawn.
+    let mut quote_depth = 0usize;
+    // Whether anything has been rendered yet, so the first heading in a
+    // document does not get a leading gap.
+    let mut any_block = false;
+    let ctx = BlockCtx {
+        body_size,
+        bold_body,
+        hl,
+    };
 
     for event in parser {
         match event {
             Event::Start(tag) => match tag {
                 Tag::Paragraph => {
-                    block_kind = BlockKind::Paragraph;
+                    // A paragraph inside a list item *is* that item's text
+                    // (that is what makes a list "loose"), and a paragraph
+                    // inside a quote is the quote's text. Either way the
+                    // enclosing block's styling has to survive.
+                    block_kind = if !list_stack.is_empty() {
+                        BlockKind::ListItem
+                    } else if quote_depth > 0 {
+                        BlockKind::Quote
+                    } else {
+                        BlockKind::Paragraph
+                    };
                 }
                 Tag::Heading { level, .. } => {
+                    if any_block {
+                        ui.add_space(GAP_BEFORE_HEADING);
+                    }
                     block_kind = BlockKind::Heading(heading_level_u8(level));
                 }
                 Tag::BlockQuote(_) => {
+                    quote_depth += 1;
                     block_kind = BlockKind::Quote;
                 }
                 Tag::CodeBlock(_) => {
@@ -408,6 +468,17 @@ pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str, hl: Option<&(RowMatc
                     code_block_buf.clear();
                 }
                 Tag::List(start) => {
+                    // A tight parent item's text is still buffered when its
+                    // nested list opens; flush it as the parent item so the
+                    // nested entries don't absorb it.
+                    flush_block(
+                        ui,
+                        &mut buf,
+                        block_kind,
+                        &list_stack,
+                        std::mem::take(&mut bullet_pending),
+                        &ctx,
+                    );
                     list_stack.push(ListInfo {
                         ordered: start.is_some(),
                         next_num: start.unwrap_or(1),
@@ -415,6 +486,7 @@ pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str, hl: Option<&(RowMatc
                 }
                 Tag::Item => {
                     block_kind = BlockKind::ListItem;
+                    bullet_pending = true;
                 }
                 Tag::Emphasis => state.italic = true,
                 Tag::Strong => state.strong = true,
@@ -452,48 +524,41 @@ pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str, hl: Option<&(RowMatc
             },
             Event::End(end) => match end {
                 TagEnd::Paragraph => {
+                    let in_list = !list_stack.is_empty();
                     flush_block(
                         ui,
                         &mut buf,
                         block_kind,
                         &list_stack,
-                        body_size,
-                        bold_body,
-                        hl,
+                        std::mem::take(&mut bullet_pending),
+                        &ctx,
                     );
-                    ui.add_space(6.0);
+                    // Items get their gap from `TagEnd::Item`, so a loose
+                    // list's paragraphs must not add a second one.
+                    if !in_list {
+                        ui.add_space(GAP_PARAGRAPH);
+                    }
+                    any_block = true;
                 }
                 TagEnd::Heading(_) => {
-                    flush_block(
-                        ui,
-                        &mut buf,
-                        block_kind,
-                        &list_stack,
-                        body_size,
-                        bold_body,
-                        hl,
-                    );
-                    ui.add_space(8.0);
+                    flush_block(ui, &mut buf, block_kind, &list_stack, false, &ctx);
+                    ui.add_space(GAP_AFTER_HEADING);
                     block_kind = BlockKind::Paragraph;
+                    any_block = true;
                 }
                 TagEnd::BlockQuote(_) => {
-                    flush_block(
-                        ui,
-                        &mut buf,
-                        block_kind,
-                        &list_stack,
-                        body_size,
-                        bold_body,
-                        hl,
-                    );
-                    ui.add_space(4.0);
+                    flush_block(ui, &mut buf, block_kind, &list_stack, false, &ctx);
+                    quote_depth = quote_depth.saturating_sub(1);
+                    ui.add_space(GAP_BLOCK);
                     block_kind = BlockKind::Paragraph;
+                    any_block = true;
                 }
                 TagEnd::CodeBlock => {
                     render_code_block(ui, &code_block_buf, body_size, hl);
                     code_block_buf.clear();
-                    ui.add_space(6.0);
+                    ui.add_space(GAP_BLOCK);
                     block_kind = BlockKind::Paragraph;
+                    any_block = true;
                 }
                 TagEnd::List(_) => {
                     list_stack.pop();
@@ -504,13 +569,14 @@ pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str, hl: Option<&(RowMatc
                         &mut buf,
                         BlockKind::ListItem,
                         &list_stack,
-                        body_size,
-                        bold_body,
-                        hl,
+                        std::mem::take(&mut bullet_pending),
+                        &ctx,
                     );
+                    ui.add_space(GAP_LIST_ITEM);
                     if let Some(top) = list_stack.last_mut() {
                         top.next_num += 1;
                     }
+                    any_block = true;
                 }
                 TagEnd::Emphasis => state.italic = false,
                 TagEnd::Strong => state.strong = false,
@@ -540,7 +606,8 @@ pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str, hl: Option<&(RowMatc
                     if let Some(t) = table.take() {
                         table_counter += 1;
                         render_table(ui, &t, body_size, table_counter);
-                        ui.add_space(6.0);
+                        ui.add_space(GAP_BLOCK);
+                        any_block = true;
                     }
                 }
                 _ => {}
@@ -583,25 +650,17 @@ pub(crate) fn render_pulldown(ui: &mut egui::Ui, src: &str, hl: Option<&(RowMatc
                     &mut buf,
                     block_kind,
                     &list_stack,
-                    body_size,
-                    bold_body,
-                    hl,
+                    std::mem::take(&mut bullet_pending),
+                    &ctx,
                 );
                 ui.separator();
-                ui.add_space(4.0);
+                ui.add_space(GAP_BLOCK);
+                any_block = true;
             }
             _ => {}
         }
     }
-    flush_block(
-        ui,
-        &mut buf,
-        block_kind,
-        &list_stack,
-        body_size,
-        bold_body,
-        hl,
-    );
+    flush_block(ui, &mut buf, block_kind, &list_stack, bullet_pending, &ctx);
 }
 
 #[derive(Default, Clone)]
@@ -659,15 +718,26 @@ fn heading_level_u8(level: pulldown_cmark::HeadingLevel) -> u8 {
     }
 }
 
+/// Constant per-render settings threaded through the block renderers, so their
+/// signatures stay short (same trick as `TableLayoutCtx`).
+struct BlockCtx<'a> {
+    body_size: f32,
+    bold_body: bool,
+    hl: Option<&'a (RowMatcher, Color32)>,
+}
+
+/// Render one buffered block. `bullet` says whether a list item still owes its
+/// marker (false for the second paragraph of the same item, which only wants the
+/// indent).
 fn flush_block(
     ui: &mut egui::Ui,
     buf: &mut Vec<(String, RunStyle)>,
     kind: BlockKind,
     list_stack: &[ListInfo],
-    body_size: f32,
-    bold_body: bool,
-    hl: Option<&(RowMatcher, Color32)>,
+    bullet: bool,
+    ctx: &BlockCtx<'_>,
 ) {
+    let (body_size, bold_body, hl) = (ctx.body_size, ctx.bold_body, ctx.hl);
     if buf.is_empty() {
         return;
     }
@@ -682,35 +752,65 @@ fn flush_block(
                 4 => body_size * 1.15,
                 _ => body_size * 1.05,
             };
-            render_runs(ui, &runs, size, /* force_bold */ true, hl);
+            render_runs(
+                ui,
+                &runs,
+                size,
+                /* force_bold */ true,
+                LEADING_HEADING,
+                hl,
+            );
+            // A rule under the top two levels, the way rendered docs usually
+            // separate major sections.
+            if level <= 2 {
+                ui.add_space(2.0);
+                ui.separator();
+            }
         }
         BlockKind::Paragraph => {
-            render_runs(ui, &runs, body_size, bold_body, hl);
+            render_runs(ui, &runs, body_size, bold_body, LEADING_BODY, hl);
         }
         BlockKind::Quote => {
-            ui.horizontal_wrapped(|ui| {
-                ui.add_space(12.0);
-                let muted = ui.visuals().weak_text_color();
-                ui.label(RichText::new("\u{2503}").color(muted));
-                ui.add_space(6.0);
-                render_runs(ui, &runs, body_size, bold_body, hl);
-            });
+            // A tinted block reads as a quote at any height; the previous single
+            // "|" glyph stayed one line tall however long the quote was.
+            egui::Frame::new()
+                .fill(ui.visuals().faint_bg_color)
+                .corner_radius(4.0)
+                .inner_margin(egui::Margin::symmetric(10, 6))
+                .show(ui, |ui| {
+                    render_runs(ui, &runs, body_size, bold_body, LEADING_BODY, hl);
+                });
         }
         BlockKind::ListItem => {
-            ui.horizontal_wrapped(|ui| {
+            ui.horizontal_top(|ui| {
                 let depth = list_stack.len().saturating_sub(1);
                 ui.add_space(8.0 + depth as f32 * 16.0);
-                let bullet = match list_stack.last() {
-                    Some(li) if li.ordered => format!("{}. ", li.next_num),
-                    _ => "\u{2022} ".to_string(),
-                };
-                let bullet_family = if bold_body {
-                    egui::FontFamily::Name(std::sync::Arc::from("bold"))
+                // The marker already ends in a space; egui's own item spacing
+                // on top of that reads as a gap.
+                ui.spacing_mut().item_spacing.x = 0.0;
+                if bullet {
+                    let marker = match list_stack.last() {
+                        Some(li) if li.ordered => format!("{}. ", li.next_num),
+                        _ => "\u{2022} ".to_string(),
+                    };
+                    let marker_family = if bold_body {
+                        egui::FontFamily::Name(std::sync::Arc::from("bold"))
+                    } else {
+                        egui::FontFamily::Proportional
+                    };
+                    ui.label(
+                        RichText::new(marker).font(egui::FontId::new(body_size, marker_family)),
+                    );
                 } else {
-                    egui::FontFamily::Proportional
-                };
-                ui.label(RichText::new(bullet).font(egui::FontId::new(body_size, bullet_family)));
-                render_runs(ui, &runs, body_size, bold_body, hl);
+                    ui.add_space(LIST_MARKER_WIDTH);
+                }
+                // The text gets its own column, so wrapped lines hang under the
+                // first character instead of running back under the bullet -
+                // which is what a `Label` in a wrapping *horizontal* layout does
+                // (egui puts every continuation row at the container's edge).
+                ui.vertical(|ui| {
+                    render_runs(ui, &runs, body_size, bold_body, LEADING_BODY, hl);
+                });
             });
         }
         BlockKind::CodeBlock => { /* handled separately */ }
@@ -770,6 +870,7 @@ fn render_runs(
     runs: &[(String, RunStyle)],
     size: f32,
     force_bold: bool,
+    leading: f32,
     hl: Option<&(RowMatcher, Color32)>,
 ) {
     use egui::text::{LayoutJob, TextFormat};
@@ -791,6 +892,7 @@ fn render_runs(
             egui::FontFamily::Proportional
         };
         fmt.font_id = egui::FontId::new(size, family);
+        fmt.line_height = Some(size * leading);
         fmt.color = if style.link.is_some() {
             link_color
         } else {
@@ -805,6 +907,9 @@ fn render_runs(
         }
         if style.code {
             fmt.background = ui.visuals().code_bg_color;
+            // Pad the tint out from the glyphs so inline code reads as a chip
+            // rather than a smudge behind the letters.
+            fmt.expand_bg = 2.0;
         }
         job.append(text, 0.0, fmt);
     }
@@ -869,7 +974,9 @@ fn render_table(ui: &mut egui::Ui, table: &TableState, body_size: f32, table_id:
 
     let visuals = ui.visuals();
     let border = visuals.widgets.noninteractive.bg_stroke;
-    let header_bg = visuals.faint_bg_color;
+    // Distinct from the zebra stripe: both were `faint_bg_color`, which made the
+    // header indistinguishable from every odd row.
+    let header_bg = visuals.widgets.noninteractive.bg_fill;
     let stripe_bg = visuals.faint_bg_color;
     let body_bg = visuals.panel_fill;
 
@@ -1006,6 +1113,7 @@ fn render_cell_runs(
         }
         if style.code {
             fmt.background = ui.visuals().code_bg_color;
+            fmt.expand_bg = 2.0;
         }
         job.append(text, 0.0, fmt);
     }

@@ -1409,6 +1409,7 @@ apply = "Áp dụng"
 cancel = "Hủy"
 need_two = "Chọn ít nhất hai bảng."
 need_open = "Hãy mở một bảng thứ hai trong tab khác trước."
+reading = "Đang đọc các tệp để hợp nhất:"
 
 [join]
 title = "Nối bảng"
@@ -1723,6 +1724,10 @@ n_selected = "đã chọn"
 union_btn = "Hợp nhất..."
 clear = "Xóa vùng chọn"
 skipped = "Các tệp bị bỏ qua (không đọc được):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Liệt kê nội dung thành bảng..."

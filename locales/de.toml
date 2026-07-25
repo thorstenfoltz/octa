@@ -1408,6 +1408,7 @@ apply = "Anwenden"
 cancel = "Abbrechen"
 need_two = "Wählen Sie mindestens zwei Tabellen."
 need_open = "Öffnen Sie zuerst eine zweite Tabelle in einem anderen Tab."
+reading = "Dateien zum Vereinigen werden gelesen:"
 
 [join]
 title = "Tabellen verknüpfen"
@@ -1722,6 +1723,10 @@ n_selected = "ausgewählt"
 union_btn = "Vereinigen..."
 clear = "Auswahl aufheben"
 skipped = "Übersprungene Dateien (konnten nicht gelesen werden):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Inhalt als Tabelle auflisten..."

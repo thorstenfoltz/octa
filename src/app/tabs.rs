@@ -294,6 +294,31 @@ impl TabState {
 }
 
 impl OctaApp {
+    /// Place a finished result tab: reuse the active tab while it is still
+    /// completely blank, else push a new one and activate it.
+    ///
+    /// Octa starts with one empty tab and hides the tab bar until a second
+    /// exists, so an unconditional push strands that empty tab as a visible
+    /// "Untitled" beside the result. Same guard as `load_file_in_new_tab`.
+    ///
+    /// Only the result paths that can run with *no* file open need this (union
+    /// from the sidebar, cloud inventory, a DB table opened from the tree). The
+    /// others - chart, summary, pivot, join, ... - all require a loaded table,
+    /// so their active tab is never blank.
+    pub(crate) fn push_result_tab(&mut self, new_tab: super::state::TabState) {
+        let blank = self
+            .tabs
+            .get(self.active_tab)
+            .map(|t| t.table.col_count() == 0 && t.raw_content.is_none() && !t.is_modified())
+            .unwrap_or(false);
+        if blank {
+            self.tabs[self.active_tab] = new_tab;
+        } else {
+            self.tabs.push(new_tab);
+            self.active_tab = self.tabs.len() - 1;
+        }
+    }
+
     /// Open a new chart tab seeded from the active tab's table.
     ///
     /// The new tab gets a deep clone of the table (so subsequent edits in

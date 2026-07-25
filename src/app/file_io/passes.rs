@@ -20,6 +20,18 @@ fn snapshot_column_strings(table: &octa::data::DataTable, col_idx: usize) -> Vec
     out
 }
 
+/// Whether a loaded table is really a non-tabular text document (Markdown,
+/// plain Text/code, a Jupyter notebook, or an EPUB) rather than a data table.
+/// These load as a single line/paragraph column, so the whitespace-trim pass
+/// must not touch them: it would strip meaningful trailing spaces (e.g.
+/// Markdown hard line breaks) and pop a banner on files that aren't tables.
+fn format_is_text_document(format_name: Option<&str>) -> bool {
+    matches!(
+        format_name,
+        Some("Text") | Some("Markdown") | Some("Jupyter Notebook") | Some("EPUB")
+    )
+}
+
 impl OctaApp {
     /// Strip leading/trailing whitespace from every string cell in the tab's
     /// table when `trim_whitespace_on_load` is on. For DB-backed tables the
@@ -29,6 +41,9 @@ impl OctaApp {
     /// `warn_on_whitespace_trim` is on.
     pub(crate) fn run_trim_pass(&mut self, tab_idx: usize) {
         if !self.settings.trim_whitespace_on_load || tab_idx >= self.tabs.len() {
+            return;
+        }
+        if format_is_text_document(self.tabs[tab_idx].table.format_name.as_deref()) {
             return;
         }
         let tab = &mut self.tabs[tab_idx];
@@ -219,5 +234,28 @@ impl OctaApp {
                 entries: parse_failures,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_is_text_document;
+
+    #[test]
+    fn text_document_formats_are_excluded_from_trim() {
+        for name in ["Text", "Markdown", "Jupyter Notebook", "EPUB"] {
+            assert!(
+                format_is_text_document(Some(name)),
+                "{name} should be treated as a non-tabular text document"
+            );
+        }
+    }
+
+    #[test]
+    fn tabular_and_unknown_formats_still_trim() {
+        for name in ["CSV", "Parquet", "JSON", "YAML"] {
+            assert!(!format_is_text_document(Some(name)));
+        }
+        assert!(!format_is_text_document(None));
     }
 }

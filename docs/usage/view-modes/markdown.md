@@ -31,6 +31,13 @@ wide monitors the text doesn't sprawl across the screen. This is
 the same line-length cap most online readers apply to long-form
 content.
 
+## Text size
+
+The preview follows the app's body text size, so both the
+[**Font size**](../../reference/settings.md) setting and **Ctrl+Plus** /
+**Ctrl+Minus** zoom scale the rendered document along with everything else.
+Headings, code and list markers scale with it.
+
 ## Saving edits
 
 Edits to the buffer are tracked just like [Raw view](raw-text.md)

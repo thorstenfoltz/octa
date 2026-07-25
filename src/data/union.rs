@@ -75,6 +75,20 @@ pub fn plan_union(schemas: &[&[ColumnInfo]]) -> UnionPlan {
     }
 }
 
+/// The `format_name` every input table shares, or `None` when they disagree
+/// (or any input has none).
+///
+/// A union of 40 JSON parts is still JSON as far as the user is concerned, so
+/// the result tab keeps the format and Save As can default back to it. Mixed
+/// inputs have no single answer, so they get `None` and the plain picker.
+pub fn shared_format_name(tables: &[&DataTable]) -> Option<String> {
+    let first = tables.first()?.format_name.clone()?;
+    tables
+        .iter()
+        .all(|t| t.format_name.as_deref() == Some(first.as_str()))
+        .then_some(first)
+}
+
 /// Coerce a cell toward an Arrow target type (numeric widening; otherwise string form for Utf8 targets).
 fn coerce(value: &CellValue, target: &str) -> CellValue {
     match value {

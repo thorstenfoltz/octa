@@ -86,6 +86,20 @@ fn hidden_and_filtered_files_are_not_range_selectable() {
 }
 
 #[test]
+fn band_selects_rows_between_two_ys_either_order() {
+    use super::indices_in_band;
+    let centers = [10.0, 30.0, 50.0, 70.0];
+    // Downward drag.
+    assert_eq!(indices_in_band(&centers, 25.0, 55.0), vec![1, 2]);
+    // Upward drag (unordered args) picks the same rows.
+    assert_eq!(indices_in_band(&centers, 55.0, 25.0), vec![1, 2]);
+    // Zero-height band picks nothing.
+    assert_eq!(indices_in_band(&centers, 40.0, 40.0), Vec::<usize>::new());
+    // Full sweep picks all.
+    assert_eq!(indices_in_band(&centers, 0.0, 100.0), vec![0, 1, 2, 3]);
+}
+
+#[test]
 fn unfiltered_tree_still_hides_dotfiles_from_selection() {
     // With no extension filter every file is listed, but dotfiles stay hidden.
     let tmp = tempfile::tempdir().unwrap();

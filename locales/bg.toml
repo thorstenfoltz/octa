@@ -1405,6 +1405,7 @@ apply = "Прилагане"
 cancel = "Отказ"
 need_two = "Изберете поне две таблици."
 need_open = "Първо отворете втора таблица в друг раздел."
+reading = "Четене на файлове за обединяване:"
 
 [join]
 title = "Свързване на таблици"
@@ -1719,6 +1720,10 @@ n_selected = "избрани"
 union_btn = "Обединяване..."
 clear = "Изчистване на селекцията"
 skipped = "Пропуснати файлове (не можаха да бъдат прочетени):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Извеждане на съдържанието като таблица..."

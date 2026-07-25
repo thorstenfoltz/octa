@@ -1396,6 +1396,7 @@ apply = "適用"
 cancel = "キャンセル"
 need_two = "少なくとも2つのテーブルを選択してください。"
 need_open = "先に別のタブで2つ目のテーブルを開いてください。"
+reading = "ユニオンするファイルを読み込み中:"
 
 [join]
 title = "テーブルを結合(join)"
@@ -1710,6 +1711,10 @@ n_selected = "件選択中"
 union_btn = "結合..."
 clear = "選択を解除"
 skipped = "読み込めずスキップしたファイル:"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "内容をテーブルとして一覧..."
