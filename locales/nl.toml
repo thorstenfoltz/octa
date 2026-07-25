@@ -1408,6 +1408,7 @@ apply = "Toepassen"
 cancel = "Annuleren"
 need_two = "Selecteer minstens twee tabellen."
 need_open = "Open eerst een tweede tabel in een ander tabblad."
+reading = "Bestanden lezen om samen te voegen:"
 
 [join]
 title = "Tabellen koppelen"
@@ -1722,6 +1723,10 @@ n_selected = "geselecteerd"
 union_btn = "Samenvoegen..."
 clear = "Selectie wissen"
 skipped = "Overgeslagen bestanden (konden niet worden gelezen):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Inhoud als tabel tonen..."

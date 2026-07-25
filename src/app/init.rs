@@ -136,6 +136,8 @@ impl OctaApp {
             pending_sheet_picker: None,
             pending_compressed_origin: None,
             pending_load: None,
+            union_prep: None,
+            union_progress: None,
             pending_open_queue: std::collections::VecDeque::new(),
             recently_closed_tabs: std::collections::VecDeque::new(),
             tab_multi_selection: std::collections::HashSet::new(),

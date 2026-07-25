@@ -1410,6 +1410,7 @@ apply = "Aplică"
 cancel = "Anulează"
 need_two = "Selectați cel puțin două tabele."
 need_open = "Deschideți mai întâi un al doilea tabel în altă filă."
+reading = "Se citesc fișierele de unit:"
 
 [join]
 title = "Îmbină tabele (join)"
@@ -1724,6 +1725,10 @@ n_selected = "selectate"
 union_btn = "Reunește..."
 clear = "Șterge selecția"
 skipped = "Fișiere omise (nu au putut fi citite):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Listează conținutul ca tabel..."

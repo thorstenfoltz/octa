@@ -196,6 +196,9 @@ impl OctaApp {
         if cloud_action.clear_selection {
             self.cloud_browser.selected.clear();
         }
+        if let Some(sel) = cloud_action.set_selection {
+            self.cloud_browser.selected = sel;
+        }
         if cloud_action.union_selected {
             self.union_cloud_selection(&ctx);
         }
@@ -225,6 +228,9 @@ impl OctaApp {
         }
         if let Some((conn_id, prefix)) = cloud_action.inventory {
             self.cloud_inventory(&ctx, conn_id, prefix);
+        }
+        if let Some((conn_id, prefix, recursive)) = cloud_action.union_folder {
+            self.cloud_union_folder(&ctx, conn_id, prefix, recursive);
         }
 
         // Dispatch database-tree actions.

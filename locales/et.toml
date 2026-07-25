@@ -1405,6 +1405,7 @@ apply = "Rakenda"
 cancel = "Tühista"
 need_two = "Valige vähemalt kaks tabelit."
 need_open = "Avage esmalt teine tabel teisel kaardil."
+reading = "Failide lugemine ühendamiseks:"
 
 [join]
 title = "Ühenda tabelid (join)"
@@ -1719,6 +1720,10 @@ n_selected = "valitud"
 union_btn = "Ühenda..."
 clear = "Tühjenda valik"
 skipped = "Vahele jäetud failid (ei õnnestunud lugeda):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Loetle sisu tabelina..."

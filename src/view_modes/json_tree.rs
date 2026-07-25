@@ -49,11 +49,12 @@ impl TreeKind {
     }
 }
 
-/// Approximate height of one tree row at the default 13pt monospace font.
-/// Used as the constant row height for `ScrollArea::show_rows` virtualization.
-/// If the actual row layout exceeds this, egui clips per-row but the column
-/// scroll bar will be slightly off - close enough for the use case.
-const JSON_ROW_HEIGHT: f32 = 18.0;
+/// Fixed height of one tree row, in sync with `ScrollArea::show_rows`
+/// virtualization. Each row is rendered via `allocate_ui_with_layout` at
+/// exactly this height (vertically centred, zero inter-row spacing), so the
+/// jump-to-match scroll offset (`8.0 + target * JSON_ROW_HEIGHT`) always
+/// lands the target row in the same place `show_rows` painted it.
+const JSON_ROW_HEIGHT: f32 = 20.0;
 
 /// One renderable row in the flattened JSON tree.
 struct JsonRow<'a> {
@@ -245,6 +246,13 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
     if let Some(off) = scroll_to_offset {
         scroll_area = scroll_area.vertical_scroll_offset(off);
     }
+    // `show_rows` computes its virtual row stride (JSON_ROW_HEIGHT +
+    // item_spacing.y) from THIS outer `ui` before the closure below ever runs,
+    // so the spacing must be zeroed here - zeroing it inside the closure is too
+    // late to change the stride already baked into `show_rows`, and would leave
+    // it wider than the rows actually render at, drifting the jump-to-match
+    // scroll offset for deep matches.
+    ui.spacing_mut().item_spacing.y = 0.0;
     scroll_area.show_rows(ui, JSON_ROW_HEIGHT, rows.len(), |ui, range| {
         ui.add_space(8.0);
         for i in range {
@@ -263,148 +271,158 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
                 Color32::TRANSPARENT
             };
             egui::Frame::NONE.fill(row_hl).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add_space(16.0 + row.depth as f32 * 20.0);
-                    match &row.kind {
-                        JsonRowKind::Open {
-                            is_object,
-                            count,
-                            is_expanded,
-                        } => {
-                            let arrow = if *is_expanded { "\u{25BC}" } else { "\u{25B6}" };
-                            if ui
-                                .add(
-                                    egui::Label::new(
-                                        RichText::new(arrow).font(mono()).color(colors.text_muted),
+                let width = ui.available_width();
+                ui.allocate_ui_with_layout(
+                    egui::vec2(width, JSON_ROW_HEIGHT),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.add_space(16.0 + row.depth as f32 * 20.0);
+                        match &row.kind {
+                            JsonRowKind::Open {
+                                is_object,
+                                count,
+                                is_expanded,
+                            } => {
+                                let arrow = if *is_expanded { "\u{25BC}" } else { "\u{25B6}" };
+                                if ui
+                                    .add(
+                                        egui::Label::new(
+                                            RichText::new(arrow)
+                                                .font(mono())
+                                                .color(colors.text_muted),
+                                        )
+                                        .selectable(false)
+                                        .sense(egui::Sense::click()),
                                     )
-                                    .selectable(false)
-                                    .sense(egui::Sense::click()),
-                                )
-                                .clicked()
-                            {
-                                toggle_path = Some(row.path.clone());
+                                    .clicked()
+                                {
+                                    toggle_path = Some(row.path.clone());
+                                }
+                                if let Some(req) = render_key_or_edit(
+                                    ui,
+                                    row.key.as_deref(),
+                                    row.is_index,
+                                    &row.path,
+                                    tab.tree_key_edit_path.as_deref(),
+                                    &mut tab.tree_key_edit_buffer,
+                                    &colors,
+                                ) {
+                                    key_edit_request = Some(req);
+                                }
+                                if *is_expanded {
+                                    let opener = if *is_object { "{" } else { "[" };
+                                    ui.label(
+                                        RichText::new(opener)
+                                            .font(mono())
+                                            .color(colors.text_primary),
+                                    );
+                                    if *is_object
+                                        && ui
+                                            .small_button("+")
+                                            .on_hover_text(octa::i18n::t("view.jt_add_key"))
+                                            .clicked()
+                                    {
+                                        add_key_request = Some(row.path.clone());
+                                    }
+                                } else {
+                                    let summary = if *is_object {
+                                        format!("{{...}} ({count} keys){comma}")
+                                    } else {
+                                        format!("[...] ({count} items){comma}")
+                                    };
+                                    ui.label(
+                                        RichText::new(summary)
+                                            .font(mono())
+                                            .color(colors.text_muted),
+                                    );
+                                }
+                                // Inline new-key prompt rendered immediately
+                                // beneath the open object's "{". Lets the user
+                                // type the new key name; Enter commits, Esc cancels.
+                                if *is_expanded
+                                    && *is_object
+                                    && tab.tree_add_key_path.as_deref() == Some(&row.path)
+                                {
+                                    ui.add_space(8.0);
+                                    ui.label(
+                                        RichText::new(octa::i18n::t("view.jt_new_key"))
+                                            .font(mono())
+                                            .color(colors.text_muted),
+                                    );
+                                    let resp = ui.add(
+                                        egui::TextEdit::singleline(&mut tab.tree_add_key_buffer)
+                                            .font(mono())
+                                            .desired_width(140.0),
+                                    );
+                                    if !resp.has_focus() && !resp.gained_focus() {
+                                        resp.request_focus();
+                                    }
+                                }
                             }
-                            if let Some(req) = render_key_or_edit(
-                                ui,
-                                row.key.as_deref(),
-                                row.is_index,
-                                &row.path,
-                                tab.tree_key_edit_path.as_deref(),
-                                &mut tab.tree_key_edit_buffer,
-                                &colors,
-                            ) {
-                                key_edit_request = Some(req);
-                            }
-                            if *is_expanded {
-                                let opener = if *is_object { "{" } else { "[" };
+                            JsonRowKind::Close { is_object } => {
+                                let closer = if *is_object { "}" } else { "]" };
                                 ui.label(
-                                    RichText::new(opener)
+                                    RichText::new(format!("{closer}{comma}"))
                                         .font(mono())
                                         .color(colors.text_primary),
                                 );
-                                if *is_object
-                                    && ui
-                                        .small_button("+")
-                                        .on_hover_text(octa::i18n::t("view.jt_add_key"))
-                                        .clicked()
-                                {
-                                    add_key_request = Some(row.path.clone());
+                            }
+                            JsonRowKind::Leaf { value } => {
+                                ui.add_space(18.0);
+                                if let Some(req) = render_key_or_edit(
+                                    ui,
+                                    row.key.as_deref(),
+                                    row.is_index,
+                                    &row.path,
+                                    tab.tree_key_edit_path.as_deref(),
+                                    &mut tab.tree_key_edit_buffer,
+                                    &colors,
+                                ) {
+                                    key_edit_request = Some(req);
                                 }
-                            } else {
-                                let summary = if *is_object {
-                                    format!("{{...}} ({count} keys){comma}")
+                                let is_editing = tab.json_edit_path.as_deref() == Some(&row.path);
+                                if is_editing {
+                                    if tab.json_edit_width.is_none() {
+                                        let display = leaf_display(value, comma);
+                                        let measured = ui.fonts_mut(|f| {
+                                            f.layout_no_wrap(display, mono(), colors.text_primary)
+                                                .size()
+                                                .x
+                                        });
+                                        tab.json_edit_width = Some(measured.max(200.0) + 16.0);
+                                    }
+                                    let width = tab.json_edit_width.unwrap_or(200.0);
+                                    let response = ui.add(
+                                        egui::TextEdit::singleline(&mut tab.json_edit_buffer)
+                                            .font(mono())
+                                            .desired_width(width)
+                                            .min_size(egui::vec2(width, 0.0)),
+                                    );
+                                    if !response.has_focus() && !response.gained_focus() {
+                                        response.request_focus();
+                                    }
+                                    ui.label(
+                                        RichText::new(comma).font(mono()).color(colors.text_muted),
+                                    );
                                 } else {
-                                    format!("[...] ({count} items){comma}")
-                                };
-                                ui.label(
-                                    RichText::new(summary).font(mono()).color(colors.text_muted),
-                                );
-                            }
-                            // Inline new-key prompt rendered immediately
-                            // beneath the open object's "{". Lets the user
-                            // type the new key name; Enter commits, Esc cancels.
-                            if *is_expanded
-                                && *is_object
-                                && tab.tree_add_key_path.as_deref() == Some(&row.path)
-                            {
-                                ui.add_space(8.0);
-                                ui.label(
-                                    RichText::new(octa::i18n::t("view.jt_new_key"))
-                                        .font(mono())
-                                        .color(colors.text_muted),
-                                );
-                                let resp = ui.add(
-                                    egui::TextEdit::singleline(&mut tab.tree_add_key_buffer)
-                                        .font(mono())
-                                        .desired_width(140.0),
-                                );
-                                if !resp.has_focus() && !resp.gained_focus() {
-                                    resp.request_focus();
-                                }
-                            }
-                        }
-                        JsonRowKind::Close { is_object } => {
-                            let closer = if *is_object { "}" } else { "]" };
-                            ui.label(
-                                RichText::new(format!("{closer}{comma}"))
-                                    .font(mono())
-                                    .color(colors.text_primary),
-                            );
-                        }
-                        JsonRowKind::Leaf { value } => {
-                            ui.add_space(18.0);
-                            if let Some(req) = render_key_or_edit(
-                                ui,
-                                row.key.as_deref(),
-                                row.is_index,
-                                &row.path,
-                                tab.tree_key_edit_path.as_deref(),
-                                &mut tab.tree_key_edit_buffer,
-                                &colors,
-                            ) {
-                                key_edit_request = Some(req);
-                            }
-                            let is_editing = tab.json_edit_path.as_deref() == Some(&row.path);
-                            if is_editing {
-                                if tab.json_edit_width.is_none() {
                                     let display = leaf_display(value, comma);
-                                    let measured = ui.fonts_mut(|f| {
-                                        f.layout_no_wrap(display, mono(), colors.text_primary)
-                                            .size()
-                                            .x
-                                    });
-                                    tab.json_edit_width = Some(measured.max(200.0) + 16.0);
-                                }
-                                let width = tab.json_edit_width.unwrap_or(200.0);
-                                let response = ui.add(
-                                    egui::TextEdit::singleline(&mut tab.json_edit_buffer)
-                                        .font(mono())
-                                        .desired_width(width)
-                                        .min_size(egui::vec2(width, 0.0)),
-                                );
-                                if !response.has_focus() && !response.gained_focus() {
-                                    response.request_focus();
-                                }
-                                ui.label(
-                                    RichText::new(comma).font(mono()).color(colors.text_muted),
-                                );
-                            } else {
-                                let display = leaf_display(value, comma);
-                                let color = json_value_color(value, &colors);
-                                let response = ui.add(
-                                    egui::Label::new(
-                                        RichText::new(display).font(mono()).color(color),
-                                    )
-                                    .selectable(true)
-                                    .sense(egui::Sense::click()),
-                                );
-                                if response.double_clicked() {
-                                    edit_request = Some((row.path.clone(), leaf_edit_text(value)));
+                                    let color = json_value_color(value, &colors);
+                                    let response = ui.add(
+                                        egui::Label::new(
+                                            RichText::new(display).font(mono()).color(color),
+                                        )
+                                        .selectable(true)
+                                        .sense(egui::Sense::click()),
+                                    );
+                                    if response.double_clicked() {
+                                        edit_request =
+                                            Some((row.path.clone(), leaf_edit_text(value)));
+                                    }
                                 }
                             }
                         }
-                    }
-                });
+                    },
+                );
             });
         }
     });

@@ -1405,6 +1405,7 @@ apply = "Lietot"
 cancel = "Atcelt"
 need_two = "Atlasiet vismaz divas tabulas."
 need_open = "Vispirms atveriet otru tabulu citā cilnē."
+reading = "Tiek lasīti faili apvienošanai:"
 
 [join]
 title = "Savienot tabulas (join)"
@@ -1719,6 +1720,10 @@ n_selected = "atlasīti"
 union_btn = "Apvienot..."
 clear = "Notīrīt atlasi"
 skipped = "Izlaistie faili (nevarēja nolasīt):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Uzskaitīt saturu kā tabulu..."

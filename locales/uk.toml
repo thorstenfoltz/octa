@@ -1405,6 +1405,7 @@ apply = "Застосувати"
 cancel = "Скасувати"
 need_two = "Виберіть принаймні дві таблиці."
 need_open = "Спершу відкрийте другу таблицю в іншій вкладці."
+reading = "Читання файлів для об'єднання:"
 
 [join]
 title = "З'єднати таблиці"
@@ -1719,6 +1720,10 @@ n_selected = "вибрано"
 union_btn = "Об'єднати..."
 clear = "Зняти вибір"
 skipped = "Пропущені файли (не вдалося прочитати):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Показати вміст як таблицю..."

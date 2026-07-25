@@ -49,6 +49,11 @@ pub(crate) struct CloudTreeAction {
     pub(crate) inventory: Option<(String, String)>,
     /// Drop the batch selection.
     pub(crate) clear_selection: bool,
+    /// "Union tables in this folder...": (conn_id, prefix, recursive). Lists
+    /// the folder, downloads every readable table, opens the Union dialog.
+    pub(crate) union_folder: Option<(String, String, bool)>,
+    /// Replace the whole batch selection (rubber-band marquee result).
+    pub(crate) set_selection: Option<HashSet<CloudSelection>>,
 }
 
 /// Shared, read-only borrows the caller assembles and threads through the
@@ -177,9 +182,17 @@ pub(crate) fn render_cloud_tree(
             // block the user from dragging the divider narrower). Full names
             // stay reachable via the per-row hover tooltips.
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+
+            // Marquee background, interacted FIRST so rows keep click priority.
+            let bg_id = ui.id().with("cloud_marquee_bg");
+            let bg = ui.interact(ui.max_rect(), bg_id, egui::Sense::drag());
+
+            let mut rows: Vec<(egui::Rect, CloudSelection)> = Vec::new();
             for conn in connections {
-                draw_connection(ui, ctx, conn, &mut action);
+                draw_connection(ui, ctx, conn, &mut action, &mut rows);
             }
+
+            cloud_marquee(ui, ctx, &bg, &rows, &mut action);
         });
     action
 }
@@ -208,11 +221,77 @@ fn draw_sort_menu(ui: &mut egui::Ui, current: CloudSort, action: &mut CloudTreeA
     .on_hover_text(octa::i18n::t("cloud.sort_hint"));
 }
 
+/// egui-temp-memory key for the cloud marquee origin (the renderer is stateless).
+#[derive(Clone)]
+struct CloudMarquee {
+    start: egui::Pos2,
+    base: HashSet<CloudSelection>,
+}
+
+/// One frame of the cloud-tree rubber-band: start/continue/end the drag via
+/// egui temp memory, paint the band, and emit the resulting selection through
+/// `action.set_selection` (the caller writes it into `cloud_browser.selected`).
+fn cloud_marquee(
+    ui: &egui::Ui,
+    ctx: &TreeCtx,
+    bg: &egui::Response,
+    rows: &[(egui::Rect, CloudSelection)],
+    action: &mut CloudTreeAction,
+) {
+    let mem_id = egui::Id::new("cloud_marquee_state");
+    if bg.drag_started() {
+        let ctrl = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
+        let start = ui
+            .input(|i| i.pointer.interact_pos())
+            .unwrap_or(bg.rect.min);
+        let base = if ctrl {
+            ctx.selected.clone()
+        } else {
+            HashSet::new()
+        };
+        ui.memory_mut(|m| m.data.insert_temp(mem_id, CloudMarquee { start, base }));
+    }
+    let Some(marquee) = ui.memory(|m| m.data.get_temp::<CloudMarquee>(mem_id)) else {
+        return;
+    };
+    let current = ui
+        .input(|i| i.pointer.interact_pos())
+        .unwrap_or(marquee.start);
+
+    let centers: Vec<f32> = rows.iter().map(|(r, _)| r.center().y).collect();
+    let mut selected = marquee.base.clone();
+    for i in crate::ui::directory_tree::indices_in_band(&centers, marquee.start.y, current.y) {
+        selected.insert(rows[i].1.clone());
+    }
+    action.set_selection = Some(selected);
+
+    let band = egui::Rect::from_x_y_ranges(
+        bg.rect.x_range(),
+        egui::Rangef::new(
+            marquee.start.y.min(current.y),
+            marquee.start.y.max(current.y),
+        ),
+    );
+    let fill = ui.visuals().selection.bg_fill.linear_multiply(0.25);
+    ui.painter().rect_filled(band, 2.0, fill);
+    ui.painter().rect_stroke(
+        band,
+        2.0,
+        egui::Stroke::new(1.0_f32, ui.visuals().selection.stroke.color),
+        egui::StrokeKind::Inside,
+    );
+
+    if bg.drag_stopped() {
+        ui.memory_mut(|m| m.data.remove::<CloudMarquee>(mem_id));
+    }
+}
+
 fn draw_connection(
     ui: &mut egui::Ui,
     ctx: &TreeCtx,
     conn: &CloudConnection,
     action: &mut CloudTreeAction,
+    rows: &mut Vec<(egui::Rect, CloudSelection)>,
 ) {
     let root = root_prefix(conn);
     let root_key = (conn.id.clone(), root.clone());
@@ -239,6 +318,23 @@ fn draw_connection(
                 .clicked()
             {
                 action.inventory = Some((conn.id.clone(), root.clone()));
+                ui.close();
+            }
+            ui.separator();
+            if ui
+                .button(octa::i18n::t("union_tree.union_folder"))
+                .on_hover_text(octa::i18n::t("union_tree.union_folder_hint"))
+                .clicked()
+            {
+                action.union_folder = Some((conn.id.clone(), root.clone(), false));
+                ui.close();
+            }
+            if ui
+                .button(octa::i18n::t("union_tree.union_folder_recursive"))
+                .on_hover_text(octa::i18n::t("union_tree.union_folder_hint"))
+                .clicked()
+            {
+                action.union_folder = Some((conn.id.clone(), root.clone(), true));
                 ui.close();
             }
         });
@@ -332,7 +428,7 @@ fn draw_connection(
     }
 
     if is_open {
-        draw_listing(ui, ctx, &conn.id, &root, 1, action);
+        draw_listing(ui, ctx, &conn.id, &root, 1, action, rows);
     }
 }
 
@@ -382,6 +478,7 @@ fn draw_listing(
     prefix: &str,
     depth: usize,
     action: &mut CloudTreeAction,
+    rows: &mut Vec<(egui::Rect, CloudSelection)>,
 ) {
     let indent = depth as f32 * INDENT_PER_LEVEL;
     match ctx.listings.get(&(conn_id.to_string(), prefix.to_string())) {
@@ -430,9 +527,28 @@ fn draw_listing(
                             action.inventory = Some((conn_id.to_string(), entry.key.clone()));
                             ui.close();
                         }
+                        ui.separator();
+                        if ui
+                            .button(octa::i18n::t("union_tree.union_folder"))
+                            .on_hover_text(octa::i18n::t("union_tree.union_folder_hint"))
+                            .clicked()
+                        {
+                            action.union_folder =
+                                Some((conn_id.to_string(), entry.key.clone(), false));
+                            ui.close();
+                        }
+                        if ui
+                            .button(octa::i18n::t("union_tree.union_folder_recursive"))
+                            .on_hover_text(octa::i18n::t("union_tree.union_folder_hint"))
+                            .clicked()
+                        {
+                            action.union_folder =
+                                Some((conn_id.to_string(), entry.key.clone(), true));
+                            ui.close();
+                        }
                     });
                     if is_open {
-                        draw_listing(ui, ctx, conn_id, &entry.key, depth + 1, action);
+                        draw_listing(ui, ctx, conn_id, &entry.key, depth + 1, action, rows);
                     }
                 } else {
                     // Compact inline metadata (size + full last-modified
@@ -475,6 +591,7 @@ fn draw_listing(
                             .on_hover_cursor(egui::CursorIcon::PointingHand)
                             .on_hover_text(tip)
                     });
+                    rows.push((resp.rect, sel.clone()));
                     if resp.clicked() {
                         let mods = ui.input(|i| i.modifiers);
                         if mods.ctrl || mods.command {

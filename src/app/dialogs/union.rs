@@ -16,7 +16,7 @@ use octa::ui::settings::{
     DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
 };
 
-use crate::app::state::{OctaApp, TabState, UnionState};
+use crate::app::state::{OctaApp, TabState, UnionPrep, UnionProgress, UnionState};
 
 /// Arrow type names the reconciliation dropdown offers.
 const TYPE_OPTIONS: &[&str] = &["Int64", "Float64", "Utf8", "Date", "DateTime", "Bool"];
@@ -358,15 +358,17 @@ fn apply_union(app: &mut OctaApp, st: &UnionState) -> Result<(), String> {
     // Open result in a new tab (mirrors the pivot dialog pattern).
     let mut new_tab = TabState::new(app.settings.default_search_mode);
     new_tab.table = result;
+    // No source path: the union is unsaved, and inheriting one would let a
+    // plain Save overwrite the first input. The *format* is inherited when all
+    // inputs agree, so Save As defaults back to e.g. JSON.
     new_tab.table.source_path = None;
-    new_tab.table.format_name = None;
+    new_tab.table.format_name = octa::data::union::shared_format_name(&borrow_refs);
     new_tab.custom_tab_label = Some(octa::i18n::t("union.title"));
     new_tab.filter_dirty = true;
     if new_tab.table.row_count() > 0 && new_tab.table.col_count() > 0 {
         new_tab.table_state.selected_cell = Some((0, 0));
     }
-    app.tabs.push(new_tab);
-    app.active_tab = app.tabs.len() - 1;
+    app.push_result_tab(new_tab);
 
     Ok(())
 }
@@ -379,26 +381,75 @@ impl OctaApp {
     /// This is the "I have 40 parquet files in a folder and want one table"
     /// path: the dialog then behaves exactly as it does for open tabs, with the
     /// same column reconciliation plan.
+    ///
+    /// Reading N files is slow enough to freeze the window (a folder of JSON
+    /// parts has to be parsed before the dialog can show a plan), so it runs on
+    /// a worker thread. `drive_union_prep` picks the tables up and opens the
+    /// dialog; the status bar shows a spinner with a done/total count meanwhile.
     pub(crate) fn open_union_for_files(&mut self, files: Vec<std::path::PathBuf>) {
-        let mut file_sources = Vec::new();
-        let mut file_tables = Vec::new();
-        let mut skipped = 0usize;
-
-        for path in files {
-            let read = self
-                .registry
-                .reader_for_path(&path)
-                .ok_or_else(|| anyhow::anyhow!("no reader"))
-                .and_then(|r| r.read_file(&path));
-            match read {
-                Ok(table) => {
-                    file_sources.push(path);
-                    file_tables.push(table);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let progress = UnionProgress::new(&octa::i18n::t("union.reading"), files.len());
+        let done = progress.done.clone();
+        std::thread::spawn(move || {
+            // Own registry inside the worker (`FormatRegistry::new` is cheap and
+            // IO-free), so no borrow of `self.registry` crosses the thread -
+            // same trick as the background single-file load.
+            let registry = octa::formats::FormatRegistry::new();
+            let mut file_sources = Vec::new();
+            let mut file_tables = Vec::new();
+            let mut skipped = 0usize;
+            for path in files {
+                let read = registry
+                    .reader_for_path(&path)
+                    .ok_or_else(|| anyhow::anyhow!("no reader"))
+                    .and_then(|r| r.read_file(&path));
+                match read {
+                    Ok(table) => {
+                        file_sources.push(path);
+                        file_tables.push(table);
+                    }
+                    Err(_) => skipped += 1,
                 }
-                Err(_) => skipped += 1,
+                done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            let _ = tx.send((file_sources, file_tables, skipped));
+        });
+        self.union_progress = Some(progress);
+        self.union_prep = Some(UnionPrep { rx });
+    }
+
+    /// Poll the union read worker. On completion, open the Union dialog over the
+    /// tables it read; while it runs, keep repainting so the status-bar spinner
+    /// animates. Mirrors `drive_pending_load`.
+    pub(crate) fn drive_union_prep(&mut self, ctx: &eframe::egui::Context) {
+        let Some(prep) = self.union_prep.as_ref() else {
+            return;
+        };
+        match prep.rx.try_recv() {
+            Ok((file_sources, file_tables, skipped)) => {
+                self.union_prep = None;
+                self.union_progress = None;
+                self.finish_union_prep(file_sources, file_tables, skipped);
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                ctx.request_repaint();
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.union_prep = None;
+                self.union_progress = None;
+                self.status_message =
+                    Some((octa::i18n::t("union.need_two"), std::time::Instant::now()));
             }
         }
+    }
 
+    /// Open the Union dialog over freshly-read tables (or report why not).
+    fn finish_union_prep(
+        &mut self,
+        file_sources: Vec<std::path::PathBuf>,
+        file_tables: Vec<octa::data::DataTable>,
+        skipped: usize,
+    ) {
         if file_tables.len() < 2 {
             self.status_message =
                 Some((octa::i18n::t("union.need_two"), std::time::Instant::now()));

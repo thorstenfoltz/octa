@@ -1408,6 +1408,7 @@ apply = "Zastosuj"
 cancel = "Anuluj"
 need_two = "Wybierz co najmniej dwie tabele."
 need_open = "Najpierw otwórz drugą tabelę w innej karcie."
+reading = "Czytanie plików do połączenia:"
 
 [join]
 title = "Połącz tabele (join)"
@@ -1722,6 +1723,10 @@ n_selected = "zaznaczono"
 union_btn = "Połącz..."
 clear = "Wyczyść zaznaczenie"
 skipped = "Pominięte pliki (nie udało się odczytać):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Wypisz zawartość jako tabelę..."

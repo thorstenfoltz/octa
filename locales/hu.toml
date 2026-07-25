@@ -1409,6 +1409,7 @@ apply = "Alkalmaz"
 cancel = "Mégse"
 need_two = "Válasszon legalább két táblát."
 need_open = "Először nyisson meg egy második táblát egy másik lapon."
+reading = "Fájlok beolvasása az egyesítéshez:"
 
 [join]
 title = "Táblák összekapcsolása"
@@ -1723,6 +1724,10 @@ n_selected = "kijelölve"
 union_btn = "Egyesítés..."
 clear = "Kijelölés törlése"
 skipped = "Kihagyott fájlok (nem voltak olvashatók):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Tartalom listázása táblaként..."

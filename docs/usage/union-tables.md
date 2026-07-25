@@ -15,13 +15,26 @@ common number type; otherwise the column falls back to text.
 Apply opens the combined result in a new tab, leaving the sources
 untouched.
 
+## Saving the result back in its own format
+
+When every source shares one format, the result tab remembers it. Save As then
+opens pre-filled with a matching name, so unioning forty JSON files and writing
+one JSON file back is a single click. With a mixed selection there is no single
+answer, so the picker opens with no suggestion and you choose the format.
+
+Nothing is written until you save: Apply only opens a tab.
+
+One limit worth knowing for nested formats: Octa reconciles the *columns* of
+each source, so nested JSON comes back flattened, with one column per leaf
+(`address.city` rather than a nested object).
+
 ## Union files straight from the sidebar
 
 You do not have to open a tab per file first. In the directory sidebar:
 
 1. **Ctrl-click** each file you want (**Shift-click** selects a whole run
    between the last click and this one). Selected rows stay highlighted, and
-   a **_N_ selected** bar appears at the top of the sidebar.
+   a ***N* selected** bar appears at the top of the sidebar.
 2. Click **Union...** in that bar, or right-click any selected file and
    choose **Union selected files...**.
 
@@ -35,6 +48,10 @@ together, since the columns are reconciled either way.
 A plain click still opens a file as before, and clears the selection.
 Files that cannot be read are skipped, and the status bar reports how many.
 
+Reading many files takes a moment, so it happens in the background: the window
+stays responsive and the status bar shows a spinner with a running count
+(`Reading files for union: 12/40`) until the dialog opens.
+
 ## Union files in the cloud
 
 The same works in the [cloud sidebar](cloud-storage.md). **Ctrl-click** the
@@ -45,6 +62,9 @@ Octa downloads the selected objects in the background and then opens the
 same reconciliation dialog. A folder of partitioned parquet parts in S3,
 Azure Blob or GCS becomes one table without opening a tab per object. As
 with local files, a plain click still just opens the object.
+
+The status bar tracks both stages, so a slow bucket never looks like a freeze:
+first `Downloading files to union: 12/40`, then the reading count.
 
 ## Command line and assistant
 

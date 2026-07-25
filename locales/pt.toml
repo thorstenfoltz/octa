@@ -1408,6 +1408,7 @@ apply = "Aplicar"
 cancel = "Cancelar"
 need_two = "Selecione pelo menos duas tabelas."
 need_open = "Abra primeiro uma segunda tabela noutra aba."
+reading = "A ler ficheiros para unir:"
 
 [join]
 title = "Juntar tabelas"
@@ -1722,6 +1723,10 @@ n_selected = "selecionados"
 union_btn = "Unir..."
 clear = "Limpar a seleção"
 skipped = "Ficheiros ignorados (não foi possível lê-los):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Listar o conteúdo como tabela..."

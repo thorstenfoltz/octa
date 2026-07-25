@@ -348,6 +348,23 @@ If you want Octa in `C:\Program Files\Octa` for all users:
 octa.exe path\to\file.parquet
 ```
 
+### Build from source
+
+Building needs [`rustup`](https://rustup.rs/) with the default MSVC
+toolchain plus a C/C++ compiler, because DuckDB and SQLite are
+compiled and linked in. Install **Visual Studio Build Tools** with the
+*Desktop development with C++* workload, then:
+
+```cmd
+git clone https://github.com/thorstenfoltz/octa.git
+cd octa
+cargo build --release
+```
+
+The binary lands at `target\release\octa.exe`, ready to run in place or
+copy anywhere you like. No GTK or X11 packages are needed on Windows;
+Octa uses the native window and file dialogs.
+
 ### Uninstall
 
 1. Delete `C:\Program Files\Octa`.

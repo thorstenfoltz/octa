@@ -1405,6 +1405,7 @@ apply = "Taikyti"
 cancel = "Atšaukti"
 need_two = "Pasirinkite bent dvi lenteles."
 need_open = "Pirmiausia atverkite antrą lentelę kitoje kortelėje."
+reading = "Nuskaitomi failai sujungimui:"
 
 [join]
 title = "Sujungti lenteles (join)"
@@ -1719,6 +1720,10 @@ n_selected = "pasirinkta"
 union_btn = "Sujungti..."
 clear = "Išvalyti atranką"
 skipped = "Praleisti failai (nepavyko nuskaityti):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Išvardyti turinį kaip lentelę..."

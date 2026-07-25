@@ -32,7 +32,10 @@ those drop events today either; use **File → Open** instead.
 Once a file is open, the layout is:
 
 - **Toolbar** at the top, with the file menu, edit menu, view menu,
-  search box, view-mode controls, and the app logo on the left.
+  search box, view-mode controls, and the app logo on the left. On a
+  narrow window it holds more than fits: scroll it sideways with the
+  mouse wheel (or its slim scrollbar) to reach the rest. The window
+  buttons on the right stay put.
 - [**Tab strip**](../usage/tabs-and-sidebar.md) under the toolbar,
   one tab per open file. Right-click a tab for compare option.
   Hover for the full path.

@@ -1409,6 +1409,7 @@ apply = "Použít"
 cancel = "Zrušit"
 need_two = "Vyberte alespoň dvě tabulky."
 need_open = "Nejprve otevřete druhou tabulku v jiné kartě."
+reading = "Čtení souborů ke sloučení:"
 
 [join]
 title = "Spojit tabulky (join)"
@@ -1723,6 +1724,10 @@ n_selected = "vybráno"
 union_btn = "Sloučit..."
 clear = "Zrušit výběr"
 skipped = "Přeskočené soubory (nešly načíst):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Vypsat obsah jako tabulku..."

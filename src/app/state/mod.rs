@@ -602,6 +602,12 @@ pub(crate) struct OctaApp {
         std::path::PathBuf,
     )>,
     pub(crate) pending_load: Option<PendingLoad>,
+    /// Files being read for the Union dialog on a worker thread (see
+    /// `drive_union_prep`). The dialog opens when this completes.
+    pub(crate) union_prep: Option<UnionPrep>,
+    /// Progress of the running union phase (cloud download, then read), shown
+    /// as a status-bar spinner. Cleared when the dialog opens or the job fails.
+    pub(crate) union_progress: Option<UnionProgress>,
     /// Files queued for batch open (e.g. from a multi-select File->Open dialog
     /// or multiple paths on the command line). Drained one per frame so that
     /// any modal picker that surfaces during a load (e.g. multi-table DB)

@@ -1396,6 +1396,7 @@ apply = "应用"
 cancel = "取消"
 need_two = "请至少选择两个表。"
 need_open = "请先在另一个标签页中打开第二个表。"
+reading = "正在读取要合并的文件："
 
 [join]
 title = "连接表"
@@ -1710,6 +1711,10 @@ n_selected = "个已选择"
 union_btn = "合并..."
 clear = "清除选择"
 skipped = "已跳过的文件（无法读取）："
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "以表格列出内容..."

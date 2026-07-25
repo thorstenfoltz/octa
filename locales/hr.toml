@@ -1405,6 +1405,7 @@ apply = "Primijeni"
 cancel = "Odustani"
 need_two = "Odaberite barem dvije tablice."
 need_open = "Najprije otvorite drugu tablicu u drugoj kartici."
+reading = "Čitanje datoteka za spajanje:"
 
 [join]
 title = "Spoji tablice (join)"
@@ -1719,6 +1720,10 @@ n_selected = "odabrano"
 union_btn = "Spoji..."
 clear = "Poništi odabir"
 skipped = "Preskočene datoteke (nije ih bilo moguće pročitati):"
+union_folder = "Union tables in this folder..."
+union_folder_recursive = "Union tables in this folder and subfolders..."
+union_folder_hint = "Download every readable table under this folder and stack them into one table. Columns are reconciled first, so the files need not match exactly."
+folder_listing = "Listing folder for union"
 
 [inventory]
 list_contents = "Ispiši sadržaj kao tablicu..."

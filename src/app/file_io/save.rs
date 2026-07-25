@@ -72,6 +72,11 @@ impl OctaApp {
             && let Some(name) = std::path::Path::new(source).file_name()
         {
             dialog = dialog.set_file_name(name.to_string_lossy().to_string());
+        } else if let Some(name) = self.result_tab_file_name(self.active_tab) {
+            // Detached result tab (union, summary, pivot, ...): no source path,
+            // but if it remembers its format we can pre-fill a name with the
+            // matching extension so one click writes that format again.
+            dialog = dialog.set_file_name(name);
         }
 
         if let Some(path) = dialog.save_file() {
@@ -88,6 +93,35 @@ impl OctaApp {
                 self.tabs[self.active_tab].cloud_origin = None;
             }
         }
+    }
+
+    /// Pre-filled Save-As file name for a tab with no source path: the tab's
+    /// label plus the extension of the format it remembers. `None` when the tab
+    /// has no format (nothing sensible to suggest) - the picker then opens with
+    /// an empty name, as before.
+    ///
+    /// The extension comes from the registry itself
+    /// (`reader_by_name` + `FormatReader::extensions`), so a new format needs no
+    /// change here.
+    fn result_tab_file_name(&self, tab_idx: usize) -> Option<String> {
+        let tab = self.tabs.get(tab_idx)?;
+        let fmt = tab.table.format_name.as_deref()?;
+        let ext = *self.registry.reader_by_name(fmt)?.extensions().first()?;
+        let label = tab.title_display();
+        // Drop the trailing " *" unsaved marker before it becomes part of a name.
+        let stem: String = label
+            .trim_end_matches('*')
+            .trim_end()
+            .chars()
+            .map(|c| if r#"/\:*?"<>|"#.contains(c) { '_' } else { c })
+            .collect();
+        let stem = stem.trim().to_string();
+        let stem = if stem.is_empty() {
+            "untitled".to_string()
+        } else {
+            stem
+        };
+        Some(format!("{stem}.{ext}"))
     }
 
     /// Upload a freshly-saved cloud-backed tab if writes are enabled and the
