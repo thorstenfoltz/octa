@@ -288,6 +288,59 @@ ignored (with a warning) when an action flag is set.
   Only valid with *--mcp*. Omits the file-writing tools (*write_table*,
   *edit_table*, *convert*) so the server exposes a read-only surface.
 
+*--cloud-ls* _URL_::
+  List a cloud bucket or prefix (*s3://*, *az://*, *gs://*). One folder
+  level by default; add *--recursive* to flatten everything under the
+  prefix. Credentials come from a saved connection covering the URL, else
+  the ambient chain.
+
+*--cloud-get* _URL_::
+  Download one cloud object to the file given by *--out*.
+
+*--cloud-put* _FILE_::
+  Upload a local file to the cloud URL given by *--to*.
+
+*--cloud-copy* _URL_::
+  Copy a cloud object, or a whole prefix (source ending in `/`), to the URL
+  given by *--to*. Within one bucket the backend copies server-side; across
+  buckets, accounts or providers the object is streamed in blocks, so object
+  size does not drive memory. At most 10,000 objects per run.
+
+*--cloud-move* _URL_::
+  Like *--cloud-copy*, then delete the source. Object stores have no rename.
+  The delete runs only after every copy succeeded.
+
+*--cloud-delete* _URL_::
+  Delete a cloud object, or a whole prefix with *--recursive*. Cannot be
+  undone unless the bucket has versioning enabled.
+
+*--list-connections*::
+  Print the saved cloud and database connections (names and targets only,
+  never secrets).
+
+*--add-connection* _SPEC_::
+  Add or update a saved connection from a *key=value,key=value* spec.
+  *kind=* and *name=* are required. A connection with the same name is
+  replaced wholesale, keeping its id and stored secret, so re-running a
+  provisioning script is idempotent; omitted keys revert to defaults.
+  Unknown keys are an error.
+  Cloud (*kind=s3|azure|gcs*): bucket, region, endpoint, prefix, account,
+  profile, account_level, anonymous, allow_writes, force_path_style,
+  allow_http.
+  Database (*kind=postgres|mysql|mssql|redshift|clickhouse|exasol|snowflake|
+  databricks|bigquery*): host, port, database, user, allow_writes.
+  Only password authentication can be expressed here; other methods need the
+  Settings dialog.
+
+*--remove-connection* _NAME_::
+  Remove a saved connection by name or id, and delete its stored secret.
+
+*--secret-env* _VAR_::
+  Name of an environment variable holding the secret for *--add-connection*,
+  so it never appears in argv. Database: the password. S3:
+  _ACCESS_KEY_ID:SECRET_ACCESS_KEY[:TOKEN]_. Azure: the account key or a SAS
+  token. GCS uses application-default credentials and takes no secret.
+
 == Options
 
 *-n* _N_, *--lines* _N_::
@@ -608,6 +661,53 @@ Start the MCP server::
 ----
 octa --mcp
 ----
+
+=== Cloud object storage
+
+....
+octa --cloud-ls s3://bucket/prefix/
+octa --cloud-ls s3://bucket/ --recursive
+
+octa --cloud-get s3://bucket/data.parquet --out ./data.parquet
+octa --cloud-put ./data.parquet --to s3://bucket/data.parquet
+
+octa --cloud-copy s3://a/data/ --to gs://b/backup/
+octa --cloud-move s3://a/old.csv --to s3://a/archive/old.csv
+octa --cloud-delete s3://a/old.csv
+octa --cloud-delete s3://a/scratch/ --recursive
+
+octa --list-connections
+....
+
+=== Managing connections headlessly
+
+....
+export S3_KEY='AKIAEXAMPLE:wJalrXUtnFEMI'
+octa --add-connection 'kind=s3,name=prod,bucket=my-bucket,region=eu-central-1,allow_writes=true' \
+     --secret-env S3_KEY
+
+octa --add-connection 'kind=postgres,name=warehouse,host=db.internal,database=analytics,user=reader' \
+     --secret-env PGPASSWORD
+
+octa --remove-connection warehouse
+....
+
+== Environment
+
+*OCTA_CONFIG_DIR*::
+  Directory holding *settings.toml*, used verbatim on every platform and
+  taking precedence over *XDG_CONFIG_HOME* / *HOME* / *APPDATA*. Required in
+  containers, which usually set none of those; without it Octa reports that
+  it has no config directory rather than silently running without settings.
+
+*OCTA_NO_KEYRING*::
+  Set to 1 to skip the OS keyring entirely, so secrets are read from and
+  written to *settings.toml* (chmod 0600). Secrets already fall back to the
+  file when the keyring errors; this avoids the lookup on systems where it
+  can never work, such as a container with no D-Bus.
+
+*AWS_ACCESS_KEY_ID*, *AWS_SECRET_ACCESS_KEY*, *AZURE_STORAGE_ACCOUNT*, *GOOGLE_APPLICATION_CREDENTIALS*::
+  Ambient cloud credentials, used when no saved connection covers a URL.
 
 == Files
 

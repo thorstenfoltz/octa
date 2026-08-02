@@ -1,81 +1,147 @@
-# Microsoft Store setup (one-time)
+# Microsoft Store setup
 
-This is the manual setup that enables automated Store publishing. Do it once.
-After it is done, every `Release` workflow run submits a new package on its own.
-Portal labels shift over time; these are current as of 2026-06.
+Two ways to get a release into the Store. **Manual is the working path today**;
+automation is blocked on an account problem described in section B.
 
-## 1. Reserve the app and capture its identity (Partner Center)
+Portal labels shift and the account is German; German labels are given where
+they were confirmed in the portal.
 
-1. Go to <https://partner.microsoft.com/dashboard> -> **Apps and games**.
-2. **+ New product**. For the product type pick **MSIX** (the other choice is
-   **PWA app**; Octa is a packaged desktop app, so MSIX).
-3. The name **Octa** is already reserved on this account, so select that
-   reservation (no need to reserve it again).
-4. Open the product -> **Product management** -> **Product identity**. Copy:
-   - **Package/Identity Name** (e.g. `12345Publisher.Octa`)
-   - **Publisher** (the `CN=...` string)
-   - **Publisher display name**
-5. Paste the first two into `windows/AppxManifest.xml` (`Identity Name` and
-   `Publisher`), and confirm `PublisherDisplayName` matches. Commit that change.
+## Where things stand
 
-## 2. Create Azure AD credentials for the API (Partner Center + Azure)
+- App reserved as **Octa Data Viewer** (the name "Octa" was taken). Store ID
+  `9PF9BVRT9PX4`.
+- `AppxManifest.xml` carries the real identity and declares all 32 interface
+  languages, which is what makes Partner Center offer 32 listing columns.
+- Nothing is published yet.
 
-1. Partner Center -> gear icon -> **Account settings** -> **User management**
-   -> **Azure AD applications** tab.
-2. **Add Azure AD application** -> create a new one (or associate an existing
-   app registration). Give it the **Manager** role.
-3. Record:
-   - **Tenant ID**
-   - **Client ID** (Application ID)
-4. Create a **client secret / key** for that application (the portal shows the
-   secret value **once**, copy it immediately).
-5. Find your **Seller ID**: Account settings -> **Identifiers** (or
-   Organisation profile). It is a numeric ID.
+## A. Manual path (works, no Azure required)
 
-## 3. Store the secrets in GitHub
+### 1. Build the package
 
-Repo -> **Settings** -> **Secrets and variables** -> **Actions** ->
-**New repository secret**, four times, with these exact names:
+    ./windows/build-msix.sh
 
-| Secret name                    | Value                     |
-|--------------------------------|---------------------------|
-| `PARTNER_CENTER_TENANT_ID`     | Tenant ID from step 2     |
-| `PARTNER_CENTER_CLIENT_ID`     | Client ID from step 2     |
-| `PARTNER_CENTER_CLIENT_SECRET` | Client secret from step 2 |
-| `PARTNER_CENTER_SELLER_ID`     | Seller ID from step 2     |
+Fetches the newest published release, verifies its checksum, packs an MSIX and
+verifies it by unpacking it again. The result is `windows/octa-<version>.0.msix`
+(gitignored). Pass a tag to pin a version.
 
-## 4. First listing (one manual pass, required before going live)
+The package is **unsigned**, which is correct: Partner Center accepts unsigned
+packages and the Store signs them for distribution.
 
-Automation submits the *package* from the first release; the *listing* below is
-filled in by hand once.
+### 2. Upload it
 
-1. In the product's submission, set **Properties**:
-   - Category: **Developer tools** (or Productivity).
-   - When prompted about the **runFullTrust** restricted capability, justify it:
-     *"Octa is a packaged Win32 desktop application; full trust is required for
-     a standard desktop executable."*
-2. **Age ratings**: complete the IARC questionnaire (Octa has no mature content;
-   it rates 3+).
-3. **Store listings**: short description (< 200 chars) and long description
-   (< 10,000 chars); see `docs/assets/store/INDEX.md` for drafts. Upload the
-   screenshots and tile from that same folder.
-4. **Pricing and availability**: Free; markets as desired.
-5. **Privacy policy URL**: `https://thorstenfoltz.github.io/octa/privacy/`.
-6. Either upload the first MSIX by hand, or (once section 3 is done) let the
-   next `Release` run upload it. Then **Submit**. First certification is
-   typically one to three days.
+Partner Center -> the submission -> **Pakete** -> drag the `.msix` in.
+Uploading is not submitting; the package sits in the draft and gets validated,
+so this is also how you find out whether the identity is right.
 
-## 5. Confirm automation
+### 3. Fill the listings
 
-1. Trigger **Release** with a numeric `version` and `publish_to_store: true`.
-2. Watch the `store-publish` job authenticate and create a submission.
-3. In Partner Center the new submission appears under the app and proceeds
-   through certification. Subsequent releases need no manual step.
+Export the CSV **after** the package is uploaded, otherwise it has no language
+columns:
+
+    Partner Center -> app overview -> Store-Einträge -> Export listing
+    ./scripts/build-store-listing.py ~/Downloads/listingData-*.csv ~/Downloads/octa-store
+    Partner Center -> Import listings -> Import folder -> octa-listing
+
+That fills all 32 language listings in one import. Content lives in
+`docs/assets/store/listings/`; see `docs/assets/store/INDEX.md`.
+
+### 4. The three sections the CSV does not cover
+
+- **Eigenschaften**: category *Entwicklertools*. For the `runFullTrust`
+  restricted-capability prompt, paste
+  `docs/assets/store/runfulltrust-justification.txt`.
+- **Altersfreigaben**: IARC questionnaire. Octa rates 3+.
+- **Preise und Verfügbarkeit**: Grundpreis = **Kostenlos**. Ignore the
+  per-market *Einzelhandelspreis* fields.
+
+Support info: privacy policy `https://thorstenfoltz.github.io/octa/privacy/`
+(answer **Ja** to the personal-information question, and note that declaring
+`runFullTrust` makes Partner Center force that answer anyway); website
+`https://thorstenfoltz.github.io/octa/`; support contact
+`https://github.com/thorstenfoltz/octa/issues`. Phone and address are optional
+for individual developers.
+
+### 5. Submit
+
+Certification typically takes one to three days.
+
+## Shipping a new version (the steady state)
+
+Once the first submission is live, an update is three steps:
+
+1. Cut the GitHub release as normal (**Release** workflow, new version).
+2. `./windows/build-msix.sh` - no argument, it picks up the release you just
+   cut.
+3. Partner Center -> **Update** / new submission -> **Pakete** -> upload the
+   new `.msix`, replacing the old one -> submit.
+
+Everything else **persists across submissions** and does not need redoing:
+Store listings, age rating, pricing, category, the `runFullTrust`
+justification, privacy and support info.
+
+Three things that do force extra work:
+
+- **The version must be strictly higher** than the published one. The manifest
+  takes `<tag>.0`, so a `0.16.0` tag becomes `0.16.0.0`. You cannot re-upload
+  or reuse a version, even a withdrawn one.
+- **If you added or removed a locale**, `AppxManifest.xml` must be updated to
+  match `locales/` first. Partner Center reads the language list off the new
+  package and will offer a listing column for each new one, which then has to
+  be filled or the submission is incomplete. Re-run the export -> build ->
+  import cycle from section A step 3.
+- **If the descriptions changed** (a feature worth mentioning landed), edit
+  `docs/assets/store/listings/*.toml` and re-run the same cycle. The listing
+  and the package are separate submissions-worth of work; changing one does
+  not require touching the other.
+
+Certification runs again on every update, typically one to three days.
+
+## B. Automated path (removed from CI)
+
+There **used to be** a `store-publish` job in `release.yml` that ran
+`msstore publish` behind a `publish_to_store` input. It was deleted: it could
+never run, because it needs four repository secrets
+(`PARTNER_CENTER_TENANT_ID`, `_CLIENT_ID`, `_CLIENT_SECRET`, `_SELLER_ID`)
+that cannot be obtained on this account. Recover it from git history if the
+blocker below is ever resolved.
+
+**The blocker.** Those credentials require an Entra tenant where you are a
+global admin. The Partner Center account is registered to a personal Microsoft
+account, which has none, and self-service tenant creation fails: both
+`portal.azure.com` and `entra.microsoft.com` reject the sign-in with AADSTS50020
+("account not in tenant Microsoft Services") after an AADSTS50058 silent-token
+failure. Ruled out as causes: multi-account browser sessions, third-party
+cookie blocking, browser choice (Firefox and Edge both fail), and portal choice.
+It is an account provisioning state, not something clickable.
+
+Routes if you want to revisit it:
+
+1. Partner Center -> **Hilfe und Support**, asking about associating an Entra
+   tenant with an MSA-registered developer account. Free, and they can see the
+   account state.
+2. Sign up at `https://azure.microsoft.com/free`, which provisions a default
+   directory. Requires a card for identity verification; no charge.
+
+Once a tenant exists: create a work admin (`admin@<tenant>.onmicrosoft.com`,
+Global Administrator), use **only that account** for the Entra steps, associate
+it under **Kontoeinstellungen -> Mandanten**, then add an Azure AD application
+named `Octa Store Publisher` with the **Manager** role under **User
+management**. Then restore the job and add the four secrets.
+
+Cost/benefit: automation saves roughly two minutes per release over the manual
+path. It is not worth blocking a release on, which is why the dead job was
+removed rather than left switched off.
 
 ## Notes
 
+- `build-msix.sh` builds Microsoft's cross-platform packer
+  (`microsoft/msix-packaging`) into `windows/.msix-tools/` on first run, since
+  `makeappx.exe` is Windows-only. It patches the upstream C++14 pin to C++17,
+  without which the bundled build fails against modern system ICU headers.
+- The in-app updater is suppressed for Store copies via
+  `src/platform.rs::is_store_packaged()`; the Store delivers their updates.
+- The Store listing section in `docs/getting-started/installation.md` is
+  commented out until the app is actually live. Uncomment it then.
 - If `crt-static` (`.cargo/config.toml`) ever fails to link on Windows, the
-  fallback is bundling the VC++ runtime DLLs into the MSIX payload or declaring
-  a `Microsoft.VCLibs.140.00` dependency in the manifest. Record the choice here.
-- Store updates reach users silently in the background; a running Octa updates
-  on next launch.
+  fallback is bundling the VC++ runtime DLLs into the MSIX or declaring a
+  `Microsoft.VCLibs.140.00` dependency. Record the choice here.

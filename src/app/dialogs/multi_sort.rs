@@ -56,7 +56,7 @@ pub(crate) fn render_multi_sort_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("multi_sort_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.msort_title"))
@@ -77,7 +77,7 @@ pub(crate) fn render_multi_sort_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
         egui::Panel::bottom("multi_sort_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let can_run = !st.keys.is_empty();
                     if ui
@@ -94,7 +94,7 @@ pub(crate) fn render_multi_sort_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 });
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.label(
                 RichText::new(octa::i18n::t("dialog.msort_intro"))
                     .size(10.0)

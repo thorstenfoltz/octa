@@ -133,7 +133,7 @@ impl WritableRecord for WriteRow {
     fn write_using<W: std::io::Write>(
         &self,
         field_writer: &mut dbase::FieldWriter<'_, W>,
-    ) -> Result<(), dbase::FieldIOError> {
+    ) -> Result<(), dbase::FieldError> {
         let mut idx = 0;
         while field_writer.next_field_name().is_some() {
             field_writer.write_next_field_value(&self.fields[idx])?;
@@ -267,26 +267,22 @@ fn parse_datetime_field(s: &str) -> FieldValue {
     FieldValue::DateTime(dbase::DateTime::new(date, time))
 }
 
-/// `dbase::Date::new` panics on out-of-range, so we validate first.
+/// dbase 0.8 made `Date::new` fallible instead of panicking, and its own range
+/// checks are exactly the ones we used to duplicate here (year <= 9999,
+/// month 1..=12, day 1..=31), so we just forward the `Result`. `try_from` guards
+/// the one case dbase cannot see: a negative chrono year would wrap when cast.
 fn make_dbase_date(d: &NaiveDate) -> Option<dbase::Date> {
-    let year = d.year();
-    let month = d.month();
-    let day = d.day();
-    if !(0..=9999).contains(&year) || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return None;
-    }
-    Some(dbase::Date::new(day, month, year as u32))
+    let year = u32::try_from(d.year()).ok()?;
+    dbase::Date::new(d.day(), d.month(), year).ok()
 }
 
 fn make_dbase_time(hour: u32, minute: u32, second: u32) -> Option<dbase::Time> {
-    if hour > 24 || minute > 60 || second > 60 {
-        return None;
-    }
-    Some(dbase::Time::new(hour, minute, second))
+    dbase::Time::new(hour, minute, second).ok()
 }
 
 fn default_datetime() -> dbase::DateTime {
-    let date = dbase::Date::new(1, 1, 1970);
-    let time = dbase::Time::new(0, 0, 0);
+    // 1970-01-01T00:00:00 is inside every range dbase checks, so these cannot fail.
+    let date = dbase::Date::new(1, 1, 1970).expect("epoch date is in range");
+    let time = dbase::Time::new(0, 0, 0).expect("midnight is in range");
     dbase::DateTime::new(date, time)
 }

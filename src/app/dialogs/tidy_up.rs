@@ -39,7 +39,7 @@ pub(crate) fn render_tidy_up_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("tidy_up_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("tidyup.title"))
@@ -58,7 +58,7 @@ pub(crate) fn render_tidy_up_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             return;
         }
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.label(
                 RichText::new(octa::i18n::t("tidyup.hint"))
                     .size(11.0)

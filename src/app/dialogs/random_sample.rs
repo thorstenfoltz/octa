@@ -36,7 +36,7 @@ pub(crate) fn render_random_sample_dialog(app: &mut OctaApp, ctx: &egui::Context
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("random_sample_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("sample.title"))
@@ -55,7 +55,7 @@ pub(crate) fn render_random_sample_dialog(app: &mut OctaApp, ctx: &egui::Context
             return;
         }
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.label(
                 RichText::new(octa::i18n::t("sample.hint"))
                     .size(11.0)

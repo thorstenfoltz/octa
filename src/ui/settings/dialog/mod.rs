@@ -37,6 +37,8 @@ impl SettingsDialog {
         self.max_decompressed_mb_buf = crate::ui::status_bar::format_number(
             (current.max_decompressed_bytes / 1_000_000) as usize,
         );
+        self.folder_union_max_files_buf =
+            crate::ui::status_bar::format_number(current.folder_union_max_files);
         self.text_mode_extensions_buf = current.text_mode_extensions.join(", ");
         // MCP buffers seed from the live settings.
         self.mcp_unlimited_rows = current.mcp_default_row_limit.is_none();
@@ -66,6 +68,8 @@ impl SettingsDialog {
         self.chat_key_input_buf.clear();
         self.chat_key_status_msg = None;
         self.chat_key_clear_confirm = None;
+        self.chat_test_msg = None;
+        self.chat_test_hint = None;
         self.clear_cloud_form();
         self.cloud_secret_status_msg = None;
         self.cloud_secret_clear_confirm = None;
@@ -132,7 +136,7 @@ impl SettingsDialog {
             // restore from there.
             egui::Panel::top("settings_header")
                 .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if let Some(tex) = logo {
                             let size = egui::vec2(28.0, 28.0);
@@ -160,7 +164,7 @@ impl SettingsDialog {
             // regardless of how much content the scroll area holds.
             egui::Panel::bottom("settings_buttons")
                 .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button(crate::i18n::t("common.apply")).clicked() {
                             if let Ok(n) = parse_comma_number(&self.sql_row_limit_buf)
@@ -192,6 +196,14 @@ impl SettingsDialog {
                                 self.draft.max_decompressed_bytes =
                                     (mb as u64).saturating_mul(1_000_000);
                             }
+                            // Folder-union file cap. The "Unlimited" checkbox
+                            // writes itself; the number stays as the value to
+                            // fall back on when it is unticked again.
+                            if let Ok(n) = parse_comma_number(&self.folder_union_max_files_buf)
+                                && n >= 1
+                            {
+                                self.draft.folder_union_max_files = n;
+                            }
                             self.draft.text_mode_extensions = self
                                 .text_mode_extensions_buf
                                 .split([',', ' ', '\t', '\n'])
@@ -213,9 +225,14 @@ impl SettingsDialog {
                             if let Ok(n) = parse_comma_number(&self.mcp_cell_bytes_buf) {
                                 self.draft.mcp_default_cell_bytes = n;
                             }
-                            if let Ok(n) = parse_comma_number(&self.grep_max_file_size_buf) {
-                                // Multi-search per-file size cap. Stored as u32
-                                // because mb >= 4 GB is nonsense for this knob.
+                            // Multi-search per-file size cap. Stored as u32
+                            // because mb >= 4 GB is nonsense for this knob.
+                            // The "Unlimited" checkbox writes itself; the
+                            // number stays as the value to fall back on when
+                            // it is unticked again.
+                            if let Ok(n) = parse_comma_number(&self.grep_max_file_size_buf)
+                                && n >= 1
+                            {
                                 self.draft.grep_max_file_size_mb = n.min(u32::MAX as usize) as u32;
                             }
                             if let Ok(n) = parse_comma_number(&self.chart_max_points_buf) {
@@ -290,7 +307,7 @@ impl SettingsDialog {
 
             egui::CentralPanel::default()
                 .frame(egui::Frame::default())
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     egui::ScrollArea::vertical()
                         .auto_shrink([false; 2])
                         .show(ui, |ui| {
@@ -345,6 +362,8 @@ impl SettingsDialog {
             );
             self.initial_load_rows_buf =
                 crate::ui::status_bar::format_number(self.draft.initial_load_rows);
+            self.folder_union_max_files_buf =
+                crate::ui::status_bar::format_number(self.draft.folder_union_max_files);
             self.text_mode_extensions_buf = self.draft.text_mode_extensions.join(", ");
             self.mcp_unlimited_rows = self.draft.mcp_default_row_limit.is_none();
             self.mcp_row_limit_buf = crate::ui::status_bar::format_number(
@@ -1304,13 +1323,38 @@ impl SettingsDialog {
                     });
                     ui.end_row();
 
+                    ui.label(crate::i18n::t("settings.folder_union_cap"))
+                        .on_hover_text(crate::i18n::t("settings_hint.folder_union_cap"));
+                    ui.horizontal(|ui| {
+                        ui.add_enabled(
+                            !self.draft.folder_union_max_files_unlimited,
+                            egui::TextEdit::singleline(&mut self.folder_union_max_files_buf)
+                                .desired_width(120.0)
+                                .hint_text("500"),
+                        );
+                        ui.checkbox(
+                            &mut self.draft.folder_union_max_files_unlimited,
+                            crate::i18n::t("settings.unlimited"),
+                        )
+                        .on_hover_text(crate::i18n::t("settings_hint.folder_union_unlimited"));
+                    });
+                    ui.end_row();
+
                     ui.label(crate::i18n::t("settings.multi_search_cap"))
                         .on_hover_text(crate::i18n::t("settings_hint.multi_search_cap"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.grep_max_file_size_buf)
-                            .desired_width(120.0)
-                            .hint_text("50"),
-                    );
+                    ui.horizontal(|ui| {
+                        ui.add_enabled(
+                            !self.draft.grep_max_file_size_unlimited,
+                            egui::TextEdit::singleline(&mut self.grep_max_file_size_buf)
+                                .desired_width(120.0)
+                                .hint_text("50"),
+                        );
+                        ui.checkbox(
+                            &mut self.draft.grep_max_file_size_unlimited,
+                            crate::i18n::t("settings.unlimited"),
+                        )
+                        .on_hover_text(crate::i18n::t("settings_hint.multi_search_unlimited"));
+                    });
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.chart_max_points"))

@@ -18,6 +18,7 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
       licenses: ${{ steps.filter.outputs.licenses }}
+      db: ${{ steps.filter.outputs.db }}
     steps:
       - uses: actions/checkout@v5
       - uses: dorny/paths-filter@v4
@@ -33,6 +34,11 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'deny.toml'
+            # Spinning up two database servers is only worth it when the
+            # connectors or their tests actually changed.
+            db:
+              - 'src/db/**'
+              - 'tests/db_live_tests.rs'
 
   licenses:
     needs: [changes]
@@ -76,7 +82,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # `shared-key` overrides the default per-job cache key so `db-live`
+      # can restore this target dir instead of compiling from scratch.
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build
 
       - name: Format check
         run: cargo fmt --all -- --check
@@ -89,6 +99,86 @@ jobs:
       # repeat the compilation that `cargo test` is about to do.
       - name: Build and run tests
         run: cargo test
+
+  # `tests/db_live_tests.rs` talks to a real server. Without the env vars
+  # every test in it prints "skipped" and PASSES, so the main `test` job
+  # says nothing about the connectors - this job is what actually exercises
+  # them. Postgres + MySQL only: the MSSQL image is ~1.5 GB and slow to
+  # become healthy, and this job already fights the runner for disk.
+  db-live:
+    needs: [changes, test]
+    if: needs.changes.outputs.db == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: octa_test_pw
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: octa_test_pw
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pocta_test_pw --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v5
+
+      # Same reclaim as the `test` job: the lib pulls in bundled DuckDB
+      # (C++) and two Arrow versions, which overruns the default ~21 GB.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/boost /usr/local/lib/node_modules "$AGENT_TOOLSDIRECTORY"
+          df -h /
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libfontconfig1-dev libfreetype6-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Restore-only: `test` has already run (see `needs`) and saved the
+      # target dir under this key, so this is a warm build, not a cold one.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build
+          save-if: false
+
+      # The tests create and drop their own databases, so the connections
+      # need an account that may CREATE DATABASE - hence root / postgres.
+      # These are throwaway containers on the runner's loopback interface.
+      - name: Run live database tests
+        shell: bash
+        env:
+          OCTA_TEST_POSTGRES_URL: "host=127.0.0.1;port=5432;db=postgres;user=postgres;pass=octa_test_pw"
+          OCTA_TEST_MYSQL_URL: "host=127.0.0.1;port=3306;db=mysql;user=root;pass=octa_test_pw"
+        run: |
+          set -euo pipefail
+          # Serial: several tests create, populate and drop databases on the
+          # same server, and the suite is small enough that parallelism buys
+          # nothing but flake.
+          cargo test --test db_live_tests -- --nocapture --test-threads=1 \
+            | tee live.log
+          # A missing or misspelled env var turns the whole suite into
+          # passing no-ops. Fail loudly rather than report a green run that
+          # connected to nothing.
+          if grep -Eq "skipped: OCTA_TEST_(POSTGRES|MYSQL)_URL" live.log; then
+            echo "::error::Postgres/MySQL live tests were skipped - check the service containers and env vars"
+            exit 1
+          fi
 
   megalinter:
     runs-on: ubuntu-latest

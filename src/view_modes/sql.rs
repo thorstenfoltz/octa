@@ -455,7 +455,7 @@ pub fn render_sql_view(
         let cursor_byte = egui::TextEdit::load_state(ui.ctx(), editor_id)
             .and_then(|s| s.cursor.char_range())
             .map(|r| {
-                let char_idx = r.primary.index;
+                let char_idx = r.primary.index.0;
                 tab.sql_query
                     .char_indices()
                     .nth(char_idx)
@@ -567,7 +567,7 @@ pub fn render_sql_view(
             .resizable(true)
             .default_size(default_result_h)
             .min_size(80.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 render_result_area(ui, tab);
             });
         editor_response = Some(draw_sql_editor(
@@ -583,7 +583,7 @@ pub fn render_sql_view(
             .resizable(true)
             .default_size(default_editor_h)
             .min_size(80.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 editor_response = Some(draw_sql_editor(
                     ui,
                     tab,
@@ -1231,7 +1231,7 @@ fn render_workspace_inspector(
     // stays visible no matter how short the inspector pane is.
     egui::Panel::top("sql_inspector_header")
         .frame(egui::Frame::NONE)
-        .show_inside(ui, |ui| {
+        .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(&qualified)
@@ -1255,7 +1255,7 @@ fn render_workspace_inspector(
     // out of view even when the column list is long.
     egui::Panel::bottom("sql_inspector_actions")
         .frame(egui::Frame::NONE)
-        .show_inside(ui, |ui| {
+        .show(ui, |ui| {
             ui.add_space(4.0);
             ui.separator();
             ui.add_space(2.0);
@@ -1294,7 +1294,7 @@ fn render_workspace_inspector(
     // fills whatever vertical room is between the header and the action bar.
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE)
-        .show_inside(ui, |ui| {
+        .show(ui, |ui| {
             let entry = match inspector_entry {
                 Some(e) => e,
                 None => {

@@ -16,6 +16,14 @@ it by hand if you prefer; Octa picks up changes on next launch.
 Unknown / removed fields are tolerated (new versions add defaults
 for missing keys; old versions ignore unknown keys).
 
+`OCTA_CONFIG_DIR` overrides the table above on every platform and is used
+verbatim (no `octa` subdirectory appended). It is what a container needs: a
+distroless image sets none of `HOME`, `XDG_CONFIG_HOME` or `APPDATA`, so
+without it Octa reports that it has no config directory rather than running
+settings-less. `OCTA_NO_KEYRING=1` additionally skips the OS keyring, sending
+secrets to (and reading them from) this file. See
+[Cloud storage from the CLI](../cli/cloud.md#running-without-a-desktop).
+
 <!-- SCREENSHOT: settings-dialog.png: Settings dialog open showing the section headers (Appearance, Files, File-Specific, Table View, etc.) with one section expanded. -->
 ![Settings dialog](../assets/screenshots/settings-dialog.png)
 
@@ -116,14 +124,15 @@ For the `octa --mcp` server. Both settings are read **once at server
 startup**, so changes require restarting the MCP server (`octa --mcp`
 process).
 
-| Setting               | Default         | Notes                                                                                                                  |
-|-----------------------|-----------------|------------------------------------------------------------------------------------------------------------------------|
-| **Default row limit** | 1000            | Maximum rows returned by `read_table` / `run_sql` when the caller omits `limit`.                                       |
-| **Unlimited**         | off             | When checked, the server returns every row by default (greys out the row-limit input).                                 |
-| **Cell byte cap**     | 65,536 (64 KiB) | Per-cell on-wire size cap. Cells larger than this are replaced with a `[truncated: ...]` marker. `0` disables the cap. |
+| Setting               | Default         | Notes                                                                                                                                                      |
+|-----------------------|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Default row limit** | 1000            | Maximum rows returned by `read_table` / `run_sql` when the caller omits `limit`. TOML key: `mcp_default_row_limit`.                                        |
+| **Unlimited**         | off             | When checked, the server returns every row by default (greys out the row-limit input). Written as `mcp_default_row_limit = 0`.                             |
+| **Cell byte cap**     | 65,536 (64 KiB) | Per-cell on-wire size cap. Cells larger than this are replaced with a `[truncated: ...]` marker. `0` disables the cap. TOML key: `mcp_default_cell_bytes`. |
 
 See [Limits & truncation](../mcp/limits-and-truncation.md) for the
-full semantics.
+full semantics, and for **how to change these without a GUI** (headless
+server, Docker) by editing `settings.toml` directly.
 
 ## Chat / Assistant
 
@@ -137,7 +146,7 @@ in the main Settings dialog under the **Chat / Assistant** section.
 | **Base URL**                 | *(empty)*                | Endpoint override for the OpenAI-compatible provider. TOML key: `chat_base_url`.                                                                                                                                                                                                                                                                                                       |
 | **Ollama URL**               | `http://localhost:11434` | Base URL of the local Ollama server. TOML key: `chat_ollama_url`.                                                                                                                                                                                                                                                                                                                      |
 | **Panel position**           | Right                    | Where the chat panel docks: `Right` / `Left` / `Bottom`. TOML key: `chat_panel_position`.                                                                                                                                                                                                                                                                                              |
-| **Temperature**              | 0.0                      | Sampling temperature passed to the model. TOML key: `chat_temperature`.                                                                                                                                                                                                                                                                                                                |
+| **Temperature**              | 0.0                      | Sampling temperature passed to the model. Per profile, an **empty** field means the parameter is left out of the request entirely, which is what models that reject it (Claude Opus 4.7 and later) need. TOML keys: `chat_profiles[].temperature` (absent = not sent), legacy `chat_temperature`.                                                                                      |
 | **Max tool iterations**      | 3                        | How many tool-call rounds the agent runs per turn before stopping. TOML key: `chat_max_tool_iterations`.                                                                                                                                                                                                                                                                               |
 | **Max tokens**               | 16,384                   | Cap on the model's response length. **Unlimited** omits the field (Anthropic substitutes a high value). TOML keys: `chat_max_tokens`, `chat_max_tokens_unlimited`.                                                                                                                                                                                                                     |
 | **Result row limit**         | 200                      | How many rows a tool result (e.g. a SQL query) puts into the assistant's context. The query still runs over every row; this only caps what the model sees so a big result can't flood the chat. When it bites, the assistant offers to write the full result to a file or a tab. **Unlimited** removes the cap. TOML keys: `chat_result_row_limit`, `chat_result_row_limit_unlimited`. |
@@ -153,13 +162,37 @@ and the filesystem sandbox.
 
 ## Cloud storage
 
-| Setting                            | Default  | Description                                                                                                                                                                            |
-|------------------------------------|----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Allow writing to cloud storage** | Off      | When on, a cloud-opened tab's **Save** uploads back to the object, and the assistant / MCP may write to cloud URLs. Off keeps cloud files read-only. TOML key: `cloud_writes_enabled`. |
-| **Connections**                    | *(none)* | Saved S3 / Azure / GCS connections (name, provider, bucket, endpoint, credentials). TOML keys: `cloud_connections`, `cloud_secrets` (plaintext fallback; keyring preferred).           |
+| Setting         | Default  | Description                                                                                                                                                                  |
+|-----------------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Connections** | *(none)* | Saved S3 / Azure / GCS connections (name, provider, bucket, endpoint, credentials). TOML keys: `cloud_connections`, `cloud_secrets` (plaintext fallback; keyring preferred). |
 
 See [Cloud storage](../usage/cloud-storage.md) for adding connections,
 sign-in, public buckets, and saving back.
+
+## Databases
+
+Live connections to Postgres, MySQL, SQL Server, Redshift, ClickHouse,
+Exasol, Snowflake, Databricks and BigQuery. The list, the add/edit form
+and the **Test connection** button all live in the Settings dialog under
+**Databases**; the sidebar's **+ Add** button opens the same place.
+
+| Setting             | Default     | Notes                                                                                                                                                                                                              |
+|---------------------|-------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Connections**     | *(none)*    | Saved connections. Each has a name, engine, host, port, database, user and auth method. TOML key: `db_connections`.                                                                                                |
+| **Engine**          | Postgres    | One of the nine supported engines. It decides the default port, the identifier quoting, and whether the connection can be ATTACHed to DuckDB directly (Postgres / MySQL / Redshift) or is imported table by table. |
+| **Authentication**  | Password    | Password, AWS IAM (incl. IAM Identity Center), Azure AD, GCP IAM, token, key-pair JWT, OAuth client credentials, or browser sign-in. The picker only offers what the chosen engine supports.                       |
+| **Allow writes**    | Off         | Per connection. Off makes every tab opened from it read-only and refuses SQL that would mutate, regardless of what the database itself permits. Both this **and** a primary key are needed for an editable tab.    |
+| **Secret**          | *(keyring)* | Password / token, stored in the OS keyring as `db.<id>.secret`, falling back to `settings.toml` when no keyring is available. TOML key (fallback only): `db_secrets`.                                              |
+| **Test connection** | —           | Opens a throwaway connection and runs `SELECT 1`, deliberately not reusing the cached connector: a fresh handshake is the point of the button.                                                                     |
+
+!!! warning "Allow writes is off by default"
+    A new connection is read-only until you tick **Allow writes**, and that
+    switch also gates the MCP `write_db_table` / `copy_db_table` tools and the
+    CLI `--db-write-table`. Turning it on does not bypass the database's own
+    permissions; it stops Octa from trying.
+
+See [Database connections](../usage/database-connections.md) for browsing, editing rows,
+write-back, and the server-to-server table copy.
 
 ## Map
 
@@ -191,16 +224,17 @@ The full list of actions lives on the
 
 ## Performance
 
-| Setting                        | Default   | Notes                                                                                                                                                                                                                                                                                                                                                                                              |
-|--------------------------------|-----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Initial-load row cap**       | 5,000,000 | Max rows loaded into memory on first open for streaming readers (Parquet, CSV, TSV). Additional rows stream in the background. Numeric input accepts comma separators (`5,000,000`).                                                                                                                                                                                                               |
-| **Syntax-highlight size cap**  | 1 MB      | Files larger than this fall back to plain monospace in the [Raw view](../usage/view-modes/raw-text.md) (syntect tokenisation gets laggy on huge files). Unit picker: Bytes / KB / MB. `0` disables highlighting entirely.                                                                                                                                                                          |
-| **Raw view size cap (MB)**     | 500       | Largest file (in MB) whose full text is read into the [Raw view](../usage/view-modes/raw-text.md) editor. Also gates the parse-error raw fallback and the Compare view's raw side. Bigger files still open in the table view, just without raw text. Tick **Unlimited** to remove the ceiling (reads any file fully into memory). TOML keys: `raw_view_max_bytes`, `raw_view_max_bytes_unlimited`. |
-| **Multi-search file cap (MB)** | 50        | Per-file size cap for the directory scope of the [Multi-search panel](../usage/search-and-filter.md#multi-search). Files larger than this are skipped silently during the scan. `0` disables the cap. TOML key: `grep_max_file_size_mb`.                                                                                                                                                           |
-| **Chart max points**           | 100,000   | Maximum rows the [Chart tab](../usage/chart.md) will plot before evenly-spaced downsampling kicks in (Histogram, Line, Scatter). Bar always aggregates the full input; Box computes the 5-number summary over the full input. `0` disables sampling. TOML key: `chart_max_points`.                                                                                                                 |
-| **Chart max categories**       | 250       | Maximum distinct X categories a [Bar chart](../usage/chart.md#categorical-x-axes) will accept before refusing to draw. Filter or aggregate the table before charting if you exceed this. TOML key: `chart_max_categories`.                                                                                                                                                                         |
-| **Tables visible in picker**   | 10        | How many table rows the multi-table picker dialog (SQLite, DuckDB, …) fits vertically at its default size. The dialog stays user-resizable, so drag the corner to grow it when a database has more tables. Minimum 1. TOML key: `table_picker_visible_rows`.                                                                                                                                       |
-| **Excel sheets to auto-open**  | 5         | How many sheets of a multi-sheet [Excel workbook](../getting-started/supported-formats.md#excel-multi-sheet-workbooks) open automatically (each in its own tab). Workbooks with more sheets show a picker so you choose which to open. Minimum 1. TOML key: `excel_max_auto_sheets`.                                                                                                               |
+| Setting                        | Default   | Notes                                                                                                                                                                                                                                                                                                                                                                                                                       |
+|--------------------------------|-----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Initial-load row cap**       | 5,000,000 | Max rows loaded into memory on first open for streaming readers (Parquet, CSV, TSV). Additional rows stream in the background. Numeric input accepts comma separators (`5,000,000`).                                                                                                                                                                                                                                        |
+| **Syntax-highlight size cap**  | 1 MB      | Files larger than this fall back to plain monospace in the [Raw view](../usage/view-modes/raw-text.md) (syntect tokenisation gets laggy on huge files). Unit picker: Bytes / KB / MB. `0` disables highlighting entirely.                                                                                                                                                                                                   |
+| **Raw view size cap (MB)**     | 500       | Largest file (in MB) whose full text is read into the [Raw view](../usage/view-modes/raw-text.md) editor. Also gates the parse-error raw fallback and the Compare view's raw side. Bigger files still open in the table view, just without raw text. Tick **Unlimited** to remove the ceiling (reads any file fully into memory). TOML keys: `raw_view_max_bytes`, `raw_view_max_bytes_unlimited`.                          |
+| **Folder union file cap**      | 500       | How many files a cloud [folder union](../usage/union-tables.md#union-files-in-the-cloud) downloads and merges. Every file is read fully into memory, so a folder with tens of thousands of parts could exhaust RAM; files past the cap are skipped and counted in the status bar. Tick **Unlimited** to take the whole folder however large it is. TOML keys: `folder_union_max_files`, `folder_union_max_files_unlimited`. |
+| **Multi-search file cap (MB)** | 50        | Per-file size cap for the directory scope of the [Multi-search panel](../usage/search-and-filter.md#multi-search). Files larger than this are skipped silently during the scan. Tick **Unlimited** to scan every file whatever its size. TOML keys: `grep_max_file_size_mb`, `grep_max_file_size_unlimited`.                                                                                                                |
+| **Chart max points**           | 100,000   | Maximum rows the [Chart tab](../usage/chart.md) will plot before evenly-spaced downsampling kicks in (Histogram, Line, Scatter). Bar always aggregates the full input; Box computes the 5-number summary over the full input. `0` disables sampling. TOML key: `chart_max_points`.                                                                                                                                          |
+| **Chart max categories**       | 250       | Maximum distinct X categories a [Bar chart](../usage/chart.md#categorical-x-axes) will accept before refusing to draw. Filter or aggregate the table before charting if you exceed this. TOML key: `chart_max_categories`.                                                                                                                                                                                                  |
+| **Tables visible in picker**   | 10        | How many table rows the multi-table picker dialog (SQLite, DuckDB, …) fits vertically at its default size. The dialog stays user-resizable, so drag the corner to grow it when a database has more tables. Minimum 1. TOML key: `table_picker_visible_rows`.                                                                                                                                                                |
+| **Excel sheets to auto-open**  | 5         | How many sheets of a multi-sheet [Excel workbook](../getting-started/supported-formats.md#excel-multi-sheet-workbooks) open automatically (each in its own tab). Workbooks with more sheets show a picker so you choose which to open. Minimum 1. TOML key: `excel_max_auto_sheets`.                                                                                                                                        |
 
 ## Window
 

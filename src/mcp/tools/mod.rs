@@ -6,11 +6,13 @@ pub mod anonymize;
 pub mod compare_schemas;
 pub mod convert;
 pub mod copy_db_table;
+pub mod copy_object;
 pub mod correlation;
 pub mod count_rows;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
 pub mod create_chart;
 pub mod dedupe;
+pub mod delete_object;
 pub mod describe_file;
 pub mod diff_tables;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
@@ -26,6 +28,7 @@ pub mod list_db_connections;
 pub mod list_db_tables;
 pub mod list_objects;
 pub mod list_tables;
+pub mod move_object;
 pub mod outliers;
 pub mod partition;
 pub mod pii;
@@ -141,8 +144,9 @@ pub struct ToolContext {
     /// bare/relative filename. `None` for MCP / CLI (no confinement).
     pub export_dir: Option<PathBuf>,
     /// Chat-only: when true (Write protection off), `resolve_write_path` stops
-    /// confining writes to `export_dir` and `edit_table`/`edit_open_tab` may
-    /// modify existing files. MCP leaves this `false` (it has no sandbox).
+    /// confining *absolute* paths to `export_dir` and `edit_table`/`edit_open_tab`
+    /// may modify existing files. Bare/relative names still land in `export_dir`.
+    /// MCP leaves this `false` (it has no sandbox).
     pub allow_existing_writes: bool,
     /// Permit schema-changing DuckDB/SQLite/GeoPackage saves (passed straight to
     /// `write_file_schema_aware`). Chat: Write protection off. MCP: read once at
@@ -318,6 +322,32 @@ impl ToolContext {
         Ok((provider, loc))
     }
 
+    /// Like [`Self::cloud_provider_for`], but for an operation that *changes*
+    /// the bucket (copy / move / delete). Same gate as
+    /// [`Self::resolve_write_dest`]: the chat surface needs the matched
+    /// connection's own `allow_writes`; the MCP/CLI server is trusted and gated
+    /// by `--mcp-read-only`, which removes the write tools outright.
+    pub fn cloud_provider_for_write(
+        &self,
+        url: &str,
+    ) -> anyhow::Result<(
+        Box<dyn octa::cloud::CloudProvider>,
+        octa::cloud::CloudLocation,
+    )> {
+        let loc = octa::cloud::parse_cloud_url(url)
+            .ok_or_else(|| anyhow::anyhow!("not a cloud URL: {url}"))?;
+        let (conn, creds) = self.resolve_cloud(&loc)?;
+        if self.cloud_settings.is_some() && !conn.allow_writes {
+            anyhow::bail!(
+                "cloud connection '{}' does not allow writes; enable \"Allow writes on this \
+connection\" for it in Settings > Cloud storage",
+                conn.name
+            );
+        }
+        let provider = octa::cloud::build_provider(&conn, &creds)?;
+        Ok((provider, loc))
+    }
+
     fn resolve_cloud(
         &self,
         loc: &octa::cloud::CloudLocation,
@@ -463,14 +493,33 @@ the inner table name.)",
     /// points inside the export directory. The export directory is created if
     /// missing. (In-place writes to open tabs go through `ensure_readable`
     /// instead and are unaffected.)
+    ///
+    /// With [`Self::allow_existing_writes`] on, confinement is lifted: an
+    /// absolute path may target an existing file anywhere the agent can read.
+    /// A bare/relative name still resolves under `export_dir` (kept whole, so
+    /// `sub/out.csv` keeps its subdirectory) - the unlock widens where the
+    /// agent may write, it does not relocate the default output directory.
     pub fn resolve_write_path(&self, requested: &Path) -> anyhow::Result<PathBuf> {
         if !self.restrict_filesystem {
             return Ok(requested.to_path_buf());
         }
         // Write protection off: the assistant may target existing files
-        // anywhere it can already read.
+        // anywhere it can already read. That lifts *confinement* only - it must
+        // not change where a bare or relative name lands, which is still the
+        // export dir. Returning the relative name unchanged made the write
+        // resolve against the process CWD (the user's home for a GUI launched
+        // from the desktop), silently ignoring Settings > Chat.
         if self.allow_existing_writes {
-            return Ok(requested.to_path_buf());
+            if requested.is_absolute() {
+                return Ok(requested.to_path_buf());
+            }
+            let Some(dir) = self.export_dir.as_ref() else {
+                // Nothing to resolve against; don't invent a directory.
+                return Ok(requested.to_path_buf());
+            };
+            std::fs::create_dir_all(dir)
+                .map_err(|e| anyhow::anyhow!("creating export directory {}: {e}", dir.display()))?;
+            return Ok(dir.join(requested));
         }
         let dir = self.export_dir.as_ref().ok_or_else(|| {
             anyhow::anyhow!("no export directory is configured - set one in Settings > Chat")
@@ -517,26 +566,17 @@ Octa will write it there; the user can change the directory in Settings > Chat."
     /// after the write uploads it to the object.
     ///
     /// Gating mirrors cloud reads: the **chat** surface (has settings) requires
-    /// `cloud_writes_enabled` (the same switch a manual Save uses) and only
-    /// reaches saved connections. The **MCP/CLI** server (no settings) is
-    /// trusted, like its local writes, and uses ambient credentials for any
-    /// bucket; the operator gates it off with `--mcp-read-only`.
+    /// the matched connection's own `allow_writes` (the same switch a manual
+    /// Save uses) and only reaches saved connections. The **MCP/CLI** server
+    /// (no settings) is trusted, like its local writes, and uses ambient
+    /// credentials for any bucket; the operator gates it off with
+    /// `--mcp-read-only`.
     pub fn resolve_write_dest(&self, requested: &Path) -> anyhow::Result<WriteDest> {
         if let Some(loc) = octa::cloud::parse_cloud_url(&requested.to_string_lossy()) {
-            // Chat only: the cloud-writes switch must be on. MCP has no such
-            // switch (its gate is `--mcp-read-only`, which drops write tools).
-            if let Some(settings) = &self.cloud_settings
-                && !settings.cloud_writes_enabled
-            {
-                anyhow::bail!(
-                    "Writing to cloud storage is turned off. Switch on \"Allow writing to cloud \
-storage\" in Settings > Cloud storage (the same setting a manual Save uses)."
-                );
-            }
             let (conn, creds) = self.resolve_cloud(&loc)?;
-            // Chat only: the matched saved connection's own write permission
-            // must also allow it (MCP resolves ephemeral connections, which
-            // default to writable; its gate is `--mcp-read-only`).
+            // Chat only: the matched saved connection's write permission must
+            // allow it (MCP resolves ephemeral connections, which default to
+            // writable; its gate is `--mcp-read-only`).
             if self.cloud_settings.is_some() && !conn.allow_writes {
                 anyhow::bail!(
                     "cloud connection '{}' does not allow writes; enable \"Allow writes on this \

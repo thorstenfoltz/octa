@@ -74,7 +74,7 @@ pub(crate) fn render_about_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("about_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.about_title"))
@@ -93,7 +93,7 @@ pub(crate) fn render_about_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             return;
         }
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(8.0);
                 let title_id = egui::Id::new(TENTACLE_CLICK_ID);

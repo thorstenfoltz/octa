@@ -70,7 +70,7 @@ impl OctaApp {
         let status_action = egui::Panel::bottom("status_bar")
             .exact_size(28.0)
             .frame(status_frame)
-            .show_inside(parent_ui, |ui| {
+            .show(parent_ui, |ui| {
                 ui::status_bar::draw_status_bar(
                     ui,
                     &self.tabs[self.active_tab].table,

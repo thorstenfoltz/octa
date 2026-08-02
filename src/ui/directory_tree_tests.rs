@@ -111,3 +111,74 @@ fn unfiltered_tree_still_hides_dotfiles_from_selection() {
     assert!(file_row_visible(&visible, None));
     assert!(!file_row_visible(&hidden, None));
 }
+
+#[test]
+fn a_band_selects_the_same_rows_however_far_the_list_is_scrolled() {
+    // The bug this pins: the band anchor used to be a *screen* position while
+    // the row rects move as the list scrolls. Auto-scrolling mid-drag then slid
+    // the band off the rows it started on, so a long selection picked the wrong
+    // files (and, dragging past the bottom, no files at all).
+    //
+    // Rows are 20pt apart in content space. The same drag, expressed in screen
+    // coordinates at two different scroll offsets, must select the same rows.
+    let row_content_y = [10.0_f32, 30.0, 50.0, 70.0, 90.0];
+
+    let selection_at = |scroll: f32| -> Vec<usize> {
+        // Scrolling down by `scroll` moves the content top up by that much.
+        let content_top = -scroll;
+        let screen_centers: Vec<f32> = row_content_y.iter().map(|y| y + content_top).collect();
+        let frame = MarqueeFrame {
+            // Anchor and pointer are content-space, so they do not move.
+            start_y: 25.0,
+            current_y: 75.0,
+            content_top,
+        };
+        frame.contains_row(&screen_centers)
+    };
+
+    let expected = vec![1, 2, 3];
+    assert_eq!(selection_at(0.0), expected, "unscrolled");
+    assert_eq!(selection_at(40.0), expected, "scrolled a little");
+    assert_eq!(selection_at(400.0), expected, "scrolled far past the rows");
+}
+
+#[test]
+fn the_painted_band_follows_the_content_it_anchors_to() {
+    // The band is drawn in screen space, so scrolling has to move it: it marks
+    // rows, not a fixed region of the panel.
+    let x = egui::Rangef::new(0.0, 100.0);
+    let unscrolled = MarqueeFrame {
+        start_y: 20.0,
+        current_y: 60.0,
+        content_top: 0.0,
+    }
+    .band_rect(x);
+    let scrolled = MarqueeFrame {
+        start_y: 20.0,
+        current_y: 60.0,
+        content_top: -30.0,
+    }
+    .band_rect(x);
+
+    assert_eq!(unscrolled.top(), 20.0);
+    assert_eq!(unscrolled.bottom(), 60.0);
+    assert_eq!(scrolled.top(), -10.0, "moved up with the content");
+    assert_eq!(scrolled.height(), unscrolled.height(), "same size");
+}
+
+#[test]
+fn an_upward_band_works_like_a_downward_one() {
+    let centers = [10.0_f32, 30.0, 50.0];
+    let down = MarqueeFrame {
+        start_y: 5.0,
+        current_y: 55.0,
+        content_top: 0.0,
+    };
+    let up = MarqueeFrame {
+        start_y: 55.0,
+        current_y: 5.0,
+        content_top: 0.0,
+    };
+    assert_eq!(down.contains_row(&centers), vec![0, 1, 2]);
+    assert_eq!(up.contains_row(&centers), down.contains_row(&centers));
+}

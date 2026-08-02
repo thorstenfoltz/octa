@@ -55,7 +55,7 @@ pub(crate) fn render_rename_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("rename_columns_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.rename_title"))
@@ -74,7 +74,7 @@ pub(crate) fn render_rename_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
             return;
         }
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.label(
                 RichText::new(octa::i18n::t("dialog.rename_input_hint"))
                     .size(11.0)

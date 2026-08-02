@@ -1,0 +1,37 @@
+Content brief for the Store listings. This is NOT a text to translate: each
+language gets copy written natively in that language, with its own structure,
+register and idiom. This file only lists the facts a listing must convey, so
+the 32 versions stay factually consistent.
+
+Every listing should cover:
+
+1. What it is: a fast native desktop app for viewing, exploring and editing
+   tabular data files. No import step, no setup, no project file.
+2. Formats: around thirty. Name Parquet, CSV, Excel, SQLite, DuckDB, JSON;
+   optionally Arrow, Avro, ORC, and the SAS / SPSS / Stata / R statistics
+   formats. Multi-million-row Parquet streams in the background.
+3. SQL: every open file is exposed to DuckDB as a table named `data`, so a
+   SELECT runs with no import. Several files can be joined in one query and
+   results written back out.
+4. Analysis: histogram / bar / line / scatter / box charts in their own tab,
+   exportable to PNG, SVG, PDF. Column statistics, duplicate detection,
+   outlier detection, correlations, pivot. File comparison, either as a text
+   diff or row by row.
+5. Editing: cells, columns, derived columns via formulas or conditional
+   rules, full undo. SQLite and DuckDB saves are diff-based.
+6. Cloud and databases: Amazon S3, Azure Blob, Google Cloud Storage;
+   PostgreSQL, MySQL, SQL Server, Redshift, ClickHouse, Snowflake, Databricks,
+   BigQuery. Write access is off by default.
+7. Optional AI assistant: bring your own key, or a local model via Ollama.
+   Does nothing until configured.
+8. Also a CLI and an MCP server.
+9. Interface in 32 languages.
+10. Free and open source, MIT licence,
+    https://github.com/thorstenfoltz/octa
+
+Privacy point worth making in every language: everything runs locally and
+files are never uploaded.
+
+Length: `short` under 200 characters (hard limit). `long` aim for 1,500 to
+2,500 characters; there is no need to match the English one, which is longer
+because English is the default fallback for any language left blank.

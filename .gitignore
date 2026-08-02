@@ -20,6 +20,11 @@ __pycache__/
 windows/WINDOWS_INSTALL_PLAN.md
 MANUAL_TEST_PLAN.md
 CHATBOT_PLAN.md
-KEYRING_CORE_MIGRATION_PLAN.md
 docs/superpowers/
 windows/STORE_SETUP_PROGRESS.md
+DEPENDENCY_SWEEP_CHECKLIST.md
+
+# Locally built Store packages and the vendored MSIX packer they need
+# (windows/build-msix.sh). Both are reproducible from a published release.
+windows/*.msix
+windows/.msix-tools/

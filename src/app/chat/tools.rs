@@ -86,6 +86,9 @@ macro_rules! define_chat_tools {
 /// the model and refused by `dispatch` when the profile disallows writes
 /// (`ctx.read_only`).
 pub const WRITE_TOOL_NAMES: &[&str] = &[
+    "copy_object",
+    "move_object",
+    "delete_object",
     "write_table",
     "edit_table",
     "edit_open_tab",
@@ -137,6 +140,9 @@ define_chat_tools! {
     "correlation"              => correlation,
     "grep_files"               => grep_files,
     "list_objects"             => list_objects,
+    "copy_object"              => copy_object,
+    "move_object"              => move_object,
+    "delete_object"            => delete_object,
     "list_db_connections"      => list_db_connections,
     "list_db_tables"           => list_db_tables,
     "query_db"                 => query_db,

@@ -1,0 +1,47 @@
+# English content for the Partner Center `default` column. Every language
+# column left blank inherits this, so this file alone produces 32 complete
+# listings. Per-language files override `short`, `long` and `features` only.
+
+short = "Open Parquet, CSV, Excel, SQLite and 25 more data formats in a fast native table view. Sort, filter, search, edit and run SQL, all offline on your own machine."
+
+long = """
+Octa opens Parquet, CSV, Excel, SQLite, DuckDB, JSON and around thirty other formats straight into a fast table. No import step, no setup.
+
+Sort, filter, search and edit your data, query it with DuckDB SQL, build charts, or compare two files. Everything runs on your own machine and no files are uploaded.
+
+Interface in 32 languages. Free and open source under the MIT licence: https://github.com/thorstenfoltz/octa
+"""
+
+features = [
+  "Opens around thirty formats: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata and more",
+  "Run DuckDB SQL against any open file, with no import step",
+  "Sort, filter and search with plain text, wildcards or regular expressions",
+  "Edit cells, columns and rows, with full undo and diff-based database saves",
+  "Charts in their own tab, exportable to PNG, SVG or PDF",
+  "Compare two files line by line or row by row",
+  "Column statistics, duplicate detection, outlier detection and pivot tables",
+  "Streams multi-million-row Parquet files in the background",
+  "Reads directly from Amazon S3, Azure Blob Storage and Google Cloud Storage",
+  "Connects to PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery and more",
+  "Optional AI assistant, bring your own key or run a local model",
+  "Also a command-line tool and a Model Context Protocol server",
+  "Interface in 32 languages",
+  "Free and open source, MIT licence",
+]
+
+[fields]
+# One shared English screenshot: blank language cells inherit `default`, so
+# this single entry covers all 32 listings. Add DesktopScreenshot2..N here if
+# you want more views in the listing; every one you add is another capture you
+# have to actually produce, or the import is rejected.
+DesktopScreenshot1 = "octa-listing/hero-table-view.png"
+DevStudio = "Thorsten Foltz"
+CopyrightTrademarkInformation = "Copyright 2026 Thorsten Foltz. Released under the MIT licence."
+SearchTerm1 = "parquet"
+SearchTerm2 = "csv viewer"
+SearchTerm3 = "data viewer"
+SearchTerm4 = "sqlite browser"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "sql"
+SearchTerm7 = "excel alternative"
+StoreLogo300x300 = "octa-listing/store-tile-300x300.png"

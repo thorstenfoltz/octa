@@ -58,7 +58,7 @@ pub(crate) fn render_find_fuzzy_duplicates_dialog(app: &mut OctaApp, ctx: &egui:
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("fuzzy_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("fuzzy_dup.title"))
@@ -79,7 +79,7 @@ pub(crate) fn render_find_fuzzy_duplicates_dialog(app: &mut OctaApp, ctx: &egui:
 
         egui::Panel::bottom("fuzzy_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if is_running {
                         ui.add(egui::Spinner::new());
@@ -112,7 +112,7 @@ pub(crate) fn render_find_fuzzy_duplicates_dialog(app: &mut OctaApp, ctx: &egui:
                 });
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {

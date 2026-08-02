@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 use rmcp::ErrorData as McpError;
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::{CallToolResult, ContentBlock};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -60,7 +60,7 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
         .map_err(|e| McpError::invalid_params(format!("unique_columns failed: {e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))
 }

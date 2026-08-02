@@ -1,0 +1,11 @@
+# hu: written natively, not translated from English.
+
+short = "Nyisson meg Parquet, CSV, Excel, SQLite és mintegy 30 további adatformátumot gyors táblázatban. Rendezés, szűrés, keresés, szerkesztés és SQL, helyben."
+
+long = """
+Az Octa a Parquet, CSV, Excel, SQLite, DuckDB, JSON és mintegy harminc további formátumot közvetlenül egy gyors táblázatban nyitja meg. Importálás és beállítás nélkül.
+
+Rendezze, szűrje, keresse és szerkessze az adatokat, kérdezze le őket DuckDB SQL-lel, készítsen diagramokat vagy hasonlítson össze két fájlt. Minden a saját gépén fut, és egyetlen fájl sem kerül feltöltésre.
+
+Felület 32 nyelven. Szabad szoftver MIT licenc alatt.
+"""

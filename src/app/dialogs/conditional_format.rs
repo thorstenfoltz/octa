@@ -54,7 +54,7 @@ pub(crate) fn render_conditional_format_dialog(app: &mut OctaApp, ctx: &egui::Co
         // Header: title + window controls (minimize / maximize / close).
         egui::Panel::top("cnf_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.cnf_title"))
@@ -76,7 +76,7 @@ pub(crate) fn render_conditional_format_dialog(app: &mut OctaApp, ctx: &egui::Co
         // Footer: Add rule / Clear all / Close.
         egui::Panel::bottom("cnf_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if ui.button(octa::i18n::t("dialog.cnf_add_rule")).clicked() {
                         rules.push(CondRule::new());
@@ -97,7 +97,7 @@ pub(crate) fn render_conditional_format_dialog(app: &mut OctaApp, ctx: &egui::Co
             });
 
         // Body: rule list (scrolls), in the central area.
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.label(
                 RichText::new(octa::i18n::t("dialog.cnf_desc"))
                     .size(10.0)

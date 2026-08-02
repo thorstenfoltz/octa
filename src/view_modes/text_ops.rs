@@ -41,6 +41,21 @@ pub(crate) fn char_range_to_byte_range(
     byte_start..byte_end
 }
 
+/// Count tab characters among the first `cursor_chars` characters of `text`.
+///
+/// `cursor_chars` is a CHARACTER count, which is what egui's `CCursor` carries.
+/// This walks `chars()` on purpose: the Tab-expansion handlers used to slice
+/// `text[..cursor_chars]`, mixing a char index into a byte offset. On any line
+/// with a multi-byte character that under-counted the tabs (so the cursor
+/// landed in the wrong place after expansion) and could panic outright when the
+/// offset fell inside a character.
+pub(crate) fn tabs_before_cursor(text: &str, cursor_chars: usize) -> usize {
+    text.chars()
+        .take(cursor_chars)
+        .filter(|&c| c == '\t')
+        .count()
+}
+
 /// Convert the currently selected text in the TextEdit identified by
 /// `text_edit_id` to upper or lower case. Only operates on a non-empty
 /// selection - if nothing is selected the buffer is left untouched and the
@@ -53,8 +68,10 @@ pub fn apply_case_to_selection(
 ) -> bool {
     let state = egui::TextEdit::load_state(ctx, text_edit_id);
     let range = state.as_ref().and_then(|s| s.cursor.char_range()).map(|r| {
-        let a = r.primary.index;
-        let b = r.secondary.index;
+        // `char_range_to_byte_range` takes plain char indices; egui 0.35 wraps
+        // them in `CharIndex`, so unwrap here at the boundary.
+        let a = r.primary.index.0;
+        let b = r.secondary.index.0;
         let (start, end) = if a <= b { (a, b) } else { (b, a) };
         start..end
     });
@@ -82,8 +99,8 @@ pub fn apply_case_to_selection(
 pub fn selected_text(ctx: &egui::Context, text_edit_id: egui::Id, buffer: &str) -> Option<String> {
     let state = egui::TextEdit::load_state(ctx, text_edit_id)?;
     let range = state.cursor.char_range()?;
-    let a = range.primary.index;
-    let b = range.secondary.index;
+    let a = range.primary.index.0;
+    let b = range.secondary.index.0;
     let (start, end) = if a <= b { (a, b) } else { (b, a) };
     if start >= end {
         return None;
@@ -162,6 +179,52 @@ pub fn autoscroll_while_selecting(ui: &egui::Ui, response: &egui::Response) {
         // otherwise the scroll would stall as soon as the user holds still.
         ui.ctx().request_repaint();
     }
+}
+
+/// Paint 1-based source line numbers beside a **wrapping** text editor, right
+/// aligned at `right_x`.
+///
+/// The obvious gutter (a second, non-interactive `TextEdit` holding "1\n2\n3")
+/// only lines up while one source line occupies exactly one visual row. As soon
+/// as the editor wraps, every wrapped line pushes the two columns apart. Walking
+/// the laid-out galley instead puts each number on the row where its line
+/// actually starts and leaves continuation rows blank, which is what an editor
+/// with soft wrap looks like.
+///
+/// Call it *after* `TextEdit::show`, passing `output.galley` and
+/// `output.galley_pos`. Rows outside the current clip rect are skipped, so the
+/// cost is proportional to what is on screen, not to the file.
+pub fn paint_wrapped_line_numbers(
+    ui: &egui::Ui,
+    galley: &egui::Galley,
+    galley_pos: egui::Pos2,
+    right_x: f32,
+    font: egui::FontId,
+    color: egui::Color32,
+) {
+    let clip = ui.clip_rect();
+    let painter = ui.painter();
+    let mut line = 1usize;
+    for row in &galley.rows {
+        let rect = row.rect().translate(galley_pos.to_vec2());
+        if rect.bottom() >= clip.top() && rect.top() <= clip.bottom() {
+            painter.text(
+                egui::pos2(right_x, rect.top()),
+                egui::Align2::RIGHT_TOP,
+                line.to_string(),
+                font.clone(),
+                color,
+            );
+        }
+        if row.ends_with_newline {
+            line += 1;
+        }
+    }
+}
+
+/// Width to reserve for a line-number gutter holding up to `line_count` lines.
+pub fn line_number_gutter_width(line_count: usize) -> f32 {
+    line_count.max(1).to_string().len() as f32 * 8.0 + 16.0
 }
 
 #[cfg(test)]

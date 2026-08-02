@@ -76,7 +76,7 @@ pub fn render_table_picker(ctx: &egui::Context, state: &mut TablePickerState) ->
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("table_picker_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new(format!(
@@ -106,7 +106,7 @@ pub fn render_table_picker(ctx: &egui::Context, state: &mut TablePickerState) ->
         // filled the screen.
         egui::Panel::bottom("table_picker_footer")
             .resizable(false)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     if ui.button(crate::i18n::t("common.cancel")).clicked() {
@@ -131,7 +131,7 @@ pub fn render_table_picker(ctx: &egui::Context, state: &mut TablePickerState) ->
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 render_picker_body(ui, state);
             });
     });

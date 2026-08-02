@@ -14,6 +14,88 @@ Both can be overridden per call (the row limit explicitly via a
 fires, the response includes a flag so the AI client knows the
 result is partial.
 
+## Changing the defaults without a GUI
+
+The Settings dialog is only one way to write these values. On a headless
+server, in a container, or wherever you run `octa --mcp` with no desktop,
+edit `settings.toml` directly. Octa creates it on first run; if there has
+never been a first run, create it yourself, since **any missing key falls
+back to its default**, so a three-line file is a valid one.
+
+| Platform | Path                                                                               |
+|----------|------------------------------------------------------------------------------------|
+| Linux    | `$XDG_CONFIG_HOME/octa/settings.toml` (defaults to `~/.config/octa/settings.toml`) |
+| macOS    | `~/Library/Application Support/Octa/settings.toml`                                 |
+| Windows  | `%APPDATA%\Octa\settings.toml`                                                     |
+
+The three keys that matter:
+
+```toml
+# Rows a tool returns when the caller passes no `limit`.
+mcp_default_row_limit = 5000
+
+# Per-cell byte cap. 0 disables it entirely.
+mcp_default_cell_bytes = 262144
+
+# How many rows the streaming readers load from the file in the first
+# place. The MCP row limit can never return more than this.
+initial_load_rows = 5000000
+```
+
+**To remove the caps completely**, set them to `0` — the same thing a
+per-call `limit: 0` means:
+
+```toml
+mcp_default_row_limit  = 0     # no default row cap
+mcp_default_cell_bytes = 0     # no per-cell byte cap
+initial_load_rows_unlimited = true   # load whole files, not just 5M rows
+```
+
+These three are what the **Unlimited** checkboxes in the GUI write. Note
+that leaving a key *out* is not the same as `0`: an absent key falls back
+to its default (1000 rows, 64 KiB), so the `0` has to be written.
+
+!!! warning "Read once at startup"
+    `octa --mcp` reads these values when the process starts. Restart the
+    server after editing the file; a running server keeps the old values.
+
+### In Docker
+
+The container has no config directory of its own, so mount one:
+
+```bash
+# Prepare the file on the host
+mkdir -p ./octa-config
+cat > ./octa-config/settings.toml <<'TOML'
+mcp_default_row_limit = 10000
+mcp_default_cell_bytes = 0
+initial_load_rows_unlimited = true
+TOML
+
+# Mount it where Octa looks (XDG_CONFIG_HOME/octa inside the container)
+docker run -i --rm \
+  -e XDG_CONFIG_HOME=/config \
+  -v "$PWD/octa-config:/config/octa" \
+  -v "$PWD:/data" \
+  octa --mcp
+```
+
+`XDG_CONFIG_HOME` is the lever: point it anywhere and Octa reads
+`$XDG_CONFIG_HOME/octa/settings.toml`. The same trick works for a
+systemd unit or any other headless launcher.
+
+### Per call, without touching any file
+
+If you only need one big answer, the caller can ask for it and skip the
+configuration entirely:
+
+- `limit: 0` returns every row the server loaded.
+- `unlimited: true` additionally lifts the file-loader cap
+  (`initial_load_rows`) for that one call, so the tool sees the whole file.
+
+Pass both together for a genuinely complete result. See
+[Setup](setup.md) for where the server is configured in each client.
+
 ## Why the defaults
 
 A single MCP response travels through:

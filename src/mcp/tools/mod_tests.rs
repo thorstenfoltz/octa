@@ -121,6 +121,60 @@ fn resolve_write_path_allows_existing_when_unlocked() {
 }
 
 #[test]
+fn unlocked_writes_still_put_bare_names_in_the_export_dir() {
+    // The unlock lifts *confinement* (an absolute path may target an existing
+    // file anywhere). It must not change where a bare or relative name lands:
+    // that is still the export dir. Otherwise the name stays relative and the
+    // write resolves against the process CWD - the user's home for a GUI
+    // launched from the desktop - silently ignoring Settings > Chat.
+    let tmp = tempfile::tempdir().unwrap();
+    let export = std::fs::canonicalize(tmp.path()).unwrap().join("exports");
+    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false);
+    ctx.restrict_filesystem = true;
+    ctx.export_dir = Some(export.clone());
+    ctx.allow_existing_writes = true;
+
+    assert_eq!(
+        ctx.resolve_write_path(Path::new("out.csv")).unwrap(),
+        export.join("out.csv"),
+        "a bare name must land in the export dir, not the process CWD"
+    );
+    assert_eq!(
+        ctx.resolve_write_path(Path::new("sub/out.csv")).unwrap(),
+        export.join("sub/out.csv"),
+        "a relative subpath is kept, resolved under the export dir"
+    );
+}
+
+#[test]
+fn unlocked_writes_pass_absolute_paths_through() {
+    // The other half of the contract: with the unlock on, an absolute path
+    // outside the export dir is still honoured so the agent can overwrite a
+    // file the user already has open.
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("outside.csv");
+    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false);
+    ctx.restrict_filesystem = true;
+    ctx.export_dir = Some(dir.path().join("exports"));
+    ctx.allow_existing_writes = true;
+    assert_eq!(ctx.resolve_write_path(&target).unwrap(), target);
+}
+
+#[test]
+fn unlocked_writes_without_an_export_dir_stay_relative() {
+    // Nothing to resolve against when the setting is blank: pass through
+    // rather than invent a directory.
+    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false);
+    ctx.restrict_filesystem = true;
+    ctx.export_dir = None;
+    ctx.allow_existing_writes = true;
+    assert_eq!(
+        ctx.resolve_write_path(Path::new("out.csv")).unwrap(),
+        PathBuf::from("out.csv")
+    );
+}
+
+#[test]
 fn write_path_unrestricted_passthrough() {
     let c = sandbox_ctx(false, &[], None);
     assert_eq!(
@@ -129,17 +183,40 @@ fn write_path_unrestricted_passthrough() {
     );
 }
 
+/// Settings holding one saved S3 connection for `bucket`, with the given
+/// per-connection write permission.
+fn settings_with_bucket(allow_writes: bool) -> octa::ui::settings::AppSettings {
+    let mut conn = octa::cloud::CloudConnection::ephemeral_s3("bucket");
+    conn.id = "test-conn".into();
+    conn.name = "Test".into();
+    conn.allow_writes = allow_writes;
+    octa::ui::settings::AppSettings {
+        cloud_connections: vec![conn],
+        ..Default::default()
+    }
+}
+
 #[test]
-fn cloud_write_chat_needs_writes_enabled() {
-    // Chat surface (settings present) with the cloud-writes switch off: refused
-    // before any provider is built.
+fn cloud_write_chat_needs_the_connection_to_allow_writes() {
+    // Writing is permitted per connection and nowhere else: there is no global
+    // cloud-writes switch to also satisfy. A saved connection with the box
+    // unticked is refused before any provider is built...
     let mut c = sandbox_ctx(true, &[], None);
-    c.cloud_settings = Some(octa::ui::settings::AppSettings::default());
+    c.cloud_settings = Some(settings_with_bucket(false));
     let err = match c.resolve_write_dest(Path::new("s3://bucket/out.parquet")) {
-        Ok(_) => panic!("expected an error when cloud writes are off"),
+        Ok(_) => panic!("expected a refusal while the connection disallows writes"),
         Err(e) => e.to_string(),
     };
-    assert!(err.contains("turned off"), "{err}");
+    assert!(err.contains("does not allow writes"), "{err}");
+    assert!(err.contains("Test"), "names the connection: {err}");
+
+    // ...and ticking it is the only thing needed to allow it.
+    c.cloud_settings = Some(settings_with_bucket(true));
+    assert!(
+        c.resolve_write_dest(Path::new("s3://bucket/out.parquet"))
+            .is_ok(),
+        "an allow_writes connection is sufficient on its own"
+    );
 }
 
 #[test]

@@ -33,3 +33,29 @@ fn byte_range_clamped_at_end() {
     let r = char_range_to_byte_range(s, 0, 3);
     assert_eq!(&s[r], "abc");
 }
+
+#[test]
+fn tabs_before_cursor_counts_ascii() {
+    assert_eq!(tabs_before_cursor("\ta\tb", 4), 2);
+    assert_eq!(tabs_before_cursor("\ta\tb", 2), 1);
+    assert_eq!(tabs_before_cursor("\ta\tb", 0), 0);
+}
+
+#[test]
+fn tabs_before_cursor_counts_chars_not_bytes() {
+    // "ä" is 2 bytes but 1 char. The cursor sits after the tab at char 2, so
+    // exactly one tab precedes it. Byte-slicing `s[..2]` would have cut the
+    // string mid-"ä" and panicked; a byte-length comparison would have missed
+    // the tab entirely.
+    let s = "ä\tx";
+    assert_eq!(tabs_before_cursor(s, 2), 1);
+    assert_eq!(tabs_before_cursor(s, 1), 0);
+}
+
+#[test]
+fn tabs_before_cursor_saturates_past_end() {
+    // egui can hand back a cursor beyond the buffer after an external edit;
+    // `take` clamps rather than panicking.
+    assert_eq!(tabs_before_cursor("\t", 999), 1);
+    assert_eq!(tabs_before_cursor("", 5), 0);
+}

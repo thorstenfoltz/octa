@@ -11,6 +11,7 @@ pub(crate) mod add_column;
 pub(crate) mod anonymize;
 pub(crate) mod bookmark;
 pub(crate) mod chat_prompt;
+pub(crate) mod cloud_transfer;
 pub(crate) mod column_filter;
 pub(crate) mod column_format;
 pub(crate) mod conditional_column;
@@ -82,6 +83,7 @@ impl OctaApp {
         schema_change_save::render_schema_change_save_dialog(self, ctx);
         db_write_back::render_db_write_back_dialog(self, ctx);
         db_copy::render_db_copy_dialog(self, ctx);
+        cloud_transfer::render_cloud_transfer_dialog(self, ctx);
         reload_confirm::render_unalign_confirm_dialog(self, ctx);
         reload_confirm::render_reload_confirm_dialog(self, ctx);
         about::render_about_dialog(self, ctx);

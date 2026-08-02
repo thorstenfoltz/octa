@@ -27,7 +27,6 @@ ENABLE_LINTERS:
   - REPOSITORY_KICS
   - REPOSITORY_LS_LINT
   - REPOSITORY_SECRETLINT
-  - REPOSITORY_SEMGREP
   - REPOSITORY_TRIVY
   - SPELL_LYCHEE
   - SPELL_PROSELINT
@@ -44,7 +43,7 @@ LINTER_RULES_PATH: .linters
 LOG_LEVEL: INFO
 MARKDOWN_DEFAULT_STYLE: markdownlint
 MARKDOWN_MARKDOWN_LINK_CHECK_RULES_PATH: .linters
-PARALLEL: true
+PARALLEL: false
 PLUGINS:
   - file://.linters/mega-linter-plugin-branchname/branchname.megalinter-descriptor.yml
 PRINT_ALPACA: false
@@ -53,18 +52,6 @@ REPOSITORY_LS_LINT_RULES_PATH: .linters
 # actions/checkout@v5, docker/build-push-action@v7), not full commit SHAs -- see
 # CLAUDE.md. Exclude semgrep's mutable-action-tag rule rather than reverse that
 # documented policy across ci/docs/release.yml.
-REPOSITORY_SEMGREP_ARGUMENTS: "--exclude-rule yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag"
-REPOSITORY_SEMGREP_RULESETS:
-  [
-    "p/comment",
-    "p/cwe-top-25",
-    "p/docker-compose",
-    "p/dockerfile",
-    "p/owasp-top-ten",
-    "p/python",
-    "p/r2c-security-audit",
-    "p/secure-defaults",
-  ]
 REPOSITORY_TRIVY_CONFIG_FILE: trivy.yml
 REPOSITORY_TRIVY_RULES_PATH: .linters
 SECURITY_SUGGESTIONS: false

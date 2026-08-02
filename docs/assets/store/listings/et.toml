@@ -1,0 +1,11 @@
+# et: written natively, not translated from English.
+
+short = "Avage Parquet, CSV, Excel, SQLite ja veel umbes 30 andmevormingut kiires tabelis. Sortimine, filtrid, otsing, muutmine ja SQL-päringud, kõik kohapeal."
+
+long = """
+Octa avab Parquet-, CSV-, Excel-, SQLite-, DuckDB- ja JSON-failid ning veel umbes kolmkümmend vormingut otse kiires tabelis. Ilma importimiseta ja ilma seadistamiseta.
+
+Sortige, filtreerige, otsige ja muutke andmeid, tehke nende kohta DuckDB SQL-päringuid, koostage diagramme või võrrelge kahte faili. Kõik töötab teie enda arvutis ja ühtegi faili kuhugi ei laadita.
+
+Liides 32 keeles. Vaba tarkvara MIT-litsentsi all.
+"""

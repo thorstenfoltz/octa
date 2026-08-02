@@ -93,6 +93,11 @@ registered by extension but currently return an error pointing you
 at `saveRDS()`, since `rds2rust` only accepts the `X\n` magic of
 single-object RDS, not the `RDX2\n` workspace envelope.
 
+Missing values in character columns now read correctly. Earlier versions
+showed `NA_character_` as the literal text `NA`, which was impossible to
+tell apart from a genuine `"NA"` value in your data; such cells are now
+empty, like missing values in every other column type.
+
 ### HDF5
 
 Octa uses a pure-Rust HDF5 parser (no system libhdf5 dependency).

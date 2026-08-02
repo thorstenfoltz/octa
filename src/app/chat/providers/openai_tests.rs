@@ -38,7 +38,7 @@ fn tool_schema_wraps_under_function() {
         model: "gpt-4o".into(),
         base_url: None,
         api_key: "k".into(),
-        temperature: 0.5,
+        temperature: Some(0.5),
         max_tokens: Some(100),
         reasoning: None,
     };
@@ -69,7 +69,7 @@ fn unlimited_tokens_omits_the_field() {
         model: "gpt-4o".into(),
         base_url: None,
         api_key: "k".into(),
-        temperature: 0.5,
+        temperature: Some(0.5),
         max_tokens: None,
         reasoning: None,
     };
@@ -84,7 +84,7 @@ fn reasoning_sets_the_effort_field() {
         model: "gpt-5.4".into(),
         base_url: None,
         api_key: "k".into(),
-        temperature: 0.0,
+        temperature: Some(0.0),
         max_tokens: Some(1000),
         reasoning: Some("high".into()),
     };
@@ -101,7 +101,7 @@ fn blank_reasoning_omits_the_effort_field() {
             model: "gpt-5.4".into(),
             base_url: None,
             api_key: "k".into(),
-            temperature: 0.0,
+            temperature: Some(0.0),
             max_tokens: Some(1000),
             reasoning: value,
         };

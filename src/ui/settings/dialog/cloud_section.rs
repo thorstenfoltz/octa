@@ -18,13 +18,10 @@ use crate::ui::settings::secrets::KeyStorage;
 impl SettingsDialog {
     /// Body of the "Cloud storage" Settings section.
     pub(super) fn cloud_section_body(&mut self, ui: &mut egui::Ui) {
-        ui.checkbox(
-            &mut self.draft.cloud_writes_enabled,
-            t("cloud.writes_enabled"),
-        )
-        .on_hover_text(t("cloud.writes_enabled_hint"));
-        ui.separator();
-
+        // Writing is permitted per connection ("Allow writes on this
+        // connection" in the form below), not globally. A second switch on top
+        // of it only ever answered "why is this connection not writing?" with
+        // "because of a setting somewhere else".
         self.cloud_connection_list(ui);
         ui.separator();
         // The add/edit form (plus its secret controls) lives behind its own
@@ -279,8 +276,7 @@ impl SettingsDialog {
                     .on_hover_text(t("cloud.anonymous_hint"));
                 ui.end_row();
 
-                // Per-connection write permission (AND-ed with the global
-                // "Allow writing to cloud storage" switch above).
+                // The only switch governing writes for this connection.
                 ui.label("");
                 ui.checkbox(
                     &mut self.cloud_form_allow_writes,

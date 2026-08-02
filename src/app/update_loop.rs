@@ -104,7 +104,11 @@ impl eframe::App for OctaApp {
 
     /// Cleanup on shutdown: persist the live chat session and stop any Ollama
     /// server Octa started (a user-launched server is left running).
-    fn on_exit(&mut self) {
+    ///
+    /// The `glow::Context` parameter exists only on the glow renderer, for
+    /// freeing GPU resources. Octa allocates none directly (egui owns its own
+    /// textures), so it is ignored.
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.persist_current_session();
         self.chat.ollama.stop_server();
         octa::diagnostics::crash::clear_running();

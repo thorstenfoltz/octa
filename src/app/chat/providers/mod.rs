@@ -27,7 +27,11 @@ pub struct ProviderConfig {
     /// Base URL for the OpenAI-compatible provider; ignored by the others.
     pub base_url: Option<String>,
     pub api_key: String,
-    pub temperature: f32,
+    /// Sampling temperature, or `None` to omit the field from the request.
+    /// Newer models reject `temperature` outright (Anthropic's Opus 4.7
+    /// generation answers a 400), so every provider must be able to send
+    /// nothing at all rather than a default.
+    pub temperature: Option<f32>,
     /// Response-token cap. `None` means "unlimited": providers omit the field
     /// (Anthropic, which requires it, substitutes a high default instead).
     pub max_tokens: Option<usize>,
@@ -54,6 +58,75 @@ pub trait ChatProvider: Send {
         cancel: &AtomicBool,
         sink: &mut dyn FnMut(ChatEvent),
     ) -> Result<(), String>;
+}
+
+/// What the profile's free-text thinking value turned out to be. Every
+/// provider now has **two** knobs and picks by shape: an effort *word* is the
+/// modern one (Anthropic `output_config.effort`, OpenAI `reasoning_effort`,
+/// Gemini `thinkingConfig.thinkingLevel`), a token *number* the older one
+/// (Anthropic `budget_tokens`, Gemini `thinkingBudget`). Current Claude models
+/// answer 400 to a budget and current Gemini models prefer the level, so the
+/// word is what a user normally wants; the number stays for the older models
+/// that only understand it.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Reasoning {
+    /// An effort word, passed through verbatim so new levels keep working.
+    Effort(String),
+    /// A token budget. Range checking is the provider's, not ours: Anthropic
+    /// wants >= 1024, Gemini gives 0 and -1 their own meanings.
+    Budget(i64),
+}
+
+/// Classify the profile's thinking value. Blank / absent means thinking off.
+/// Anything that parses as an integer is a budget, anything else an effort
+/// word: no fixed vocabulary, so a level a provider adds tomorrow works today.
+pub(crate) fn parse_reasoning(raw: Option<&str>) -> Option<Reasoning> {
+    let s = raw.map(str::trim).filter(|s| !s.is_empty())?;
+    Some(match s.parse::<i64>() {
+        Ok(n) => Reasoning::Budget(n),
+        Err(_) => Reasoning::Effort(s.to_string()),
+    })
+}
+
+/// Build the per-turn config a profile describes. Shared by the chat panel's
+/// real turns and the Settings "Test connection" button, so a passing test
+/// means the exact request shape the assistant will send is accepted.
+///
+/// `fallback_base_url` is the global Ollama / OpenAI-compatible URL, used only
+/// when the profile carries none of its own (an existing setup keeps working
+/// after the profile migration without re-entering the URL).
+pub fn config_for_profile(
+    profile: &crate::ui::settings::chat_profiles::ChatModelProfile,
+    fallback_base_url: &str,
+    api_key: String,
+    max_tokens: Option<usize>,
+) -> ProviderConfig {
+    let model = if profile.model.trim().is_empty() {
+        crate::ui::settings::chat_models::default_model(profile.kind)
+    } else {
+        profile.model.clone()
+    };
+    ProviderConfig {
+        model,
+        base_url: match profile.kind {
+            ChatProviderKind::OpenAiCompatible | ChatProviderKind::Ollama => {
+                let own = profile.base_url.trim();
+                Some(if own.is_empty() {
+                    fallback_base_url.to_string()
+                } else {
+                    own.to_string()
+                })
+            }
+            _ => None,
+        },
+        api_key,
+        temperature: profile.temperature,
+        max_tokens,
+        reasoning: {
+            let r = profile.reasoning.trim();
+            (!r.is_empty()).then(|| r.to_string())
+        },
+    }
 }
 
 /// Construct the provider adapter for a settings enum value.

@@ -163,7 +163,7 @@ impl OctaApp {
                     .resizable(true)
                     .default_size(280.0)
                     .min_size(140.0)
-                    .show_inside(parent_ui, |ui| {
+                    .show(parent_ui, |ui| {
                         sql_action = render(ui, tab, autocomplete, row_limit);
                     });
             }
@@ -172,7 +172,7 @@ impl OctaApp {
                     .resizable(true)
                     .default_size(280.0)
                     .min_size(140.0)
-                    .show_inside(parent_ui, |ui| {
+                    .show(parent_ui, |ui| {
                         sql_action = render(ui, tab, autocomplete, row_limit);
                     });
             }
@@ -181,7 +181,7 @@ impl OctaApp {
                     .resizable(true)
                     .default_size(440.0)
                     .min_size(280.0)
-                    .show_inside(parent_ui, |ui| {
+                    .show(parent_ui, |ui| {
                         sql_action = render(ui, tab, autocomplete, row_limit);
                     });
             }
@@ -190,7 +190,7 @@ impl OctaApp {
                     .resizable(true)
                     .default_size(440.0)
                     .min_size(280.0)
-                    .show_inside(parent_ui, |ui| {
+                    .show(parent_ui, |ui| {
                         sql_action = render(ui, tab, autocomplete, row_limit);
                     });
             }

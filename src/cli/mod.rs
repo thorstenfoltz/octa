@@ -18,7 +18,9 @@ use clap::{Parser, ValueEnum};
 use octa::data::schema_export::SchemaTarget;
 
 pub mod anonymize;
+pub mod cloud;
 pub mod compare_schemas;
+pub mod connections;
 pub mod convert;
 pub mod db;
 pub mod dedupe;
@@ -206,6 +208,17 @@ Notes:
     --sql / --head / --convert against very large Parquet/CSV files.
 ";
 
+/// Footer under the plain `--help` flag list: where to find the rest, rather
+/// than the rest itself.
+const SHORT_AFTER_HELP: &str = "\
+Action flags are mutually exclusive - pick one. Without any, Octa launches
+its GUI with the files you passed.
+
+  octa --help-all    worked examples for every action
+  man octa           the manual page
+  https://thorstenfoltz.github.io/octa/    full documentation
+";
+
 /// Top-level CLI. Action flags (`--schema`, `--head`, `--convert`, `--sql`)
 /// share a mutually-exclusive group; positional `FILES` are forwarded to
 /// the GUI only when no action flag is set.
@@ -218,7 +231,10 @@ Notes:
                   small CLI surface. Without any action flag it launches the GUI \
                   with whatever files you pass; with one of the action flags it \
                   runs that action and exits.",
-    after_help = AFTER_HELP,
+    // `--help` stays a flag list. The ~160 lines of worked examples are the
+    // long help, behind `--help-all`, because printing them by default buried
+    // the flag list under something the size of the man page.
+    after_help = SHORT_AFTER_HELP,
     after_long_help = AFTER_HELP,
     disable_help_flag = true
 )]
@@ -235,12 +251,14 @@ pub struct Cli {
     #[arg(long, value_name = "FILE", group = "action")]
     pub tail: Option<PathBuf>,
 
-    /// Print a random N-row sample of FILE (default 20, override with
-    /// -n / --lines). Reproducible for a given --seed.
+    /// Print a random N-row sample of FILE (default 20, override with -n / --lines).
+    ///
+    /// Reproducible for a given --seed.
     #[arg(long, value_name = "FILE", group = "action")]
     pub sample: Option<PathBuf>,
 
     /// Convert IN to OUT. Format inferred from each path's extension.
+    ///
     /// The output format must be writable.
     #[arg(
         long,
@@ -250,33 +268,36 @@ pub struct Cli {
     )]
     pub convert: Vec<PathBuf>,
 
-    /// Run a SQL query against FILE. Combine with -q / --query.
-    /// The file is exposed to DuckDB as a table called `data`. Additional
-    /// tables can be loaded via --sql-table / --sql-attach for cross-format
-    /// JOINs; the SELECT result can be written back to a DuckDB or SQLite
-    /// file via --sql-write-to.
+    /// Run a SQL query against FILE.
+    ///
+    /// Combine with -q / --query. The file is exposed to DuckDB as a table called
+    /// `data`. Additional tables can be loaded via --sql-table / --sql-attach for
+    /// cross-format JOINs; the SELECT result can be written back to a DuckDB or
+    /// SQLite file via --sql-write-to.
     #[arg(long, value_name = "FILE", group = "action")]
     pub sql: Option<PathBuf>,
 
     /// Register an extra table in the SQL workspace as `NAME=PATH`.
-    /// Repeatable. The file is loaded via the format registry and exposed
-    /// in queries as `NAME`. For multi-table sources, use --sql-attach
-    /// instead so every inner table is reachable as `alias.schema.tbl`.
+    ///
+    /// Repeatable. The file is loaded via the format registry and exposed in
+    /// queries as `NAME`. For multi-table sources, use --sql-attach instead so
+    /// every inner table is reachable as `alias.schema.tbl`.
     #[arg(long = "sql-table", value_name = "NAME=PATH")]
     pub sql_table: Vec<String>,
 
-    /// ATTACH a DuckDB or SQLite database to the SQL workspace as
-    /// `ALIAS=PATH`. Repeatable. After attachment every table inside the
-    /// file is queryable as `alias.schema.tbl` (DuckDB) or `alias.tbl`
-    /// (SQLite via the DuckDB sqlite extension when present, else
-    /// per-table fallback).
+    /// ATTACH a DuckDB or SQLite database to the SQL workspace as `ALIAS=PATH`.
+    ///
+    /// Repeatable. After attachment every table inside the file is queryable as
+    /// `alias.schema.tbl` (DuckDB) or `alias.tbl` (SQLite via the DuckDB sqlite
+    /// extension when present, else per-table fallback).
     #[arg(long = "sql-attach", value_name = "ALIAS=PATH")]
     pub sql_attach: Vec<String>,
 
-    /// Write the SELECT result to this DuckDB or SQLite file. Requires
-    /// --sql-write-table; --sql-write-schema and --sql-write-mode are
-    /// optional. The file is created if missing (DuckDB / SQLite both
-    /// support this natively).
+    /// Write the SELECT result to this DuckDB or SQLite file.
+    ///
+    /// Requires --sql-write-table; --sql-write-schema and --sql-write-mode are
+    /// optional. The file is created if missing (DuckDB / SQLite both support
+    /// this natively).
     #[arg(long = "sql-write-to", value_name = "PATH")]
     pub sql_write_to: Option<PathBuf>,
 
@@ -284,19 +305,23 @@ pub struct Cli {
     #[arg(long = "sql-write-table", value_name = "TABLE")]
     pub sql_write_table: Option<String>,
 
-    /// Target schema for --sql-write-to. DuckDB-only; ignored (and must
-    /// be `main` or unset) for SQLite. Defaults to `main`.
+    /// Target schema for --sql-write-to.
+    ///
+    /// DuckDB-only; ignored (and must be `main` or unset) for SQLite. Defaults to
+    /// `main`.
     #[arg(long = "sql-write-schema", value_name = "SCHEMA")]
     pub sql_write_schema: Option<String>,
 
-    /// Write mode for --sql-write-to: create (default; errors if the
-    /// target table exists), replace (drop + recreate), or append
-    /// (INSERT into existing).
+    /// Write mode for --sql-write-to.
+    ///
+    /// create (default) errors if the target table exists, replace drops and
+    /// recreates it, append INSERTs into the existing one.
     #[arg(long = "sql-write-mode", value_enum, default_value_t = SqlWriteModeArg::Create)]
     pub sql_write_mode: SqlWriteModeArg,
 
-    /// Render FILE's column schema as SQL DDL / a model / a struct and
-    /// print it to stdout. Pick the dialect with -t / --target.
+    /// Render FILE's column schema as SQL DDL / a model / a struct and print it to stdout.
+    ///
+    /// Pick the dialect with -t / --target.
     #[arg(
         short = 'e',
         long = "export-schema",
@@ -305,9 +330,10 @@ pub struct Cli {
     )]
     pub export_schema: Option<PathBuf>,
 
-    /// Diff the column schemas of two files. Prints a four-column table
-    /// (status / column / type_a / type_b) where `status` is one of
-    /// `common`, `only_in_a`, `only_in_b`, `type_mismatch`.
+    /// Diff the column schemas of two files.
+    ///
+    /// Prints a four-column table (status / column / type_a / type_b) where
+    /// `status` is one of `common`, `only_in_a`, `only_in_b`, `type_mismatch`.
     #[arg(
         long = "compare-schemas",
         value_names = ["FILE_A", "FILE_B"],
@@ -316,10 +342,12 @@ pub struct Cli {
     )]
     pub compare_schemas: Vec<PathBuf>,
 
-    /// Row-level diff of two files. Prints rows present in only one side
-    /// (`status` = `only_in_a` / `only_in_b`) plus a shared-row count.
-    /// Columns are compared positionally, so the two files should share the
-    /// same column order for a meaningful result.
+    /// Row-level diff of two files.
+    ///
+    /// Prints rows present in only one side (`status` = `only_in_a` /
+    /// `only_in_b`) plus a shared-row count. Columns are compared positionally,
+    /// so the two files should share the same column order for a meaningful
+    /// result.
     #[arg(
         long = "diff",
         value_names = ["FILE_A", "FILE_B"],
@@ -328,10 +356,12 @@ pub struct Cli {
     )]
     pub diff: Vec<PathBuf>,
 
-    /// Comparison strategy for `--diff`. `set` (default) reports whole rows
-    /// unique to each side. `ordered` compares row-by-row in order and reports
-    /// the differing cells. `join` matches rows on the `--diff-on` key
-    /// column(s) and reports added / removed / changed rows.
+    /// Comparison strategy for `--diff`.
+    ///
+    /// `set` (default) reports whole rows unique to each side. `ordered` compares
+    /// row-by-row in order and reports the differing cells. `join` matches rows
+    /// on the `--diff-on` key column(s) and reports added / removed / changed
+    /// rows.
     #[arg(long = "diff-mode", value_name = "MODE", default_value = "set")]
     pub diff_mode: String,
 
@@ -339,31 +369,32 @@ pub struct Cli {
     #[arg(long = "diff-on", value_name = "COLS", value_delimiter = ',')]
     pub diff_on: Vec<String>,
 
-    /// Validate FILE's column schema against a JSON Schema. Pair with
-    /// `--expect-schema SCHEMA.json` to point at the expected schema.
+    /// Validate FILE's column schema against a JSON Schema.
+    ///
+    /// Pair with `--expect-schema SCHEMA.json` to point at the expected schema.
     /// Exit code is 0 on a clean match, 1 otherwise - CI-pipeable.
     #[arg(long = "validate-schema", value_name = "FILE", group = "action")]
     pub validate_schema: Option<PathBuf>,
 
-    /// One-shot orientation snapshot of FILE. Prints format, file
-    /// size, row count, schema, and a sample of rows. Use
-    /// `--sample-rows N` to change the preview size (default 5,
-    /// max 100). The `--table NAME` flag picks a specific table on
-    /// multi-table sources.
+    /// One-shot orientation snapshot of FILE.
+    ///
+    /// Prints format, file size, row count, schema, and a sample of rows. Use
+    /// `--sample-rows N` to change the preview size (default 5, max 100). The
+    /// `--table NAME` flag picks a specific table on multi-table sources.
     #[arg(long = "describe", value_name = "FILE", group = "action")]
     pub describe: Option<PathBuf>,
 
-    /// Find columns (and optional small combinations) whose values
-    /// are unique across FILE. Useful for spotting primary-key
-    /// candidates. Use `--max-combo N` (default 1; clamped to [1,3])
-    /// to also test pairs / triples.
+    /// Find columns (and optional small combinations) whose values are unique across FILE.
+    ///
+    /// Useful for spotting primary-key candidates. Use `--max-combo N` (default
+    /// 1; clamped to [1,3]) to also test pairs / triples.
     #[arg(long = "unique-columns", value_name = "FILE", group = "action")]
     pub unique_columns: Option<PathBuf>,
 
-    /// Anonymise / mask columns of FILE per a JSON SPEC file, printing the
-    /// sanitised table to stdout (the input file is never modified). The spec
-    /// lists per-column rules (`hash` / `partial_mask` / `redact` / `fake`)
-    /// plus an optional shared `salt`; columns are named.
+    /// Anonymise / mask columns of FILE per a JSON SPEC file, printing the sanitised table to stdout (the input file is never modified).
+    ///
+    /// The spec lists per-column rules (`hash` / `partial_mask` / `redact` /
+    /// `fake`) plus an optional shared `salt`; columns are named.
     #[arg(
         long = "anonymize",
         value_names = ["SPEC", "FILE"],
@@ -372,16 +403,18 @@ pub struct Cli {
     )]
     pub anonymize: Vec<PathBuf>,
 
-    /// Stack two or more tabular files into one output table, reconciling
-    /// differing schemas. Combine with `--union-file` to add further sources;
-    /// use `--union-drop` to omit columns and `--union-cast COL=TYPE` to
-    /// override a column's target Arrow type.
+    /// Stack two or more tabular files into one output table, reconciling differing schemas.
+    ///
+    /// Combine with `--union-file` to add further sources; use `--union-drop` to
+    /// omit columns and `--union-cast COL=TYPE` to override a column's target
+    /// Arrow type.
     #[arg(long, group = "action")]
     pub union: bool,
 
-    /// Additional file(s) to include in the `--union` stack. Repeatable.
-    /// The positional file plus all `--union-file` values form the full
-    /// input list (minimum two files total).
+    /// Additional file(s) to include in the `--union` stack.
+    ///
+    /// Repeatable. The positional file plus all `--union-file` values form the
+    /// full input list (minimum two files total).
     #[arg(long = "union-file", value_name = "FILE")]
     pub union_file: Vec<PathBuf>,
 
@@ -390,20 +423,23 @@ pub struct Cli {
     pub union_drop: Vec<String>,
 
     /// Override a column's target Arrow type in the `--union` output.
+    ///
     /// Syntax: `COL=TYPE` (e.g. `amount=Float64`). Repeatable.
     #[arg(long = "union-cast", value_name = "COL=TYPE")]
     pub union_cast: Vec<String>,
 
-    /// Join two or more tabular files on shared key column(s). Combine with
-    /// `--join-file` to add sources beyond the positional file(s); use
-    /// `--join-on` to name the key columns and `--join-type` to pick the
-    /// join strategy (default `left`).
+    /// Join two or more tabular files on shared key column(s).
+    ///
+    /// Combine with `--join-file` to add sources beyond the positional file(s);
+    /// use `--join-on` to name the key columns and `--join-type` to pick the join
+    /// strategy (default `left`).
     #[arg(long, group = "action")]
     pub join: bool,
 
-    /// Additional file(s) to include in the `--join` operation. Repeatable.
-    /// The positional file(s) plus all `--join-file` values form the full
-    /// input list (minimum two files total).
+    /// Additional file(s) to include in the `--join` operation.
+    ///
+    /// Repeatable. The positional file(s) plus all `--join-file` values form the
+    /// full input list (minimum two files total).
     #[arg(long = "join-file", value_name = "FILE")]
     pub join_file: Vec<PathBuf>,
 
@@ -416,8 +452,10 @@ pub struct Cli {
     #[arg(long = "join-type", value_name = "TYPE")]
     pub join_type: Option<String>,
 
-    /// Remove duplicate rows from FILE. By default the whole row is the
-    /// duplicate key; use `--dedupe-on` to restrict to named columns.
+    /// Remove duplicate rows from FILE.
+    ///
+    /// By default the whole row is the duplicate key; use `--dedupe-on` to
+    /// restrict to named columns.
     #[arg(long, value_name = "FILE", group = "action")]
     pub dedupe: Option<PathBuf>,
 
@@ -430,13 +468,15 @@ pub struct Cli {
     #[arg(long = "dedupe-keep", value_name = "first|last")]
     pub dedupe_keep: Option<String>,
 
-    /// Fill missing/empty cells in one or more columns of FILE. Each flag
-    /// takes a `COL=STRATEGY` pair. Strategies: `mean`, `median`, `mode`,
-    /// `ffill`, `bfill`, `const:VALUE`. Repeatable.
+    /// Fill missing/empty cells in one or more columns of FILE.
+    ///
+    /// Each flag takes a `COL=STRATEGY` pair. Strategies: `mean`, `median`,
+    /// `mode`, `ffill`, `bfill`, `const:VALUE`. Repeatable.
     #[arg(long = "impute", value_name = "COL=STRATEGY")]
     pub impute: Vec<String>,
 
     /// Flag numeric outlier cells in FILE per column using IQR or z-score.
+    ///
     /// Combine with `--outlier-method`, `--outlier-cols`, and `--outlier-k`.
     #[arg(long, group = "action")]
     pub outliers: bool,
@@ -456,6 +496,7 @@ pub struct Cli {
     pub outlier_k: Option<f64>,
 
     /// Scan FILE for likely PII columns (email, phone, IBAN, credit card, SSN).
+    ///
     /// Combine with `--pii-sample` to control how many rows are sampled.
     #[arg(long = "detect-pii", value_name = "FILE", group = "action")]
     pub detect_pii: Option<PathBuf>,
@@ -465,9 +506,10 @@ pub struct Cli {
     #[arg(long = "pii-sample", value_name = "N")]
     pub pii_sample: Option<usize>,
 
-    /// Split FILE into one output file per distinct value of COL and write each
-    /// group into --out-dir. Output format defaults to the source extension;
-    /// override with --partition-format.
+    /// Split FILE into one output file per distinct value of COL and write each group into --out-dir.
+    ///
+    /// Output format defaults to the source extension; override with
+    /// --partition-format.
     #[arg(long = "partition-by", value_name = "COL", group = "action")]
     pub partition_by: Option<String>,
 
@@ -475,14 +517,15 @@ pub struct Cli {
     #[arg(long = "out-dir", value_name = "DIR")]
     pub out_dir: Option<PathBuf>,
 
-    /// Output file extension for --partition-by (without the leading dot, e.g.
-    /// `csv`, `parquet`). Defaults to the source file's extension.
+    /// Output file extension for --partition-by (without the leading dot, e.g. `csv`, `parquet`).
+    ///
+    /// Defaults to the source file's extension.
     #[arg(long = "partition-format", value_name = "EXT")]
     pub partition_format: Option<String>,
 
-    /// Run SQL on a saved database connection (server-side, in the engine's
-    /// native dialect). Needs --db NAME. Mutations require the connection's
-    /// "Allow writes" switch.
+    /// Run SQL on a saved database connection (server-side, in the engine's native dialect).
+    ///
+    /// Needs --db NAME. Mutations require the connection's "Allow writes" switch.
     #[arg(long = "db-query", value_name = "SQL", group = "action")]
     pub db_query: Option<String>,
 
@@ -491,6 +534,7 @@ pub struct Cli {
     pub db_tables: bool,
 
     /// Write the positional FILE into a database table (SCHEMA.TABLE).
+    ///
     /// Needs --db; refused unless the connection allows writes.
     #[arg(long = "db-write-table", value_name = "SCHEMA.TABLE", group = "action")]
     pub db_write_table: Option<String>,
@@ -504,15 +548,17 @@ pub struct Cli {
     #[arg(long = "db-write-mode", value_enum, default_value_t = SqlWriteModeArg::Create)]
     pub db_write_mode: SqlWriteModeArg,
 
-    /// Catalog (top namespace level) for a three-level engine. Only
-    /// Snowflake, Databricks and BigQuery have one; passing it to any other
+    /// Catalog (top namespace level) for a three-level engine.
+    ///
+    /// Only Snowflake, Databricks and BigQuery have one; passing it to any other
     /// engine is an error. With --db-tables and no catalog, the catalogs
     /// themselves are listed.
     #[arg(long = "db-catalog", value_name = "NAME", requires = "db")]
     pub db_catalog: Option<String>,
 
-    /// Copy SCHEMA.TABLE from --db to another saved connection, server to
-    /// server. Requires --db-copy-to.
+    /// Copy SCHEMA.TABLE from --db to another saved connection, server to server.
+    ///
+    /// Requires --db-copy-to.
     #[arg(
         long = "db-copy",
         value_name = "SCHEMA.TABLE",
@@ -534,9 +580,10 @@ pub struct Cli {
     pub db_copy_target_catalog: Option<String>,
 
     /// Start the MCP (Model Context Protocol) server on stdin/stdout.
-    /// Mutually exclusive with the other action flags. Tools mirror the
-    /// CLI surface: read_table, schema, list_tables, count_rows, run_sql,
-    /// convert. Defaults (row + cell caps) come from Settings -> MCP.
+    ///
+    /// Mutually exclusive with the other action flags. Tools mirror the CLI
+    /// surface: read_table, schema, list_tables, count_rows, run_sql, convert.
+    /// Defaults (row + cell caps) come from Settings -> MCP.
     #[arg(long, group = "action")]
     pub mcp: bool,
 
@@ -592,8 +639,8 @@ pub struct Cli {
     #[arg(long = "sample-rows", value_name = "N")]
     pub sample_rows: Option<usize>,
 
-    /// For --unique-columns only: maximum combo size to test
-    /// (1 = single columns, 2 = + pairs, 3 = + triples).
+    /// For --unique-columns only: maximum combo size to test (1 = single columns, 2 = + pairs, 3 = + triples).
+    ///
     /// Clamped to [1, 3]. Default 1.
     #[arg(long = "max-combo", value_name = "N", default_value_t = 1)]
     pub max_combo: usize,
@@ -602,21 +649,117 @@ pub struct Cli {
     #[arg(short = 'f', long, value_enum, default_value_t = OutputFormat::Tsv)]
     pub format: OutputFormat,
 
-    /// Override the initial-load row cap for streaming formats (Parquet, CSV,
-    /// TSV) for this single invocation. Accepts a number (commas allowed,
-    /// e.g. `5,000,000`) or `all` to load every row. Defaults to the
-    /// compiled-in cap (5 million rows).
+    /// Override the initial-load row cap for streaming formats (Parquet, CSV, TSV) for this single invocation.
+    ///
+    /// Accepts a number (commas allowed, e.g. `5,000,000`) or `all` to load every
+    /// row. Defaults to the compiled-in cap (5 million rows).
     #[arg(long, value_name = "N|all")]
     pub rows: Option<String>,
 
     /// Files to open in the GUI when no action flag is given.
+    ///
     /// Ignored (with a warning) when an action flag is set.
     #[arg(value_name = "FILE")]
     pub files: Vec<PathBuf>,
 
-    /// Print this help (same text for -h and --help).
-    #[arg(short = 'h', long = "help", action = clap::ArgAction::HelpLong, value_parser = clap::value_parser!(bool))]
+    /// List a cloud bucket or prefix: `s3://bucket/prefix/`, `az://...`, `gs://...`.
+    ///
+    /// One folder level by default; add --recursive to flatten everything
+    /// under the prefix. Credentials come from a saved connection covering the
+    /// URL, else the ambient chain (AWS_* env, cached SSO, az login, gcloud
+    /// ADC).
+    #[arg(long = "cloud-ls", value_name = "URL", group = "action")]
+    pub cloud_ls: Option<String>,
+
+    /// Download one cloud object to a local file. Needs --out.
+    #[arg(long = "cloud-get", value_name = "URL", group = "action")]
+    pub cloud_get: Option<String>,
+
+    /// Upload a local file to a cloud object. Needs --to.
+    #[arg(long = "cloud-put", value_name = "FILE", group = "action")]
+    pub cloud_put: Option<PathBuf>,
+
+    /// Copy a cloud object, or a whole prefix, to --to.
+    ///
+    /// A source ending in `/` copies the folder recursively. Within one bucket
+    /// the backend copies server-side; across buckets, accounts or providers
+    /// the object is streamed in blocks, so size does not drive memory.
+    #[arg(long = "cloud-copy", value_name = "URL", group = "action")]
+    pub cloud_copy: Option<String>,
+
+    /// Move a cloud object, or a whole prefix, to --to (copy, then delete).
+    ///
+    /// Object stores have no rename. The delete only runs once every copy has
+    /// succeeded, so an interrupted move leaves the source intact.
+    #[arg(long = "cloud-move", value_name = "URL", group = "action")]
+    pub cloud_move: Option<String>,
+
+    /// Delete a cloud object, or a whole prefix with --recursive.
+    ///
+    /// Cannot be undone unless the bucket has versioning enabled.
+    #[arg(long = "cloud-delete", value_name = "URL", group = "action")]
+    pub cloud_delete: Option<String>,
+
+    /// Destination for --cloud-put / --cloud-copy / --cloud-move (a cloud URL).
+    #[arg(long = "to", value_name = "URL")]
+    pub to: Option<String>,
+
+    /// Output file for --cloud-get.
+    #[arg(long = "out", value_name = "FILE")]
+    pub out: Option<PathBuf>,
+
+    /// Recurse into every object under the prefix.
+    ///
+    /// For --cloud-ls this flattens the listing; for --cloud-delete it is the
+    /// required confirmation that a folder delete is meant.
+    #[arg(long = "recursive")]
+    pub recursive: bool,
+
+    /// List the saved cloud and database connections (names and targets only,
+    /// never secrets).
+    #[arg(long = "list-connections", group = "action")]
+    pub list_connections: bool,
+
+    /// Add or update a saved connection from a `key=value,key=value` spec.
+    ///
+    /// `kind=` and `name=` are always required. A connection with the same
+    /// name is replaced wholesale, keeping its id and therefore its stored
+    /// secret, so re-running a provisioning script is idempotent; keys you
+    /// leave out go back to their defaults. Unknown keys are an error rather
+    /// than ignored, so a typo cannot produce a connection pointing nowhere.
+    ///
+    /// Cloud (kind=s3|azure|gcs): bucket, region, endpoint, prefix, account,
+    /// profile, account_level, anonymous, allow_writes, force_path_style,
+    /// allow_http.
+    /// Database (kind=postgres|mysql|mssql|redshift|clickhouse|exasol|
+    /// snowflake|databricks|bigquery): host, port, database, user,
+    /// allow_writes.
+    ///
+    /// Pass the password / access key via --secret-env, never in the spec.
+    #[arg(long = "add-connection", value_name = "SPEC", group = "action")]
+    pub add_connection: Option<String>,
+
+    /// Remove a saved connection by name or id, and drop its stored secret.
+    #[arg(long = "remove-connection", value_name = "NAME", group = "action")]
+    pub remove_connection: Option<String>,
+
+    /// Name of an environment variable holding the secret for
+    /// --add-connection.
+    ///
+    /// Read from the environment rather than the command line so it stays out
+    /// of `ps` output and shell history. Database: the password. S3:
+    /// `ACCESS_KEY_ID:SECRET_ACCESS_KEY[:TOKEN]`. Azure: the account key, or a
+    /// SAS token. GCS uses application-default credentials and takes none.
+    #[arg(long = "secret-env", value_name = "VAR")]
+    pub secret_env: Option<String>,
+
+    /// Print the flag list (same text for -h and --help).
+    #[arg(short = 'h', long = "help", action = clap::ArgAction::HelpShort, value_parser = clap::value_parser!(bool))]
     pub help: Option<bool>,
+
+    /// Print the flag list plus worked examples for every action.
+    #[arg(long = "help-all", action = clap::ArgAction::HelpLong, value_parser = clap::value_parser!(bool))]
+    pub help_all: Option<bool>,
 }
 
 /// One of the six action selections, or `None` for "launch the GUI".
@@ -752,6 +895,34 @@ pub enum Action {
         target_catalog: Option<String>,
         mode: octa::db::DbWriteMode,
     },
+    CloudLs {
+        url: String,
+        recursive: bool,
+    },
+    CloudGet {
+        url: String,
+        out: PathBuf,
+    },
+    CloudPut {
+        file: PathBuf,
+        url: String,
+    },
+    /// Copy (`move_it: false`) or move (`true`) an object or prefix.
+    CloudTransfer {
+        from: String,
+        to: String,
+        move_it: bool,
+    },
+    CloudDelete {
+        url: String,
+        recursive: bool,
+    },
+    ListConnections,
+    AddConnection {
+        spec: String,
+        secret_env: Option<String>,
+    },
+    RemoveConnection(String),
     Mcp,
 }
 
@@ -1030,6 +1201,60 @@ impl Cli {
                 mode: self.db_write_mode.to_db_write_mode(),
             }));
         }
+        if let Some(url) = &self.cloud_ls {
+            return Ok(Some(Action::CloudLs {
+                url: url.clone(),
+                recursive: self.recursive,
+            }));
+        }
+        if let Some(url) = &self.cloud_get {
+            let out = self.out.clone().ok_or("--cloud-get needs --out FILE")?;
+            return Ok(Some(Action::CloudGet {
+                url: url.clone(),
+                out,
+            }));
+        }
+        if let Some(file) = &self.cloud_put {
+            let url = self.to.clone().ok_or("--cloud-put needs --to URL")?;
+            return Ok(Some(Action::CloudPut {
+                file: file.clone(),
+                url,
+            }));
+        }
+        if let Some(from) = &self.cloud_copy {
+            let to = self.to.clone().ok_or("--cloud-copy needs --to URL")?;
+            return Ok(Some(Action::CloudTransfer {
+                from: from.clone(),
+                to,
+                move_it: false,
+            }));
+        }
+        if let Some(from) = &self.cloud_move {
+            let to = self.to.clone().ok_or("--cloud-move needs --to URL")?;
+            return Ok(Some(Action::CloudTransfer {
+                from: from.clone(),
+                to,
+                move_it: true,
+            }));
+        }
+        if let Some(url) = &self.cloud_delete {
+            return Ok(Some(Action::CloudDelete {
+                url: url.clone(),
+                recursive: self.recursive,
+            }));
+        }
+        if self.list_connections {
+            return Ok(Some(Action::ListConnections));
+        }
+        if let Some(spec) = &self.add_connection {
+            return Ok(Some(Action::AddConnection {
+                spec: spec.clone(),
+                secret_env: self.secret_env.clone(),
+            }));
+        }
+        if let Some(name) = &self.remove_connection {
+            return Ok(Some(Action::RemoveConnection(name.clone())));
+        }
         if self.mcp {
             return Ok(Some(Action::Mcp));
         }
@@ -1296,6 +1521,14 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             format: partition_format,
         } => partition::run(path, col, out_dir, partition_format),
         Action::DbQuery { conn, sql } => db::run_query(conn, sql, format),
+        Action::CloudLs { url, recursive } => cloud::ls(url, recursive, format),
+        Action::CloudGet { url, out } => cloud::get(url, out),
+        Action::CloudPut { file, url } => cloud::put(file, url),
+        Action::CloudTransfer { from, to, move_it } => cloud::transfer(from, to, move_it),
+        Action::CloudDelete { url, recursive } => cloud::delete(url, recursive),
+        Action::ListConnections => cloud::list_connections(format),
+        Action::AddConnection { spec, secret_env } => connections::add(spec, secret_env),
+        Action::RemoveConnection(name) => connections::remove(name),
         Action::DbTables { conn, catalog } => db::run_tables(conn, catalog, format),
         Action::DbWrite {
             conn,

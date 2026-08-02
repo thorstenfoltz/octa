@@ -141,7 +141,7 @@ pub fn render_markdown_view(
                 .resizable(true)
                 .min_size(150.0)
                 .default_size(editor_width)
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     render_editor_pane(
                         ui,
                         tab,
@@ -182,37 +182,29 @@ fn render_editor_pane(
     };
 
     // Line-number gutter, mirroring the Raw view editor
-    // (`raw_text::render_raw_view`). Numbers are right-aligned to the widest
-    // index and rendered in a non-interactive monospace TextEdit so they share
-    // the editor's line height and scroll position. Theme colours come from the
-    // active visuals so we needn't thread `theme_mode` through every caller.
+    // (`raw_text::render_raw_view`). Only the column is reserved here; the
+    // numbers are painted afterwards from the laid-out galley, so a line that
+    // wraps onto several rows still gets exactly one number. Theme colours come
+    // from the active visuals so we needn't thread `theme_mode` through every
+    // caller.
     let line_count = buffer.lines().count().max(1);
-    let line_num_text: String = (1..=line_count)
-        .map(|n| format!("{:>width$}", n, width = line_count.to_string().len()))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let line_num_width = line_count.to_string().len() as f32 * 8.0 + 16.0;
+    let line_num_width = super::text_ops::line_number_gutter_width(line_count);
     let mono_font = egui::FontId::new(13.0, egui::FontFamily::Monospace);
+    let mono_font_gutter = mono_font.clone();
     let muted = ui.visuals().weak_text_color();
     let border = ui.visuals().window_stroke().color;
 
-    // `desired_width(f32::INFINITY)` disables auto-wrap so long lines extend
-    // beyond the visible pane; the surrounding `ScrollArea::both` then
-    // provides horizontal scrolling instead of clipping or word-wrapping.
-    let response = egui::ScrollArea::both()
+    // The editor **wraps** at the pane width. It used to lay out unwrapped and
+    // lean on a horizontal scrollbar, which meant that narrowing the pane (the
+    // split view, or opening the sidebar next to it) pushed text out of sight
+    // instead of moving it to the next row.
+    let response = egui::ScrollArea::vertical()
         .id_salt("markdown_editor_scroll")
         .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.horizontal_top(|ui| {
-                ui.add_sized(
-                    [line_num_width, ui.available_height()],
-                    egui::TextEdit::multiline(&mut line_num_text.clone())
-                        .font(mono_font.clone())
-                        .interactive(false)
-                        .desired_width(line_num_width)
-                        .text_color(muted)
-                        .frame(egui::Frame::NONE),
-                );
+                let (gutter, _) =
+                    ui.allocate_exact_size(egui::vec2(line_num_width, 0.0), egui::Sense::hover());
                 ui.add_space(2.0);
                 let sep_rect = egui::Rect::from_min_size(
                     ui.cursor().left_top(),
@@ -226,14 +218,14 @@ fn render_editor_pane(
                 // Raw view editor (`raw_text::render_raw_view`).
                 let ed_ranges = search.ranges.to_vec();
                 let ed_current = search.current.cloned();
-                let mut layouter = move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _w: f32| {
+                let mut layouter = move |ui: &egui::Ui, text: &dyn egui::TextBuffer, w: f32| {
                     let mut job = egui::text::LayoutJob::simple(
                         text.as_str().to_owned(),
                         egui::FontId::new(13.0, egui::FontFamily::Monospace),
                         ui.visuals().text_color(),
-                        f32::INFINITY,
+                        w,
                     );
-                    job.wrap.max_width = f32::INFINITY;
+                    job.wrap.max_width = w;
                     crate::ui::search_highlight::apply_highlight(
                         &mut job,
                         &ed_ranges,
@@ -253,6 +245,15 @@ fn render_editor_pane(
                     .layouter(&mut layouter)
                     .show(ui);
 
+                super::text_ops::paint_wrapped_line_numbers(
+                    ui,
+                    &output.galley,
+                    output.galley_pos,
+                    gutter.right(),
+                    mono_font_gutter,
+                    muted,
+                );
+
                 // Follow a selection dragged past the edge of the pane, so it is
                 // not capped at the lines currently on screen.
                 super::text_ops::autoscroll_while_selecting(ui, &output.response);
@@ -262,11 +263,8 @@ fn render_editor_pane(
                 // `interactive(false)` blocks new insertions.
                 let had_tabs = !readonly && buffer.contains('\t');
                 if had_tabs {
-                    let cursor_idx = output.cursor_range.map(|r| r.primary.index).unwrap_or(0);
-                    let tabs_before = buffer[..cursor_idx.min(buffer.len())]
-                        .chars()
-                        .filter(|&c| c == '\t')
-                        .count();
+                    let cursor_idx = output.cursor_range.map_or(0, |r| r.primary.index.0);
+                    let tabs_before = super::text_ops::tabs_before_cursor(buffer, cursor_idx);
                     let spaces = " ".repeat(tab_size);
                     *buffer = buffer.replace('\t', &spaces);
                     let new_idx = cursor_idx + tabs_before * tab_size.saturating_sub(1);
@@ -843,7 +841,9 @@ fn open_link_under_pointer(
     galley: &egui::Galley,
     spans: &[(std::ops::Range<usize>, String)],
 ) {
-    let idx_at = |pos: egui::Pos2| galley.cursor_from_pos(pos - resp.rect.min).index;
+    // `spans` are char ranges (see `link_spans_finds_char_ranges`), and egui
+    // 0.35 hands back a `CharIndex`, so unwrap it into the same unit.
+    let idx_at = |pos: egui::Pos2| galley.cursor_from_pos(pos - resp.rect.min).index.0;
     if let Some(hover) = resp.hover_pos()
         && spans.iter().any(|(r, _)| r.contains(&idx_at(hover)))
     {

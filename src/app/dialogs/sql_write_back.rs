@@ -147,7 +147,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("sql_write_back_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new(octa::i18n::t("dialog.swb_title"))
@@ -166,7 +166,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
             return;
         }
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             egui::Grid::new("sql_write_back_grid")
                 .num_columns(2)
                 .spacing(egui::vec2(12.0, 6.0))

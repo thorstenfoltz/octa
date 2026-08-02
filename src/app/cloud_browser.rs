@@ -188,14 +188,6 @@ pub(crate) enum CloudOpenResult {
 /// keys; past this the listing stops and the tab shows a truncation notice.
 pub(crate) const INVENTORY_CAP: usize = 100_000;
 
-/// How many files a folder-union will download before it stops. Each file is
-/// downloaded to a temp and then fully read into memory by the Union dialog,
-/// so an unbounded folder (a data lake with tens of thousands of parts) would
-/// OOM. Past this, the union runs on the first `FOLDER_UNION_CAP` files and a
-/// status note reports the rest were skipped.
-// ponytail: fixed cap; make it a setting only if a real folder exceeds it.
-pub(crate) const FOLDER_UNION_CAP: usize = 500;
-
 /// One cloud object the user has ticked in the sidebar for a batch action.
 /// Carries the name as well as the key because the download needs the file
 /// extension to route the temp file to the right reader.
@@ -290,7 +282,7 @@ impl OctaApp {
         self.status_message = Some((octa::i18n::t("cloud.signed_out"), std::time::Instant::now()));
     }
 
-    fn find_cloud_conn(&self, conn_id: &str) -> Option<octa::cloud::CloudConnection> {
+    pub(crate) fn find_cloud_conn(&self, conn_id: &str) -> Option<octa::cloud::CloudConnection> {
         self.settings
             .cloud_connections
             .iter()
@@ -620,9 +612,13 @@ impl OctaApp {
                 if files.len() < 2 {
                     return CloudOpenResult::Failed(octa::i18n::t("union.need_two"));
                 }
-                // 2. Cap, then download each to a temp.
-                let mut skipped = files.len().saturating_sub(FOLDER_UNION_CAP);
-                files.truncate(FOLDER_UNION_CAP);
+                // 2. Cap, then download each to a temp. The Union dialog reads
+                //    every one of them fully into memory, so an uncapped data
+                //    lake would OOM. "Unlimited" resolves to `usize::MAX`,
+                //    i.e. no truncation at all.
+                let cap = settings.folder_union_cap();
+                let mut skipped = files.len().saturating_sub(cap);
+                files.truncate(cap);
                 // Listing done: switch the status-bar spinner over to the
                 // download phase, now that the count is known.
                 if let Ok(mut l) = label.lock() {
@@ -785,7 +781,7 @@ impl OctaApp {
     }
 
     /// Upload a cloud-opened tab's freshly-saved temp file back to its object.
-    /// Caller (`save_tab`) gates on `cloud_writes_enabled` and on the local
+    /// Caller (`save_tab`) gates on the connection's `allow_writes` and on the local
     /// save having completed. Runs on a worker; reports via `status`.
     pub(crate) fn upload_cloud_tab(&mut self, tab_idx: usize, local_path: std::path::PathBuf) {
         let Some(origin) = self.tabs[tab_idx].cloud_origin.clone() else {
@@ -997,5 +993,59 @@ mod sort_tests {
         assert_eq!(by_date[0].name, "zzz");
         assert_eq!(by_date[1].name, "b.csv");
         assert_eq!(by_date[2].name, "a.csv");
+    }
+}
+
+#[cfg(test)]
+mod bind_bucket_tests {
+    use super::bind_bucket;
+    use octa::cloud::{CloudConnection, CloudKind};
+
+    fn account_level(kind: CloudKind) -> CloudConnection {
+        let mut c = CloudConnection::ephemeral_s3("");
+        c.kind = kind;
+        c.bucket = String::new();
+        c.account_level = true;
+        c
+    }
+
+    #[test]
+    fn account_level_keys_carry_the_bucket() {
+        // The tree qualifies an account-level connection's keys as
+        // `<bucket>/<key>`, and its `bucket` field is empty. Anything that
+        // builds a provider from one has to split that back out first, or it
+        // addresses bucket "" with a key that still names the bucket.
+        let conn = account_level(CloudKind::Gcs);
+        let (bound, key) = bind_bucket(&conn, "my-bucket/data/file.parquet");
+        assert_eq!(bound.bucket, "my-bucket");
+        assert!(!bound.account_level, "bound connection is bucket-scoped");
+        assert_eq!(key, "data/file.parquet");
+
+        // A bucket root (no sub-key) still binds.
+        let (bound, key) = bind_bucket(&conn, "my-bucket");
+        assert_eq!(bound.bucket, "my-bucket");
+        assert_eq!(key, "");
+    }
+
+    #[test]
+    fn two_buckets_of_one_account_level_connection_are_different_stores() {
+        // The copy path picks the server-side lane when both ends share a
+        // bucket. Comparing the *unbound* connections would see two empty
+        // buckets and wrongly take that lane across genuinely different
+        // buckets.
+        let conn = account_level(CloudKind::Gcs);
+        let (a, _) = bind_bucket(&conn, "bucket-a/x.csv");
+        let (b, _) = bind_bucket(&conn, "bucket-b/x.csv");
+        assert_ne!(a.bucket, b.bucket);
+        assert_eq!(conn.bucket, "", "the unbound one would have compared equal");
+    }
+
+    #[test]
+    fn a_normal_connection_passes_through() {
+        let mut c = CloudConnection::ephemeral_s3("fixed-bucket");
+        c.account_level = false;
+        let (bound, key) = bind_bucket(&c, "data/file.csv");
+        assert_eq!(bound.bucket, "fixed-bucket");
+        assert_eq!(key, "data/file.csv");
     }
 }

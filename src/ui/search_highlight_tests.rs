@@ -52,11 +52,11 @@ fn apply_highlight_splits_and_colours() {
     apply_highlight(&mut job, &rs, Some(&rs[1]), normal, active);
     // Runs: [0..2 match-normal] [2..3 plain] [3..5 match-active]
     assert_eq!(job.sections.len(), 3);
-    assert_eq!(job.sections[0].byte_range, 0..2);
+    assert_eq!(job.sections[0].byte_range, ByteIndex(0)..ByteIndex(2));
     assert_eq!(job.sections[0].format.background, normal);
-    assert_eq!(job.sections[1].byte_range, 2..3);
+    assert_eq!(job.sections[1].byte_range, ByteIndex(2)..ByteIndex(3));
     assert_eq!(job.sections[1].format.background, Color32::TRANSPARENT);
-    assert_eq!(job.sections[2].byte_range, 3..5);
+    assert_eq!(job.sections[2].byte_range, ByteIndex(3)..ByteIndex(5));
     assert_eq!(job.sections[2].format.background, active);
 }
 

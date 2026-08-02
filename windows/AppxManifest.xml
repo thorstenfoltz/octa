@@ -23,8 +23,45 @@
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
   </Dependencies>
 
+  <!-- One entry per catalogue in locales/*.toml. This is what the Store
+       lists as the app's supported languages; with only en-us declared it
+       advertised Octa as English-only. Neutral BCP-47 codes because the
+       catalogues are language-level, not region-level (locales/de.toml, not
+       de-DE); en-us is left region-qualified as the default listing language.
+       Keep in sync with locales/ and docs/reference/languages.md. -->
   <Resources>
     <Resource Language="en-us" />
+    <Resource Language="bg" />
+    <Resource Language="cs" />
+    <Resource Language="da" />
+    <Resource Language="de" />
+    <Resource Language="el" />
+    <Resource Language="es" />
+    <Resource Language="et" />
+    <Resource Language="fi" />
+    <Resource Language="fr" />
+    <Resource Language="hr" />
+    <Resource Language="hu" />
+    <Resource Language="id" />
+    <Resource Language="it" />
+    <Resource Language="ja" />
+    <Resource Language="ko" />
+    <Resource Language="lt" />
+    <Resource Language="lv" />
+    <Resource Language="nl" />
+    <Resource Language="nb" />
+    <Resource Language="pl" />
+    <Resource Language="pt" />
+    <Resource Language="ro" />
+    <Resource Language="ru" />
+    <Resource Language="sk" />
+    <Resource Language="sl" />
+    <Resource Language="sr" />
+    <Resource Language="sv" />
+    <Resource Language="tr" />
+    <Resource Language="uk" />
+    <Resource Language="vi" />
+    <Resource Language="zh-hans" />
   </Resources>
 
   <Applications>

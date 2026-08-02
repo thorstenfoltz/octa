@@ -83,7 +83,7 @@ pub(crate) fn render_column_format_dialog(app: &mut OctaApp, ctx: &egui::Context
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("octa_column_format_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new(format!(
@@ -107,7 +107,7 @@ pub(crate) fn render_column_format_dialog(app: &mut OctaApp, ctx: &egui::Context
 
         // Footer first (bottom panel) so the buttons stay pinned and visible
         // no matter how tall the column list grows.
-        egui::Panel::bottom("octa_column_format_footer").show_inside(ui, |ui| {
+        egui::Panel::bottom("octa_column_format_footer").show(ui, |ui| {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 if ui.button(octa::i18n::t("column_format.done")).clicked() {
@@ -122,7 +122,7 @@ pub(crate) fn render_column_format_dialog(app: &mut OctaApp, ctx: &egui::Context
             });
         });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             // Decimals: free-text signed integer. Empty = Auto.
             ui.horizontal(|ui| {
                 ui.label(octa::i18n::t("column_format.decimals"));

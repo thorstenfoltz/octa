@@ -61,9 +61,10 @@ pub struct CloudConnection {
     /// project otherwise). None = the gcloud active project. Ignored elsewhere.
     #[serde(default)]
     pub project: Option<String>,
-    /// Per-connection write permission, checked IN ADDITION to the global
-    /// "Allow writing to cloud storage" switch (both must allow). Default
-    /// false: every connection is read-only until the user opts it in
+    /// Write permission for this connection: save-back, upload, and the
+    /// copy / move / delete operations. The **only** switch governing cloud
+    /// writes; there is deliberately no global one on top of it. Default
+    /// false, so every connection is read-only until the user opts it in
     /// (existing saved connections need the tick after upgrading).
     #[serde(default)]
     pub allow_writes: bool,

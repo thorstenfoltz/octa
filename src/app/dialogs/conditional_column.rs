@@ -53,7 +53,7 @@ pub(crate) fn render_conditional_column_dialog(app: &mut OctaApp, ctx: &egui::Co
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("ccol_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("ccol.title"))
@@ -74,7 +74,7 @@ pub(crate) fn render_conditional_column_dialog(app: &mut OctaApp, ctx: &egui::Co
 
         egui::Panel::bottom("ccol_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if ui.button(octa::i18n::t("ccol.apply")).clicked() {
                         apply = true;
@@ -87,7 +87,7 @@ pub(crate) fn render_conditional_column_dialog(app: &mut OctaApp, ctx: &egui::Co
                 });
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.label(
                 RichText::new(octa::i18n::t("ccol.desc"))
                     .size(10.0)

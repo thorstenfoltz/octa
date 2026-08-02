@@ -78,7 +78,7 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("union_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("union.title"))
@@ -99,7 +99,7 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
         egui::Panel::bottom("union_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if ui.button(octa::i18n::t("union.apply")).clicked() {
                         apply = true;
@@ -112,7 +112,7 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 });
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             // --- Source picker ---
             ui.label(
                 RichText::new(octa::i18n::t("union.sources_label"))

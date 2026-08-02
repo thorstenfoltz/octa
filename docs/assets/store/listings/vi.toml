@@ -1,0 +1,11 @@
+# vi: written natively, not translated from English.
+
+short = "Mở Parquet, CSV, Excel, SQLite và khoảng 30 định dạng dữ liệu khác trong bảng nhanh. Sắp xếp, lọc, tìm kiếm, chỉnh sửa và chạy SQL, hoàn toàn cục bộ."
+
+long = """
+Octa mở Parquet, CSV, Excel, SQLite, DuckDB, JSON và khoảng ba mươi định dạng khác ngay trong một bảng nhanh. Không cần nhập dữ liệu, không cần thiết lập.
+
+Sắp xếp, lọc, tìm kiếm và chỉnh sửa dữ liệu, truy vấn bằng SQL qua DuckDB, tạo biểu đồ hoặc so sánh hai tệp. Mọi thứ chạy trên máy của bạn và không tệp nào được tải lên.
+
+Giao diện có 32 ngôn ngữ. Phần mềm tự do theo giấy phép MIT.
+"""
