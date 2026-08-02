@@ -35,8 +35,12 @@ pub struct ChatModelProfile {
     pub description: String,
     pub kind: ChatProviderKind,
     pub model: String,
+    /// Sampling temperature, or `None` to leave the field out of the request
+    /// entirely. Newer models (Anthropic's Opus 4.7 generation onwards) reject
+    /// `temperature` outright with a 400, so "send nothing" has to be
+    /// expressible per profile, not just "send 0.0".
     #[serde(default)]
-    pub temperature: f32,
+    pub temperature: Option<f32>,
     /// Free-text thinking/reasoning value; empty means "no thinking".
     /// Interpreted per provider (OpenAI: `reasoning_effort`, so `low` /
     /// `medium` / `high`; Anthropic: a numeric token budget; Gemini: a numeric
@@ -124,7 +128,7 @@ pub fn seed_profile_from_legacy(settings: &AppSettings) -> ChatModelProfile {
         description: String::new(),
         kind,
         model,
-        temperature: settings.chat_temperature,
+        temperature: Some(settings.chat_temperature),
         reasoning: String::new(),
         base_url,
         use_own_key: false,
@@ -190,7 +194,7 @@ mod tests {
         assert_eq!(s.chat_active_profile, "default");
         assert_eq!(s.chat_profiles[0].kind, ChatProviderKind::Anthropic);
         assert_eq!(s.chat_profiles[0].model, "claude-opus-4-8");
-        assert_eq!(s.chat_profiles[0].temperature, 0.7);
+        assert_eq!(s.chat_profiles[0].temperature, Some(0.7));
     }
 
     #[test]
@@ -226,7 +230,7 @@ mod tests {
             description: String::new(),
             kind: ChatProviderKind::Anthropic,
             model: "claude-opus-4-8".into(),
-            temperature: 0.0,
+            temperature: Some(0.0),
             reasoning: String::new(),
             base_url: String::new(),
             use_own_key: false,
@@ -272,7 +276,7 @@ mod tests {
             description: "for the hard questions".into(),
             kind: ChatProviderKind::Anthropic,
             model: "claude-opus-4-8".into(),
-            temperature: 0.3,
+            temperature: Some(0.3),
             reasoning: "8000".into(),
             base_url: String::new(),
             use_own_key: true,
@@ -291,11 +295,57 @@ mod tests {
             .find(|p| p.id == "opus-deep")
             .expect("the profile survives the round trip");
         assert_eq!(p.kind, ChatProviderKind::Anthropic);
-        assert_eq!(p.temperature, 0.3);
+        assert_eq!(p.temperature, Some(0.3));
         assert_eq!(p.reasoning, "8000");
         assert_eq!(p.description, "for the hard questions");
         assert!(p.use_own_key);
         assert!(p.allow_writes);
+    }
+
+    #[test]
+    fn a_profile_without_temperature_round_trips_as_none() {
+        // "Send no temperature at all" is the setting that makes Anthropic's
+        // newer models usable. `AppSettings::save` swallows serialisation
+        // errors, so a `None` the TOML serialiser choked on would silently stop
+        // settings being written rather than fail loudly. Pin both directions.
+        let mut s = AppSettings::default();
+        ensure_profiles(&mut s);
+        s.chat_profiles.push(ChatModelProfile {
+            id: "opus-5".into(),
+            name: "Opus 5".into(),
+            description: String::new(),
+            kind: ChatProviderKind::Anthropic,
+            model: "claude-opus-5".into(),
+            temperature: None,
+            reasoning: String::new(),
+            base_url: String::new(),
+            use_own_key: false,
+            allow_writes: false,
+        });
+
+        let text = toml::to_string_pretty(&s).expect("settings must serialise");
+        let back: AppSettings = toml::from_str(&text).expect("settings must parse back");
+
+        let p = back
+            .chat_profiles
+            .iter()
+            .find(|p| p.id == "opus-5")
+            .expect("the profile survives the round trip");
+        assert_eq!(p.temperature, None);
+
+        // An older settings.toml wrote a bare number; it must still load.
+        let legacy: AppSettings = toml::from_str(
+            r#"
+            [[chat_profiles]]
+            id = "old"
+            name = "Old"
+            kind = "Anthropic"
+            model = "claude-opus-4-8"
+            temperature = 0.4
+            "#,
+        )
+        .expect("legacy profile parses");
+        assert_eq!(legacy.chat_profiles[0].temperature, Some(0.4));
     }
 
     #[test]
@@ -328,7 +378,7 @@ mod tests {
 
         assert_eq!(s.chat_profiles.len(), 1);
         assert_eq!(s.chat_profiles[0].kind, ChatProviderKind::OpenAi);
-        assert_eq!(s.chat_profiles[0].temperature, 0.5);
+        assert_eq!(s.chat_profiles[0].temperature, Some(0.5));
     }
 
     #[test]
@@ -341,7 +391,7 @@ mod tests {
             description: String::new(),
             kind: ChatProviderKind::Anthropic,
             model: "claude-sonnet-5".into(),
-            temperature: 0.2,
+            temperature: Some(0.2),
             reasoning: String::new(),
             base_url: String::new(),
             use_own_key: false,

@@ -58,7 +58,7 @@ pub(crate) fn render_partition_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("partition_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("partition.title"))
@@ -79,7 +79,7 @@ pub(crate) fn render_partition_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
         egui::Panel::bottom("partition_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if ui.button(octa::i18n::t("partition.apply")).clicked() {
                         apply = true;
@@ -92,7 +92,7 @@ pub(crate) fn render_partition_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 });
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let tab = &app.tabs[app.active_tab];
             let col_names: Vec<String> = tab.table.columns.iter().map(|c| c.name.clone()).collect();
 

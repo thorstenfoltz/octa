@@ -1,0 +1,11 @@
+# de: eigenstaendig verfasst / written natively, not translated.
+
+short = "Parquet, CSV, Excel, SQLite und rund 30 weitere Datenformate sofort im Blick. Sortieren, filtern, suchen, bearbeiten und SQL-Abfragen ausführen. Alles lokal."
+
+long = """
+Octa öffnet Parquet, CSV, Excel, SQLite, DuckDB, JSON und rund dreißig weitere Datenformate direkt in einer schnellen Tabelle. Ohne Import, ohne Einrichtung.
+
+Sortieren, filtern, durchsuchen und bearbeiten Sie die Daten, führen Sie DuckDB-SQL darauf aus, erstellen Sie Diagramme oder vergleichen Sie zwei Dateien. Alles läuft auf Ihrem Rechner, es werden keine Dateien hochgeladen.
+
+Oberfläche in 32 Sprachen. Freie Software unter MIT-Lizenz.
+"""

@@ -17,7 +17,7 @@ on the saved-keys one. -->
 ## Add a connection
 
 <!-- SCREENSHOT: cloud-settings.png: The Settings > Cloud storage section. At
-the top the "Allow writing to cloud storage" checkbox. Below it the list of
+the list of
 saved connections with aligned Edit / Remove buttons. Below that the "Add
 connection" form filled in for an S3 connection: Name, Provider = "S3 /
 S3-compatible", Bucket, Region, the Path-style / Allow HTTP / Public-anonymous
@@ -175,10 +175,15 @@ its bucket root, expand folders to drill in, and click a file to open it.
 
 ## Union several objects
 
-**Ctrl-click** objects to select them instead of opening them. A **_N_
-selected** bar appears at the top of the cloud section with a **Union...**
-button; right-clicking any selected object offers the same **Union** in its
-context menu.
+**Ctrl-click** objects to select them instead of opening them, or **drag**
+across the list to rubber-band a run of them. Dragging to the top or bottom
+edge scrolls the list, so a selection can reach past the objects currently on
+screen; hold **Ctrl** while dragging to add to what is already selected. A
+plain click without dragging still just opens the object.
+
+A **_N_ selected** bar appears at the top of the cloud section with a
+**Union...** button; right-clicking any selected object offers the same
+**Union** in its context menu.
 
 Octa downloads the selected objects in the background and opens the
 [Union](union-tables.md) dialog over them, with the same column
@@ -188,14 +193,109 @@ need not share a format.
 
 A plain click still just opens the object, and clears the selection.
 
+To take a whole folder instead, right-click the folder itself and choose
+**Union tables in this folder...**, or **Union tables in this folder and
+subfolders...** for a recursive sweep. Folder unions stop at the **Folder union
+file cap** in [Settings > Performance](../reference/settings.md#performance),
+500 files by default, and the status bar reports how many were skipped.
+
+## Copy, move and delete
+
+Right-click an object **or a folder** in the cloud tree: **Copy to...**,
+**Move to...** and **Delete**. All three work on a single object, on a whole
+folder (every object under it is included), or on **everything you have
+selected**: right-click any highlighted object and the menu entries show the
+count, e.g. **Copy to... (7)**. Right-clicking an object that is _not_ part of
+the selection still acts on that one object alone.
+
+**Copy to...** and **Move to...** open a small dialog with two fields: the
+target connection (any saved connection, not just the one you started from) and
+the destination path, with the resolved URL shown underneath so you can see
+exactly where it lands.
+
+A **folder** source needs a destination ending in `/`, and the folder's shape is
+recreated underneath it. **Several selected objects** likewise need a folder
+destination, and each keeps its own name side by side in it, whatever folders
+they came from. Two selected objects with the same filename will overwrite one
+another: Octa does not silently rename.
+
+When the operation has finished, the **Cancel** button becomes **Done** -
+there is nothing left to cancel, and the result line above it says what
+happened.
+
+Two things happen behind that dialog, and the difference matters for large
+objects:
+
+- **Within one bucket**, the provider copies server-side. No bytes travel
+  through Octa, so a 100 GB object costs one API call.
+- **Across buckets, accounts or providers** (S3 to GCS, one account to
+  another), the object is streamed in 8 MiB blocks straight into a multipart
+  upload on the destination. Memory stays flat no matter how big the object is.
+
+A **move** is a copy followed by deleting the source, because object stores have
+no rename. The delete only runs after every copy has succeeded, so an
+interrupted move leaves the source intact (and some already-written destination
+objects, which is the recoverable direction).
+
+Pressing **Delete** (`Entf` on a German keyboard) with objects selected and the
+pointer over the cloud list opens the same confirmation as the menu entry.
+`Backspace` does the same, for Mac keyboards without a forward-delete. The key
+never deletes on its own: the confirmation always appears first. It is ignored
+while anything else has keyboard focus, such as a search box or the SQL editor,
+so a Delete meant for something else cannot reach a selection left behind in the
+sidebar.
+
+!!! warning "Delete cannot be undone"
+    Unless the bucket has versioning enabled, a deleted object is gone. The
+    dialog says so, and a folder delete says how it differs. There is no
+    trash to recover from.
+
+The connection's own **Allow writes** applies, exactly as it does for saving.
+With it off, the dialog refuses before touching anything.
+
+One operation covers at most 10,000 objects. A folder move is not resumable, so
+Octa stops before starting rather than partway through; split a bigger job, or
+use the provider's own bulk tooling.
+
+### From the command line
+
+The same operations without the GUI, using saved connections when one covers
+the URL and ambient credentials otherwise:
+
+```bash
+octa --cloud-ls s3://bucket/prefix/            # one folder level
+octa --cloud-ls s3://bucket/ --recursive       # everything under it
+
+octa --cloud-get s3://bucket/data.parquet --out ./data.parquet
+octa --cloud-put ./data.parquet --to s3://bucket/data.parquet
+
+octa --cloud-copy s3://a/data/ --to gs://b/backup/     # streamed across clouds
+octa --cloud-move s3://a/old.csv --to s3://a/archive/old.csv
+octa --cloud-delete s3://a/old.csv
+octa --cloud-delete s3://a/scratch/ --recursive
+
+octa --list-connections                        # saved cloud + database connections
+```
+
+`--cloud-delete` on a folder requires `--recursive`, so a stray trailing slash
+cannot turn a one-object delete into a recursive one.
+
+### From the assistant or MCP
+
+The tools `copy_object`, `move_object` and `delete_object` do the same thing,
+and `list_objects` browses. They are **write tools**: `octa --mcp-read-only`
+drops them, and a chat profile without **Allow writes** never sees them.
+
 ## Saving back
 
 By default, cloud-opened files are **read-only**: pressing **Save** shows a
 reminder and does nothing. **Save As** to a local path always works and
 detaches the tab from the cloud.
 
-To save back to the object, turn on **Allow writing to cloud storage** in
-**Settings > Cloud storage**. Then **Save** writes the tab back to its original
+To save back to the object, turn on **Allow writes on this connection** for
+the connection it came from, in **Settings > Cloud storage**. Writing is
+permitted per connection and nowhere else: there is no second, global switch
+to also satisfy. Then **Save** writes the tab back to its original
 object. Uploads run in the background; the status bar reports success or
 failure.
 
@@ -214,7 +314,7 @@ save back to.
 
 ### Writing from the assistant and MCP
 
-The same **Allow writing to cloud storage** switch lets the in-app
+The same per-connection **Allow writes** switch lets the in-app
 [assistant](chatbot.md) write to the cloud: ask it to save a result to a cloud
 URL (`s3://bucket/out.parquet`, `gs://...`, `az://...`) and tools like
 `write_table`, `convert`, and `run_sql` (with `write_to`) upload it, to buckets

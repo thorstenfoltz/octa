@@ -886,7 +886,7 @@ impl OctaApp {
             // labels.
             .exact_size(28.0 + SCROLL_BAR_STRIP)
             .frame(tab_frame)
-            .show_inside(parent_ui, |ui| {
+            .show(parent_ui, |ui| {
                 // Scroll the row sideways once the tabs outrun the window,
                 // instead of clipping the overflow out of reach. egui only
                 // routes a plain (vertical) mouse wheel to a horizontal-only

@@ -66,6 +66,17 @@ with local files, a plain click still just opens the object.
 The status bar tracks both stages, so a slow bucket never looks like a freeze:
 first `Downloading files to union: 12/40`, then the reading count.
 
+Whole folders go in one action, with no object-by-object ticking: right-click a
+folder in the cloud tree and choose **Union tables in this folder...**, or
+**Union tables in this folder and subfolders...** for a recursive sweep. Octa
+lists the prefix, keeps the objects it can read, and unions those, so a prefix
+full of `part-*.parquet` becomes one table without picking the parts by hand.
+
+A folder union reads every file fully into memory, so it stops after **500**
+files by default and the status bar reports how many were skipped. Change that
+number, or tick **Unlimited**, under **Folder union file cap** in
+[Settings > Performance](../reference/settings.md#performance).
+
 ## Command line and assistant
 
 Also available as `octa --union` (see the [`--union`](../cli/union.md)

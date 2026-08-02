@@ -73,14 +73,14 @@ RUN if [ -n "$OCTA_VERSION" ]; then \
 # (other /etc files like the CA bundle are left untouched).
 RUN set -eux; \
     mkdir -p /out/usr/local/bin /out/usr/share/octa /out/usr/lib/x86_64-linux-gnu \
-             /out/etc /out/home/octa; \
+             /out/etc /out/home/octa /out/config; \
     cp target/release/octa            /out/usr/local/bin/octa; \
     cp THIRD_PARTY_LICENSES.md LICENSE /out/usr/share/octa/; \
     cp -r licenses                    /out/usr/share/octa/licenses; \
     cp /usr/lib/x86_64-linux-gnu/liblzma.so.5 /out/usr/lib/x86_64-linux-gnu/liblzma.so.5; \
     printf 'root:x:0:0:root:/root:/usr/sbin/nologin\nocta:x:65532:65532:octa:/home/octa:/usr/sbin/nologin\n' > /out/etc/passwd; \
     printf 'root:x:0:\nocta:x:65532:\n' > /out/etc/group; \
-    chown -R 65532:65532 /out/home/octa
+    chown -R 65532:65532 /out/home/octa /out/config
 
 # ---- runtime ----------------------------------------------------------------
 FROM gcr.io/distroless/cc-debian12
@@ -91,9 +91,28 @@ FROM gcr.io/distroless/cc-debian12
 COPY --from=builder /out/ /
 
 # Run as the non-root `octa` user so the container never executes as root.
-# HOME points at the owned home dir so config lookups (~/.config/octa) resolve.
+# HOME points at the owned home dir so config lookups (~/.config/octa) resolve
+# even if OCTA_CONFIG_DIR is overridden to nothing.
 USER octa:octa
 ENV HOME=/home/octa
+
+# One obvious place to mount settings.toml, instead of a nested
+# ~/.config/octa. Everything Octa persists (saved cloud / database
+# connections, MCP row + cell caps, chat profiles) lives in this one file, so
+# `-v ./octa-config:/config` is all it takes to make a container's setup
+# survive `docker run --rm`. Unmounted, the directory exists and is writable,
+# so the container still works; the settings just do not outlive it.
+# Deliberately no `VOLUME /config`: that would create an anonymous volume on
+# every un-mounted run, and they accumulate unless `--rm` is passed. The
+# directory exists and is writable either way.
+ENV OCTA_CONFIG_DIR=/config
+
+# distroless has no D-Bus and therefore no Secret Service, so the OS keyring
+# can never work here. Saying so up front skips the lookup entirely rather
+# than waiting for it to fail: secrets go straight to (and come from)
+# /config/settings.toml, which is chmod 0600. Mount that file from a real
+# secret store if the plaintext matters to you.
+ENV OCTA_NO_KEYRING=1
 
 # No default action flag: `docker run octa --mcp` starts the MCP server,
 # `docker run octa --schema /data/file.parquet` runs a one-shot CLI action.

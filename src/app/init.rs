@@ -155,6 +155,7 @@ impl OctaApp {
             pending_db_write_back: None,
             db_write_back_job: None,
             db_copy_dialog: None,
+            cloud_transfer_dialog: None,
             pending_parse_modal: None,
             schema_export: None,
             pivot_dialog: None,

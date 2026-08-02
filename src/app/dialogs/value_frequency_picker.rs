@@ -42,7 +42,7 @@ pub(crate) fn render_value_frequency_picker_dialog(app: &mut OctaApp, ctx: &egui
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("vfpick_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.vfpick_title"))
@@ -63,13 +63,13 @@ pub(crate) fn render_value_frequency_picker_dialog(app: &mut OctaApp, ctx: &egui
 
         egui::Panel::bottom("vfpick_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 if ui.button(octa::i18n::t("common.cancel")).clicked() {
                     close = true;
                 }
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.label(octa::i18n::t("dialog.vfpick_prompt"));
             ui.add_space(6.0);
 

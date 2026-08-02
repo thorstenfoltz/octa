@@ -300,7 +300,8 @@ it as a fresh tab first.
   [`grep_max_file_size_mb`](../reference/settings.md#performance)
   (default 50 MB) are skipped during the directory scan and
   appear in the **N file(s) skipped** chip with the actual size.
-  Set the cap to `0` to disable.
+  Tick **Unlimited** next to the setting to scan every file
+  whatever its size.
 - **Unparseable files.** When a reader fails on a specific file
   (binary blob, malformed text, encoding mismatch, …) Octa moves on
   to the next file and adds the failing one to the same skipped

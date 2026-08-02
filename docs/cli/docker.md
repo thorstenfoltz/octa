@@ -186,3 +186,55 @@ podman run --rm -i -v "$PWD:/data" octa --mcp
   `licenses/` directory, mirroring what `install.sh` ships.
 - The container runs as the non-root user `octa` (uid 65532) with home
   `/home/octa`, not root.
+
+## Persisting settings and connections
+
+Everything Octa persists is one file, `settings.toml`: saved cloud and
+database connections, the MCP row and cell caps, chat profiles. The image sets
+`OCTA_CONFIG_DIR=/config`, so mount a directory there to make any of it
+survive the container:
+
+```bash
+mkdir -p ./octa-config
+docker run --rm -i \
+  -v "$PWD/octa-config:/config" \
+  -v "$PWD:/data" \
+  octa --mcp
+```
+
+Without the mount the container still works; the settings simply do not
+outlive it.
+
+You can provision connections from the host, into that same directory, before
+starting the server:
+
+```bash
+docker run --rm -v "$PWD/octa-config:/config" -e S3_KEY octa \
+  --add-connection 'kind=s3,name=prod,bucket=my-bucket,region=eu-central-1' \
+  --secret-env S3_KEY
+
+docker run --rm -v "$PWD/octa-config:/config" octa --list-connections
+```
+
+`--secret-env` names an environment variable rather than taking the secret as
+an argument, so it never lands in `ps` output or an image layer.
+
+### There is no keyring in a container
+
+Distroless has no D-Bus and therefore no Secret Service, so secrets cannot go
+to an OS keyring. Octa falls back to `settings.toml`, which it writes chmod
+0600, and the image sets `OCTA_NO_KEYRING=1` so the doomed lookup is skipped
+rather than waited on. Every command that stores a secret says where it went:
+
+```
+secret stored in settings.toml as plain text (no OS keyring available)
+```
+
+If that matters, mount the file from a real secret store (a Kubernetes secret,
+a bind mount from a host vault) instead of writing it inside the container.
+
+### Changing the MCP limits
+
+The same file carries the MCP caps, so the row limit and cell cap are set the
+same way. See
+[Limits & truncation](../mcp/limits-and-truncation.md#changing-the-defaults-without-a-gui).

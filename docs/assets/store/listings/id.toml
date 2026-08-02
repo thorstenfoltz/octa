@@ -1,0 +1,11 @@
+# id: written natively, not translated from English.
+
+short = "Buka Parquet, CSV, Excel, SQLite, dan sekitar 30 format data lain dalam tabel cepat. Urutkan, saring, cari, sunting, dan jalankan SQL, semuanya lokal."
+
+long = """
+Octa membuka Parquet, CSV, Excel, SQLite, DuckDB, JSON, dan sekitar tiga puluh format lain langsung dalam tabel yang responsif. Tanpa impor, tanpa penyiapan.
+
+Urutkan, saring, cari, dan sunting data, kueri dengan SQL lewat DuckDB, buat grafik, atau bandingkan dua berkas. Semuanya berjalan di komputer Anda dan tidak ada berkas yang diunggah.
+
+Antarmuka dalam 32 bahasa. Perangkat lunak bebas dengan lisensi MIT.
+"""

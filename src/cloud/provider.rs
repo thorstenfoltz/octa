@@ -52,6 +52,83 @@ pub trait CloudProvider: Send + Sync {
     fn get(&self, key: &str) -> Result<Vec<u8>>;
     /// Upload bytes to `key` (overwrites).
     fn put(&self, key: &str, bytes: Vec<u8>) -> Result<()>;
+    /// Delete one object. Deleting a key that is not there is **not** an error
+    /// on most backends, and we do not make it one.
+    fn delete(&self, key: &str) -> Result<()>;
+    /// Copy `from` to `to` **inside this store**, server-side where the backend
+    /// supports it (S3/Azure/GCS all do), so the bytes never travel through
+    /// this process. Overwrites `to`.
+    fn copy(&self, from: &str, to: &str) -> Result<()>;
+
+    /// Read `key` in blocks, handing each to `on_chunk`, so a large object
+    /// never has to exist in memory in one piece.
+    ///
+    /// The default implementation is the honest non-streaming one (a single
+    /// chunk holding the whole object); [`ObjectStoreProvider`] overrides it.
+    fn get_streaming(
+        &self,
+        key: &str,
+        on_chunk: &mut dyn FnMut(&[u8]) -> Result<()>,
+    ) -> Result<()> {
+        on_chunk(&self.get(key)?)
+    }
+
+    /// Begin an upload that accepts the object in blocks. Mirrors
+    /// [`Self::get_streaming`] on the write side.
+    ///
+    /// No default: a buffered fallback would have to hold `&dyn Self`, and
+    /// silently reverting to "read it all into memory" is exactly the failure
+    /// mode streaming exists to avoid.
+    fn put_streaming(&self, key: &str) -> Result<Box<dyn CloudUpload + '_>>;
+}
+
+/// An in-progress streaming upload. Dropping one without calling
+/// [`CloudUpload::finish`] abandons it; backends that charge for orphaned
+/// multipart parts (S3, GCS) clean them up on their own lifecycle rules.
+pub trait CloudUpload {
+    /// Append one block. Blocks should be at least 5 MiB for S3-compatible
+    /// stores, which is what [`COPY_CHUNK_BYTES`] is sized for.
+    fn write_chunk(&mut self, bytes: Vec<u8>) -> Result<()>;
+    /// Finish the upload and make the object visible.
+    fn finish(self: Box<Self>) -> Result<()>;
+}
+
+/// Block size for streaming copies: 8 MiB, comfortably over the 5 MiB
+/// minimum part size S3-compatible stores impose on all but the last part.
+pub const COPY_CHUNK_BYTES: usize = 8 * 1024 * 1024;
+
+/// Copy one object between two (possibly different) providers without holding
+/// it in memory: the source is read in blocks and each block is handed straight
+/// to a multipart upload on the destination.
+///
+/// For a copy *within* one store call [`CloudProvider::copy`] instead; that is
+/// server-side and moves no bytes at all.
+pub fn copy_across(
+    src: &dyn CloudProvider,
+    src_key: &str,
+    dst: &dyn CloudProvider,
+    dst_key: &str,
+) -> Result<()> {
+    let mut upload = dst.put_streaming(dst_key)?;
+    // Re-block the source stream to COPY_CHUNK_BYTES: a provider may hand us
+    // whatever chunk size its transport produced, and S3 rejects non-final
+    // parts under 5 MiB.
+    let mut pending: Vec<u8> = Vec::with_capacity(COPY_CHUNK_BYTES);
+    let mut sink = |chunk: &[u8]| -> Result<()> {
+        pending.extend_from_slice(chunk);
+        while pending.len() >= COPY_CHUNK_BYTES {
+            let rest = pending.split_off(COPY_CHUNK_BYTES);
+            let part = std::mem::replace(&mut pending, rest);
+            upload.write_chunk(part)?;
+        }
+        Ok(())
+    };
+    src.get_streaming(src_key, &mut sink)
+        .with_context(|| format!("copying {src_key} to {dst_key}"))?;
+    if !pending.is_empty() {
+        upload.write_chunk(pending)?;
+    }
+    upload.finish()
 }
 
 /// A [`CloudProvider`] backed by any `object_store` implementation
@@ -161,6 +238,85 @@ impl CloudProvider for ObjectStoreProvider {
         runtime()
             .block_on(self.store.put(&path, PutPayload::from(bytes)))
             .with_context(|| format!("uploading cloud object {key}"))?;
+        Ok(())
+    }
+
+    fn delete(&self, key: &str) -> Result<()> {
+        let path = ObjPath::from(key);
+        runtime()
+            .block_on(self.store.delete(&path))
+            .with_context(|| format!("deleting cloud object {key}"))?;
+        Ok(())
+    }
+
+    fn copy(&self, from: &str, to: &str) -> Result<()> {
+        let (from_p, to_p) = (ObjPath::from(from), ObjPath::from(to));
+        runtime()
+            .block_on(self.store.copy(&from_p, &to_p))
+            .with_context(|| format!("copying cloud object {from} to {to}"))?;
+        Ok(())
+    }
+
+    fn get_streaming(
+        &self,
+        key: &str,
+        on_chunk: &mut dyn FnMut(&[u8]) -> Result<()>,
+    ) -> Result<()> {
+        use futures_util::TryStreamExt;
+        let path = ObjPath::from(key);
+        let rt = runtime();
+        // One `block_on` per await, never one around the whole loop: `on_chunk`
+        // is free to block on the runtime itself (a cross-cloud copy writes
+        // each block with a multipart upload), and a `block_on` nested inside
+        // another one panics with "Cannot start a runtime from within a
+        // runtime". Entering and leaving per chunk keeps the callback outside
+        // any runtime context.
+        let mut stream = rt
+            .block_on(async { self.store.get(&path).await })
+            .with_context(|| format!("opening cloud object {key}"))?
+            .into_stream();
+        loop {
+            let next = rt
+                .block_on(stream.try_next())
+                .with_context(|| format!("streaming cloud object {key}"))?;
+            match next {
+                Some(bytes) => on_chunk(&bytes)?,
+                None => return Ok(()),
+            }
+        }
+    }
+
+    fn put_streaming(&self, key: &str) -> Result<Box<dyn CloudUpload + '_>> {
+        let path = ObjPath::from(key);
+        let upload = runtime()
+            .block_on(self.store.put_multipart(&path))
+            .with_context(|| format!("starting a multipart upload to {key}"))?;
+        Ok(Box::new(MultipartCloudUpload {
+            upload,
+            key: key.to_string(),
+        }))
+    }
+}
+
+/// Streaming upload backed by `object_store`'s multipart API. Each
+/// `write_chunk` is one part; `finish` completes the upload.
+struct MultipartCloudUpload {
+    upload: Box<dyn object_store::MultipartUpload>,
+    key: String,
+}
+
+impl CloudUpload for MultipartCloudUpload {
+    fn write_chunk(&mut self, bytes: Vec<u8>) -> Result<()> {
+        runtime()
+            .block_on(self.upload.put_part(PutPayload::from(bytes)))
+            .with_context(|| format!("uploading a part of {}", self.key))?;
+        Ok(())
+    }
+
+    fn finish(mut self: Box<Self>) -> Result<()> {
+        runtime()
+            .block_on(self.upload.complete())
+            .with_context(|| format!("completing the upload of {}", self.key))?;
         Ok(())
     }
 }

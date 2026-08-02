@@ -11,7 +11,7 @@ use serde_json::{Map, Value, json};
 
 use crate::app::chat::types::{ChatEvent, ContentBlock, Message, Role, StopReason, ToolDef};
 
-use super::{ChatProvider, ProviderConfig, stream_sse};
+use super::{ChatProvider, ProviderConfig, Reasoning, parse_reasoning, stream_sse};
 
 const BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -146,10 +146,27 @@ fn build_body(
         );
     }
     let mut generation_config = Map::new();
-    generation_config.insert("temperature".into(), json!(cfg.temperature));
+    if let Some(t) = cfg.temperature {
+        generation_config.insert("temperature".into(), json!(t));
+    }
     // `None` => unlimited: omit the cap and let the model use its own default.
     if let Some(max) = cfg.max_tokens {
         generation_config.insert("maxOutputTokens".into(), json!(max));
+    }
+    // Thinking. Gemini 3 and later take a `thinkingLevel` word; 2.5 takes a
+    // numeric `thinkingBudget` (0 off, -1 dynamic). Sending both in one request
+    // is a 400, so the profile's value picks exactly one.
+    match parse_reasoning(cfg.reasoning.as_deref()) {
+        None => {}
+        Some(Reasoning::Effort(level)) => {
+            generation_config.insert(
+                "thinkingConfig".into(),
+                json!({ "thinkingLevel": level.to_lowercase() }),
+            );
+        }
+        Some(Reasoning::Budget(budget)) => {
+            generation_config.insert("thinkingConfig".into(), json!({ "thinkingBudget": budget }));
+        }
     }
     body.insert("generationConfig".into(), Value::Object(generation_config));
     Value::Object(body)

@@ -2,7 +2,7 @@
 //! connections (Settings -> Databases). Read-only; never touches the network.
 
 use rmcp::ErrorData as McpError;
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::{CallToolResult, ContentBlock};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -43,7 +43,7 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     let ctx = server.tool_context();
     let payload = run(&ctx, &p)
         .map_err(|e| McpError::invalid_params(format!("list_db_connections failed: {e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))
 }

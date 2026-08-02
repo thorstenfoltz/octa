@@ -10,7 +10,7 @@ fn cfg(reasoning: Option<&str>, max_tokens: Option<usize>) -> ProviderConfig {
         model: "gpt-5.5".into(),
         base_url: None,
         api_key: "k".into(),
-        temperature: 0.4,
+        temperature: Some(0.4),
         max_tokens,
         reasoning: reasoning.map(str::to_string),
     }

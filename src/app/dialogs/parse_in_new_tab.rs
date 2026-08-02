@@ -109,7 +109,7 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("parse_in_new_tab_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new(octa::i18n::t("edit_menu.parse_in_new_tab"))
@@ -128,7 +128,7 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
             return;
         }
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let Some(state) = app.pending_parse_modal.as_mut() else {
                 return;
             };

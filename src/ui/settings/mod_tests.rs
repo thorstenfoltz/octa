@@ -97,6 +97,31 @@ fn restrict_dir_to_owner_sets_0700() {
 }
 
 #[test]
+fn folder_union_cap_honours_unlimited() {
+    // The cap is fed straight to `Vec::truncate`, so "unlimited" has to come
+    // back as a value that truncates nothing.
+    let mut s = AppSettings::default();
+    assert_eq!(s.folder_union_cap(), 500);
+    s.folder_union_max_files = 12;
+    assert_eq!(s.folder_union_cap(), 12);
+    s.folder_union_max_files_unlimited = true;
+    assert_eq!(s.folder_union_cap(), usize::MAX);
+}
+
+#[test]
+fn grep_max_file_bytes_honours_unlimited_and_legacy_zero() {
+    // The scan worker's contract is "0 bytes = no cap", so both the checkbox
+    // and a legacy `grep_max_file_size_mb = 0` have to arrive there as 0.
+    let mut s = AppSettings::default();
+    assert_eq!(s.grep_max_file_bytes(), 50 * 1024 * 1024);
+    s.grep_max_file_size_mb = 0;
+    assert_eq!(s.grep_max_file_bytes(), 0);
+    s.grep_max_file_size_mb = 8;
+    s.grep_max_file_size_unlimited = true;
+    assert_eq!(s.grep_max_file_bytes(), 0);
+}
+
+#[test]
 fn chat_provider_ids_are_stable_and_distinct() {
     // The ids key persisted maps and the keyring entry; they must stay
     // unique and must not change silently.
@@ -109,4 +134,34 @@ fn chat_provider_ids_are_stable_and_distinct() {
     sorted.sort_unstable();
     sorted.dedup();
     assert_eq!(sorted.len(), ids.len(), "provider ids must be distinct");
+}
+
+#[test]
+fn mcp_unlimited_row_limit_survives_a_save_and_load() {
+    // `None` means "no default cap". Serde omits a `None` field, and the
+    // omitted key then re-reads through `default_mcp_row_limit` as Some(1000),
+    // so ticking Settings -> MCP -> Unlimited silently reverted on restart.
+    // It is persisted as `0` instead, which is also what a per-call `limit: 0`
+    // means.
+    let mut s = AppSettings {
+        mcp_default_row_limit: None,
+        ..Default::default()
+    };
+    let text = toml::to_string_pretty(&s).expect("serialize");
+    assert!(
+        text.contains("mcp_default_row_limit = 0"),
+        "unlimited must be written as an explicit 0, got:\n{text}"
+    );
+    let back: AppSettings = toml::from_str(&text).expect("round-trip");
+    assert_eq!(back.mcp_default_row_limit, None);
+
+    // A real cap still round-trips as itself, and an absent key still falls
+    // back to the 1000-row default.
+    s.mcp_default_row_limit = Some(5000);
+    let text = toml::to_string_pretty(&s).expect("serialize");
+    let back: AppSettings = toml::from_str(&text).expect("round-trip");
+    assert_eq!(back.mcp_default_row_limit, Some(5000));
+
+    let bare: AppSettings = toml::from_str("font_size = 13.0").expect("partial settings parse");
+    assert_eq!(bare.mcp_default_row_limit, Some(1000));
 }

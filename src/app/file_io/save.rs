@@ -148,12 +148,10 @@ impl OctaApp {
         let Some(origin) = self.tabs[tab_idx].cloud_origin.as_ref() else {
             return true;
         };
-        self.settings.cloud_writes_enabled
-            && self
-                .settings
-                .cloud_connections
-                .iter()
-                .any(|c| c.id == origin.conn_id && c.allow_writes)
+        self.settings
+            .cloud_connections
+            .iter()
+            .any(|c| c.id == origin.conn_id && c.allow_writes)
     }
 
     pub(crate) fn export_sql_result(&mut self) {

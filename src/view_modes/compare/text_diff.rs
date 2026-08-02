@@ -373,8 +373,8 @@ fn render_pane(
                     // menu can copy it (a right-click collapses the live one).
                     let stash_id = ui.make_persistent_id(("compare_diff_sel", tag));
                     if let Some(range) = out.cursor_range {
-                        let a = range.primary.index.min(range.secondary.index);
-                        let b = range.primary.index.max(range.secondary.index);
+                        let (p, s) = (range.primary.index.0, range.secondary.index.0);
+                        let (a, b) = (p.min(s), p.max(s));
                         if b > a {
                             let sel: String = content_text.chars().skip(a).take(b - a).collect();
                             ui.ctx().data_mut(|d| d.insert_temp(stash_id, sel));

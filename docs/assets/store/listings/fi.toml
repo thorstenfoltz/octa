@@ -1,0 +1,11 @@
+# fi: eigenstaendig verfasst / written natively, not translated.
+
+short = "Avaa Parquet-, CSV-, Excel-, SQLite- ja noin 30 muuta datamuotoa nopeaan taulukkoon. Lajittele, suodata, hae, muokkaa ja aja SQL-kyselyitä paikallisesti."
+
+long = """
+Octa avaa Parquet-, CSV-, Excel-, SQLite-, DuckDB- ja JSON-tiedostot sekä noin kolmekymmentä muuta muotoa suoraan nopeaan taulukkoon. Ei tuontia, ei asetuksia.
+
+Lajittele, suodata, hae ja muokkaa dataa, kysele sitä DuckDB:n SQL:llä, luo kaavioita tai vertaa kahta tiedostoa. Kaikki toimii omalla koneellasi, eikä tiedostoja ladata mihinkään.
+
+Käyttöliittymä 32 kielellä. Vapaa ohjelmisto MIT-lisenssillä.
+"""

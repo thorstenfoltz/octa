@@ -128,7 +128,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("time_calc_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.tc_title"))
@@ -147,7 +147,7 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             return;
         }
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             // Fill the window in both axes so the resize handles drag freely
             // instead of the window snapping back to content height.
             egui::ScrollArea::vertical()

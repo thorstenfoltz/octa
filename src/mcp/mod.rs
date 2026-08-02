@@ -103,6 +103,9 @@ impl OctaMcpServer {
                 "partition_table",
                 "write_db_table",
                 "copy_db_table",
+                "copy_object",
+                "move_object",
+                "delete_object",
             ] {
                 tool_router.remove_route(name);
             }
@@ -210,6 +213,51 @@ the account name)."
         Parameters(p): Parameters<tools::list_objects::Params>,
     ) -> Result<CallToolResult, McpError> {
         tools::list_objects::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Copy a cloud object, or every object under a prefix, to another location. \
+`from` and `to` are cloud URLs (`s3://bucket/key`, `az://container/key`, `gs://bucket/key`). A \
+`from` ending in `/` copies the whole folder recursively and recreates its shape under `to`. \
+Source and destination may be different buckets, accounts or providers (S3 -> GCS works); a copy \
+inside one bucket is server-side, a copy across buckets is streamed in blocks so object size does \
+not drive memory. The source is never modified. Refuses to copy a folder into itself, and refuses \
+more than 10,000 objects in one call."
+    )]
+    async fn copy_object(
+        &self,
+        Parameters(p): Parameters<tools::copy_object::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::copy_object::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Move a cloud object, or every object under a prefix, to another location: \
+a copy followed by deleting the source. `from` and `to` are cloud URLs; a `from` ending in `/` \
+moves the whole folder recursively. Works across buckets, accounts and providers. Object stores \
+have no rename, so this is genuinely copy-then-delete: the delete only runs after every copy \
+succeeded. Refuses more than 10,000 objects in one call. Use `copy_object` when the source should \
+survive."
+    )]
+    async fn move_object(
+        &self,
+        Parameters(p): Parameters<tools::move_object::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::move_object::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Delete a cloud object, or every object under a prefix. `url` is a cloud \
+URL; ending it in `/` deletes the whole folder recursively, which additionally requires \
+`recursive: true`. **This cannot be undone** unless the bucket has versioning on. Deleting a key \
+that does not exist is not an error. Refuses more than 10,000 objects in one call. Prefer \
+`move_object` to an archive prefix when the data might still be wanted."
+    )]
+    async fn delete_object(
+        &self,
+        Parameters(p): Parameters<tools::delete_object::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::delete_object::handle(self, p).await
     }
 
     #[tool(
@@ -751,8 +799,11 @@ impl ServerHandler for OctaMcpServer {
              describe_file, unique_columns, pivot, correlation, grep_files, transform_columns, \
              list_db_connections, list_db_tables, query_db, write_db_table, copy_db_table."
         );
+        // NOT `Implementation::from_build_env()`: its `env!` macros expand
+        // inside the rmcp crate, so it reports the server as `rmcp` at
+        // rmcp's version. Clients show this name to the user.
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::from_build_env())
+            .with_server_info(Implementation::new("octa", env!("CARGO_PKG_VERSION")))
             .with_protocol_version(ProtocolVersion::V_2024_11_05)
             .with_instructions(instructions)
     }

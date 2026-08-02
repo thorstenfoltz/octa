@@ -180,7 +180,7 @@ impl OctaApp {
                     .resizable(true)
                     .default_size(580.0)
                     .min_size(380.0)
-                    .show_inside(parent_ui, |ui| self.render_chat_body(ui))
+                    .show(parent_ui, |ui| self.render_chat_body(ui))
                     .response
                     .rect
             }
@@ -189,7 +189,7 @@ impl OctaApp {
                     .resizable(true)
                     .default_size(580.0)
                     .min_size(380.0)
-                    .show_inside(parent_ui, |ui| self.render_chat_body(ui))
+                    .show(parent_ui, |ui| self.render_chat_body(ui))
                     .response
                     .rect
             }
@@ -198,7 +198,7 @@ impl OctaApp {
                     .resizable(true)
                     .default_size(320.0)
                     .min_size(160.0)
-                    .show_inside(parent_ui, |ui| self.render_chat_body(ui))
+                    .show(parent_ui, |ui| self.render_chat_body(ui))
                     .response
                     .rect
             }
@@ -207,7 +207,7 @@ impl OctaApp {
                     .resizable(true)
                     .default_size(320.0)
                     .min_size(160.0)
-                    .show_inside(parent_ui, |ui| self.render_chat_body(ui))
+                    .show(parent_ui, |ui| self.render_chat_body(ui))
                     .response
                     .rect
             }
@@ -221,10 +221,10 @@ impl OctaApp {
         // Input docked at the bottom; messages fill the rest.
         egui::Panel::bottom("octa_chat_input")
             .resizable(false)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 self.render_chat_input(ui);
             });
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             self.render_chat_messages(ui);
         });
     }
@@ -434,7 +434,7 @@ impl OctaApp {
                     self.chat
                         .input
                         .char_indices()
-                        .nth(r.primary.index)
+                        .nth(r.primary.index.0)
                         .map(|(i, _)| i)
                         .unwrap_or(self.chat.input.len())
                 })

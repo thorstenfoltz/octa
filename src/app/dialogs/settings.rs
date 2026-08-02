@@ -7,9 +7,19 @@ use eframe::egui;
 
 use super::super::init::render_icon;
 use super::super::state::OctaApp;
+use crate::app::chat::providers::{config_for_profile, make_provider};
+use crate::app::chat::types::{ChatEvent, Message};
 
 pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
-    let Some(new_settings) = app.settings_dialog.show(ctx, app.logo_texture.as_ref()) else {
+    let applied = app.settings_dialog.show(ctx, app.logo_texture.as_ref());
+
+    // The chat profile form asks for a connection test by leaving a request
+    // behind; the providers live here, not in the library-side dialog.
+    if let Some(req) = app.settings_dialog.chat_test_request.take() {
+        spawn_chat_test(req);
+    }
+
+    let Some(new_settings) = applied else {
         return;
     };
 
@@ -126,6 +136,51 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         #[cfg(target_os = "linux")]
         refresh_linux_desktop_icon(svg_src);
     }
+}
+
+/// Run one tiny real turn against the profile under test, on a worker thread.
+/// It goes through the same provider adapter and the same `ProviderConfig`
+/// builder as a normal chat turn, so anything the API rejects about the profile
+/// (bad key, unknown model, a `temperature` the model refuses, a thinking value
+/// in the wrong dialect, an unreachable Ollama) surfaces here rather than on
+/// the user's first question.
+fn spawn_chat_test(req: octa::ui::settings::ChatTestRequest) {
+    std::thread::spawn(move || {
+        let kind = req.profile.kind;
+        let res = if kind.needs_api_key() && req.api_key.trim().is_empty() {
+            Err(octa::i18n::t("chat.no_key_hint"))
+        } else {
+            // A small cap keeps the probe cheap; the providers lift it
+            // themselves where their API demands more (Anthropic thinking).
+            let cfg =
+                config_for_profile(&req.profile, &req.fallback_base_url, req.api_key, Some(64));
+            let cancel = std::sync::atomic::AtomicBool::new(false);
+            let mut reply = String::new();
+            make_provider(kind)
+                .stream_turn(
+                    &cfg,
+                    "Reply with the single word OK.",
+                    &[Message::user_text("ping")],
+                    &[],
+                    &cancel,
+                    &mut |ev| match ev {
+                        ChatEvent::TextDelta(t) => reply.push_str(&t),
+                        ChatEvent::Error(e) => reply = format!("!{e}"),
+                        _ => {}
+                    },
+                )
+                .and_then(|()| match reply.strip_prefix('!') {
+                    // A mid-stream error event is a failure even though the
+                    // HTTP call itself succeeded.
+                    Some(e) => Err(e.to_string()),
+                    None => Ok(reply.trim().chars().take(60).collect::<String>()),
+                })
+        };
+        if let Ok(mut g) = req.slot.lock() {
+            *g = Some(res);
+        }
+        req.ctx.request_repaint();
+    });
 }
 
 #[cfg(target_os = "linux")]

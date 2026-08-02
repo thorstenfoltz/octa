@@ -187,7 +187,7 @@ pub fn draw_toolbar(
             // window's drag handle (see above), and drag-to-scroll would
             // swallow that gesture.
             .scroll_source(egui::scroll_area::ScrollSource {
-                drag: false,
+                drag: egui::scroll_area::DragScroll::Never,
                 ..egui::scroll_area::ScrollSource::ALL
             })
             .show(ui, |ui| {

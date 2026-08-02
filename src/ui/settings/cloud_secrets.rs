@@ -9,6 +9,14 @@ use crate::cloud::{CloudConnection, CloudSecret, ProviderCreds, resolve_ambient_
 const KEYRING_SERVICE: &str = "octa";
 
 fn keyring_entry(connection_id: &str) -> Result<keyring::Entry, keyring::Error> {
+    // Honour the same OCTA_NO_KEYRING escape hatch as the chat keys, so a
+    // container without D-Bus takes the plaintext path immediately rather
+    // than waiting for a Secret Service lookup to fail.
+    if super::secrets::keyring_disabled() {
+        return Err(keyring::Error::NoStorageAccess(Box::new(
+            std::io::Error::other("keyring disabled by OCTA_NO_KEYRING"),
+        )));
+    }
     keyring::Entry::new(KEYRING_SERVICE, &format!("cloud.{connection_id}.secret"))
 }
 
@@ -101,7 +109,6 @@ mod tests {
     #[test]
     fn defaults_are_off_and_empty() {
         let s = AppSettings::default();
-        assert!(!s.cloud_writes_enabled);
         assert!(s.cloud_connections.is_empty());
         assert!(s.cloud_secrets.is_empty());
     }

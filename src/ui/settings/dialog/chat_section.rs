@@ -12,8 +12,25 @@ use egui;
 
 use crate::ui::settings::chat_profiles::ChatModelProfile;
 use crate::ui::settings::{
-    ChatPanelPosition, ChatProviderKind, SettingsDialog, chat_models, secrets,
+    ChatPanelPosition, ChatProviderKind, ChatTestRequest, SettingsDialog, chat_models,
+    chat_troubleshoot, secrets,
 };
+
+/// Parse the temperature buffer. Comma-tolerant, like the other numeric
+/// settings buffers. **Blank means `None`**: no `temperature` field is sent at
+/// all, which is the only thing models that reject the parameter accept.
+/// An unparseable value is treated the same way rather than silently
+/// substituting a number the user did not type.
+fn parse_optional_temperature(buf: &str) -> Option<f32> {
+    let s = buf.trim();
+    if s.is_empty() {
+        return None;
+    }
+    s.replace(',', ".")
+        .parse::<f32>()
+        .ok()
+        .map(|t| t.clamp(0.0, 2.0))
+}
 
 impl SettingsDialog {
     /// The profile list (edit / remove per row) above the add/edit form.
@@ -151,22 +168,51 @@ impl SettingsDialog {
                 ui.end_row();
 
                 ui.label(t("chat.temperature"))
-                    .on_hover_text(crate::i18n::t("settings_hint.chat_temperature"));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.chat_profile_form_temp)
-                        .desired_width(100.0)
-                        .hint_text("0.0"),
-                );
+                    .on_hover_text(t("chat.temperature_off_hint"));
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.chat_profile_form_temp)
+                            .desired_width(100.0),
+                    )
+                    .on_hover_text(t("chat.temperature_off_hint"));
+                    ui.label(
+                        egui::RichText::new(t("chat.temperature_off"))
+                            .weak()
+                            .size(11.0),
+                    )
+                    .on_hover_text(t("chat.temperature_off_hint"));
+                });
                 ui.end_row();
 
+                // The thinking control is per provider and each spells it
+                // differently, so the tooltip names what THIS provider takes
+                // rather than listing all of them and leaving the user to guess
+                // whether, say, 8000 is a lot.
+                let reasoning_help = format!(
+                    "{}\n\n{}",
+                    t("chat.reasoning_hint"),
+                    t(match self.chat_profile_form_kind {
+                        ChatProviderKind::Anthropic => "chat.reasoning_help_anthropic",
+                        ChatProviderKind::Gemini => "chat.reasoning_help_gemini",
+                        _ => "chat.reasoning_help_openai",
+                    })
+                );
                 ui.label(t("chat.reasoning"))
-                    .on_hover_text(t("chat.reasoning_hint"));
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.chat_profile_form_reasoning)
-                        .desired_width(200.0)
-                        .hint_text(t("chat.reasoning_ph")),
-                )
-                .on_hover_text(t("chat.reasoning_hint"));
+                    .on_hover_text(reasoning_help.clone());
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.chat_profile_form_reasoning)
+                            .desired_width(200.0)
+                            .hint_text(t("chat.reasoning_ph")),
+                    )
+                    .on_hover_text(reasoning_help.clone());
+                    ui.label(
+                        egui::RichText::new(t("chat.reasoning_off"))
+                            .weak()
+                            .size(11.0),
+                    )
+                    .on_hover_text(reasoning_help);
+                });
                 ui.end_row();
 
                 // Only the endpoint-based providers have a base URL to set.
@@ -232,18 +278,97 @@ impl SettingsDialog {
                 }
             });
 
+        // Drain a finished connection test into the status line.
+        if let Some(slot) = &self.chat_test_result
+            && let Some(res) = slot.lock().ok().and_then(|mut g| g.take())
+        {
+            self.chat_test_msg = Some(match res {
+                Ok(reply) => {
+                    self.chat_test_hint = None;
+                    (true, format!("{} {reply}", t("db.test_ok")))
+                }
+                Err(e) => {
+                    // Name the field to fix; the provider's own words stay too.
+                    self.chat_test_hint =
+                        chat_troubleshoot::hint_for(self.chat_profile_form_kind, &e);
+                    (false, format!("{} {e}", t("db.test_failed")))
+                }
+            });
+            self.chat_test_result = None;
+        }
+
         ui.horizontal(|ui| {
             if ui.button(t("chat.save_profile")).clicked() {
                 self.save_chat_profile_form();
+            }
+            let testing = self.chat_test_result.is_some();
+            if ui
+                .add_enabled(!testing, egui::Button::new(t("db.test_connection")))
+                .on_hover_text(t("chat.test_hint"))
+                .clicked()
+            {
+                self.start_chat_test(ui.ctx().clone());
+            }
+            if testing {
+                ui.spinner();
+                ui.label(t("db.test_running"));
             }
             if editing && ui.button(t("cloud.cancel_edit")).clicked() {
                 self.clear_chat_profile_form();
             }
         });
+        if let Some((ok, msg)) = &self.chat_test_msg {
+            // Own row + wrapped: a provider's error is long, and the useful
+            // half is at the end.
+            crate::ui::settings::draw_result_message(ui, *ok, msg);
+            if let Some(key) = self.chat_test_hint {
+                ui.add(egui::Label::new(egui::RichText::new(t(key)).size(11.0)).wrap());
+            }
+        }
 
         if let Some(msg) = self.chat_profile_status.clone() {
             ui.label(egui::RichText::new(msg).size(11.0));
         }
+    }
+
+    /// Hand the profile the form describes to the app, which owns the provider
+    /// adapters, and wait for the outcome in `chat_test_result`. The dialog
+    /// lives in the library and the providers in the binary, so the request
+    /// travels as data rather than as a call.
+    fn start_chat_test(&mut self, ctx: egui::Context) {
+        let profile = self.profile_from_form();
+        // Resolve the key exactly as the panel would: the profile's own key
+        // when it opted in (a key just typed into the form wins, since it has
+        // not been saved yet), otherwise the provider's shared key.
+        let api_key = if !profile.kind.needs_api_key() {
+            String::new()
+        } else if profile.use_own_key {
+            let typed = self.chat_profile_form_key.trim();
+            if typed.is_empty() {
+                secrets::get_profile_key(&profile.id, &self.draft).unwrap_or_default()
+            } else {
+                typed.to_string()
+            }
+        } else {
+            secrets::get_api_key(profile.kind, &self.draft).unwrap_or_default()
+        };
+
+        let slot: crate::ui::settings::ChatTestSlot =
+            std::sync::Arc::new(std::sync::Mutex::new(None));
+        self.chat_test_result = Some(slot.clone());
+        self.chat_test_msg = None;
+        self.chat_test_hint = None;
+        self.chat_test_request = Some(ChatTestRequest {
+            profile,
+            api_key,
+            fallback_base_url: match self.chat_profile_form_kind {
+                ChatProviderKind::Ollama => self.draft.chat_ollama_url.clone(),
+                ChatProviderKind::OpenAiCompatible => self.draft.chat_base_url.clone(),
+                _ => String::new(),
+            },
+            slot,
+            ctx,
+        });
     }
 
     /// Model field for the profile form: a preset dropdown (when the provider
@@ -292,7 +417,9 @@ impl SettingsDialog {
         self.chat_profile_form_desc = p.description.clone();
         self.chat_profile_form_kind = p.kind;
         self.chat_profile_form_model = p.model.clone();
-        self.chat_profile_form_temp = format!("{:.2}", p.temperature);
+        // An absent temperature stays an empty field: that is how the form
+        // spells "do not send the parameter".
+        self.chat_profile_form_temp = p.temperature.map(|t| format!("{t:.2}")).unwrap_or_default();
         self.chat_profile_form_reasoning = p.reasoning.clone();
         self.chat_profile_form_base_url = p.base_url.clone();
         self.chat_profile_form_use_own_key = p.use_own_key;
@@ -300,6 +427,9 @@ impl SettingsDialog {
         // Never read a stored secret back into a text field.
         self.chat_profile_form_key.clear();
         self.chat_profile_status = None;
+        // A test result belongs to the profile it was run for.
+        self.chat_test_msg = None;
+        self.chat_test_hint = None;
     }
 
     /// Reset the form back to "adding a new profile".
@@ -318,53 +448,48 @@ impl SettingsDialog {
         self.chat_profile_status = None;
     }
 
-    /// Validate the form and add or update the profile in the draft settings.
-    fn save_chat_profile_form(&mut self) {
-        use crate::i18n::t;
-
+    /// The profile the form currently describes. Shared by Save and by the
+    /// connection test, so a test always exercises what is on screen (including
+    /// edits not saved yet). `id` is minted once and then frozen: it addresses
+    /// the profile's key in the keyring, so renaming must not orphan it.
+    fn profile_from_form(&self) -> ChatModelProfile {
         let name = self.chat_profile_form_name.trim().to_string();
-        if name.is_empty() {
-            self.chat_profile_status = Some(t("chat.profile_need_name"));
-            return;
-        }
-
         let model = self.chat_profile_form_model.trim().to_string();
         let model = if model.is_empty() {
             chat_models::default_model(self.chat_profile_form_kind)
         } else {
             model
         };
-
-        // Comma-tolerant, same as the other numeric settings buffers. A blank
-        // or unparseable value means 0.0 (deterministic), not an error.
-        let temperature = self
-            .chat_profile_form_temp
-            .trim()
-            .replace(',', ".")
-            .parse::<f32>()
-            .unwrap_or(0.0)
-            .clamp(0.0, 2.0);
-
-        // The id is minted once and then frozen: it addresses the profile's key
-        // in the keyring, so renaming must not orphan it.
         let id = if self.chat_profile_form_id.is_empty() {
             ChatModelProfile::fresh_id(&name, &self.draft.chat_profiles)
         } else {
             self.chat_profile_form_id.clone()
         };
-
-        let profile = ChatModelProfile {
-            id: id.clone(),
+        ChatModelProfile {
+            id,
             name,
             description: self.chat_profile_form_desc.trim().to_string(),
             kind: self.chat_profile_form_kind,
             model,
-            temperature,
+            temperature: parse_optional_temperature(&self.chat_profile_form_temp),
             reasoning: self.chat_profile_form_reasoning.trim().to_string(),
             base_url: self.chat_profile_form_base_url.trim().to_string(),
             use_own_key: self.chat_profile_form_use_own_key,
             allow_writes: self.chat_profile_form_allow_writes,
-        };
+        }
+    }
+
+    /// Validate the form and add or update the profile in the draft settings.
+    fn save_chat_profile_form(&mut self) {
+        use crate::i18n::t;
+
+        if self.chat_profile_form_name.trim().is_empty() {
+            self.chat_profile_status = Some(t("chat.profile_need_name"));
+            return;
+        }
+
+        let profile = self.profile_from_form();
+        let id = profile.id.clone();
 
         match self.draft.chat_profiles.iter().position(|p| p.id == id) {
             Some(i) => self.draft.chat_profiles[i] = profile,
@@ -539,12 +664,34 @@ impl SettingsDialog {
     /// API-key management: the active provider's key controls plus the
     /// per-provider overview grid.
     pub(super) fn chat_api_keys_body(&mut self, ui: &mut egui::Ui) {
-        // API-key management for the active provider; keyless providers
+        // Which provider's shared key is being edited. Picked here, not taken
+        // from the profile in use: these keys are per provider and shared by
+        // every profile of it, so all of them must be reachable.
+        ui.separator();
+        let before = self.chat_key_provider;
+        ui.horizontal(|ui| {
+            ui.label(crate::i18n::t("chat.provider"));
+            egui::ComboBox::from_id_salt("settings_chat_key_provider")
+                .selected_text(self.chat_key_provider.label())
+                .show_ui(ui, |ui| {
+                    for kind in ChatProviderKind::ALL {
+                        ui.selectable_value(&mut self.chat_key_provider, *kind, kind.label());
+                    }
+                });
+        });
+        if self.chat_key_provider != before {
+            // A half-typed key or a "stored in the keyring" line belongs to the
+            // provider it was typed under, never to the newly picked one.
+            self.chat_key_input_buf.clear();
+            self.chat_key_status_msg = None;
+            self.chat_key_clear_confirm = None;
+        }
+
+        // API-key management for the picked provider; keyless providers
         // (Ollama) just show a note. Keyring writes are immediate; the
         // plaintext fallback commits with the rest of the draft on Apply.
-        let provider = self.draft.chat_provider;
+        let provider = self.chat_key_provider;
         if provider.needs_api_key() {
-            ui.separator();
             ui.label(crate::i18n::t("chat.api_key"))
                 .on_hover_text(crate::i18n::t("settings_hint.chat_api_key"));
             ui.horizontal(|ui| {
@@ -624,7 +771,6 @@ impl SettingsDialog {
                     .size(11.0),
             );
         } else {
-            ui.separator();
             ui.label(crate::i18n::t("chat.ollama_no_key"));
         }
 

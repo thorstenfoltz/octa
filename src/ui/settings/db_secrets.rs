@@ -13,6 +13,14 @@ use super::secrets::KeyStorage;
 const KEYRING_SERVICE: &str = "octa";
 
 fn keyring_entry(connection_id: &str) -> Result<keyring::Entry, keyring::Error> {
+    // Honour the same OCTA_NO_KEYRING escape hatch as the chat keys, so a
+    // container without D-Bus takes the plaintext path immediately rather
+    // than waiting for a Secret Service lookup to fail.
+    if super::secrets::keyring_disabled() {
+        return Err(keyring::Error::NoStorageAccess(Box::new(
+            std::io::Error::other("keyring disabled by OCTA_NO_KEYRING"),
+        )));
+    }
     keyring::Entry::new(KEYRING_SERVICE, &format!("db.{connection_id}.secret"))
 }
 

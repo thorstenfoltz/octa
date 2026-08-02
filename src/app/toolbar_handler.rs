@@ -158,7 +158,7 @@ impl OctaApp {
         egui::Panel::top("toolbar")
             .exact_size(TOOLBAR_H)
             .frame(toolbar_frame)
-            .show_inside(parent_ui, |ui| {
+            .show(parent_ui, |ui| {
                 self.ensure_logo_textures(ctx);
 
                 let tab = &mut self.tabs[self.active_tab];

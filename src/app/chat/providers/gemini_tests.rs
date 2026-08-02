@@ -87,3 +87,43 @@ fn every_tool_schema_is_gemini_clean() {
         assert_clean(&cleaned);
     }
 }
+
+fn cfg(reasoning: Option<&str>) -> ProviderConfig {
+    ProviderConfig {
+        model: "gemini-3.6-flash".into(),
+        base_url: None,
+        api_key: "k".into(),
+        temperature: None,
+        max_tokens: Some(2048),
+        reasoning: reasoning.map(str::to_string),
+    }
+}
+
+#[test]
+fn thinking_picks_the_field_the_model_generation_understands() {
+    // Gemini 3+ takes a `thinkingLevel` word, 2.5 a numeric `thinkingBudget`,
+    // and sending both in one request is a 400. So exactly one must appear.
+    let tc = |r| build_body(&cfg(r), "sys", &[], &[])["generationConfig"]["thinkingConfig"].clone();
+
+    assert_eq!(tc(Some("high"))["thinkingLevel"], json!("high"));
+    assert!(tc(Some("high")).get("thinkingBudget").is_none());
+
+    // Case-folded: the API takes lowercase.
+    assert_eq!(tc(Some("High"))["thinkingLevel"], json!("high"));
+
+    assert_eq!(tc(Some("8000"))["thinkingBudget"], json!(8000));
+    assert!(tc(Some("8000")).get("thinkingLevel").is_none());
+
+    // 0 (off) and -1 (dynamic) are meaningful budgets, not errors.
+    assert_eq!(tc(Some("0"))["thinkingBudget"], json!(0));
+    assert_eq!(tc(Some("-1"))["thinkingBudget"], json!(-1));
+
+    // Blank means no thinking config at all.
+    for blank in [None, Some(""), Some("  ")] {
+        assert!(
+            build_body(&cfg(blank), "sys", &[], &[])["generationConfig"]
+                .get("thinkingConfig")
+                .is_none()
+        );
+    }
+}

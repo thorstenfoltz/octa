@@ -205,25 +205,14 @@ pub fn render_raw_view(
             ui.add_space(2.0);
         }
 
-        // Line numbers + text editor side by side
+        // Line numbers + text editor side by side. Only the gutter column is
+        // reserved here; the numbers are painted from the laid-out galley after
+        // the editor, so a wrapped line still gets exactly one number.
         let line_count = content.lines().count().max(1);
-        let line_num_text: String = (1..=line_count)
-            .map(|n| format!("{:>width$}", n, width = line_count.to_string().len()))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let line_num_width = line_count.to_string().len() as f32 * 8.0 + 16.0;
+        let line_num_width = super::text_ops::line_number_gutter_width(line_count);
 
         let mono_font = egui::FontId::new(13.0, egui::FontFamily::Monospace);
-        let nowrap_layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap_width: f32| {
-            let mut job = egui::text::LayoutJob::simple(
-                text.as_str().to_owned(),
-                egui::FontId::new(13.0, egui::FontFamily::Monospace),
-                ui.visuals().text_color(),
-                f32::INFINITY,
-            );
-            job.wrap.max_width = f32::INFINITY;
-            ui.fonts_mut(|f| f.layout_job(job))
-        };
+        let gutter_font = mono_font.clone();
 
         let use_col_colors = tab.raw_view_formatted
             && color_aligned_columns
@@ -278,14 +267,14 @@ pub fn render_raw_view(
         let plain_hl_current = current_range.clone();
         let plain_text_color = colors.text_primary;
         let plain_highlight_layouter =
-            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap_width: f32| {
+            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
                 let mut job = egui::text::LayoutJob::simple(
                     text.as_str().to_owned(),
                     egui::FontId::new(13.0, egui::FontFamily::Monospace),
                     plain_text_color,
-                    f32::INFINITY,
+                    wrap_width,
                 );
-                job.wrap.max_width = f32::INFINITY;
+                job.wrap.max_width = wrap_width;
                 ui::search_highlight::apply_highlight(
                     &mut job,
                     &plain_hl_ranges,
@@ -326,13 +315,14 @@ pub fn render_raw_view(
         let syntect_hl_ranges = match_ranges.clone();
         let syntect_hl_current = current_range.clone();
         let syntect_layouter =
-            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap_width: f32| {
+            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
                 let mut job = octa::ui::syntax::highlight_layout_job(
                     text.as_str(),
                     syntect_syntax.expect("syntect_layouter only used when syntax is Some"),
                     syntect_theme,
                     egui::FontId::new(13.0, egui::FontFamily::Monospace),
                 );
+                job.wrap.max_width = wrap_width;
                 ui::search_highlight::apply_highlight(
                     &mut job,
                     &syntect_hl_ranges,
@@ -347,11 +337,14 @@ pub fn render_raw_view(
         let colored_hl_current = current_range.clone();
         let colored_layouter = move |ui: &egui::Ui,
                                      text: &dyn egui::TextBuffer,
-                                     _wrap_width: f32| {
+                                     wrap_width: f32| {
             let font = egui::FontId::new(13.0, egui::FontFamily::Monospace);
             let default_color = ui.visuals().text_color();
             let mut job = egui::text::LayoutJob::default();
-            job.wrap.max_width = f32::INFINITY;
+            // Wraps like the other two. A padded CSV row wider than the pane
+            // loses its column look on the wrapped rows, which still beats the
+            // old behaviour of putting it out of reach entirely.
+            job.wrap.max_width = wrap_width;
 
             let text_str = text.as_str();
             let mut first_line = true;
@@ -412,21 +405,16 @@ pub fn render_raw_view(
             egui::Sense::click(),
         );
 
-        egui::ScrollArea::both()
+        // Vertical only: the editor wraps at the pane width, so there is nothing
+        // to scroll sideways to. It used to lay out unwrapped, which put every
+        // long line out of reach as soon as the pane got narrow.
+        egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.horizontal_top(|ui| {
-                    // Line numbers column (non-editable)
-                    ui.add_sized(
-                        [line_num_width, ui.available_height()],
-                        egui::TextEdit::multiline(&mut line_num_text.clone())
-                            .font(mono_font.clone())
-                            .interactive(false)
-                            .desired_width(line_num_width)
-                            .text_color(colors.text_muted)
-                            .frame(egui::Frame::NONE)
-                            .layouter(&mut nowrap_layouter.clone()),
-                    );
+                    // Line numbers column (painted below, after layout).
+                    let (gutter, _) = ui
+                        .allocate_exact_size(egui::vec2(line_num_width, 0.0), egui::Sense::hover());
                     // Separator line
                     ui.add_space(2.0);
                     let sep_rect = egui::Rect::from_min_size(
@@ -435,7 +423,7 @@ pub fn render_raw_view(
                     );
                     ui.painter().rect_filled(sep_rect, 0.0, colors.border);
                     ui.add_space(4.0);
-                    // Text editor (no wrapping - scroll horizontally)
+                    // Text editor (wraps at the pane width).
                     // lock_focus(true) prevents Tab from navigating to other widgets
                     let editor_id = egui::Id::new("raw_text_editor");
                     let mut output = if use_col_colors {
@@ -468,6 +456,15 @@ pub fn render_raw_view(
                             .show(ui)
                     };
 
+                    super::text_ops::paint_wrapped_line_numbers(
+                        ui,
+                        &output.galley,
+                        output.galley_pos,
+                        gutter.right(),
+                        gutter_font,
+                        colors.text_muted,
+                    );
+
                     // Replace any literal \t egui may have inserted with spaces,
                     // then manually insert spaces at the cursor for our Tab handling.
                     // We must do the \t replacement first so we can adjust the cursor
@@ -476,16 +473,13 @@ pub fn render_raw_view(
                     let had_tabs = !readonly && content.contains('\t');
                     if had_tabs {
                         // Track cursor so we can restore it after replacement
-                        let cursor_idx = output.cursor_range.map(|r| r.primary.index).unwrap_or(0);
+                        let cursor_idx = output.cursor_range.map_or(0, |r| r.primary.index.0);
                         // Count \t chars before cursor to compute offset shift
-                        let tabs_before = content[..cursor_idx.min(content.len())]
-                            .chars()
-                            .filter(|&c| c == '\t')
-                            .count();
+                        let tabs_before = super::text_ops::tabs_before_cursor(content, cursor_idx);
                         let spaces = " ".repeat(tab_size);
                         *content = content.replace('\t', &spaces);
                         // Adjust cursor for expanded tabs
-                        let new_idx = cursor_idx + tabs_before * (tab_size - 1);
+                        let new_idx = cursor_idx + tabs_before * tab_size.saturating_sub(1);
                         let new_cursor = egui::text::CCursor::new(new_idx);
                         let new_range = egui::text::CCursorRange::one(new_cursor);
                         output.state.cursor.set_char_range(Some(new_range));

@@ -1,0 +1,11 @@
+# hr: written natively, not translated from English.
+
+short = "Otvorite Parquet, CSV, Excel, SQLite i još tridesetak formata podataka u brzoj tablici. Sortiranje, filtri, pretraga, uređivanje i SQL, sve lokalno."
+
+long = """
+Octa otvara Parquet, CSV, Excel, SQLite, DuckDB, JSON i još tridesetak formata odmah u brzoj tablici. Bez uvoza, bez postavljanja.
+
+Sortirajte, filtrirajte, pretražujte i uređujte podatke, postavljajte SQL upite preko DuckDB-a, izradite grafikone ili usporedite dvije datoteke. Sve radi na vašem računalu i nijedna se datoteka nikamo ne šalje.
+
+Sučelje na 32 jezika. Slobodan softver pod MIT licencom.
+"""

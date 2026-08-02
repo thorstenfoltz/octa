@@ -7,7 +7,7 @@ use serde_json::{Map, Value, json};
 
 use crate::app::chat::types::{ChatEvent, ContentBlock, Message, Role, StopReason, ToolDef};
 
-use super::{ChatProvider, ProviderConfig, stream_sse};
+use super::{ChatProvider, ProviderConfig, Reasoning, parse_reasoning, stream_sse};
 
 const ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 const API_VERSION: &str = "2023-06-01";
@@ -139,24 +139,8 @@ fn map_stop_reason(s: &str) -> StopReason {
     }
 }
 
-/// Turn the profile's free-text reasoning value into an Anthropic thinking
-/// budget. Anthropic takes a token count, not an effort word, so `"high"` is a
-/// user error worth reporting rather than silently ignoring: the alternative is
-/// a profile that quietly never thinks.
-///
-/// Empty / absent -> `Ok(None)` (thinking off). A positive integer ->
-/// `Ok(Some(n))`. Anything else -> `Err`, surfaced in the chat panel.
-fn parse_thinking_budget(reasoning: Option<&str>) -> Result<Option<u32>, String> {
-    let Some(s) = reasoning.map(str::trim).filter(|s| !s.is_empty()) else {
-        return Ok(None);
-    };
-    match s.parse::<u32>() {
-        Ok(n) if n > 0 => Ok(Some(n)),
-        _ => Err(format!(
-            "Anthropic thinking needs a token budget as a number (for example 8000), not '{s}'."
-        )),
-    }
-}
+/// The smallest `budget_tokens` the Messages API accepts.
+const MIN_THINKING_BUDGET: i64 = 1024;
 
 fn build_body(
     cfg: &ProviderConfig,
@@ -181,22 +165,50 @@ fn build_body(
     // Anthropic requires `max_tokens`; an "unlimited" choice maps to a high
     // ceiling rather than omitting the field.
     body.insert("max_tokens".into(), json!(cfg.max_tokens.unwrap_or(16_384)));
-    body.insert("temperature".into(), json!(cfg.temperature));
+    if let Some(t) = cfg.temperature {
+        body.insert("temperature".into(), json!(t));
+    }
     body.insert("stream".into(), json!(true));
 
-    // Extended thinking. Anthropic constrains the rest of the request when it
-    // is on: temperature must be 1, and max_tokens must leave room for the
-    // budget on top of the visible answer. Both are fixed up here so a thinking
-    // profile cannot produce a request the API rejects on arrival.
-    if let Some(budget) = parse_thinking_budget(cfg.reasoning.as_deref())? {
-        body.insert(
-            "thinking".into(),
-            json!({ "type": "enabled", "budget_tokens": budget }),
-        );
-        body.insert("temperature".into(), json!(1.0));
-        let needed = budget as usize + 1;
-        let max = cfg.max_tokens.unwrap_or(16_384).max(needed);
-        body.insert("max_tokens".into(), json!(max));
+    // Anthropic has two thinking controls and the model decides which one is
+    // legal. **Adaptive thinking** (an effort word in `output_config`) is the
+    // current one; every model from Claude Opus 4.7 on answers 400 to the old
+    // `thinking.budget_tokens`. **Extended thinking** (a token budget) is the
+    // only one Claude 4.5 and earlier understand, including Haiku 4.5. So the
+    // profile's value picks the shape, and the user picks the value.
+    match parse_reasoning(cfg.reasoning.as_deref()) {
+        None => {}
+        // Passed through verbatim (low / medium / high / xhigh / max today),
+        // so a level Anthropic adds later needs no release here.
+        Some(Reasoning::Effort(level)) => {
+            body.insert("output_config".into(), json!({ "effort": level }));
+        }
+        // Extended thinking constrains the rest of the request: a temperature
+        // that is sent must be 1, and max_tokens must leave room for the budget
+        // on top of the visible answer. Both are fixed up here so a thinking
+        // profile cannot produce a request the API rejects on arrival. A
+        // profile that sends no temperature keeps sending none; 1.0 is the API
+        // default anyway, and the newer models reject the field outright.
+        Some(Reasoning::Budget(budget)) => {
+            if budget < MIN_THINKING_BUDGET {
+                return Err(format!(
+                    "Anthropic thinking: a token budget must be at least \
+                     {MIN_THINKING_BUDGET}, and only Claude 4.5 and older models take one \
+                     at all. For a current model use an effort word instead \
+                     (low / medium / high / xhigh / max)."
+                ));
+            }
+            body.insert(
+                "thinking".into(),
+                json!({ "type": "enabled", "budget_tokens": budget }),
+            );
+            if cfg.temperature.is_some() {
+                body.insert("temperature".into(), json!(1.0));
+            }
+            let needed = budget as usize + 1;
+            let max = cfg.max_tokens.unwrap_or(16_384).max(needed);
+            body.insert("max_tokens".into(), json!(max));
+        }
     }
 
     if !system.is_empty() {
@@ -256,38 +268,58 @@ mod tests {
             model: "claude-opus-4-8".into(),
             base_url: None,
             api_key: "k".into(),
-            temperature: 0.0,
+            temperature: Some(0.0),
             max_tokens,
             reasoning: reasoning.map(str::to_string),
         }
     }
 
     #[test]
-    fn thinking_budget_parses_a_number() {
-        assert_eq!(parse_thinking_budget(Some("8000")).unwrap(), Some(8000));
+    fn an_effort_word_becomes_adaptive_thinking() {
+        // Claude Opus 4.7 and later reject `thinking.budget_tokens` outright;
+        // effort in output_config is the control they do accept. A word must
+        // therefore produce output_config and NOT a thinking block, and must
+        // leave temperature and max_tokens alone.
+        for level in ["low", "medium", "high", "xhigh", "max"] {
+            let body = build_body(
+                &cfg_with_reasoning(Some(level), Some(4096)),
+                "sys",
+                &[],
+                &[],
+            )
+            .unwrap();
+            assert_eq!(body["output_config"]["effort"], json!(level));
+            assert!(body.get("thinking").is_none());
+            assert_eq!(body["temperature"], json!(0.0));
+            assert_eq!(body["max_tokens"], json!(4096));
+        }
     }
 
     #[test]
-    fn blank_thinking_budget_is_none() {
-        assert_eq!(parse_thinking_budget(None).unwrap(), None);
-        assert_eq!(parse_thinking_budget(Some("")).unwrap(), None);
-        assert_eq!(parse_thinking_budget(Some("   ")).unwrap(), None);
+    fn an_unknown_effort_word_is_still_sent() {
+        // The accepted set changes with every model; a level we have never
+        // heard of must reach the API rather than being refused locally.
+        let body = build_body(&cfg_with_reasoning(Some("ultra"), None), "sys", &[], &[]).unwrap();
+        assert_eq!(body["output_config"]["effort"], json!("ultra"));
     }
 
     #[test]
-    fn effort_words_are_rejected_for_anthropic() {
-        // "high" is the OpenAI spelling; Anthropic wants a token count. The
-        // user gets told, rather than the profile silently not thinking.
-        let err = parse_thinking_budget(Some("high")).unwrap_err();
-        assert!(err.contains("number"));
-        assert!(parse_thinking_budget(Some("0")).is_err());
-        assert!(parse_thinking_budget(Some("-5")).is_err());
+    fn a_budget_below_the_minimum_is_refused_locally() {
+        // 1024 is the documented floor; 0 and negatives were already invalid.
+        for bad in ["0", "-5", "512"] {
+            let err =
+                build_body(&cfg_with_reasoning(Some(bad), None), "sys", &[], &[]).unwrap_err();
+            assert!(err.contains("1024"), "{bad}: {err}");
+            // and it points at the control current models actually take
+            assert!(err.contains("effort"), "{bad}: {err}");
+        }
     }
 
     #[test]
     fn no_reasoning_leaves_the_request_untouched() {
         let body = build_body(&cfg_with_reasoning(None, Some(4096)), "sys", &[], &[]).unwrap();
         assert!(body.get("thinking").is_none());
+        assert!(body.get("output_config").is_none());
         assert_eq!(body["temperature"], json!(0.0));
         assert_eq!(body["max_tokens"], json!(4096));
     }
@@ -312,6 +344,22 @@ mod tests {
     }
 
     #[test]
+    fn no_temperature_means_no_temperature_field() {
+        // Claude Opus 4.7 and newer answer 400 when `temperature` is present at
+        // all, so a profile with the field cleared must send a body without it -
+        // including the thinking path, which otherwise pins it to 1.
+        let mut cfg = cfg_with_reasoning(None, Some(4096));
+        cfg.temperature = None;
+        let body = build_body(&cfg, "sys", &[], &[]).unwrap();
+        assert!(body.get("temperature").is_none());
+
+        cfg.reasoning = Some("8000".into());
+        let body = build_body(&cfg, "sys", &[], &[]).unwrap();
+        assert!(body.get("temperature").is_none());
+        assert_eq!(body["thinking"]["budget_tokens"], json!(8000));
+    }
+
+    #[test]
     fn thinking_keeps_a_generous_max_tokens() {
         let body = build_body(
             &cfg_with_reasoning(Some("1024"), Some(32_000)),
@@ -324,7 +372,11 @@ mod tests {
     }
 
     #[test]
-    fn a_bad_reasoning_value_fails_the_request() {
-        assert!(build_body(&cfg_with_reasoning(Some("high"), None), "sys", &[], &[]).is_err());
+    fn blank_reasoning_is_thinking_off() {
+        for blank in [None, Some(""), Some("   ")] {
+            let body = build_body(&cfg_with_reasoning(blank, None), "sys", &[], &[]).unwrap();
+            assert!(body.get("thinking").is_none());
+            assert!(body.get("output_config").is_none());
+        }
     }
 }

@@ -11,7 +11,7 @@ use serde_json::{Map, Value, json};
 
 use crate::app::chat::types::{ChatEvent, ContentBlock, Message, Role, StopReason, ToolDef};
 
-use super::{ChatProvider, ProviderConfig, stream_sse};
+use super::{ChatProvider, ProviderConfig, Reasoning, parse_reasoning, stream_sse};
 
 pub struct OpenAi;
 
@@ -186,18 +186,24 @@ pub(crate) fn build_body(
     let mut body = Map::new();
     body.insert("model".into(), json!(cfg.model));
     body.insert("messages".into(), json!(wire_messages));
-    body.insert("temperature".into(), json!(cfg.temperature));
+    if let Some(t) = cfg.temperature {
+        body.insert("temperature".into(), json!(t));
+    }
     // The profile's thinking value maps to `reasoning_effort` (low/medium/high
     // on current models). Passed through verbatim: an unsupported value is the
     // API's to reject, and hard-coding the accepted set here would go stale.
     // Blank means "no thinking", so the field is omitted rather than sent empty.
-    if let Some(effort) = cfg
-        .reasoning
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        body.insert("reasoning_effort".into(), json!(effort));
+    // A token budget has no home on this endpoint, so it goes out as-is and the
+    // gateway decides - unlike OpenAI proper, a compatible gateway may well
+    // accept a number here.
+    match parse_reasoning(cfg.reasoning.as_deref()) {
+        None => {}
+        Some(Reasoning::Effort(effort)) => {
+            body.insert("reasoning_effort".into(), json!(effort));
+        }
+        Some(Reasoning::Budget(budget)) => {
+            body.insert("reasoning_effort".into(), json!(budget));
+        }
     }
     // `None` => unlimited: omit the cap entirely so the model uses its default.
     if let Some(max) = cfg.max_tokens {

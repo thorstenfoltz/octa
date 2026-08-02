@@ -37,7 +37,7 @@ pub(crate) fn render_sql_snippet_dialog(app: &mut OctaApp, ctx: &egui::Context) 
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("sql_snippet_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.snip_title"))
@@ -56,7 +56,7 @@ pub(crate) fn render_sql_snippet_dialog(app: &mut OctaApp, ctx: &egui::Context) 
             return;
         }
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             egui::Grid::new("snip_grid")
                 .num_columns(2)
                 .spacing([8.0, 8.0])

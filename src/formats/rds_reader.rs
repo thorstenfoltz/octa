@@ -190,16 +190,18 @@ fn logical_cells(v: &VectorData<Logical>) -> Vec<CellValue> {
         .collect()
 }
 
-fn character_cells(v: &VectorData<Arc<str>>) -> Vec<CellValue> {
+fn character_cells(v: &VectorData<Option<Arc<str>>>) -> Vec<CellValue> {
     if !v.is_loaded() {
         return Vec::new();
     }
-    // rds2rust 0.1 represents NA_character_ as the literal string "NA";
-    // we cannot disambiguate it from a real "NA" value here, so we keep
-    // it as a string. (Documented limitation.)
+    // rds2rust 0.2 models NA_character_ as `None` rather than the literal string
+    // "NA", so a real "NA" value and a missing one are finally distinguishable.
     v.as_vec()
         .iter()
-        .map(|s| CellValue::String(s.to_string()))
+        .map(|s| match s {
+            Some(s) => CellValue::String(s.to_string()),
+            None => CellValue::Null,
+        })
         .collect()
 }
 
@@ -225,8 +227,9 @@ fn factor_cells(f: &FactorData) -> Vec<CellValue> {
             if idx <= 0 || RObject::is_na_integer(idx) {
                 CellValue::Null
             } else {
-                let level = f.levels.get((idx - 1) as usize);
-                match level {
+                // `levels` is itself `Option<Arc<str>>` in rds2rust 0.2, so an
+                // out-of-range index and an NA level both land on Null.
+                match f.levels.get((idx - 1) as usize).and_then(Option::as_ref) {
                     Some(s) => CellValue::String(s.to_string()),
                     None => CellValue::Null,
                 }
@@ -258,7 +261,7 @@ fn read_class(attributes: &Attributes) -> Vec<String> {
     };
     match class_obj.as_concrete() {
         RObject::Character(v) if v.is_loaded() => {
-            v.as_vec().iter().map(|s| s.to_string()).collect()
+            v.as_vec().iter().flatten().map(|s| s.to_string()).collect()
         }
         _ => Vec::new(),
     }

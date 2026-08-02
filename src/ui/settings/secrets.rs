@@ -43,7 +43,35 @@ pub fn profile_key_id(profile_id: &str) -> String {
     format!("profile.{profile_id}")
 }
 
+/// Whether the OS keyring should be skipped entirely, from `OCTA_NO_KEYRING`.
+///
+/// The fallback to plaintext already triggers when the keyring *errors*, which
+/// covers most headless setups. This exists for the case it does not: a
+/// container with no D-Bus session where the Secret Service lookup is slow to
+/// fail rather than instant, on a code path (`octa --mcp`) that has no UI to
+/// show a spinner. Set `OCTA_NO_KEYRING=1` and every secret goes to and comes
+/// from `settings.toml` directly.
+///
+/// Read once: the environment does not change under a running process, and
+/// this sits in front of every secret read.
+pub fn keyring_disabled() -> bool {
+    static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *OFF.get_or_init(|| {
+        std::env::var("OCTA_NO_KEYRING")
+            .map(|v| {
+                let v = v.trim().to_ascii_lowercase();
+                !v.is_empty() && v != "0" && v != "false" && v != "no"
+            })
+            .unwrap_or(false)
+    })
+}
+
 fn keyring_entry(key_id: &str) -> Result<keyring::Entry, keyring::Error> {
+    if keyring_disabled() {
+        return Err(keyring::Error::NoStorageAccess(Box::new(
+            std::io::Error::other("keyring disabled by OCTA_NO_KEYRING"),
+        )));
+    }
     keyring::Entry::new(KEYRING_SERVICE, &format!("chat.{key_id}.api_key"))
 }
 

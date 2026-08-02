@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use octa::i18n::t;
 
-use crate::app::chat::providers::{ProviderConfig, make_provider};
+use crate::app::chat::providers::{self, make_provider};
 use crate::app::chat::session::ChatSessionState;
 use crate::app::chat::{agent, build_system_prompt, persist, tools};
 use crate::app::state::OctaApp;
@@ -192,42 +192,21 @@ impl OctaApp {
         let system = build_system_prompt(&tool_ctx.open_tab_summaries(), allow_writes);
         let tool_defs = tools::tool_defs_for(allow_writes);
 
-        let model = if profile.model.trim().is_empty() {
-            octa::ui::settings::chat_models::default_model(provider_kind)
-        } else {
-            profile.model.clone()
+        let fallback_base_url = match provider_kind {
+            ChatProviderKind::Ollama => self.settings.chat_ollama_url.clone(),
+            _ => self.settings.chat_base_url.clone(),
         };
-        let cfg = ProviderConfig {
-            model: model.clone(),
-            base_url: match provider_kind {
-                // The profile's base URL wins; an empty one falls back to the
-                // global setting, so an existing Ollama / compatible setup keeps
-                // working after the migration without re-entering the URL.
-                ChatProviderKind::OpenAiCompatible | ChatProviderKind::Ollama => {
-                    let own = profile.base_url.trim();
-                    Some(if own.is_empty() {
-                        match provider_kind {
-                            ChatProviderKind::Ollama => self.settings.chat_ollama_url.clone(),
-                            _ => self.settings.chat_base_url.clone(),
-                        }
-                    } else {
-                        own.to_string()
-                    })
-                }
-                _ => None,
-            },
+        let cfg = providers::config_for_profile(
+            &profile,
+            &fallback_base_url,
             api_key,
-            temperature: profile.temperature,
-            max_tokens: if self.settings.chat_max_tokens_unlimited {
+            if self.settings.chat_max_tokens_unlimited {
                 None
             } else {
                 Some(self.settings.chat_max_tokens)
             },
-            reasoning: {
-                let r = profile.reasoning.trim();
-                (!r.is_empty()).then(|| r.to_string())
-            },
-        };
+        );
+        let model = cfg.model.clone();
         let provider = make_provider(provider_kind);
         let max_iterations = self.settings.chat_max_tool_iterations;
 

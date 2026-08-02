@@ -238,8 +238,7 @@ impl OctaApp {
                 let skipped = self.multi_search.skipped.clone();
                 let query = self.multi_search.query.clone();
                 let mode = self.multi_search.mode;
-                let max_file_bytes =
-                    (self.settings.grep_max_file_size_mb as u64).saturating_mul(1024 * 1024);
+                let max_file_bytes = self.settings.grep_max_file_bytes();
 
                 let handle = std::thread::spawn(move || {
                     directory_worker(
@@ -342,7 +341,7 @@ impl OctaApp {
             .resizable(true)
             .default_size(220.0)
             .min_size(140.0)
-            .show_inside(parent_ui, |ui| {
+            .show(parent_ui, |ui| {
                 let mut run_clicked = false;
                 let mut cancel_clicked = false;
                 let mut close_clicked = false;
@@ -680,8 +679,8 @@ fn directory_worker(
         }
         scanned.fetch_add(1, Ordering::Relaxed);
 
-        // Per-file size cap (matching the `grep_max_file_size_mb`
-        // setting). The user sees the file name in the skipped list
+        // Per-file size cap (`AppSettings::grep_max_file_bytes`, where 0
+        // means no cap). The user sees the file name in the skipped list
         // so they can either bump the cap or pick a smaller scope.
         let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         if max_file_bytes > 0 && size > max_file_bytes {

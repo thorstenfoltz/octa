@@ -2,7 +2,7 @@
 
 Octa's interface, menus, dialogs, the status bar, the SQL and
 multi-search panels, the right-click menus, and the Settings dialog
-(including its hover tooltips), can be shown in any of 31 languages.
+(including its hover tooltips), can be shown in any of 32 languages.
 
 Change it under **Settings → Appearance → Language**. The switch is
 **live**: the interface updates on the next frame, with no restart.

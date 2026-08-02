@@ -40,22 +40,22 @@ provider**. A typical set:
 
 | Profile          | Provider  | Model    | Temperature | Thinking |
 |------------------|-----------|----------|-------------|----------|
-| Opus, deep       | Anthropic | Opus     | 0           | `8000`   |
-| Sonnet, quick    | Anthropic | Sonnet   | 0           | (none)   |
+| Opus, deep       | Anthropic | Opus     | (empty)     | `xhigh`  |
+| Sonnet, quick    | Anthropic | Sonnet   | (empty)     | `low`    |
 | Local, free      | Ollama    | llama3.2 | 0.2         | (none)   |
-| GPT, high effort | OpenAI    | GPT      | 0           | `high`   |
+| GPT, high effort | OpenAI    | GPT      | (empty)     | `high`   |
 
 Switching model is then one click, with no re-editing of settings.
 
 Octa speaks to five kinds of backend:
 
-| Provider               | Notes                                                                                                                                            |
-|------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Ollama (local)**     | Runs entirely on your machine. No API key. Octa can start the server and lists the models you have installed. See [Using Ollama](#using-ollama). |
-| **Anthropic (Claude)** | Claude models via the Anthropic Messages API.                                                                                                    |
-| **OpenAI**             | GPT models via the Responses API (reasoning + tools together).                                                                                   |
-| **OpenAI-compatible**  | Any other endpoint that speaks the OpenAI dialect: OpenRouter, Groq, LM Studio, a self-hosted gateway. Set a Base URL.                           |
-| **Google Gemini**      | Gemini models via the `generateContent` API.                                                                                                     |
+| Provider               | Notes                                                                                                                                                                                                                                                                                                                                                                        |
+|------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Ollama (local)**     | Runs entirely on your machine. No API key. Octa can start the server and lists the models you have installed. See [Using Ollama](#using-ollama).                                                                                                                                                                                                                             |
+| **Anthropic (Claude)** | Claude models via the Anthropic Messages API.                                                                                                                                                                                                                                                                                                                                |
+| **OpenAI**             | GPT models via the Responses API (reasoning + tools together).                                                                                                                                                                                                                                                                                                               |
+| **OpenAI-compatible**  | Any other endpoint that speaks the OpenAI dialect: OpenRouter, Groq, LM Studio, a self-hosted gateway. Set a Base URL. This is how you reach the open-weight models (DeepSeek, GLM, Kimi, Qwen, Nemotron, gpt-oss, Gemma); the model dropdown lists current ones. See [When an OpenAI-compatible endpoint does not work](#when-an-openai-compatible-endpoint-does-not-work). |
+| **Google Gemini**      | Gemini models via the `generateContent` API.                                                                                                                                                                                                                                                                                                                                 |
 
 ### Creating a profile
 
@@ -68,8 +68,11 @@ jumps straight there. Each profile has:
   dropdown ("cheap, for bulk work").
 - **Provider** and **Model**: a dropdown of common models plus a free-text box,
   so you can always type the exact model name (model names change often).
-- **Temperature** (0 to 2; default 0, which is best for data tasks where you
-  want consistent, focused answers).
+- **Temperature** (0 to 2). **Leave it empty and no temperature is sent at
+  all.** That is not the same as sending 0: the newest models (Claude Opus 4.7
+  and later) reject the parameter outright and answer with an error, so an
+  empty field is what makes them work. When you do give a number, 0 is best for
+  data tasks where you want consistent, focused answers.
 - **Thinking / reasoning**: see below.
 - **Base URL** (OpenAI-compatible and Ollama only).
 - **Use its own API key**: see [Setting an API key](#setting-an-api-key).
@@ -81,6 +84,57 @@ jumps straight there. Each profile has:
 its own key if it had one. The profile the assistant is currently using is
 marked with an asterisk.
 
+### Testing a profile
+
+**Test connection**, next to **Save profile**, sends one tiny message with
+exactly the settings on screen (including edits you have not saved yet) and
+shows what comes back. It uses the same code path as a real question, so it
+catches a wrong or missing key, a model name that does not exist, a thinking
+value in the wrong dialect, a temperature the model refuses, and an Ollama
+server that is not running. A green line means the profile works; a red one
+carries the provider's own error message.
+
+Under a failed test, Octa adds one line naming the field to fix. What it says
+for the failures that actually happen:
+
+| The error mentions                     | What it means                   | Fix                                                                     |
+|----------------------------------------|---------------------------------|-------------------------------------------------------------------------|
+| `temperature`                          | The model refuses the parameter | Clear the **Temperature** field.                                        |
+| `reasoning` / `thinking` / `effort`    | Wrong thinking value            | Hover the field for what this provider takes; empty turns thinking off. |
+| `401` / `403` / `api key`              | The key was rejected            | Set the shared key under **API keys**, or give the profile its own.     |
+| `429` / `quota` / `credit`             | Out of allowance, or throttled  | Nothing in the profile is wrong; it is the account.                     |
+| `404` / `no endpoints` / `not found`   | The endpoint has no such model  | Use the model name **this** endpoint uses (see below).                  |
+| `connection refused` / `dns` / timeout | The server was never reached    | Check the **Base URL** and your network. For Ollama, start the server.  |
+
+### When an OpenAI-compatible endpoint does not work
+
+This provider is the one with the most ways to go wrong, because "speaks the
+OpenAI dialect" is all the gateways have in common. In order of how often each
+is the actual cause:
+
+1. **The Base URL is not the API root.** It almost always has to end in `/v1`
+   (`https://openrouter.ai/api/v1`), and never in `/chat/completions`, because
+   Octa appends the path itself. A wrong root shows up as a 404.
+2. **The model name is the gateway's, not the vendor's.** OpenRouter says
+   `deepseek/deepseek-v4-pro`; the same model is `deepseek-ai/DeepSeek-V4-Pro`
+   on one host, `deepseek-v4` on another, and a local file path under vLLM. The
+   dropdown is a list of OpenRouter ids as a starting point; the free-text field
+   below it is what you use for anything else.
+3. **The key is missing or is the wrong provider's.** OpenAI-compatible has its
+   own key slot: pick **OpenAI-compatible** in the **API keys** dropdown, not
+   OpenAI. Some local gateways (LM Studio, vLLM without auth) take any string.
+4. **The gateway does not do tool calling.** Octa's assistant is agentic: it
+   answers by calling tools. A model or gateway without function-calling support
+   connects and chats, but never reads your data. Test connection passes and the
+   assistant still seems useless: that is this.
+5. **Thinking is not supported.** The **Thinking / reasoning** value goes out as
+   `reasoning_effort`, which many gateways reject. Empty it if you get a 400.
+6. **Temperature is not supported.** Same story; empty the field.
+
+For a local Ollama server, use the **Ollama** provider rather than
+OpenAI-compatible: it discovers your installed models and can start the server
+for you.
+
 Your existing setup is carried over automatically: on first run after
 upgrading, Octa turns your old provider, model and temperature into a single
 profile, so nothing changes until you add more.
@@ -88,26 +142,37 @@ profile, so nothing changes until you add more.
 ### Thinking / reasoning
 
 The **Thinking / reasoning** field is free text, passed to the provider as-is.
-It means something different for each one:
+**Type a word, not a number**: every current model takes an effort level, and
+the value's *shape* decides which knob Octa sends.
 
-| Provider      | Expects                     | Example |
-|---------------|-----------------------------|---------|
-| **OpenAI**    | An effort level             | `high`  |
-| **Anthropic** | A thinking budget in tokens | `8000`  |
-| **Gemini**    | A thinking budget in tokens | `8000`  |
+| Provider                       | A word means                                                                  | A number means                                                                                                                      |
+|--------------------------------|-------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| **OpenAI**                     | `reasoning.effort` — `none` `low` `medium` `high` `xhigh`                     | Nothing OpenAI accepts; Octa says so before sending.                                                                                |
+| **Anthropic**                  | `output_config.effort` — `low` `medium` `high` `xhigh` `max` (default `high`) | A thinking-token budget, minimum 1024. Only Claude 4.5 and older, such as Haiku 4.5, still take one; Opus 4.7 and later answer 400. |
+| **Gemini**                     | `thinkingConfig.thinkingLevel` — `minimal` `low` `medium` `high` (Gemini 3+)  | `thinkingConfig.thinkingBudget` for Gemini 2.5: `0` off, `-1` let the model decide.                                                 |
+| **OpenAI-compatible / Ollama** | `reasoning_effort`                                                            | Sent as-is; some gateways accept a number here.                                                                                     |
 
-Leave it **empty** for no thinking, which is the default.
+Leave it **empty** for no thinking, which is the default. The tooltip on the
+field says all of this for whichever provider the profile uses, so you do not
+have to remember which is which.
 
-It is free text rather than a fixed list on purpose: providers keep adding
-values, and a hard-coded dropdown would go stale. The cost is that a wrong
-value is only caught when it is used. Give Anthropic a word like `high` and
-Octa tells you it wants a number; give a provider a value it does not accept
-and you get that provider's own error message back in the chat.
+So "is 8000 low, medium or high?" no longer has to be answered: on a current
+model you type `medium` and mean it. A number is a token allowance, and only
+the older Claude and Gemini generations still read it.
 
-For Anthropic, turning thinking on also forces temperature to 1 and raises the
-response-token cap above the budget, because the API requires both. For OpenAI,
-setting an effort level omits temperature from the request (reasoning models
-reject it). You do not need to do anything: Octa adjusts the request for you.
+The field is free text rather than a fixed list on purpose: providers keep
+adding levels, and a hard-coded dropdown would go stale. The cost is that a
+wrong value is only caught when it is used, so a level a provider does not know
+comes back as that provider's own error message. **Test connection** is the
+quickest way to find that out.
+
+When Anthropic gets a *token budget*, Octa also raises the response-token cap
+above it and pins temperature to 1 if the profile sends a temperature at all
+(an empty field still sends none), because the API demands both. An Anthropic
+*effort word* needs none of that and leaves the rest of the request alone. For
+OpenAI, setting an effort level omits temperature from the request (reasoning
+models reject it). You do not need to do anything: Octa adjusts the request for
+you.
 
 OpenAI requests go through the **Responses API** (`/v1/responses`), which is
 the endpoint where reasoning and tools work together on current models
@@ -166,8 +231,11 @@ to every profile:
 
 ## Setting an API key
 
-In the **Chat / Assistant** settings section, paste your key into the **API
-key** field for the selected provider and click **Save key**, then **Apply**.
+In the **Chat / Assistant** settings section, open **API keys**, pick the
+provider in the **Provider** dropdown, paste your key into the **API key**
+field and click **Save key**, then **Apply**. The dropdown is independent of
+which profile the panel is using, so every provider's key is reachable without
+switching profiles.
 Each provider has its own key; you only enter it once, and entering a new key
 for a provider replaces that provider's old key (keys for other providers
 are kept). A small **Stored keys** list shows, for every provider, whether a key
@@ -290,7 +358,7 @@ This keeps it from quietly reaching into arbitrary files on your disk.
   connection (**Settings > Cloud storage**) by URL (`s3://`, `az://`, `gs://`).
   Buckets you have not saved are refused, so the assistant stays confined to
   the clouds you configured. It can also **write** to those buckets once
-  **Allow writing to cloud storage** is on. See
+  the connection's **Allow writes** is on. See
   [Cloud Storage](cloud-storage.md).
 
 <!-- SCREENSHOT: chat-tab-chips.png: The chat panel header with two open tabs shown as chips ("#1 sales.csv" highlighted as active, "#2 returns.csv"), illustrating how the assistant addresses multiple open tables. -->

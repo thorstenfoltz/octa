@@ -38,7 +38,7 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("delete_columns_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.delete_columns_title"))
@@ -62,7 +62,7 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
 
         egui::Panel::bottom("delete_columns_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let delete_btn = ui.add_enabled(
                         selected_count > 0,
@@ -82,7 +82,7 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
                 });
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.label(octa::i18n::t("dialog.delete_columns_prompt"));
             ui.add_space(6.0);
 

@@ -26,7 +26,13 @@ mod connection;
 pub use connection::CloudConnection;
 
 mod provider;
-pub use provider::{CloudProvider, ObjectEntry, ObjectStoreProvider};
+pub use provider::{CloudProvider, CloudUpload, ObjectEntry, ObjectStoreProvider, copy_across};
+
+/// Copy / move / delete over object storage. Kept as a namespace rather than
+/// re-exported flat: a bare `delete` next to a dozen other `delete`s would be a
+/// coin toss at every call site.
+pub mod ops;
+pub use ops::{MAX_BULK_OBJECTS, TransferReport, is_prefix, map_key};
 
 mod s3;
 pub use s3::build_s3_provider;

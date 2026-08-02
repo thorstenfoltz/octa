@@ -25,9 +25,14 @@ pub fn decode_bytes(bytes: &[u8]) -> (String, &'static str) {
         return (s.to_owned(), "UTF-8");
     }
     // 3. Detect with chardetng, then decode (lossy only for stray bad bytes).
-    let mut detector = chardetng::EncodingDetector::new();
+    // chardetng 1.0 replaced the implicit/bool guessing parameters with typed
+    // enums. `Allow` on both preserves the 0.1 behaviour: ISO-2022-JP was always
+    // a candidate there, and UTF-8 was permitted via `guess(None, true)`. Both
+    // are right for a local file viewer - the `Deny` variants exist for web
+    // browsers, which must not let page content depend on sniffing.
+    let mut detector = chardetng::EncodingDetector::new(chardetng::Iso2022JpDetection::Allow);
     detector.feed(bytes, true);
-    let enc = detector.guess(None, true);
+    let enc = detector.guess(None, chardetng::Utf8Detection::Allow);
     let (text, _, _) = enc.decode(bytes);
     (text.into_owned(), enc.name())
 }

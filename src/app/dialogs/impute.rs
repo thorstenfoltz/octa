@@ -88,7 +88,7 @@ pub(crate) fn render_impute_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("impute_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("impute.title"))
@@ -109,7 +109,7 @@ pub(crate) fn render_impute_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
         egui::Panel::bottom("impute_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if ui.button(octa::i18n::t("impute.apply")).clicked() {
                         apply = true;
@@ -122,7 +122,7 @@ pub(crate) fn render_impute_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 });
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             // Column picker.
             ui.horizontal(|ui| {
                 ui.label(RichText::new(octa::i18n::t("impute.column_label")).strong());

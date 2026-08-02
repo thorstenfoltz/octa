@@ -364,12 +364,9 @@ impl SettingsDialog {
             }
         });
         if let Some((ok, msg)) = &self.db_test_msg {
-            let color = if *ok {
-                egui::Color32::from_rgb(0x30, 0x80, 0x30)
-            } else {
-                egui::Color32::from_rgb(0xd9, 0x53, 0x4f)
-            };
-            ui.colored_label(color, msg);
+            // Own row + wrapped: a driver's connection error is long, and the
+            // useful half is at the end.
+            crate::ui::settings::draw_result_message(ui, *ok, msg);
         }
 
         // Browser sign-in row: shown for Azure AD / GCP IAM once a client id is

@@ -170,6 +170,7 @@ nav:
       - "--join": cli/join.md
       - "--partition-by": cli/partition.md
       - Docker / Podman: cli/docker.md
+      - Cloud storage: cli/cloud.md
       - Man Page: cli/man-page.md
   - MCP Server:
       - Overview: mcp/index.md
@@ -199,6 +200,9 @@ nav:
           - correlation: mcp/tools/correlation.md
           - grep_files: mcp/tools/grep_files.md
           - list_objects: mcp/tools/list_objects.md
+          - copy_object: mcp/tools/copy_object.md
+          - move_object: mcp/tools/move_object.md
+          - delete_object: mcp/tools/delete_object.md
           - write_table: mcp/tools/write_table.md
           - edit_table: mcp/tools/edit_table.md
           - transform_columns: mcp/tools/transform_columns.md

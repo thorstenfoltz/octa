@@ -13,7 +13,7 @@ use octa::db::copy::{CopyLane, DbCopyEnd, DbCopyReport, choose_lane, copy_table}
 use octa::db::{DbEngine, DbWriteMode};
 use octa::i18n::t;
 use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+    DialogSize, draw_result_message, draw_window_controls, remember_dialog_rect, size_dialog_window,
 };
 
 use super::super::state::OctaApp;
@@ -197,7 +197,7 @@ pub(crate) fn render_db_copy_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("db_copy_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(t("dialog.dbc_title")).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -212,7 +212,13 @@ pub(crate) fn render_db_copy_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         }
         egui::Panel::bottom("db_copy_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
+                // Outcome above the buttons, on its own wrapped row: a driver
+                // error is long and would otherwise run off the edge.
+                if let Some((ok, msg)) = &st.result_msg {
+                    draw_result_message(ui, *ok, msg);
+                    ui.add_space(4.0);
+                }
                 ui.horizontal(|ui| {
                     if ui
                         .add_enabled(!running, egui::Button::new(t("dialog.dbc_copy")))
@@ -223,13 +229,6 @@ pub(crate) fn render_db_copy_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     if running {
                         ui.spinner();
                         ui.label(t("dialog.dbc_running"));
-                    } else if let Some((ok, msg)) = &st.result_msg {
-                        let color = if *ok {
-                            egui::Color32::from_rgb(0x30, 0x80, 0x30)
-                        } else {
-                            ui.visuals().error_fg_color
-                        };
-                        ui.colored_label(color, msg);
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button(t("common.cancel")).clicked() {
@@ -238,7 +237,7 @@ pub(crate) fn render_db_copy_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     });
                 });
             });
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.label(
                 RichText::new(t("dialog.dbc_intro"))
                     .size(10.0)

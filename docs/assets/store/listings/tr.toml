@@ -1,0 +1,11 @@
+# tr: written natively, not translated from English.
+
+short = "Parquet, CSV, Excel, SQLite ve yaklaşık 30 veri biçimini hızlı bir tabloda açın. Sıralama, filtreleme, arama, düzenleme ve SQL sorguları, tamamen yerel."
+
+long = """
+Octa; Parquet, CSV, Excel, SQLite, DuckDB, JSON ve yaklaşık otuz biçimi daha doğrudan hızlı bir tabloda açar. İçe aktarma yok, kurulum ayarı yok.
+
+Verileri sıralayın, filtreleyin, arayın ve düzenleyin; DuckDB ile SQL sorguları çalıştırın, grafikler oluşturun veya iki dosyayı karşılaştırın. Her şey kendi bilgisayarınızda çalışır ve hiçbir dosya yüklenmez.
+
+Arayüz 32 dilde. MIT lisanslı özgür yazılım.
+"""

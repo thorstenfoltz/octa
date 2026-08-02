@@ -49,6 +49,12 @@ pub(crate) struct CloudTreeAction {
     pub(crate) inventory: Option<(String, String)>,
     /// Drop the batch selection.
     pub(crate) clear_selection: bool,
+    /// Copy / move / delete cloud objects: the targets plus the operation.
+    /// Carries the whole batch selection when the right-clicked row is part of
+    /// one, so the menu acts on what is highlighted rather than only on the row
+    /// under the pointer. A key ending in `/` is a folder (always on its own,
+    /// since folders are never part of the selection) and is recursive.
+    pub(crate) object_op: Option<(Vec<CloudSelection>, CloudObjOp)>,
     /// "Union tables in this folder...": (conn_id, prefix, recursive). Lists
     /// the folder, downloads every readable table, opens the Union dialog.
     pub(crate) union_folder: Option<(String, String, bool)>,
@@ -183,16 +189,17 @@ pub(crate) fn render_cloud_tree(
             // stay reachable via the per-row hover tooltips.
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
 
-            // Marquee background, interacted FIRST so rows keep click priority.
-            let bg_id = ui.id().with("cloud_marquee_bg");
-            let bg = ui.interact(ui.max_rect(), bg_id, egui::Sense::drag());
+            // The visible strip of the list: what a drag has to start inside,
+            // and what the auto-scroll measures its edges from.
+            let viewport = ui.clip_rect();
 
             let mut rows: Vec<(egui::Rect, CloudSelection)> = Vec::new();
             for conn in connections {
                 draw_connection(ui, ctx, conn, &mut action, &mut rows);
             }
 
-            cloud_marquee(ui, ctx, &bg, &rows, &mut action);
+            cloud_marquee(ui, ctx, viewport, &rows, &mut action);
+            delete_key_shortcut(ui, ctx, &mut action);
         });
     action
 }
@@ -221,57 +228,80 @@ fn draw_sort_menu(ui: &mut egui::Ui, current: CloudSort, action: &mut CloudTreeA
     .on_hover_text(octa::i18n::t("cloud.sort_hint"));
 }
 
-/// egui-temp-memory key for the cloud marquee origin (the renderer is stateless).
-#[derive(Clone)]
-struct CloudMarquee {
-    start: egui::Pos2,
-    base: HashSet<CloudSelection>,
+/// Delete / Backspace on a selection asks to delete it, opening the same
+/// confirmation dialog the context menu's **Delete** does. Never deletes
+/// outright: the operation is irreversible without bucket versioning, so a
+/// keypress must not be the last word.
+///
+/// `Delete` is the physical key, so this is the `Entf` key on a German layout
+/// and every other layout's equivalent, with no per-layout handling. Backspace
+/// is accepted too because Mac laptop keyboards have no forward-delete.
+///
+/// Two guards keep it from firing while the user means something else:
+/// nothing may hold keyboard focus (a search box, the SQL editor, a cell being
+/// edited), and the pointer has to be over the cloud list, so a selection left
+/// behind in the sidebar cannot be deleted by a Delete meant for the table.
+fn delete_key_shortcut(ui: &egui::Ui, ctx: &TreeCtx, action: &mut CloudTreeAction) {
+    if ctx.selected.is_empty() || !ui.ui_contains_pointer() {
+        return;
+    }
+    if ui.ctx().memory(|m| m.focused()).is_some() {
+        return;
+    }
+    let pressed =
+        ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace));
+    if pressed {
+        action.object_op = Some((ctx.selected.iter().cloned().collect(), CloudObjOp::Delete));
+    }
 }
 
-/// One frame of the cloud-tree rubber-band: start/continue/end the drag via
-/// egui temp memory, paint the band, and emit the resulting selection through
-/// `action.set_selection` (the caller writes it into `cloud_browser.selected`).
+/// Selection the band started from, remembered for the life of one drag so a
+/// Ctrl-drag adds to it rather than to itself.
+#[derive(Clone)]
+struct CloudMarqueeBase(HashSet<CloudSelection>);
+
+/// One frame of the cloud-tree rubber-band. The geometry, the click-vs-drag
+/// threshold and the edge auto-scroll all live in the shared
+/// [`crate::ui::directory_tree::drive_marquee`], so this tree and the local
+/// file tree behave identically; only the selection type differs.
 fn cloud_marquee(
     ui: &egui::Ui,
     ctx: &TreeCtx,
-    bg: &egui::Response,
+    viewport: egui::Rect,
     rows: &[(egui::Rect, CloudSelection)],
     action: &mut CloudTreeAction,
 ) {
+    use crate::ui::directory_tree::drive_marquee;
+
     let mem_id = egui::Id::new("cloud_marquee_state");
-    if bg.drag_started() {
-        let ctrl = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
-        let start = ui
-            .input(|i| i.pointer.interact_pos())
-            .unwrap_or(bg.rect.min);
-        let base = if ctrl {
-            ctx.selected.clone()
-        } else {
-            HashSet::new()
-        };
-        ui.memory_mut(|m| m.data.insert_temp(mem_id, CloudMarquee { start, base }));
-    }
-    let Some(marquee) = ui.memory(|m| m.data.get_temp::<CloudMarquee>(mem_id)) else {
+    let base_id = egui::Id::new("cloud_marquee_base");
+    let mut ctrl = false;
+    let Some(frame) = drive_marquee(ui, mem_id, viewport, &mut ctrl) else {
+        ui.memory_mut(|m| m.data.remove::<CloudMarqueeBase>(base_id));
         return;
     };
-    let current = ui
-        .input(|i| i.pointer.interact_pos())
-        .unwrap_or(marquee.start);
+
+    // Capture the pre-drag selection once, on the frame the band appears.
+    let base = ui
+        .memory(|m| m.data.get_temp::<CloudMarqueeBase>(base_id))
+        .unwrap_or_else(|| {
+            let b = CloudMarqueeBase(if ctrl {
+                ctx.selected.clone()
+            } else {
+                HashSet::new()
+            });
+            ui.memory_mut(|m| m.data.insert_temp(base_id, b.clone()));
+            b
+        });
 
     let centers: Vec<f32> = rows.iter().map(|(r, _)| r.center().y).collect();
-    let mut selected = marquee.base.clone();
-    for i in crate::ui::directory_tree::indices_in_band(&centers, marquee.start.y, current.y) {
+    let mut selected = base.0;
+    for i in frame.contains_row(&centers) {
         selected.insert(rows[i].1.clone());
     }
     action.set_selection = Some(selected);
 
-    let band = egui::Rect::from_x_y_ranges(
-        bg.rect.x_range(),
-        egui::Rangef::new(
-            marquee.start.y.min(current.y),
-            marquee.start.y.max(current.y),
-        ),
-    );
+    let band = frame.band_rect(viewport.x_range());
     let fill = ui.visuals().selection.bg_fill.linear_multiply(0.25);
     ui.painter().rect_filled(band, 2.0, fill);
     ui.painter().rect_stroke(
@@ -280,10 +310,6 @@ fn cloud_marquee(
         egui::Stroke::new(1.0_f32, ui.visuals().selection.stroke.color),
         egui::StrokeKind::Inside,
     );
-
-    if bg.drag_stopped() {
-        ui.memory_mut(|m| m.data.remove::<CloudMarquee>(mem_id));
-    }
 }
 
 fn draw_connection(
@@ -546,6 +572,15 @@ fn draw_listing(
                                 Some((conn_id.to_string(), entry.key.clone(), true));
                             ui.close();
                         }
+                        object_op_menu(
+                            ui,
+                            vec![CloudSelection {
+                                conn_id: conn_id.to_string(),
+                                key: entry.key.clone(),
+                                name: entry.name.clone(),
+                            }],
+                            action,
+                        );
                     });
                     if is_open {
                         draw_listing(ui, ctx, conn_id, &entry.key, depth + 1, action, rows);
@@ -597,7 +632,7 @@ fn draw_listing(
                         if mods.ctrl || mods.command {
                             // Ctrl-click builds a batch selection to Union; it
                             // must not also open the file.
-                            action.toggle_select = Some(sel);
+                            action.toggle_select = Some(sel.clone());
                         } else {
                             action.open =
                                 Some((conn_id.to_string(), entry.key.clone(), entry.name.clone()));
@@ -630,9 +665,54 @@ fn draw_listing(
                             action.clear_selection = true;
                             ui.close();
                         }
+                        // Act on the highlighted batch when this row is in it;
+                        // right-clicking an unselected row is still about that
+                        // row alone.
+                        let targets: Vec<CloudSelection> = if is_selected && count >= 2 {
+                            ctx.selected.iter().cloned().collect()
+                        } else {
+                            vec![sel.clone()]
+                        };
+                        object_op_menu(ui, targets, action);
                     });
                 }
             }
+        }
+    }
+}
+
+/// What to do with a cloud object or folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CloudObjOp {
+    Copy,
+    Move,
+    Delete,
+}
+
+/// Copy / Move / Delete entries, shared by the folder and file context menus so
+/// a folder and an object offer exactly the same three actions (the recursion
+/// is implied by the trailing `/` on a folder key).
+///
+/// `targets` is what the action applies to: the whole batch selection when the
+/// clicked row belongs to one, otherwise just that row. The count is shown in
+/// the label for a batch, mirroring the Union entry, so it is obvious before
+/// clicking that this is about more than the row under the pointer.
+fn object_op_menu(ui: &mut egui::Ui, targets: Vec<CloudSelection>, action: &mut CloudTreeAction) {
+    ui.separator();
+    let n = targets.len();
+    for (label, hint, op) in [
+        ("cloud.copy_to", "cloud.copy_to_hint", CloudObjOp::Copy),
+        ("cloud.move_to", "cloud.move_to_hint", CloudObjOp::Move),
+        ("common.delete", "cloud.delete_hint", CloudObjOp::Delete),
+    ] {
+        let text = if n > 1 {
+            format!("{} ({n})", octa::i18n::t(label))
+        } else {
+            octa::i18n::t(label)
+        };
+        if ui.button(text).on_hover_text(octa::i18n::t(hint)).clicked() {
+            action.object_op = Some((targets.clone(), op));
+            ui.close();
         }
     }
 }

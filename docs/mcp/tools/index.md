@@ -37,6 +37,9 @@ of these are dropped when the server is started with `--mcp-read-only`.
 | **[`correlation`](correlation.md)**                         | Pairwise numeric correlation matrix                     | No                              |
 | **[`grep_files`](grep_files.md)**                           | Grep a value across files in a directory                | No                              |
 | **[`list_objects`](list_objects.md)**                       | List a cloud bucket folder (S3/Azure/GCS)               | No                              |
+| **[`copy_object`](copy_object.md)**                         | Copy a cloud object or folder to another location       | Yes                             |
+| **[`move_object`](move_object.md)**                         | Move a cloud object or folder (copy, then delete)       | Yes                             |
+| **[`delete_object`](delete_object.md)**                     | Delete a cloud object or folder                         | Yes                             |
 | **[`write_table`](write_table.md)**                         | Write inline rows to a new file                         | Writes/replaces the output path |
 | **[`edit_table`](edit_table.md)**                           | Add columns / set cells / insert / delete rows in place | Yes (edits the file)            |
 | **[`transform_columns`](transform_columns.md)**             | Rename / cast / drop columns, write back                | Writes the output path          |

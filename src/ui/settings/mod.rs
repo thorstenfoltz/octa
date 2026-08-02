@@ -1,5 +1,6 @@
 pub mod chat_models;
 pub mod chat_profiles;
+pub mod chat_troubleshoot;
 pub mod cloud_secrets;
 pub mod db_secrets;
 mod dialog;
@@ -185,9 +186,9 @@ impl ChatProviderKind {
     pub fn default_model(self) -> &'static str {
         match self {
             Self::Anthropic => "claude-haiku-4-5-20251001",
-            Self::OpenAi => "gpt-5.4-mini",
-            Self::OpenAiCompatible => "llama3.1",
-            Self::Gemini => "gemini-2.5-flash",
+            Self::OpenAi => "gpt-5.6-terra",
+            Self::OpenAiCompatible => "deepseek/deepseek-v4-flash",
+            Self::Gemini => "gemini-3.6-flash",
             Self::Ollama => "llama3.2",
         }
     }
@@ -200,27 +201,38 @@ impl ChatProviderKind {
     pub fn preset_models(self) -> &'static [&'static str] {
         match self {
             Self::Anthropic => &[
+                "claude-opus-5",
+                "claude-sonnet-5",
                 "claude-fable-5",
-                "claude-sonnet-4-6",
-                "claude-opus-4-8",
                 "claude-haiku-4-5-20251001",
+                "claude-opus-4-8",
             ],
-            Self::OpenAi => &[
-                "gpt-5.5",
-                "gpt-5.5-pro",
-                "gpt-5.4-mini",
-                "gpt-5.4-nano",
-                "gpt-5.2",
-            ],
+            Self::OpenAi => &["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"],
             Self::Gemini => &[
+                "gemini-3.6-flash",
                 "gemini-3.5-flash",
+                "gemini-3.5-flash-lite",
                 "gemini-3.1-pro-preview",
-                "gemini-3-flash-preview",
-                "gemini-3.1-flash-lite",
                 "gemini-2.5-pro",
-                "gemini-2.5-flash",
             ],
-            Self::OpenAiCompatible | Self::Ollama => &[],
+            // Open-weight models, named the way OpenRouter names them
+            // (`vendor/model`), since that is the gateway most people point the
+            // OpenAI-compatible provider at. Every other gateway spells the same
+            // model differently, which is exactly why the field below the
+            // dropdown stays free text. Ollama is dynamic (`/api/tags`).
+            Self::OpenAiCompatible => &[
+                "deepseek/deepseek-v4-pro",
+                "deepseek/deepseek-v4-flash",
+                "z-ai/glm-5.2",
+                "moonshotai/kimi-k3",
+                "moonshotai/kimi-k2.7-code",
+                "qwen/qwen3.7-plus",
+                "nvidia/nemotron-3-ultra-550b-a55b",
+                "minimax/minimax-m3",
+                "openai/gpt-oss-120b",
+                "google/gemma-4-31b-it",
+            ],
+            Self::Ollama => &[],
         }
     }
 }
@@ -790,6 +802,18 @@ pub struct AppSettings {
     /// [`max_decompressed_bytes`](Self::max_decompressed_bytes). Default `false`.
     #[serde(default)]
     pub max_decompressed_unlimited: bool,
+    /// How many files a cloud folder-union downloads before it stops. Every
+    /// file is fetched to a temp and then read fully into memory by the Union
+    /// dialog, so an unbounded folder (a data lake with tens of thousands of
+    /// parts) would OOM. Past this the union runs on the first N files and the
+    /// status bar reports the rest as skipped. Default 500. Overridden by
+    /// [`folder_union_max_files_unlimited`](Self::folder_union_max_files_unlimited).
+    #[serde(default = "default_folder_union_max_files")]
+    pub folder_union_max_files: usize,
+    /// When `true`, removes the folder-union file cap entirely. Trumps
+    /// [`folder_union_max_files`](Self::folder_union_max_files). Default `false`.
+    #[serde(default)]
+    pub folder_union_max_files_unlimited: bool,
     /// Master gate for modifying existing data. Default **true** (protected).
     /// While true: the assistant cannot write to existing files, the chat
     /// live-edit tool refuses, and schema-changing DuckDB/SQLite/GeoPackage
@@ -820,7 +844,12 @@ pub struct AppSettings {
     /// `Some(n)` caps the response and sets `truncated: true` in the JSON.
     /// Defaults to `Some(1000)`. Read once at server startup - changing this
     /// while a server is running needs an `octa --mcp` restart.
-    #[serde(default = "default_mcp_row_limit")]
+    ///
+    /// Persisted as a plain integer with **`0` meaning unlimited**, matching
+    /// what a per-call `limit: 0` already means. A bare `Option` would write
+    /// nothing at all for `None`, and the absent key then re-reads as the
+    /// `Some(1000)` default - so ticking Unlimited did not survive a restart.
+    #[serde(default = "default_mcp_row_limit", with = "zero_is_unlimited")]
     pub mcp_default_row_limit: Option<usize>,
     /// Per-cell byte cap applied by the MCP server. Cells whose textual
     /// form exceeds this are replaced with a `[truncated: ...]` marker and
@@ -849,9 +878,15 @@ pub struct AppSettings {
     pub map_tile_url_template: String,
     /// Per-file size cap (megabytes) for the directory scope of the
     /// multi-search panel. Files over this size are skipped silently
-    /// during the scan. Default 50 MB. `0` disables the cap.
+    /// during the scan. Default 50 MB. Overridden by
+    /// [`grep_max_file_size_unlimited`](Self::grep_max_file_size_unlimited).
     #[serde(default = "default_grep_max_file_size_mb")]
     pub grep_max_file_size_mb: u32,
+    /// When `true`, removes the multi-search per-file size cap entirely.
+    /// Trumps [`grep_max_file_size_mb`](Self::grep_max_file_size_mb).
+    /// Default `false`.
+    #[serde(default)]
+    pub grep_max_file_size_unlimited: bool,
     /// Maximum number of input rows the Chart tab will plot before
     /// evenly-spaced downsampling kicks in. Histogram, Line, and Scatter
     /// all honour this; Bar always aggregates the full input and is
@@ -997,11 +1032,6 @@ pub struct AppSettings {
     /// Turn off to list every file regardless of type.
     #[serde(default = "default_true")]
     pub directory_tree_filter_enabled: bool,
-    /// Whether cloud writes (save-back / upload) are allowed. Default OFF, like
-    /// the local write-protection switch: browsing and opening always work, but
-    /// writing to a cloud object requires turning this on first.
-    #[serde(default)]
-    pub cloud_writes_enabled: bool,
     /// Saved cloud connections (no secrets here; secrets live in the keyring /
     /// `cloud_secrets` fallback, keyed by connection id).
     #[serde(default)]
@@ -1111,12 +1141,33 @@ fn default_max_decompressed_bytes() -> u64 {
     crate::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES
 }
 
+fn default_folder_union_max_files() -> usize {
+    500
+}
+
 // Kept literal here (rather than referencing `crate::mcp::DEFAULT_*`)
 // because `mcp` lives in the binary side of the crate split and the
 // settings module is in the library. The values are mirrored by
 // `src/mcp/mod.rs::DEFAULT_ROW_LIMIT` / `DEFAULT_CELL_BYTE_LIMIT`.
 fn default_mcp_row_limit() -> Option<usize> {
     Some(1000)
+}
+
+/// Serde adapter for an optional cap that TOML has to hold as a plain number:
+/// `0` on the wire is `None` ("no cap") in memory. Needed because serde omits
+/// a `None` field entirely, and an omitted key falls back to the `default`
+/// function rather than staying `None`.
+mod zero_is_unlimited {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &Option<usize>, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_u64(v.unwrap_or(0) as u64)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<usize>, D::Error> {
+        let n = usize::deserialize(d)?;
+        Ok((n > 0).then_some(n))
+    }
 }
 
 fn default_mcp_cell_bytes() -> usize {
@@ -1206,6 +1257,8 @@ impl Default for AppSettings {
             raw_view_max_bytes_unlimited: false,
             max_decompressed_bytes: default_max_decompressed_bytes(),
             max_decompressed_unlimited: false,
+            folder_union_max_files: default_folder_union_max_files(),
+            folder_union_max_files_unlimited: false,
             write_protection: true,
             backup_before_modify: true,
             text_mode_extensions: Vec::new(),
@@ -1216,6 +1269,7 @@ impl Default for AppSettings {
             map_fallback_to_geometry: true,
             map_tile_url_template: default_map_tile_url(),
             grep_max_file_size_mb: default_grep_max_file_size_mb(),
+            grep_max_file_size_unlimited: false,
             chart_max_points: default_chart_max_points(),
             chart_max_categories: default_chart_max_categories(),
             table_picker_visible_rows: default_table_picker_visible_rows(),
@@ -1245,7 +1299,6 @@ impl Default for AppSettings {
             chat_api_keys: std::collections::BTreeMap::new(),
             summary_stats: default_summary_stats(),
             directory_tree_filter_enabled: true,
-            cloud_writes_enabled: false,
             cloud_connections: Vec::new(),
             cloud_secrets: std::collections::BTreeMap::new(),
             db_connections: Vec::new(),
@@ -1262,8 +1315,40 @@ impl AppSettings {
         self.raw_view_max_bytes_unlimited || size_bytes <= self.raw_view_max_bytes as u64
     }
 
+    /// How many files a folder-union may take, with "unlimited" folded in as
+    /// `usize::MAX` so callers can just `truncate` to it.
+    pub fn folder_union_cap(&self) -> usize {
+        if self.folder_union_max_files_unlimited {
+            usize::MAX
+        } else {
+            self.folder_union_max_files
+        }
+    }
+
+    /// Per-file byte ceiling for the Multi-search directory scan, where `0`
+    /// means "no ceiling". Both the Unlimited checkbox and a legacy `0` in
+    /// `settings.toml` (the old way to switch the cap off, before the
+    /// checkbox existed) resolve to it.
+    pub fn grep_max_file_bytes(&self) -> u64 {
+        if self.grep_max_file_size_unlimited {
+            0
+        } else {
+            (self.grep_max_file_size_mb as u64).saturating_mul(1024 * 1024)
+        }
+    }
+
     /// Platform-specific config directory.
     pub fn config_dir() -> Option<PathBuf> {
+        // `OCTA_CONFIG_DIR` wins on every platform and is used verbatim (no
+        // `octa` subdirectory appended). It is the one lever a container has:
+        // a distroless image typically has no `HOME`, `XDG_CONFIG_HOME` or
+        // `APPDATA`, so without it every branch below returns `None` and the
+        // CLI / MCP server silently has no settings at all.
+        if let Ok(dir) = std::env::var("OCTA_CONFIG_DIR")
+            && !dir.trim().is_empty()
+        {
+            return Some(PathBuf::from(dir));
+        }
         #[cfg(target_os = "linux")]
         {
             std::env::var("XDG_CONFIG_HOME")
@@ -1335,20 +1420,36 @@ impl AppSettings {
 
     /// Persist settings to disk. The file may carry plaintext API keys (the
     /// keyring fallback), so it is restricted to the owning user.
+    /// Persist, ignoring failures. The GUI's path: it saves on every Apply and
+    /// on exit, where a message box about a read-only config directory would be
+    /// noise. Use [`Self::save_result`] where the caller can report.
     pub fn save(&self) {
-        if let Some(path) = Self::config_path() {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            // Narrow the window: clamp an existing file before rewriting it.
-            if path.exists() {
-                restrict_file_to_owner(&path);
-            }
-            if let Ok(contents) = toml::to_string_pretty(self) {
-                let _ = std::fs::write(&path, contents);
-                restrict_file_to_owner(&path);
-            }
+        let _ = self.save_result();
+    }
+
+    /// Persist, reporting what went wrong. The CLI uses this: `--add-connection`
+    /// claiming success while writing nothing would be worse than an error, and
+    /// in a container "no writable config directory" is the likely outcome
+    /// rather than an exotic one.
+    pub fn save_result(&self) -> Result<PathBuf, String> {
+        let path = Self::config_path().ok_or_else(|| {
+            "no config directory: set OCTA_CONFIG_DIR to a writable path (or HOME / \
+             XDG_CONFIG_HOME on Linux, APPDATA on Windows)"
+                .to_string()
+        })?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("creating {}: {e}", parent.display()))?;
         }
+        // Narrow the window: clamp an existing file before rewriting it.
+        if path.exists() {
+            restrict_file_to_owner(&path);
+        }
+        let contents =
+            toml::to_string_pretty(self).map_err(|e| format!("serialising settings: {e}"))?;
+        std::fs::write(&path, contents).map_err(|e| format!("writing {}: {e}", path.display()))?;
+        restrict_file_to_owner(&path);
+        Ok(path)
     }
 }
 
@@ -1397,6 +1498,26 @@ fn dirs_path_home() -> Option<PathBuf> {
 /// (`Ok(())` or `Err(message)`), drained by the DB form per frame.
 pub(crate) type DbTestSlot = std::sync::Arc<std::sync::Mutex<Option<Result<(), String>>>>;
 
+/// Shared slot a chat "Test connection" worker writes its outcome into: the
+/// model's reply on success, the provider's error message on failure.
+pub type ChatTestSlot = std::sync::Arc<std::sync::Mutex<Option<Result<String, String>>>>;
+
+/// A chat connection test the dialog wants run. The provider adapters live in
+/// the binary and this dialog in the library, so the request crosses that line
+/// as plain data: the app drains it once per frame, runs one tiny turn on a
+/// worker thread, and writes the outcome into `slot`.
+pub struct ChatTestRequest {
+    /// The profile as the form currently describes it (unsaved edits included).
+    pub profile: chat_profiles::ChatModelProfile,
+    /// Already-resolved key; empty for a keyless provider.
+    pub api_key: String,
+    /// Global base URL to use when the profile carries none (Ollama /
+    /// OpenAI-compatible only). Empty otherwise.
+    pub fallback_base_url: String,
+    pub slot: ChatTestSlot,
+    pub ctx: egui::Context,
+}
+
 /// Transient state for the settings dialog.
 #[derive(Default)]
 pub struct SettingsDialog {
@@ -1429,6 +1550,9 @@ pub struct SettingsDialog {
     /// Buffer backing the transparent-decompression size cap input, in whole
     /// MB (the stored value is bytes; converted on open / Apply).
     max_decompressed_mb_buf: String,
+    /// Buffer backing the folder-union file cap input. Comma-tolerant integer;
+    /// ignored while `AppSettings.folder_union_max_files_unlimited` is ticked.
+    folder_union_max_files_buf: String,
     /// Buffer backing the user-extensible "treat as text" extensions input.
     /// Comma- or space-separated; canonicalised on Apply (lowercased,
     /// leading dot stripped). Parsed on Apply.
@@ -1510,6 +1634,10 @@ pub struct SettingsDialog {
     /// Audit-log size-warning threshold in MB (text buffer; parsed on Apply
     /// into `chat_audit_log_warn_bytes`).
     chat_audit_warn_mb_buf: String,
+    /// Which provider's shared key the "API keys" sub-section edits. Its own
+    /// picker: `AppSettings.chat_provider` is a dead migration field now that
+    /// the provider lives on each profile, so it must not address the key form.
+    chat_key_provider: ChatProviderKind,
     /// Masked API-key entry buffer for the chat provider, in the Chat section.
     chat_key_input_buf: String,
     /// Last "where the key was stored" status line after a Save/Clear.
@@ -1518,6 +1646,16 @@ pub struct SettingsDialog {
     /// awaiting deletion confirmation. `None` = no pending confirmation. Guards
     /// against an accidental one-click key wipe.
     chat_key_clear_confirm: Option<ChatProviderKind>,
+    /// A connection test the profile form wants run, for the app to pick up.
+    /// `None` between tests; the app `take()`s it.
+    pub chat_test_request: Option<ChatTestRequest>,
+    /// Slot the in-flight test writes into. `Some` while a test is running.
+    chat_test_result: Option<ChatTestSlot>,
+    /// Last test outcome: `(succeeded, message)`.
+    chat_test_msg: Option<(bool, String)>,
+    /// i18n key of the "what to fix" hint for the last failed test, if the
+    /// error was recognisable. See [`chat_troubleshoot::hint_for`].
+    chat_test_hint: Option<&'static str>,
     /// Set by the chat panel's Settings button so the Chat section opens
     /// expanded; consumed (reset) once the dialog has honoured it.
     pub focus_chat_section: bool,
@@ -1656,6 +1794,29 @@ pub enum DialogSize {
     Normal,
     Maximized,
     Minimized,
+}
+
+/// Draw an operation's outcome line: green when it worked, the theme's error
+/// colour when it did not, **wrapped** across as many lines as it needs.
+///
+/// Always call this on its own row, never inside a `ui.horizontal(..)`. An
+/// egui horizontal layout gives its children infinite width, so a label in one
+/// never wraps: a provider or driver error (which routinely runs to several
+/// hundred characters) is then drawn as one line that disappears off the right
+/// edge, and the part naming the actual problem is the part you cannot read.
+pub fn draw_result_message(ui: &mut egui::Ui, ok: bool, msg: &str) {
+    let color = if ok {
+        egui::Color32::from_rgb(0x30, 0x80, 0x30)
+    } else {
+        ui.visuals().error_fg_color
+    };
+    ui.add(
+        egui::Label::new(egui::RichText::new(msg).color(color))
+            .wrap()
+            // Selectable so a long error can be copied into a bug report or a
+            // search box rather than retyped.
+            .selectable(true),
+    );
 }
 
 /// Render the three title-bar control buttons (Minimize, Maximize, Close)

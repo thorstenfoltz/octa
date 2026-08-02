@@ -152,28 +152,28 @@ impl OctaApp {
                     .resizable(true)
                     .default_size(default_w)
                     .size_range(80.0..=max_w)
-                    .show_inside(parent_ui, &mut body);
+                    .show(parent_ui, &mut body);
             }
             ui::settings::DirectoryTreePosition::Right => {
                 egui::Panel::right("directory_tree_panel")
                     .resizable(true)
                     .default_size(default_w)
                     .size_range(80.0..=max_w)
-                    .show_inside(parent_ui, &mut body);
+                    .show(parent_ui, &mut body);
             }
             ui::settings::DirectoryTreePosition::Top => {
                 egui::Panel::top("directory_tree_panel")
                     .resizable(true)
                     .default_size(default_h)
                     .size_range(80.0..=max_h)
-                    .show_inside(parent_ui, &mut body);
+                    .show(parent_ui, &mut body);
             }
             ui::settings::DirectoryTreePosition::Bottom => {
                 egui::Panel::bottom("directory_tree_panel")
                     .resizable(true)
                     .default_size(default_h)
                     .size_range(80.0..=max_h)
-                    .show_inside(parent_ui, &mut body);
+                    .show(parent_ui, &mut body);
             }
         }
 
@@ -225,6 +225,9 @@ impl OctaApp {
         }
         if let Some(conn_id) = cloud_action.refresh {
             self.refresh_cloud_conn(&ctx, conn_id);
+        }
+        if let Some((targets, op)) = cloud_action.object_op {
+            self.open_cloud_transfer(targets, op);
         }
         if let Some((conn_id, prefix)) = cloud_action.inventory {
             self.cloud_inventory(&ctx, conn_id, prefix);

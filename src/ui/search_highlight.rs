@@ -12,7 +12,7 @@ use std::ops::Range;
 
 use eframe::egui::{
     Color32,
-    text::{LayoutJob, LayoutSection},
+    text::{ByteIndex, LayoutJob, LayoutSection},
 };
 
 use crate::data::DataTable;
@@ -52,7 +52,11 @@ pub fn apply_highlight(
     }
     let old = std::mem::take(&mut job.sections);
     for section in old {
-        let (s, e) = (section.byte_range.start, section.byte_range.end);
+        // egui 0.35 wraps layout offsets in the `ByteIndex` newtype. Unwrap at
+        // the boundary and re-wrap when emitting, so the cut arithmetic below
+        // stays plain `usize` and keeps matching `ranges`, which come from our
+        // own `RowMatcher::find_ranges` as `Range<usize>`.
+        let (s, e) = (section.byte_range.start.0, section.byte_range.end.0);
         // Cut points: section ends plus every range edge that falls strictly
         // inside the section. Sorted + deduped, consecutive pairs are the
         // sub-runs to emit.
@@ -83,7 +87,7 @@ pub fn apply_highlight(
             job.sections.push(LayoutSection {
                 // Preserve the section's leading space only on its first run.
                 leading_space: if a == s { section.leading_space } else { 0.0 },
-                byte_range: a..b,
+                byte_range: ByteIndex(a)..ByteIndex(b),
                 format: fmt,
             });
         }

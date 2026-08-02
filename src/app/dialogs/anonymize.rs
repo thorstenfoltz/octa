@@ -53,7 +53,7 @@ pub(crate) fn render_anonymize_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("anon_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("anonymize.title"))
@@ -74,7 +74,7 @@ pub(crate) fn render_anonymize_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
         egui::Panel::bottom("anon_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if ui.button(octa::i18n::t("anonymize.apply")).clicked() {
                         apply = true;
@@ -87,7 +87,7 @@ pub(crate) fn render_anonymize_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 });
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {

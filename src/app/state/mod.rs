@@ -21,7 +21,7 @@ pub(crate) const MAX_CLOSED_TAB_HISTORY: usize = 10;
 
 /// Where a tab was opened from in the cloud. Set when a file is downloaded
 /// from a [`octa::cloud::CloudConnection`]; the tab's `source_path` points at
-/// the downloaded temp copy. Save-back (gated by `cloud_writes_enabled`)
+/// the downloaded temp copy. Save-back (gated by the connection's own
 /// uploads to `key` on the connection identified by `conn_id`.
 #[derive(Debug, Clone)]
 pub(crate) struct CloudOrigin {
@@ -451,7 +451,7 @@ pub(crate) struct TabState {
     pub(crate) chart_buffers: ChartInputBuffers,
     /// Set when this tab was opened from cloud storage. Carries the connection
     /// id + object key so a later save can write back (gated by
-    /// `cloud_writes_enabled`). `None` for local files.
+    /// `allow_writes`). `None` for local files.
     pub(crate) cloud_origin: Option<CloudOrigin>,
     /// Set when the tab shows a live database table (read-only).
     pub(crate) db_origin: Option<DbOrigin>,
@@ -666,6 +666,9 @@ pub(crate) struct OctaApp {
     /// Active "Copy table to another connection" dialog, or `None` when
     /// closed (see `src/app/dialogs/db_copy.rs`).
     pub(crate) db_copy_dialog: Option<crate::app::dialogs::db_copy::DbCopyState>,
+    /// Copy / move / delete a cloud object or folder (cloud tree context menu).
+    pub(crate) cloud_transfer_dialog:
+        Option<crate::app::dialogs::cloud_transfer::CloudTransferState>,
     /// Pending "Parse in new tab" modal. Set when the user picks a scope
     /// from the Edit menu or right-click; cleared when the modal is
     /// dismissed (Cancel) or the parse succeeds (Open).

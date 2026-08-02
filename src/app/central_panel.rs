@@ -19,7 +19,7 @@ impl OctaApp {
     pub(crate) fn render_central_panel(&mut self, parent_ui: &mut egui::Ui) {
         let ctx = parent_ui.ctx().clone();
         let ctx = &ctx;
-        egui::CentralPanel::default().show_inside(parent_ui, |ui| {
+        egui::CentralPanel::default().show(parent_ui, |ui| {
             // Per-theme background decoration (e.g. Manga's halftone field).
             // Painted before any content so widgets sit on top.
             ui::theme::paint_background_decoration(ui.painter(), ui.max_rect(), self.theme_mode);

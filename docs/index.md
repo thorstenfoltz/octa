@@ -125,7 +125,7 @@ like Claude can answer questions about your local files.
 
     ---
 
-    The interface is available in 31 languages, English, German,
+    The interface is available in 32 languages, English, German,
     Spanish, French, and more, switchable live under
     **Settings → Appearance**. Text-file encodings, date formats, and
     number separators are detected per file.

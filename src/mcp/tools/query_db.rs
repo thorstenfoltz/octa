@@ -4,7 +4,7 @@
 //! read-only.
 
 use rmcp::ErrorData as McpError;
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::{CallToolResult, ContentBlock};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -66,7 +66,7 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
         .await
         .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
         .map_err(|e| McpError::invalid_params(format!("query_db failed: {e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))
 }

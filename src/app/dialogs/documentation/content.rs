@@ -271,7 +271,8 @@ open get loaded into a fresh tab first.
 
 - **Per-file size cap** (Settings > Performance > Multi-search file
   cap, default 50 MB). Oversized files end up in the skipped chip
-  (see below) with their actual size.
+  (see below) with their actual size. Tick **Unlimited** beside the
+  setting to scan every file whatever its size.
 - **Cap of 10,000 hits per scan**, 1,000 per file -- a runaway regex
   on a huge dataset can't pin the UI.
 - **In-memory rows only**. For lazy formats (Parquet, CSV/TSV) the
@@ -1471,28 +1472,91 @@ profile automatically, so nothing changes until you add more.
 Supported backends: Anthropic, OpenAI, Google Gemini, any
 OpenAI-compatible endpoint, and local **Ollama** (no API key needed).
 
+## Temperature (and turning it off)
+
+Leave the **Temperature** field **empty** and no temperature is sent at
+all. That is different from sending 0: the newest models (Claude Opus 4.7
+and later) reject the parameter outright and answer with an error, so an
+empty field is what makes them work. Put in a number and it is sent as
+usual; 0 keeps answers focused and repeatable, which suits data work.
+
+## Testing a profile
+
+**Test connection**, beside **Save profile**, sends one tiny message with
+exactly the settings on screen (including edits you have not saved) and
+shows what came back. It runs the same code path as a real question, so it
+catches a missing or wrong key, a model name that does not exist, a
+thinking value in the wrong dialect, a temperature the model refuses, and
+an Ollama server that is not running. Green means it works; red carries
+the provider's own error message, plus one line naming the field to fix.
+
+## Open-weight models (OpenAI-compatible)
+
+The **OpenAI-compatible** provider is how you reach the open-weight
+models: DeepSeek, GLM, Kimi, Qwen, Nemotron, MiniMax, gpt-oss, Gemma. The
+model dropdown lists current ones, spelled the way **OpenRouter** spells
+them, since that is the gateway most people point it at.
+
+When it does not work, in order of how often each is the real cause:
+
+- **Base URL is not the API root.** It almost always ends in `/v1`
+  (`https://openrouter.ai/api/v1`) and never in `/chat/completions`; Octa
+  appends the path itself. A wrong root reads as a 404.
+- **The model name is the gateway's, not the vendor's.** OpenRouter says
+  `deepseek/deepseek-v4-pro`; another host spells the same model
+  differently, and vLLM may want a path. The dropdown is a starting point,
+  the free-text field below it is for everything else.
+- **The key is the wrong provider's.** OpenAI-compatible has its own slot:
+  pick it in the **API keys** dropdown, not OpenAI. Local gateways often
+  accept any string.
+- **The gateway does not do tool calling.** Octa's assistant works by
+  calling tools. Without function-calling support it connects and chats
+  but never reads your data: the test passes and the assistant is still
+  useless.
+- **Thinking or temperature is not supported.** Both go out as ordinary
+  fields many gateways reject. Empty them on a 400.
+
+For a local server use the **Ollama** provider instead: it finds your
+installed models and can start the server.
+
 ## Thinking / reasoning
 
 The profile's **Thinking / reasoning** field is free text, handed to the
-provider as-is. Each one wants something different:
+provider as-is. **Type a word, not a number**: every current model takes
+an effort level, and the shape of what you type picks the knob Octa sends.
 
-- **OpenAI**: an effort level, e.g. `high`.
-- **Anthropic**: a thinking budget in tokens, e.g. `8000`.
-- **Gemini**: a thinking budget in tokens, e.g. `8000`.
+- **OpenAI**: an effort word, `none` / `low` / `medium` / `high` /
+  `xhigh`. A number is refused before the request goes out.
+- **Anthropic**: an effort word, `low` / `medium` / `high` / `xhigh` /
+  `max` (`high` is the default). A number is a thinking-token budget of at
+  least 1024, and only Claude 4.5 and older, such as Haiku 4.5, still take
+  one: Opus 4.7 and later answer 400 to it.
+- **Gemini**: a level word, `minimal` / `low` / `medium` / `high`, on
+  Gemini 3 and later. A number is a thinking-token budget for Gemini 2.5,
+  where 0 turns thinking off and -1 lets the model decide.
+- **OpenAI-compatible / Ollama**: an effort word; a number is passed
+  through, since some gateways take one.
+
+So "is 8000 low, medium or high?" no longer needs an answer: on a current
+model you type `medium`. Hover the field and the tooltip names exactly
+what the selected provider takes.
 
 Leave it empty for no thinking (the default). It is free text rather than
-a fixed list because providers keep adding values. A wrong value is
-reported when used: give Anthropic a word like `high` and Octa tells you
-it wants a number; anything the provider itself rejects comes back as
-that provider's error. For Anthropic, thinking also forces temperature to
-1 and lifts the token cap above the budget, as the API demands. Octa
-adjusts the request for you.
+a fixed list because providers keep adding levels; a level a provider does
+not know comes back as that provider's error, and **Test connection** is
+the quickest way to find out. When Anthropic gets a token budget, Octa
+also lifts the token cap above it and pins temperature to 1 if the profile
+sends one at all (an empty field still sends none), as the API demands. An
+effort word needs none of that.
 
 ## API keys
 
 Cloud providers need an API key, entered under **Settings > Chat /
-Assistant**; keys are read from the environment, then the OS keyring,
-then `settings.toml` (in that order).
+Assistant > API keys**: pick the provider in the dropdown there, paste the
+key, **Save key**, **Apply**. That dropdown is separate from the profile
+the panel is using, so every provider's key is reachable at any time. Keys
+are read from the environment, then the OS keyring, then `settings.toml`
+(in that order).
 
 A key is **shared by every profile of a provider**, so three Anthropic
 profiles all use the one Anthropic key. A profile can opt out with **Use
@@ -1672,7 +1736,7 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
   tool-call audit log. **Write protection** governs GUI file saves and
   the MCP default; the assistant is governed per profile. See the
   **Assistant** section.
-- **Cloud storage**: the **Allow writing to cloud storage** switch and
+- **Cloud storage**: the per-connection **Allow writes** switch and
   your saved S3 / Azure / GCS connections (with their credentials). See
   the **Cloud Storage** section.
 - **Map**: default mode (Tiles / Geometry only), tile URL template,
@@ -1780,7 +1844,12 @@ a tab. Note that nested JSON comes back flattened (one column per leaf, e.g.
 ## Union files straight from the sidebar
 
 You do not have to open a tab per file first. In the directory sidebar,
-**Ctrl-click** each file you want (**Shift-click** takes a whole run).
+**Ctrl-click** each file you want (**Shift-click** takes a whole run), or
+**drag** across the rows to rubber-band them. Dragging to the top or
+bottom edge scrolls the list, so a selection can run past the rows on
+screen; hold **Ctrl** while dragging to add to an existing selection, and
+a click that does not move still just opens the file.
+
 Selected rows stay highlighted and an "N selected" bar appears at the top
 of the sidebar; click **Union...** there, or right-click a selected file
 and choose **Union selected files...**.
@@ -1809,6 +1878,16 @@ Azure Blob or GCS becomes one table without a tab per object.
 
 Both stages report progress in the status bar - first the download count, then
 the reading count - so a slow bucket never looks like a freeze.
+
+Whole folders go in one action, with no object-by-object ticking: right-click
+a folder in the cloud tree and choose **Union tables in this folder...**, or
+**Union tables in this folder and subfolders...** for a recursive sweep. Octa
+lists the prefix, keeps the objects it can read, and unions those.
+
+A folder union reads every file fully into memory, so it stops after 500 files
+by default and the status bar reports how many were skipped. Change that
+number, or tick **Unlimited**, under **Folder union file cap** in
+**Settings > Performance**.
 "#;
 
 pub(super) const JOIN: &str = r#"# Join Tables
@@ -2111,7 +2190,9 @@ always sort by name and stay at the top.
 
 ## Union several objects
 
-**Ctrl-click** objects to select them rather than open them. An "N selected"
+**Ctrl-click** objects to select them rather than open them, or **drag**
+across the list to rubber-band a run of them (dragging to an edge scrolls,
+so the selection can reach past what is on screen). An "N selected"
 bar appears at the top of the cloud section with a **Union...** button
 (also on the right-click menu of any selected object):
 Octa downloads the selected objects and opens the Union dialog over them,
@@ -2119,14 +2200,93 @@ with the same column reconciliation as any other union. A folder of
 partitioned parquet parts becomes one table without a tab per object. A
 plain click still just opens the object.
 
+To take a whole folder instead, right-click the folder itself and choose
+**Union tables in this folder...** (or the **and subfolders...** variant).
+Folder unions stop at the **Folder union file cap** set in
+**Settings > Performance**, 500 files by default.
+
+## Copy, move and delete objects
+
+Right-click an object **or a folder** in the cloud tree: **Copy to...**,
+**Move to...** and **Delete**. A folder includes every object under it,
+and right-clicking a highlighted object acts on the **whole selection**
+(the menu shows the count, e.g. "Copy to... (7)"). Right-clicking an
+object outside the selection acts on that one alone.
+
+Copy and Move ask for a target connection (any saved one, not only the
+one you started in) and a destination path; the resolved URL is shown
+under the field. A folder source needs a destination ending in `/` and
+its shape is recreated underneath. Several selected objects also need a
+folder destination, and each keeps its own name in it; two with the same
+filename overwrite one another rather than being renamed.
+
+Once the operation has run, the **Cancel** button becomes **Done**.
+
+Within one bucket the provider copies **server-side**, so no bytes pass
+through Octa and a huge object costs one API call. Across buckets,
+accounts or providers (S3 to GCS, say) the object is **streamed** in
+8 MiB blocks into a multipart upload, so memory does not grow with the
+object.
+
+A move is a copy then a delete, because object stores have no rename.
+The delete only runs once every copy succeeded, so an interrupted move
+leaves the source intact.
+
+Pressing **Delete** (`Entf` on a German keyboard, or `Backspace` on a Mac
+keyboard without a forward-delete) with objects selected and the pointer
+over the cloud list opens the same confirmation. The key never deletes on
+its own, and is ignored while anything else has keyboard focus, so a
+Delete meant for a table cell cannot reach a sidebar selection.
+
+**Delete cannot be undone** unless the bucket has versioning on. There is
+no trash. The dialog warns, and warns differently for a folder.
+
+The connection's own **Allow writes** applies, as for saving. With it
+off the dialog refuses before touching anything.
+
+One operation covers at most 10,000 objects: a folder move cannot be
+resumed, so Octa stops before starting rather than halfway.
+
+The same operations exist without the GUI: `octa --cloud-copy`,
+`--cloud-move`, `--cloud-delete`, `--cloud-ls`, `--cloud-get`,
+`--cloud-put` and `--list-connections`, and as the assistant / MCP tools
+`copy_object`, `move_object` and `delete_object` (write tools, dropped
+under `--mcp-read-only`).
+
+## Connections without the Settings dialog
+
+Connections can also be saved from the command line, which is how you
+provision a container or a CI job:
+
+```
+octa --add-connection 'kind=s3,name=prod,bucket=my-bucket,allow_writes=true' \
+     --secret-env S3_KEY
+octa --remove-connection prod
+octa --list-connections
+```
+
+`--secret-env` names an environment variable holding the secret, so it
+never appears in the command line. Adding a name that already exists
+replaces it and keeps its stored secret; omitted keys revert to their
+defaults. Only password authentication fits in a spec; the other methods
+need this dialog's Settings form.
+
+Two environment variables matter when there is no desktop:
+`OCTA_CONFIG_DIR` says where `settings.toml` lives (a container sets no
+HOME, so without it Octa has nowhere to read or write and says so), and
+`OCTA_NO_KEYRING=1` skips the OS keyring, which a container never has.
+Secrets then live in `settings.toml`, written chmod 0600, and every
+command that stores one tells you that is where it went.
+
 ## Saving back
 
 By default, cloud-opened files are read-only: pressing **Save** shows a
 reminder and does nothing, but **Save As** to a local path always works (and
 detaches the tab from the cloud).
 
-To save back to the object, turn on **Allow writing to cloud storage** in
-**Settings > Cloud storage**. Then **Save** writes the tab back to its
+To save back to the object, turn on **Allow writes on this connection**
+for the connection it came from, in **Settings > Cloud storage**. Writing
+is permitted per connection and nowhere else. Then **Save** writes the tab back to its
 original object. Uploads run in the background; the status bar reports success
 or failure. Each connection also has its own **Allow writes on this
 connection** checkbox (off by default): both it and the global switch must

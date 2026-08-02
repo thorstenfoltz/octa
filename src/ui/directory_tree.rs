@@ -23,16 +23,16 @@ pub struct DirectoryTreeState {
     /// Anchor for Shift-range selection: the last file clicked with Ctrl or
     /// plainly. A Shift-click selects every file between it and the anchor.
     pub select_anchor: Option<PathBuf>,
-    /// While a press-and-drag marquee is active: the pointer position where the
-    /// drag began, plus the selection that existed at that moment (so a
-    /// Ctrl-drag adds to it instead of replacing). `None` when not dragging.
+    /// While a press-and-drag marquee is active: the selection that existed
+    /// when the drag began, so a Ctrl-drag adds to it instead of replacing it.
+    /// `None` when not dragging.
     pub marquee: Option<Marquee>,
 }
 
-/// In-progress rubber-band selection anchor.
+/// In-progress rubber-band selection. The band's geometry lives in egui temp
+/// memory (see [`drive_marquee`]), shared with the cloud tree; all this holds
+/// is what the band adds to.
 pub struct Marquee {
-    /// Screen-space position where the drag started.
-    pub start: egui::Pos2,
     /// Selection to union the band into (empty unless the drag began with Ctrl).
     pub base: HashSet<PathBuf>,
 }
@@ -85,6 +85,144 @@ pub fn indices_in_band(centers: &[f32], a: f32, b: f32) -> Vec<usize> {
         .filter(|&(_, &c)| c >= lo && c <= hi)
         .map(|(i, _)| i)
         .collect()
+}
+
+/// How far the pointer has to move after a press before it counts as a
+/// rubber-band drag rather than a click on the row underneath.
+const MARQUEE_START_THRESHOLD: f32 = 4.0;
+
+/// Distance from the viewport edge at which a drag starts scrolling the list.
+const MARQUEE_EDGE_ZONE: f32 = 24.0;
+/// Fastest auto-scroll, in points per frame.
+const MARQUEE_MAX_SPEED: f32 = 18.0;
+
+/// One frame of the rubber-band, in the coordinate space that survives
+/// scrolling. Shared by the local and cloud trees.
+///
+/// **Content coordinates, not screen coordinates.** The band anchor has to
+/// stay attached to the row it started on while the list scrolls under it;
+/// storing a screen position makes the band drift by exactly the scroll
+/// distance, so a drag that scrolls ends up selecting the wrong rows.
+/// `content_top` (`ui.min_rect().top()`, which moves with the content) is the
+/// origin everything is measured from.
+#[derive(Clone, Copy)]
+pub struct MarqueeFrame {
+    /// Band anchor, in content space.
+    pub start_y: f32,
+    /// Pointer now, in content space.
+    pub current_y: f32,
+    /// Content-space origin, for converting back when painting.
+    pub content_top: f32,
+}
+
+impl MarqueeFrame {
+    /// Whether a row centred at this screen y is inside the band.
+    pub fn contains_row(&self, centers: &[f32]) -> Vec<usize> {
+        let content: Vec<f32> = centers.iter().map(|c| c - self.content_top).collect();
+        indices_in_band(&content, self.start_y, self.current_y)
+    }
+
+    /// The band as a screen-space rect spanning `x_range`.
+    pub fn band_rect(&self, x_range: egui::Rangef) -> egui::Rect {
+        let (a, b) = (
+            self.start_y + self.content_top,
+            self.current_y + self.content_top,
+        );
+        egui::Rect::from_x_y_ranges(x_range, egui::Rangef::new(a.min(b), a.max(b)))
+    }
+}
+
+/// Start / continue / end a rubber-band selection, and scroll the list when the
+/// pointer is dragged past its edge. Returns the current frame while a band is
+/// active, `None` otherwise.
+///
+/// Deliberately driven from raw pointer state rather than a background
+/// `Response`, because the background is only the *empty* part of the panel:
+/// in a narrow sidebar full of filenames there is barely any, so a drag that
+/// happened to start on a row silently did nothing. Rows sense clicks, not
+/// drags, so a press that turns into a drag is unambiguous and safe to claim
+/// here; a press that does not move still reaches the row as a click.
+///
+/// `ctrl_extends` reports whether the drag started with Ctrl/Cmd held, so the
+/// caller can union with its existing selection.
+pub fn drive_marquee(
+    ui: &egui::Ui,
+    mem_id: egui::Id,
+    viewport: egui::Rect,
+    ctrl_extends: &mut bool,
+) -> Option<MarqueeFrame> {
+    let content_top = ui.min_rect().top();
+    let (down, press_origin, pos) = ui.input(|i| {
+        (
+            i.pointer.primary_down(),
+            i.pointer.press_origin(),
+            i.pointer.interact_pos().or(i.pointer.latest_pos()),
+        )
+    });
+
+    #[derive(Clone, Copy)]
+    struct State {
+        start_content: f32,
+        last_content: f32,
+        ctrl: bool,
+    }
+
+    let mut state = ui.memory(|m| m.data.get_temp::<State>(mem_id));
+
+    if state.is_none()
+        && down
+        && let (Some(origin), Some(now)) = (press_origin, pos)
+        // Started inside this list...
+        && viewport.contains(origin)
+        // ...moved far enough to be a drag and not a click...
+        && (now - origin).length() > MARQUEE_START_THRESHOLD
+        // ...and no other widget (a scrollbar, a splitter) already owns it.
+        && ui.ctx().dragged_id().is_none()
+    {
+        state = Some(State {
+            start_content: origin.y - content_top,
+            last_content: now.y - content_top,
+            ctrl: ui.input(|i| i.modifiers.ctrl || i.modifiers.command),
+        });
+    }
+
+    let mut st = state?;
+    if !down {
+        ui.memory_mut(|m| m.data.remove::<State>(mem_id));
+        return None;
+    }
+
+    // A pointer dragged outside the window reports no position; hold the last
+    // one rather than collapsing the band (which would clear the selection).
+    if let Some(now) = pos {
+        st.last_content = now.y - content_top;
+
+        // Auto-scroll when held near or past an edge, so a selection can run
+        // past the visible rows. Speed ramps with how far outside it is.
+        let past_bottom = now.y - (viewport.bottom() - MARQUEE_EDGE_ZONE);
+        let past_top = (viewport.top() + MARQUEE_EDGE_ZONE) - now.y;
+        let dy = if past_bottom > 0.0 {
+            -past_bottom.min(MARQUEE_MAX_SPEED)
+        } else if past_top > 0.0 {
+            past_top.min(MARQUEE_MAX_SPEED)
+        } else {
+            0.0
+        };
+        if dy != 0.0 {
+            // `scroll_with_delta` is inverted: negative y scrolls down.
+            ui.scroll_with_delta(egui::vec2(0.0, dy));
+            // The pointer may not move again, so ask for the next frame here or
+            // the scroll would stall as soon as the user holds still.
+            ui.ctx().request_repaint();
+        }
+    }
+    ui.memory_mut(|m| m.data.insert_temp(mem_id, st));
+    *ctrl_extends = st.ctrl;
+    Some(MarqueeFrame {
+        start_y: st.start_content,
+        current_y: st.last_content,
+        content_top,
+    })
 }
 
 /// Render the directory tree. Callers wrap this in a `SidePanel`.
@@ -165,19 +303,17 @@ pub fn render_directory_tree(
     egui::ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            // Marquee background: interact with the whole content rect FIRST,
-            // with a drag sense, so the file rows drawn afterwards keep click
-            // priority (a click opens a file) while a press-and-drag on empty
-            // space -- or that falls through from a click-only row -- drives the
-            // rubber-band. Same trick the custom title bar uses.
-            let bg_id = ui.id().with("dir_marquee_bg");
-            let bg = ui.interact(ui.max_rect(), bg_id, egui::Sense::drag());
+            // The visible strip of the list. `clip_rect` (not `max_rect`) is
+            // the viewport: it is what the pointer has to be inside for a drag
+            // to belong to this list, and what the auto-scroll measures its
+            // edges from.
+            let viewport = ui.clip_rect();
 
             let root = state.root.clone();
             let mut rows: Vec<(egui::Rect, PathBuf)> = Vec::new();
             draw_dir(ui, &root, state, &mut action, 0, allowed_exts, &mut rows);
 
-            apply_marquee(ui, state, &bg, &rows);
+            apply_marquee(ui, state, viewport, &rows);
         });
     action
 }
@@ -466,16 +602,20 @@ fn draw_dir(
 fn apply_marquee(
     ui: &egui::Ui,
     state: &mut DirectoryTreeState,
-    bg: &egui::Response,
+    viewport: egui::Rect,
     rows: &[(egui::Rect, PathBuf)],
 ) {
-    if bg.drag_started() {
-        let ctrl = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
-        let start = ui
-            .input(|i| i.pointer.interact_pos())
-            .unwrap_or(bg.rect.min);
+    let mem_id = ui.id().with("dir_marquee_state");
+    let mut ctrl = false;
+    let Some(frame) = drive_marquee(ui, mem_id, viewport, &mut ctrl) else {
+        // The band ended (or never started); the selection it produced stays.
+        state.marquee = None;
+        return;
+    };
+    // Remember the base selection once, on the frame the band appears, so a
+    // Ctrl-drag adds to what was already selected instead of to itself.
+    if state.marquee.is_none() {
         state.marquee = Some(Marquee {
-            start,
             base: if ctrl {
                 state.selected.clone()
             } else {
@@ -483,32 +623,26 @@ fn apply_marquee(
             },
         });
     }
-    let Some(marquee) = state.marquee.as_ref() else {
-        return;
-    };
-    let current = ui
-        .input(|i| i.pointer.interact_pos())
-        .unwrap_or(marquee.start);
+    let base = state
+        .marquee
+        .as_ref()
+        .map(|m| m.base.clone())
+        .unwrap_or_default();
 
     // Recompute selection = base ∪ file rows whose centre is in the band.
     let centers: Vec<f32> = rows.iter().map(|(r, _)| r.center().y).collect();
-    let mut selected = marquee.base.clone();
-    for i in indices_in_band(&centers, marquee.start.y, current.y) {
+    let mut selected = base;
+    for i in frame.contains_row(&centers) {
         selected.insert(rows[i].1.clone());
     }
     state.selected = selected;
-    if let Some(last) = rows.iter().rev().find(|(r, _)| r.center().y <= current.y) {
+    let cutoff = frame.current_y + frame.content_top;
+    if let Some(last) = rows.iter().rev().find(|(r, _)| r.center().y <= cutoff) {
         state.select_anchor = Some(last.1.clone());
     }
 
     // Paint the band across the panel width (feedback only).
-    let band = egui::Rect::from_x_y_ranges(
-        bg.rect.x_range(),
-        egui::Rangef::new(
-            marquee.start.y.min(current.y),
-            marquee.start.y.max(current.y),
-        ),
-    );
+    let band = frame.band_rect(viewport.x_range());
     let fill = ui.visuals().selection.bg_fill.linear_multiply(0.25);
     ui.painter().rect_filled(band, 2.0, fill);
     ui.painter().rect_stroke(
@@ -517,10 +651,6 @@ fn apply_marquee(
         egui::Stroke::new(1.0_f32, ui.visuals().selection.stroke.color),
         egui::StrokeKind::Inside,
     );
-
-    if bg.drag_stopped() {
-        state.marquee = None;
-    }
 }
 
 /// Read one directory's direct entries, sorted: directories first (alphabetical),

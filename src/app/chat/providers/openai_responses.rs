@@ -16,7 +16,7 @@ use serde_json::{Map, Value, json};
 
 use crate::app::chat::types::{ChatEvent, ContentBlock, Message, Role, StopReason, ToolDef};
 
-use super::{ProviderConfig, stream_sse};
+use super::{ProviderConfig, Reasoning, parse_reasoning, stream_sse};
 
 const ENDPOINT: &str = "https://api.openai.com/v1/responses";
 
@@ -180,25 +180,21 @@ pub(crate) fn build_responses_body(
         body.insert("max_output_tokens".into(), json!(max));
     }
 
-    let reasoning = cfg
-        .reasoning
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    if let Some(effort) = reasoning {
-        if effort.parse::<i64>().is_ok() {
+    let reasoning = parse_reasoning(cfg.reasoning.as_deref());
+    if let Some(r) = reasoning {
+        let Reasoning::Effort(effort) = r else {
             return Err(
-                "OpenAI takes a reasoning effort word (minimal / low / medium / high), \
+                "OpenAI takes a reasoning effort word (none / low / medium / high / xhigh), \
                  not a token budget"
                     .to_string(),
             );
-        }
+        };
         // Passed verbatim so new effort values keep working without a release.
         body.insert("reasoning".into(), json!({ "effort": effort }));
         body.insert("include".into(), json!(["reasoning.encrypted_content"]));
         // Reasoning models reject temperature; omit it entirely.
-    } else {
-        body.insert("temperature".into(), json!(cfg.temperature));
+    } else if let Some(t) = cfg.temperature {
+        body.insert("temperature".into(), json!(t));
     }
 
     Ok(Value::Object(body))

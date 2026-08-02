@@ -70,7 +70,7 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         // Header: title + window controls (minimize / maximize / close).
         egui::Panel::top("pivot_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.pv_title"))
@@ -92,7 +92,7 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         // Footer: Run / Cancel, pinned to the bottom so resizing grows the body.
         egui::Panel::bottom("pivot_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let can_run = match st.kind {
                         PivotKind::Pivot => st.on_col.is_some() && st.value_col.is_some(),
@@ -122,7 +122,7 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         // Body in the central area. No outer scroll area: the only growable
         // part is the column picker, which has its own bounded scroll, so the
         // dialog never stretches to fill the screen.
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(
                     &mut st.kind,

@@ -74,7 +74,7 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("value_frequency_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(format!(
@@ -100,7 +100,7 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
         // Controls first, so the result below reflects this frame's edits.
         egui::Panel::top("value_frequency_controls")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 let binning_active = is_numeric && bin_state;
                 ui.horizontal_wrapped(|ui| {
                     // Top-N only applies to raw value counts; when binning, the
@@ -161,7 +161,7 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
 
         egui::Panel::bottom("value_frequency_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if ui.button(octa::i18n::t("common.close")).clicked() {
                         close_requested = true;
@@ -192,7 +192,7 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
 
         egui::CentralPanel::default()
             .frame(egui::Frame::default())
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 if freq.rows.is_empty() {
                     ui.add_space(12.0);
                     ui.label(
