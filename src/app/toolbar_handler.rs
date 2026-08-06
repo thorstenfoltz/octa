@@ -454,6 +454,9 @@ impl OctaApp {
         if action.show_about {
             self.show_about_dialog = true;
         }
+        if action.show_ai_report {
+            self.show_ai_report_dialog = true;
+        }
         if action.check_for_updates {
             self.show_update_dialog = true;
             self.check_for_updates(ctx);

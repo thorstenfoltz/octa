@@ -518,3 +518,24 @@ rows (for example after `read_table` or `run_sql`) and the model needs them to
 answer. If that matters for your data, use **Ollama** (or point the
 **OpenAI-compatible** provider at a local LM Studio model) so nothing leaves
 your machine at all.
+
+## Reporting AI content
+
+The **Report** button in the panel header, or **Help -> Report AI content...**
+when the panel is closed, opens a dialog that explains where a complaint about
+a generated reply should go.
+
+Octa neither runs nor trains a model. You bring your own API key, or run Ollama
+on your own machine, so Octa cannot change what a model writes. A report about
+generated content is only actionable by whoever serves that model, and the
+dialog links there:
+
+| Active profile                   | Where the dialog points                                                  |
+|----------------------------------|--------------------------------------------------------------------------|
+| Anthropic, OpenAI, Google Gemini | that provider's support channel                                          |
+| Ollama                           | the publisher of the model you downloaded; nothing is running remotely   |
+| OpenAI-compatible                | whoever operates the endpoint URL you configured, which the dialog shows |
+
+A second button always sits below it for reporting **Octa itself**: a reply
+rendered wrong, a tool doing something unexpected, the panel misbehaving. That
+is a bug in Octa, and it opens a new issue on the GitHub tracker.

@@ -1650,6 +1650,18 @@ off). Delete the files in `chat_audit/` to reset.
 Prompts, a short description of your open tabs, and any tool results are
 sent to the provider you chose. To keep everything local, use Ollama or
 point the OpenAI-compatible provider at a local model.
+
+## Reporting AI content
+
+The **Report** button in the panel header (also **Help > Report AI
+content...**) opens a dialog explaining where a complaint about a reply
+should go. Octa does not run or train any model, so it cannot change what
+one writes: content reports belong with whoever serves the model. The
+dialog links to the active profile's provider, or names your local Ollama
+model or your own endpoint when there is no provider to link to.
+
+The second button reports **Octa itself** - a reply displayed wrong, a
+tool doing something unexpected. That is a bug and does get fixed.
 "#;
 
 pub(super) const SAVING: &str = r#"# Saving

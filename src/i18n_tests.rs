@@ -97,6 +97,7 @@ const OPENS_SOMETHING: &[&str] = &[
     "help_menu.settings",           // window
     "help_menu.about",              // window
     "help_menu.check_updates",      // window
+    "ai_report.menu",               // window
 ];
 
 /// Menu entries that just do the thing, in place: no tab, no window, nothing to
