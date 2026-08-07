@@ -8,6 +8,7 @@ use super::state::OctaApp;
 
 pub(crate) mod about;
 pub(crate) mod add_column;
+pub(crate) mod ai_report;
 pub(crate) mod anonymize;
 pub(crate) mod bookmark;
 pub(crate) mod chat_prompt;
@@ -87,6 +88,7 @@ impl OctaApp {
         reload_confirm::render_unalign_confirm_dialog(self, ctx);
         reload_confirm::render_reload_confirm_dialog(self, ctx);
         about::render_about_dialog(self, ctx);
+        ai_report::render_ai_report_dialog(self, ctx);
         update_dialog::render_update_dialog(self, ctx);
         parse_in_new_tab::render_parse_in_new_tab_dialog(self, ctx);
         value_frequency_picker::render_value_frequency_picker_dialog(self, ctx);

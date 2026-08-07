@@ -65,6 +65,29 @@ for individual developers.
 
 Certification typically takes one to three days.
 
+### Generative-AI reporting (certification requirement)
+
+Submission 2 was flagged: a product that presents AI-generated output to the
+user must offer an in-product way to report inappropriate output. The chat
+Assistant renders model text, so the clause applies even though Octa ships no
+model and runs no inference (the user brings an API key or a local Ollama).
+
+Shipped answer: a **Report AI content** dialog
+(`src/app/dialogs/ai_report.rs`), reachable two ways - a **Report** button in
+the Assistant panel header, and **Help -> Report AI content...** when the panel
+is closed. It routes content complaints to whoever serves the model
+(`ChatProviderKind::report_url`, or the local model / configured endpoint named
+in text when there is no provider page), and always offers a second button for
+reporting Octa's own bugs on GitHub.
+
+**Put this in the certification notes of the resubmission**, spelling out both
+click paths. A reviewer cannot exercise the Assistant without supplying an API
+key, so they will be looking for the mechanism, not using it - and re-fail
+anything they cannot find.
+
+The provider links are static and drift over time. Check them before a
+submission that turns on this feature for the first time.
+
 ## Shipping a new version (the steady state)
 
 Once the first submission is live, an update is three steps:

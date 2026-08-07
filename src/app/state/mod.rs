@@ -548,6 +548,8 @@ pub(crate) struct OctaApp {
     pub(crate) show_open_confirm: bool,
     /// Show the About dialog
     pub(crate) show_about_dialog: bool,
+    /// Show the "Report AI content" dialog (Store generative-AI policy).
+    pub(crate) show_ai_report_dialog: bool,
     /// Show the Documentation dialog
     pub(crate) show_documentation_dialog: bool,
     /// Window-size mode for the Documentation dialog.

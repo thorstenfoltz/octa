@@ -1402,6 +1402,15 @@ pub fn draw_toolbar(
                                 ui.separator();
                             }
                             if ui
+                                .button(crate::i18n::t("ai_report.menu"))
+                                .on_hover_text(crate::i18n::t("ai_report.menu_hint"))
+                                .clicked()
+                            {
+                                action.show_ai_report = true;
+                                ui.close();
+                            }
+                            ui.separator();
+                            if ui
                                 .button(crate::i18n::t("diagnostics.menu_export"))
                                 .on_hover_text(crate::i18n::t("diagnostics.menu_export_hint"))
                                 .clicked()

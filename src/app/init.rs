@@ -118,6 +118,7 @@ impl OctaApp {
             pending_open_file: false,
             show_open_confirm: false,
             show_about_dialog: false,
+            show_ai_report_dialog: false,
             show_documentation_dialog: false,
             documentation_size: octa::ui::settings::DialogSize::Normal,
             docs_active_section: 0,

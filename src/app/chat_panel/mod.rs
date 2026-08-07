@@ -236,6 +236,13 @@ impl OctaApp {
                 if ui.button("x").on_hover_text(t("chat.close")).clicked() {
                     self.close_chat_panel();
                 }
+                if ui
+                    .button(t("ai_report.button"))
+                    .on_hover_text(t("ai_report.button_hint"))
+                    .clicked()
+                {
+                    self.show_ai_report_dialog = true;
+                }
                 if ui.button(t("chat.settings")).clicked() {
                     // Chat settings now live in the main Settings dialog; open
                     // it with the Chat section expanded.

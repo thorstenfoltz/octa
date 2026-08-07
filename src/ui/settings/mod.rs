@@ -180,6 +180,31 @@ impl ChatProviderKind {
         !matches!(self, Self::Ollama)
     }
 
+    /// Where a user takes a complaint about generated content. Octa neither
+    /// hosts nor trains a model, so content concerns belong with whoever
+    /// serves it. `None` means there is no fixed page to link: Ollama runs on
+    /// this machine and OpenAI-compatible is whatever URL the user typed, so
+    /// the dialog names those instead. Reporting Octa itself is a separate
+    /// button that is always present.
+    ///
+    /// Prefer a provider's dedicated reporting page over its general help
+    /// centre. Where a site localises by visitor, link the locale-neutral
+    /// path: Octa ships 32 languages, so a baked-in language segment would be
+    /// wrong for 31 of them (openai.com resolves the locale itself). Anthropic
+    /// keeps the `/en/` segment because that help centre is English-only and
+    /// 301s the bare path there anyway, so dropping it only adds a hop.
+    pub fn report_url(self) -> Option<&'static str> {
+        match self {
+            Self::Anthropic => Some(
+                "https://support.claude.com/en/articles/\
+                 7996906-reporting-blocking-and-removing-content-from-claude",
+            ),
+            Self::OpenAi => Some("https://openai.com/form/report-content/"),
+            Self::Gemini => Some("https://support.google.com/gemini/"),
+            Self::OpenAiCompatible | Self::Ollama => None,
+        }
+    }
+
     /// A sensible default model when the user has not picked one yet. Cheap
     /// models on purpose: a first chat should not surprise anyone on cost,
     /// and the dropdown makes the bigger models one click away.

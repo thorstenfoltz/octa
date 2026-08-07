@@ -165,3 +165,27 @@ fn mcp_unlimited_row_limit_survives_a_save_and_load() {
     let bare: AppSettings = toml::from_str("font_size = 13.0").expect("partial settings parse");
     assert_eq!(bare.mcp_default_row_limit, Some(1000));
 }
+
+/// The Store's generative-AI clause needs every provider to lead somewhere:
+/// a hosted one to its own support page, a local/custom one to prose the
+/// dialog writes instead. A new `ChatProviderKind` must pick a side.
+#[test]
+fn every_provider_has_a_content_report_route() {
+    for kind in ChatProviderKind::ALL {
+        match kind.report_url() {
+            Some(url) => assert!(
+                url.starts_with("https://"),
+                "{kind:?} report URL must be https, got {url:?}"
+            ),
+            // Nothing hosted stands behind these two, so the dialog names the
+            // local model / the user's own endpoint rather than linking out.
+            None => assert!(
+                matches!(
+                    kind,
+                    ChatProviderKind::Ollama | ChatProviderKind::OpenAiCompatible
+                ),
+                "{kind:?} is a hosted provider, so it needs a report URL"
+            ),
+        }
+    }
+}

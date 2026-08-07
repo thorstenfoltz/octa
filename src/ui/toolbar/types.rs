@@ -88,6 +88,8 @@ pub struct ToolbarAction {
     pub view_mode_changed: Option<ViewMode>,
     pub show_settings: bool,
     pub show_about: bool,
+    /// Open the "Report AI content" dialog from the Help menu.
+    pub show_ai_report: bool,
     pub check_for_updates: bool,
     pub export_debug_report: bool,
     pub replace_next: bool,
