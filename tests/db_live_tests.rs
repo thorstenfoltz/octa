@@ -439,6 +439,36 @@ fn mssql_live() {
     exercise(DbEngine::Mssql, "OCTA_TEST_MSSQL_URL", "dbo", "dbo");
 }
 
+/// Asks SQL Server itself whether the connection is encrypted.
+///
+/// The whole TDS session is, not merely the login packet: tiberius'
+/// `Config::default()` sets `EncryptionLevel::Required` whenever a TLS feature
+/// is compiled in, and `MssqlConnector::connect` never lowers it. The
+/// `trust_cert()` call on the password branch disables certificate
+/// *validation*, not encryption.
+///
+/// Worth having permanently, and not covered by the other MSSQL tests: a TLS
+/// stack that silently degraded to plaintext would still connect, still return
+/// rows, and still pass every one of them. This is the assertion that fails
+/// instead. It guards the `[patch.crates-io]` tiberius fork in Cargo.toml,
+/// whose whole purpose is replacing the TLS implementation underneath.
+#[test]
+fn mssql_session_encryption_live() {
+    let Some((conn, pass)) = conn_from_env("OCTA_TEST_MSSQL_URL", DbEngine::Mssql) else {
+        eprintln!("skipped: OCTA_TEST_MSSQL_URL not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&pass)).expect("connect");
+
+    let t = c
+        .query("SELECT encrypt_option FROM sys.dm_exec_connections WHERE session_id = @@SPID")
+        .expect("query dm_exec_connections");
+    assert_eq!(t.row_count(), 1, "no row for the current session");
+
+    let got = t.rows[0][0].to_string();
+    assert_eq!(got, "TRUE", "MSSQL session is not encrypted");
+}
+
 #[test]
 fn redshift_live() {
     // Redshift rides the Postgres connector with the Redshift catalogue
@@ -640,4 +670,65 @@ fn mysql_to_postgres_copy_live() {
         .expect("drop pg");
     my.execute("DROP DATABASE octa_copy_db")
         .expect("drop mysql");
+}
+
+/// A file compared against a live Postgres table, through the same
+/// `compare_join` engine the file-vs-file diff uses. Seeds three rows, then
+/// builds a "file" side with one changed row, one dropped and one added, and
+/// asserts the diff reports exactly that.
+#[test]
+fn file_vs_postgres_table_diff_live() {
+    let Some((conn, secret)) = conn_from_env("OCTA_TEST_POSTGRES_URL", DbEngine::Postgres) else {
+        println!("skipped: OCTA_TEST_POSTGRES_URL");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret)).expect("connect");
+    c.execute("DROP TABLE IF EXISTS octa_diff_live").unwrap();
+    c.execute("CREATE TABLE octa_diff_live (id INT PRIMARY KEY, name TEXT)")
+        .unwrap();
+    c.execute("INSERT INTO octa_diff_live VALUES (1,'a'),(2,'b'),(3,'c')")
+        .unwrap();
+
+    let db_side =
+        octa::db::fetch_table::fetch_table(&conn, Some(&secret), None, "public", "octa_diff_live")
+            .expect("fetch_table");
+    assert_eq!(db_side.row_count(), 3, "seeded rows must come back");
+
+    // The "file" side: row 2 changed, row 3 gone, row 4 new.
+    let mut file_side = db_side.clone();
+    file_side.rows[1][1] = CellValue::String("B".into());
+    file_side.rows.retain(|r| r[0] != CellValue::Int(3));
+    file_side
+        .rows
+        .push(vec![CellValue::Int(4), CellValue::String("d".into())]);
+
+    let result = octa::data::compare::compare_join(&file_side, &db_side, &["id".to_string()])
+        .expect("compare_join");
+    assert_eq!(result.changed.len(), 1, "one changed row");
+    assert_eq!(result.only_in_a.len(), 1, "id 4 is file-only");
+    assert_eq!(result.only_in_b.len(), 1, "id 3 is database-only");
+
+    c.execute("DROP TABLE octa_diff_live").unwrap();
+}
+
+/// An unqualified table name falls back to the connection's own database
+/// rather than guessing a schema.
+#[test]
+fn fetch_table_defaults_the_schema_live() {
+    let Some((conn, secret)) = conn_from_env("OCTA_TEST_MYSQL_URL", DbEngine::MySql) else {
+        println!("skipped: OCTA_TEST_MYSQL_URL");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret)).expect("connect");
+    c.execute("DROP TABLE IF EXISTS octa_fetch_live").unwrap();
+    c.execute("CREATE TABLE octa_fetch_live (id INT PRIMARY KEY)")
+        .unwrap();
+    c.execute("INSERT INTO octa_fetch_live VALUES (1),(2)")
+        .unwrap();
+
+    let t = octa::db::fetch_table::fetch_table(&conn, Some(&secret), None, "", "octa_fetch_live")
+        .expect("fetch_table with an empty schema");
+    assert_eq!(t.row_count(), 2);
+
+    c.execute("DROP TABLE octa_fetch_live").unwrap();
 }

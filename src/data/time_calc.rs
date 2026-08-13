@@ -10,7 +10,10 @@
 //! understood by [`crate::data::date_infer`] so string columns that haven't
 //! been promoted still work.
 
-use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, Timelike, Utc};
+use chrono::{
+    DateTime, Datelike, Duration, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike, Utc,
+};
+use chrono_tz::Tz;
 
 use crate::data::CellValue;
 use crate::data::date_infer::{DateLayout, DateTimeLayout};
@@ -163,6 +166,58 @@ pub enum UnixDirection {
     FromDateTime,
 }
 
+/// Outcome of converting one cell between timezones.
+///
+/// `Ambiguous` and `NotADateTime` are deliberately distinct. The column helper
+/// counts only the former: "this cell is not a date" is not a daylight-saving
+/// problem and must not inflate the ambiguity figure the dialog reports.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TzOutcome {
+    Converted(NaiveDateTime),
+    /// A local time that either happens twice (the autumn overlap) or never
+    /// (the spring-forward gap). There is no single right answer, so refuse.
+    Ambiguous,
+    NotADateTime,
+}
+
+/// Read `v` as wall-clock time in `from`, and express that same instant as
+/// wall-clock time in `to`.
+///
+/// Octa datetimes carry no zone (`Timestamp(Microsecond, None)`), which is why
+/// `from` has to be supplied rather than detected.
+pub fn convert_cell_timezone(v: &CellValue, from: Tz, to: Tz) -> TzOutcome {
+    let Some((naive, _had_time)) = cell_to_datetime(v) else {
+        return TzOutcome::NotADateTime;
+    };
+    match from.from_local_datetime(&naive) {
+        LocalResult::Single(dt) => TzOutcome::Converted(dt.with_timezone(&to).naive_local()),
+        LocalResult::Ambiguous(_, _) | LocalResult::None => TzOutcome::Ambiguous,
+    }
+}
+
+/// Convert a whole column between zones, reporting how many cells were
+/// DST-ambiguous and therefore left empty.
+///
+/// This exists separately from `evaluate_cell` because that function's
+/// `Option<CellValue>` return cannot distinguish "ambiguous instant" from "not
+/// a datetime", and the dialog has to report the first honestly rather than
+/// folding it into a generic skipped-rows count.
+pub fn convert_timezone_column(values: &[CellValue], from: Tz, to: Tz) -> (Vec<CellValue>, usize) {
+    let mut ambiguous = 0usize;
+    let out = values
+        .iter()
+        .map(|v| match convert_cell_timezone(v, from, to) {
+            TzOutcome::Converted(dt) => CellValue::DateTime(format_datetime(dt)),
+            TzOutcome::Ambiguous => {
+                ambiguous += 1;
+                CellValue::Null
+            }
+            TzOutcome::NotADateTime => CellValue::Null,
+        })
+        .collect();
+    (out, ambiguous)
+}
+
 /// The calculation to run per row.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeCalcOp {
@@ -180,6 +235,9 @@ pub enum TimeCalcOp {
         direction: UnixDirection,
         unit: UnixUnit,
     },
+    /// Reinterpret a naive datetime as wall-clock time in `from` and express it
+    /// as wall-clock time in `to`. DST-ambiguous instants yield no value.
+    ConvertTimezone { from: Tz, to: Tz },
 }
 
 impl TimeCalcOp {
@@ -196,6 +254,7 @@ pub fn result_type_name(op: TimeCalcOp) -> &'static str {
     match op {
         TimeCalcOp::Difference { .. } | TimeCalcOp::ConvertDuration { .. } => "Float64",
         TimeCalcOp::Extract { .. } => "Int64",
+        TimeCalcOp::ConvertTimezone { .. } => "Timestamp(Microsecond, None)",
         TimeCalcOp::AddSubtract { unit, .. } => {
             if is_time_unit(unit) {
                 "Timestamp(Microsecond, None)"
@@ -227,6 +286,13 @@ pub fn cell_arrow_type(v: &CellValue) -> &'static str {
 /// non-date in a date op), so the caller can count and report skipped rows.
 pub fn evaluate_cell(op: TimeCalcOp, a: &CellValue, b: Option<&CellValue>) -> Option<CellValue> {
     match op {
+        // Both `Ambiguous` and `NotADateTime` collapse to `None` here, which is
+        // this function's "no value for this row" contract. Callers that need
+        // the ambiguity count separately use `convert_timezone_column`.
+        TimeCalcOp::ConvertTimezone { from, to } => match convert_cell_timezone(a, from, to) {
+            TzOutcome::Converted(dt) => Some(CellValue::DateTime(format_datetime(dt))),
+            TzOutcome::Ambiguous | TzOutcome::NotADateTime => None,
+        },
         TimeCalcOp::Difference { unit } => {
             let (start, _) = cell_to_datetime(a)?;
             let (end, _) = cell_to_datetime(b?)?;

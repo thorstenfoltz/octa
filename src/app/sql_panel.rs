@@ -107,6 +107,7 @@ impl OctaApp {
                     .map(|c| c.name.clone())
             });
         let server_running = self.sql_server_job.is_some();
+        let chat_profile_available = !self.settings.chat_profiles.is_empty();
         let db_connections: Vec<(String, String)> = self
             .settings
             .db_connections
@@ -154,6 +155,7 @@ impl OctaApp {
                     server_conn_name: server_conn_name.clone(),
                     server_running,
                     db_connections: db_connections.clone(),
+                    chat_profile_available,
                 },
             )
         };
@@ -265,6 +267,9 @@ impl OctaApp {
         if let Some(q) = sql_action.recall_query {
             self.tabs[self.active_tab].sql_query = q;
             self.tabs[self.active_tab].sql_editor_focus_pending = true;
+        }
+        if let Some(question) = sql_action.ask {
+            self.start_ask_sql(ctx, question);
         }
         if let Some(q) = sql_action.insert_snippet {
             self.tabs[self.active_tab].sql_query = q;

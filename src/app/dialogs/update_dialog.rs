@@ -27,7 +27,7 @@ pub(crate) fn render_update_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         ui.label(octa::i18n::t("dialog.ud_checking"));
                     });
                 }
-                UpdateState::UpToDate => {
+                UpdateState::UpToDate { .. } => {
                     ui.label(format!(
                         "{} ({}).",
                         octa::i18n::t("dialog.ud_latest"),
@@ -39,7 +39,10 @@ pub(crate) fn render_update_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         *app.update_state.lock().unwrap() = UpdateState::Idle;
                     }
                 }
-                UpdateState::Available(ref new_version) => {
+                UpdateState::Available {
+                    version: ref new_version,
+                    ..
+                } => {
                     ui.label(format!(
                         "{}: {} ({}: {})",
                         octa::i18n::t("dialog.ud_new_avail"),
@@ -48,9 +51,17 @@ pub(crate) fn render_update_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         VERSION
                     ));
                     ui.add_space(8.0);
+                    // A Store (MSIX) install lives under WindowsApps and cannot
+                    // be replaced from inside the app, so it gets the news
+                    // without a button that could only fail.
+                    let store = octa::platform::is_store_packaged();
+                    if store {
+                        ui.label(octa::i18n::t("release.store"));
+                        ui.add_space(8.0);
+                    }
                     ui.horizontal(|ui| {
                         let version = new_version.clone();
-                        if ui.button(octa::i18n::t("dialog.ud_update_now")).clicked() {
+                        if !store && ui.button(octa::i18n::t("dialog.ud_update_now")).clicked() {
                             app.perform_update(&version, ctx);
                         }
                         if ui.button(octa::i18n::t("common.cancel")).clicked() {

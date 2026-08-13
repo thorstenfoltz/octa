@@ -243,7 +243,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     if ctx.backup_before_modify && path.exists() {
         octa::formats::backup_existing_file(path)?;
     }
-    reader.write_file_schema_aware(path, &table, ctx.allow_schema_changes)?;
+    reader.write_file_schema_aware(path, &table, ctx.allow_schema_changes, &Default::default())?;
 
     let mut out = Map::new();
     out.insert(

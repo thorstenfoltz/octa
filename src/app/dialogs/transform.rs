@@ -200,6 +200,15 @@ fn op_body(ui: &mut egui::Ui, st: &mut TransformState, cols: &[String]) {
                 ui.add(egui::TextEdit::singleline(&mut st.merge_sep).desired_width(80.0));
             });
         }
+        TransformOp::RepairEncoding => {
+            ui.label(
+                RichText::new(octa::i18n::t("transform.repair_encoding_desc"))
+                    .size(10.0)
+                    .color(ui.visuals().weak_text_color()),
+            );
+            ui.add_space(4.0);
+            source_col(ui, "tr_repair_col", &mut st.col, cols);
+        }
         TransformOp::FillDown | TransformOp::FillUp => {
             ui.label(
                 RichText::new(octa::i18n::t("transform.fill_desc"))
@@ -464,6 +473,25 @@ fn apply_transform(app: &mut OctaApp, st: &TransformState) -> Result<(), String>
             tbl.insert_column(idx, name, "Utf8".to_string());
             for (r, v) in values.into_iter().enumerate() {
                 tbl.set(r, idx, v);
+            }
+        }
+        TransformOp::RepairEncoding => {
+            let col = st
+                .col
+                .ok_or_else(|| octa::i18n::t("transform.need_column"))?;
+            // `repair` returns None for anything it cannot prove, so cells it
+            // does not understand keep their current value untouched.
+            let fixes: Vec<(usize, String)> = (0..app.tabs[active].table.row_count())
+                .filter_map(|r| match app.tabs[active].table.get(r, col) {
+                    Some(octa::data::CellValue::String(v)) => {
+                        octa::data::mojibake::repair(v).map(|fixed| (r, fixed))
+                    }
+                    _ => None,
+                })
+                .collect();
+            let tbl = &mut app.tabs[active].table;
+            for (r, v) in fixes {
+                tbl.set(r, col, octa::data::CellValue::String(v));
             }
         }
         TransformOp::FillDown | TransformOp::FillUp => {

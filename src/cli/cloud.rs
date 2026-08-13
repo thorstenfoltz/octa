@@ -46,52 +46,12 @@ fn table(columns: Vec<(&str, &str)>, rows: Vec<Vec<CellValue>>) -> DataTable {
 /// inventory and the MCP `list_objects` tool.
 const RECURSIVE_CAP: usize = 100_000;
 
-/// Resolve a cloud URL to a live provider, preferring a saved connection that
-/// covers it (so its endpoint / region / credentials apply) and falling back to
-/// an ephemeral connection on ambient credentials.
+/// Resolve a cloud URL to a live provider. Thin wrapper over the shared
+/// resolver so every surface (these actions, the CLI read path, the GUI
+/// compare dialog) picks credentials the same way: a saved connection that
+/// covers the URL, else ambient credentials.
 fn provider_for(url: &str) -> Result<(Box<dyn CloudProvider>, CloudLocation)> {
-    let loc = cloud::parse_cloud_url(url)
-        .with_context(|| format!("not a cloud URL: {url} (expected s3://, az:// or gs://)"))?;
-    let settings = AppSettings::load();
-    if let Some(conn) = settings
-        .cloud_connections
-        .iter()
-        .find(|c| c.covers(&loc))
-        .cloned()
-    {
-        let mut conn = conn;
-        // An account-level connection has no fixed bucket; bind it to the one
-        // named in the URL, exactly as the MCP resolver does.
-        if conn.account_level {
-            conn.bucket = loc.bucket.clone();
-        }
-        let creds = octa::ui::settings::cloud_secrets::resolve_creds(&conn, &settings);
-        let provider = cloud::build_provider(&conn, &creds)?;
-        return Ok((provider, loc));
-    }
-    let conn = ephemeral_for(&loc)?;
-    let creds = cloud::resolve_ambient_creds(&conn);
-    let provider = cloud::build_provider(&conn, &creds)?;
-    Ok((provider, loc))
-}
-
-/// Ephemeral connection for a URL no saved connection covers: ambient
-/// credentials, exactly like `octa --mcp`.
-fn ephemeral_for(loc: &CloudLocation) -> Result<cloud::CloudConnection> {
-    use octa::cloud::{CloudConnection, CloudKind};
-    Ok(match loc.kind {
-        CloudKind::S3 => CloudConnection::ephemeral_s3(&loc.bucket),
-        CloudKind::Gcs => CloudConnection::ephemeral_gcs(&loc.bucket),
-        CloudKind::AzureBlob => {
-            let account = std::env::var("AZURE_STORAGE_ACCOUNT").map_err(|_| {
-                anyhow::anyhow!(
-                    "Azure needs a storage account: set AZURE_STORAGE_ACCOUNT, or save a \
-connection (an az:// URL cannot carry the account name)"
-                )
-            })?;
-            CloudConnection::ephemeral_azure(account, &loc.bucket)
-        }
-    })
+    cloud::provider_for_url(url, &AppSettings::load())
 }
 
 /// `--cloud-ls URL` - one folder level, or everything under the prefix with

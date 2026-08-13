@@ -139,7 +139,12 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         if ctx.backup_before_modify && out_path.exists() {
             octa::formats::backup_existing_file(&out_path)?;
         }
-        out_reader.write_file_schema_aware(&out_path, group_table, ctx.allow_schema_changes)?;
+        out_reader.write_file_schema_aware(
+            &out_path,
+            group_table,
+            ctx.allow_schema_changes,
+            &Default::default(),
+        )?;
 
         let mut entry = Map::new();
         entry.insert("value".to_string(), Value::String(value.clone()));

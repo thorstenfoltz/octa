@@ -31,7 +31,8 @@ fn main() -> ExitCode {
     match cli.detect_action() {
         Ok(Some(action)) => {
             // For --union and --join the positional files are intentional (they
-            // form the first sources); --impute takes a positional FILE too.
+            // form the first sources); --impute, --outliers, --partition-by,
+            // --resample, --rolling and --batch-convert take positional FILEs too.
             // All other actions ignore them, so warn.
             if !cli.files.is_empty()
                 && !matches!(
@@ -41,6 +42,11 @@ fn main() -> ExitCode {
                         | cli::Action::Impute { .. }
                         | cli::Action::Outliers { .. }
                         | cli::Action::Partition { .. }
+                        | cli::Action::Resample { .. }
+                        | cli::Action::Rolling { .. }
+                        | cli::Action::BatchConvert { .. }
+                        | cli::Action::Report { .. }
+                        | cli::Action::FuzzyJoin(_)
                 )
             {
                 eprintln!(

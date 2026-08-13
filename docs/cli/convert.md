@@ -113,6 +113,28 @@ octa --convert eu.csv eu.parquet
   before writing. For files larger than RAM, slice with
   `octa --sql ... LIMIT N` first.
 
+## Write options
+
+Two Parquet knobs are available on the command line:
+
+```bash
+octa --convert data.csv data.parquet --compression zstd
+octa --convert data.csv data.parquet --row-group-size 100000
+```
+
+- `--compression CODEC`: one of `uncompressed`, `snappy`, `zstd`,
+  `gzip`, `lz4`. An unknown name is rejected at parse time, naming the
+  valid set, rather than silently falling back mid-write.
+- `--row-group-size N`: rows per row group. Larger groups scan faster;
+  smaller groups let readers skip more precisely.
+
+Both are ignored by non-Parquet targets. Without them the values come
+from **Settings > Files > Write options**, so the command line and the
+app write the same files; with no saved settings the built-in defaults
+apply (`zstd`, writer-default row groups). The same flags work on
+[`--batch-convert`](batch-convert.md), and the GUI equivalents live under
+Settings and in the Batch convert dialog.
+
 ## See also
 
 - [Supported formats](../getting-started/supported-formats.md) for

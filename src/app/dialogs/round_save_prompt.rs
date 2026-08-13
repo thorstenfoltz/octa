@@ -69,6 +69,7 @@ pub(crate) fn render_round_save_prompt_dialog(app: &mut OctaApp, ctx: &egui::Con
             prompt.save_filtered_view,
             Some(round),
             None,
+            None,
         );
     } else if cancel {
         app.pending_round_save = None;

@@ -31,16 +31,27 @@ octa --sql FILE -q QUERY [-f FORMAT] [--rows N|all]
 octa --export-schema FILE [-t TARGET]
 octa --compare-schemas FILE_A FILE_B [--table-a NAME] [--table-b NAME] [-f FORMAT]
 octa --diff FILE_A FILE_B [--diff-mode MODE] [--diff-on COLS] [-f FORMAT]
-octa --describe FILE [--table NAME] [--sample-rows N] [-f FORMAT]
+octa --diff FILE --diff-db CONN --diff-db-table TABLE [--diff-mode MODE]
+     [--diff-on COLS] [-f FORMAT]
+octa --describe FILE [--table NAME] [--sample-rows N] [--deep] [-f FORMAT]
 octa --validate-schema FILE --expect-schema SCHEMA_FILE [--table NAME] [-f FORMAT]
+octa --schema-drift DIR [--recursive] [--ignore-case] [-f FORMAT]
+
+octa --harmonise-schema DIR --out-dir DIR [--target-file FILE]
+       [--recursive] [--ignore-case] [--overwrite]
+octa --report OUT.html FILE [--report-sample N] [--report-sections LIST]
 octa --unique-columns FILE [--table NAME] [--max-combo N] [-f FORMAT]
 octa --anonymize SPEC FILE [-f FORMAT]
 octa --dedupe FILE [--dedupe-on COLS] [--dedupe-keep WHICH] [-f FORMAT]
 octa --impute COL=STRATEGY FILE [-f FORMAT]
 octa --outliers FILE [--outlier-method M] [--outlier-cols COLS] [--outlier-k K] [-f FORMAT]
 octa --detect-pii FILE [--pii-sample N] [-f FORMAT]
-octa --union FILE --union-file FILE [--union-drop COL] [--union-cast COL=TYPE] [-f FORMAT]
+octa --union FILE --union-file FILE [--union-drop COL] [--union-cast COL=TYPE]
+     [--union-ignore-case] [-f FORMAT]
 octa --join FILE --join-file FILE --join-on COLS [--join-type TYPE] [-f FORMAT]
+octa --fuzzy-join FILE --fuzzy-join-file FILE --fuzzy-on LEFT=RIGHT
+     [--fuzzy-method NAME] [--fuzzy-threshold N] [--fuzzy-block LEFT=RIGHT]
+     [--fuzzy-join-type TYPE] [--fuzzy-max-rows N] [-f FORMAT]
 octa --partition-by COL --out-dir DIR FILE [--partition-format EXT]
 octa --db-tables --db CONNECTION [--db-catalog NAME] [-f FORMAT]
 octa --db-query SQL --db CONNECTION [-f FORMAT]
@@ -62,12 +73,22 @@ optionally opening the supplied *FILE*(s) in tabs. When invoked
 with one of the action flags (`--schema`, `--head`, `--tail`,
 `--sample`, `--convert`, `--sql`, `--export-schema`,
 `--compare-schemas`, `--diff`, `--describe`, `--validate-schema`,
+`--schema-drift`, `--harmonise-schema`, `--report`, `--fuzzy-join`,
 `--unique-columns`, `--anonymize`, `--dedupe`, `--impute`,
 `--outliers`, `--detect-pii`, `--union`, `--join`, `--partition-by`,
-`--mcp`), it performs that action and exits.
+`--batch-convert`, `--resample`, `--rolling`, `--mcp`), it performs
+that action and exits.
 
 Action flags are **mutually exclusive**. Trailing *FILE* arguments
 are ignored (with a warning) when an action flag is set.
+
+A *FILE* argument may also be a cloud object URL (`s3://bucket/key`,
+`az://container/blob`, `gs://bucket/key`). The object is downloaded to
+a temporary file and read as usual. Credentials come from a saved cloud
+connection covering the URL, otherwise from the ambient chain (`AWS_*`
+environment variables, a cached SSO session, `az login`, Google
+application default credentials). Cloud objects are read-only here:
+output still goes to a local path.
 
 ## Action Flags
 
@@ -150,11 +171,27 @@ are ignored (with a warning) when an action flag is set.
 :   Key column(s) for `--diff-mode join`, comma-separated (matched by
     name). Required when the mode is `join`; ignored otherwise.
 
+`--diff-db CONN`
+:   Compare against a live database table instead of a second file.
+    *CONN* names a saved database connection. With this set, `--diff`
+    takes a single positional file: that file is side A and the table
+    is side B, so `only_in_a` means "in the file, not the table".
+    Requires `--diff-db-table`. The table is read under the usual row
+    cap. See [Compare with a Database
+    Table](../usage/compare-with-database.md).
+
+`--diff-db-table TABLE`
+:   Table to compare against on the `--diff-db` connection, as
+    *SCHEMA.TABLE* or *CATALOG.SCHEMA.TABLE* (the three-part form is
+    for Snowflake, Databricks and BigQuery). An unqualified name uses
+    the connection's own database.
+
 `--describe FILE`
 :   Print a one-shot orientation snapshot of *FILE*: format, file
     size, row count, column schema, and a small sample of rows.
     Use `--sample-rows N` to change the preview size (default 5,
-    max 100). See [`octa --describe`](describe.md).
+    max 100), and `--deep` to add the file's physical layout. See
+    [`octa --describe`](describe.md).
 
 `--validate-schema FILE`
 :   Check *FILE*'s column schema against the JSON Schema given by
@@ -162,6 +199,56 @@ are ignored (with a warning) when an action flag is set.
     match and `1` otherwise, which is CI-pipeable. Schemas produced by
     `--export-schema -t json-schema` round-trip cleanly. See
     [`octa --validate-schema`](validate-schema.md).
+
+`--schema-drift DIR`
+:   Scan *DIR* and report which files disagree about their columns.
+    Files are grouped by schema, largest group first. The report
+    table goes to stdout; the per-variant file lists, any unreadable
+    files and the drifting column names go to stderr. Exit code is
+    `0` when every file agrees and `1` otherwise, which is
+    CI-pipeable. Add `--recursive` to walk subdirectories (depth 8)
+    and `--ignore-case` to treat names differing only in case as one
+    column. See [`octa --schema-drift`](schema-drift.md).
+
+`--harmonise-schema DIR`
+:   Rewrite every file in *DIR* to one common set of columns, writing
+    harmonised copies into `--out-dir` (required). The originals are
+    never modified. The target schema is the shape most files already
+    have, or the schema of `--target-file` when given. A column missing
+    from a file is added as nulls; a column not in the target is dropped
+    and named in the report. A file whose values cannot be cast to a
+    target type is **refused** rather than written with nulls in place
+    of those values, because a harmonised folder of silently emptied
+    cells looks clean and is not. Two inputs that would write the same
+    output name are both refused rather than one renamed. Exit code is
+    `0` when nothing was refused and `1` otherwise. Add `--recursive`,
+    `--ignore-case`, and `--overwrite`. See
+    [`octa --harmonise-schema`](../usage/harmonise-schemas.md).
+
+`--report OUT.html FILE`
+:   Write an HTML profiling report for *FILE* to *OUT.html*:
+    per-column statistics, distribution charts, the most common values
+    and a correlation matrix. The document is self-contained (inline
+    CSS, inline SVG, no JavaScript) and fetches nothing.
+    `--report-sections LIST` picks a comma-separated subset of `stats`,
+    `distributions`, `top_values` and `correlation` (default: all
+    four); an unknown name is an error. `--report-sample N` profiles a
+    random sample of *N* rows and says so in the output. See
+    [`octa --report`](report.md).
+
+`--fuzzy-join FILE`
+:   Join *FILE* to each `--fuzzy-join-file` on how **similar** the values
+    are rather than on exact equality, for tables that name the same
+    thing differently. `--fuzzy-on LEFT=RIGHT` names the columns to
+    compare and may be repeated (scores are averaged). `--fuzzy-method`
+    is `edit_ratio` (default), `jaro_winkler` or `token_set`;
+    `--fuzzy-threshold` is the minimum average score (default `0.85`);
+    `--fuzzy-block LEFT=RIGHT` compares only rows agreeing exactly on
+    those columns; `--fuzzy-join-type` is `inner`, `left` (default),
+    `right` or `full`; `--fuzzy-max-rows` caps the rows per side
+    (default `20000`). Each left row keeps its single best partner and
+    the output gains `match_score_N` and `ambiguous_N` per step. See
+    [`octa --fuzzy-join`](fuzzy-join.md).
 
 `--unique-columns FILE`
 :   Find columns (and optional small combinations) whose values are
@@ -202,7 +289,8 @@ are ignored (with a warning) when an action flag is set.
 
 `--union FILE`
 :   Stack the positional *FILE* plus every `--union-file` into one
-    table. `--union-drop` omits columns, `--union-cast COL=TYPE`
+    table. `--union-ignore-case` merges column names differing only
+    in case. `--union-drop` omits columns, `--union-cast COL=TYPE`
     overrides a target type. See [`octa --union`](union.md).
 
 `--join FILE`
@@ -214,6 +302,37 @@ are ignored (with a warning) when an action flag is set.
 :   Split the positional *FILE* into one file per distinct value of
     *COL*, written into `--out-dir`. `--partition-format` sets the
     output extension. See [`octa --partition-by`](partition.md).
+
+`--batch-convert`
+:   Convert every positional *FILE* into `--out-dir` (required) as
+    `--to EXT` (required). Output names are `<stem>.<ext>`; two inputs
+    sharing a stem get `_2`, `_3` suffixes in input order, so a run
+    cannot overwrite its own earlier output. Existing outputs are
+    skipped unless `--overwrite` is given. One failed file does not
+    stop the run; stdout carries a headerless
+    `input<TAB>output<TAB>status` listing, errors and the summary go to
+    stderr, and the exit code is **1** when any file failed. See
+    [`octa --batch-convert`](batch-convert.md).
+
+`--resample COL`
+:   Group the positional *FILE* into time buckets: one row per
+    `--interval` of *COL*. `--interval` is `minute`, `hour`, `day`
+    (default), `week`, `month`, `quarter` or `year`; `--value-cols`
+    (required) names the columns to aggregate; `--agg` is `sum`
+    (default), `mean`, `min`, `max`, `count`, `first` or `last`;
+    `--group-by` adds extra grouping columns, giving one series per
+    combination. The time column is cast with `TRY_CAST`, so a row that
+    will not parse buckets as NULL instead of failing the run. See
+    [`octa --resample`](timeseries.md).
+
+`--rolling COL`
+:   Add a rolling aggregate of *COL* over the previous `--window N`
+    rows (including the current row). `--order-by COL` is required - a
+    rolling aggregate over unordered rows is meaningless. `--agg` is
+    `mean` (default), `sum`, `min`, `max`, `count`, `first` or `last`;
+    `--partition-by-cols` restarts the frame per group (spelled that
+    way because `--partition-by` is the split-into-files action). See
+    [`octa --rolling`](timeseries.md).
 
 `--db-tables`
 :   List every schema and table of the saved database connection named
@@ -287,6 +406,62 @@ are ignored (with a warning) when an action flag is set.
     (`write_table`, `edit_table`, `convert`) so the server exposes a
     read-only surface.
 
+`--cloud-ls URL`
+:   List a cloud bucket or prefix (`s3://`, `az://`, `gs://`). One
+    folder level by default; add `--recursive` to flatten everything
+    under the prefix. Credentials come from a saved connection covering
+    the URL, else the ambient chain. See [Cloud CLI](cloud.md).
+
+`--cloud-get URL`
+:   Download one cloud object to the file given by `--out`.
+
+`--cloud-put FILE`
+:   Upload a local file to the cloud URL given by `--to`.
+
+`--cloud-copy URL`
+:   Copy a cloud object, or a whole prefix (source ending in `/`), to
+    the URL given by `--to`. Within one bucket the backend copies
+    server-side; across buckets, accounts or providers the object is
+    streamed in blocks, so object size does not drive memory. At most
+    10,000 objects per run.
+
+`--cloud-move URL`
+:   Like `--cloud-copy`, then delete the source. Object stores have no
+    rename. The delete runs only after every copy succeeded.
+
+`--cloud-delete URL`
+:   Delete a cloud object, or a whole prefix with `--recursive`. Cannot
+    be undone unless the bucket has versioning enabled.
+
+`--list-connections`
+:   Print the saved cloud and database connections (names and targets
+    only, never secrets).
+
+`--add-connection SPEC`
+:   Add or update a saved connection from a `key=value,key=value` spec.
+    `kind=` and `name=` are required. A connection with the same name is
+    replaced wholesale, keeping its id and stored secret, so re-running
+    a provisioning script is idempotent; omitted keys revert to
+    defaults. Unknown keys are an error. Cloud
+    (`kind=s3|azure|gcs`): bucket, region, endpoint, prefix, account,
+    profile, account_level, anonymous, allow_writes, force_path_style,
+    allow_http. Database
+    (`kind=postgres|mysql|mssql|redshift|clickhouse|exasol|snowflake|databricks|bigquery`):
+    host, port, database, user, allow_writes. Only password
+    authentication can be expressed here; other methods need the
+    Settings dialog.
+
+`--remove-connection NAME`
+:   Remove a saved connection by name or id, and delete its stored
+    secret.
+
+`--secret-env VAR`
+:   Name of an environment variable holding the secret for
+    `--add-connection`, so it never appears in argv. Database: the
+    password. S3: *ACCESS_KEY_ID:SECRET_ACCESS_KEY[:TOKEN]*. Azure: the
+    account key or a SAS token. GCS uses application-default
+    credentials and takes no secret.
+
 ## Options
 
 `-n N`, `--lines N`
@@ -352,6 +527,29 @@ are ignored (with a warning) when an action flag is set.
 `--sample-rows N`
 :   Number of preview rows for `--describe` (default 5, clamped to
     100).
+
+`--deep`
+:   With `--describe`, also report how the file is physically
+    written: row groups, compression codec, encodings and per-column
+    statistics, followed by one row per column per row group. Layout
+    hints go to standard error, so a piped run stays parseable.
+    Parquet reports full detail; other formats report their size and
+    state that they expose no inspectable structure. Place it after
+    the file: `--describe FILE --deep`. See [File
+    Internals](../usage/file-internals.md).
+
+`--compression CODEC`
+:   Compression codec for the written file: `uncompressed`, `snappy`,
+    `zstd`, `gzip` or `lz4`. Applies to `--convert` and
+    `--batch-convert`; Parquet targets only, ignored by other
+    formats. An unknown name is rejected before any file is written.
+    Omitted, the codec saved in **Settings > Files > Write options** is
+    used, or `zstd` when nothing is saved.
+
+`--row-group-size N`
+:   Rows per Parquet row group for `--convert` and `--batch-convert`.
+    Larger groups scan faster; smaller groups let readers skip more
+    precisely. Omitted means the writer's own default.
 
 `--max-combo N`
 :   Max combo size for `--unique-columns` (default 1, clamped to
@@ -429,11 +627,14 @@ are ignored (with a warning) when an action flag is set.
     source code chosen by `-t`), or `--mcp`.
 
 `-h`, `--help`
-:   Print the full help text (worked examples for every action)
-    and exit. `-h` and `--help` produce the **same long-form
-    output**, because Octa intentionally wires both flags to the
-    same help text rather than using clap's default short/long
-    split.
+:   Print the flag list and exit. `-h` and `--help` produce the same
+    output.
+
+`--help-all`
+:   Print the flag list plus worked examples for every action, and
+    exit. The examples are behind their own flag because printing them
+    by default buried the flag list under something the size of this
+    manual page.
 
 `--version`
 :   Print the Octa version and exit.
@@ -448,7 +649,9 @@ error occurs, since the data stream stays clean.
 Exit code is **0** on success and **1** on any error (invalid
 arguments, file-not-found, parse failure, write rejection, etc.).
 `--validate-schema` also exits **1** on a successful read where
-the schemas differ, so CI pipelines can gate on the schema directly.
+the schemas differ, and `--schema-drift` exits **1** on a successful
+scan where the files disagree, so CI pipelines can gate on the schema
+directly.
 
 ## Examples
 

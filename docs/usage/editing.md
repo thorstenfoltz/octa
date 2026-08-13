@@ -273,6 +273,41 @@ so a value like `" 2024-01-02 "` is still recognised as a date. For
 database-backed tables, the trimmed values become the save baseline, so
 trimming alone never produces spurious `UPDATE`s on save.
 
+## European number formats
+
+A German or French export writes amounts as `1.234,56`, with a dot
+grouping the thousands and a comma as the decimal mark. Octa recognises
+both conventions on load and reads such columns as real numbers, so they
+sort by size, sum in the status bar, chart, and take part in arithmetic
+in the SQL panel.
+
+The decision is made per column, never per cell, because a single value
+can be genuinely undecidable: `1,234` is one thousand two hundred and
+thirty four in a European file and one point two three four in an
+English one.
+
+- **Unambiguous columns are converted automatically.** A dismissible
+  banner names them, e.g. *"Read 2 column(s) as numbers (1.234,56
+  (European)): amount, tax."* **Okay** accepts the conversion,
+  **Dismiss** puts the original text back.
+- **Undecidable columns raise a small dialog** listing sample values and
+  offering European, English or *Leave as text*. Nothing is converted
+  until you answer.
+
+The guard against false positives is the grouping rule: every group
+after the first must be exactly three digits. That is why `31.12.2024`
+is never read as the number 31122024; it stays a date.
+
+Two related conventions are already handled elsewhere and need no
+setting: semicolon-separated files are detected automatically (see
+[Supported Formats](../getting-started/supported-formats.md)), and
+`31.12.2024`-style dates are covered by
+[date inference](../reference/date-inference.md).
+
+On the command line and over MCP the same conversion happens, except
+that undecidable columns are simply left as text, since there is nobody
+to ask.
+
 ## Discard all edits
 
 **Edit → Discard All Edits** reverts every change since the file was

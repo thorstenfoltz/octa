@@ -179,6 +179,23 @@ impl OctaApp {
                     .iter()
                     .map(|b| (b.name.clone(), b.row, b.col))
                     .collect();
+                // Ask controls: which profiles exist, and which one answers.
+                // Seeded from the active profile the first time this renders.
+                let ask_profiles: Vec<(String, String)> = self
+                    .settings
+                    .chat_profiles
+                    .iter()
+                    .map(|p| (p.id.clone(), p.name.clone()))
+                    .collect();
+                if tab.search_ask_profile.is_empty() {
+                    tab.search_ask_profile = self.settings.chat_active_profile.clone();
+                }
+                let ask_controls = ui::toolbar::AskControls {
+                    enabled: !ask_profiles.is_empty(),
+                    profiles: &ask_profiles,
+                    mode: &mut tab.search_ask_mode,
+                    profile_id: &mut tab.search_ask_profile,
+                };
                 let action = ui::toolbar::draw_toolbar(
                     ui,
                     self.theme_mode,
@@ -188,6 +205,7 @@ impl OctaApp {
                     &mut tab.search_whole_word,
                     &mut tab.search_scope_col,
                     &search_col_names,
+                    ask_controls,
                     &self.search_history,
                     &mut self.search_result_mode,
                     highlight_active,
@@ -211,6 +229,7 @@ impl OctaApp {
                     tab.table.format_name.as_deref() == Some("Jupyter Notebook"),
                     !tab.epub_chapters_md.is_empty(),
                     tab.table.format_name.as_deref() == Some("GeoJSON"),
+                    tab.table.col_count() > 0 && !tab.is_chart_tab,
                     tab.json_value.is_some(),
                     tab.yaml_value.is_some(),
                     self.readonly_mode,
@@ -313,6 +332,11 @@ impl OctaApp {
             // folder surfaces a clear status message.
             self.load_file_in_new_tab(path);
         }
+        if action.open_batch_convert
+            && let Some(path) = rfd::FileDialog::new().pick_folder()
+        {
+            crate::app::dialogs::batch_convert::open_for_folder(self, &path);
+        }
         if action.open_directory
             && let Some(path) = rfd::FileDialog::new().pick_folder()
         {
@@ -393,6 +417,9 @@ impl OctaApp {
         if action.search_changed {
             self.tabs[self.active_tab].search_nav.reset();
             self.tabs[self.active_tab].filter_dirty = true;
+        }
+        if action.ask_submitted {
+            self.start_ask_filter(ctx);
         }
         if action.commit_search_history {
             let query = self.tabs[self.active_tab].search_text.clone();
@@ -662,6 +689,30 @@ impl OctaApp {
                 tab.value_frequency_pick = true;
             }
         }
+        if action.open_schema_drift {
+            self.schema_drift_dialog = Some(super::state::SchemaDriftState::new(String::new()));
+        }
+        if action.open_harmonise {
+            self.harmonise_dialog = Some(super::state::HarmoniseState::new(String::new()));
+        }
+        if action.open_report && self.tabs[self.active_tab].table.col_count() > 0 {
+            super::dialogs::report::open_report_dialog(self);
+        }
+        if action.open_fuzzy_join {
+            super::dialogs::fuzzy_join::open_fuzzy_join_dialog(self);
+        }
+        if action.open_join_diag {
+            self.open_join_diag_dialog();
+        }
+        if action.open_join_keys {
+            self.open_join_keys_dialog();
+        }
+        if action.open_db_compare {
+            self.open_db_compare_dialog(None, None);
+        }
+        if action.open_file_internals {
+            self.open_file_internals_tab();
+        }
         if action.open_describe_tab {
             self.open_describe_tab();
         }
@@ -682,6 +733,12 @@ impl OctaApp {
         }
         if action.open_pivot && self.tabs[self.active_tab].table.col_count() > 0 {
             self.pivot_dialog = Some(crate::app::state::PivotState::default());
+        }
+        if action.open_timeseries && self.tabs[self.active_tab].table.col_count() > 0 {
+            self.timeseries_dialog = Some(crate::app::state::TimeseriesState::default());
+        }
+        if action.open_cleanup_panel {
+            self.toggle_cleanup_panel();
         }
         if action.open_transform
             && self.tabs[self.active_tab].table.col_count() > 0
@@ -794,8 +851,10 @@ impl OctaApp {
                     .filter(|(i, _)| selected.get(*i).copied().unwrap_or(false))
                     .map(|(_, t)| t.table.columns.as_slice())
                     .collect::<Vec<_>>(),
+                false,
             );
             self.union_dialog = Some(crate::app::state::UnionState {
+                ignore_case: false,
                 selected_tabs: selected,
                 plan,
                 error: None,

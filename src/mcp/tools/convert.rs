@@ -68,7 +68,12 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     if ctx.backup_before_modify && !dest.is_cloud() && output.exists() {
         octa::formats::backup_existing_file(output)?;
     }
-    out_reader.write_file_schema_aware(output, &table, ctx.allow_schema_changes)?;
+    out_reader.write_file_schema_aware(
+        output,
+        &table,
+        ctx.allow_schema_changes,
+        &Default::default(),
+    )?;
     let target = dest.finish()?;
 
     let mut out = Map::new();

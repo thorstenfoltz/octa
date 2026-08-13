@@ -49,7 +49,7 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         if active < st.selected_tabs.len() {
             st.selected_tabs[active] = true;
         }
-        st.plan = recompute_plan(app, &st.selected_tabs);
+        st.plan = recompute_plan(app, &st.selected_tabs, st.ignore_case);
     }
 
     let mut size = st.size;
@@ -68,12 +68,13 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     });
 
     // Track whether the source selection changes so we know when to recompute
-    // the plan.
+    // the plan. Case folding changes how columns group, so it replans too.
     let prev_selected = if file_mode {
         st.file_selected.clone()
     } else {
         st.selected_tabs.clone()
     };
+    let prev_ignore_case = st.ignore_case;
 
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("union_header")
@@ -182,6 +183,10 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 });
 
             ui.add_space(8.0);
+            ui.checkbox(&mut st.ignore_case, octa::i18n::t("union.ignore_case"))
+                .on_hover_text(octa::i18n::t("union.ignore_case_hint"));
+
+            ui.add_space(8.0);
             ui.separator();
 
             // --- Reconciliation plan ---
@@ -269,11 +274,11 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     } else {
         &st.selected_tabs
     };
-    if *sel_now != prev_selected {
+    if *sel_now != prev_selected || st.ignore_case != prev_ignore_case {
         st.plan = if file_mode {
-            recompute_plan_for_files(&st.file_tables, &st.file_selected)
+            recompute_plan_for_files(&st.file_tables, &st.file_selected, st.ignore_case)
         } else {
-            recompute_plan(app, &st.selected_tabs)
+            recompute_plan(app, &st.selected_tabs, st.ignore_case)
         };
         st.error = None;
     }
@@ -293,7 +298,7 @@ pub(crate) fn render_union_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 }
 
 /// Recompute the `UnionPlan` from the currently-selected tabs.
-fn recompute_plan(app: &OctaApp, selected: &[bool]) -> UnionPlan {
+fn recompute_plan(app: &OctaApp, selected: &[bool], ignore_case: bool) -> UnionPlan {
     let schemas: Vec<&[octa::data::ColumnInfo]> = app
         .tabs
         .iter()
@@ -302,14 +307,21 @@ fn recompute_plan(app: &OctaApp, selected: &[bool]) -> UnionPlan {
         .map(|(_, tab)| tab.table.columns.as_slice())
         .collect();
     if schemas.is_empty() {
-        UnionPlan { columns: vec![] }
+        UnionPlan {
+            columns: vec![],
+            ignore_case,
+        }
     } else {
-        plan_union(&schemas)
+        plan_union(&schemas, ignore_case)
     }
 }
 
 /// Recompute the `UnionPlan` from the currently-selected files (file mode).
-fn recompute_plan_for_files(tables: &[octa::data::DataTable], selected: &[bool]) -> UnionPlan {
+fn recompute_plan_for_files(
+    tables: &[octa::data::DataTable],
+    selected: &[bool],
+    ignore_case: bool,
+) -> UnionPlan {
     let schemas: Vec<&[octa::data::ColumnInfo]> = tables
         .iter()
         .enumerate()
@@ -317,9 +329,12 @@ fn recompute_plan_for_files(tables: &[octa::data::DataTable], selected: &[bool])
         .map(|(_, t)| t.columns.as_slice())
         .collect();
     if schemas.is_empty() {
-        UnionPlan { columns: vec![] }
+        UnionPlan {
+            columns: vec![],
+            ignore_case,
+        }
     } else {
-        plan_union(&schemas)
+        plan_union(&schemas, ignore_case)
     }
 }
 
@@ -463,8 +478,9 @@ impl OctaApp {
         }
 
         let file_selected = vec![true; file_tables.len()];
-        let plan = recompute_plan_for_files(&file_tables, &file_selected);
+        let plan = recompute_plan_for_files(&file_tables, &file_selected, false);
         self.union_dialog = Some(UnionState {
+            ignore_case: false,
             selected_tabs: Vec::new(),
             plan,
             error: None,

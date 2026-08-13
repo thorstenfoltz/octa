@@ -29,6 +29,24 @@ The action flags are **mutually exclusive**, so pick one per
 invocation. Trailing file arguments are ignored (with a warning)
 when an action flag is set.
 
+## Cloud objects as input
+
+Anywhere a `FILE` argument is accepted, you can pass a cloud object URL
+instead. No extra flag is involved: the path is recognised and read.
+
+```bash
+octa --schema s3://bucket/data.parquet
+octa --head 20 gs://bucket/events.csv
+```
+
+The object is downloaded to a temporary file and read as usual.
+Credentials come from a saved connection covering the URL, otherwise from
+the ambient chain (`AWS_*` variables, a cached SSO session, `az login`,
+Google application default credentials).
+
+Cloud objects are **read-only** here: output still goes to a local path.
+See [Cloud storage](cloud.md).
+
 The same flags work identically across every distribution channel:
 a plain binary off the releases page, an `install.sh` install, the
 AUR package, or an AppImage. The AppImage is just the binary in a
@@ -41,29 +59,32 @@ self-contained bundle; invoke it directly:
 
 ## Available actions
 
-| Flag                                            | Description                                   | Reference                                   |
-|-------------------------------------------------|-----------------------------------------------|---------------------------------------------|
-| `--schema FILE`                                 | Print column name + type as a table           | [→ `--schema`](schema.md)                   |
-| `--head FILE [-n N]`                            | Print the first N rows (default 20)           | [→ `--head`](head.md)                       |
-| `--tail FILE [-n N]`                            | Print the last N rows (default 20)            | [→ `--tail`](tail.md)                       |
-| `--sample FILE [-n N] [--seed S]`               | Print a reproducible random N-row sample      | [→ `--sample`](sample.md)                   |
-| `--convert IN OUT`                              | Convert between formats                       | [→ `--convert`](convert.md)                 |
-| `--sql FILE -q '<query>'`                       | Run a SQL query against a file                | [→ `--sql`](sql.md)                         |
-| `--export-schema FILE [-t T]`                   | Render the schema as DDL / model / struct     | [→ `--export-schema`](export-schema.md)     |
-| `--compare-schemas A B`                         | Diff the schemas of two files                 | [→ `--compare-schemas`](compare-schemas.md) |
-| `--diff A B`                                    | Row-level diff: rows unique to each file      | [→ `--diff`](diff.md)                       |
-| `--describe FILE`                               | One-shot snapshot: format + schema + sample   | [→ `--describe`](describe.md)               |
-| `--validate-schema FILE --expect-schema SCHEMA` | Validate against JSON Schema (exit 1 = drift) | [→ `--validate-schema`](validate-schema.md) |
-| `--unique-columns FILE`                         | Find PK candidates (singles + combos)         | [→ `--unique-columns`](unique-columns.md)   |
-| `--anonymize SPEC FILE`                         | Mask / scramble columns per a JSON spec       | [→ `--anonymize`](anonymize.md)             |
-| `--dedupe FILE`                                 | Remove duplicate rows                         | [→ `--dedupe`](dedupe.md)                   |
-| `--impute COL=STRATEGY FILE`                    | Fill missing cells in a column                | [→ `--impute`](impute.md)                   |
-| `--outliers FILE`                               | Flag numeric outlier cells                    | [→ `--outliers`](outliers.md)               |
-| `--detect-pii FILE`                             | Find likely personal-data columns             | [→ `--detect-pii`](pii.md)                  |
-| `--union FILE --union-file FILE`                | Stack files into one table                    | [→ `--union`](union.md)                     |
-| `--join FILE --join-file FILE --join-on COLS`   | Join files on key columns                     | [→ `--join`](join.md)                       |
-| `--partition-by COL --out-dir DIR FILE`         | One file per distinct column value            | [→ `--partition-by`](partition.md)          |
-| `--mcp`                                         | Start the MCP server                          | [→ MCP guide](../mcp/index.md)              |
+| Flag                                             | Description                                   | Reference                                   |
+|--------------------------------------------------|-----------------------------------------------|---------------------------------------------|
+| `--schema FILE`                                  | Print column name + type as a table           | [→ `--schema`](schema.md)                   |
+| `--head FILE [-n N]`                             | Print the first N rows (default 20)           | [→ `--head`](head.md)                       |
+| `--tail FILE [-n N]`                             | Print the last N rows (default 20)            | [→ `--tail`](tail.md)                       |
+| `--sample FILE [-n N] [--seed S]`                | Print a reproducible random N-row sample      | [→ `--sample`](sample.md)                   |
+| `--convert IN OUT`                               | Convert between formats                       | [→ `--convert`](convert.md)                 |
+| `--sql FILE -q '<query>'`                        | Run a SQL query against a file                | [→ `--sql`](sql.md)                         |
+| `--export-schema FILE [-t T]`                    | Render the schema as DDL / model / struct     | [→ `--export-schema`](export-schema.md)     |
+| `--compare-schemas A B`                          | Diff the schemas of two files                 | [→ `--compare-schemas`](compare-schemas.md) |
+| `--diff A B`                                     | Row-level diff: rows unique to each file      | [→ `--diff`](diff.md)                       |
+| `--describe FILE`                                | One-shot snapshot: format + schema + sample   | [→ `--describe`](describe.md)               |
+| `--validate-schema FILE --expect-schema SCHEMA`  | Validate against JSON Schema (exit 1 = drift) | [→ `--validate-schema`](validate-schema.md) |
+| `--unique-columns FILE`                          | Find PK candidates (singles + combos)         | [→ `--unique-columns`](unique-columns.md)   |
+| `--anonymize SPEC FILE`                          | Mask / scramble columns per a JSON spec       | [→ `--anonymize`](anonymize.md)             |
+| `--dedupe FILE`                                  | Remove duplicate rows                         | [→ `--dedupe`](dedupe.md)                   |
+| `--impute COL=STRATEGY FILE`                     | Fill missing cells in a column                | [→ `--impute`](impute.md)                   |
+| `--outliers FILE`                                | Flag numeric outlier cells                    | [→ `--outliers`](outliers.md)               |
+| `--detect-pii FILE`                              | Find likely personal-data columns             | [→ `--detect-pii`](pii.md)                  |
+| `--union FILE --union-file FILE`                 | Stack files into one table                    | [→ `--union`](union.md)                     |
+| `--join FILE --join-file FILE --join-on COLS`    | Join files on key columns                     | [→ `--join`](join.md)                       |
+| `--partition-by COL --out-dir DIR FILE`          | One file per distinct column value            | [→ `--partition-by`](partition.md)          |
+| `--batch-convert --to EXT --out-dir DIR FILE...` | Convert many files into one format            | [→ `--batch-convert`](batch-convert.md)     |
+| `--resample COL --value-cols COLS FILE`          | Group rows into time buckets and aggregate    | [→ `--resample`](timeseries.md)             |
+| `--rolling COL --order-by COL --window N FILE`   | Rolling aggregate over the previous N rows    | [→ `--rolling`](timeseries.md)              |
+| `--mcp`                                          | Start the MCP server                          | [→ MCP guide](../mcp/index.md)              |
 
 `--export-schema` also has the short alias `-e`.
 
@@ -89,6 +110,11 @@ These apply across actions (where they make sense):
 | `--table NAME`            | `--validate-schema`, `--describe`, `--unique-columns`                                                                                     | (no value)  | Specific table on FILE (multi-table sources).                                                                                        |
 | `--expect-schema FILE`    | `--validate-schema`                                                                                                                       | (required)  | Path to the expected JSON Schema. Required by `--validate-schema`.                                                                   |
 | `--sample-rows N`         | `--describe`                                                                                                                              | `5`         | Sample-row count for the preview. Clamped to `[0, 100]`.                                                                             |
+| `--diff-db CONN`          | `--diff`                                                                                                                                  | (no value)  | Compare against a live database table instead of a second file. Names a saved connection.                                            |
+| `--diff-db-table TABLE`   | `--diff-db`                                                                                                                               | (required)  | Table on that connection, as `SCHEMA.TABLE` or `CATALOG.SCHEMA.TABLE`.                                                               |
+| `--compression CODEC`     | `--convert`, `--batch-convert`                                                                                                            | (settings)  | Parquet codec: `uncompressed`, `snappy`, `zstd`, `gzip`, `lz4`. Ignored by other targets.                                            |
+| `--row-group-size N`      | `--convert`, `--batch-convert`                                                                                                            | (settings)  | Rows per Parquet row group.                                                                                                          |
+| `--deep`                  | `--describe`                                                                                                                              | off         | Also report the file's physical layout: row groups, compression, encodings, column statistics. Parquet only.                         |
 | `--max-combo N`           | `--unique-columns`                                                                                                                        | `1`         | Max combo size to test (clamped to `[1, 3]`).                                                                                        |
 | `--rows` _N_\|`all`       | `--schema`, `--head`, `--convert`, `--sql`                                                                                                | `5,000,000` | Override the streaming initial-load row cap for this invocation. Pass a number (commas / underscores OK) or `all` to load every row. |
 | `-h`, `--help`            | always                                                                                                                                    | (no value)  | Print the full help text (with worked examples) and exit. `-h` and `--help` produce the **same long-form output**.                   |

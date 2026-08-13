@@ -26,6 +26,14 @@ Choose under **When done**:
   is `true` for every row holding at least one flagged value. This is a real,
   undoable edit (Ctrl+Z) you can save, sort, or filter on.
 
+## Stepping through flagged cells
+
+With **Highlight** chosen, <kbd>F10</kbd> jumps to the next flagged cell
+and <kbd>Shift</kbd>+<kbd>F10</kbd> to the previous one, wrapping at the
+ends, with a `Problem 3 of 27` counter in the status bar. The same keys
+also cover [data validation](data-validation.md) violations, and rows
+hidden by the current filter are skipped.
+
 ## Command line and assistant
 
 Also available as `octa --outliers` (see the

@@ -36,6 +36,9 @@ pub struct ToolbarAction {
     /// Open a folder as a Delta Lake / Apache Iceberg table (the table format
     /// is a directory, not a file). Fired by **File -> Open table folder...**.
     pub open_table_folder: bool,
+    /// Open the Batch convert dialog for a folder the user picks.
+    /// Fired by **File -> Batch convert...**.
+    pub open_batch_convert: bool,
     pub open_directory: bool,
     pub close_directory: bool,
     /// Toggle the sidebar cloud-storage browser (File -> Cloud connections).
@@ -54,6 +57,9 @@ pub struct ToolbarAction {
     /// The search box lost focus with a non-empty query: record it in the
     /// persistent search history.
     pub commit_search_history: bool,
+    /// Ask mode is on and the user pressed Enter in the search box: turn the
+    /// typed sentence into filters via the chosen assistant profile.
+    pub ask_submitted: bool,
     /// The Filter/Highlight search-behaviour toggle was flipped this frame.
     pub search_result_mode_changed: bool,
     /// Jump to the next highlight-search match (`>` button or Enter).
@@ -112,9 +118,31 @@ pub struct ToolbarAction {
     /// Open a Summary tab (per-column statistics via DuckDB SUMMARIZE) for
     /// the active table. Fired by **Analyse -> Summary...**.
     pub open_describe_tab: bool,
+    /// **Analyse -> File internals...**: open a detached tab showing how the
+    /// active tab's file is physically written (row groups, compression,
+    /// column statistics).
+    pub open_file_internals: bool,
+    /// **Analyse -> Compare with database table...**: diff the active tab
+    /// against a table on a saved database connection.
+    pub open_db_compare: bool,
+    /// **Analyse -> Join key finder...**: rank the column pairs that would
+    /// join the open tabs.
+    pub open_join_keys: bool,
+    pub open_join_diag: bool,
+    pub open_schema_drift: bool,
+    pub open_harmonise: bool,
+    pub open_report: bool,
+    pub open_fuzzy_join: bool,
     /// Open the Pivot / Unpivot dialog for the active table.
     /// Fired by **Analyse -> Pivot / Unpivot...**.
     pub open_pivot: bool,
+    /// Open the Time series dialog (bucketing / rolling window) for the active
+    /// table. Fired by **Analyse -> Time series...**.
+    pub open_timeseries: bool,
+    /// Toggle the clean-up suggestions panel for the active table.
+    /// Fired by **Analyse -> Clean-up suggestions**. Opening the panel starts
+    /// the scan; nothing runs until then.
+    pub open_cleanup_panel: bool,
     /// Open the multi-column sort dialog for the active table.
     /// Fired by **Analyse -> Sort by columns...**.
     pub open_multi_sort: bool,
@@ -241,4 +269,20 @@ pub struct ToolbarAction {
     /// Toggle the in-GUI chat assistant panel. Fired by the toolbar Assistant
     /// button, **View -> Assistant panel**, and the `ToggleChatPanel` shortcut.
     pub toggle_chat_panel: bool,
+}
+
+/// The search bar's "Ask" controls, bundled so `draw_toolbar` takes one
+/// parameter rather than four more.
+///
+/// `enabled` is false when no chat profile is configured; the toggle and the
+/// profile picker are then greyed out and their tooltip explains why rather
+/// than repeating the label.
+pub struct AskControls<'a> {
+    pub enabled: bool,
+    /// Configured profiles as `(id, display name)`, in Settings order.
+    pub profiles: &'a [(String, String)],
+    /// Whether Ask mode is on for the active tab. Edited in place.
+    pub mode: &'a mut bool,
+    /// Id of the profile that will answer. Edited in place.
+    pub profile_id: &'a mut String,
 }

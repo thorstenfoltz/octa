@@ -26,6 +26,15 @@ impl FormatReader for CsvReader {
     fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {
         write_delimited(path, b',', table)
     }
+
+    fn write_file_with_options(
+        &self,
+        path: &Path,
+        table: &DataTable,
+        opts: &crate::formats::write_options::WriteOptions,
+    ) -> Result<()> {
+        write_delimited_with(path, table, &opts.csv, b',')
+    }
 }
 
 pub struct TsvReader;
@@ -49,6 +58,15 @@ impl FormatReader for TsvReader {
 
     fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {
         write_delimited(path, b'\t', table)
+    }
+
+    fn write_file_with_options(
+        &self,
+        path: &Path,
+        table: &DataTable,
+        opts: &crate::formats::write_options::WriteOptions,
+    ) -> Result<()> {
+        write_delimited_with(path, table, &opts.csv, b'\t')
     }
 }
 
@@ -545,12 +563,53 @@ pub fn load_csv_rows_chunk(
 }
 
 pub fn write_delimited(path: &Path, delimiter: u8, table: &DataTable) -> Result<()> {
+    let opts = crate::formats::write_options::CsvOptions {
+        delimiter,
+        ..Default::default()
+    };
+    write_delimited_with(path, table, &opts, delimiter)
+}
+
+/// Options-aware delimited writer. `write_delimited` delegates here with the
+/// defaults, so the two cannot drift.
+///
+/// `format_delimiter` is the separator the format itself implies (a tab for
+/// TSV, the tab's own delimiter for CSV). It wins in two cases: whenever
+/// `opts.delimiter` is still the default comma, and *always* for a TSV, whose
+/// definition is the tab. Without that second rule a saved delimiter of `;`
+/// wrote semicolons into a file named `.tsv`, which no TSV reader will parse
+/// as the user intended. Someone wanting `;` wants a `.csv`.
+pub fn write_delimited_with(
+    path: &Path,
+    table: &DataTable,
+    opts: &crate::formats::write_options::CsvOptions,
+    format_delimiter: u8,
+) -> Result<()> {
+    use crate::formats::write_options::QuoteStyle;
+
+    let delimiter = if format_delimiter == b'\t' || opts.delimiter == b',' {
+        format_delimiter
+    } else {
+        opts.delimiter
+    };
     let mut wtr = csv::WriterBuilder::new()
         .delimiter(delimiter)
+        .quote_style(match opts.quote_style {
+            QuoteStyle::Necessary => csv::QuoteStyle::Necessary,
+            QuoteStyle::Always => csv::QuoteStyle::Always,
+            QuoteStyle::Never => csv::QuoteStyle::Never,
+        })
+        .terminator(if opts.crlf {
+            csv::Terminator::CRLF
+        } else {
+            csv::Terminator::Any(b'\n')
+        })
         .from_path(path)?;
 
-    let headers: Vec<&str> = table.columns.iter().map(|c| c.name.as_str()).collect();
-    wtr.write_record(&headers)?;
+    if opts.write_header {
+        let headers: Vec<&str> = table.columns.iter().map(|c| c.name.as_str()).collect();
+        wtr.write_record(&headers)?;
+    }
 
     for row_idx in 0..table.row_count() {
         let record: Vec<String> = (0..table.col_count())

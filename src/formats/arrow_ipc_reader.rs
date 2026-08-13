@@ -21,6 +21,21 @@ impl FormatReader for ArrowIpcReader {
         true
     }
 
+    /// Header only: the IPC file's schema message, no record batch decoded.
+    fn read_schema(&self, path: &Path) -> Result<Vec<ColumnInfo>> {
+        let file = File::open(path)?;
+        let reader = FileReader::try_new(file, None)?;
+        Ok(reader
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| ColumnInfo {
+                name: f.name().clone(),
+                data_type: format!("{}", f.data_type()),
+            })
+            .collect())
+    }
+
     fn read_file(&self, path: &Path) -> Result<DataTable> {
         let file = File::open(path)?;
         let reader = FileReader::try_new(file, None)?;

@@ -17,6 +17,8 @@
 //! in the GUI process.
 
 pub mod agent;
+pub mod ask_filter;
+pub mod ask_sql;
 pub mod audit;
 pub mod export;
 pub mod ollama;

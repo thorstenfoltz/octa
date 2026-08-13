@@ -10,7 +10,7 @@ mod menu_button;
 mod types;
 
 use menu_button::top_menu_button;
-pub use types::{ParseScope, ToolbarAction};
+pub use types::{AskControls, ParseScope, ToolbarAction};
 
 /// Formats offered by **File -> Open as...** and **View -> Reopen as...**:
 /// `(i18n label key, reader name as registered in `FormatRegistry::new`)`.
@@ -54,6 +54,9 @@ pub fn draw_toolbar(
     search_scope_col: &mut Option<usize>,
     // Column names for the scope dropdown (in table order).
     column_names: &[String],
+    // The "Ask" controls (plain-language filtering). Bundled so this
+    // signature does not grow four more parameters.
+    ask: types::AskControls<'_>,
     // Recent search queries (most-recent first) for the history dropdown.
     search_history: &[String],
     // Session search behaviour (Filter vs Highlight). Edited in place by the
@@ -86,6 +89,7 @@ pub fn draw_toolbar(
     has_notebook: bool,
     has_epub: bool,
     has_map: bool,
+    has_record: bool,
     has_json: bool,
     has_yaml: bool,
     readonly_mode: bool,
@@ -260,6 +264,30 @@ pub fn draw_toolbar(
                                 ui.close();
                             }
                             if ui
+                                .button(crate::i18n::t("file_menu.batch_convert"))
+                                .on_hover_text(crate::i18n::t("file_menu.batch_convert_hint"))
+                                .clicked()
+                            {
+                                action.open_batch_convert = true;
+                                ui.close();
+                            }
+                            if ui
+                                .button(crate::i18n::t("file_menu.schema_drift"))
+                                .on_hover_text(crate::i18n::t("file_menu.schema_drift_hint"))
+                                .clicked()
+                            {
+                                action.open_schema_drift = true;
+                                ui.close();
+                            }
+                            if ui
+                                .button(crate::i18n::t("file_menu.harmonise"))
+                                .on_hover_text(crate::i18n::t("file_menu.harmonise_hint"))
+                                .clicked()
+                            {
+                                action.open_harmonise = true;
+                                ui.close();
+                            }
+                            if ui
                                 .button(crate::i18n::t("file_menu.open_directory"))
                                 .on_hover_text(crate::i18n::t("file_menu.open_directory_hint"))
                                 .clicked()
@@ -317,6 +345,14 @@ pub fn draw_toolbar(
                                     .clicked()
                                 {
                                     action.show_schema_export = true;
+                                    ui.close();
+                                }
+                                if ui
+                                    .button(crate::i18n::t("file_menu.report"))
+                                    .on_hover_text(crate::i18n::t("file_menu.report_hint"))
+                                    .clicked()
+                                {
+                                    action.open_report = true;
                                     ui.close();
                                 }
                             }
@@ -976,6 +1012,14 @@ pub fn draw_toolbar(
                                         ui.close();
                                     }
                                     if ui
+                                        .button(crate::i18n::t("fuzzy_join.menu"))
+                                        .on_hover_text(crate::i18n::t("fuzzy_join.menu_hint"))
+                                        .clicked()
+                                    {
+                                        action.open_fuzzy_join = true;
+                                        ui.close();
+                                    }
+                                    if ui
                                         .button(crate::i18n::t("partition.menu"))
                                         .on_hover_text(crate::i18n::t("partition.menu_hint"))
                                         .clicked()
@@ -1001,29 +1045,42 @@ pub fn draw_toolbar(
 
                                 // Disable table view for notebook files (notebook view is the primary view)
                                 let table_enabled = !has_notebook;
-                                let table_btn = ui.add_enabled(
-                                    table_enabled,
-                                    egui::RadioButton::new(
-                                        is_table,
-                                        crate::i18n::t("view_menu.table"),
-                                    ),
-                                );
+                                // These two can be disabled, and a disabled
+                                // widget shows only its disabled hover text,
+                                // so both variants carry the same hint.
+                                let table_btn = ui
+                                    .add_enabled(
+                                        table_enabled,
+                                        egui::RadioButton::new(
+                                            is_table,
+                                            crate::i18n::t("view_menu.table"),
+                                        ),
+                                    )
+                                    .on_hover_text(crate::i18n::t("view_menu.table_hint"))
+                                    .on_disabled_hover_text(crate::i18n::t("view_menu.table_hint"));
                                 if table_btn.clicked() {
                                     action.view_mode_changed = Some(ViewMode::Table);
                                     ui.close();
                                 }
-                                let raw_btn = ui.add_enabled(
-                                    has_raw_content,
-                                    egui::RadioButton::new(is_raw, crate::i18n::t("view_menu.raw")),
-                                );
+                                let raw_btn = ui
+                                    .add_enabled(
+                                        has_raw_content,
+                                        egui::RadioButton::new(
+                                            is_raw,
+                                            crate::i18n::t("view_menu.raw"),
+                                        ),
+                                    )
+                                    .on_hover_text(crate::i18n::t("view_menu.raw_hint"))
+                                    .on_disabled_hover_text(crate::i18n::t("view_menu.raw_hint"));
                                 if raw_btn.clicked() {
                                     action.view_mode_changed = Some(ViewMode::Raw);
                                     ui.close();
                                 }
                                 if has_markdown {
                                     let is_md = current_view_mode == ViewMode::Markdown;
-                                    let md_btn =
-                                        ui.radio(is_md, crate::i18n::t("view_menu.markdown"));
+                                    let md_btn = ui
+                                        .radio(is_md, crate::i18n::t("view_menu.markdown"))
+                                        .on_hover_text(crate::i18n::t("view_menu.markdown_hint"));
                                     if md_btn.clicked() {
                                         action.view_mode_changed = Some(ViewMode::Markdown);
                                         ui.close();
@@ -1031,8 +1088,9 @@ pub fn draw_toolbar(
                                 }
                                 if has_notebook {
                                     let is_nb = current_view_mode == ViewMode::Notebook;
-                                    let nb_btn =
-                                        ui.radio(is_nb, crate::i18n::t("view_menu.notebook"));
+                                    let nb_btn = ui
+                                        .radio(is_nb, crate::i18n::t("view_menu.notebook"))
+                                        .on_hover_text(crate::i18n::t("view_menu.notebook_hint"));
                                     if nb_btn.clicked() {
                                         action.view_mode_changed = Some(ViewMode::Notebook);
                                         ui.close();
@@ -1040,8 +1098,9 @@ pub fn draw_toolbar(
                                 }
                                 if has_epub {
                                     let is_epub = current_view_mode == ViewMode::EpubReader;
-                                    let epub_btn =
-                                        ui.radio(is_epub, crate::i18n::t("view_menu.epub"));
+                                    let epub_btn = ui
+                                        .radio(is_epub, crate::i18n::t("view_menu.epub"))
+                                        .on_hover_text(crate::i18n::t("view_menu.epub_hint"));
                                     if epub_btn.clicked() {
                                         action.view_mode_changed = Some(ViewMode::EpubReader);
                                         ui.close();
@@ -1049,16 +1108,29 @@ pub fn draw_toolbar(
                                 }
                                 if has_map {
                                     let is_map = current_view_mode == ViewMode::Map;
-                                    let map_btn = ui.radio(is_map, crate::i18n::t("view_menu.map"));
+                                    let map_btn = ui
+                                        .radio(is_map, crate::i18n::t("view_menu.map"))
+                                        .on_hover_text(crate::i18n::t("view_menu.map_hint"));
                                     if map_btn.clicked() {
                                         action.view_mode_changed = Some(ViewMode::Map);
+                                        ui.close();
+                                    }
+                                }
+                                if has_record {
+                                    let is_record = current_view_mode == ViewMode::Record;
+                                    let record_btn = ui
+                                        .radio(is_record, crate::i18n::t("view_menu.record"))
+                                        .on_hover_text(crate::i18n::t("view_menu.record_hint"));
+                                    if record_btn.clicked() {
+                                        action.view_mode_changed = Some(ViewMode::Record);
                                         ui.close();
                                     }
                                 }
                                 if has_json {
                                     let is_json_tree = current_view_mode == ViewMode::JsonTree;
                                     let json_btn = ui
-                                        .radio(is_json_tree, crate::i18n::t("view_menu.json_tree"));
+                                        .radio(is_json_tree, crate::i18n::t("view_menu.json_tree"))
+                                        .on_hover_text(crate::i18n::t("view_menu.json_tree_hint"));
                                     if json_btn.clicked() {
                                         action.view_mode_changed = Some(ViewMode::JsonTree);
                                         ui.close();
@@ -1067,7 +1139,8 @@ pub fn draw_toolbar(
                                 if has_yaml {
                                     let is_yaml_tree = current_view_mode == ViewMode::YamlTree;
                                     let yaml_btn = ui
-                                        .radio(is_yaml_tree, crate::i18n::t("view_menu.yaml_tree"));
+                                        .radio(is_yaml_tree, crate::i18n::t("view_menu.yaml_tree"))
+                                        .on_hover_text(crate::i18n::t("view_menu.yaml_tree_hint"));
                                     if yaml_btn.clicked() {
                                         action.view_mode_changed = Some(ViewMode::YamlTree);
                                         ui.close();
@@ -1309,11 +1382,69 @@ pub fn draw_toolbar(
                                         ui.close();
                                     }
                                     if ui
+                                        .button(crate::i18n::t("analyse_menu.join_keys"))
+                                        .on_hover_text(crate::i18n::t(
+                                            "analyse_menu.join_keys_hint",
+                                        ))
+                                        .clicked()
+                                    {
+                                        action.open_join_keys = true;
+                                        ui.close();
+                                    }
+                                    if ui
+                                        .button(crate::i18n::t("analyse_menu.join_diag"))
+                                        .on_hover_text(crate::i18n::t(
+                                            "analyse_menu.join_diag_hint",
+                                        ))
+                                        .clicked()
+                                    {
+                                        action.open_join_diag = true;
+                                        ui.close();
+                                    }
+                                    if ui
+                                        .button(crate::i18n::t("analyse_menu.db_compare"))
+                                        .on_hover_text(crate::i18n::t(
+                                            "analyse_menu.db_compare_hint",
+                                        ))
+                                        .clicked()
+                                    {
+                                        action.open_db_compare = true;
+                                        ui.close();
+                                    }
+                                    if ui
+                                        .button(crate::i18n::t("analyse_menu.file_internals"))
+                                        .on_hover_text(crate::i18n::t(
+                                            "analyse_menu.file_internals_hint",
+                                        ))
+                                        .clicked()
+                                    {
+                                        action.open_file_internals = true;
+                                        ui.close();
+                                    }
+                                    if ui
                                         .button(crate::i18n::t("analyse_menu.pivot"))
                                         .on_hover_text(crate::i18n::t("analyse_menu.pivot_hint"))
                                         .clicked()
                                     {
                                         action.open_pivot = true;
+                                        ui.close();
+                                    }
+                                    if ui
+                                        .button(crate::i18n::t("analyse_menu.timeseries"))
+                                        .on_hover_text(crate::i18n::t(
+                                            "analyse_menu.timeseries_hint",
+                                        ))
+                                        .clicked()
+                                    {
+                                        action.open_timeseries = true;
+                                        ui.close();
+                                    }
+                                    if ui
+                                        .button(crate::i18n::t("analyse_menu.cleanup"))
+                                        .on_hover_text(crate::i18n::t("analyse_menu.cleanup_hint"))
+                                        .clicked()
+                                    {
+                                        action.open_cleanup_panel = true;
                                         ui.close();
                                     }
                                     if ui
@@ -1390,17 +1521,20 @@ pub fn draw_toolbar(
                                 ui.close();
                             }
                             ui.separator();
-                            if !crate::platform::is_store_packaged() {
-                                if ui
-                                    .button(crate::i18n::t("help_menu.check_updates"))
-                                    .on_hover_text(crate::i18n::t("help_menu.check_updates_hint"))
-                                    .clicked()
-                                {
-                                    action.check_for_updates = true;
-                                    ui.close();
-                                }
-                                ui.separator();
+                            // Shown on Store (MSIX) builds too. The startup
+                            // check can already announce a release there, so
+                            // hiding the way to re-check was the odd one out;
+                            // the dialog drops the install button and names
+                            // the Store instead.
+                            if ui
+                                .button(crate::i18n::t("help_menu.check_updates"))
+                                .on_hover_text(crate::i18n::t("help_menu.check_updates_hint"))
+                                .clicked()
+                            {
+                                action.check_for_updates = true;
+                                ui.close();
                             }
+                            ui.separator();
                             if ui
                                 .button(crate::i18n::t("ai_report.menu"))
                                 .on_hover_text(crate::i18n::t("ai_report.menu_hint"))
@@ -1461,19 +1595,29 @@ pub fn draw_toolbar(
                         if *search_mode != old_mode {
                             action.search_changed = true;
                         }
-                        let hint = match *search_mode {
-                            SearchMode::Plain => "Filter rows...",
-                            SearchMode::Wildcard => "e.g. foo*bar, item?",
-                            SearchMode::Regex => "e.g. ^\\d{3}-",
+                        // In Ask mode this same box is the question box, so it
+                        // says so and gets room for a sentence.
+                        let asking = *ask.mode && ask.enabled;
+                        let ask_placeholder = crate::i18n::t("search.ask_placeholder");
+                        let hint: &str = if asking {
+                            &ask_placeholder
+                        } else {
+                            match *search_mode {
+                                SearchMode::Plain => "Filter rows...",
+                                SearchMode::Wildcard => "e.g. foo*bar, item?",
+                                SearchMode::Regex => "e.g. ^\\d{3}-",
+                            }
                         };
                         let search_id = ui.id().with("toolbar_search");
                         let response = ui.add(
                             egui::TextEdit::singleline(search_text)
                                 .id(search_id)
-                                .desired_width(200.0)
+                                .desired_width(if asking { 340.0 } else { 200.0 })
                                 .hint_text(hint),
                         );
-                        if response.changed() {
+                        // A half-typed question is not a filter: while asking,
+                        // typing must not narrow the table to nothing.
+                        if response.changed() && !asking {
                             action.search_changed = true;
                         }
                         // Record a completed query when the box loses focus.
@@ -1537,6 +1681,64 @@ pub fn draw_toolbar(
                             })
                             .response
                             .on_hover_text(crate::i18n::t("search.scope_hint"));
+
+                        // Ask: turn a plain-language sentence into filters via
+                        // the chosen assistant. Which profile answers is always
+                        // visible, never implicit.
+                        let ask = ask;
+                        let ask_resp = ui
+                            .add_enabled_ui(ask.enabled, |ui| {
+                                ui.selectable_label(*ask.mode, crate::i18n::t("search.ask"))
+                            })
+                            .inner;
+                        let ask_resp = if ask.enabled {
+                            let profile_name = ask
+                                .profiles
+                                .iter()
+                                .find(|(id, _)| id == ask.profile_id)
+                                .map(|(_, name)| name.clone())
+                                .unwrap_or_default();
+                            ask_resp.on_hover_text(
+                                crate::i18n::t("search.ask_hint")
+                                    .replace("{profile}", &profile_name),
+                            )
+                        } else {
+                            // A disabled control must say why, not repeat its label.
+                            ask_resp
+                                .on_disabled_hover_text(crate::i18n::t("search.ask_needs_profile"))
+                        };
+                        if ask_resp.clicked() {
+                            *ask.mode = !*ask.mode;
+                            // Switching modes changes what the box means, so it
+                            // starts empty either way, and any filter the old
+                            // text was applying is dropped. Focus jumps to the
+                            // box so there is somewhere obvious to type.
+                            if !search_text.is_empty() {
+                                search_text.clear();
+                                action.search_changed = true;
+                            }
+                            if *ask.mode {
+                                response.request_focus();
+                            }
+                        }
+                        if *ask.mode && ask.enabled {
+                            let selected = ask
+                                .profiles
+                                .iter()
+                                .find(|(id, _)| id == ask.profile_id)
+                                .map(|(_, name)| name.clone())
+                                .unwrap_or_default();
+                            egui::ComboBox::from_id_salt("search_ask_profile")
+                                .width(130.0)
+                                .selected_text(selected)
+                                .show_ui(ui, |ui| {
+                                    for (id, name) in ask.profiles {
+                                        ui.selectable_value(ask.profile_id, id.clone(), name);
+                                    }
+                                })
+                                .response
+                                .on_hover_text(crate::i18n::t("search.ask_profile_hint"));
+                        }
 
                         // Recent-queries dropdown. Picking one fills the search box.
                         if !search_history.is_empty() {
@@ -1604,10 +1806,19 @@ pub fn draw_toolbar(
                         .response
                         .on_hover_text(crate::i18n::t("bookmarks.title"));
 
+                        // With Ask on, Enter sends the sentence to the assistant
+                        // rather than stepping through matches.
+                        if *ask.mode && ask.enabled && !search_text.is_empty() {
+                            let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            if enter && (response.lost_focus() || response.has_focus()) {
+                                action.ask_submitted = true;
+                                response.request_focus();
+                            }
+                        }
                         // Enter / Shift+Enter while the search box is focused step through
                         // matches (highlight mode only). Re-grab focus so repeated presses
                         // keep navigating instead of dropping focus after the first Enter.
-                        if search_highlight_active && !search_text.is_empty() {
+                        if !*ask.mode && search_highlight_active && !search_text.is_empty() {
                             let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
                             if enter && (response.lost_focus() || response.has_focus()) {
                                 if ui.input(|i| i.modifiers.shift) {

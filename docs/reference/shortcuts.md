@@ -10,17 +10,18 @@ of them, or clear the binding on one) before applying.
 
 ## File operations
 
-| Action                 | Default                                       | Notes                                                                                             |
-|------------------------|-----------------------------------------------|---------------------------------------------------------------------------------------------------|
-| New file               | <kbd>Ctrl</kbd>+<kbd>N</kbd>                  | Open an empty scratch tab.                                                                        |
-| Open file              | <kbd>Ctrl</kbd>+<kbd>O</kbd>                  | File picker (multi-select supported).                                                             |
-| Save file              | <kbd>Ctrl</kbd>+<kbd>S</kbd>                  | Write back to the original path.                                                                  |
-| Save file as…          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | New path + optional new format.                                                                   |
-| Export schema…         | <kbd>F7</kbd>                                 | Open the Schema Export dialog with all 7 targets. See [Schema Export](../usage/schema-export.md). |
-| Reload file from disk  | <kbd>Ctrl</kbd>+<kbd>R</kbd>                  | Discards unsaved changes after a confirmation.                                                    |
-| Close current tab      | <kbd>Ctrl</kbd>+<kbd>W</kbd>                  | Prompts when there are unsaved changes.                                                           |
-| Reopen last closed tab | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> | Walks back through the last 10 closed tabs.                                                       |
-| Quit application       | <kbd>Ctrl</kbd>+<kbd>Q</kbd>                  | Prompts when any tab has unsaved changes.                                                         |
+| Action                 | Default                                       | Notes                                                                                                                      |
+|------------------------|-----------------------------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| New file               | <kbd>Ctrl</kbd>+<kbd>N</kbd>                  | Open an empty scratch tab.                                                                                                 |
+| Open file              | <kbd>Ctrl</kbd>+<kbd>O</kbd>                  | File picker (multi-select supported).                                                                                      |
+| Save file              | <kbd>Ctrl</kbd>+<kbd>S</kbd>                  | Write back to the original path.                                                                                           |
+| Save file as…          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | New path + optional new format.                                                                                            |
+| Export schema…         | <kbd>F7</kbd>                                 | Open the Schema Export dialog with all 7 targets. See [Schema Export](../usage/schema-export.md).                          |
+| Reload file from disk  | <kbd>Ctrl</kbd>+<kbd>R</kbd>                  | Discards unsaved changes after a confirmation.                                                                             |
+| Close current tab      | <kbd>Ctrl</kbd>+<kbd>W</kbd>                  | Prompts when there are unsaved changes.                                                                                    |
+| Reopen last closed tab | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> | Walks back through the last 10 closed tabs.                                                                                |
+| Quit application       | <kbd>Ctrl</kbd>+<kbd>Q</kbd>                  | Prompts when any tab has unsaved changes.                                                                                  |
+| Open table folder      | *(unbound)*                                   | Open a Delta / Iceberg / dataset directory as one table. See [Supported Formats](../getting-started/supported-formats.md). |
 
 ## Tabs
 
@@ -32,28 +33,31 @@ of them, or clear the binding on one) before applying.
 
 ## Search
 
-| Action                | Default                                       | Notes                                                                                                                  |
-|-----------------------|-----------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
-| Focus search box      | <kbd>Ctrl</kbd>+<kbd>F</kbd>                  | Filter the table in real time.                                                                                         |
-| Toggle find & replace | <kbd>Ctrl</kbd>+<kbd>H</kbd>                  | Replace bar above the table.                                                                                           |
-| Open column filter    | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | Per-column value filter. See [Column Filter](../usage/search-and-filter.md#column-filter).                             |
-| Find duplicate rows…  | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Dedupe-key picker + Highlight / New-tab output. See [Editing → Find duplicates](../usage/editing.md#find-duplicates).  |
-| Find near-duplicates… | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd> | Fuzzy duplicate clusters (typos, spacing, word order). See [Find Near-Duplicates](../usage/find-near-duplicates.md).   |
-| Multi-search panel    | <kbd>F6</kbd>                                 | Cross-tab + directory grep with a docked result list. See [Multi-search](../usage/search-and-filter.md#multi-search).  |
-| Open Chart tab        | <kbd>F5</kbd>                                 | Open a new tab dedicated to plotting the active table. Same as **Analyse → Chart...**. See [Chart](../usage/chart.md). |
+| Action                                     | Default                                       | Notes                                                                                                                  |
+|--------------------------------------------|-----------------------------------------------|------------------------------------------------------------------------------------------------------------------------|
+| Focus search box                           | <kbd>Ctrl</kbd>+<kbd>F</kbd>                  | Filter the table in real time.                                                                                         |
+| Toggle find & replace                      | <kbd>Ctrl</kbd>+<kbd>H</kbd>                  | Replace bar above the table.                                                                                           |
+| Open column filter                         | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | Per-column value filter. See [Column Filter](../usage/search-and-filter.md#column-filter).                             |
+| Find duplicate rows…                       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Dedupe-key picker + Highlight / New-tab output. See [Editing → Find duplicates](../usage/editing.md#find-duplicates).  |
+| Find near-duplicates…                      | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd> | Fuzzy duplicate clusters (typos, spacing, word order). See [Find Near-Duplicates](../usage/find-near-duplicates.md).   |
+| Multi-search panel                         | <kbd>F6</kbd>                                 | Cross-tab + directory grep with a docked result list. See [Multi-search](../usage/search-and-filter.md#multi-search).  |
+| Open Chart tab                             | <kbd>F5</kbd>                                 | Open a new tab dedicated to plotting the active table. Same as **Analyse → Chart...**. See [Chart](../usage/chart.md). |
+| Run inventory on expanded cloud connection | *(unbound)*                                   | Lists the objects under the expanded cloud prefix as a table. See [Cloud Inventory](../usage/cloud-inventory.md).      |
 
 ## Navigation in the table
 
-| Action                       | Default                                       | Notes                                                      |
-|------------------------------|-----------------------------------------------|------------------------------------------------------------|
-| Go to cell (focus nav input) | <kbd>Ctrl</kbd>+<kbd>G</kbd>                  | Status-bar field accepts `R5:C3`, row #, column name.      |
-| Jump to first row            | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd> |                                                            |
-| Jump to last row             | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↓</kbd> |                                                            |
-| Jump to first column         | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd> |                                                            |
-| Jump to last column          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd> |                                                            |
-| Scroll up one page           | <kbd>Ctrl</kbd>+<kbd>PgUp</kbd>               | Advances selection by one visible page; spreadsheet-style. |
-| Scroll down one page         | <kbd>Ctrl</kbd>+<kbd>PgDn</kbd>               | Mirror of **Scroll up one page** in the other direction.   |
-| Add bookmark...              | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd>   | Names the current selection as a session bookmark.         |
+| Action                        | Default                                       | Notes                                                      |
+|-------------------------------|-----------------------------------------------|------------------------------------------------------------|
+| Go to cell (focus nav input)  | <kbd>Ctrl</kbd>+<kbd>G</kbd>                  | Status-bar field accepts `R5:C3`, row #, column name.      |
+| Jump to first row             | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↑</kbd> |                                                            |
+| Jump to last row              | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>↓</kbd> |                                                            |
+| Jump to first column          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>←</kbd> |                                                            |
+| Jump to last column           | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd> |                                                            |
+| Scroll up one page            | <kbd>Ctrl</kbd>+<kbd>PgUp</kbd>               | Advances selection by one visible page; spreadsheet-style. |
+| Scroll down one page          | <kbd>Ctrl</kbd>+<kbd>PgDn</kbd>               | Mirror of **Scroll up one page** in the other direction.   |
+| Add bookmark...               | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>B</kbd>   | Names the current selection as a session bookmark.         |
+| Jump to next flagged cell     | <kbd>F10</kbd>                                | Steps through validation violations and detected outliers. |
+| Jump to previous flagged cell | <kbd>Shift</kbd>+<kbd>F10</kbd>               | Same set, other direction. Both wrap and respect filters.  |
 
 ## Selection
 
@@ -125,34 +129,56 @@ same precedence Ctrl+M uses from the keyboard.
 
 ## SQL panel
 
-| Action            | Default                                       | Notes                                                            |
-|-------------------|-----------------------------------------------|------------------------------------------------------------------|
-| Export SQL result | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> | Save the current SQL result to a file. No-op when no result yet. |
+| Action            | Default                                       | Notes                                                                                                                                             |
+|-------------------|-----------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| Export SQL result | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> | Save the current SQL result to a file. No-op when no result yet.                                                                                  |
+| Run SQL on server | *(unbound)*                                   | Runs the editor statement on the tab's database connection instead of local DuckDB. See [Database Connections](../usage/database-connections.md). |
 
 ## Dialogs
 
-| Action                      | Default                                       | Notes                                                                                                          |
-|-----------------------------|-----------------------------------------------|----------------------------------------------------------------------------------------------------------------|
-| Open documentation          | <kbd>F1</kbd>                                 | This documentation, in-app.                                                                                    |
-| Open settings               | <kbd>F3</kbd>                                 |                                                                                                                |
-| Show column value frequency | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd> | Top-N values + counts for the column of the selected cell. See [Value Frequency](../usage/value-frequency.md). |
-| Pivot / Unpivot...          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> | See [Pivot / Unpivot](../usage/pivot.md).                                                                      |
-| Transform column...         | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> | See [Transform column](../usage/transform-column.md).                                                          |
-| Conditional formatting...   | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> | See [Conditional formatting](../usage/conditional-formatting.md).                                              |
-| Conditional column...       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>J</kbd> | If / else-if / else CASE column. See [Transform column](../usage/transform-column.md).                         |
-| Anonymise columns...        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd> | Mask / scramble sensitive columns. See [Anonymise Columns](../usage/anonymize-columns.md).                     |
-| Data validation...          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | See [Data validation](../usage/data-validation.md).                                                            |
-| Sort by columns...          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> | Multi-column sort.                                                                                             |
-| Summary tab                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | See [Summary](../usage/summary.md).                                                                            |
-| Data quality report...      | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Q</kbd>   | See [Data Quality Report](../usage/data-quality-report.md).                                                    |
-| Rename columns              | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>R</kbd>   | Bulk column rename. See [Rename Columns](../usage/rename-columns.md).                                          |
-| Fill missing values...      | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd>   | See [Fill Missing Values](../usage/fill-missing-values.md).                                                    |
-| Union tables...             | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd>   | Needs two open tabs. See [Union Tables](../usage/union-tables.md).                                             |
-| Detect outliers...          | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>O</kbd>   | See [Detect Outliers](../usage/detect-outliers.md).                                                            |
-| Detect PII...               | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd>   | See [Detect PII](../usage/detect-pii.md).                                                                      |
+| Action                             | Default                                       | Notes                                                                                                          |
+|------------------------------------|-----------------------------------------------|----------------------------------------------------------------------------------------------------------------|
+| Open documentation                 | <kbd>F1</kbd>                                 | This documentation, in-app.                                                                                    |
+| Open settings                      | <kbd>F3</kbd>                                 |                                                                                                                |
+| Show column value frequency        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd> | Top-N values + counts for the column of the selected cell. See [Value Frequency](../usage/value-frequency.md). |
+| Pivot / Unpivot...                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> | See [Pivot / Unpivot](../usage/pivot.md).                                                                      |
+| Transform column...                | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> | See [Transform column](../usage/transform-column.md).                                                          |
+| Conditional formatting...          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> | See [Conditional formatting](../usage/conditional-formatting.md).                                              |
+| Conditional column...              | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>J</kbd> | If / else-if / else CASE column. See [Transform column](../usage/transform-column.md).                         |
+| Anonymise columns...               | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd> | Mask / scramble sensitive columns. See [Anonymise Columns](../usage/anonymize-columns.md).                     |
+| Data validation...                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | See [Data validation](../usage/data-validation.md).                                                            |
+| Sort by columns...                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> | Multi-column sort.                                                                                             |
+| Summary tab                        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | See [Summary](../usage/summary.md).                                                                            |
+| Data quality report...             | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Q</kbd>   | See [Data Quality Report](../usage/data-quality-report.md).                                                    |
+| Rename columns                     | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>R</kbd>   | Bulk column rename. See [Rename Columns](../usage/rename-columns.md).                                          |
+| Fill missing values...             | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd>   | See [Fill Missing Values](../usage/fill-missing-values.md).                                                    |
+| Union tables...                    | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd>   | Needs two open tabs. See [Union Tables](../usage/union-tables.md).                                             |
+| Detect outliers...                 | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>O</kbd>   | See [Detect Outliers](../usage/detect-outliers.md).                                                            |
+| Detect PII...                      | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd>   | See [Detect PII](../usage/detect-pii.md).                                                                      |
+| Clean-up suggestions               | *(unbound)*                                   | Toggles the panel; opening it scans. See [Clean-up Suggestions](../usage/cleanup-suggestions.md).              |
+| File internals...                  | *(unbound)*                                   | Physical layout of the open file. See [File Internals](../usage/file-internals.md).                            |
+| Compare with database or cloud...  | *(unbound)*                                   | See [Compare with Database or Cloud](../usage/compare-with-database.md).                                       |
+| Join key finder...                 | *(unbound)*                                   | See [Join Key Finder](../usage/join-key-finder.md).                                                            |
+| Join diagnostics...                | *(unbound)*                                   | See [Join Diagnostics](../usage/join-diagnostics.md).                                                          |
+| Harmonise schemas...               | *(unbound)*                                   | See [Harmonise Schemas](../usage/harmonise-schemas.md).                                                        |
+| Toggle Ask (plain-language filter) | *(unbound)*                                   | Retargets the search box at a question instead of a filter.                                                    |
+| Drop duplicate rows...             | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd> | See [Drop Duplicate Rows](../usage/drop-duplicate-rows.md).                                                    |
+| Join tables                        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Q</kbd> | Needs two open tabs. See [Join Tables](../usage/join-tables.md).                                               |
+| Partition by column                | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Writes one file per group. See [Partition by Column](../usage/partition-by-column.md).                         |
+| Time series...                     | *(unbound)*                                   | Time buckets and rolling windows. See [Time Series](../usage/time-series.md).                                  |
+| Batch convert...                   | *(unbound)*                                   | See [Batch Convert](../usage/batch-convert.md).                                                                |
+| Schema drift...                    | *(unbound)*                                   | See [Schema Drift](../usage/schema-drift.md).                                                                  |
+| Report...                          | *(unbound)*                                   | HTML profiling report. See [Report](../usage/report.md).                                                       |
+| Fuzzy join...                      | *(unbound)*                                   | See [Fuzzy Join](../usage/fuzzy-join.md).                                                                      |
 
 All of these are rebindable in **Settings → Shortcuts**, which refuses to let two
 actions share the same combination.
+
+An action listed as *(unbound)* ships with no default combination, because every
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+letter is already taken (and
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd> fire
+the clipboard on the table regardless). Assign one yourself if you use it often;
+the menu entry works either way.
 
 ## Cheat-sheet (most-used)
 

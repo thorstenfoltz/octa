@@ -344,6 +344,56 @@ Three ways:
 The full-row count returns to its un-filtered value in the status
 bar.
 
+## Ask: filtering in plain language
+
+The search bar has an **Ask** toggle. With it on, what you type is not
+matched against the table; it is sent to a configured
+[assistant](chatbot.md), which turns it into filters.
+
+Turning **Ask** on retargets the search box: it empties, takes focus, and
+its placeholder changes to *Ask a question, then press Enter*. The
+profile that will answer appears beside the toggle.
+
+```text
+[ Ask a question, then press Enter ] [Aa] [W] [All columns v] [Ask*] [My model v]
+```
+
+While Ask is on, typing does **not** filter as you go, so a half-written
+question never empties the table. Nothing happens until you press Enter.
+
+Typing *revenue over 1000 in Germany* and pressing Enter applies a
+comparison filter on `revenue` and a value filter on `country`, and the
+comparison appears as a removable chip above the table:
+
+```text
+From your question:   revenue greater than 1000  x     Clear all
+```
+
+Two things are deliberate here:
+
+- **Which assistant answers is always visible.** The dropdown beside the
+  toggle names the profile that will run, and you can pick another. With
+  no profile configured, both controls are greyed out and their tooltip
+  says to set one up in **Settings → Chat / Assistant** first.
+- **Nothing is hidden.** Categorical conditions land in the ordinary
+  column filters and comparisons land in the chip row, so you can edit
+  or delete any of them by hand. A wrong interpretation is repairable
+  rather than mysterious.
+
+It is a single request with no tools and no follow-up conversation, so
+typing in the search box can never turn into an autonomous session. If
+the reply cannot be understood, or names a column that does not exist,
+**nothing is applied** and the status bar says why; a half-understood
+sentence must not half-filter the table.
+
+Only filters and an optional sort come back. The assistant cannot add
+columns or change data from here; that is what the
+[chat panel](chatbot.md) is for.
+
+The SQL panel has a sibling **Ask** box that writes a query instead of a
+filter, under the same one-request rule. See
+[Ask in the SQL panel](sql.md#ask).
+
 ## See also
 
 - [SQL panel](sql.md) offers column- and type-aware

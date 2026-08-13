@@ -9,6 +9,7 @@ mod map;
 pub(crate) mod markdown;
 mod notebook;
 pub mod raw_text;
+mod record;
 pub(crate) mod sql;
 pub mod text_ops;
 
@@ -20,4 +21,5 @@ pub use map::render_map_view;
 pub use markdown::render_markdown_view;
 pub use notebook::render_notebook_view;
 pub use raw_text::render_raw_view;
+pub use record::render_record_view;
 pub use sql::{SqlAction, SqlViewContext, editor_id as sql_editor_id, render_sql_view};

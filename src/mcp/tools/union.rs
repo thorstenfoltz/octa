@@ -68,6 +68,12 @@ pub struct Params {
     #[serde(default)]
     pub cast: Vec<CastOverride>,
 
+    /// Treat column names differing only in case as one column, so `Amount`
+    /// and `amount` merge. The first spelling encountered names the output
+    /// column. Default `false`.
+    #[serde(default)]
+    pub ignore_case: bool,
+
     /// Maximum rows to return in the response. Default is the server's
     /// configured limit. Pass `0` for unlimited.
     #[serde(default)]
@@ -97,7 +103,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let tables: Vec<&octa::data::DataTable> = snaps.iter().collect();
     let schemas: Vec<&[octa::data::ColumnInfo]> =
         tables.iter().map(|t| t.columns.as_slice()).collect();
-    let mut plan = plan_union(&schemas);
+    let mut plan = plan_union(&schemas, p.ignore_case);
 
     for col_name in &p.drop {
         if let Some(c) = plan.columns.iter_mut().find(|c| &c.name == col_name) {

@@ -1,11 +1,13 @@
 # lv: written natively, not translated from English.
 
-short = "Atveriet Parquet, CSV, Excel, SQLite un vēl ap 30 datu formātu ātrā tabulā. Kārtošana, filtri, meklēšana, rediģēšana un SQL vaicājumi, viss lokāli."
+short = "Parquet, CSV, Excel, SQLite un vēl kādi trīsdesmit formāti ātrā tabulā. Kārto, filtrē, meklē, rediģē un raksti SQL savā datorā."
 
 long = """
-Octa atver Parquet, CSV, Excel, SQLite, DuckDB, JSON un vēl ap trīsdesmit formātu uzreiz ātrā tabulā. Bez importēšanas un bez iestatīšanas.
+Octa atver Parquet, CSV, Excel, SQLite, DuckDB un JSON failus, kā arī vēl kādus trīsdesmit datu formātus, bez importēšanas un bez laikietilpīgas iestatīšanas.
 
-Kārtojiet, filtrējiet, meklējiet un rediģējiet datus, veidojiet tiem SQL vaicājumus ar DuckDB, zīmējiet diagrammas vai salīdziniet divus failus. Viss darbojas jūsu datorā, un neviens fails netiek augšupielādēts.
+Datus vari kārtot, filtrēt, pārmeklēt un rediģēt, izpildīt tiem SQL vaicājumus ar DuckDB, veidot diagrammas vai salīdzināt divus failus. Iebūvētajā tērzēšanā par datiem vari pajautāt arī ikdienas valodā.
 
-Saskarne 32 valodās. Brīva programmatūra ar MIT licenci.
+Apstrāde notiek lokāli, tavā datorā, ja vien izmantotajai funkcijai nav vajadzīga ārēja API.
+
+Saskarne ir pieejama 32 valodās. Octa ir brīva programmatūra ar MIT licenci.
 """

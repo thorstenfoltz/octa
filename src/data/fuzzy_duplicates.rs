@@ -231,7 +231,13 @@ fn token_set(a: &str, b: &str) -> f64 {
 }
 
 /// Similarity of two already-normalised strings under `method`.
-fn similarity(method: SimilarityMethod, a: &str, b: &str) -> f64 {
+/// Score two strings in `0.0..=1.0` under `method`.
+///
+/// Public because the fuzzy **join** compares across two tables using exactly
+/// the measures the fuzzy **duplicate** scan uses within one. Two
+/// implementations of "how similar are these" would eventually disagree, and a
+/// user would have no way to tell which one they were looking at.
+pub fn similarity(method: SimilarityMethod, a: &str, b: &str) -> f64 {
     match method {
         SimilarityMethod::EditRatio => edit_ratio(a, b),
         SimilarityMethod::JaroWinkler => jaro_winkler(a, b),

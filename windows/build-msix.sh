@@ -121,8 +121,25 @@ grep -q "Version=\"$VERSION.0\"" "$WORK/msix/AppxManifest.xml" ||
 		exit 1
 	}
 
+# OCTA_MSIX_TEST=1 builds a package for local sideload testing ONLY. Windows 11
+# refuses to install an unsigned package unless this OID sits in the Publisher:
+# https://learn.microsoft.com/windows/msix/package/unsigned-package
+# It changes the package identity, so such a build must never reach Partner
+# Center; the output is named accordingly.
+SUFFIX=""
+if [[ -n "${OCTA_MSIX_TEST:-}" ]]; then
+	sed -i 's/\(Publisher="CN=[^"]*\)"/\1, OID.2.25.311729368913984317654407730594956997722=1"/' \
+		"$WORK/msix/AppxManifest.xml"
+	grep -q 'OID.2.25.311729368913984317654407730594956997722=1' "$WORK/msix/AppxManifest.xml" ||
+		{
+			echo "error: could not add the unsigned-install OID to Publisher." >&2
+			exit 1
+		}
+	SUFFIX="-test-unsigned"
+fi
+
 # --- pack --------------------------------------------------------------------
-OUT="$HERE/octa-$VERSION.0.msix"
+OUT="$HERE/octa-$VERSION.0$SUFFIX.msix"
 rm -f "$OUT"
 "$MAKEMSIX" pack -d "$WORK/msix" -p "$OUT" >"$WORK/pack.log" 2>&1 ||
 	{
@@ -150,4 +167,9 @@ echo "Built and verified: $OUT"
 echo "  $(du -h "$OUT" | cut -f1), unsigned (correct for Store upload)"
 echo "  languages declared: $(grep -c '<Resource Language=' "$HERE/AppxManifest.xml")"
 echo
-echo "Upload it in Partner Center under Pakete."
+if [[ -n "$SUFFIX" ]]; then
+	echo "TEST BUILD - do NOT upload this one. On Windows 11, in an elevated"
+	echo "PowerShell:  Add-AppxPackage -Path .\\$(basename "$OUT") -AllowUnsigned"
+else
+	echo "Upload it in Partner Center under Pakete."
+fi

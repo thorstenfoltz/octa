@@ -126,3 +126,24 @@ found, no reader available).
   over MCP.
 - The GUI [Compare view](../usage/view-modes/compare.md) does an
   interactive row / text diff of two open tabs.
+
+## Comparing against a live database table
+
+```bash
+octa --diff orders.csv \
+     --diff-db warehouse --diff-db-table public.orders \
+     --diff-mode join --diff-on id
+```
+
+`--diff-db CONN` names a saved database connection and replaces the
+second file, so `--diff` takes a single positional path. Pair it with
+`--diff-db-table SCHEMA.TABLE` (or `CATALOG.SCHEMA.TABLE`); an
+unqualified name uses the connection's own database.
+
+Side A is the file, side B is the database table, so `only_in_a` rows
+are in your file but not the table. Both sides are read under the normal
+row cap.
+
+The GUI equivalent is
+[Compare with a Database Table](../usage/compare-with-database.md); over
+MCP it is `diff_tables` with a `b_db` object.

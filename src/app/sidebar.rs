@@ -265,6 +265,13 @@ impl OctaApp {
             self.directory_tree = None;
         } else if let Some(files) = tree_action.union_files {
             self.open_union_for_files(files);
+        } else if let Some(files) = tree_action.convert_files {
+            self.batch_convert_dialog = Some(
+                super::state::BatchConvertState::new(files)
+                    .with_write_options(self.settings.write_options.clone()),
+            );
+        } else if let Some(dir) = tree_action.scan_schemas {
+            super::dialogs::schema_drift::open_for_folder(self, &dir);
         } else if let Some(dir) = tree_action.open_dataset {
             // Routes through load_file's `is_dir()` branch -> dataset /
             // lakehouse detection.

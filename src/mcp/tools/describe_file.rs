@@ -20,7 +20,8 @@ use super::{Source, ToolContext, source_from};
 pub const DESCRIPTION: &str = "One-shot orientation snapshot of a tabular file or open tab. Collapses the \
 list_tables -> schema -> read_table dance into one call. Returns path, format, size, row count, \
 columns, and a small `sample_rows` (default 5, max 100). Use this first when meeting an \
-unfamiliar file.";
+unfamiliar file. Pass `deep: true` to also get the file's physical layout (row groups, \
+compression, column statistics) when asked why a file is large or slow.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
@@ -46,6 +47,16 @@ pub struct Params {
     /// the cap and `initial_load_capped` flags `true`. Default `false`.
     #[serde(default)]
     pub unlimited: bool,
+
+    /// Also report how the file is physically written: row groups,
+    /// compression codec, encodings, per-column statistics, plus plain
+    /// language hints when the layout looks poor. Answers "why is this
+    /// file large" and "why is it slow to scan". Parquet reports full
+    /// detail; other formats report only their size. Ignored when
+    /// `open_tab` is set, since an open tab has no file to inspect.
+    /// Default `false`.
+    #[serde(default)]
+    pub deep: bool,
 }
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
@@ -56,7 +67,22 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     match &source {
         Source::Path { path, table } => {
             let d = describe_file(path, table.as_deref(), p.sample_rows)?;
-            Ok(description_to_json(&d, ctx.cell_byte_cap))
+            let mut json = description_to_json(&d, ctx.cell_byte_cap);
+            if p.deep {
+                let internals = octa::data::file_internals::inspect(path)?;
+                let facts: Map<String, Value> = internals
+                    .facts
+                    .iter()
+                    .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+                    .collect();
+                if let Value::Object(obj) = &mut json {
+                    obj.insert(
+                        "internals".to_string(),
+                        serde_json::json!({ "facts": facts, "hints": internals.hints }),
+                    );
+                }
+            }
+            Ok(json)
         }
         _ => {
             // An open tab is already materialised; synthesise a description.

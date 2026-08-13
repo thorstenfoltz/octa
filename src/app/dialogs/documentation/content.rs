@@ -5,6 +5,12 @@
 
 pub(super) const GETTING_STARTED: &str = r#"# Getting Started
 
+> **Full documentation online:** <https://thorstenfoltz.github.io/octa/>
+>
+> This dialog is the short version, always matching the build you are
+> running. The site carries the same material plus screenshots, the CLI
+> reference, the MCP tool pages and the settings reference.
+
 Open a file from **File > Open** (or **Ctrl+O**), pick one or more from the
 **File > Recent Files** submenu, or pass paths on the command line:
 
@@ -81,6 +87,31 @@ of being dropped; short rows pad with empty cells. The file on disk is never
 changed.
 "#;
 
+pub(super) const ONLINE_DOCS: &str = r#"# Online Documentation
+
+The full documentation lives at:
+
+<https://thorstenfoltz.github.io/octa/>
+
+It is built from the `docs/` folder of the repository and published on
+every release, so it always describes a released version. This in-app
+dialog ships inside the binary and therefore always matches exactly the
+build you are running - if the two ever disagree, this one is right about
+your build and the site is right about the latest release.
+
+What is on the site and not here:
+
+- Screenshots of every dialog and view.
+- The complete command-line reference, one page per flag, plus the man
+  page.
+- The MCP tool reference, one page per tool, with request and response
+  examples.
+- The settings reference with every TOML key.
+- Installation and packaging notes for Linux, Windows and macOS.
+
+Source repository: <https://github.com/thorstenfoltz/octa>
+"#;
+
 pub(super) const NAVIGATION: &str = r#"# Navigation & Selection
 
 - **Arrow keys** move the selected cell.
@@ -147,12 +178,63 @@ Auto; a negative count rounds before the decimal point, e.g. -2 = nearest
 with trailing zeros. Formats are display-only and per-tab; on **Save**
 Octa asks whether to write rounded values or full precision.
 
+## Write options
+
+**Settings > Files > Write options** controls how Octa writes files, as
+opposed to what it writes. Parquet gets compression, rows per row group,
+dictionary encoding and column statistics; CSV and TSV get the delimiter,
+quoting, line endings and whether to write a header row.
+
+Parquet is written with **zstd** compression by default. Uncompressed
+Parquet is only about 1.6x smaller than the same data as CSV, where zstd
+reaches roughly 5x, and it costs about 1% more write time and 3% more
+read time to get there. Pick `uncompressed` here if you need it; every
+codec stays available.
+
+The CSV delimiter applies to CSV files. Left at a comma, each file keeps
+the delimiter it was opened with, so a semicolon file stays a semicolon
+file. A `.tsv` is always written tab-separated whatever the setting says,
+since that is what the format means; set a different delimiter and save
+as `.csv` if you want it.
+
+Save As uses these settings, since it is the operating system's file
+picker and has nowhere to put controls; the Batch convert dialog shows
+the same controls in a **Write options** expander that applies to that
+run only. On the command line the two Parquet knobs are `--compression`
+and `--row-group-size`, and leaving them off uses these same settings, so
+a conversion in the terminal writes the same file the app would. That
+covers the CSV knobs too: a `--convert` in the terminal picks up the
+delimiter, quoting, line endings and header row saved here.
+
+The File internals tab is the other half of this: it shows how an
+existing file was written, including whether it is compressed at all.
+
 ## Whitespace trimming on load
 
 By default Octa strips leading/trailing whitespace from string cells
 **and column titles** when a file opens (interior spaces are kept), and
 shows a banner listing which columns changed. Both the trimming and the
 banner can be turned off under **Settings > File-Specific**.
+
+## European numbers on load
+
+A German or French export writes amounts as `1.234,56`. Octa recognises
+both that and the English `1,234.56` when a file opens, and reads such
+columns as real numbers, so they sort by size, sum, chart and take part
+in SQL arithmetic instead of sitting there as text.
+
+The decision is made per column, not per cell, because one value on its
+own can be undecidable: `1,234` is one thousand two hundred and thirty
+four in a European file and one point two three four in an English one.
+
+- Columns that can only be read one way are converted, and a banner
+  names them. **Okay** keeps the conversion, **Dismiss** puts the
+  original text back.
+- Columns that could go either way raise a small dialog with sample
+  values and three answers: European, English, or leave as text.
+
+Groups after the first must be exactly three digits, which is why
+`31.12.2024` is never read as a number and stays a date.
 
 Saving an edited file is described under **Saving**.
 "#;
@@ -232,6 +314,41 @@ scrolls the current match into view.
 - **All** replaces every match across visible rows.
 
 **Escape** closes the replace bar.
+"#;
+
+pub(super) const ASK_FILTER: &str = r#"# Ask: Filtering in Plain Language
+
+The search bar has an **Ask** toggle. With it on, what you type is not
+matched against the table: it is sent to a configured assistant, which
+turns it into filters.
+
+Turning Ask on retargets the search box: it empties, takes focus, and its
+placeholder changes to "Ask a question, then press Enter". While Ask is
+on, typing does not filter as you go, so a half-written question never
+empties the table; nothing happens until you press Enter.
+
+Type something like "revenue over 1000 in Germany" and press Enter. The
+categorical part lands in the ordinary column filters, and comparisons
+appear as removable chips above the table:
+
+    From your question:   revenue greater than 1000  x     Clear all
+
+Which assistant answers is always visible: the dropdown beside the toggle
+names the profile that will run, and you can pick another. With no
+profile configured, both controls are greyed out and the tooltip says to
+set one up in Settings > Chat / Assistant first.
+
+Nothing is hidden. Every condition lands as an ordinary, editable filter,
+so a wrong interpretation can be corrected by hand rather than being a
+mystery.
+
+It is one request with no tools and no follow-up, so typing in the search
+box can never turn into an autonomous session. If the reply cannot be
+understood, or names a column that does not exist, nothing is applied and
+the status bar says why.
+
+Only filters and an optional sort come back. Adding columns or changing
+data is the chat panel's job, not this one.
 "#;
 
 pub(super) const MULTI_SEARCH: &str = r#"# Multi-search
@@ -615,6 +732,340 @@ fresh snapshot.
 For a deeper look at a single column, use Value Frequency instead.
 "#;
 
+pub(super) const FILE_INTERNALS: &str = r#"# File Internals
+
+**Analyse > File internals...** opens a read-only tab describing how the
+active file is *physically written*, rather than what is in it. Summary
+answers "what does this file contain"; this answers "why is it four
+gigabytes and why is every query slow".
+
+The strip above the grid carries the file-level facts: format, rows, row
+groups, column count, writer version, created-by, compressed and
+uncompressed bytes, bloom filters, file size.
+
+The grid has one row per column per row group:
+
+- **row_group / column / rows** - which chunk this is.
+- **compression / encodings** - the codec and encodings for that chunk.
+- **compressed_bytes / uncompressed_bytes** - what it costs on disk and
+  once decoded. Sort by this to find the column eating the space.
+- **nulls / min / max** - the chunk statistics. Without min/max a reader
+  cannot skip row groups, so every query reads everything.
+
+Up to three plain-language hints appear when the layout looks poor: very
+small row groups, missing column statistics, or no compression. All
+three are fixable from Octa via the write options in Save As and Batch
+convert.
+
+Parquet reports full detail. Other formats report their size and say
+they have no inspectable internal structure. A tab with no file behind
+it has nothing to inspect.
+
+The same information is available as `octa --describe FILE --deep` and,
+over MCP, as `describe_file` with `deep: true`.
+"#;
+
+pub(super) const FUZZY_JOIN: &str = r#"# Fuzzy Join
+
+Two tables describe the same customers, and neither shares a key with the
+other. The CRM says `Mueller GmbH`, the sales sheet says `Mueller Gmbh.`, and
+Join tables matches neither of them. Fuzzy join matches rows that are
+**similar** rather than identical.
+
+**Opening it.** **Data > Fuzzy join...**, with at least two tables open. No
+default keyboard shortcut; assign one under **Settings > Shortcuts** if you
+want it.
+
+**Setting it up.** Pick the left table, whose rows are kept, and the right
+table, which is searched for a partner. Then say which columns to compare:
+one pair, or several when a single column is not distinctive enough, in which
+case their scores are averaged.
+
+- **Edit ratio** suits typos and small misspellings.
+- **Jaro-Winkler** suits names, where a shared beginning counts for more.
+- **Token set** ignores word order and punctuation.
+
+These are the same measures Find near-duplicates uses within a single table.
+Values are compared as normalised text: lowercased, spaces collapsed,
+punctuation dropped, which is what lets `  ACME  Ltd. ` meet `acme ltd`.
+
+**The threshold** is how similar two values must be to count as a match, from
+0 to 1. 0.85 is a sensible start: raise it when you get matches you do not
+believe, lower it when obvious pairs are missed.
+
+**Blocking.** Without a blocking column every left row is compared with every
+right row, which grows with the product of the two row counts and is why a row
+cap exists. Naming a column that must match exactly, such as a country or a
+postcode, restricts the comparison to rows that already agree there. It
+changes which pairs are compared, never which of them match.
+
+**Reading the result.** The result opens in a new tab with the left columns,
+the right columns, and two more per step. `match_score_N` is how similar the
+matched pair was, empty when the row found no partner. `ambiguous_N` is true
+when the runner-up scored nearly as well: those are the rows to check by hand,
+because the join picked one but it was a close call. The status bar reports
+how many rows matched, how many are ambiguous, and whether the row cap was
+reached.
+
+**More than two tables.** **Add another table** joins the result to a third,
+folding left to right. Each step gets its own score and flag rather than one
+number for the whole chain, because matching against an already fuzzy result
+compounds the error and a single number would hide where it came from.
+
+**Ceilings.** Each left row keeps one partner, the best scorer, so a row that
+genuinely matches two right rows is not expressible. Values are compared as
+text, with no numeric or date tolerance. The row cap applies per side and is
+only reached without a blocking column. There is no accept/reject review of
+individual matches yet: use `ambiguous_N` to find the ones worth a look.
+
+**Elsewhere.** The same engine runs as `octa --fuzzy-join` and as the
+`fuzzy_join` MCP tool, which the Assistant can call too.
+"#;
+
+pub(super) const REPORT: &str = r#"# Report
+
+A report turns the table you are looking at into one HTML file you can send to
+somebody: per-column statistics, a chart for each column, the most common
+values and a correlation matrix.
+
+The file is self-contained. Its styling is inline, its charts are inline SVG,
+it runs no JavaScript and it fetches nothing, so it opens from a mail
+attachment on a machine with no internet.
+
+**Opening it.** **File > Report...**. No default keyboard shortcut; assign
+one under **Settings > Shortcuts** if you want it. The report covers the
+active tab, follows whatever filter is applied to it, and includes your
+unsaved edits, exactly as the Summary tab does.
+
+**What goes in.** Each section can be switched off:
+
+- **Column statistics**: type, nulls, unique values and the numeric summary
+  for every column.
+- **Distribution charts**: a histogram per numeric column, a bar chart of the
+  commonest values otherwise.
+- **Most common values**: the most frequent values per column, with counts and
+  shares.
+- **Correlation**: how the numeric columns move together.
+
+Nothing here is calculated a second time. The statistics come from the same
+engine as the Summary tab, the top values from Value frequency, the matrix
+from Correlation, and the pictures from the Chart tab's own SVG export, so the
+report cannot disagree with what Octa shows on screen.
+
+Distributions draws at most 50 columns and then says how many it left out.
+Correlation needs at least two numeric columns; below that the section is left
+out rather than showing a column's correlation with itself.
+
+**Profiling a sample.** **Profile a sample only** is off, so every row is
+examined. Turn it on for a faster, approximate report on a very large table.
+The document then states how many rows it looked at and how many there were,
+so nobody mistakes approximate numbers for exact ones. Under an active filter
+the sample is drawn from the rows the filter leaves visible.
+
+**When it is done.** Building runs in the background, so Octa stays usable,
+and **Cancel** stops it. When it finishes the dialog shows where the file went
+and offers **Open in browser**.
+
+**Elsewhere.** The same engine runs as `octa --report OUT.html FILE` (with
+`--report-sections` and `--report-sample`) and as the `create_report` MCP
+tool, which the Assistant can call too.
+"#;
+
+pub(super) const HARMONISE: &str = r#"# Harmonise Schemas
+
+The write half of Schema drift. That scan tells you 497 parts look like this
+and 3 look like that; this rewrites the odd ones out.
+
+Open it from **File -> Harmonise schemas...**, or press **Harmonise...** in
+the Schema drift dialog, which carries the folder and options across.
+
+## How it works
+
+Two steps on purpose.
+
+**Plan** scans the folder and shows what would happen without writing
+anything: how many files change, how many already match, how many are
+refused, the target columns, and, crucially, **which columns get dropped**.
+
+**Harmonise** then writes.
+
+The split exists because dropping a column is the only lossy part of the
+operation, and you should see that before committing rather than read about
+it in the report afterwards.
+
+## What it does to each file
+
+- A column missing from a file is **added, filled with nulls**.
+- A column not in the target is **dropped**, and named in the plan and the
+  report.
+- A column whose type differs is **cast**.
+- Columns are reordered to the target order.
+
+The target is the shape most files in the folder already have, since that
+needs the fewest rewrites.
+
+## Two safety properties
+
+**Your files are never modified.** Harmonised copies go to a separate output
+folder, which is required rather than defaulted. If the result is wrong, you
+have lost disk space and nothing else.
+
+**A file that will not cast is refused, not emptied.** If a column holds
+`not-a-number` and the target wants a whole number, that file is skipped with
+a reason instead of written with blanks where the values were. A harmonised
+folder full of silently emptied cells looks clean and is not, which is the
+worst outcome this feature could have.
+
+Two input files from different subfolders that share a name would write to the
+same output. Both are refused rather than one being quietly renamed.
+
+## Elsewhere
+
+Also available as `octa --harmonise-schema DIR --out-dir DIR` (exits 1 if any
+file was refused, so CI can gate on it) and the `harmonise_schemas` tool for
+the Assistant and MCP.
+"#;
+
+pub(super) const SCHEMA_DRIFT: &str = r#"# Schema Drift
+
+A folder of data files is supposed to be one table. Schema drift finds the
+files where it is not: the part written with `amount` as text, the one that
+lost a column, the one whose header is `Amount` rather than `amount`.
+
+Nothing is read but the columns. Parquet reads its footer and Arrow IPC its
+header, so scanning hundreds of files costs very little.
+
+**Opening it.** **File > Schema drift...**, then pick the folder. Or
+right-click a folder in the sidebar and choose **Scan schemas...**, which
+opens the same dialog with that folder already filled in. No default keyboard
+shortcut; assign one under **Settings > Shortcuts** if you want it.
+
+**Options.** **Include subfolders** (off by default) walks subfolders too, to
+a depth of 8, which is what `year=2024/month=03` layouts need. **Ignore upper
+and lower case** (off by default) treats `Amount` and `amount` as one column;
+case is compared exactly otherwise, because to some downstream tools a
+renamed-only-in-case column really is a different column.
+
+**Reading the result.** The scan opens a **Schema drift** tab and the status
+bar summarises it in a sentence. Files are grouped, not listed: every file
+with an identical schema collapses into one variant, and the variants are
+ordered largest first, so the odd file out is visibly the minority. For 500
+Parquet parts the answer is "497 look like this, 3 look like that" rather than
+500 rows.
+
+The table has a `status` column, a `column` column, then one column per
+variant holding that variant's type for that column, or blank where the
+variant has no such column. Rows that need attention sort to the top:
+`type varies` (every variant has it, with differing types), `missing in N`
+(N variants lack it entirely), then `consistent`.
+
+A file that cannot be read does not stop the scan: it is counted in the status
+line as skipped, and the rest are still compared.
+
+**Ceilings.** Local folders only, no cloud prefixes. Multi-table sources (a
+workbook, a database file) report their first table. Include subfolders stops
+at depth 8.
+
+**Elsewhere.** The same engine runs as `octa --schema-drift DIR`, which exits
+1 when the files disagree so a CI step can gate on it, and as the
+`schema_drift` MCP tool, which the Assistant can call too.
+"#;
+
+pub(super) const JOIN_DIAG: &str = r#"# Join Diagnostics
+
+You expected 10,000 matched rows and got 12. This tells you why, opened from
+**Analyse -> Join diagnostics...**
+
+Pick a table and key column on each side and press **Diagnose**. It reports:
+
+- **Rows read** and **Distinct keys** per side. Counts are over distinct key
+  values, not rows: a join failing on three IDs is one problem however many
+  rows carry them.
+- **Matching keys**: how many distinct keys exist on both sides right now.
+- **What would help**: the single normalisation that would raise that number,
+  such as trimming spaces, ignoring case, or ignoring leading zeros. A fix is
+  listed only when it **strictly beats** the current count, so an empty list is
+  a real answer: no easy change helps, and the columns probably hold genuinely
+  different things.
+- **Only on the left / right**: a few real unmatched values from each side, so
+  you can see what you are dealing with.
+
+It **changes nothing**. The fixes are advice; act on them with Transform column
+or by fixing the source. **Use in Join** hands the two columns to the Join
+dialog once you are satisfied.
+
+Sampled at 10,000 rows per side by default. When either table is longer the
+report says so, because the counts are then partial.
+"#;
+
+pub(super) const JOIN_KEYS: &str = r#"# Join Key Finder
+
+**Analyse > Join key finder...** ranks the column pairs that would
+actually join the tables you have open, by looking at the values rather
+than the names. It answers "which columns do I join on?" before you open
+the Join dialog on two unfamiliar tables.
+
+For every column pair across every ticked table pair it measures:
+
+- **Overlap**: how much of the smaller set of distinct values appears in
+  the larger one. A real key pairing is near 100%.
+- **Distinct**: distinct values relative to rows sampled. A key is near
+  100%; a status or flag column is near zero.
+
+The ranking multiplies the two, which stops a `status` column that
+happens to hold the same three words on both sides from outranking
+`cust_id -> id`.
+
+Tick two or more tables (three gives every pairing between them), adjust
+the sample size if you like, then press Scan. **Use in Join** opens the
+ordinary Join dialog with that pair filled in, so there is still only one
+join implementation.
+
+Ceilings: sampled, so a high overlap is evidence rather than proof;
+single columns only, no composite keys; values compare as trimmed text,
+so a numeric and a text column holding the same ids still pair up.
+
+Over MCP the same ranking is `suggest_join_keys`.
+"#;
+
+pub(super) const DB_COMPARE: &str = r#"# Compare with a Database Table or Cloud Object
+
+**Analyse > Compare with database or cloud...** diffs the open table
+against a table on a saved database connection, or against a file in
+cloud storage. It answers the question you have after a load: did what I
+sent actually land?
+
+Rows are matched on the key columns you pick, the way a join would, and
+the result opens in a detached tab: a `status` column (only_in_a,
+only_in_b, changed_a, changed_b), a `changed_columns` column, then the
+data. "A" is your open tab, "B" is the other side.
+
+Pick the source at the top of the dialog. For a cloud object, paste its
+URL (`s3://bucket/exports/day.parquet`, `az://container/blob`,
+`gs://bucket/key`); it is downloaded and read like a local file, so every
+format Octa opens works. Credentials come from a saved cloud connection
+covering that URL, otherwise from your ambient cloud login.
+
+For a database table, fill in the connection, schema and table. Leave Catalog empty unless the
+connection is Snowflake, Databricks or BigQuery. An empty schema uses the
+connection's own database. The Compare button stays disabled until a
+table is named and at least one key column is ticked; its tooltip says
+which is missing.
+
+The read runs on a worker thread, so the window stays responsive.
+
+Ceilings: both sides are read under the usual row cap, so on a large
+table the comparison covers its first rows and the result tab says so.
+Nothing locks the table, so it is a snapshot.
+
+The same comparison is available as
+`octa --diff FILE --diff-db CONN --diff-db-table SCHEMA.TABLE
+--diff-mode join --diff-on ID` and, over MCP, as `diff_tables` with a
+`b_db` object. On the command line a cloud URL is accepted anywhere a
+file is, so `octa --diff local.parquet s3://bucket/day.parquet
+--diff-mode join --diff-on id` is the cloud half of this dialog.
+"#;
+
 pub(super) const PIVOT: &str = r#"# Pivot / Unpivot
 
 Reshape a table between **long** and **wide** form, the way a spreadsheet
@@ -885,6 +1336,25 @@ validation highlight. **Add rule** appends a new rule; the **X** button
 removes one; **Clear all** removes them all.
 "#;
 
+pub(super) const PROBLEM_NAV: &str = r#"# Jump to Flagged Cells
+
+Validation violations and detected outliers are painted in the grid, which
+is no help in a table with two hundred thousand rows.
+
+- **F10** jumps to the next flagged cell.
+- **Shift+F10** jumps to the previous one.
+
+Both wrap around, and the status bar reports `Problem 3 of 27` as you go.
+The two sets are treated as one list of "cells worth looking at", ordered
+top to bottom then left to right.
+
+Rows hidden by the current search or column filter are skipped, so the
+counter always matches what is actually on screen. If nothing is flagged,
+the status bar says so rather than moving the selection.
+
+Both keys are remappable under Settings > Shortcuts (Navigation).
+"#;
+
 pub(super) const TRANSFORMS: &str = r#"# Transform Column
 
 Transform Column reshapes your data with a single click, the way you would
@@ -910,9 +1380,15 @@ save, and respects read-only mode.
   Cells that don't match are left empty.
 - **Replace in column** - find and replace within a single column's cells,
   using Plain, Wildcard, or Regex matching (same modes as the search bar).
+- **Repair garbled characters** - fix text that was read with the wrong
+  character set and saved that way, so a column shows MÃ¼ller instead of
+  Müller. Octa only changes a cell when it can prove the repair by reversing
+  the byte round-trip; anything it cannot prove is left exactly as it is,
+  because a wrong "repair" is worse than the corruption. The same check drives
+  the Clean-up suggestions panel, which finds these columns for you.
 
-Split, Merge, and Extract create new columns; Fill and Replace rewrite the
-chosen column in place. For the column-creating operations you can set the
+Split, Merge, and Extract create new columns; Fill, Replace and Repair
+garbled characters rewrite the chosen column in place. For the column-creating operations you can set the
 new column name and the insert position (leave either blank for the default
 shown as the field hint); for Split the name is used as a base, so the parts
 become name_1, name_2, and so on. None of them change column types beyond
@@ -1204,6 +1680,270 @@ deployments please honour the
 or point at a self-hosted or commercial tile provider.
 "#;
 
+pub(super) const BATCH_CONVERT: &str = r#"# Batch Convert
+
+Convert many files into one format in a single run: a folder of CSVs
+into Parquet, a pile of JSON exports into Excel.
+
+## Two ways in
+
+- **From the sidebar**: Ctrl-click or Shift-click files in the folder
+  tree, then press **Convert...** in the selection bar (or right-click a
+  selected file). Works from one file up.
+- **File -> Batch convert...**: pick a folder, and every file directly
+  inside it becomes an input.
+
+## The dialog
+
+It shows how many inputs there are, a **Convert to** dropdown listing
+only formats Octa can actually write, an output folder, and a **Replace
+files that already exist** checkbox, off by default.
+
+Conversion runs in the background with a live "Converting 3 of 12"
+counter and a **Cancel** button. When it finishes, a **Batch convert
+report** tab opens with one row per file: input, output, status
+(done / failed / skipped / pending), rows written, and the error if any.
+Cancelling leaves untouched items as `pending`, so the report always
+says exactly what happened.
+
+## Naming
+
+Outputs are `<folder>/<input name>.<new extension>`, so `sales.csv`
+becomes `sales.parquet`.
+
+If two inputs would produce the same name, the later ones get `_2`,
+`_3` and so on. Converting `/jan/data.csv` and `/feb/data.csv` into one
+folder gives `data.parquet` and `data_2.parquet`, never one silently
+overwriting the other. An output that already exists is skipped unless
+you tick Replace.
+
+## What it will not do
+
+- **Local files only.** Cloud URLs are not accepted.
+- **The first table only** for multi-table inputs: an Excel workbook
+  with five sheets converts sheet one.
+- **One file at a time.** Predictable and cancellable.
+
+Compressed inputs (`.csv.gz`, `.parquet.zst`) are decompressed
+automatically. One failed file never stops the run.
+
+## Elsewhere
+
+The same operation is on the command line as `--batch-convert --to EXT
+--out-dir DIR`, which exits 1 if any file failed, and over MCP as the
+`batch_convert` write tool.
+"#;
+
+pub(super) const DATE_TIME_CALC: &str = r#"# Date/Time Calculation
+
+Derive a new column from date, time or duration values, opened from
+**Edit -> Date/Time calculation...** The new column is materialised in
+place and is undoable.
+
+Pick one of six operations; the fields below change to match.
+
+- **Difference between two dates**: the gap between two date columns, as
+  a number in the unit you choose.
+- **Add / subtract time**: shift a date column forward or back by a whole
+  number of units. A fraction is refused with an inline error.
+- **Convert duration units**: the same duration expressed differently,
+  for example milliseconds into seconds.
+- **Extract a component**: pull out one field, such as the year, month or
+  weekday.
+- **Unix timestamp / date**: convert between an epoch number and a
+  readable date/time, in either direction. The epoch is read as UTC.
+  Nanosecond values keep full precision.
+- **Convert timezone**: read each datetime as wall-clock time in one zone
+  and write it as wall-clock time in another.
+
+## Convert timezone
+
+Choose a **From zone** and a **To zone** from the full IANA list. The
+**Filter zones** box narrows both lists at once, so typing `Berlin` or
+`America/` avoids scrolling 597 entries.
+
+You have to state the source zone because Octa cannot detect it: it
+stores datetimes without a timezone, so `2024-01-15 12:00:00` carries no
+evidence of where it belongs.
+
+Times that never happened, or happened twice, are **left empty and
+counted**. Every zone with daylight saving has two such moments a year:
+the clocks jump forward and an hour is skipped, then jump back and an
+hour repeats. In `Europe/Berlin`, `2024-03-31 02:30` does not exist and
+`2024-10-27 02:30` happens twice. Neither has a single right answer, so
+Octa refuses to guess and reports how many cells it left empty.
+
+## When a cell cannot be computed
+
+Values that are not valid dates (for the date operations) or not valid
+numbers (for duration conversion) are skipped and the new column is left
+empty there, with a banner giving the count. Plain-text columns are read
+through the same date inference the table uses, so ISO and common
+European and US layouts work even when the column is still typed as
+text.
+"#;
+
+pub(super) const TIME_SERIES: &str = r#"# Time Series
+
+Two reshapes over a time column, opened from **Analyse -> Time series...**
+Both put the result in a **new tab**; the source table is untouched.
+
+## Time buckets
+
+Group rows into one bucket per **minute / hour / day / week / month /
+quarter / year** and aggregate the value columns. Daily orders into
+monthly totals.
+
+- **Time column**: the timestamp to bucket. Date-typed columns are
+  listed first in the dropdown.
+- **Bucket size** and **Aggregate** (Sum / Mean / Minimum / Maximum /
+  Count / First / Last).
+- **Value columns**: what gets aggregated.
+- **Separate series by**: optional, one series per combination.
+
+The bucket lands in a column named `bucket` (or `bucket_2` if the table
+already has one).
+
+## Rolling window
+
+Add a column holding the aggregate of the current row and the N-1 rows
+before it: a 7-day moving average.
+
+- **Order by**: the column that orders the frame. Required, because a
+  rolling aggregate over unordered rows is meaningless.
+- **Value column**, **Window (rows)** (the frame size, including the
+  current row) and **Aggregate**.
+- **Restart for each**: optional, the window never spans two groups.
+
+The result is every source column plus `<value>_rolling_<window>`.
+
+## Before you commit to it
+
+The dialog shows a plain sentence describing what will happen, and a
+preview: the operation run against the first 1000 rows, showing the
+first 10 results. It never runs against the whole table just to preview.
+**Create tab** stays disabled until the inputs work, and the note beside
+it names what is missing.
+
+## Elsewhere
+
+The same two operations are on the command line as `--resample` and
+`--rolling`, and over MCP as `resample_timeseries` and `rolling_window`.
+All three surfaces build the same SQL, so the results agree.
+
+One detail worth knowing: the time column is cast leniently, so a single
+unparseable timestamp lands in an empty bucket rather than failing the
+whole operation.
+"#;
+
+pub(super) const CLEANUP: &str = r#"# Clean-up Suggestions
+
+A panel that scans the open table for common data problems and offers a
+fix for each one. It answers "what is wrong with this file?" without
+you having to run six separate checks by hand.
+
+Open it from **Analyse -> Clean-up suggestions**. There is no setting
+to switch on: nothing runs until you open the panel.
+
+## Scanning
+
+**Opening the panel starts the scan**, and that is the only thing that
+does. The scan runs on a background thread against a snapshot of the
+table, so the window stays responsive, and **Cancel** stops it. It
+examines the **first 100,000 rows**; when the table is longer, the
+panel says so.
+
+Closing and reopening the panel scans again, which is how you refresh
+the list after editing the table by hand. Applying a fix rescans on its
+own, since a fix can shift the column numbering the other suggestions
+refer to.
+
+The scan reuses the detectors the individual features already use, so
+what it reports and what the matching dialog reports agree.
+
+## What it looks for
+
+| Problem | Severity | Fix |
+|---------|----------|-----|
+| Leading / trailing spaces in a column | High | Applied directly |
+| Garbled characters from a wrong character set | High | Applied directly |
+| Whole-row duplicates | High | Applied directly |
+| A column that looks like personal data | High | Opens Anonymise |
+| A text column whose values are all numbers | Medium | Applied directly |
+| A column with 5% or more empty values | Medium | Opens Fill missing values |
+| A completely empty column | Medium | Applied directly |
+| Numeric outliers (IQR, k = 1.5) | Low | Opens Detect outliers |
+| Column titles that are not tidy identifiers | Low | Applied directly |
+
+Results are ranked: highest severity first, then by how many rows or
+cells the fix would touch.
+
+## Seeing the evidence
+
+Most rows carry a **Show** button that lists up to three of the real
+offending values, so you can check what the suggestion means before
+changing anything. Whitespace examples are quoted (`"Tokyo "`) because
+a trailing space is otherwise invisible, and untidy headers read as
+`Order ID -> order_id` so you see exactly what the rename would do.
+
+Rows with nothing to show get no button: an empty cell and an empty
+column have no value worth printing.
+
+## Applying a fix
+
+Under every suggestion is a line saying **what Apply would do to this
+table**, naming the real column and count, for example:
+
+    Apply: remove the spaces around 12 values in 'city'. Undo with Ctrl+Z.
+    Apply: opens Fill missing values with 'notes' chosen, so you pick
+    how to fill them.
+
+So you can tell before clicking whether the fix happens straight away
+or opens a dialog for you to decide in.
+
+Each row has **Apply** and **Ignore**. Ignore just hides that row for
+the session; nothing is remembered between runs.
+
+Fixes split into two kinds:
+
+- **Unambiguous fixes apply straight away** and are **undoable with a
+  single Ctrl+Z**, because they run through the same code the manual
+  menu entry runs. Trimming a column, casting it, dropping an empty
+  column, snake_casing the titles, dropping duplicate rows.
+- **Fixes needing a decision open the matching dialog**, pre-filled with
+  the column in question. Filling missing values needs a strategy,
+  outliers need a method and a threshold, anonymising needs an
+  algorithm. The panel does not guess these for you.
+
+Apply is disabled in read-only mode (**F8**).
+"#;
+
+pub(super) const RECORD_VIEW: &str = r#"# Record View
+
+One row at a time, shown vertically as a list of field name / value
+pairs. For tables too wide to read in the grid, where reading a single
+row means scrolling sideways past forty columns.
+
+Reach it via **View -> Record View**, or cycle to it with **F4**. It is
+offered for any tab that has columns.
+
+- The `<` and `>` buttons step to the previous / next row, and grey out
+  at the ends. The **Up** and **Down** arrow keys do the same.
+- Navigation walks the **visible** rows, so an active search or column
+  filter narrows what you step through. The counter reads
+  "Row 3 of 128" against the filtered set, not the whole file.
+- Filtering away the row you were on lands you on the first row still
+  visible rather than an empty pane.
+- Search matches are highlighted in the values, same as everywhere else.
+- **Click a value to edit it**, then press Enter or click away to
+  commit. Edits go into the real row through the same overlay the grid
+  uses, so undo/redo, the modified marker and Save all behave normally.
+  In read-only mode (**F8**) values are not clickable.
+
+The record view and the table view share one selection, so switching
+between them keeps your place in both directions.
+"#;
+
 pub(super) const CHART_VIEW: &str = r#"# Chart
 
 Plot the active table as a histogram, bar, line, scatter, or box chart.
@@ -1337,6 +2077,27 @@ query under the cursor.
 - **Ctrl+Shift+E** (default) exports the current SQL result.
 - The panel can be docked Bottom (default), Top, Left, or Right via
   **Settings > SQL > Panel position**.
+
+## Ask
+
+Type what you want in plain words ("revenue per country, biggest first")
+and Octa writes the SQL into the editor at your cursor. It is never run
+for you: read it, change it if you like, then press Run. Only a single
+SELECT is ever produced, so Ask cannot hand you a statement that changes
+data.
+
+Ask sends the active table's column names, their types and the row count
+to the chat profile you have configured. It does not send the data
+itself, and it does not see the other tables in the workspace, so it
+cannot write a join across them. When the panel is set to run on a
+server, the query is written in that database's dialect against the real
+table name.
+
+Ask is greyed out when no chat profile is set up, or when the tab has no
+columns yet. Hover it to see which.
+
+The search bar has a sibling Ask toggle that produces filters rather than
+a query, under the same one-request rule.
 
 ## Workspace
 
@@ -1681,12 +2442,35 @@ pub(super) const SAVING: &str = r#"# Saving
 - Excel **write** emits a single `.xlsx` sheet (the active tab); there is no
   multi-sheet write even when the source workbook had several sheets.
 
+**Formatting in Excel files.** Colour marks, conditional-formatting colours,
+frozen columns and per-column number formats are display-only everywhere else,
+but `.xlsx` can hold all four. Carrying them across is off by default; the
+switch is **Settings > Files > Write options > Include formatting in Excel
+files**. Saving a tab that carries any of the four to `.xlsx` asks once anyway:
+**Include formatting**, or **Plain data** for the values alone. Tick **Do not
+ask again** to store the answer as the Settings default. No other format,
+`.ods` included, is affected. This travels one way: opening the saved workbook
+back in Octa reads the values alone, so a round-trip loses the formatting.
+
+Most conditional rules cross over as live Excel rules and keep working when you
+edit the sheet there. Three kinds cannot, and are painted onto the cells
+matching at save time instead, so their colours stay put when the cell changes
+in Excel: ordering comparisons over text (Excel orders text by locale
+collation, Octa by plain character order), case-sensitive equality or contains
+rules (Excel's own are always case-insensitive), and every rule after the first
+painted one (a live Excel rule always beats a cell's own fill regardless of
+order, so painting the remainder is what keeps the file agreeing with the
+screen). One accepted difference: an equality rule whose value looks like a
+number exports as a numeric comparison, while Octa compares equality as text,
+so a cell holding 42.0 against a rule value of 42 can colour in Excel but not
+in Octa.
+
 **Auto-save.** Turn on **Settings > Files > Auto-save** and set an interval in
 minutes (minimum 1). Every interval, Octa writes each open tab that has unsaved
 changes and already lives as a file on disk. It is off by default. It never
 interrupts you: tabs never saved to disk, cloud tabs when cloud writing is off,
-and saves that would normally ask a question (a rounding format, or a database
-schema change) are skipped quietly. When it writes something, the status bar
+and saves that would normally ask a question (a rounding format, an `.xlsx` tab
+carrying formatting, or a database schema change) are skipped quietly. When it writes something, the status bar
 shows a brief "Auto-saved N files" note.
 "#;
 
@@ -1768,6 +2552,8 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
   always fills the screen, so the size only takes effect once you
   un-maximise (or turn "Start maximised" off) - that is why every size
   setting looks identical while the window is maximised.
+- **Updates**: "check for updates at start" and "show what a new release
+  brings", both on by default. See the **Updates** section.
 
 Settings persist to:
 
@@ -1840,9 +2626,15 @@ keep or drop it and choose its target type. Columns that appear in only
 some tables are filled with empty cells for the rest. Mixed numeric types
 widen to a common number type; otherwise the column falls back to text.
 
+By default column names must match exactly, because to some downstream tools
+a renamed-only-in-case column really is a different column. Tick **Ignore
+upper and lower case in column names** to merge `Amount` and `amount` into
+one column; the first spelling encountered names the result, so the output is
+named the way one of the real sources spells it.
+
 Apply opens the combined result in a new tab, leaving the sources
-untouched. Also available as `octa --union` and the `union_tables`
-assistant/MCP tool.
+untouched. Also available as `octa --union` (with `--union-ignore-case`) and
+the `union_tables` assistant/MCP tool (with `ignore_case`).
 
 ## Saving the result back in its own format
 
@@ -2043,7 +2835,56 @@ It is off by default, so files load with their original headers unless you
 opt in. It pairs naturally with **Trim whitespace on load**.
 "#;
 
+pub(super) const UPDATES: &str = r#"# Updates
+
+Octa checks once per launch whether a newer version has been released, and
+offers to show you what changed. Both halves are optional and both live under
+**Settings > Updates**.
+
+## Check for updates at start
+
+On by default. One request goes to GitHub asking for the latest release. It
+reads a version number and nothing else: the check never downloads a binary
+and never installs anything on its own. If GitHub cannot be reached, or you
+already have the newest version, Octa stays quiet - a failed check at launch
+is not worth a pop-up.
+
+Turn it off and Octa never contacts GitHub unless you ask it to through
+**Help > Check for Updates**, which still works exactly as before.
+
+## Show what a new release brings
+
+On by default. The first time Octa sees a version you do not have, it opens a
+window with that release's notes, taken straight from the release page. You
+get **Update now**, which hands over to the usual update dialog, and
+**Close**, which leaves everything as it is.
+
+The window appears once per release, not once per launch: closing it records
+the version, so the same notes never interrupt you twice. A release published
+without notes still announces itself, just with nothing to read.
+
+The window carries a **Do not show this again** tick box. Ticking it is the
+same as turning the setting off, and **Settings > Updates** turns it back on.
+
+With notes switched off but the start-up check left on, an available version
+is mentioned once in the status bar instead of opening a window.
+
+## Microsoft Store copies
+
+A copy installed from the Microsoft Store is updated by the Store itself. Octa
+cannot replace its own files there, so the update button is left out and each
+window says who does the updating instead. Everything else still works:
+**Help > Check for Updates** is present, and the release notes still appear, so
+you can see what is coming before the Store gets to it.
+"#;
+
 pub(super) const DIAGNOSTICS: &str = r#"# Debug & Reports
+
+**Copying an error.** Error text is selectable, and right-clicking it
+offers Copy. That covers the message under the toolbar, the Test
+connection and Sign in results in Settings, and the failures a save or a
+connection reports. Failures stay on screen for a minute rather than the
+ten seconds a confirmation gets, so there is time to read one and copy it.
 
 ## The log
 

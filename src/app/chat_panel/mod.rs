@@ -18,7 +18,7 @@ use super::state::OctaApp;
 
 mod context;
 mod controls;
-mod helpers;
+pub(crate) mod helpers;
 mod session;
 mod windows;
 

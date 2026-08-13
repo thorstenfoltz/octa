@@ -1,11 +1,13 @@
 # sl: written natively, not translated from English.
 
-short = "Odprite Parquet, CSV, Excel, SQLite in še kakih 30 podatkovnih formatov v hitri tabeli. Razvrščanje, filtri, iskanje, urejanje in SQL, vse lokalno."
+short = "Parquet, CSV, Excel, SQLite in še približno trideset zapisov v hitri tabeli. Razvrščaj, filtriraj, išči, urejaj in poganjaj SQL na svojem računalniku."
 
 long = """
-Octa odpre Parquet, CSV, Excel, SQLite, DuckDB, JSON in še kakih trideset formatov kar v hitri tabeli. Brez uvoza, brez nastavljanja.
+Octa odpre datoteke Parquet, CSV, Excel, SQLite, DuckDB in JSON ter še približno trideset drugih podatkovnih zapisov, brez uvoza in brez zamudnega nastavljanja.
 
-Razvrščajte, filtrirajte, iščite in urejajte podatke, poizvedujte po njih s SQL prek DuckDB, izdelajte grafikone ali primerjajte dve datoteki. Vse teče na vašem računalniku in nobena datoteka se nikamor ne naloži.
+Podatke lahko razvrstiš, filtriraš, prebrskaš in urediš, nad njimi pognaš poizvedbe SQL v DuckDB, narišeš grafikone ali primerjaš dve datoteki. V vgrajenem klepetu lahko o podatkih vprašaš tudi z vsakdanjimi besedami.
 
-Vmesnik v 32 jezikih. Prosto programje pod licenco MIT.
+Obdelava poteka lokalno, na tvojem računalniku, dokler funkcija, ki jo uporabljaš, ne potrebuje zunanjega API-ja.
+
+Vmesnik je na voljo v 32 jezikih. Octa je prosto programje pod licenco MIT.
 """

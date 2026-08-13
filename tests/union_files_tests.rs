@@ -20,7 +20,7 @@ fn read(path: &std::path::Path) -> DataTable {
 fn union_all(tables: &[&DataTable]) -> DataTable {
     let schemas: Vec<&[octa::data::ColumnInfo]> =
         tables.iter().map(|t| t.columns.as_slice()).collect();
-    let plan = octa::data::union::plan_union(&schemas);
+    let plan = octa::data::union::plan_union(&schemas, false);
     octa::data::union::union_tables(tables, &plan).expect("union succeeds")
 }
 

@@ -9,7 +9,8 @@ format, but some files are better viewed in their native shape:
 [GeoJSON on a map](map.md).
 
 Switch view modes via the **View** menu in the toolbar. Only modes
-applicable to the current file are enabled.
+applicable to the current file are enabled. Hovering an entry shows a
+one-line description of what that mode does.
 
 A few file types open in a non-Table view that suits them better: a
 `.json` file opens in the [JSON Tree](json-and-yaml-tree.md), and a
@@ -32,6 +33,7 @@ JSONL and every other format still open in Table view.
 | [**YAML Tree**](json-and-yaml-tree.md) | `.yaml`, `.yml`                      | Same as JSON Tree             |
 | [**EPUB Reader**](epub-reader.md)      | `.epub`                              | Yes                           |
 | [**Map**](map.md)                      | `.geojson`                           | Yes (geometry rendering only) |
+| [**Record**](record.md)                | Any table with columns               | No (click a value to edit)    |
 | [**Compare**](compare.md)              | Any file (compared against another)  | Yes (it's a diff viewer)      |
 
 ## Open as... (files with a misleading extension)
@@ -78,7 +80,7 @@ tab is left exactly as it was, with the error shown in the status bar.
 ([`CycleViewMode`](../../reference/shortcuts.md#view)) advances through the modes available for the current tab in this order:
 
 ```
-Table → Raw → Markdown → Notebook → JsonTree → YamlTree → EpubReader → Map → Compare
+Table → Raw → Markdown → Notebook → EpubReader → Map → Record → JsonTree → YamlTree → Compare
 ```
 
 > **Note**: Neither [Chart](../chart.md) nor the [SQL panel](../sql.md)
@@ -122,6 +124,8 @@ Octa.
 - [EPUB Reader](epub-reader.md) is a chapter-by-chapter reading
   view with embedded images.
 - [Map](map.md) is a slippy-map view for GeoJSON feature geometries.
+- [Record](record.md) shows one row at a time as a vertical field
+  list, for tables too wide to read in the grid.
 - [Compare](compare.md) is a side-by-side diff of two files (text
   or row hash).
 

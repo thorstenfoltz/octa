@@ -68,9 +68,13 @@ fn every_language_covers_every_english_key() {
 /// a result tab). These must end in an ellipsis, in every language: the "..."
 /// is the promise that something is about to open.
 const OPENS_SOMETHING: &[&str] = &[
-    "file_menu.new_file",           // new tab
-    "file_menu.open_as",            // file picker
-    "file_menu.open_table_folder",  // folder picker
+    "file_menu.new_file",          // new tab
+    "file_menu.open_as",           // file picker
+    "file_menu.open_table_folder", // folder picker
+    "file_menu.batch_convert",     // dialog
+    "file_menu.schema_drift",
+    "file_menu.harmonise",          // dialog
+    "file_menu.report",             // dialog
     "file_menu.open_directory",     // folder picker
     "file_menu.export_schema",      // dialog
     "common.open",                  // file picker
@@ -82,13 +86,20 @@ const OPENS_SOMETHING: &[&str] = &[
     "edit_menu.scope_row",
     "edit_menu.scope_column",
     "edit_menu.scope_table",
-    "view_menu.compare_with",       // file picker
-    "view_menu.compare_git",        // dialog
-    "analyse_menu.chart",           // new tab
-    "analyse_menu.transpose",       // new tab
-    "analyse_menu.describe",        // new tab
-    "analyse_menu.quality",         // new tab
-    "analyse_menu.pivot",           // dialog
+    "view_menu.compare_with",      // file picker
+    "view_menu.compare_git",       // dialog
+    "analyse_menu.chart",          // new tab
+    "analyse_menu.transpose",      // new tab
+    "analyse_menu.describe",       // new tab
+    "analyse_menu.quality",        // new tab
+    "analyse_menu.file_internals", // new tab
+    "analyse_menu.db_compare",     // dialog
+    "analyse_menu.join_keys",
+    "analyse_menu.join_diag", // dialog
+    "drift.scan_schemas",     // dialog, from the folder context menu
+    "fuzzy_join.menu",        // dialog
+    "analyse_menu.pivot",
+    "analyse_menu.timeseries",      // dialog
     "analyse_menu.correlation",     // dialog
     "analyse_menu.multi_sort",      // dialog
     "analyse_menu.random_sample",   // dialog
@@ -113,12 +124,14 @@ const JUST_EXECUTES: &[&str] = &[
     "edit_menu.insert_row",
     "edit_menu.clear_all_marks",
     "edit_menu.discard_all_edits",
+    "view_menu.record",    // switches view mode in place
     "view_menu.reopen_as", // re-reads the file in place
     "view_menu.readonly",
     "view_menu.zoom_reset",
     "search_menu.find",
     "search_menu.find_replace",
     "search_menu.multi_search", // toggles a docked panel, like SQL / Assistant
+    "analyse_menu.cleanup",     // toggles a docked panel
     "analyse_menu.sql",         // toggles a docked panel
     "analyse_menu.assistant",   // toggles a docked panel
     "diagnostics.menu_export",  // writes the report and reveals it

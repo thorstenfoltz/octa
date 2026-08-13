@@ -1,11 +1,13 @@
-# fi: eigenstaendig verfasst / written natively, not translated.
+# fi: written natively, not translated from English.
 
-short = "Avaa Parquet-, CSV-, Excel-, SQLite- ja noin 30 muuta datamuotoa nopeaan taulukkoon. Lajittele, suodata, hae, muokkaa ja aja SQL-kyselyitä paikallisesti."
+short = "Parquet, CSV, Excel, SQLite ja noin kolmekymmentä muuta muotoa nopeassa taulukossa. Lajittele, suodata, hae, muokkaa ja aja SQL:ää omalla koneellasi."
 
 long = """
-Octa avaa Parquet-, CSV-, Excel-, SQLite-, DuckDB- ja JSON-tiedostot sekä noin kolmekymmentä muuta muotoa suoraan nopeaan taulukkoon. Ei tuontia, ei asetuksia.
+Octa avaa Parquet-, CSV-, Excel-, SQLite-, DuckDB- ja JSON-tiedostot sekä noin kolmekymmentä muuta tietomuotoa ilman tuontivaihetta ja ilman työlästä asennusta.
 
-Lajittele, suodata, hae ja muokkaa dataa, kysele sitä DuckDB:n SQL:llä, luo kaavioita tai vertaa kahta tiedostoa. Kaikki toimii omalla koneellasi, eikä tiedostoja ladata mihinkään.
+Voit lajitella, suodattaa, hakea ja muokata tietojasi, ajaa DuckDB:n SQL-kyselyitä, tehdä kaavioita tai verrata kahta tiedostoa. Sisäänrakennetun chatin avulla voit kysyä tiedoistasi myös tavallisella kielellä.
 
-Käyttöliittymä 32 kielellä. Vapaa ohjelmisto MIT-lisenssillä.
+Tiedot käsitellään paikallisesti omalla koneellasi, kunhan käyttämäsi toiminto ei tarvitse ulkoista rajapintaa.
+
+Käyttöliittymä on saatavilla 32 kielellä. Octa on vapaa ohjelmisto MIT-lisenssillä.
 """

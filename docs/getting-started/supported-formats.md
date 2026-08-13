@@ -261,6 +261,21 @@ CSV and TSV use their own streaming decoder and can additionally be
 re-decoded through the [malformed-file repair](#repairing-malformed-csv-tsv-files)
 prompt.
 
+## Regional conventions in delimited files
+
+Files written on a German, French or Scandinavian machine differ from
+the Anglo-American default in three ways, all handled without a setting:
+
+- **Semicolon separators.** The delimiter is detected from the first
+  lines of the file (`,`, `;`, `|` and tab are all recognised), so a
+  `;`-separated export opens correctly.
+- **European numbers.** `1.234,56` and `3,14` are read as numbers rather
+  than text, decided per column. Undecidable columns such as a whole
+  column of `1,234` raise a small dialog instead of being guessed at.
+  See [European number formats](../usage/editing.md#european-number-formats).
+- **Dotted dates.** `31.12.2024` is a recognised date layout; see
+  [Date Inference](../reference/date-inference.md).
+
 ## Wrong or missing file extensions
 
 Octa does not rely on the extension alone. When a file's extension is

@@ -1,6 +1,10 @@
 mod palettes;
 mod visuals;
 
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;
+
 pub use visuals::paint_background_decoration;
 
 use crate::data::MarkColor;
@@ -398,6 +402,21 @@ pub fn apply_theme(ctx: &egui::Context, mode: ThemeMode, font: FontSettings) {
     // swap. Keep edits minimal - anything done here ripples across every view.
     visuals::apply_theme_decoration(&mut style, mode, &colors);
 
+    // Octa picks its own theme; egui must not resolve the slot from the OS.
+    // `set_global_style` writes into egui's `dark_style` OR `light_style`
+    // depending on `theme_preference`, which defaults to System - and eframe
+    // only learns the OS theme on the first frame, i.e. after this has already
+    // run from the app creator. On Windows in light mode the style therefore
+    // landed in `dark_style` and frame one switched egui to its stock
+    // `light_style`, leaving a light central panel under Octa's hand-painted
+    // dark toolbar. Pinning the preference also ignores winit's later
+    // ThemeChanged events. Must precede `set_global_style`, which is what
+    // picks the slot.
+    ctx.set_theme(if is_dark {
+        egui::ThemePreference::Dark
+    } else {
+        egui::ThemePreference::Light
+    });
     ctx.set_global_style(style);
 }
 

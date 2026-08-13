@@ -2,14 +2,16 @@
 # column left blank inherits this, so this file alone produces 32 complete
 # listings. Per-language files override `short`, `long` and `features` only.
 
-short = "Open Parquet, CSV, Excel, SQLite and 25 more data formats in a fast native table view. Sort, filter, search, edit and run SQL, all offline on your own machine."
+short = "Open Parquet, CSV, Excel, SQLite and around thirty more data formats in a fast native table. Sort, filter, search, edit and run SQL on your own machine."
 
 long = """
-Octa opens Parquet, CSV, Excel, SQLite, DuckDB, JSON and around thirty other formats straight into a fast table. No import step, no setup.
+Octa opens Parquet, CSV, Excel, SQLite, DuckDB and JSON files, plus around thirty more data formats, with no import step and no lengthy setup.
 
-Sort, filter, search and edit your data, query it with DuckDB SQL, build charts, or compare two files. Everything runs on your own machine and no files are uploaded.
+Sort, filter, search and edit your data, run DuckDB SQL queries, build charts or compare two files. The built-in chat also lets you ask about your data in plain language.
 
-Interface in 32 languages. Free and open source under the MIT licence: https://github.com/thorstenfoltz/octa
+Your data is processed locally on your own machine, as long as the feature you are using does not need an external API.
+
+The interface is available in 32 languages. Octa is free software under the MIT licence: https://github.com/thorstenfoltz/octa
 """
 
 features = [
@@ -30,11 +32,15 @@ features = [
 ]
 
 [fields]
-# One shared English screenshot: blank language cells inherit `default`, so
-# this single entry covers all 32 listings. Add DesktopScreenshot2..N here if
-# you want more views in the listing; every one you add is another capture you
-# have to actually produce, or the import is rejected.
+# Screenshots and logos are English-only fields: a blank language cell inherits
+# `default`, so one entry each covers all 32 listings. Every path listed here
+# has to resolve to a real file or the whole import is rejected.
 DesktopScreenshot1 = "octa-listing/hero-table-view.png"
+DesktopScreenshot2 = "octa-listing/sql-view.png"
+DesktopScreenshot3 = "octa-listing/chatbot.png"
+DesktopScreenshot4 = "octa-listing/db-sidebar-tree.png"
+DesktopScreenshot5 = "octa-listing/json-tree-view.png"
+DesktopScreenshot6 = "octa-listing/settings-dialog.png"
 DevStudio = "Thorsten Foltz"
 CopyrightTrademarkInformation = "Copyright 2026 Thorsten Foltz. Released under the MIT licence."
 SearchTerm1 = "parquet"
@@ -45,3 +51,8 @@ SearchTerm5 = "duckdb"
 SearchTerm6 = "sql"
 SearchTerm7 = "excel alternative"
 StoreLogo300x300 = "octa-listing/store-tile-300x300.png"
+# The two smaller tiles are only used when the override flag is set, so the
+# flag and the paths belong together.
+OverrideLogosForWin10 = "True"
+StoreLogoOverride150x150 = "octa-listing/store-tile-150x150.png"
+StoreLogoOverride71x71 = "octa-listing/store-tile-71x71.png"

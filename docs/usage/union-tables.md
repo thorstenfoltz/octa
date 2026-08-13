@@ -12,6 +12,14 @@ drop it and choose its target type. Columns that appear in only some tables
 are filled with empty cells for the rest. Mixed numeric types widen to a
 common number type; otherwise the column falls back to text.
 
+By default column names must match exactly, because to some downstream tools a
+renamed-only-in-case column really is a different column. Tick **Ignore upper
+and lower case in column names** to merge `Amount` and `amount` into one
+column; the first spelling encountered names the result, so the output is
+named the way one of the real sources spells it. The same option is
+`--union-ignore-case` on the command line and `ignore_case` on the
+`union_tables` assistant tool.
+
 Apply opens the combined result in a new tab, leaving the sources
 untouched.
 

@@ -402,7 +402,7 @@ impl SettingsDialog {
                 } else {
                     egui::Color32::from_rgb(0xd9, 0x53, 0x4f)
                 };
-                ui.colored_label(color, msg);
+                crate::ui::message::selectable_message(ui, color, msg);
             }
         }
 
@@ -441,7 +441,11 @@ impl SettingsDialog {
             }
         }
         if let Some(msg) = &self.db_secret_status_msg {
-            ui.colored_label(egui::Color32::from_rgb(0x30, 0x80, 0x30), msg);
+            crate::ui::message::selectable_message(
+                ui,
+                egui::Color32::from_rgb(0x30, 0x80, 0x30),
+                msg,
+            );
         }
     }
 

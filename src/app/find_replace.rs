@@ -50,6 +50,7 @@ impl OctaApp {
         let mark_mode = self.settings.mark_filter_cell_mode;
         let tab = &mut self.tabs[self.active_tab];
         let has_column_filters = !tab.column_filters.is_empty();
+        let has_predicates = !tab.predicate_filters.is_empty();
         // "Filter to marked": when active, keep only marked rows (union with
         // cell-derived rows per the mode). An empty row set means the marks
         // constrain columns only, so all rows are kept. ANDs with the text /
@@ -69,7 +70,7 @@ impl OctaApp {
             _ => (0, col_count),
         };
 
-        if !text_hides_rows && !has_column_filters && !mark_hides_rows {
+        if !text_hides_rows && !has_column_filters && !has_predicates && !mark_hides_rows {
             tab.filtered_rows = (0..tab.table.row_count()).collect();
         } else {
             tab.filtered_rows = (0..tab.table.row_count())
@@ -98,12 +99,22 @@ impl OctaApp {
                     // 2. Excel-style column filters: every filtered column's
                     //    cell must appear in its allow-set. Filters AND with
                     //    each other and with the text search above.
-                    tab.column_filters.iter().all(|(&col, allowed)| {
+                    let values_ok = tab.column_filters.iter().all(|(&col, allowed)| {
                         tab.table
                             .get(row_idx, col)
                             .map(|v| allowed.contains(&v.to_string()))
                             .unwrap_or(false)
-                    })
+                    });
+                    if !values_ok {
+                        return false;
+                    }
+                    // 3. Comparison filters (`amount > 1000`), which a value
+                    //    allow-set cannot express. Also ANDed.
+                    octa::data::predicate_filter::row_passes(
+                        &tab.predicate_filters,
+                        &tab.table,
+                        row_idx,
+                    )
                 })
                 .collect();
         }

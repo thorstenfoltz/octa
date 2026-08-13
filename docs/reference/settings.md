@@ -52,16 +52,18 @@ The sections below are listed in the same order as the dialog.
 
 ## File-Specific
 
-| Setting                             | Default | Notes                                                                                                                                                                                                                                                                                                        |
-|-------------------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Colour aligned columns**          | on      | In [Raw view](../usage/view-modes/raw-text.md) of CSV/TSV files, tint each column with a subtle background.                                                                                                                                                                                                  |
-| **Warn on un-align reload**         | on      | Confirmation dialog when toggling **Align Columns** off (the buffer is re-loaded).                                                                                                                                                                                                                           |
-| **Warn on date format change**      | on      | One-shot banner when date inference promotes a non-ISO column.                                                                                                                                                                                                                                               |
-| **Trim whitespace on load**         | off     | Strip leading/trailing whitespace from string cells and column titles when a file is opened (interior spaces kept). Off by default, so loaded values match what is stored. TOML key: `trim_whitespace_on_load`.                                                                                              |
-| **Warn on whitespace trim**         | on      | Banner listing which columns had whitespace trimmed on load. Independent of the trim setting. TOML key: `warn_on_whitespace_trim`.                                                                                                                                                                           |
-| **Offer repair on malformed files** | off     | Prompt to repair a CSV/TSV that reads but looks malformed (bad encoding, BOM, control chars, delimiter mismatch, ragged rows). The file on disk is never changed. See [Supported formats](../getting-started/supported-formats.md#repairing-malformed-csv-tsv-files). TOML key: `offer_repair_on_malformed`. |
-| **Read-only mode notice**           | on      | Show the read-only intro modal on **F8** the first time per session.                                                                                                                                                                                                                                         |
-| **Notebook output layout**          | Beneath | Where notebook output cells render: `Below cell` or `Side-by-side`.                                                                                                                                                                                                                                          |
+| Setting                             | Default     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+|-------------------------------------|-------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Colour aligned columns**          | on          | In [Raw view](../usage/view-modes/raw-text.md) of CSV/TSV files, tint each column with a subtle background.                                                                                                                                                                                                                                                                                                                                       |
+| **Warn on un-align reload**         | on          | Confirmation dialog when toggling **Align Columns** off (the buffer is re-loaded).                                                                                                                                                                                                                                                                                                                                                                |
+| **Warn on date format change**      | on          | One-shot banner when date inference promotes a non-ISO column.                                                                                                                                                                                                                                                                                                                                                                                    |
+| **Trim whitespace on load**         | off         | Strip leading/trailing whitespace from string cells and column titles when a file is opened (interior spaces kept). Off by default, so loaded values match what is stored. TOML key: `trim_whitespace_on_load`.                                                                                                                                                                                                                                   |
+| **Warn on whitespace trim**         | on          | Banner listing which columns had whitespace trimmed on load. Independent of the trim setting. TOML key: `warn_on_whitespace_trim`.                                                                                                                                                                                                                                                                                                                |
+| **Write options**                   | (see below) | How files are written: Parquet compression, rows per row group, dictionary encoding and column statistics; CSV/TSV delimiter, quoting, line endings and header row. Parquet is written with `zstd` unless you change it; the other defaults reproduce Octa's previous behaviour. Also used by command-line conversions that do not pass `--compression` / `--row-group-size`. Batch convert can override them per run. TOML key: `write_options`. |
+| **Clean headers on load**           | off         | Normalise column titles to lower snake_case identifiers when a file is opened (trim, lowercase, punctuation and spaces become underscores, repeats get a numeric suffix). TOML key: `clean_headers_on_load`.                                                                                                                                                                                                                                      |
+| **Offer repair on malformed files** | off         | Prompt to repair a CSV/TSV that reads but looks malformed (bad encoding, BOM, control chars, delimiter mismatch, ragged rows). The file on disk is never changed. See [Supported formats](../getting-started/supported-formats.md#repairing-malformed-csv-tsv-files). TOML key: `offer_repair_on_malformed`.                                                                                                                                      |
+| **Read-only mode notice**           | on          | Show the read-only intro modal on **F8** the first time per session.                                                                                                                                                                                                                                                                                                                                                                              |
+| **Notebook output layout**          | Beneath     | Where notebook output cells render: `Below cell` or `Side-by-side`.                                                                                                                                                                                                                                                                                                                                                                               |
 
 ## Table View
 
@@ -117,6 +119,11 @@ Each statistic below has a checkbox; turn any off to drop that column.
 | **Editor font**               | JetBrains Mono | `JetBrainsMono` (bundled), `MatchUiFont`, or `SystemMonospace`.                                                                     |
 | **Highlight SQL changes**     | on             | After an `INSERT`/`UPDATE`/`DELETE`, briefly mark the changed cells and new rows green. TOML key: `sql_row_diff_highlight_enabled`. |
 | **Highlight duration**        | 4 s            | How long the mutation highlight stays before clearing. TOML key: `sql_row_diff_highlight_secs`.                                     |
+
+The panel's **Ask** box has no setting of its own: it uses whichever chat
+profile is active under [Chat / Assistant](#chat-assistant), and is greyed
+out until one exists. It sends the active table's column names, types and row
+count, never the data. See [Ask](../usage/sql.md#ask).
 
 ## MCP
 
@@ -249,6 +256,15 @@ The full list of actions lives on the
     setting only takes effect on the restored (non-maximised) window: turn **Start maximized** off, or
     click the un-maximise button, to see it applied.
 
+## Updates
+
+| Setting                            | Default | Notes                                                                                             |
+|------------------------------------|---------|---------------------------------------------------------------------------------------------------|
+| **Check for updates at start**     | on      | One GitHub request per launch. Downloads and installs nothing; silent when up to date or offline. |
+| **Show what a new release brings** | on      | Opens the release notes once per new version. The window's tick box turns this off.               |
+
+See [Updates](updates.md) for the whole flow, including Microsoft Store copies.
+
 ## Reset to defaults
 
 The Settings dialog footer has a **Reset to defaults** button (red,
@@ -260,6 +276,7 @@ A confirmation dialog protects against misfires.
 
 ## See also
 
+- [Updates](updates.md) covers the start-up check and the release-notes window.
 - [Keyboard shortcuts](shortcuts.md) is the full table of remappable
   actions.
 - [CSV Quote / Escape modes](csv-quote-escape.md) is the visual

@@ -18,6 +18,7 @@ use clap::{Parser, ValueEnum};
 use octa::data::schema_export::SchemaTarget;
 
 pub mod anonymize;
+pub mod batch_convert;
 pub mod cloud;
 pub mod compare_schemas;
 pub mod connections;
@@ -27,6 +28,8 @@ pub mod dedupe;
 pub mod describe;
 pub mod diff;
 pub mod export_schema;
+pub mod fuzzy_join;
+pub mod harmonise;
 pub mod head;
 pub mod impute;
 pub mod join;
@@ -34,10 +37,13 @@ pub mod outliers;
 pub mod output;
 pub mod partition;
 pub mod pii;
+pub mod report;
 pub mod sample;
 pub mod schema;
+pub mod schema_drift;
 pub mod sql;
 pub mod tail;
+pub mod timeseries;
 pub mod union;
 pub mod unique_columns;
 pub mod validate_schema;
@@ -132,6 +138,18 @@ FROM data GROUP BY region' \
     octa --union jan.csv --union-file feb.csv --union-file mar.csv
     octa --union a.parquet --union-file b.parquet --union-drop internal_id
     octa --union a.csv --union-file b.csv --union-cast amount=Float64 -f json
+
+  Batch conversion (many files, one target format):
+    octa --batch-convert --to parquet --out-dir ./out a.csv b.csv c.csv
+    octa --batch-convert --to json --out-dir ./out --overwrite data/*.csv
+
+  Time buckets (resample) and rolling windows:
+    octa --resample day --interval month --value-cols amount sales.csv
+    octa --resample ts --interval week --agg mean --value-cols amount,qty \\
+         --group-by region sales.parquet
+    octa --rolling amount --order-by day --window 7 --agg mean sales.csv
+    octa --rolling amount --order-by day --window 7 \\
+         --partition-by-cols region sales.csv
 
   MCP server (stdio):
     octa --mcp                         # serve MCP over stdin/stdout
@@ -351,7 +369,10 @@ pub struct Cli {
     #[arg(
         long = "diff",
         value_names = ["FILE_A", "FILE_B"],
-        num_args = 2,
+        // One or two: the B side is a file normally, but `--diff-db` replaces
+        // it with a live table, and then a single file is the whole input.
+        // `detect_action` enforces which count each form needs.
+        num_args = 1..=2,
         group = "action"
     )]
     pub diff: Vec<PathBuf>,
@@ -427,6 +448,62 @@ pub struct Cli {
     /// Syntax: `COL=TYPE` (e.g. `amount=Float64`). Repeatable.
     #[arg(long = "union-cast", value_name = "COL=TYPE")]
     pub union_cast: Vec<String>,
+
+    /// Join tables on similarity rather than equality.
+    #[arg(long = "fuzzy-join", group = "action")]
+    pub fuzzy_join: bool,
+
+    /// Additional table to join, repeatable. One per join step.
+    #[arg(long = "fuzzy-join-file", value_name = "PATH")]
+    pub fuzzy_join_file: Vec<PathBuf>,
+
+    /// Column pair to compare: LEFT=RIGHT. Repeat for several columns; their
+    /// scores are averaged.
+    #[arg(long = "fuzzy-on", value_name = "LEFT=RIGHT")]
+    pub fuzzy_on: Vec<String>,
+
+    /// Similarity measure: edit_ratio, jaro_winkler or token_set.
+    #[arg(
+        long = "fuzzy-method",
+        value_name = "NAME",
+        default_value = "edit_ratio"
+    )]
+    pub fuzzy_method: String,
+
+    /// Match threshold in 0.0..=1.0. Default 0.85.
+    #[arg(long = "fuzzy-threshold", value_name = "N", default_value = "0.85")]
+    pub fuzzy_threshold: f64,
+
+    /// Exact-match blocking columns: LEFT=RIGHT. Only rows agreeing here are
+    /// compared, which is what makes a large join feasible.
+    #[arg(long = "fuzzy-block", value_name = "LEFT=RIGHT")]
+    pub fuzzy_block: Option<String>,
+
+    /// inner, left, right or full. Default left.
+    #[arg(long = "fuzzy-join-type", value_name = "TYPE", default_value = "left")]
+    pub fuzzy_join_type: String,
+
+    /// Rows considered per side. Default 20000.
+    #[arg(long = "fuzzy-max-rows", value_name = "N", default_value = "20000")]
+    pub fuzzy_max_rows: usize,
+
+    /// Write an HTML profiling report for FILE to this path.
+    #[arg(long = "report", value_name = "OUT.html", group = "action")]
+    pub report: Option<PathBuf>,
+
+    /// Profile a random sample of N rows instead of every row (--report).
+    #[arg(long = "report-sample", value_name = "N", requires = "report")]
+    pub report_sample: Option<usize>,
+
+    /// Comma-separated report sections: stats, distributions, top_values,
+    /// correlation. Default: all four (--report).
+    #[arg(long = "report-sections", value_name = "LIST", requires = "report")]
+    pub report_sections: Option<String>,
+
+    /// Treat column names differing only in case as one column when unioning.
+    /// Off by default: differing case is a real difference to some tools.
+    #[arg(long = "union-ignore-case")]
+    pub union_ignore_case: bool,
 
     /// Join two or more tabular files on shared key column(s).
     ///
@@ -522,6 +599,61 @@ pub struct Cli {
     /// Defaults to the source file's extension.
     #[arg(long = "partition-format", value_name = "EXT")]
     pub partition_format: Option<String>,
+
+    /// Convert every positional FILE into --out-dir as --to EXT.
+    ///
+    /// One failed file does not stop the run; the exit code is 1 if any failed.
+    #[arg(long = "batch-convert", group = "action")]
+    pub batch_convert: bool,
+
+    /// Overwrite existing outputs in --batch-convert. Default: skip them.
+    #[arg(long = "overwrite")]
+    pub overwrite: bool,
+
+    /// Group rows into time buckets: one row per --interval of COL.
+    ///
+    /// Needs --value-cols. Optional --agg (default sum), --group-by.
+    #[arg(long = "resample", value_name = "COL", group = "action")]
+    pub resample: Option<String>,
+
+    /// Bucket size for --resample: minute|hour|day|week|month|quarter|year (default day).
+    #[arg(long = "interval", value_name = "UNIT")]
+    pub interval: Option<String>,
+
+    /// Columns aggregated by --resample (comma-separated).
+    #[arg(long = "value-cols", value_name = "COLS")]
+    pub value_cols: Option<String>,
+
+    /// Extra grouping columns for --resample: one series per combination.
+    #[arg(long = "group-by", value_name = "COLS")]
+    pub group_by: Option<String>,
+
+    /// Add a rolling aggregate of COL over the previous --window rows.
+    ///
+    /// Needs --order-by and --window. Optional --agg (default mean),
+    /// --partition-by-cols.
+    #[arg(long = "rolling", value_name = "COL", group = "action")]
+    pub rolling: Option<String>,
+
+    /// Rows in the --rolling frame, including the current row.
+    #[arg(long = "window", value_name = "N")]
+    pub window: Option<usize>,
+
+    /// Column that orders the --rolling frame. Required: a rolling aggregate
+    /// over unordered rows is meaningless.
+    #[arg(long = "order-by", value_name = "COL")]
+    pub order_by: Option<String>,
+
+    /// Columns that restart the --rolling frame.
+    ///
+    /// Spelled `--partition-by-cols` because `--partition-by` is the
+    /// split-into-files action.
+    #[arg(long = "partition-by-cols", value_name = "COLS")]
+    pub partition_by_cols: Option<String>,
+
+    /// Aggregate for --resample / --rolling: sum|mean|min|max|count|first|last.
+    #[arg(long = "agg", value_name = "FN")]
+    pub agg: Option<String>,
 
     /// Run SQL on a saved database connection (server-side, in the engine's native dialect).
     ///
@@ -639,6 +771,36 @@ pub struct Cli {
     #[arg(long = "sample-rows", value_name = "N")]
     pub sample_rows: Option<usize>,
 
+    /// For --describe only: also report the file's physical layout - row
+    /// groups, compression, encodings and column statistics. Parquet only
+    /// for now; other formats report their size and nothing more.
+    #[arg(long = "deep", requires = "describe")]
+    pub deep: bool,
+
+    /// Compare against a live database table instead of a second file.
+    /// Names a saved connection (see --db-tables); pair with
+    /// --diff-db-table. With this set, --diff takes a single file.
+    #[arg(long = "diff-db", value_name = "CONN")]
+    pub diff_db: Option<String>,
+
+    /// Table on the --diff-db connection, as SCHEMA.TABLE or
+    /// CATALOG.SCHEMA.TABLE. An unqualified name uses the connection's
+    /// own database.
+    #[arg(long = "diff-db-table", value_name = "TABLE", requires = "diff_db")]
+    pub diff_db_table: Option<String>,
+
+    /// Compression codec for the written file. Parquet targets only;
+    /// ignored by other formats. One of: uncompressed, snappy, zstd,
+    /// gzip, lz4. Applies to --convert and --batch-convert.
+    #[arg(long = "compression", value_name = "CODEC", value_parser = parse_codec)]
+    pub compression: Option<String>,
+
+    /// Rows per Parquet row group. Larger groups scan faster, smaller
+    /// groups let readers skip more precisely. Applies to --convert and
+    /// --batch-convert.
+    #[arg(long = "row-group-size", value_name = "N")]
+    pub row_group_size: Option<usize>,
+
     /// For --unique-columns only: maximum combo size to test (1 = single columns, 2 = + pairs, 3 = + triples).
     ///
     /// Clamped to [1, 3]. Default 1.
@@ -700,8 +862,13 @@ pub struct Cli {
     #[arg(long = "cloud-delete", value_name = "URL", group = "action")]
     pub cloud_delete: Option<String>,
 
-    /// Destination for --cloud-put / --cloud-copy / --cloud-move (a cloud URL).
-    #[arg(long = "to", value_name = "URL")]
+    /// Destination: a cloud URL for --cloud-put / --cloud-copy / --cloud-move,
+    /// or the target extension for --batch-convert (no leading dot, e.g.
+    /// `csv`, `parquet`, `json`).
+    ///
+    /// One flag for both because the actions are mutually exclusive, the same
+    /// way --out-dir is shared with --partition-by.
+    #[arg(long = "to", value_name = "URL|EXT")]
     pub to: Option<String>,
 
     /// Output file for --cloud-get.
@@ -711,9 +878,31 @@ pub struct Cli {
     /// Recurse into every object under the prefix.
     ///
     /// For --cloud-ls this flattens the listing; for --cloud-delete it is the
-    /// required confirmation that a folder delete is meant.
+    /// required confirmation that a folder delete is meant; for
+    /// --schema-drift it walks subdirectories.
     #[arg(long = "recursive")]
     pub recursive: bool,
+
+    /// Scan a folder and report which files disagree about their columns.
+    /// Exits 1 when they do, so a CI step can gate on it.
+    #[arg(long = "schema-drift", value_name = "DIR", group = "action")]
+    pub schema_drift: Option<PathBuf>,
+
+    /// Rewrite every file in a folder to one common schema, writing copies
+    /// into --out-dir. The originals are never modified. Exits 1 if any file
+    /// was refused.
+    #[arg(long = "harmonise-schema", value_name = "DIR", group = "action")]
+    pub harmonise_schema: Option<PathBuf>,
+
+    /// Take the target schema from this file instead of the shape most files
+    /// in the folder already have (--harmonise-schema).
+    #[arg(long = "target-file", value_name = "FILE")]
+    pub target_file: Option<PathBuf>,
+
+    /// Treat column names differing only in case as the same column
+    /// (--schema-drift, --harmonise-schema).
+    #[arg(long = "ignore-case")]
+    pub ignore_case: bool,
 
     /// List the saved cloud and database connections (names and targets only,
     /// never secrets).
@@ -785,6 +974,7 @@ pub enum Action {
     Convert {
         input: PathBuf,
         output: PathBuf,
+        write_options: octa::formats::write_options::WriteOptions,
     },
     Sql {
         path: PathBuf,
@@ -805,7 +995,10 @@ pub enum Action {
     },
     Diff {
         path_a: PathBuf,
-        path_b: PathBuf,
+        /// `None` when the B side is a database table rather than a file.
+        path_b: Option<PathBuf>,
+        /// `(connection name, qualified table)` for a database B side.
+        db_b: Option<(String, String)>,
         mode: octa::data::compare::CompareMode,
         on: Vec<String>,
     },
@@ -814,10 +1007,39 @@ pub enum Action {
         schema_file: PathBuf,
         table: Option<String>,
     },
+    /// Join tables on similarity rather than equality. `--fuzzy-join`.
+    FuzzyJoin(Box<crate::cli::fuzzy_join::Args>),
+    /// Write an HTML profiling report for a file. `--report OUT.html FILE`.
+    Report {
+        out: PathBuf,
+        path: PathBuf,
+        table: Option<String>,
+        sample: Option<usize>,
+        sections: Option<String>,
+    },
+    /// Report which files in a folder disagree about their columns.
+    /// `--schema-drift DIR`. Exits 1 on drift, like `--validate-schema`.
+    SchemaDrift {
+        dir: PathBuf,
+        recursive: bool,
+        ignore_case: bool,
+    },
+    /// Rewrite a folder of files to one common schema.
+    /// `--harmonise-schema DIR --out-dir DIR`. Exits 1 if any file was refused.
+    Harmonise {
+        dir: PathBuf,
+        out_dir: PathBuf,
+        target_file: Option<PathBuf>,
+        recursive: bool,
+        ignore_case: bool,
+        overwrite: bool,
+        write_options: octa::formats::write_options::WriteOptions,
+    },
     Describe {
         path: PathBuf,
         table: Option<String>,
         sample_rows: Option<usize>,
+        deep: bool,
     },
     UniqueColumns {
         path: PathBuf,
@@ -833,6 +1055,7 @@ pub enum Action {
         union_file: Vec<PathBuf>,
         drop: Vec<String>,
         cast: Vec<String>,
+        ignore_case: bool,
     },
     Join {
         files: Vec<PathBuf>,
@@ -858,6 +1081,24 @@ pub enum Action {
     DetectPii {
         path: PathBuf,
         sample_rows: Option<usize>,
+    },
+    /// Convert many files into one target format. `--batch-convert`.
+    BatchConvert {
+        inputs: Vec<PathBuf>,
+        out_dir: PathBuf,
+        target_ext: String,
+        overwrite: bool,
+        write_options: octa::formats::write_options::WriteOptions,
+    },
+    /// Group rows into time buckets and aggregate. `--resample COL`.
+    Resample {
+        path: PathBuf,
+        spec: octa::data::timeseries::ResampleSpec,
+    },
+    /// Add a rolling aggregate over the previous N rows. `--rolling COL`.
+    Rolling {
+        path: PathBuf,
+        spec: octa::data::timeseries::RollingSpec,
     },
     Partition {
         /// Positional source file.
@@ -926,11 +1167,42 @@ pub enum Action {
     Mcp,
 }
 
+/// Validate the codec name at parse time so the error names the valid set,
+/// rather than silently falling back to uncompressed halfway through a write
+/// the user already committed to.
+fn parse_codec(s: &str) -> Result<String, String> {
+    let lower = s.to_ascii_lowercase();
+    if octa::formats::write_options::PARQUET_CODECS.contains(&lower.as_str()) {
+        Ok(lower)
+    } else {
+        Err(format!(
+            "unknown codec '{s}'; expected one of: {}",
+            octa::formats::write_options::PARQUET_CODECS.join(", ")
+        ))
+    }
+}
+
 impl Cli {
     /// Resolve the action flag set into a strongly-typed [`Action`].
     /// Returns `None` when none of the action flags were given.
     /// `Err(...)` when an action's required companion is missing (e.g.
     /// `--sql` without `-q`).
+    /// Build the writer options from the `--compression` / `--row-group-size`
+    /// flags on top of the saved settings, so the command line and the GUI
+    /// write the same files. Precedence is flag > `settings.toml` > built-in
+    /// default; with no readable config directory (a container, CI) the load
+    /// yields the built-in defaults rather than failing.
+    fn write_options(&self) -> octa::formats::write_options::WriteOptions {
+        let mut opts = octa::ui::settings::AppSettings::load().write_options;
+        if let Some(codec) = &self.compression {
+            opts.parquet.compression = codec.clone();
+        }
+        if let Some(n) = self.row_group_size {
+            opts.parquet.row_group_size = Some(n);
+        }
+        opts
+    }
+
     pub fn detect_action(&self) -> Result<Option<Action>, &'static str> {
         if let Some(p) = &self.schema {
             return Ok(Some(Action::Schema(p.clone())));
@@ -963,6 +1235,7 @@ impl Cli {
             return Ok(Some(Action::Convert {
                 input: self.convert[0].clone(),
                 output: self.convert[1].clone(),
+                write_options: self.write_options(),
             }));
         }
         if let Some(p) = &self.sql {
@@ -1014,8 +1287,21 @@ impl Cli {
             }));
         }
         if !self.diff.is_empty() {
-            if self.diff.len() != 2 {
-                return Err("--diff needs exactly two paths: --diff FILE_A FILE_B");
+            let db_b = match (&self.diff_db, &self.diff_db_table) {
+                (Some(conn), Some(table)) => Some((conn.clone(), table.clone())),
+                (Some(_), None) => {
+                    return Err("--diff-db requires --diff-db-table SCHEMA.TABLE");
+                }
+                _ => None,
+            };
+            // With a database on the B side one file is the whole input.
+            let want = if db_b.is_some() { 1 } else { 2 };
+            if self.diff.len() != want {
+                return Err(if db_b.is_some() {
+                    "--diff with --diff-db takes exactly one file: --diff FILE --diff-db CONN --diff-db-table T"
+                } else {
+                    "--diff needs exactly two paths: --diff FILE_A FILE_B"
+                });
             }
             let mode = octa::data::compare::CompareMode::parse(&self.diff_mode)
                 .ok_or("--diff-mode must be one of: set, ordered, join")?;
@@ -1024,7 +1310,8 @@ impl Cli {
             }
             return Ok(Some(Action::Diff {
                 path_a: self.diff[0].clone(),
-                path_b: self.diff[1].clone(),
+                path_b: self.diff.get(1).cloned(),
+                db_b,
                 mode,
                 on: self.diff_on.clone(),
             }));
@@ -1039,11 +1326,61 @@ impl Cli {
                 table: self.table.clone(),
             }));
         }
+        if self.fuzzy_join {
+            return Ok(Some(Action::FuzzyJoin(Box::new(
+                crate::cli::fuzzy_join::Args {
+                    files: self.files.clone(),
+                    join_file: self.fuzzy_join_file.clone(),
+                    on: self.fuzzy_on.clone(),
+                    method: self.fuzzy_method.clone(),
+                    threshold: self.fuzzy_threshold,
+                    block: self.fuzzy_block.clone(),
+                    join_type: self.fuzzy_join_type.clone(),
+                    max_rows: self.fuzzy_max_rows,
+                },
+            ))));
+        }
+        if let Some(out) = self.report.clone() {
+            let Some(path) = self.files.first().cloned() else {
+                return Err("--report needs an input FILE");
+            };
+            return Ok(Some(Action::Report {
+                out,
+                path,
+                table: self.table.clone(),
+                sample: self.report_sample,
+                sections: self.report_sections.clone(),
+            }));
+        }
+        if let Some(dir) = &self.schema_drift {
+            return Ok(Some(Action::SchemaDrift {
+                dir: dir.clone(),
+                recursive: self.recursive,
+                ignore_case: self.ignore_case,
+            }));
+        }
+        if let Some(dir) = &self.harmonise_schema {
+            // --out-dir is what makes this non-destructive, so it is required
+            // rather than defaulted to something clever.
+            let Some(out_dir) = self.out_dir.clone() else {
+                return Err("--harmonise-schema requires --out-dir DIR");
+            };
+            return Ok(Some(Action::Harmonise {
+                dir: dir.clone(),
+                out_dir,
+                target_file: self.target_file.clone(),
+                recursive: self.recursive,
+                ignore_case: self.ignore_case,
+                overwrite: self.overwrite,
+                write_options: self.write_options(),
+            }));
+        }
         if let Some(p) = &self.describe {
             return Ok(Some(Action::Describe {
                 path: p.clone(),
                 table: self.table.clone(),
                 sample_rows: self.sample_rows,
+                deep: self.deep,
             }));
         }
         if let Some(p) = &self.unique_columns {
@@ -1068,6 +1405,7 @@ impl Cli {
                 union_file: self.union_file.clone(),
                 drop: self.union_drop.clone(),
                 cast: self.union_cast.clone(),
+                ignore_case: self.union_ignore_case,
             }));
         }
         if self.join {
@@ -1125,6 +1463,85 @@ impl Cli {
             return Ok(Some(Action::DetectPii {
                 path: p.clone(),
                 sample_rows: self.pii_sample,
+            }));
+        }
+        if self.batch_convert {
+            if self.files.is_empty() {
+                return Err("--batch-convert requires at least one positional FILE");
+            }
+            let out_dir = self
+                .out_dir
+                .clone()
+                .ok_or("--batch-convert requires --out-dir DIR")?;
+            let target_ext = self.to.clone().ok_or("--batch-convert requires --to EXT")?;
+            return Ok(Some(Action::BatchConvert {
+                inputs: self.files.clone(),
+                out_dir,
+                target_ext,
+                overwrite: self.overwrite,
+                write_options: self.write_options(),
+            }));
+        }
+        if let Some(col) = &self.resample {
+            let path = self
+                .files
+                .first()
+                .cloned()
+                .ok_or("--resample requires a positional FILE argument")?;
+            let value_cols = self
+                .value_cols
+                .as_deref()
+                .ok_or("--resample requires --value-cols COLS")?;
+            let interval = match &self.interval {
+                None => octa::data::timeseries::Interval::Day,
+                Some(s) => octa::data::timeseries::Interval::parse(s)
+                    .ok_or("--interval must be minute|hour|day|week|month|quarter|year")?,
+            };
+            let agg = match &self.agg {
+                None => octa::data::timeseries::TimeAgg::Sum,
+                Some(s) => octa::data::timeseries::TimeAgg::parse(s)
+                    .ok_or("--agg must be sum|mean|min|max|count|first|last")?,
+            };
+            return Ok(Some(Action::Resample {
+                path,
+                spec: octa::data::timeseries::ResampleSpec {
+                    time_col: col.clone(),
+                    value_cols: split_cols(value_cols),
+                    interval,
+                    agg,
+                    group_by: self.group_by.as_deref().map(split_cols).unwrap_or_default(),
+                },
+            }));
+        }
+        if let Some(col) = &self.rolling {
+            let path = self
+                .files
+                .first()
+                .cloned()
+                .ok_or("--rolling requires a positional FILE argument")?;
+            let order_col = self
+                .order_by
+                .clone()
+                .ok_or("--rolling requires --order-by COL")?;
+            let window = self.window.ok_or("--rolling requires --window N")?;
+            let agg = match &self.agg {
+                None => octa::data::timeseries::TimeAgg::Mean,
+                Some(s) => octa::data::timeseries::TimeAgg::parse(s)
+                    .ok_or("--agg must be sum|mean|min|max|count|first|last")?,
+            };
+            return Ok(Some(Action::Rolling {
+                path,
+                spec: octa::data::timeseries::RollingSpec {
+                    order_col,
+                    value_col: col.clone(),
+                    window,
+                    agg,
+                    partition_by: self
+                        .partition_by_cols
+                        .as_deref()
+                        .map(split_cols)
+                        .unwrap_or_default(),
+                },
             }));
         }
         if let Some(col) = &self.partition_by {
@@ -1436,8 +1853,9 @@ pub fn parse_rows_flag(s: &str) -> Result<usize, String> {
 /// returns.
 pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usize>) -> ExitCode {
     let _rows_guard = rows_override.map(octa::formats::InitialLoadRowsGuard::new);
-    // --validate-schema decides its own exit code (0 = match, 1 = drift),
-    // so it's pulled out of the success/failure mapping below.
+    // --validate-schema and --batch-convert decide their own exit codes
+    // (schema drift, or a run where some items failed), so they are pulled
+    // out of the success/failure mapping below.
     if let Action::ValidateSchema {
         path,
         schema_file,
@@ -1452,12 +1870,82 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             }
         };
     }
+    if let Action::SchemaDrift {
+        dir,
+        recursive,
+        ignore_case,
+    } = action
+    {
+        return match schema_drift::run(
+            dir,
+            octa::data::schema_drift::DriftOptions {
+                ignore_case,
+                recursive,
+            },
+            format,
+        ) {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if let Action::Harmonise {
+        dir,
+        out_dir,
+        target_file,
+        recursive,
+        ignore_case,
+        overwrite,
+        write_options,
+    } = action
+    {
+        return match harmonise::run(
+            harmonise::Args {
+                dir,
+                out_dir,
+                target_file,
+                recursive,
+                ignore_case,
+                overwrite,
+            },
+            format,
+            &write_options,
+        ) {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if let Action::BatchConvert {
+        inputs,
+        out_dir,
+        target_ext,
+        overwrite,
+        write_options,
+    } = action
+    {
+        return match batch_convert::run(inputs, out_dir, target_ext, overwrite, write_options) {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let result = match action {
         Action::Schema(path) => schema::run(path, format),
         Action::Head { path, n } => head::run(path, n, format),
         Action::Tail { path, n } => tail::run(path, n, format),
         Action::Sample { path, n, seed } => sample::run(path, n, seed, format),
-        Action::Convert { input, output } => convert::run(input, output),
+        Action::Convert {
+            input,
+            output,
+            write_options,
+        } => convert::run(input, output, write_options),
         Action::Sql {
             path,
             query,
@@ -1475,14 +1963,16 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
         Action::Diff {
             path_a,
             path_b,
+            db_b,
             mode,
             on,
-        } => diff::run(path_a, path_b, mode, on, format),
+        } => diff::run(path_a, path_b, db_b, mode, on, format),
         Action::Describe {
             path,
             table,
             sample_rows,
-        } => describe::run(path, table, sample_rows, format),
+            deep,
+        } => describe::run(path, table, sample_rows, deep, format),
         Action::UniqueColumns {
             path,
             table,
@@ -1494,7 +1984,8 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             union_file,
             drop,
             cast,
-        } => union::run(files, union_file, drop, cast, format),
+            ignore_case,
+        } => union::run(files, union_file, drop, cast, ignore_case, format),
         Action::Join {
             files,
             join_file,
@@ -1514,6 +2005,8 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             k,
         } => outliers::run(path, method, cols, k, format),
         Action::DetectPii { path, sample_rows } => pii::run(path, sample_rows, format),
+        Action::Resample { path, spec } => timeseries::run_resample(path, spec, format),
+        Action::Rolling { path, spec } => timeseries::run_rolling(path, spec, format),
         Action::Partition {
             path,
             col,
@@ -1554,7 +2047,18 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             target_catalog,
             mode,
         ),
+        Action::FuzzyJoin(args) => fuzzy_join::run(*args, format),
+        Action::Report {
+            out,
+            path,
+            table,
+            sample,
+            sections,
+        } => report::run(out, path, table, sample, sections),
         Action::ValidateSchema { .. } => unreachable!("handled above"),
+        Action::SchemaDrift { .. } => unreachable!("handled above"),
+        Action::Harmonise { .. } => unreachable!("handled above"),
+        Action::BatchConvert { .. } => unreachable!("handled above"),
         Action::Mcp => {
             eprintln!("error: --mcp must be dispatched from main, not via cli::dispatch");
             return ExitCode::FAILURE;
@@ -1573,7 +2077,32 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
 /// load the table. Centralises the "no reader available" error message
 /// so every action surfaces consistent wording. Transparently decompresses
 /// `.gz` / `.zst` inputs.
+/// Split a comma-separated column list, trimming each name and dropping
+/// empties, so `--value-cols "a, b,"` reads as `["a", "b"]`.
+fn split_cols(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+        .collect()
+}
+
+/// Read one table for a CLI action.
+///
+/// A cloud URL (`s3://`, `az://`, `gs://`) is downloaded to a temp file first
+/// and then read as usual, so every action taking a FILE takes a cloud object
+/// too without a flag of its own. The settings load happens inside the branch:
+/// a local read must not pay for it.
 pub(crate) fn read_table(path: &std::path::Path) -> anyhow::Result<octa::data::DataTable> {
+    let as_str = path.to_string_lossy();
+    if octa::cloud::parse_cloud_url(&as_str).is_some() {
+        let settings = octa::ui::settings::AppSettings::load();
+        let tmp = octa::cloud::fetch_url_to_temp(&as_str, &settings)?;
+        return octa::formats::read_table_auto(
+            &tmp,
+            None,
+            octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
+        );
+    }
     octa::formats::read_table_auto(
         path,
         None,

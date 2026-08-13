@@ -467,6 +467,61 @@ impl OctaApp {
             {
                 self.impute_dialog = Some(super::state::ImputeState::default());
             }
+            if action_fired(SA::OpenBatchConvert)
+                && let Some(path) = rfd::FileDialog::new().pick_folder()
+            {
+                super::dialogs::batch_convert::open_for_folder(self, &path);
+            }
+            if action_fired(SA::OpenSchemaDrift) {
+                self.schema_drift_dialog = Some(super::state::SchemaDriftState::new(String::new()));
+            }
+            if action_fired(SA::OpenReport) && self.tabs[self.active_tab].table.col_count() > 0 {
+                super::dialogs::report::open_report_dialog(self);
+            }
+            if action_fired(SA::OpenFuzzyJoin) {
+                super::dialogs::fuzzy_join::open_fuzzy_join_dialog(self);
+            }
+            if action_fired(SA::OpenFileInternals)
+                && self.tabs[self.active_tab].table.col_count() > 0
+            {
+                self.open_file_internals_tab();
+            }
+            // These three surface their own status message when there is no
+            // table, so they need no col_count guard.
+            if action_fired(SA::OpenDbCompare) {
+                self.open_db_compare_dialog(None, None);
+            }
+            if action_fired(SA::OpenJoinKeys) {
+                self.open_join_keys_dialog();
+            }
+            if action_fired(SA::OpenJoinDiag) {
+                self.open_join_diag_dialog();
+            }
+            if action_fired(SA::OpenHarmonise) {
+                self.harmonise_dialog = Some(super::state::HarmoniseState::new(String::new()));
+            }
+            if action_fired(SA::ToggleAskFilter) {
+                let tab = &mut self.tabs[self.active_tab];
+                tab.search_ask_mode = !tab.search_ask_mode;
+                // Same follow-up as Toggle find & replace: flipping the mode is
+                // only useful with the cursor in the box.
+                self.search_focus_requested = true;
+            }
+            if action_fired(SA::OpenTimeseries) && self.tabs[self.active_tab].table.col_count() > 0
+            {
+                self.timeseries_dialog = Some(super::state::TimeseriesState::default());
+            }
+            if action_fired(SA::NextProblem) {
+                self.jump_to_problem(true);
+            }
+            if action_fired(SA::PrevProblem) {
+                self.jump_to_problem(false);
+            }
+            if action_fired(SA::OpenCleanupPanel)
+                && self.tabs[self.active_tab].table.col_count() > 0
+            {
+                self.toggle_cleanup_panel();
+            }
             // Union and Join need a second open table; tell the user instead
             // of failing silently when only one tab is open.
             if (action_fired(SA::OpenUnion) || action_fired(SA::OpenJoin)) && self.tabs.len() < 2 {
@@ -487,8 +542,10 @@ impl OctaApp {
                         .filter(|(i, _)| selected.get(*i).copied().unwrap_or(false))
                         .map(|(_, t)| t.table.columns.as_slice())
                         .collect::<Vec<_>>(),
+                    false,
                 );
                 self.union_dialog = Some(super::state::UnionState {
+                    ignore_case: false,
                     selected_tabs: selected,
                     plan,
                     error: None,

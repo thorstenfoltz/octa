@@ -10,6 +10,21 @@ pub struct UnionColumnPlan {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnionPlan {
     pub columns: Vec<UnionColumnPlan>,
+    /// How the plan matched column names. Carried on the plan rather than
+    /// passed separately to [`union_tables`], so the matching cannot diverge
+    /// from the grouping: a folded plan looking up `Amount` case-sensitively
+    /// would find nothing in the source spelling it `amount`, and the whole
+    /// column would come back null.
+    pub ignore_case: bool,
+}
+
+/// Fold a column name for comparison, per the plan's matching rule.
+fn fold_name(name: &str, ignore_case: bool) -> String {
+    if ignore_case {
+        name.to_lowercase()
+    } else {
+        name.to_string()
+    }
 }
 
 fn is_int(ty: &str) -> bool {
@@ -40,29 +55,36 @@ fn widen(a: &str, b: &str) -> String {
 
 /// Smart-merge default plan: union of all columns (first-seen order), each typed
 /// to the widened common type across sources that carry it, everything included.
-pub fn plan_union(schemas: &[&[ColumnInfo]]) -> UnionPlan {
+///
+/// `ignore_case` folds column-name case, so `Amount` and `amount` become one
+/// column. The **first spelling encountered wins** as the output name, so a
+/// plan names a column the way a real source spells it rather than inventing a
+/// canonical form.
+pub fn plan_union(schemas: &[&[ColumnInfo]], ignore_case: bool) -> UnionPlan {
     let mut order: Vec<String> = Vec::new();
     let mut types: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for schema in schemas {
         for col in *schema {
-            match types.get(&col.name) {
+            let key = fold_name(&col.name, ignore_case);
+            match types.get(&key) {
                 None => {
                     order.push(col.name.clone());
-                    types.insert(col.name.clone(), col.data_type.clone());
+                    types.insert(key, col.data_type.clone());
                 }
                 Some(existing) => {
                     let merged = widen(existing, &col.data_type);
-                    types.insert(col.name.clone(), merged);
+                    types.insert(key, merged);
                 }
             }
         }
     }
     UnionPlan {
+        ignore_case,
         columns: order
             .into_iter()
             .map(|name| {
                 let target_type = types
-                    .get(&name)
+                    .get(&fold_name(&name, ignore_case))
                     .cloned()
                     .unwrap_or_else(|| "Utf8".to_string());
                 UnionColumnPlan {
@@ -127,7 +149,13 @@ pub fn union_tables(tables: &[&DataTable], plan: &UnionPlan) -> anyhow::Result<D
     for table in tables {
         let src_idx: Vec<Option<usize>> = kept
             .iter()
-            .map(|c| table.columns.iter().position(|sc| sc.name == c.name))
+            .map(|c| {
+                let want = fold_name(&c.name, plan.ignore_case);
+                table
+                    .columns
+                    .iter()
+                    .position(|sc| fold_name(&sc.name, plan.ignore_case) == want)
+            })
             .collect();
         for row in 0..table.row_count() {
             let new_row: Vec<CellValue> = kept
@@ -170,6 +198,66 @@ mod tests {
     }
 
     #[test]
+    fn folding_merges_columns_differing_only_in_case() {
+        let a = cols(&[("Amount", "Int64")]);
+        let b = cols(&[("amount", "Int64")]);
+
+        let strict = plan_union(&[&a, &b], false);
+        assert_eq!(
+            strict.columns.len(),
+            2,
+            "without folding they are two columns"
+        );
+
+        let folded = plan_union(&[&a, &b], true);
+        assert_eq!(folded.columns.len(), 1, "with folding they are one");
+        assert_eq!(
+            folded.columns[0].name, "Amount",
+            "first spelling encountered wins"
+        );
+    }
+
+    #[test]
+    fn folding_still_widens_types() {
+        let a = cols(&[("Amount", "Int64")]);
+        let b = cols(&[("amount", "Float64")]);
+        let folded = plan_union(&[&a, &b], true);
+        assert_eq!(folded.columns.len(), 1);
+        assert_eq!(folded.columns[0].target_type, "Float64");
+    }
+
+    /// A single file holding both spellings still merges them, rather than
+    /// producing a plan with a duplicated output column.
+    #[test]
+    fn folding_handles_both_spellings_in_one_source() {
+        let a = cols(&[("Amount", "Int64"), ("amount", "Float64")]);
+        let folded = plan_union(&[&a], true);
+        assert_eq!(folded.columns.len(), 1);
+        assert_eq!(folded.columns[0].target_type, "Float64");
+    }
+
+    /// The flag travels on the plan, so `union_tables` matches names the same
+    /// way `plan_union` grouped them. Without that, a folded plan would find no
+    /// source column for `Amount` in the file spelling it `amount`, and the
+    /// whole column would come back null.
+    #[test]
+    fn folded_plan_still_finds_the_source_column() {
+        let a = tbl(&[("Amount", "Int64")], vec![vec![CellValue::Int(1)]]);
+        let b = tbl(&[("amount", "Int64")], vec![vec![CellValue::Int(2)]]);
+        let plan = plan_union(&[&a.columns, &b.columns], true);
+        let out = union_tables(&[&a, &b], &plan).expect("union");
+
+        assert_eq!(out.columns.len(), 1);
+        assert_eq!(out.row_count(), 2);
+        assert_eq!(out.get(0, 0).map(|c| c.to_string()), Some("1".to_string()));
+        assert_eq!(
+            out.get(1, 0).map(|c| c.to_string()),
+            Some("2".to_string()),
+            "the second file spells the column differently, but it is the same column"
+        );
+    }
+
+    #[test]
     fn plan_widens_and_unions_columns() {
         let a = cols(&[("id", "Int64"), ("region", "Utf8"), ("amt", "Int64")]);
         let b = cols(&[
@@ -178,7 +266,7 @@ mod tests {
             ("amt", "Float64"),
             ("note", "Utf8"),
         ]);
-        let plan = plan_union(&[&a, &b]);
+        let plan = plan_union(&[&a, &b], false);
         let names: Vec<_> = plan
             .columns
             .iter()
@@ -199,7 +287,7 @@ mod tests {
     fn plan_disagreement_falls_back_to_utf8() {
         let a = cols(&[("v", "Int64")]);
         let b = cols(&[("v", "Date")]);
-        let plan = plan_union(&[&a, &b]);
+        let plan = plan_union(&[&a, &b], false);
         assert_eq!(plan.columns[0].target_type, "Utf8");
     }
 
@@ -217,7 +305,7 @@ mod tests {
                 CellValue::String("hi".into()),
             ]],
         );
-        let plan = plan_union(&[&a.columns, &b.columns]);
+        let plan = plan_union(&[&a.columns, &b.columns], false);
         let out = union_tables(&[&a, &b], &plan).unwrap();
         assert_eq!(
             out.columns
@@ -238,7 +326,7 @@ mod tests {
             &[("id", "Int64"), ("drop_me", "Utf8")],
             vec![vec![CellValue::Int(1), CellValue::String("x".into())]],
         );
-        let mut plan = plan_union(&[&a.columns]);
+        let mut plan = plan_union(&[&a.columns], false);
         plan.columns
             .iter_mut()
             .find(|c| c.name == "drop_me")

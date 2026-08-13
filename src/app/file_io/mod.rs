@@ -838,6 +838,12 @@ impl OctaApp {
         // columns produced by binary readers (Parquet, Arrow, SQLite, ...) are
         // left untouched; only genuine text columns get promoted.
         self.run_date_inference_pass(self.active_tab);
+
+        // Promote text columns holding European- or English-formatted numbers
+        // (1.234,56). Runs AFTER date inference so a promoted 31.12.2024
+        // column is already typed and out of reach; the parser's grouping
+        // guard rejects dotted dates anyway, so the two passes cannot fight.
+        self.run_number_inference_pass(self.active_tab);
     }
 
     /// Open an empty (0-byte) file as a placeholder tab. Skips the format

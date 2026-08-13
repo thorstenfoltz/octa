@@ -23,6 +23,7 @@ CHATBOT_PLAN.md
 docs/superpowers/
 windows/STORE_SETUP_PROGRESS.md
 DEPENDENCY_SWEEP_CHECKLIST.md
+PLAN_DEPS_2026-08.md
 
 # Locally built Store packages and the vendored MSIX packer they need
 # (windows/build-msix.sh). Both are reproducible from a published release.

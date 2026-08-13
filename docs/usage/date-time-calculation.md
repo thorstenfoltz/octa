@@ -17,7 +17,7 @@ the same way [Insert Column](editing.md#inserting-columns) and
 
 ## Operations
 
-Pick one of five operations at the top of the dialog. The fields below
+Pick one of six operations at the top of the dialog. The fields below
 it change to match.
 
 | Operation                        | Inputs                                    | Produces                                                                          |
@@ -27,6 +27,7 @@ it change to match.
 | **Convert duration units**       | One numeric column + From / To units      | The same duration expressed in a different unit.                                  |
 | **Extract a component**          | One date column + a component             | A single field (year, month, weekday, …) pulled out of the value.                 |
 | **Unix timestamp / date**        | One column + a direction + an epoch unit  | A Unix epoch number turned into a date/time, or a date turned into a Unix number. |
+| **Convert timezone**             | One date column + From / To zones         | The same instant expressed as wall-clock time in another zone.                    |
 
 ### Difference between two dates
 
@@ -74,6 +75,28 @@ The epoch is interpreted in **UTC**, with no timezone offset applied.
 Nanosecond timestamps keep full precision (they are handled as 128-bit
 integers, not floats), so a `seconds → date → nanoseconds` style round
 trip is exact.
+
+### Convert timezone
+
+Read each datetime as wall-clock time in one zone and write it as
+wall-clock time in another. Pick the **From zone** and **To zone** from
+the full IANA list; the **Filter zones** box narrows both lists at once,
+so typing `Berlin` or `America/` gets you there without scrolling 597
+entries.
+
+You have to state the source zone, because Octa cannot detect it.
+Datetimes are stored without a timezone, so a value reading
+`2024-01-15 12:00:00` carries no evidence of which zone it belongs to.
+
+**Times that do not exist, or exist twice, are left empty and counted.**
+Every zone that observes daylight saving has two such moments each year:
+the clocks jump forward and an hour never happens, then they jump back
+and an hour happens twice. `2024-03-31 02:30` never occurs in
+`Europe/Berlin`, and `2024-10-27 02:30` occurs twice. There is no single
+correct answer for either, so Octa refuses to invent one and tells you
+how many cells it left empty:
+
+> *N cells were ambiguous and left empty*
 
 ## How values are read
 

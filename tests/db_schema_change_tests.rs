@@ -31,10 +31,12 @@ fn duckdb_add_column_persists_with_schema_change() {
 
     assert!(
         reader
-            .write_file_schema_aware(&path, &table, false)
+            .write_file_schema_aware(&path, &table, false, &Default::default())
             .is_err()
     );
-    reader.write_file_schema_aware(&path, &table, true).unwrap();
+    reader
+        .write_file_schema_aware(&path, &table, true, &Default::default())
+        .unwrap();
 
     let reread = reader.read_file(&path).unwrap();
     let names: Vec<&str> = reread.columns.iter().map(|c| c.name.as_str()).collect();
@@ -83,7 +85,9 @@ fn duckdb_drop_column_persists() {
     table.delete_column(drop_idx);
     table.apply_edits();
 
-    reader.write_file_schema_aware(&path, &table, true).unwrap();
+    reader
+        .write_file_schema_aware(&path, &table, true, &Default::default())
+        .unwrap();
     let reread = reader.read_file(&path).unwrap();
     let names: Vec<&str> = reread.columns.iter().map(|c| c.name.as_str()).collect();
     assert!(!names.contains(&"drop_me"), "dropped: {names:?}");
@@ -121,10 +125,12 @@ fn sqlite_add_and_retype_column_persists() {
 
     assert!(
         reader
-            .write_file_schema_aware(&path, &table, false)
+            .write_file_schema_aware(&path, &table, false, &Default::default())
             .is_err()
     );
-    reader.write_file_schema_aware(&path, &table, true).unwrap();
+    reader
+        .write_file_schema_aware(&path, &table, true, &Default::default())
+        .unwrap();
 
     let reread = reader.read_file(&path).unwrap();
     let names: Vec<&str> = reread.columns.iter().map(|c| c.name.as_str()).collect();

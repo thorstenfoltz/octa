@@ -55,8 +55,9 @@ pub(crate) fn render_schema_change_save_dialog(app: &mut OctaApp, ctx: &egui::Co
             prompt.tab_idx,
             prompt.path,
             prompt.save_filtered_view,
-            None,
+            prompt.round_decision,
             Some(true),
+            prompt.style_decision,
         );
     } else if cancel {
         app.pending_schema_change_save = None;

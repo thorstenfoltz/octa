@@ -51,9 +51,19 @@ KEEP = re.compile(r"^Trailer")
 
 
 def load(name: str) -> dict:
-    path = LISTINGS / f"{name}.toml"
+    # BCP-47 tags are case-insensitive and Partner Center is not consistent
+    # about them (sr-Cyrl vs sr-cyrl, zh-Hans vs zh-hans). Filenames are
+    # lowercase, so match on that rather than on whatever the export used.
+    path = LISTINGS / f"{name.lower()}.toml"
     if not path.exists():
-        return {}
+        # Partner Center exports the bare tag for a language that has only one
+        # script in the package (`sr`, `zh`), while the content files are named
+        # after the script (`sr-cyrl`, `zh-hans`). Fall back to the single
+        # script variant so the column is not silently left English.
+        variants = sorted(LISTINGS.glob(f"{name.lower()}-*.toml"))
+        if len(variants) != 1:
+            return {}
+        path = variants[0]
     with path.open("rb") as fh:
         return tomllib.load(fh)
 
@@ -98,13 +108,20 @@ def main() -> int:
             dropped += 1
             continue
         if field:
-            value = cell_for(field, default)
-            if value is not None:
-                row[3] = value
+            managed = cell_for(field, default)
+            if managed is not None:
+                row[3] = managed
             for i, code in enumerate(languages, start=4):
                 value = cell_for(field, per_lang.get(code) or {})
                 if value is not None:
                     row[i] = value
+                elif managed is not None:
+                    # A field this repo owns and this language does not
+                    # translate must inherit `default`, which only a BLANK cell
+                    # does. Partner Center exports some fields filled in per
+                    # language (OverrideLogosForWin10 comes back as False in
+                    # all 32), and a stale value there silently beats default.
+                    row[i] = ""
         kept.append(row)
 
     target = outdir / FOLDER_NAME

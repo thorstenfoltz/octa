@@ -29,9 +29,21 @@ Every listing should cover:
 10. Free and open source, MIT licence,
     https://github.com/thorstenfoltz/octa
 
-Privacy point worth making in every language: everything runs locally and
-files are never uploaded.
+Privacy point worth making in every language: processing happens locally, on
+the reader's own machine, EXCEPT where the feature they picked needs an
+external API. Do not write "files are never uploaded": the assistant sends
+data to whichever model it is configured against, and a cloud or database
+connection talks to that server. The qualified sentence is the honest one and
+the one the Store can hold us to.
 
-Length: `short` under 200 characters (hard limit). `long` aim for 1,500 to
-2,500 characters; there is no need to match the English one, which is longer
-because English is the default fallback for any language left blank.
+Address the reader informally where the language distinguishes (du, tu, ty,
+你), the same as the interface strings in `locales/`.
+
+Length: `short` under 200 characters (hard limit). `long` is deliberately
+brief, around 500 to 700 characters in a European language, less in Japanese,
+Korean or Chinese. The field allows far more; the shorter text is the one
+people actually read.
+
+The current copy is four short paragraphs: what it opens, what you can do with
+it including the built-in chat, where the processing happens, then languages
+and licence. Keep new languages to that shape.

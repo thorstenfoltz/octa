@@ -124,6 +124,15 @@ new connection, and Ctrl-clicking objects selects them for a
 **Union...** just as in the folder tree. See
 [Cloud storage](cloud-storage.md).
 
+### Database connections
+
+**File → Databases** lists saved live connections as connection →
+(catalog →) schema → table; clicking a table opens its first rows. See
+[Database connections](database-connections.md).
+
+Any combination can be open at once, and each section shares the panel
+height with the others.
+
 ## Multi-table databases (table picker)
 
 When you open a `.sqlite` / `.duckdb` / `.gpkg` file with **more than

@@ -34,6 +34,13 @@ octa - multi-format tabular data viewer, editor, CLI tool, and MCP server
 
 *octa* *--validate-schema* _FILE_ *--expect-schema* _SCHEMA_FILE_ [*--table* _NAME_] [*-f* _FORMAT_]
 
+*octa* *--schema-drift* _DIR_ [*--recursive*] [*--ignore-case*] [*-f* _FORMAT_]
+
+*octa* *--harmonise-schema* _DIR_ *--out-dir* _DIR_ [*--target-file* _FILE_]
+       [*--recursive*] [*--ignore-case*] [*--overwrite*]
+
+*octa* *--report* _OUT.html_ _FILE_ [*--report-sample* _N_] [*--report-sections* _LIST_]
+
 *octa* *--unique-columns* _FILE_ [*--table* _NAME_] [*--max-combo* _N_] [*-f* _FORMAT_]
 
 *octa* *--anonymize* _SPEC_ _FILE_ [*-f* _FORMAT_]
@@ -46,9 +53,11 @@ octa - multi-format tabular data viewer, editor, CLI tool, and MCP server
 
 *octa* *--detect-pii* _FILE_ [*--pii-sample* _N_] [*-f* _FORMAT_]
 
-*octa* *--union* _FILE_ *--union-file* _FILE_ [*--union-drop* _COL_] [*--union-cast* _COL_=_TYPE_] [*-f* _FORMAT_]
+*octa* *--union* _FILE_ *--union-file* _FILE_ [*--union-drop* _COL_] [*--union-cast* _COL_=_TYPE_] [*--union-ignore-case*] [*-f* _FORMAT_]
 
 *octa* *--join* _FILE_ *--join-file* _FILE_ *--join-on* _COLS_ [*--join-type* _TYPE_] [*-f* _FORMAT_]
+
+*octa* *--fuzzy-join* _FILE_ *--fuzzy-join-file* _FILE_ *--fuzzy-on* _LEFT_=_RIGHT_ [*--fuzzy-method* _NAME_] [*--fuzzy-threshold* _N_] [*--fuzzy-block* _LEFT_=_RIGHT_] [*--fuzzy-join-type* _TYPE_] [*--fuzzy-max-rows* _N_] [*-f* _FORMAT_]
 
 *octa* *--partition-by* _COL_ *--out-dir* _DIR_ _FILE_ [*--partition-format* _EXT_]
 
@@ -73,12 +82,24 @@ When invoked with no flags, it launches the graphical interface,
 optionally opening the supplied _FILE_(s) in tabs. When invoked with
 one of the action flags (*--schema*, *--head*, *--tail*, *--sample*,
 *--convert*, *--sql*, *--export-schema*, *--compare-schemas*, *--diff*,
-*--describe*, *--validate-schema*, *--unique-columns*, *--anonymize*,
+*--describe*, *--validate-schema*, *--schema-drift*, *--harmonise-schema*,
+*--report*, *--fuzzy-join*,
+*--unique-columns*,
+*--anonymize*,
 *--dedupe*, *--impute*, *--outliers*, *--detect-pii*, *--union*,
-*--join*, *--partition-by*, *--mcp*), it performs that action and exits.
+*--join*, *--partition-by*, *--batch-convert*, *--resample*,
+*--rolling*, *--mcp*), it performs that action and exits.
 
 Action flags are mutually exclusive. Trailing _FILE_ arguments are
 ignored (with a warning) when an action flag is set.
+
+A _FILE_ argument may also be a cloud object URL (`s3://bucket/key`,
+`az://container/blob`, `gs://bucket/key`). The object is downloaded to a
+temporary file and read as usual. Credentials come from a saved cloud
+connection covering the URL, otherwise from the ambient chain (`AWS_*`
+environment variables, a cached SSO session, `az login`, Google application
+default credentials). Cloud objects are read-only here: output still goes to
+a local path.
 
 == Action flags
 
@@ -157,6 +178,19 @@ ignored (with a warning) when an action flag is set.
   Key column(s) for *--diff-mode join*, comma-separated (matched by
   name). Required when the mode is *join*; ignored otherwise.
 
+*--diff-db* _CONN_::
+  Compare against a live database table instead of a second file.
+  _CONN_ names a saved database connection. With this set, *--diff*
+  takes a single positional file: that file is side A and the table is
+  side B, so *only_in_a* means "in the file, not the table". Requires
+  *--diff-db-table*. The table is read under the usual row cap.
+
+*--diff-db-table* _TABLE_::
+  Table to compare against on the *--diff-db* connection, as
+  _SCHEMA.TABLE_ or _CATALOG.SCHEMA.TABLE_ (the three-part form is for
+  Snowflake, Databricks and BigQuery). An unqualified name uses the
+  connection's own database.
+
 *--describe* _FILE_::
   Print a one-shot orientation snapshot of _FILE_: format, file
   size, row count, column schema, and a small sample of rows. Use
@@ -169,6 +203,45 @@ ignored (with a warning) when an action flag is set.
   *--expect-schema*. Exit code is *0* on a clean match, *1*
   otherwise, which is CI-pipeable. Schemas produced by *--export-schema -t
   json-schema* round-trip through this command.
+
+*--schema-drift* _DIR_::
+  Scan _DIR_ and report which files disagree about their columns.
+  Files are grouped by schema, largest group first, so the answer to
+  a folder of 500 parts is "497 look like this, 3 look like that".
+  The report table goes to stdout; the per-variant file lists, any
+  unreadable files and the drifting column names go to stderr, so a
+  pipe stays parseable. Exit code is *0* when every file agrees and
+  *1* otherwise, which is CI-pipeable. Add *--recursive* to walk
+  subdirectories (depth 8) and *--ignore-case* to treat column names
+  differing only in case as the same column.
+
+*--harmonise-schema* _DIR_::
+  Rewrite every file in _DIR_ to one common set of columns, writing
+  harmonised copies into *--out-dir* (required). The originals are
+  never modified. The target schema is the shape most files already
+  have, or the schema of *--target-file* when given. A column missing
+  from a file is added as nulls; a column not in the target is dropped
+  and named in the report. A file whose values cannot be cast to a
+  target type is *refused* rather than written with nulls in place of
+  those values, because a harmonised folder of silently emptied cells
+  looks clean and is not. Two inputs that would write the same output
+  name are both refused rather than one being renamed. The report goes
+  to stdout; refusals and dropped columns go to stderr. Exit code is
+  *0* when nothing was refused and *1* otherwise. Add *--recursive*,
+  *--ignore-case*, and *--overwrite* to replace existing files in the
+  output folder.
+
+*--report* _OUT.html_ _FILE_::
+  Write an HTML profiling report for _FILE_ to _OUT.html_: per-column
+  statistics, distribution charts, the most common values and a
+  correlation matrix. The document is self-contained (inline CSS,
+  inline SVG, no JavaScript) and fetches nothing, so it can be mailed
+  or published as-is. *--report-sections* _LIST_ picks a
+  comma-separated subset of *stats*, *distributions*, *top_values* and
+  *correlation* (default: all four); an unknown name is an error rather
+  than a silent omission. *--report-sample* _N_ profiles a random
+  sample of _N_ rows instead of every row, and the report states that
+  it sampled.
 
 *--unique-columns* _FILE_::
   Find columns (and optional small combinations) whose values are
@@ -209,6 +282,28 @@ ignored (with a warning) when an action flag is set.
   Stack the positional _FILE_ plus every *--union-file* _FILE_ into one
   table (at least two files). *--union-drop* _COL_ omits columns and
   *--union-cast* _COL_=_TYPE_ overrides a column's target Arrow type.
+  *--union-ignore-case* treats column names differing only in case as
+  one column; off by default, and the first spelling encountered names
+  the output column.
+
+*--fuzzy-join* _FILE_::
+  Join the positional _FILE_ to each *--fuzzy-join-file* on how *similar*
+  the values are rather than on exact equality, for tables that name the
+  same thing differently (`Mueller GmbH` against `Mueller Gmbh.`).
+  *--fuzzy-on* _LEFT_=_RIGHT_ names the columns to compare and may be
+  repeated, in which case the scores are averaged. *--fuzzy-method* is
+  *edit_ratio* (default), *jaro_winkler* or *token_set*;
+  *--fuzzy-threshold* is the minimum average score in *0.0..=1.0*
+  (default *0.85*); *--fuzzy-block* _LEFT_=_RIGHT_ compares only rows
+  that agree exactly on those columns, which is what makes a large join
+  feasible; *--fuzzy-join-type* is *inner*, *left* (default), *right* or
+  *full*; *--fuzzy-max-rows* caps the rows considered per side (default
+  *20000*).
++
+Each left row keeps its single best partner. The output gains
+*match_score_N* and *ambiguous_N* per step; *ambiguous* means the
+runner-up scored nearly as well, so that match is the one to check. The
+per-step report goes to stderr.
 
 *--join* _FILE_::
   Join the positional _FILE_(s) plus every *--join-file* _FILE_ on the
@@ -219,6 +314,37 @@ ignored (with a warning) when an action flag is set.
   Split the positional _FILE_ into one file per distinct value of _COL_,
   written into *--out-dir* _DIR_ (required). *--partition-format* _EXT_
   sets the output extension (defaults to the source's).
+
+*--batch-convert*::
+  Convert every positional _FILE_ into *--out-dir* _DIR_ (required) as
+  *--to* _EXT_ (required). Output names are `<stem>.<ext>`; two inputs
+  sharing a stem get `_2`, `_3` suffixes in input order, so a run cannot
+  overwrite its own earlier output. Existing outputs are skipped unless
+  *--overwrite* is given. One failed file does not stop the run.
++
+Output is a headerless `input<TAB>output<TAB>status` listing on stdout,
+with per-file errors and a summary on stderr. The exit code is *1* when
+any file failed.
+
+*--resample* _COL_::
+  Group the positional _FILE_ into time buckets: one row per *--interval*
+  of _COL_. *--interval* is *minute*, *hour*, *day* (default), *week*,
+  *month*, *quarter* or *year*; *--value-cols* _COLS_ (required) names the
+  columns to aggregate; *--agg* is *sum* (default), *mean*, *min*, *max*,
+  *count*, *first* or *last*; *--group-by* _COLS_ adds extra grouping
+  columns, giving one series per combination.
++
+The time column is cast with `TRY_CAST`, so a row that will not parse
+buckets as NULL instead of failing the whole run.
+
+*--rolling* _COL_::
+  Add a rolling aggregate of _COL_ over the previous *--window* _N_ rows
+  (including the current row) to the positional _FILE_. *--order-by* _COL_
+  is required - a rolling aggregate over unordered rows is meaningless.
+  *--agg* is *mean* (default), *sum*, *min*, *max*, *count*, *first* or
+  *last*; *--partition-by-cols* _COLS_ restarts the frame per group
+  (spelled that way because *--partition-by* is the split-into-files
+  action).
 
 *--db-tables*::
   List every schema and table of the saved database connection named by
@@ -403,6 +529,16 @@ ignored (with a warning) when an action flag is set.
   Number of preview rows for *--describe* (default *5*, clamped
   to *100*).
 
+*--deep*::
+  With *--describe*, also report how the file is physically written:
+  row groups, compression codec, encodings and per-column statistics,
+  followed by one row per column per row group. Plain-language hints
+  about a poor layout (very small row groups, missing statistics, no
+  compression) go to standard error, so a piped run stays parseable.
+  Parquet reports full detail; other formats report their size and
+  state that they expose no inspectable structure. Place it after the
+  file: *--describe FILE --deep*.
+
 *--max-combo* _N_::
   Max combo size for *--unique-columns* (default *1*, clamped to
   *[1, 3]*).
@@ -451,6 +587,19 @@ ignored (with a warning) when an action flag is set.
 *--join-type* _TYPE_::
   Join strategy for *--join*: *left* (default), *inner*, *right*, *full*.
 
+*--compression* _CODEC_::
+  Compression codec for the written file: *uncompressed*, *snappy*,
+  *zstd*, *gzip* or *lz4*. Applies to *--convert* and
+  *--batch-convert*; Parquet targets only, ignored by other formats.
+  An unknown name is rejected before any file is written. Omitted, the
+  codec saved in *Settings > Files > Write options* is used, or *zstd*
+  when nothing is saved.
+
+*--row-group-size* _N_::
+  Rows per Parquet row group for *--convert* and *--batch-convert*.
+  Larger groups scan faster; smaller groups let readers skip more
+  precisely. Omitted means the writer's own default.
+
 *--out-dir* _DIR_::
   Output directory for *--partition-by* (required; created if absent).
 
@@ -477,10 +626,14 @@ ignored (with a warning) when an action flag is set.
     quoted; embedded quotes are doubled.
 
 *-h*, *--help*::
-  Print the full help text (worked examples for every action) and
-  exit. *-h* and *--help* produce the same long-form output, since Octa
-  intentionally wires both flags to the same help text rather than
-  using clap's default short/long split.
+  Print the flag list and exit. *-h* and *--help* produce the same
+  output.
+
+*--help-all*::
+  Print the flag list plus worked examples for every action, and exit.
+  The examples are behind their own flag because printing them by
+  default buried the flag list under something the size of this manual
+  page.
 
 *--version*::
   Print the Octa version and exit.
@@ -495,7 +648,10 @@ error occurs, since the data stream stays clean.
 Exit code is *0* on success and *1* on any error (invalid arguments,
 file-not-found, parse failure, write rejection, etc.).
 *--validate-schema* also exits *1* on a successful read where the
-schemas differ, so CI pipelines can gate on the schema directly.
+schemas differ, and *--schema-drift* exits *1* on a successful scan
+where the files disagree. *--harmonise-schema* exits *1* when any file
+was refused, and *--batch-convert* when any input failed, so CI
+pipelines can gate on all four directly.
 
 == Examples
 

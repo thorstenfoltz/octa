@@ -132,13 +132,17 @@ the MCP invocation and Podman.
 
 ### Windows
 
-Download `octa.exe` from the
+Install from the
+[Microsoft Store](https://apps.microsoft.com/detail/9PF9BVRT9PX4): one click, no
+SmartScreen prompt, and the Store keeps it updated.
+
+Or download `octa.exe` from the
 [releases page](https://github.com/thorstenfoltz/octa/releases) and run it, no
 installation needed. `install.ps1` (per-user, no admin) or `install.bat`
 (system-wide) set it up properly with a Start Menu entry.
 
-Octa is not code-signed, so Windows shows *"Windows protected your PC"* on first
-launch. It is safe to continue:
+Those downloads are not code-signed, so Windows shows *"Windows protected your
+PC"* on first launch. It is safe to continue:
 [how to get past the SmartScreen prompt](https://thorstenfoltz.github.io/octa/troubleshooting/#windows-smartscreen-prompt).
 
 ### macOS
