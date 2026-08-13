@@ -31,6 +31,7 @@ pub mod clickhouse;
 pub mod copy;
 pub mod databricks;
 pub mod exasol;
+pub mod fetch_table;
 pub mod mssql;
 pub mod mysql;
 pub mod postgres;
@@ -972,9 +973,16 @@ pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
 }
 
 /// A rustls client config trusting the platform's native roots (ring
-/// provider). Shared by the Postgres and MSSQL connectors. Built once:
-/// loading the native cert store is expensive and this runs on every
-/// connect and every Postgres cancel (clone is cheap, Arc-backed).
+/// provider). Used by the Postgres connector, which covers Redshift too.
+/// MSSQL does NOT come through here: tiberius builds its own config
+/// internally, so changing this does not affect it.
+///
+/// Built once: loading the native cert store is expensive and this runs on
+/// every connect and every Postgres cancel (clone is cheap, Arc-backed).
+///
+/// The provider is named explicitly because rustls 0.23 refuses to pick one
+/// when several are compiled in, and object_store pulls aws-lc-rs alongside
+/// our ring.
 pub(crate) fn rustls_client_config() -> rustls::ClientConfig {
     static CFG: OnceLock<rustls::ClientConfig> = OnceLock::new();
     CFG.get_or_init(|| {

@@ -49,6 +49,9 @@ pub use login::{cli_available, cli_binary, interactive_login, login_command};
 mod factory;
 pub use factory::{ProviderCreds, build_provider, resolve_ambient_creds};
 
+mod fetch;
+pub use fetch::{conn_for_url, fetch_url_to_temp, provider_for_url};
+
 mod buckets;
 pub use buckets::list_account_buckets;
 

@@ -12,7 +12,8 @@ they were confirmed in the portal.
   `9PF9BVRT9PX4`.
 - `AppxManifest.xml` carries the real identity and declares all 32 interface
   languages, which is what makes Partner Center offer 32 listing columns.
-- Nothing is published yet.
+- **Live** at <https://apps.microsoft.com/detail/9PF9BVRT9PX4> (manual path,
+  section A). Updates follow "Shipping a new version" below.
 
 ## A. Manual path (works, no Azure required)
 
@@ -25,7 +26,26 @@ verifies it by unpacking it again. The result is `windows/octa-<version>.0.msix`
 (gitignored). Pass a tag to pin a version.
 
 The package is **unsigned**, which is correct: Partner Center accepts unsigned
-packages and the Store signs them for distribution.
+packages and the Store signs them for distribution. Microsoft's own
+[submission requirements](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/app-package-requirements)
+say so outright, and re-sign only happens *after* certification passes.
+
+### 1b. Testing the package on Windows 11 (optional)
+
+    OCTA_MSIX_TEST=1 ./windows/build-msix.sh
+
+Same build, plus the unsigned-install OID in `Identity/Publisher`, output as
+`octa-<version>.0-test-unsigned.msix`. Copy it to a Windows 11 machine and, in
+an **elevated** PowerShell:
+
+    Add-AppxPackage -Path .\octa-<version>.0-test-unsigned.msix -AllowUnsigned
+
+Windows 11 refuses `-AllowUnsigned` without that OID ([docs](https://learn.microsoft.com/en-us/windows/msix/package/unsigned-package)),
+and the OID changes the package identity, so **this build must never be
+uploaded**. Uninstall afterwards with
+`Get-AppxPackage *OctaDataViewer* | Remove-AppxPackage`. This proves the package
+installs and the app launches; it says nothing about signing, since the OID
+build is a different identity from the one the Store signs.
 
 ### 2. Upload it
 
@@ -157,14 +177,22 @@ removed rather than left switched off.
 
 ## Notes
 
+- **Resource languages are validated by Windows, not just by the Store.** The
+  0.16.0.0 submission failed certification because `<Resource Language="sr" />`
+  is rejected at package registration (deployment error 0x80070057, "sr is not
+  a valid language"): Windows cannot tell Serbian Cyrillic from Latin, so the
+  tag must carry a script. Now `sr-cyrl`, matching `locales/sr.toml`. Every
+  other tag we declare is unambiguous. A tag that appears on the Store's
+  supported-languages list is *not* automatically valid for registration, so
+  test-install any locale change (section 1b) before submitting.
 - `build-msix.sh` builds Microsoft's cross-platform packer
   (`microsoft/msix-packaging`) into `windows/.msix-tools/` on first run, since
   `makeappx.exe` is Windows-only. It patches the upstream C++14 pin to C++17,
   without which the bundled build fails against modern system ICU headers.
 - The in-app updater is suppressed for Store copies via
   `src/platform.rs::is_store_packaged()`; the Store delivers their updates.
-- The Store listing section in `docs/getting-started/installation.md` is
-  commented out until the app is actually live. Uncomment it then.
+- The Store listing is documented in `docs/getting-started/installation.md`,
+  `docs/troubleshooting.md` and `README.md`, all pointing at the listing URL.
 - If `crt-static` (`.cargo/config.toml`) ever fails to link on Windows, the
   fallback is bundling the VC++ runtime DLLs into the MSIX or declaring a
   `Microsoft.VCLibs.140.00` dependency. Record the choice here.

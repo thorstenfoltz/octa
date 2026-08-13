@@ -1,4 +1,5 @@
 pub mod directory_tree;
+pub mod message;
 pub mod search_highlight;
 pub mod settings;
 pub mod shortcuts;

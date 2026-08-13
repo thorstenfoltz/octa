@@ -17,12 +17,13 @@ CLI mirror: [`octa --describe`](../../cli/describe.md).
 
 ## Input schema
 
-| Parameter     | Type    | Required? | Default      | Description                                                       |
-|---------------|---------|-----------|--------------|-------------------------------------------------------------------|
-| `path`        | string  | yes       | (no default) | Path to the file.                                                 |
-| `table`       | string  | no        | (no default) | Specific table for multi-table sources.                           |
-| `sample_rows` | integer | no        | `5`          | Sample-row count. Clamped to `[0, 100]`.                          |
-| `unlimited`   | boolean | no        | `false`      | Lift the 5,000,000-row file-loader cap so the row count is exact. |
+| Parameter     | Type    | Required? | Default      | Description                                                                                                                                             |
+|---------------|---------|-----------|--------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `path`        | string  | yes       | (no default) | Path to the file.                                                                                                                                       |
+| `table`       | string  | no        | (no default) | Specific table for multi-table sources.                                                                                                                 |
+| `sample_rows` | integer | no        | `5`          | Sample-row count. Clamped to `[0, 100]`.                                                                                                                |
+| `unlimited`   | boolean | no        | `false`      | Lift the 5,000,000-row file-loader cap so the row count is exact.                                                                                       |
+| `deep`        | boolean | no        | `false`      | Also report the file's physical layout: row groups, compression, encodings, column statistics, plus layout hints. Parquet only; ignored for `open_tab`. |
 
 For multi-table sources called without `table`, the reader's default
 behaviour applies, so call `list_tables` first if you're unsure.
@@ -93,6 +94,37 @@ Force an exact row count on a very large file:
   }
 }
 ```
+
+## Deep inspection
+
+With `deep: true` the response gains an `internals` object:
+
+```json
+{
+  "internals": {
+    "facts": {
+      "format": "Parquet",
+      "rows": "4200000",
+      "row_groups": "12",
+      "created_by": "parquet-cpp-arrow version 15.0.0",
+      "compressed_bytes": "812004221",
+      "uncompressed_bytes": "3104882190",
+      "bloom_filters": "0"
+    },
+    "hints": [
+      "No column statistics. Query engines cannot skip row groups without min/max values, so every read touches the whole file."
+    ]
+  }
+}
+```
+
+`facts` values are strings so the shape stays stable whatever the
+format. `hints` is a possibly empty array of plain-language warnings
+about small row groups, missing statistics, or missing compression.
+
+Use this when asked why a file is large or slow. Formats other than
+Parquet report their size and say they have no inspectable internal
+structure, which is an answer rather than an error.
 
 ## See also
 

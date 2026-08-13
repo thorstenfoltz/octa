@@ -4,7 +4,9 @@
 
 use eframe::egui;
 
-use super::state::OctaApp;
+use super::state::{OctaApp, UpdateState};
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 impl eframe::App for OctaApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -57,6 +59,15 @@ impl eframe::App for OctaApp {
             }
         }
 
+        // One background request per launch, opt-out in Settings. Kicked off
+        // from the first frame rather than `OctaApp::new` because it needs an
+        // `egui::Context` to wake the UI when the answer arrives.
+        if !self.startup_update_started && self.settings.check_updates_on_start {
+            self.startup_update_started = true;
+            self.check_for_updates(&ctx);
+        }
+        self.drain_startup_update_check();
+
         self.handle_shortcuts(&ctx);
         self.update_easter_egg_inputs(&ctx);
         self.drain_background_rows(&ctx);
@@ -75,6 +86,13 @@ impl eframe::App for OctaApp {
         self.drain_db_pending_open();
         self.drain_sql_server_job();
         self.drain_db_write_back_job();
+        self.drain_batch_convert();
+        self.drain_schema_drift();
+        self.drain_harmonise();
+        self.drain_report();
+        self.drain_fuzzy_join();
+        self.drain_ask_filter();
+        self.drain_ask_sql();
         self.expire_sql_diff_highlights(&ctx);
         self.drive_auto_save(&ctx);
 
@@ -92,6 +110,7 @@ impl eframe::App for OctaApp {
         self.render_status_bar(ui, filtered_count, search_active);
         self.render_sql_panel(ui);
         self.render_multi_search_panel(ui);
+        self.render_cleanup_panel(ui);
         self.render_chat_panel(ui);
         self.render_christmas_overlay(&ctx);
         self.render_central_panel(ui);
@@ -116,6 +135,49 @@ impl eframe::App for OctaApp {
 }
 
 impl OctaApp {
+    /// Act on the startup check exactly once. An available version either
+    /// raises the release-notes window or, when the user turned notes off,
+    /// says so in the status bar - the check would otherwise be a silent
+    /// no-op. "Up to date" and a failed request stay quiet: neither is worth
+    /// interrupting a launch for.
+    fn drain_startup_update_check(&mut self) {
+        if self.startup_update_seen || !self.startup_update_started {
+            return;
+        }
+        let state = self.update_state.lock().unwrap().clone();
+        match state {
+            UpdateState::Available { version, notes } => {
+                self.startup_update_seen = true;
+                if self.settings.show_release_notes
+                    && self.settings.last_release_notes_version != version
+                {
+                    self.pending_release_notes = Some((version, notes));
+                } else {
+                    self.status_message = Some((
+                        octa::i18n::t("release.toast").replace("{version}", &version),
+                        std::time::Instant::now(),
+                    ));
+                }
+            }
+            UpdateState::UpToDate { notes } => {
+                self.startup_update_seen = true;
+                // Notes for the version the user is already on. Shown once per
+                // version, so upgrading announces itself instead of waiting for
+                // the *next* release to exist. Silent when notes are off: there
+                // is nothing to act on, unlike an available update.
+                if self.settings.show_release_notes
+                    && self.settings.last_release_notes_version != VERSION
+                {
+                    self.pending_release_notes = Some((VERSION.to_string(), notes));
+                }
+            }
+            UpdateState::Error(_) => {
+                self.startup_update_seen = true;
+            }
+            _ => {}
+        }
+    }
+
     /// One-shot dialog offering a debug report after an unclean prior exit.
     fn render_crash_offer(&mut self, ctx: &egui::Context) {
         if !self.pending_crash_offer {

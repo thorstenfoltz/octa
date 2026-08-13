@@ -1,11 +1,13 @@
 # zh-hans: written natively, not translated from English.
 
-short = "在快速表格中打开 Parquet、CSV、Excel、SQLite 等约 30 种数据格式。排序、筛选、搜索、编辑并运行 SQL，全部在本地完成。"
+short = "在快速表格中打开 Parquet、CSV、Excel、SQLite 等约三十种数据格式。排序、筛选、搜索、编辑并运行 SQL，都在你自己的电脑上完成。"
 
 long = """
-Octa 可直接在高速表格中打开 Parquet、CSV、Excel、SQLite、DuckDB、JSON 等约三十种格式，无需导入，也无需任何配置。
+Octa 可以直接打开 Parquet、CSV、Excel、SQLite、DuckDB 和 JSON 文件，还支持大约三十种其他数据格式，无需导入，也不用费心配置。
 
-排序、筛选、搜索和编辑数据，使用 DuckDB 的 SQL 直接查询，生成图表，或比较两个文件。所有处理都在您自己的电脑上进行，不会上传任何文件。
+你可以排序、筛选、搜索和编辑数据，用 DuckDB 运行 SQL 查询，制作图表，或者比较两个文件。内置的聊天还能让你用日常语言询问自己的数据。
 
-界面支持 32 种语言。基于 MIT 许可证的自由开源软件。
+只要所用功能不需要外部 API，数据就在你自己的电脑上处理。
+
+界面支持 32 种语言。Octa 是采用 MIT 许可证的自由软件。
 """

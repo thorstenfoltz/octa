@@ -117,6 +117,13 @@ input.sas7bdat output.csv` is valid.
   the chosen Excel extension, since `rust_xlsxwriter` can't emit
   legacy `.xls` / `.xlsm` / `.xlsb`. Save those as `.xlsx`. `.ods`
   has its own dedicated reader+writer so it round-trips natively.
+- **Write options are the built-in defaults**, not the ones saved in
+  the app. Parquet output is `zstd`-compressed like everywhere else,
+  but the MCP server does not read `settings.toml` for the CSV
+  delimiter, quoting or row-group size: a server answering an agent
+  has no reason to inherit one desktop user's preferences. Use the
+  CLI [`--convert`](../../cli/convert.md) when you want the saved
+  settings honoured.
 - **Database outputs** (SQLite, DuckDB, GeoPackage) write a single
   table named after the input's stem. Both `run_sql` (here) and
   `octa --sql` use ephemeral DuckDB sessions, so neither persists

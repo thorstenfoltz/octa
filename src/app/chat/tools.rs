@@ -86,6 +86,7 @@ macro_rules! define_chat_tools {
 /// the model and refused by `dispatch` when the profile disallows writes
 /// (`ctx.read_only`).
 pub const WRITE_TOOL_NAMES: &[&str] = &[
+    "batch_convert",
     "copy_object",
     "move_object",
     "delete_object",
@@ -100,6 +101,8 @@ pub const WRITE_TOOL_NAMES: &[&str] = &[
     "copy_db_table",
     "write_text",
     "create_chart",
+    "create_report",
+    "harmonise_schemas",
 ];
 
 /// The tool list for a profile: everything, minus the write tools when the
@@ -136,7 +139,16 @@ define_chat_tools! {
     "validate_against_schema"  => validate_schema,
     "describe_file"            => describe_file,
     "unique_columns"           => unique_columns,
+    "schema_drift"             => schema_drift,
+    "create_report"            => create_report,
+    "fuzzy_join"               => fuzzy_join,
+    "suggest_join_keys"        => suggest_join_keys,
+    "diagnose_join"            => diagnose_join,
+    "harmonise_schemas"        => harmonise_schemas,
     "pivot"                    => pivot,
+    "batch_convert"            => batch_convert,
+    "resample_timeseries"      => resample,
+    "rolling_window"           => rolling_window,
     "correlation"              => correlation,
     "grep_files"               => grep_files,
     "list_objects"             => list_objects,

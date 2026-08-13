@@ -55,3 +55,8 @@ multiple-versions = "allow"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+# The single git dependency, via `[patch.crates-io]` in Cargo.toml: our fork of
+# tiberius carrying the rustls 0.23 migration that upstream has not released.
+# See that patch section for the removal condition.
+allow-git = ["https://github.com/thorstenfoltz/tiberius"]

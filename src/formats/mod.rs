@@ -31,6 +31,8 @@ pub mod sqlite_reader;
 pub mod stata_reader;
 pub mod text_reader;
 pub mod toml_reader;
+pub mod write_options;
+pub mod xlsx_style;
 pub mod xml_reader;
 pub mod yaml_reader;
 
@@ -105,6 +107,11 @@ pub fn read_table_auto(
     };
     // Point provenance at the file the user named, not the temp.
     t.source_path = Some(path.to_string_lossy().to_string());
+    // European-formatted numbers (1.234,56) are text to every reader, because
+    // Rust's f64 parser only accepts the bare English form. Promote the columns
+    // whose convention is unambiguous; ambiguous ones stay text, since there is
+    // nobody to ask on a headless surface (the GUI prompts instead).
+    crate::data::num_parse::promote_certain_columns(&mut t);
     Ok(t)
 }
 
@@ -199,6 +206,20 @@ pub trait FormatReader: Send + Sync {
     /// Read a file into a DataTable.
     fn read_file(&self, path: &Path) -> Result<DataTable>;
 
+    /// The column list without materialising rows.
+    ///
+    /// The default body reads the file and takes its columns, so a reader that
+    /// does not override this keeps working unchanged. Formats carrying a
+    /// schema in a footer or header override it and read only that, which is
+    /// what makes a scan over hundreds of files affordable.
+    ///
+    /// An override must produce exactly what `read_file` would report,
+    /// including any columns that reader hides. `tests/read_schema_tests.rs`
+    /// pins the two together.
+    fn read_schema(&self, path: &Path) -> Result<Vec<ColumnInfo>> {
+        Ok(self.read_file(path)?.columns)
+    }
+
     /// Optionally write a DataTable back to a file.
     /// Returns an error by default (read-only format).
     fn write_file(&self, _path: &Path, _table: &DataTable) -> Result<()> {
@@ -215,6 +236,20 @@ pub trait FormatReader: Send + Sync {
         path: &std::path::Path,
         table: &crate::data::DataTable,
         _allow_schema_changes: bool,
+        opts: &write_options::WriteOptions,
+    ) -> anyhow::Result<()> {
+        self.write_file_with_options(path, table, opts)
+    }
+
+    /// Write `table` to `path` honouring `opts`. The default ignores the
+    /// options and calls `write_file`, so only the formats with knobs worth
+    /// turning (Parquet, CSV) override this and the other thirty readers are
+    /// untouched.
+    fn write_file_with_options(
+        &self,
+        path: &std::path::Path,
+        table: &crate::data::DataTable,
+        _opts: &write_options::WriteOptions,
     ) -> anyhow::Result<()> {
         self.write_file(path, table)
     }

@@ -89,6 +89,13 @@ impl OctaApp {
         {
             return false;
         }
+        // An `.xlsx` tab carrying colours, frozen columns or number formats
+        // would pop the "include formatting?" prompt.
+        if let Some(path) = tab.table.source_path.as_ref()
+            && self.save_would_ask_about_style(idx, std::path::Path::new(path))
+        {
+            return false;
+        }
         // A database schema change (added/removed columns vs the on-disk table)
         // would pop the schema-change confirm. Non-schema DB edits save fine.
         if let Some(meta) = tab.table.db_meta.as_ref() {

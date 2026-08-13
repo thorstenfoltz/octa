@@ -45,3 +45,33 @@ fn parse_sha256sums_lowercases_hashes() {
         Some("abc3456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
     );
 }
+
+#[test]
+fn parse_release_strips_the_tag_prefix_and_trims_the_notes() {
+    let (version, notes) =
+        parse_release(r#"{"tag_name": "v0.17.0", "body": "Added a thing\n\n"}"#).unwrap();
+    assert_eq!(version, "0.17.0");
+    assert_eq!(notes, "Added a thing");
+}
+
+#[test]
+fn parse_release_tolerates_a_release_published_without_notes() {
+    // GitHub omits `body`, or sends null, for a release with no description.
+    // Neither may fail the check: the tag is the part that decides whether an
+    // update exists at all.
+    for json in [
+        r#"{"tag_name": "1.0.0"}"#,
+        r#"{"tag_name": "1.0.0", "body": null}"#,
+        r#"{"tag_name": "1.0.0", "body": ""}"#,
+    ] {
+        let (version, notes) = parse_release(json).unwrap();
+        assert_eq!(version, "1.0.0", "for {json}");
+        assert!(notes.is_empty(), "for {json}");
+    }
+}
+
+#[test]
+fn parse_release_rejects_a_response_without_a_tag() {
+    assert!(parse_release(r#"{"body": "notes only"}"#).is_err());
+    assert!(parse_release("not json at all").is_err());
+}

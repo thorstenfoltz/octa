@@ -235,6 +235,71 @@ impl OctaApp {
             });
         }
     }
+
+    /// Promote text columns holding European- or English-formatted numbers.
+    ///
+    /// Runs after `run_date_inference_pass`, so a promoted `31.12.2024` column
+    /// is already typed `Date32` and is skipped here. Columns whose convention
+    /// cannot be decided from the data queue a picker rather than being
+    /// guessed at, exactly as ambiguous dates do.
+    pub(crate) fn run_number_inference_pass(&mut self, tab_idx: usize) {
+        if tab_idx >= self.tabs.len() {
+            return;
+        }
+        let (promoted, ambiguous) =
+            octa::data::num_parse::promote_columns_with_snapshot(&mut self.tabs[tab_idx].table);
+
+        if !promoted.is_empty() {
+            self.tabs[tab_idx].filter_dirty = true;
+            self.tabs[tab_idx].table_state.invalidate_row_heights();
+            let entries: Vec<crate::app::state::NumberPromotionInfo> = promoted
+                .into_iter()
+                .map(|(col_idx, style, original_values)| {
+                    let column_name = self.tabs[tab_idx]
+                        .table
+                        .columns
+                        .get(col_idx)
+                        .map(|c| c.name.clone())
+                        .unwrap_or_default();
+                    crate::app::state::NumberPromotionInfo {
+                        col_idx,
+                        column_name,
+                        style_label: style.label(),
+                        original_values,
+                    }
+                })
+                .collect();
+            self.pending_number_warning =
+                Some(crate::app::state::NumberWarning { tab_idx, entries });
+        }
+
+        for col_idx in ambiguous {
+            let table = &self.tabs[tab_idx].table;
+            let col_name = table
+                .columns
+                .get(col_idx)
+                .map(|c| c.name.clone())
+                .unwrap_or_default();
+            let samples: Vec<String> = table
+                .rows
+                .iter()
+                .filter_map(|r| match r.get(col_idx) {
+                    Some(octa::data::CellValue::String(s)) if !s.trim().is_empty() => {
+                        Some(s.clone())
+                    }
+                    _ => None,
+                })
+                .take(5)
+                .collect();
+            self.pending_number_pickers
+                .push_back(crate::app::state::NumberAmbiguity {
+                    tab_idx,
+                    col_idx,
+                    col_name,
+                    samples,
+                });
+        }
+    }
 }
 
 #[cfg(test)]

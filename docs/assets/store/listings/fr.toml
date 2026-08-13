@@ -1,11 +1,13 @@
-# fr: eigenstaendig verfasst / written natively, not translated.
+# fr: written natively, not translated from English.
 
-short = "Ouvrez Parquet, CSV, Excel, SQLite et une trentaine d'autres formats dans un tableau rapide. Tri, filtres, recherche, édition et requêtes SQL, en local."
+short = "Parquet, CSV, Excel, SQLite et une trentaine d'autres formats dans un tableau rapide. Trier, filtrer, rechercher, modifier et interroger en SQL, sur ta machine."
 
 long = """
-Octa ouvre Parquet, CSV, Excel, SQLite, DuckDB, JSON et une trentaine d'autres formats directement dans un tableau réactif. Sans import, sans configuration.
+Octa ouvre les fichiers Parquet, CSV, Excel, SQLite, DuckDB et JSON, ainsi qu'une trentaine d'autres formats de données, sans import préalable ni configuration compliquée.
 
-Triez, filtrez, recherchez et modifiez vos données, interrogez-les en SQL avec DuckDB, créez des graphiques ou comparez deux fichiers. Tout s'exécute sur votre machine : aucun fichier n'est envoyé ailleurs.
+Tu peux trier, filtrer, rechercher et modifier tes données, lancer des requêtes SQL avec DuckDB, créer des graphiques ou comparer deux fichiers. Le chat intégré te permet aussi d'interroger tes données en langage naturel.
 
-Interface en 32 langues. Logiciel libre sous licence MIT.
+Le traitement de tes données se fait localement sur ta machine, sauf si la fonction utilisée a besoin d'une API externe.
+
+L'interface est disponible en 32 langues. Octa est un logiciel libre sous licence MIT.
 """

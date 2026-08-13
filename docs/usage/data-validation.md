@@ -34,6 +34,18 @@ over the red validation highlight.
 **Add rule** appends a new rule, the **X** button removes one, and **Clear
 all** removes them all.
 
+## Stepping through violations
+
+Violations are painted in place, which is no help in a table with two
+hundred thousand rows. <kbd>F10</kbd> jumps to the next flagged cell and
+<kbd>Shift</kbd>+<kbd>F10</kbd> to the previous one; both wrap around and
+the status bar reports `Problem 3 of 27` as you go.
+
+The same keys also step through cells flagged by
+[Detect Outliers](detect-outliers.md), since both are "cells worth
+looking at". Rows hidden by the current filter are skipped, so the
+counter always matches what you can actually see.
+
 ## See also
 
 - [Conditional Formatting](conditional-formatting.md) colours cells by a

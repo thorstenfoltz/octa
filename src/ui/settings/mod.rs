@@ -5,6 +5,8 @@ pub mod cloud_secrets;
 pub mod db_secrets;
 mod dialog;
 pub mod secrets;
+pub mod write_options_ui;
+pub use write_options_ui::render_write_options;
 
 use std::path::{Path, PathBuf};
 
@@ -766,6 +768,21 @@ pub struct AppSettings {
     /// comes up at [`AppSettings::window_size`] instead.
     #[serde(default = "default_true")]
     pub start_maximized: bool,
+    /// Ask GitHub for the latest release once per launch. Default `true`.
+    /// The check is a single background request and never installs anything
+    /// by itself; it only decides whether the new-release window appears.
+    #[serde(default = "default_true")]
+    pub check_updates_on_start: bool,
+    /// Show the release notes of a newly discovered version once, in a
+    /// window the user can dismiss for good. Default `true`. Independent of
+    /// [`AppSettings::check_updates_on_start`]: with notes off but the check
+    /// on, an available update is announced in the status bar instead.
+    #[serde(default = "default_true")]
+    pub show_release_notes: bool,
+    /// Version whose notes were last shown. Keeps the window to once per
+    /// release rather than once per launch.
+    #[serde(default)]
+    pub last_release_notes_version: String,
     /// Whether to pop a confirmation modal each time read-only mode is
     /// toggled (via shortcut or menu). Setting to `false` silences the
     /// notice; the read-only state still flips, you just don't see the
@@ -936,6 +953,13 @@ pub struct AppSettings {
     /// loads leave cell values exactly as stored unless the user opts in.
     #[serde(default)]
     pub trim_whitespace_on_load: bool,
+
+    /// Default writer knobs (Parquet compression / row groups, CSV quoting and
+    /// line endings). Applied by Save As, Convert and batch convert unless the
+    /// dialog overrides them for one operation. The defaults reproduce what
+    /// Octa wrote before these existed.
+    #[serde(default)]
+    pub write_options: crate::formats::write_options::WriteOptions,
     /// Whether to normalise column headers to lower snake_case identifiers when
     /// a file is loaded (trim, lowercase, non-alphanumeric runs -> `_`,
     /// de-collide repeats with `_2`). Default `false` - headers load verbatim
@@ -1273,6 +1297,9 @@ impl Default for AppSettings {
             shortcuts: Shortcuts::default(),
             window_size: WindowSize::default(),
             start_maximized: true,
+            check_updates_on_start: true,
+            show_release_notes: true,
+            last_release_notes_version: String::new(),
             show_readonly_notice: true,
             use_custom_title_bar: true,
             syntax_highlight_max_bytes: default_syntax_highlight_max_bytes(),
@@ -1300,6 +1327,7 @@ impl Default for AppSettings {
             table_picker_visible_rows: default_table_picker_visible_rows(),
             excel_max_auto_sheets: default_excel_max_auto_sheets(),
             trim_whitespace_on_load: false,
+            write_options: crate::formats::write_options::WriteOptions::default(),
             clean_headers_on_load: false,
             warn_on_whitespace_trim: true,
             offer_repair_on_malformed: false,
@@ -1558,6 +1586,9 @@ pub struct SettingsDialog {
     /// Buffer backing the SQL row-limit text input. Parsed into the draft
     /// on Apply so the user can type freely without drag widgets fighting them.
     sql_row_limit_buf: String,
+    /// Text buffer behind the default Parquet row-group size. Empty means
+    /// "leave it to the writer".
+    write_row_group_buf: String,
     /// Buffer backing the syntax-highlight size text input. Holds the value
     /// in whichever unit `syntax_highlight_size_unit` currently picks, with
     /// comma thousand separators so it matches Octa's display conventions.

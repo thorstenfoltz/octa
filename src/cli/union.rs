@@ -21,6 +21,7 @@ pub fn run(
     union_file: Vec<PathBuf>,
     drop: Vec<String>,
     cast: Vec<String>,
+    ignore_case: bool,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     let all_paths: Vec<PathBuf> = files.into_iter().chain(union_file).collect();
@@ -37,7 +38,7 @@ pub fn run(
 
     let schemas: Vec<&[octa::data::ColumnInfo]> =
         tables.iter().map(|t| t.columns.as_slice()).collect();
-    let mut plan = plan_union(&schemas);
+    let mut plan = plan_union(&schemas, ignore_case);
 
     // Apply --union-drop
     for col_name in &drop {

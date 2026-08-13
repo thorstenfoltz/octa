@@ -27,6 +27,7 @@ const KINDS: &[TimeCalcKind] = &[
     TimeCalcKind::ConvertDuration,
     TimeCalcKind::Extract,
     TimeCalcKind::UnixConvert,
+    TimeCalcKind::ConvertTimezone,
 ];
 
 const UNIX_UNITS: &[UnixUnit] = &[
@@ -87,6 +88,9 @@ impl OctaApp {
             col_b,
             new_name: "calc".to_string(),
             insert_at_text: (col_count + 1).to_string(),
+            tz_from: chrono_tz::UTC,
+            tz_to: chrono_tz::UTC,
+            tz_filter: String::new(),
         });
     }
 }
@@ -274,6 +278,62 @@ pub(crate) fn render_time_calc_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                     });
                             });
                         }
+                        TimeCalcKind::ConvertTimezone => {
+                            column_picker(
+                                ui,
+                                &octa::i18n::t("dialog.tc_date_column"),
+                                "tc_tz_col",
+                                &mut state.col_a,
+                                &col_names,
+                            );
+                            ui.horizontal(|ui| {
+                                ui.label(octa::i18n::t("dialog.tc_tz_filter"))
+                                    .on_hover_text(octa::i18n::t("dialog.tc_tz_filter_hint"));
+                                ui.text_edit_singleline(&mut state.tz_filter);
+                            });
+                            // 597 IANA zones is far too many to scroll, so both
+                            // pickers narrow together from one filter box.
+                            let needle = state.tz_filter.to_ascii_lowercase();
+                            let zones: Vec<chrono_tz::Tz> = chrono_tz::TZ_VARIANTS
+                                .iter()
+                                .copied()
+                                .filter(|z| {
+                                    needle.is_empty()
+                                        || z.name().to_ascii_lowercase().contains(&needle)
+                                })
+                                .collect();
+                            for (label, hint, id, target) in [
+                                (
+                                    octa::i18n::t("dialog.tc_tz_from"),
+                                    octa::i18n::t("dialog.tc_tz_from_hint"),
+                                    "tc_tz_from",
+                                    &mut state.tz_from,
+                                ),
+                                (
+                                    octa::i18n::t("dialog.tc_tz_to"),
+                                    octa::i18n::t("dialog.tc_tz_to_hint"),
+                                    "tc_tz_to",
+                                    &mut state.tz_to,
+                                ),
+                            ] {
+                                ui.horizontal(|ui| {
+                                    ui.label(&label).on_hover_text(&hint);
+                                    egui::ComboBox::from_id_salt(id)
+                                        .selected_text(target.name())
+                                        .height(420.0)
+                                        .show_ui(ui, |ui| {
+                                            for z in &zones {
+                                                ui.selectable_value(target, *z, z.name());
+                                            }
+                                        });
+                                });
+                            }
+                            ui.label(
+                                RichText::new(octa::i18n::t("dialog.tc_tz_note"))
+                                    .italics()
+                                    .weak(),
+                            );
+                        }
                         TimeCalcKind::UnixConvert => {
                             ui.horizontal(|ui| {
                                 ui.label(octa::i18n::t("dialog.tc_unix_direction"));
@@ -378,6 +438,7 @@ fn kind_label(kind: TimeCalcKind) -> String {
         TimeCalcKind::ConvertDuration => "dialog.tc_kind_convert",
         TimeCalcKind::Extract => "dialog.tc_kind_extract",
         TimeCalcKind::UnixConvert => "dialog.tc_kind_unix",
+        TimeCalcKind::ConvertTimezone => "dialog.tc_kind_timezone",
     })
 }
 
@@ -458,6 +519,10 @@ fn apply_time_calc(app: &mut OctaApp) {
             direction: state.unix_direction,
             unit: state.unix_unit,
         },
+        TimeCalcKind::ConvertTimezone => TimeCalcOp::ConvertTimezone {
+            from: state.tz_from,
+            to: state.tz_to,
+        },
     };
 
     let tab = &mut app.tabs[app.active_tab];
@@ -473,11 +538,46 @@ fn apply_time_calc(app: &mut OctaApp) {
 
     let row_count = tab.table.row_count();
     let type_hint = data::time_calc::result_type_name(op);
+
+    // ConvertTimezone goes through the column helper rather than the generic
+    // per-row loop below: `evaluate_cell` collapses "DST-ambiguous" and "not a
+    // datetime" into a single `None`, and the whole point of the ambiguity
+    // report is that those two are different. Read before `insert_column` so an
+    // insert position at or left of the source cannot shift it underneath us.
+    let tz_result = if let TimeCalcOp::ConvertTimezone { from, to } = op {
+        let values: Vec<CellValue> = (0..row_count)
+            .map(|row| {
+                tab.table
+                    .get(row, state.col_a)
+                    .cloned()
+                    .unwrap_or(CellValue::Null)
+            })
+            .collect();
+        Some(data::time_calc::convert_timezone_column(&values, from, to))
+    } else {
+        None
+    };
+
     tab.table.insert_column(
         idx,
         state.new_name.trim().to_string(),
         type_hint.to_string(),
     );
+
+    if let Some((converted, ambiguous)) = tz_result {
+        for (row, value) in converted.into_iter().enumerate() {
+            tab.table.set(row, idx, value);
+        }
+        if ambiguous > 0 {
+            tab.parse_error_banner = Some(format!(
+                "{ambiguous} {}",
+                octa::i18n::t("dialog.tc_tz_ambiguous")
+            ));
+        }
+        tab.table_state.widths_initialized = false;
+        tab.filter_dirty = true;
+        return;
+    }
 
     let mut skipped = 0usize;
     let mut produced_type: Option<&'static str> = None;

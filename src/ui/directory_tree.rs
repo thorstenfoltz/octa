@@ -61,9 +61,14 @@ pub struct TreeAction {
     /// User chose "Union selected files..." from a selected file's context
     /// menu. Carries the selected paths (always 2 or more).
     pub union_files: Option<Vec<PathBuf>>,
+    /// User chose "Convert selected files..." from the selection bar or a
+    /// selected file's context menu. Carries the selected paths.
+    pub convert_files: Option<Vec<PathBuf>>,
     /// User chose "Open as dataset..." on a directory: open the folder of
     /// part files as one table (Hive partitioning).
     pub open_dataset: Option<PathBuf>,
+    /// Folder whose files should be compared for schema drift.
+    pub scan_schemas: Option<PathBuf>,
 }
 
 const INDENT_PER_LEVEL: f32 = 14.0;
@@ -286,6 +291,18 @@ pub fn render_directory_tree(
                 action.union_files = Some(files);
             }
             if ui
+                .add_enabled(
+                    count >= 1,
+                    egui::Button::new(crate::i18n::t("batch.convert_btn")).small(),
+                )
+                .on_hover_text(crate::i18n::t("batch.convert_hint"))
+                .clicked()
+            {
+                let mut files: Vec<PathBuf> = state.selected.iter().cloned().collect();
+                files.sort();
+                action.convert_files = Some(files);
+            }
+            if ui
                 .small_button("×")
                 .on_hover_text(crate::i18n::t("union_tree.clear"))
                 .clicked()
@@ -478,7 +495,9 @@ fn draw_dir(
         let selection_len = state.selected.len();
         let mut clear_selection = false;
         let mut union_now = false;
+        let mut convert_now = false;
         let mut open_dataset = false;
+        let mut scan_schemas = false;
         resp.context_menu(|ui| {
             if ui
                 .button(crate::i18n::t("context_menu.copy_name"))
@@ -495,6 +514,14 @@ fn draw_dir(
                     .clicked()
                 {
                     open_dataset = true;
+                    ui.close();
+                }
+                if ui
+                    .button(crate::i18n::t("drift.scan_schemas"))
+                    .on_hover_text(crate::i18n::t("drift.scan_schemas_hint"))
+                    .clicked()
+                {
+                    scan_schemas = true;
                     ui.close();
                 }
             }
@@ -521,6 +548,20 @@ fn draw_dir(
                         egui::Button::new(crate::i18n::t("union_tree.need_two")),
                     );
                 }
+                // Batch convert needs only one file, so it is offered on any
+                // selected row rather than gated at two like Union.
+                if is_selected
+                    && ui
+                        .button(format!(
+                            "{} ({selection_len})",
+                            crate::i18n::t("batch.convert_btn")
+                        ))
+                        .on_hover_text(crate::i18n::t("batch.convert_hint"))
+                        .clicked()
+                {
+                    convert_now = true;
+                    ui.close();
+                }
             }
             if selection_len > 0 && ui.button(crate::i18n::t("union_tree.clear")).clicked() {
                 clear_selection = true;
@@ -531,6 +572,14 @@ fn draw_dir(
             let mut files: Vec<PathBuf> = state.selected.iter().cloned().collect();
             files.sort();
             action.union_files = Some(files);
+        }
+        if convert_now {
+            let mut files: Vec<PathBuf> = state.selected.iter().cloned().collect();
+            files.sort();
+            action.convert_files = Some(files);
+        }
+        if scan_schemas {
+            action.scan_schemas = Some(entry.clone());
         }
         if open_dataset {
             action.open_dataset = Some(entry.clone());

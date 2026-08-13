@@ -5,7 +5,9 @@ Octa is a desktop application for viewing and editing tabular data files.
 **Octa is fully offline by default.** It collects no personal data, sends no
 telemetry or analytics, and does no remote logging or crash reporting. Your
 files are opened and edited locally, and are not sent anywhere unless you
-enable one of the optional features described below.
+enable one of the optional features described below. The one exception is the
+version check: Octa asks GitHub once per launch whether a newer release exists,
+and you can switch that off under **Settings -> Updates**.
 
 There are a few optional outbound network calls, all of which you control:
 
@@ -19,11 +21,18 @@ There are a few optional outbound network calls, all of which you control:
   machine), nothing leaves your machine. Any API key you enter is stored locally
   on your device (operating-system keychain where available, otherwise Octa's
   settings file) and is sent only to its provider.
-- **Update check.** When you choose **Help -> Check for updates**, Octa queries
-  the GitHub releases API
+- **Ask (search bar and SQL panel).** The plain-language **Ask** boxes send one
+  request to the same provider your chat profile names. They send your question
+  plus the active table's **column names, their types and its row count** - not
+  the cell values. Both are inert until a chat profile exists.
+- **Update check.** Octa queries the GitHub releases API
   (`https://api.github.com/repos/thorstenfoltz/octa/releases`) to compare
-  versions. Copies installed from the Microsoft Store do not do this; the Store
-  handles their updates.
+  versions: once per launch by default, and whenever you choose **Help -> Check
+  for updates**. The request carries Octa's version in the `User-Agent` header
+  and nothing else, and it downloads and installs nothing by itself. Turn
+  **Settings -> Updates -> Check for updates at start** off to limit it to the
+  menu entry. Copies installed from the Microsoft Store are updated by the
+  Store; the check there only tells you a new version exists.
 - **Map tiles.** When you open a geographic file in **Map** view, Octa fetches
   background map tiles from OpenStreetMap (`tile.openstreetmap.org`). Switch the
   Map view to geometry-only to avoid this.

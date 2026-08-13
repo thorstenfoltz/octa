@@ -80,7 +80,7 @@ impl CondOp {
 }
 
 /// One conditional-formatting rule.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CondRule {
     /// Column this rule applies to, or `None` to apply to every column.
     pub column: Option<usize>,

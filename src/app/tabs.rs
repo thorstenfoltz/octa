@@ -89,6 +89,7 @@ impl TabState {
             delete_col_selection: Vec::new(),
             time_calc: None,
             sql_query: String::new(),
+            sql_ask_input: String::new(),
             sql_result: None,
             sql_error: None,
             sql_result_selected: None,
@@ -140,6 +141,9 @@ impl TabState {
             custom_tab_label: None,
             user_tab_name: None,
             column_filters: std::collections::HashMap::new(),
+            predicate_filters: Vec::new(),
+            search_ask_mode: false,
+            search_ask_profile: String::new(),
             show_column_filter: false,
             column_filter_size: octa::ui::settings::DialogSize::default(),
             column_filter_picker_col: None,
@@ -225,6 +229,11 @@ impl TabState {
         }
         if has_map {
             modes.push(ViewMode::Map);
+        }
+        // Record view reads whatever the Table view reads, so it is offered
+        // for any tab that has columns. Chart tabs returned early above.
+        if self.table.col_count() > 0 {
+            modes.push(ViewMode::Record);
         }
         // Chart is **not** in the View menu - it opens via the Analyse ->
         // Chart toolbar button as its own dedicated tab. Adding it here
@@ -486,6 +495,65 @@ impl OctaApp {
             "{} - {source_label}",
             octa::i18n::t("summary.tab_label")
         ));
+        self.tabs.push(new_tab);
+        self.active_tab = self.tabs.len() - 1;
+    }
+
+    /// Open the active file's physical layout in a detached read-only tab: one
+    /// row per column per row group, with the file-level facts and any layout
+    /// hints in the tab's banner. Needs a file on disk, since an in-memory or
+    /// unsaved tab has no internals to report.
+    pub(crate) fn open_file_internals_tab(&mut self) {
+        let Some(source) = self.tabs.get(self.active_tab) else {
+            return;
+        };
+        let Some(path) = source.table.source_path.clone() else {
+            self.status_message = Some((
+                octa::i18n::t("internals.needs_file"),
+                std::time::Instant::now(),
+            ));
+            return;
+        };
+        let path = std::path::PathBuf::from(path);
+        let source_label = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| source.title_display());
+
+        let internals = match octa::data::file_internals::inspect(&path) {
+            Ok(i) => i,
+            Err(e) => {
+                self.status_message = Some((
+                    format!("{}: {e}", octa::i18n::t("internals.failed")),
+                    std::time::Instant::now(),
+                ));
+                return;
+            }
+        };
+
+        // Facts and hints ride above the grid in the tab's dismissible banner;
+        // the grid itself is the row-group / column matrix.
+        let mut banner = internals
+            .facts
+            .iter()
+            .map(|(k, v)| format!("{k}: {v}"))
+            .collect::<Vec<_>>()
+            .join("  |  ");
+        for hint in &internals.hints {
+            banner.push('\n');
+            banner.push_str(hint);
+        }
+
+        let default_search_mode = self.settings.default_search_mode;
+        let mut new_tab = super::state::TabState::new(default_search_mode);
+        new_tab.table = internals.chunks;
+        new_tab.table.source_path = None;
+        new_tab.table.format_name = None;
+        new_tab.custom_tab_label = Some(format!(
+            "{} - {source_label}",
+            octa::i18n::t("internals.tab_label")
+        ));
+        new_tab.parse_error_banner = Some(banner);
         self.tabs.push(new_tab);
         self.active_tab = self.tabs.len() - 1;
     }

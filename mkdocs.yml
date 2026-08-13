@@ -118,14 +118,24 @@ nav:
       - Drop Duplicate Rows: usage/drop-duplicate-rows.md
       - Union Tables: usage/union-tables.md
       - Join Tables: usage/join-tables.md
+      - Fuzzy Join: usage/fuzzy-join.md
+      - Join Key Finder: usage/join-key-finder.md
+      - Join Diagnostics: usage/join-diagnostics.md
+      - Schema Drift: usage/schema-drift.md
+      - Harmonise Schemas: usage/harmonise-schemas.md
       - Partition by Column: usage/partition-by-column.md
       - Clean Headers on Load: usage/clean-headers.md
+      - Batch Convert: usage/batch-convert.md
       - Table Tools: usage/table-tools.md
       - Auto-save: usage/auto-save.md
       - Value Frequency: usage/value-frequency.md
       - Find Near-Duplicates: usage/find-near-duplicates.md
       - Summary: usage/summary.md
       - Data Quality Report: usage/data-quality-report.md
+      - Report: usage/report.md
+      - File Internals: usage/file-internals.md
+      - Clean-up Suggestions: usage/cleanup-suggestions.md
+      - Time Series: usage/time-series.md
       - Pivot / Unpivot: usage/pivot.md
       - Correlation: usage/correlation.md
       - Schema Export: usage/schema-export.md
@@ -138,6 +148,7 @@ nav:
       - Cloud Storage: usage/cloud-storage.md
       - Cloud Inventory: usage/cloud-inventory.md
       - Database Connections: usage/database-connections.md
+      - Compare with Database or Cloud: usage/compare-with-database.md
       - View Modes:
           - Overview: usage/view-modes/overview.md
           - Raw Text: usage/view-modes/raw-text.md
@@ -146,6 +157,7 @@ nav:
           - Notebook: usage/view-modes/notebook.md
           - EPUB Reader: usage/view-modes/epub-reader.md
           - Map: usage/view-modes/map.md
+          - Record: usage/view-modes/record.md
           - Compare: usage/view-modes/compare.md
   - Command Line:
       - Overview: cli/index.md
@@ -160,6 +172,9 @@ nav:
       - "--diff": cli/diff.md
       - "--describe": cli/describe.md
       - "--validate-schema": cli/validate-schema.md
+      - "--schema-drift": cli/schema-drift.md
+      - "--report": cli/report.md
+      - "--fuzzy-join": cli/fuzzy-join.md
       - "--unique-columns": cli/unique-columns.md
       - "--anonymize": cli/anonymize.md
       - "--detect-pii": cli/pii.md
@@ -169,6 +184,8 @@ nav:
       - "--union": cli/union.md
       - "--join": cli/join.md
       - "--partition-by": cli/partition.md
+      - "--batch-convert": cli/batch-convert.md
+      - "--resample / --rolling": cli/timeseries.md
       - Docker / Podman: cli/docker.md
       - Cloud storage: cli/cloud.md
       - Man Page: cli/man-page.md
@@ -196,7 +213,16 @@ nav:
           - describe_file: mcp/tools/describe_file.md
           - validate_against_schema: mcp/tools/validate_against_schema.md
           - unique_columns: mcp/tools/unique_columns.md
+          - schema_drift: mcp/tools/schema_drift.md
+          - harmonise_schemas: mcp/tools/harmonise_schemas.md
+          - create_report: mcp/tools/create_report.md
+          - fuzzy_join: mcp/tools/fuzzy_join.md
+          - suggest_join_keys: mcp/tools/suggest_join_keys.md
+          - diagnose_join: mcp/tools/diagnose_join.md
           - pivot: mcp/tools/pivot.md
+          - batch_convert: mcp/tools/batch_convert.md
+          - resample_timeseries: mcp/tools/resample_timeseries.md
+          - rolling_window: mcp/tools/rolling_window.md
           - correlation: mcp/tools/correlation.md
           - grep_files: mcp/tools/grep_files.md
           - list_objects: mcp/tools/list_objects.md
@@ -219,6 +245,7 @@ nav:
       - Troubleshooting: mcp/troubleshooting.md
   - Reference:
       - Settings: reference/settings.md
+      - Updates: reference/updates.md
       - Languages: reference/languages.md
       - Keyboard Shortcuts: reference/shortcuts.md
       - CSV Quote / Escape: reference/csv-quote-escape.md

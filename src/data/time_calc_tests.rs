@@ -310,3 +310,60 @@ fn parses_european_string_dates() {
     );
     assert_eq!(out, Some(CellValue::Float(7.0)));
 }
+
+// --- Timezone conversion -------------------------------------------------
+//
+// Octa datetimes are `Timestamp(Microsecond, None)`, i.e. always naive, so both
+// daylight-saving edges are reachable and neither has a single correct answer.
+// These pin the refusal rather than a guess.
+
+#[test]
+fn timezone_converts_a_plain_instant() {
+    let v = CellValue::DateTime("2024-01-15 12:00:00".to_string());
+    match convert_cell_timezone(&v, chrono_tz::UTC, chrono_tz::Asia::Tokyo) {
+        TzOutcome::Converted(dt) => assert_eq!(format_datetime(dt), "2024-01-15 21:00:00"),
+        other => panic!("expected Converted, got {other:?}"),
+    }
+}
+
+#[test]
+fn autumn_overlap_is_ambiguous_not_guessed() {
+    // 02:30 on 2024-10-27 happens twice in Europe/Berlin.
+    let v = CellValue::DateTime("2024-10-27 02:30:00".to_string());
+    let got = convert_cell_timezone(&v, chrono_tz::Europe::Berlin, chrono_tz::UTC);
+    assert!(matches!(got, TzOutcome::Ambiguous), "got {got:?}");
+}
+
+#[test]
+fn spring_gap_is_ambiguous_not_guessed() {
+    // 02:30 on 2024-03-31 never happens in Europe/Berlin.
+    let v = CellValue::DateTime("2024-03-31 02:30:00".to_string());
+    let got = convert_cell_timezone(&v, chrono_tz::Europe::Berlin, chrono_tz::UTC);
+    assert!(matches!(got, TzOutcome::Ambiguous), "got {got:?}");
+}
+
+#[test]
+fn non_datetime_is_reported_separately_from_ambiguous() {
+    let v = CellValue::String("not a date".to_string());
+    let got = convert_cell_timezone(&v, chrono_tz::UTC, chrono_tz::UTC);
+    assert!(matches!(got, TzOutcome::NotADateTime), "got {got:?}");
+}
+
+#[test]
+fn column_conversion_counts_ambiguous_and_nulls_them() {
+    let vals = vec![
+        CellValue::DateTime("2024-01-15 12:00:00".to_string()), // fine
+        CellValue::DateTime("2024-10-27 02:30:00".to_string()), // DST overlap
+        CellValue::String("junk".to_string()),                  // not a date
+    ];
+    let (out, ambiguous) =
+        convert_timezone_column(&vals, chrono_tz::Europe::Berlin, chrono_tz::UTC);
+    assert_eq!(
+        ambiguous, 1,
+        "only the DST overlap counts, not the junk cell"
+    );
+    assert_eq!(out.len(), 3);
+    assert!(matches!(out[0], CellValue::DateTime(_)));
+    assert!(matches!(out[1], CellValue::Null));
+    assert!(matches!(out[2], CellValue::Null));
+}

@@ -64,12 +64,48 @@ impl FormatReader for ParquetReader {
         &["parquet", "pq", "parq"]
     }
 
+    /// Footer only: no row group is decoded. Pandas index columns are stripped
+    /// exactly as `read_via_arrow` strips them, so the reported schema is the
+    /// one a full read would show.
+    ///
+    /// Falls back to the default body when the footer cannot be opened
+    /// natively, which is the same case `read_file` hands to DuckDB (a file
+    /// with more than 32,767 row groups).
+    fn read_schema(&self, path: &Path) -> Result<Vec<ColumnInfo>> {
+        let Ok(builder) = File::open(path)
+            .map_err(anyhow::Error::from)
+            .and_then(|f| ParquetRecordBatchReaderBuilder::try_new(f).map_err(anyhow::Error::from))
+        else {
+            return Ok(self.read_file(path)?.columns);
+        };
+        let schema = builder.schema();
+        let drop_names = pandas_index_columns(schema.metadata());
+        Ok(schema
+            .fields()
+            .iter()
+            .filter(|f| !drop_names.contains(f.name()))
+            .map(|f| ColumnInfo {
+                name: f.name().clone(),
+                data_type: format!("{}", f.data_type()),
+            })
+            .collect())
+    }
+
     fn supports_write(&self) -> bool {
         true
     }
 
     fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {
         write_parquet(path, table)
+    }
+
+    fn write_file_with_options(
+        &self,
+        path: &Path,
+        table: &DataTable,
+        opts: &crate::formats::write_options::WriteOptions,
+    ) -> Result<()> {
+        write_parquet_with(path, table, &opts.parquet)
     }
 
     /// Try the native arrow-parquet reader first; if it errors (most commonly
@@ -559,6 +595,22 @@ pub fn data_type_from_string(s: &str) -> DataType {
 
 /// Write a DataTable to a Parquet file.
 fn write_parquet(path: &Path, table: &DataTable) -> Result<()> {
+    write_parquet_with(
+        path,
+        table,
+        &crate::formats::write_options::ParquetOptions::default(),
+    )
+}
+
+/// Options-aware Parquet writer. `write_parquet` delegates here with the
+/// defaults, so there is one writer rather than two that can drift.
+pub fn write_parquet_with(
+    path: &Path,
+    table: &DataTable,
+    opts: &crate::formats::write_options::ParquetOptions,
+) -> Result<()> {
+    use parquet::file::properties::{EnabledStatistics, WriterProperties};
+
     let fields: Vec<Field> = table
         .columns
         .iter()
@@ -566,8 +618,23 @@ fn write_parquet(path: &Path, table: &DataTable) -> Result<()> {
         .collect();
     let schema = Arc::new(Schema::new(fields));
 
+    let mut builder = WriterProperties::builder()
+        .set_compression(crate::formats::write_options::parquet_compression(
+            &opts.compression,
+        ))
+        .set_dictionary_enabled(opts.dictionary)
+        .set_statistics_enabled(if opts.statistics {
+            EnabledStatistics::Chunk
+        } else {
+            EnabledStatistics::None
+        });
+    if let Some(n) = opts.row_group_size {
+        builder = builder.set_max_row_group_row_count(Some(n.max(1)));
+    }
+    let props = builder.build();
+
     let file = File::create(path)?;
-    let mut writer = ArrowWriter::try_new(file, schema.clone(), None)?;
+    let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props))?;
 
     // Build Arrow arrays column by column
     let num_rows = table.row_count();

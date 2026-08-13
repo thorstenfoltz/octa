@@ -3,6 +3,7 @@
 //! `mod` list here, add a wrapper method to `OctaMcpServer`).
 
 pub mod anonymize;
+pub mod batch_convert;
 pub mod compare_schemas;
 pub mod convert;
 pub mod copy_db_table;
@@ -11,9 +12,11 @@ pub mod correlation;
 pub mod count_rows;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
 pub mod create_chart;
+pub mod create_report;
 pub mod dedupe;
 pub mod delete_object;
 pub mod describe_file;
+pub mod diagnose_join;
 pub mod diff_tables;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
 pub mod edit_open_tab;
@@ -21,7 +24,9 @@ pub mod edit_table;
 pub mod export_schema;
 pub mod find_duplicates;
 pub mod fuzzy_duplicates;
+pub mod fuzzy_join;
 pub mod grep_files;
+pub mod harmonise_schemas;
 pub mod impute;
 pub mod join;
 pub mod list_db_connections;
@@ -38,10 +43,14 @@ pub mod query_db;
 pub mod read_table;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
 pub mod read_text;
+pub mod resample;
+pub mod rolling_window;
 pub mod run_sql;
 pub mod sample;
 pub mod schema;
+pub mod schema_drift;
 pub mod search;
+pub mod suggest_join_keys;
 pub mod tail;
 pub mod transform_columns;
 pub mod union;

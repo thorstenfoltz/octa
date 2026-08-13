@@ -29,21 +29,35 @@ impl OctaApp {
         let bg_loading = !self.tabs[self.active_tab]
             .bg_loading_done
             .load(std::sync::atomic::Ordering::Relaxed);
-        let update_busy = matches!(
-            *self.update_state.lock().unwrap(),
-            UpdateState::Checking | UpdateState::Updating
-        );
+        // Split from `Updating`: the startup check runs on every launch, and
+        // a spinner labelled "Updating..." for a read-only version query
+        // reads as "something is being installed behind my back".
+        let update_checking = matches!(*self.update_state.lock().unwrap(), UpdateState::Checking);
+        let update_busy = matches!(*self.update_state.lock().unwrap(), UpdateState::Updating);
         let file_loading = self.pending_load.is_some();
         let db_writing = self.db_write_back_job.is_some();
+        let asking = self.ask_filter_job.is_some() || self.ask_sql_job.is_some();
         // Union: cloud listing/download and the local read phase all report
         // through one progress object, so the spinner spans them.
         let union_hint = self.union_progress.as_ref().map(|p| p.hint());
-        let busy = bg_loading || update_busy || file_loading || db_writing || union_hint.is_some();
+        let busy = bg_loading
+            || update_busy
+            || update_checking
+            || file_loading
+            || db_writing
+            || asking
+            || union_hint.is_some();
         let db_writing_hint = octa::i18n::t("db.writing_back");
+        let asking_hint = octa::i18n::t("search.ask_running");
+        let checking_hint = octa::i18n::t("dialog.ud_checking");
         let busy_hint = if let Some(hint) = union_hint.as_deref() {
             Some(hint)
+        } else if asking {
+            Some(asking_hint.as_str())
         } else if update_busy {
             Some("Updating...")
+        } else if update_checking {
+            Some(checking_hint.as_str())
         } else if db_writing {
             Some(db_writing_hint.as_str())
         } else if file_loading {

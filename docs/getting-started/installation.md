@@ -267,15 +267,13 @@ rm -rf /Applications/Octa.app
 
 ## Windows
 
-<!-- Microsoft Store listing is not live yet. Uncomment this section once the
-     Store submission is published (see windows/STORE_SETUP_PROGRESS.md).
-
 ### Microsoft Store (recommended)
 
-Install Octa from the Microsoft Store:
+Install Octa from the
+[Microsoft Store](https://apps.microsoft.com/detail/9PF9BVRT9PX4):
 
 - One click to install, with **no SmartScreen prompt** (the Store signs the
-  package).
+  package), so the *"Windows protected your PC"* screen never appears.
 - Windows keeps Octa **up to date automatically** in the background.
 - Clean uninstall from **Settings -> Apps**.
 
@@ -283,11 +281,11 @@ After installing, Windows may ask whether to let Octa open data files such as
 `.csv` or `.parquet` by default; that choice is yours and is managed by Windows
 under **Settings -> Apps -> Default apps**, not by Octa.
 
-> Octa's own **Help -> Check for updates** is hidden for Store installs, because
-> the Store delivers updates for them. Every other install path below keeps the
-> in-app updater.
-
--->
+> Store installs are updated by the Store itself, so Octa's in-app updater is
+> left out for them: **Help -> Check for updates** still tells you a new version
+> exists and still shows its release notes, but offers no install button. Every
+> other install path below keeps the full in-app updater. See
+> [Updates](../reference/updates.md).
 
 ### Pre-built binary
 
@@ -300,7 +298,9 @@ like (`Desktop`, `C:\Tools\`, etc.) and double-click to launch.
 
     Octa is **not code-signed**, so on first launch Windows shows
     *"Windows protected your PC"*. Click **More info** → **Run
-    anyway**. Subsequent launches open without the prompt.
+    anyway**. Subsequent launches open without the prompt. The
+    [Microsoft Store](https://apps.microsoft.com/detail/9PF9BVRT9PX4) build is
+    signed and never shows it.
 
 ### Install via `install.ps1` (recommended, no admin)
 

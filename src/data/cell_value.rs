@@ -263,8 +263,12 @@ pub fn can_convert_value(val: &CellValue, target_type: &str) -> bool {
             }
             match target_type {
                 "String" | "Utf8" => true,
-                "Int64" => s.parse::<i64>().is_ok(),
-                "Float64" => s.parse::<f64>().is_ok(),
+                // `parse_number_relaxed` tries the plain English form first, so
+                // existing behaviour is unchanged, then the European reading,
+                // so "1.234,56" and "3,25" stop being refused.
+                "Int64" => crate::data::num_parse::parse_number_relaxed(s)
+                    .is_some_and(|v| v.fract() == 0.0 && v.abs() < i64::MAX as f64),
+                "Float64" => crate::data::num_parse::parse_number_relaxed(s).is_some(),
                 "Boolean" => matches!(
                     s.to_lowercase().as_str(),
                     "true" | "false" | "1" | "0" | "yes" | "no"
@@ -323,8 +327,17 @@ pub fn convert_value(val: &CellValue, target_type: &str) -> CellValue {
             }
             match target_type {
                 "String" | "Utf8" => val.clone(),
-                "Int64" => CellValue::Int(s.parse::<i64>().unwrap_or(0)),
-                "Float64" => CellValue::Float(s.parse::<f64>().unwrap_or(0.0)),
+                // Same parser as `can_convert_value`, so the pair cannot
+                // disagree about what converts.
+                "Int64" => CellValue::Int(
+                    crate::data::num_parse::parse_number_relaxed(s)
+                        .filter(|v| v.fract() == 0.0 && v.abs() < i64::MAX as f64)
+                        .map(|v| v as i64)
+                        .unwrap_or(0),
+                ),
+                "Float64" => {
+                    CellValue::Float(crate::data::num_parse::parse_number_relaxed(s).unwrap_or(0.0))
+                }
                 "Boolean" => {
                     let lower = s.to_lowercase();
                     CellValue::Bool(matches!(lower.as_str(), "true" | "1" | "yes"))
@@ -389,3 +402,7 @@ pub fn cmp_cell_values(a: &CellValue, b: &CellValue) -> std::cmp::Ordering {
             .cmp(&b.to_string().to_lowercase()),
     }
 }
+
+#[cfg(test)]
+#[path = "cell_value_tests.rs"]
+mod tests;

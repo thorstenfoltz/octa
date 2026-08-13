@@ -109,6 +109,29 @@ The SQL toolbar has two ways to reuse queries:
   [config directory](../reference/settings.md), so they survive restarts
   and are shared across all tabs.
 
+## Ask
+
+Next to Snippets there is a one-line **Ask** box. Type what you want in
+plain words ("revenue per country, biggest first") and Octa writes the SQL
+into the editor at your cursor. The rest of the editor is left alone, so
+you can ask for one piece of a query you are already writing.
+
+The query is **never run for you**. Read it, change it if you like, then
+press Run. Only a single SELECT is ever produced: a reply containing a
+second statement, or anything that is not a SELECT (or a leading `WITH`),
+is rejected and nothing is inserted.
+
+Ask sends the active table's column names, their types and the row count
+to the chat profile configured under
+**Settings > Chat / Assistant**. It does not send the data itself, and it
+does not see the other tables in the workspace, so it cannot write a join
+across them. When the panel is set to run on a server, the query is
+written in that database's dialect against the real `schema.table` name
+instead of `data`.
+
+Ask is greyed out when no chat profile is set up, or when the tab has no
+columns yet. Hover it to see which.
+
 ## What's available
 
 DuckDB's full SQL surface, including:

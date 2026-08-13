@@ -104,8 +104,11 @@ impl OctaMcpServer {
                 "write_db_table",
                 "copy_db_table",
                 "copy_object",
+                "batch_convert",
                 "move_object",
                 "delete_object",
+                "create_report",
+                "harmonise_schemas",
             ] {
                 tool_router.remove_route(name);
             }
@@ -551,6 +554,103 @@ one distinct value. Pass `unlimited: true` to scan the full file."
     }
 
     #[tool(
+        description = "Scan a folder of data files and report which of them disagree about their \
+columns. Files are grouped by identical schema, so 500 Parquet parts come back as a handful of \
+variants rather than 500 entries. Returns `has_drift`, `variants` (each with its file list and \
+columns), `drifting_columns` and `skipped`. Use it when a union or dataset open failed with a \
+type error that named no file."
+    )]
+    async fn schema_drift(
+        &self,
+        Parameters(p): Parameters<tools::schema_drift::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::schema_drift::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Write a self-contained HTML profiling report for a table: per-column \
+statistics, distribution charts, the most common values and a correlation matrix. The document \
+embeds its own CSS and SVG and fetches nothing, so it can be mailed or published as-is. \
+`out_path` is where to write it. `sections` picks a subset from stats, distributions, \
+top_values and correlation (default: all four). `sample_rows` profiles a random sample instead \
+of every row, and the report states that it did."
+    )]
+    async fn create_report(
+        &self,
+        Parameters(p): Parameters<tools::create_report::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::create_report::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Join sources on how similar their values are rather than on exact \
+equality, for tables that name the same thing differently (\"Mueller GmbH\" against \"Mueller \
+Gmbh.\"). Each entry in `sources` has a `path` or `open_tab`; they are folded left to right. \
+`on` gives the column pairs to compare as \"LEFT=RIGHT\" (repeat to average several columns). \
+`method` is edit_ratio (default), jaro_winkler or token_set; `threshold` is the minimum average \
+score in 0..1 (default 0.85); `block` (\"LEFT=RIGHT\") restricts comparison to rows that agree \
+exactly on those columns, which is what makes a large join feasible. Each left row keeps its \
+single best partner. The result adds match_score_N and ambiguous_N per step: ambiguous means \
+the runner-up scored nearly as well, so that match is the one to check. Use suggest_join_keys \
+first if you do not know which columns to compare."
+    )]
+    async fn fuzzy_join(
+        &self,
+        Parameters(p): Parameters<tools::fuzzy_join::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::fuzzy_join::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Rank the column pairs that would actually join two or more tables, by how \
+much their values overlap, weighted by distinctness so a status column cannot outrank a real \
+key. Use before `join_tables` when the key columns have different names or are unknown. Takes \
+`paths` and/or `open_tabs` (two or more sources in total). Returns `candidates` best first, \
+each naming both sides plus `overlap`, `left_distinct`, `right_distinct` and `score`. Sampled \
+(`sample`, default 10000 rows per table), so a high overlap is strong evidence rather than \
+proof. Read-only."
+    )]
+    async fn suggest_join_keys(
+        &self,
+        Parameters(p): Parameters<tools::suggest_join_keys::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::suggest_join_keys::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Explain why a join between two key columns returns fewer rows than \
+expected. Returns matched and unmatched key counts per side, sample unmatched values, and \
+which single normalisation would increase the match: trim_whitespace, ignore_case, \
+collapse_whitespace, strip_punctuation or strip_leading_zeros. A fix is reported only when it \
+strictly beats the current match count, so an empty `fixes` list means the columns genuinely \
+hold different things. Counts are over distinct keys, not rows, and are sampled (`sample`, \
+default 10000 rows per side). Use after `suggest_join_keys` and before `join_tables`. \
+Read-only: diagnoses only, changes neither table."
+    )]
+    async fn diagnose_join(
+        &self,
+        Parameters(p): Parameters<tools::diagnose_join::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::diagnose_join::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Rewrite every data file in a folder to one common set of columns, \
+writing harmonised copies into a separate folder. The originals are NEVER modified. The target \
+schema is the shape most files already have, or the schema of `target_file` when given. Columns \
+missing from a file are added as nulls; columns not in the target are dropped and listed per \
+file. A file whose values cannot be cast to a target type is REFUSED rather than written with \
+nulls in place of those values, so a harmonised folder never contains silently emptied cells. \
+Returns a per-file report plus `written` and `refused` counts. Write tool: creates files."
+    )]
+    async fn harmonise_schemas(
+        &self,
+        Parameters(p): Parameters<tools::harmonise_schemas::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::harmonise_schemas::handle(self, p).await
+    }
+
+    #[tool(
         description = "Write model-supplied rows to a file in any writable format - the inverse \
 of `read_table`. Pick the format with the output extension (`.csv`, `.parquet`, `.json`, \
 `.xlsx`, ...); read-only formats (SAS, RDS, HDF5, NetCDF) cannot be a target. Supply `columns` \
@@ -600,6 +700,48 @@ aggregating `value` with `agg` (sum/count/avg/min/max), optionally grouped by `g
         Parameters(p): Parameters<tools::pivot::Params>,
     ) -> Result<CallToolResult, McpError> {
         tools::pivot::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Group rows into time buckets: one output row per interval of a timestamp \
+column. `time_col` is the timestamp column, `value_cols` the columns aggregated, `interval` one \
+of minute/hour/day/week/month/quarter/year (default day), `agg` one of \
+sum/mean/min/max/count/first/last (default sum). `group_by` gives one series per combination. \
+Returns the resampled table. Operates on a file `path` or an `open_tab`."
+    )]
+    async fn resample_timeseries(
+        &self,
+        Parameters(p): Parameters<tools::resample::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::resample::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Convert several files into one target format in a single run. `inputs` \
+is the list of source paths, `out_dir` the output directory, `to` the target extension without \
+a dot. `overwrite` replaces existing outputs (default: skip). Gzip and zstd inputs decompress \
+automatically. One failure does not stop the run; the response reports \
+`{converted, failed, skipped, items}`."
+    )]
+    async fn batch_convert(
+        &self,
+        Parameters(p): Parameters<tools::batch_convert::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::batch_convert::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Add a rolling aggregate column over the previous N rows. `order_col` \
+orders the frame (required), `value_col` is aggregated, `window` is the frame size including \
+the current row, `agg` one of sum/mean/min/max/count/first/last (default mean). `partition_by` \
+restarts the frame per group. Returns every source column plus \
+`<value_col>_rolling_<window>`. Operates on a file `path` or an `open_tab`."
+    )]
+    async fn rolling_window(
+        &self,
+        Parameters(p): Parameters<tools::rolling_window::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::rolling_window::handle(self, p).await
     }
 
     #[tool(
@@ -796,7 +938,7 @@ impl ServerHandler for OctaMcpServer {
              Available tools: read_table, tail, sample, schema, list_tables, count_rows, \
              run_sql, convert, export_schema, profile, find_duplicates, value_frequency, \
              search, compare_schemas, diff_tables, union_tables, validate_against_schema, \
-             describe_file, unique_columns, pivot, correlation, grep_files, transform_columns, \
+             describe_file, unique_columns, suggest_join_keys, diagnose_join, pivot, correlation, grep_files, transform_columns, \
              list_db_connections, list_db_tables, query_db, write_db_table, copy_db_table."
         );
         // NOT `Implementation::from_build_env()`: its `env!` macros expand

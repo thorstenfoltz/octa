@@ -141,6 +141,27 @@ pub(crate) fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// Extract the provider's `error` / `error_description` from a redirect that
+/// carried no code, so a refusal reads as itself rather than as "cancelled".
+pub(crate) fn error_from_redirect(raw: &str) -> Option<String> {
+    let mut kind = None;
+    let mut desc = None;
+    for part in raw.split(['?', '&', '\n', '\r', ' ']) {
+        let part = part.trim();
+        if let Some(v) = part.strip_prefix("error=") {
+            kind = Some(percent_decode(v));
+        } else if let Some(v) = part.strip_prefix("error_description=") {
+            desc = Some(percent_decode(v));
+        }
+    }
+    match (kind, desc) {
+        (Some(k), Some(d)) => Some(format!("{k}: {d}")),
+        (Some(k), None) => Some(k),
+        (None, Some(d)) => Some(d),
+        (None, None) => None,
+    }
+}
+
 /// Extract `(code, state)` from the raw HTTP redirect request-line query.
 /// Returns None when the provider redirected with an `error` (no `code`).
 fn code_from_redirect(raw: &str) -> Option<(String, String)> {
@@ -181,11 +202,35 @@ fn parse_token_response(text: &str) -> Result<CachedToken> {
     })
 }
 
+/// How long the loopback listener waits for the browser to come back before
+/// giving up.
+///
+/// There must be a limit. When a provider refuses **before** the consent
+/// screen - an unverified app, a user who is not on the test list, a
+/// redirect type that does not match - it shows its own error page and never
+/// redirects to the loopback at all, so an unbounded `accept()` blocks its
+/// worker thread for the life of the process. That is what left the Sign in
+/// button spinning with no way back.
+pub const SIGN_IN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// Run the full browser sign-in: PKCE, loopback, open the browser, catch the
 /// redirect, exchange the code for an access token.
 ///
 /// Blocks on the browser round-trip and the network; call off the UI thread.
+/// Gives up after [`SIGN_IN_TIMEOUT`].
 pub fn acquire_token(cfg: &OAuthBrowserConfig, open_browser: impl Fn(&str)) -> Result<CachedToken> {
+    let never = std::sync::atomic::AtomicBool::new(false);
+    acquire_token_cancellable(cfg, open_browser, &never, SIGN_IN_TIMEOUT)
+}
+
+/// As [`acquire_token`], but abandons the wait as soon as `cancel` is set, so
+/// a Cancel button can take effect without waiting out the timeout.
+pub fn acquire_token_cancellable(
+    cfg: &OAuthBrowserConfig,
+    open_browser: impl Fn(&str),
+    cancel: &std::sync::atomic::AtomicBool,
+    timeout: std::time::Duration,
+) -> Result<CachedToken> {
     use std::io::{Read, Write};
 
     let (verifier, challenge) = pkce_pair();
@@ -196,16 +241,59 @@ pub fn acquire_token(cfg: &OAuthBrowserConfig, open_browser: impl Fn(&str)) -> R
     let url = build_authorize_url(cfg, &redirect_uri, &challenge, &state);
     open_browser(&url);
 
-    let (mut stream, _) = listener
-        .accept()
-        .context("waiting for the browser redirect")?;
+    // Poll rather than block, so both the deadline and the cancel flag can be
+    // observed while nothing is arriving.
+    listener
+        .set_nonblocking(true)
+        .context("preparing the redirect listener")?;
+    let deadline = std::time::Instant::now() + timeout;
+    let mut stream = loop {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            bail!("sign-in cancelled");
+        }
+        match listener.accept() {
+            Ok((s, _)) => break s,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if std::time::Instant::now() >= deadline {
+                    bail!(
+                        "the browser never came back within {} seconds. If your browser showed \
+                         an error instead of a consent screen, the sign-in was refused before it \
+                         started - check that the OAuth client is registered for a desktop \
+                         application and that your account is allowed to use it",
+                        timeout.as_secs()
+                    );
+                }
+                std::thread::sleep(std::time::Duration::from_millis(150));
+            }
+            Err(e) => return Err(e).context("waiting for the browser redirect"),
+        }
+    };
+    stream
+        .set_nonblocking(false)
+        .context("reading the browser redirect")?;
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(30)));
     let mut buf = [0u8; 8192];
     let n = stream
         .read(&mut buf)
         .context("reading the browser redirect")?;
     let raw = String::from_utf8_lossy(&buf[..n]);
-    let (code, got_state) = code_from_redirect(&raw)
-        .context("the browser redirect carried no authorization code (sign-in cancelled?)")?;
+    let (code, got_state) = match code_from_redirect(&raw) {
+        Some(v) => v,
+        None => {
+            // The provider redirected back but refused; its own words beat a
+            // guess about cancellation.
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
+                  <html><body>Sign-in failed. You may close this tab.</body></html>",
+            );
+            match error_from_redirect(&raw) {
+                Some(e) => bail!("the sign-in was refused: {e}"),
+                None => {
+                    bail!("the browser redirect carried no authorization code (sign-in cancelled?)")
+                }
+            }
+        }
+    };
     let _ = stream.write_all(
         b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n\
           <html><body>Sign-in complete. You may close this tab.</body></html>",
@@ -244,6 +332,34 @@ pub fn acquire_token(cfg: &OAuthBrowserConfig, open_browser: impl Fn(&str)) -> R
 
 #[cfg(test)]
 mod tests {
+    /// A provider that refuses at the consent screen redirects back with an
+    /// `error`, and saying "cancelled?" there sends the user looking for a
+    /// mistake they did not make.
+    #[test]
+    fn a_refusal_redirect_reports_the_provider_reason() {
+        let raw = "GET /?error=access_denied&error_description=The+user+denied+access HTTP/1.1";
+        assert_eq!(
+            error_from_redirect(raw).as_deref(),
+            Some("access_denied: The user denied access")
+        );
+    }
+
+    #[test]
+    fn an_error_without_a_description_still_names_itself() {
+        let raw = "GET /?error=admin_policy_enforced HTTP/1.1";
+        assert_eq!(
+            error_from_redirect(raw).as_deref(),
+            Some("admin_policy_enforced")
+        );
+    }
+
+    /// A successful redirect must not be read as an error.
+    #[test]
+    fn a_successful_redirect_carries_no_error() {
+        let raw = "GET /?code=abc&state=xyz HTTP/1.1";
+        assert_eq!(error_from_redirect(raw), None);
+    }
+
     use super::*;
 
     #[test]

@@ -33,7 +33,11 @@ of these are dropped when the server is started with `--mcp-read-only`.
 | **[`describe_file`](describe_file.md)**                     | One-shot orientation snapshot                           | No                              |
 | **[`validate_against_schema`](validate_against_schema.md)** | Validate columns against a JSON Schema                  | No                              |
 | **[`unique_columns`](unique_columns.md)**                   | Unique columns / key candidates                         | No                              |
+| **[`suggest_join_keys`](suggest_join_keys.md)**             | Rank the column pairs that would join two tables        | No                              |
 | **[`pivot`](pivot.md)**                                     | Reshape long <-> wide (PIVOT / UNPIVOT)                 | No                              |
+| **[`batch_convert`](batch_convert.md)**                     | Convert many files into one format                      | Yes                             |
+| **[`resample_timeseries`](resample_timeseries.md)**         | Group rows into time buckets and aggregate              | No                              |
+| **[`rolling_window`](rolling_window.md)**                   | Rolling aggregate over the previous N rows              | No                              |
 | **[`correlation`](correlation.md)**                         | Pairwise numeric correlation matrix                     | No                              |
 | **[`grep_files`](grep_files.md)**                           | Grep a value across files in a directory                | No                              |
 | **[`list_objects`](list_objects.md)**                       | List a cloud bucket folder (S3/Azure/GCS)               | No                              |
@@ -51,6 +55,11 @@ of these are dropped when the server is started with `--mcp-read-only`.
 | **[`union_tables`](union_tables.md)**                       | Stack tables vertically                                 | No                              |
 | **[`join_tables`](join_tables.md)**                         | Join tables on key columns                              | No                              |
 | **[`partition_table`](partition_table.md)**                 | One file per distinct column value                      | Writes one file per group       |
+| **[`schema_drift`](schema_drift.md)**                       | Which files in a folder disagree about columns          | No                              |
+| **[`harmonise_schemas`](harmonise_schemas.md)**             | Rewrite a folder of files to one schema                 | Writes into out_dir             |
+| **[`create_report`](create_report.md)**                     | Write a self-contained HTML profiling report            | Writes the output path          |
+| **[`fuzzy_join`](fuzzy_join.md)**                           | Join on similarity rather than equality                 | No                              |
+| **[`diagnose_join`](diagnose_join.md)**                     | Why two key columns do not join                         | No                              |
 | **`list_db_connections`** [^db]                             | List saved live-database connections                    | No                              |
 | **`list_db_tables`** [^db]                                  | List schemas / tables on a live connection              | No                              |
 | **`query_db`** [^db]                                        | Run SQL on a live database server                       | Mutations need Allow writes     |

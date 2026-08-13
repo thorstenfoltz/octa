@@ -5,7 +5,8 @@ differing schemas, and print the result to stdout.
 
 ```
 octa --union FILE --union-file FILE2 [--union-file FILE3 ...] \
-     [--union-drop COL]... [--union-cast COL=TYPE]... [-f tsv|json|csv]
+     [--union-drop COL]... [--union-cast COL=TYPE]... [--union-ignore-case]
+     [-f tsv|json|csv]
 ```
 
 The positional `FILE` plus every `--union-file` value form the input list
@@ -20,6 +21,9 @@ common number type; otherwise the column falls back to text.
 - `--union-drop COL` omits a column from the output (repeatable).
 - `--union-cast COL=TYPE` overrides a column's target Arrow type, e.g.
   `--union-cast amount=Float64` (repeatable).
+- `--union-ignore-case` treats column names differing only in case as one
+  column, so `Amount` and `amount` merge. Off by default; the first spelling
+  encountered names the output column.
 
 ## Examples
 

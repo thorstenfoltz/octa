@@ -176,7 +176,12 @@ To add rows, read the object first, then write the combined table."
     if ctx.backup_before_modify && !dest.is_cloud() && path.exists() {
         octa::formats::backup_existing_file(path)?;
     }
-    out_reader.write_file_schema_aware(path, &table, ctx.allow_schema_changes)?;
+    out_reader.write_file_schema_aware(
+        path,
+        &table,
+        ctx.allow_schema_changes,
+        &Default::default(),
+    )?;
     let row_count = table.row_count();
     let col_count = table.col_count();
     let target = dest.finish()?;

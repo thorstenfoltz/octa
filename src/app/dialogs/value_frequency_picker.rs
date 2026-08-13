@@ -36,23 +36,38 @@ pub(crate) fn render_value_frequency_picker_dialog(app: &mut OctaApp, ctx: &egui
         .pivot(egui::Align2::CENTER_CENTER)
         .default_pos(ctx.content_rect().center());
     let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
-        w.resizable(true).default_width(320.0).min_width(280.0)
+        // 320 was too narrow for this title. "Value Frequency - choose a column"
+        // is 33 characters, and the longest localization (pt, fr) is 43, which
+        // at 16pt bold needs roughly 365px; the three window buttons take a
+        // further 26px each plus spacing. The title therefore ran underneath
+        // them in every language. The truncating header below is the real
+        // guarantee; this width means it does not have to truncate in practice.
+        w.resizable(true).default_width(520.0).min_width(420.0)
     });
 
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("vfpick_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
+                // Controls first, right to left, so they always claim their
+                // space; the title then truncates into what is left instead of
+                // sliding underneath them when the window is narrow or the
+                // localized title is long.
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(octa::i18n::t("dialog.vfpick_title"))
-                            .strong()
-                            .size(16.0),
-                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
                             close = true;
                         }
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(octa::i18n::t("dialog.vfpick_title"))
+                                        .strong()
+                                        .size(16.0),
+                                )
+                                .truncate(),
+                            );
+                        });
                     });
                 });
             });

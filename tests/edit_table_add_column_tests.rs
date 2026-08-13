@@ -82,7 +82,7 @@ fn add_column_to_duckdb_is_schema_change_gated_with_backup() {
     // Schema changes must be refused when allow=false.
     assert!(
         reader
-            .write_file_schema_aware(&path, &table, false)
+            .write_file_schema_aware(&path, &table, false, &Default::default())
             .is_err(),
         "schema change must be refused when allow_schema_changes=false"
     );
@@ -94,7 +94,9 @@ fn add_column_to_duckdb_is_schema_change_gated_with_backup() {
     assert!(backup.exists(), "backup file must exist on disk");
 
     // With allow=true the write succeeds.
-    reader.write_file_schema_aware(&path, &table, true).unwrap();
+    reader
+        .write_file_schema_aware(&path, &table, true, &Default::default())
+        .unwrap();
 
     // Re-read and verify the new column.
     let reread = reader.read_file(&path).unwrap();

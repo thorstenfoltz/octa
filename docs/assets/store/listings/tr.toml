@@ -1,11 +1,13 @@
 # tr: written natively, not translated from English.
 
-short = "Parquet, CSV, Excel, SQLite ve yaklaşık 30 veri biçimini hızlı bir tabloda açın. Sıralama, filtreleme, arama, düzenleme ve SQL sorguları, tamamen yerel."
+short = "Parquet, CSV, Excel, SQLite ve otuz kadar biçim daha hızlı bir tabloda. Sırala, süz, ara, düzenle ve SQL çalıştır, hepsi kendi bilgisayarında."
 
 long = """
-Octa; Parquet, CSV, Excel, SQLite, DuckDB, JSON ve yaklaşık otuz biçimi daha doğrudan hızlı bir tabloda açar. İçe aktarma yok, kurulum ayarı yok.
+Octa; Parquet, CSV, Excel, SQLite, DuckDB ve JSON dosyalarını, ayrıca otuz kadar veri biçimini daha, içe aktarma adımı ve uzun kurulum olmadan açar.
 
-Verileri sıralayın, filtreleyin, arayın ve düzenleyin; DuckDB ile SQL sorguları çalıştırın, grafikler oluşturun veya iki dosyayı karşılaştırın. Her şey kendi bilgisayarınızda çalışır ve hiçbir dosya yüklenmez.
+Verilerini sıralayabilir, süzebilir, arayabilir ve düzenleyebilir, DuckDB ile SQL sorguları çalıştırabilir, grafik oluşturabilir ya da iki dosyayı karşılaştırabilirsin. Yerleşik sohbet sayesinde verilerine gündelik dille de soru sorabilirsin.
 
-Arayüz 32 dilde. MIT lisanslı özgür yazılım.
+Kullandığın işlev harici bir API gerektirmediği sürece verilerin kendi bilgisayarında işlenir.
+
+Arayüz 32 dilde kullanılabilir. Octa, MIT lisanslı özgür yazılımdır.
 """

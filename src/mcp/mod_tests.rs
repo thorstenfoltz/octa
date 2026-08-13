@@ -19,6 +19,7 @@ fn read_only_drops_write_tools() {
         "copy_object",
         "move_object",
         "delete_object",
+        "harmonise_schemas",
     ] {
         assert!(
             !ro.tool_router.has_route(name),
@@ -42,6 +43,7 @@ fn read_only_drops_write_tools() {
         "fill_missing",
         "detect_outliers",
         "detect_pii",
+        "diagnose_join",
     ] {
         assert!(ro.tool_router.has_route(name), "`{name}` should be present");
     }
@@ -68,6 +70,8 @@ fn default_keeps_write_tools() {
         "detect_outliers",
         "detect_pii",
         "partition_table",
+        "harmonise_schemas",
+        "diagnose_join",
     ] {
         assert!(rw.tool_router.has_route(name), "`{name}` should be present");
     }

@@ -9,14 +9,33 @@ press **Apply**.
 
 ## Operations
 
-| Operation             | What it does                                                                                                                                                                                                          |
-|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Split column**      | Break one column into several, by a **delimiter**, a **regular expression**, or a **fixed width** (every N characters). New columns are named `<source>_1`, `<source>_2`, ...; rows with fewer parts get empty cells. |
-| **Merge columns**     | Join two or more columns into one new column with a separator you choose (for example join First and Last name with a space).                                                                                         |
-| **Fill down**         | Copy the nearest non-empty value **downwards** into the empty cells below it.                                                                                                                                         |
-| **Fill up**           | The same, but **upwards**. Useful for exports that only show a group label on the first row.                                                                                                                          |
-| **Extract pattern**   | Pull the first regular-expression match out of each cell into a new column (for example `#(\d+)` to grab an order number). Non-matching cells are left empty.                                                         |
-| **Replace in column** | Find and replace within a single column's cells, using Plain, Wildcard, or Regex matching (the same modes as the search bar).                                                                                         |
+| Operation                     | What it does                                                                                                                                                                                                          |
+|-------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Split column**              | Break one column into several, by a **delimiter**, a **regular expression**, or a **fixed width** (every N characters). New columns are named `<source>_1`, `<source>_2`, ...; rows with fewer parts get empty cells. |
+| **Merge columns**             | Join two or more columns into one new column with a separator you choose (for example join First and Last name with a space).                                                                                         |
+| **Fill down**                 | Copy the nearest non-empty value **downwards** into the empty cells below it.                                                                                                                                         |
+| **Fill up**                   | The same, but **upwards**. Useful for exports that only show a group label on the first row.                                                                                                                          |
+| **Extract pattern**           | Pull the first regular-expression match out of each cell into a new column (for example `#(\d+)` to grab an order number). Non-matching cells are left empty.                                                         |
+| **Replace in column**         | Find and replace within a single column's cells, using Plain, Wildcard, or Regex matching (the same modes as the search bar).                                                                                         |
+| **Repair garbled characters** | Fix text read with the wrong character set and saved that way, so `MÃ¼ller` becomes `Müller`. Only cells whose repair can be proven are changed; anything else is left untouched.                                     |
+
+### Repair garbled characters
+
+When a file is read with the wrong character set and then saved, the
+damage becomes part of the data: `Müller` turns into `MÃ¼ller`, an
+apostrophe into `â€™`. The result is valid UTF-8, so nothing detects it
+on load.
+
+This operation reverses that, but **only where it can prove the
+reversal**. It encodes the text back into the single-byte form it must
+have come from, decodes those bytes as UTF-8, and keeps the result only
+if it decodes cleanly and no corruption signature survives. Every other
+cell keeps its current value. A confident wrong repair would corrupt good
+data, which is worse than the problem being fixed.
+
+The [Clean-up suggestions](cleanup-suggestions.md) panel runs the same
+check across the whole table, so use that to find affected columns and
+this to fix one deliberately.
 
 ## How it behaves
 

@@ -29,15 +29,30 @@ pub const DESCRIPTION: &str = "Compare two tabular sources (files or open tabs).
 `on` key column(s) and reports added/removed/changed rows. For `ordered`/`join` the response also \
 carries `changed_a`/`changed_b` (the differing rows, parallel order), a `changed` array naming the \
 differing columns per pair, and `changed_count`/`unchanged_count`. `limit` caps rows per side \
-(0 = unlimited). Run `compare_schemas` first if the column layouts might differ.";
+(0 = unlimited). Run `compare_schemas` first if the column layouts might differ. Pass `b_db` \
+instead of `path_b` to compare a file against a live database table, e.g. to check whether a load \
+landed correctly. Either path may be a cloud object URL (`s3://bucket/key`, `az://container/blob`, \
+`gs://bucket/key`); it is downloaded and read like a local file.";
+
+/// The database side of a comparison: a saved connection plus a table.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DbSide {
+    /// Name of a saved database connection (see `list_db_connections`).
+    pub connection: String,
+    /// Table to read, as `SCHEMA.TABLE` or `CATALOG.SCHEMA.TABLE`. An
+    /// unqualified name uses the connection's own database.
+    pub table: String,
+}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
-    /// Path to the first file (side A). Omit when `open_tab_a` is set.
+    /// Path to the first file (side A). Omit when `open_tab_a` is set. May be
+    /// a cloud object URL (`s3://`, `az://`, `gs://`).
     #[serde(default)]
     pub path_a: PathBuf,
 
-    /// Path to the second file (side B). Omit when `open_tab_b` is set.
+    /// Path to the second file (side B). Omit when `open_tab_b` is set. May be
+    /// a cloud object URL (`s3://`, `az://`, `gs://`).
     #[serde(default)]
     pub path_b: PathBuf,
 
@@ -74,6 +89,13 @@ pub struct Params {
     /// files is read from disk. Default `false`.
     #[serde(default)]
     pub unlimited: bool,
+
+    /// Compare against a live database table instead of a second file.
+    /// Replaces `path_b` / `open_tab_b`. Use this to check whether a file
+    /// matches what landed in a warehouse table. The read is capped like any
+    /// other, so a large table is compared on its first rows.
+    #[serde(default)]
+    pub b_db: Option<DbSide>,
 }
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
@@ -81,7 +103,27 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         .unlimited
         .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
     let a = ctx.resolve(&source_from(&p.open_tab_a, &p.path_a, &p.table_a))?;
-    let b = ctx.resolve(&source_from(&p.open_tab_b, &p.path_b, &p.table_b))?;
+    let b = match &p.b_db {
+        Some(side) => {
+            let conn = ctx
+                .db_connections
+                .iter()
+                .find(|c| c.name == side.connection)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("no saved database connection named '{}'", side.connection)
+                })?;
+            let secret = ctx.db_secret(conn);
+            let (catalog, schema, table) = octa::db::fetch_table::split_qualified(&side.table);
+            octa::db::fetch_table::fetch_table(
+                conn,
+                secret.as_deref(),
+                catalog.as_deref(),
+                &schema,
+                &table,
+            )?
+        }
+        None => ctx.resolve(&source_from(&p.open_tab_b, &p.path_b, &p.table_b))?,
+    };
 
     let mode = match p.mode.as_deref() {
         None => CompareMode::Set,

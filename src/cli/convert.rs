@@ -10,7 +10,11 @@ use std::path::PathBuf;
 
 use octa::formats::FormatRegistry;
 
-pub fn run(input: PathBuf, output: PathBuf) -> anyhow::Result<()> {
+pub fn run(
+    input: PathBuf,
+    output: PathBuf,
+    write_options: octa::formats::write_options::WriteOptions,
+) -> anyhow::Result<()> {
     let table = super::read_table(&input)?;
     let registry = FormatRegistry::new();
     let out_reader = registry.reader_for_path(&output).ok_or_else(|| {
@@ -25,7 +29,7 @@ pub fn run(input: PathBuf, output: PathBuf) -> anyhow::Result<()> {
             out_reader.name()
         );
     }
-    out_reader.write_file(&output, &table)?;
+    out_reader.write_file_with_options(&output, &table, &write_options)?;
     eprintln!(
         "wrote {} rows × {} columns to {}",
         table.row_count(),

@@ -4,12 +4,15 @@
 //! of the public library surface.
 
 pub(crate) mod archives;
+pub(crate) mod ask_filter_job;
+pub(crate) mod ask_sql_job;
 pub(crate) mod auto_save;
 pub(crate) mod bg_rows;
 pub(crate) mod central_panel;
 pub(crate) mod chat;
 pub(crate) mod chat_panel;
 pub(crate) mod chat_prompts;
+pub(crate) mod cleanup_panel;
 pub(crate) mod clipboard;
 pub(crate) mod cloud_browser;
 pub(crate) mod cloud_tree;

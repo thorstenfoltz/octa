@@ -195,7 +195,7 @@ pub(crate) fn render_dedupe_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
 /// Run `dedupe_rows`, compute how many rows were removed, replace the active
 /// tab's data with the result, and record one coalesced undo step.
-fn apply_dedupe(app: &mut OctaApp, st: DedupeState) {
+pub(crate) fn apply_dedupe(app: &mut OctaApp, st: DedupeState) {
     let active = app.active_tab;
 
     // Merge pending cell edits so dedupe sees the visible values.

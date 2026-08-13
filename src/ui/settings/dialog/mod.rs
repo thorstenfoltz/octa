@@ -21,6 +21,12 @@ impl SettingsDialog {
         self.font_changed = false;
         self.theme_changed = false;
         self.sql_row_limit_buf = current.sql_default_row_limit.to_string();
+        self.write_row_group_buf = current
+            .write_options
+            .parquet
+            .row_group_size
+            .map(|n| n.to_string())
+            .unwrap_or_default();
         // Pick the most natural unit for the current bytes value so the
         // user sees "1 MB" rather than "1,048,576 Bytes" when the setting
         // is at the default.
@@ -593,6 +599,14 @@ impl SettingsDialog {
                         ui.end_row();
                     }
                 });
+
+            // The write-option defaults are a group rather than a row pair, so
+            // they get the shared expander instead of a grid line.
+            crate::ui::settings::render_write_options(
+                ui,
+                &mut self.draft.write_options,
+                &mut self.write_row_group_buf,
+            );
         });
 
         // ── File-Specific ──
@@ -641,6 +655,11 @@ impl SettingsDialog {
                     ui.label(crate::i18n::t("settings.offer_repair"))
                         .on_hover_text(crate::i18n::t("settings_hint.offer_repair"));
                     ui.checkbox(&mut self.draft.offer_repair_on_malformed, "");
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("wo.title"))
+                        .on_hover_text(crate::i18n::t("settings_hint.write_options"));
+                    ui.label("");
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.readonly_notice"))
@@ -1428,6 +1447,31 @@ impl SettingsDialog {
                                 }
                             });
                     });
+                    ui.end_row();
+                });
+        });
+
+        // ── Updates ──
+        egui::CollapsingHeader::new(
+            egui::RichText::new(crate::i18n::t("release.section"))
+                .strong()
+                .size(13.0),
+        )
+        .id_salt("settings_section_updates")
+        .default_open(false)
+        .show(ui, |ui| {
+            egui::Grid::new("settings_updates")
+                .num_columns(2)
+                .spacing([16.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(crate::i18n::t("release.check_on_start"))
+                        .on_hover_text(crate::i18n::t("release.check_on_start_hint"));
+                    ui.checkbox(&mut self.draft.check_updates_on_start, "");
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("release.show_notes"))
+                        .on_hover_text(crate::i18n::t("release.show_notes_hint"));
+                    ui.checkbox(&mut self.draft.show_release_notes, "");
                     ui.end_row();
                 });
         });

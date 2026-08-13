@@ -49,8 +49,9 @@ impl FormatReader for GeoPackageReader {
         path: &std::path::Path,
         table: &crate::data::DataTable,
         allow_schema_changes: bool,
+        _opts: &crate::formats::write_options::WriteOptions,
     ) -> anyhow::Result<()> {
-        SqliteReader.write_file_schema_aware(path, table, allow_schema_changes)
+        SqliteReader.write_file_schema_aware(path, table, allow_schema_changes, _opts)
     }
 
     fn list_tables(&self, path: &Path) -> Result<Option<Vec<TableInfo>>> {

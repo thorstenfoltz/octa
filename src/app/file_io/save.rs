@@ -174,18 +174,20 @@ impl OctaApp {
         };
 
         match self.registry.reader_for_path(&path) {
-            Some(reader) if reader.supports_write() => match reader.write_file(&path, &result) {
-                Ok(()) => {
-                    self.status_message = Some((
-                        format!("Exported to {}", path.display()),
-                        std::time::Instant::now(),
-                    ));
+            Some(reader) if reader.supports_write() => {
+                match reader.write_file_with_options(&path, &result, &self.settings.write_options) {
+                    Ok(()) => {
+                        self.status_message = Some((
+                            format!("Exported to {}", path.display()),
+                            std::time::Instant::now(),
+                        ));
+                    }
+                    Err(e) => {
+                        self.status_message =
+                            Some((format!("Error exporting: {e}"), std::time::Instant::now()));
+                    }
                 }
-                Err(e) => {
-                    self.status_message =
-                        Some((format!("Error exporting: {e}"), std::time::Instant::now()));
-                }
-            },
+            }
             Some(reader) => {
                 self.status_message = Some((
                     format!("Writing is not supported for {} format", reader.name()),
@@ -240,7 +242,30 @@ impl OctaApp {
         path: std::path::PathBuf,
         save_filtered_view: bool,
     ) {
-        self.do_save_tab_inner(tab_idx, path, save_filtered_view, None, None);
+        self.do_save_tab_inner(tab_idx, path, save_filtered_view, None, None, None);
+    }
+
+    /// Re-entry point for the "include formatting?" prompt (`.xlsx` saves
+    /// only). `round_decision` is threaded through from whatever was already
+    /// decided earlier in the same save (carried on
+    /// `crate::app::state::XlsxStylePrompt::round_decision`), so answering
+    /// this prompt cannot reopen the rounding prompt.
+    pub(crate) fn do_save_tab_with_style(
+        &mut self,
+        tab_idx: usize,
+        path: std::path::PathBuf,
+        save_filtered_view: bool,
+        round_decision: Option<bool>,
+        style_decision: Option<bool>,
+    ) {
+        self.do_save_tab_inner(
+            tab_idx,
+            path,
+            save_filtered_view,
+            round_decision,
+            None,
+            style_decision,
+        );
     }
 
     /// Inner save implementation. `round_decision` resolves the per-column
@@ -251,6 +276,15 @@ impl OctaApp {
     /// `schema_decision` resolves the DB schema-change prompt: `None` = ask the
     /// user if a DB save adds/removes columns; `Some(true)` = proceed (back up
     /// and reconcile). The confirm dialog re-enters here with `Some(true)`.
+    ///
+    /// `style_decision` resolves the `.xlsx` "include formatting?" prompt:
+    /// `None` = ask the user if the target is `.xlsx` and the tab carries
+    /// marks, conditional colours, frozen columns or number formats;
+    /// `Some(true)`/`Some(false)` = carry the formatting or write plain data.
+    /// The three prompts are independent and can all fire for one save (round
+    /// first, then formatting, then schema); each deferred prompt carries
+    /// forward whatever the earlier ones already decided so resuming one never
+    /// reopens another.
     pub(crate) fn do_save_tab_inner(
         &mut self,
         tab_idx: usize,
@@ -258,6 +292,7 @@ impl OctaApp {
         save_filtered_view: bool,
         round_decision: Option<bool>,
         schema_decision: Option<bool>,
+        style_decision: Option<bool>,
     ) {
         // If the chat assistant changed this tab, back up the original file
         // before our save overwrites it (the user's own edits don't trigger
@@ -278,6 +313,11 @@ impl OctaApp {
                 }
             }
         }
+
+        // Answered before the `&mut` borrow of the tab below, since the shared
+        // predicate takes `&self`.
+        let ask_about_style =
+            style_decision.is_none() && self.save_would_ask_about_style(tab_idx, &path);
 
         let tab = &mut self.tabs[tab_idx];
         if tab.raw_content_modified
@@ -321,6 +361,18 @@ impl OctaApp {
         }
         let apply_rounding = has_rounding && round_decision == Some(true);
         let formats = tab.column_number_formats.clone();
+
+        // Formatting is display-only until a writer is asked to carry it.
+        // Only `.xlsx` can hold it, so only that extension raises the prompt.
+        if ask_about_style {
+            self.pending_xlsx_style_save = Some(crate::app::state::XlsxStylePrompt {
+                tab_idx,
+                path,
+                save_filtered_view,
+                round_decision,
+            });
+            return;
+        }
 
         // Decide once whether the writer should see a filtered snapshot of
         // the table or the live in-memory table. A filtered view is built
@@ -409,6 +461,16 @@ impl OctaApp {
                     ));
                     return;
                 }
+                // Resolve the write options before taking a mutable borrow of
+                // the tab below: `tab_table_style` needs `&self`. `style_decision`
+                // overrides the Settings default only when the prompt actually
+                // asked (an `.xlsx` target with something to carry); otherwise
+                // the Settings default drives, same as every other write option.
+                let mut opts = self.settings.write_options.clone();
+                let include = style_decision.unwrap_or(opts.xlsx.include_formatting);
+                opts.xlsx.include_formatting = include;
+                opts.style = include.then(|| self.tab_table_style(tab_idx)).flatten();
+
                 let tab = &mut self.tabs[tab_idx];
                 // DB schema-change detection (only DB tabs have db_meta).
                 let schema_changed = tab
@@ -464,6 +526,8 @@ impl OctaApp {
                                 save_filtered_view,
                                 changes,
                                 backup_note,
+                                round_decision,
+                                style_decision,
                             });
                         return;
                     }
@@ -490,12 +554,17 @@ impl OctaApp {
 
                 let allow_schema = !self.settings.write_protection;
                 let tab = &mut self.tabs[tab_idx];
+                // The Settings write-option defaults apply to every GUI save;
+                // the per-run override lives in the batch convert dialog, since
+                // Save As is the OS file picker and has nowhere to host one.
+                // `opts` (built above) additionally carries the resolved
+                // `.xlsx` formatting choice for this save.
                 let write_result = if let Some(ref ftab) = filtered_table {
-                    reader.write_file(&path, ftab)
+                    reader.write_file_with_options(&path, ftab, &opts)
                 } else {
                     tab.table.apply_edits();
                     let to_write = rounded_live.as_ref().unwrap_or(&tab.table);
-                    reader.write_file_schema_aware(&path, to_write, allow_schema)
+                    reader.write_file_schema_aware(&path, to_write, allow_schema, &opts)
                 };
                 match write_result {
                     Ok(()) => {
@@ -540,6 +609,46 @@ impl OctaApp {
                 ));
             }
         }
+    }
+
+    /// Whether saving tab `tab_idx` to `path` would raise the "include
+    /// formatting?" prompt: an `.xlsx` target and a tab that actually carries
+    /// something only `.xlsx` can hold.
+    ///
+    /// Shared with `auto_save::tab_is_auto_saveable`, which must skip a tab
+    /// whose save would ask a question. Auto-save is documented never to
+    /// interrupt, so this predicate has to have exactly one definition.
+    pub(crate) fn save_would_ask_about_style(
+        &self,
+        tab_idx: usize,
+        path: &std::path::Path,
+    ) -> bool {
+        let Some(tab) = self.tabs.get(tab_idx) else {
+            return false;
+        };
+        let is_xlsx = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("xlsx"));
+        is_xlsx
+            && (!tab.conditional_format_rules.is_empty()
+                || !tab.column_number_formats.is_empty()
+                || tab.table_state.frozen_cols > 0
+                || !tab.table.marks.is_empty())
+    }
+
+    /// Snapshot the active presentation of a tab for a writer that can carry
+    /// it. Manual marks are not included: they already travel on `DataTable`.
+    pub(crate) fn tab_table_style(
+        &self,
+        tab_idx: usize,
+    ) -> Option<octa::formats::write_options::TableStyle> {
+        let tab = self.tabs.get(tab_idx)?;
+        Some(octa::formats::write_options::TableStyle {
+            conditional: tab.conditional_format_rules.clone(),
+            number_formats: tab.column_number_formats.clone(),
+            frozen_cols: tab.table_state.frozen_cols,
+        })
     }
 
     /// After a successful save of a transparently decompressed tab, compress

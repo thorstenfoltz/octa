@@ -182,6 +182,239 @@ pub(crate) enum PivotKind {
 /// `octa::data::pivot` module (same enum drives the MCP `pivot` tool).
 pub(crate) use octa::data::pivot::PivotAgg;
 
+/// The Report dialog: which sections to build, whether to sample, and where
+/// to write the HTML.
+///
+/// Like [`SchemaDriftState`], the work runs on a worker thread with a polled
+/// slot: a full pass over a wide table takes seconds.
+pub(crate) struct ReportState {
+    pub(crate) sections: Vec<octa::data::report::ReportSection>,
+    pub(crate) sample_enabled: bool,
+    /// Comma-tolerant text buffer, matching the other numeric inputs.
+    pub(crate) sample_rows_text: String,
+    pub(crate) destination: String,
+    pub(crate) running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// `Ok(path written)` or a user-facing reason.
+    pub(crate) result: ReportResultSlot,
+    /// Set once a build succeeds. The dialog then shows where the file went
+    /// and offers to open it, rather than vanishing and leaving the user to
+    /// find it: the path is the one thing they need next.
+    pub(crate) done_path: Option<std::path::PathBuf>,
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+/// Shared slot the report worker writes its outcome into.
+pub(crate) type ReportResultSlot =
+    std::sync::Arc<std::sync::Mutex<Option<Result<std::path::PathBuf, String>>>>;
+
+impl ReportState {
+    pub(crate) fn new(destination: String) -> Self {
+        Self {
+            sections: octa::data::report::ReportSection::ALL.to_vec(),
+            sample_enabled: false,
+            sample_rows_text: "10000".to_string(),
+            destination,
+            running: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            result: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            done_path: None,
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
+/// The Schema drift dialog: a folder, two options, and a worker producing a
+/// report.
+///
+/// Modelled on [`BatchConvertState`]: a worker thread plus polled `Arc` slots,
+/// because reading several hundred file footers blocks for seconds and must
+/// not run on the UI thread.
+pub(crate) struct SchemaDriftState {
+    pub(crate) folder: String,
+    pub(crate) recursive: bool,
+    pub(crate) ignore_case: bool,
+    pub(crate) running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Filled by the worker when the scan finishes; drained by the update loop.
+    pub(crate) result: DriftResultSlot,
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+/// Shared slot the drift worker writes its outcome into. `Err` carries a
+/// user-facing reason (not a directory, nothing readable in it).
+pub(crate) type DriftResultSlot =
+    std::sync::Arc<std::sync::Mutex<Option<Result<octa::data::schema_drift::DriftReport, String>>>>;
+
+impl SchemaDriftState {
+    pub(crate) fn new(folder: String) -> Self {
+        Self {
+            folder,
+            recursive: false,
+            ignore_case: false,
+            running: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            result: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
+/// State for the Harmonise schemas dialog.
+///
+/// Two phases on purpose. **Plan** scans and shows what would happen, including
+/// which columns get dropped; **Run** writes. Dropping a column is the only
+/// lossy part of the operation, so it has to be visible before the user commits
+/// rather than discovered in the report afterwards.
+pub(crate) struct HarmoniseState {
+    pub(crate) folder: String,
+    pub(crate) out_dir: String,
+    pub(crate) recursive: bool,
+    pub(crate) ignore_case: bool,
+    pub(crate) overwrite: bool,
+    pub(crate) running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Progress as `(done, total)` while a run is in flight.
+    pub(crate) progress: std::sync::Arc<std::sync::Mutex<(usize, usize)>>,
+    /// The plan, once scanned. `None` until the user presses Plan.
+    pub(crate) plan: Option<octa::data::harmonise::HarmonisePlan>,
+    /// Filled by the run worker; drained by the update loop.
+    pub(crate) result: HarmoniseResultSlot,
+    /// Filled by the plan worker.
+    pub(crate) plan_slot: HarmonisePlanSlot,
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+pub(crate) type HarmoniseResultSlot = std::sync::Arc<
+    std::sync::Mutex<Option<Result<octa::data::harmonise::HarmoniseReport, String>>>,
+>;
+
+pub(crate) type HarmonisePlanSlot =
+    std::sync::Arc<std::sync::Mutex<Option<Result<octa::data::harmonise::HarmonisePlan, String>>>>;
+
+impl HarmoniseState {
+    pub(crate) fn new(folder: String) -> Self {
+        Self {
+            folder,
+            out_dir: String::new(),
+            recursive: false,
+            ignore_case: false,
+            overwrite: false,
+            running: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            progress: std::sync::Arc::new(std::sync::Mutex::new((0, 0))),
+            plan: None,
+            result: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            plan_slot: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
+/// State for the Batch convert dialog (sidebar selection, or File -> Batch
+/// convert...). Inputs are resolved before the dialog opens.
+pub(crate) struct BatchConvertState {
+    pub(crate) inputs: Vec<std::path::PathBuf>,
+    /// Target extension, chosen from the writable registry formats.
+    pub(crate) target_ext: String,
+    pub(crate) out_dir: Option<std::path::PathBuf>,
+    pub(crate) overwrite: bool,
+    pub(crate) size: ui::settings::DialogSize,
+    /// Live progress from the worker: items finished so far.
+    pub(crate) progress: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub(crate) total: usize,
+    pub(crate) running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Filled by the worker when the run finishes; drained by the update loop.
+    pub(crate) result:
+        std::sync::Arc<std::sync::Mutex<Option<octa::data::batch_convert::BatchReport>>>,
+    /// Writer options for this run, seeded from Settings when the dialog
+    /// opens and editable in its Options expander. Applies to this run only.
+    pub(crate) write_options: octa::formats::write_options::WriteOptions,
+    /// Text buffer for the row-group size (empty = the writer's default).
+    pub(crate) row_group_buf: String,
+}
+
+impl BatchConvertState {
+    pub(crate) fn new(inputs: Vec<std::path::PathBuf>) -> Self {
+        Self {
+            inputs,
+            target_ext: "parquet".to_string(),
+            out_dir: None,
+            overwrite: false,
+            size: ui::settings::DialogSize::default(),
+            progress: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            total: 0,
+            running: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            result: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            write_options: octa::formats::write_options::WriteOptions::default(),
+            row_group_buf: String::new(),
+        }
+    }
+
+    /// Seed the per-run write options from the user's Settings defaults.
+    pub(crate) fn with_write_options(
+        mut self,
+        opts: octa::formats::write_options::WriteOptions,
+    ) -> Self {
+        self.row_group_buf = opts
+            .parquet
+            .row_group_size
+            .map(|n| n.to_string())
+            .unwrap_or_default();
+        self.write_options = opts;
+        self
+    }
+}
+
+/// Which half of the Time series dialog is active.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TimeseriesKind {
+    Resample,
+    Rolling,
+}
+
+/// State for the Time series dialog (Analyse -> Time series...). Column
+/// references are indices into the active table's `columns`.
+pub(crate) struct TimeseriesState {
+    pub(crate) kind: TimeseriesKind,
+    /// Resample: the timestamp column bucketed.
+    pub(crate) time_col: Option<usize>,
+    pub(crate) value_cols: Vec<usize>,
+    pub(crate) interval: octa::data::timeseries::Interval,
+    pub(crate) agg: octa::data::timeseries::TimeAgg,
+    pub(crate) group_cols: Vec<usize>,
+    /// Rolling: the ordering column, the single value column, the frame size.
+    pub(crate) order_col: Option<usize>,
+    pub(crate) roll_value_col: Option<usize>,
+    /// Comma-tolerant text buffer, parsed on use like every other numeric input.
+    pub(crate) window_text: String,
+    pub(crate) partition_cols: Vec<usize>,
+    pub(crate) size: ui::settings::DialogSize,
+    /// Cached bounded preview: the op run on a capped source sample. `Ok` =
+    /// preview table, `Err` = error text, `None` = not enough inputs chosen.
+    /// Recomputed only when `preview_key` changes, never per frame.
+    pub(crate) preview: Option<Result<octa::data::DataTable, String>>,
+    pub(crate) preview_key: u64,
+}
+
+impl Default for TimeseriesState {
+    fn default() -> Self {
+        Self {
+            kind: TimeseriesKind::Resample,
+            time_col: None,
+            value_cols: Vec::new(),
+            interval: octa::data::timeseries::Interval::Day,
+            agg: octa::data::timeseries::TimeAgg::Sum,
+            group_cols: Vec::new(),
+            order_col: None,
+            roll_value_col: None,
+            window_text: "7".to_string(),
+            partition_cols: Vec::new(),
+            size: ui::settings::DialogSize::Normal,
+            preview: None,
+            preview_key: 0,
+        }
+    }
+}
+
 /// State for the Pivot / Unpivot dialog. Column references are indices into the
 /// active table's `columns`.
 pub(crate) struct PivotState {
@@ -298,6 +531,8 @@ pub(crate) enum TransformOp {
     Extract,
     /// Find/replace within one column's cells.
     Replace,
+    /// Repair text decoded with the wrong character set.
+    RepairEncoding,
 }
 
 impl TransformOp {
@@ -308,6 +543,7 @@ impl TransformOp {
         TransformOp::FillUp,
         TransformOp::Extract,
         TransformOp::Replace,
+        TransformOp::RepairEncoding,
     ];
 
     pub(crate) fn i18n_key(self) -> &'static str {
@@ -318,11 +554,13 @@ impl TransformOp {
             TransformOp::FillUp => "transform_op.fill_up",
             TransformOp::Extract => "transform_op.extract",
             TransformOp::Replace => "transform_op.replace",
+            TransformOp::RepairEncoding => "transform_op.repair_encoding",
         }
     }
 
     /// Whether this op materialises one or more *new* columns (so the dialog
-    /// should offer a name + insert-position). Fill / Replace edit in place.
+    /// should offer a name + insert-position). Fill, Replace and
+    /// RepairEncoding edit in place.
     pub(crate) fn creates_column(self) -> bool {
         matches!(
             self,
@@ -720,6 +958,10 @@ pub(crate) struct UnionState {
     pub(crate) file_tables: Vec<octa::data::DataTable>,
     /// Per-file "include in the union" checkbox.
     pub(crate) file_selected: Vec<bool>,
+    /// Fold column-name case when reconciling, so `Amount` and `amount` become
+    /// one column. Off by default: differing case is a real difference to some
+    /// downstream tools.
+    pub(crate) ignore_case: bool,
 }
 
 /// Live state for the "Partition by column" dialog (Analyse -> Partition by
@@ -747,6 +989,68 @@ pub(crate) struct JoinCondDraft {
     pub(crate) left_col: usize,
     pub(crate) op: octa::data::join::JoinOp,
     pub(crate) right_col: usize,
+}
+
+/// One join step in the Fuzzy join dialog: which table to bring in and how to
+/// compare it against everything joined so far.
+pub(crate) struct FuzzyStepDraft {
+    /// Index into `OctaApp.tabs` of the table this step joins in.
+    pub(crate) right_tab: usize,
+    /// Column pairs to compare, `(left index, right index)`. `None` until the
+    /// user picks a side.
+    pub(crate) pairs: Vec<(Option<usize>, Option<usize>)>,
+    pub(crate) method: octa::data::fuzzy_duplicates::SimilarityMethod,
+    /// Comma-tolerant text buffer, like the other numeric inputs.
+    pub(crate) threshold_text: String,
+    /// Exact-match blocking columns. `None` on either side means no blocking.
+    pub(crate) block: (Option<usize>, Option<usize>),
+    pub(crate) join_type: octa::data::join::JoinType,
+    pub(crate) max_rows_text: String,
+}
+
+impl FuzzyStepDraft {
+    pub(crate) fn new(right_tab: usize) -> Self {
+        Self {
+            right_tab,
+            pairs: vec![(None, None)],
+            method: octa::data::fuzzy_duplicates::SimilarityMethod::default(),
+            threshold_text: "0.85".to_string(),
+            block: (None, None),
+            join_type: octa::data::join::JoinType::Left,
+            max_rows_text: "20000".to_string(),
+        }
+    }
+}
+
+/// The Fuzzy join dialog. The join runs on a worker thread with a polled slot:
+/// without a blocking column the comparison is quadratic.
+pub(crate) struct FuzzyJoinState {
+    /// Index into `OctaApp.tabs` of the left (driving) table.
+    pub(crate) left_tab: usize,
+    /// One per join step, folded left to right.
+    pub(crate) steps: Vec<FuzzyStepDraft>,
+    pub(crate) running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) result: FuzzyJoinResultSlot,
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+/// Shared slot the fuzzy-join worker writes its outcome into.
+pub(crate) type FuzzyJoinResultSlot = std::sync::Arc<
+    std::sync::Mutex<Option<Result<octa::data::fuzzy_join::FuzzyJoinResult, String>>>,
+>;
+
+impl FuzzyJoinState {
+    pub(crate) fn new(left_tab: usize, right_tab: usize) -> Self {
+        Self {
+            left_tab,
+            steps: vec![FuzzyStepDraft::new(right_tab)],
+            running: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            result: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            size: ui::settings::DialogSize::default(),
+        }
+    }
 }
 
 /// Live state for the "Join tables" dialog (Analyse -> Join tables...).
@@ -854,6 +1158,33 @@ pub(crate) struct DatePromotionInfo {
     pub(crate) original_values: Vec<Option<String>>,
 }
 
+/// One column promoted from text to numbers by the load-time number pass.
+/// `original_values` is what Dismiss puts back.
+#[derive(Debug, Clone)]
+pub(crate) struct NumberPromotionInfo {
+    pub(crate) col_idx: usize,
+    pub(crate) column_name: String,
+    pub(crate) style_label: &'static str,
+    pub(crate) original_values: Vec<Option<String>>,
+}
+
+/// Aggregate set of number promotions shown as one non-modal banner.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct NumberWarning {
+    pub(crate) tab_idx: usize,
+    pub(crate) entries: Vec<NumberPromotionInfo>,
+}
+
+/// A column that is numeric but readable both ways (`1,234`). Queued so the
+/// user can decide; the head of `pending_number_pickers` is the live dialog.
+#[derive(Debug, Clone)]
+pub(crate) struct NumberAmbiguity {
+    pub(crate) tab_idx: usize,
+    pub(crate) col_idx: usize,
+    pub(crate) col_name: String,
+    pub(crate) samples: Vec<String>,
+}
+
 /// Aggregate set of date promotions to surface to the user as a single
 /// non-modal banner. `None` means no banner is currently pending. Cleared
 /// when the user clicks Dismiss or opens a new file.
@@ -925,6 +1256,7 @@ pub(crate) enum TimeCalcKind {
     ConvertDuration,
     Extract,
     UnixConvert,
+    ConvertTimezone,
 }
 
 /// Live state for the "Date/Time calculation" dialog. Mirrors the inputs the
@@ -953,6 +1285,13 @@ pub(crate) struct TimeCalcDialog {
     pub(crate) new_name: String,
     /// 1-indexed insert-position buffer.
     pub(crate) insert_at_text: String,
+    /// Source and target zones for ConvertTimezone. Octa datetimes carry no
+    /// zone, so the source cannot be detected and has to be stated.
+    pub(crate) tz_from: chrono_tz::Tz,
+    pub(crate) tz_to: chrono_tz::Tz,
+    /// Filter text shared by both zone pickers. There are 597 IANA zones, which
+    /// is far too many to scroll through.
+    pub(crate) tz_filter: String,
 }
 
 /// A file read running on a background thread so the UI stays responsive.
@@ -1034,6 +1373,22 @@ pub(crate) struct RoundSavePrompt {
     pub(crate) save_filtered_view: bool,
 }
 
+/// A deferred `.xlsx` save waiting on the user's "carry the formatting?"
+/// decision. Mirrors [`RoundSavePrompt`]: the save re-enters with the answer.
+///
+/// `round_decision` carries a rounding choice already made earlier in the
+/// same save (the round prompt fires first, since `do_save_tab_inner` checks
+/// rounding before formatting): without it, resuming this prompt would pass
+/// `None` back to the round check and reopen a prompt the user already
+/// answered.
+#[derive(Debug, Clone)]
+pub(crate) struct XlsxStylePrompt {
+    pub(crate) tab_idx: usize,
+    pub(crate) path: std::path::PathBuf,
+    pub(crate) save_filtered_view: bool,
+    pub(crate) round_decision: Option<bool>,
+}
+
 /// A deferred DB save waiting on the user's "apply schema changes?" decision.
 #[derive(Debug, Clone)]
 pub(crate) struct SchemaChangeSavePrompt {
@@ -1044,6 +1399,11 @@ pub(crate) struct SchemaChangeSavePrompt {
     pub(crate) changes: Vec<String>,
     /// Where the backup will be written (None when backup is disabled).
     pub(crate) backup_note: Option<String>,
+    /// Rounding and formatting choices already made earlier in this save (the
+    /// schema check is the last of the three), threaded through for the same
+    /// reason as `XlsxStylePrompt::round_decision`.
+    pub(crate) round_decision: Option<bool>,
+    pub(crate) style_decision: Option<bool>,
 }
 
 /// One pending date-format ambiguity dialog request: a column whose values
@@ -1095,10 +1455,15 @@ pub(crate) enum UpdateState {
     Idle,
     /// Checking GitHub for latest version
     Checking,
-    /// A newer version is available
-    Available(String),
-    /// Already on the latest version
-    UpToDate,
+    /// A newer version is available. `notes` is the release body as GitHub
+    /// returned it (Markdown, possibly empty for a release published without
+    /// a description).
+    Available { version: String, notes: String },
+    /// Already on the latest version. Carries that release's `notes` (same
+    /// body as `Available`, from the same request) so the startup check can
+    /// show what the version the user is *running* brought - the window would
+    /// otherwise have to wait for the next release to exist.
+    UpToDate { notes: String },
     /// Currently downloading and installing
     Updating,
     /// Linux only: the new binary has been downloaded to `tmp_path`, but the
@@ -1160,4 +1525,21 @@ impl SearchNavState {
         self.current = 0;
         self.pending_jump = None;
     }
+}
+
+/// One in-flight "Ask" request: which tab asked, and the slot the worker
+/// writes its parsed answer into. Cancelled implicitly by dropping the job -
+/// the worker's write is simply ignored once the slot is gone.
+pub(crate) struct AskFilterJob {
+    pub(crate) tab_idx: usize,
+    pub(crate) result: Arc<Mutex<Option<Result<crate::app::chat::ask_filter::AskResult, String>>>>,
+}
+
+/// One in-flight "Ask SQL" request. `insert_at` is the byte offset in the
+/// tab's `sql_query` recorded when the user pressed Ask, so a reply that
+/// arrives after more typing still lands where they were pointing.
+pub(crate) struct AskSqlJob {
+    pub(crate) tab_idx: usize,
+    pub(crate) insert_at: usize,
+    pub(crate) result: Arc<Mutex<Option<Result<String, String>>>>,
 }

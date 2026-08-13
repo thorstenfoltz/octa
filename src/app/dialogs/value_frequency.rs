@@ -63,10 +63,15 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
         .title_bar(false)
         .collapsible(false);
     let window = size_dialog_window(ctx, dialog_id, build_size, window, |w| {
+        // Wider than the other dialogs on purpose: this is the only one whose
+        // title carries a value (the column name), so a narrow default put long
+        // names under the window buttons. The truncating title below is what
+        // actually guarantees they never collide; this just means the common
+        // case does not need truncating at all.
         w.resizable(true)
-            .default_width(520.0)
+            .default_width(720.0)
             .default_height(520.0)
-            .min_width(360.0)
+            .min_width(420.0)
             .min_height(220.0)
     });
     let minimized = size == DialogSize::Minimized;
@@ -75,20 +80,32 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
         egui::Panel::top("value_frequency_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
+                // Window controls are laid out FIRST, right to left, so they
+                // always claim their space; the title then truncates into
+                // whatever is left. Drawing the title first (as the other
+                // dialogs do) is safe only for their short static titles - this
+                // one appends the column name, which has no length limit, and a
+                // long one used to run underneath the close button.
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(format!(
-                            "{} - {}",
-                            octa::i18n::t("dialog.vf_title"),
-                            column_name
-                        ))
-                        .strong()
-                        .size(16.0),
-                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
                             close_requested = true;
                         }
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(format!(
+                                        "{} - {}",
+                                        octa::i18n::t("dialog.vf_title"),
+                                        column_name
+                                    ))
+                                    .strong()
+                                    .size(16.0),
+                                )
+                                .truncate(),
+                            )
+                            .on_hover_text(&column_name);
+                        });
                     });
                 });
             });

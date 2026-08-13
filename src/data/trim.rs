@@ -118,27 +118,41 @@ fn snake_case(name: &str) -> String {
 /// Like [`trim_string_columns`] this is a normalization pass, not a tracked
 /// edit; the app gates it behind the `clean_headers_on_load` setting.
 pub fn clean_headers(table: &mut DataTable) -> Vec<String> {
-    use std::collections::HashMap;
-    let mut seen: HashMap<String, usize> = HashMap::new();
+    let planned = planned_header_names(table);
     let mut changed = Vec::new();
-    for col in table.columns.iter_mut() {
-        let base = snake_case(&col.name);
-        let name = match seen.get_mut(&base) {
-            Some(count) => {
-                *count += 1;
-                format!("{base}_{count}")
-            }
-            None => {
-                seen.insert(base.clone(), 1);
-                base
-            }
-        };
+    for (col, name) in table.columns.iter_mut().zip(planned) {
         if name != col.name {
             col.name = name.clone();
             changed.push(name);
         }
     }
     changed
+}
+
+/// The cleaned title each column would get, in column order, without touching
+/// the table. Same rule [`clean_headers`] applies; split out so a caller that
+/// needs the renames to be undoable can route them through
+/// `DataTable::rename_column` instead of writing the titles directly.
+pub fn planned_header_names(table: &DataTable) -> Vec<String> {
+    use std::collections::HashMap;
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    table
+        .columns
+        .iter()
+        .map(|col| {
+            let base = snake_case(&col.name);
+            match seen.get_mut(&base) {
+                Some(count) => {
+                    *count += 1;
+                    format!("{base}_{count}")
+                }
+                None => {
+                    seen.insert(base.clone(), 1);
+                    base
+                }
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

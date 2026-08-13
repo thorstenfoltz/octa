@@ -49,6 +49,9 @@ pub struct SqlAction {
     /// User clicked **Write result to DB...**. The panel opens the write-back
     /// dialog which composes the actual `WriteTarget`.
     pub open_write_back: bool,
+    /// User pressed Ask with a question in the plain-language box. The panel
+    /// fires one request; the answer is spliced into the editor, never run.
+    pub ask: Option<String>,
     /// User selected a new entry in the workspace tree (or cleared the
     /// selection). The panel updates `tab.sql_inspector_selection` and
     /// triggers a fresh introspection fetch (cached on `TabState` so the
@@ -264,6 +267,9 @@ pub struct SqlViewContext<'a> {
     pub server_running: bool,
     /// Saved live-database connections as (id, name), for the attach menu.
     pub db_connections: Vec<(String, String)>,
+    /// Whether at least one chat profile is configured, so the Ask box can be
+    /// offered. Passed in because the view layer does not read settings.
+    pub chat_profile_available: bool,
 }
 
 /// Render a split-pane SQL editor (top) and result table (bottom).
@@ -297,6 +303,7 @@ pub fn render_sql_view(
         server_conn_name,
         server_running,
         db_connections,
+        chat_profile_available,
     } = ctx_args;
     let mut action = SqlAction::default();
     let editor_id = editor_id();
@@ -380,6 +387,38 @@ pub fn render_sql_view(
         {
             action.open_snippets_window = true;
         }
+
+        // Ask: plain language in, one SELECT out, into the editor at the
+        // cursor. Never runs. Disabled with a reason rather than hidden, so
+        // the control explains itself.
+        let has_columns = tab.table.col_count() > 0;
+        let ask_enabled = chat_profile_available && has_columns;
+        let ask_reason = if !chat_profile_available {
+            octa::i18n::t("sql.ask_needs_profile")
+        } else if !has_columns {
+            octa::i18n::t("sql.ask_no_columns")
+        } else {
+            octa::i18n::t("sql.ask_hint")
+        };
+        ui.add_enabled_ui(ask_enabled, |ui| {
+            let box_resp = ui
+                .add(
+                    egui::TextEdit::singleline(&mut tab.sql_ask_input)
+                        .desired_width(220.0)
+                        .hint_text(octa::i18n::t("sql.ask_placeholder")),
+                )
+                .on_hover_text(ask_reason.clone())
+                .on_disabled_hover_text(ask_reason.clone());
+            let submitted = box_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            let clicked = ui
+                .button(octa::i18n::t("sql.ask"))
+                .on_hover_text(ask_reason.clone())
+                .on_disabled_hover_text(ask_reason)
+                .clicked();
+            if (submitted || clicked) && !tab.sql_ask_input.trim().is_empty() {
+                action.ask = Some(tab.sql_ask_input.clone());
+            }
+        });
 
         let has_result = tab.sql_result.as_ref().is_some_and(|t| t.col_count() > 0);
         ui.add_enabled_ui(has_result, |ui| {

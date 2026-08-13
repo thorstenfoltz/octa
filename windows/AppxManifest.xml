@@ -28,7 +28,13 @@
        advertised Octa as English-only. Neutral BCP-47 codes because the
        catalogues are language-level, not region-level (locales/de.toml, not
        de-DE); en-us is left region-qualified as the default listing language.
-       Keep in sync with locales/ and docs/reference/languages.md. -->
+       Keep in sync with locales/ and docs/reference/languages.md.
+
+       Serbian is the one tag that must carry a script: Windows rejects a bare
+       "sr" at package registration ("not a valid language", deployment error
+       0x80070057) because it cannot tell Cyrillic from Latin. locales/sr.toml
+       is Cyrillic, hence sr-cyrl. The Partner Center listing file is named to
+       match: docs/assets/store/listings/sr-cyrl.toml. -->
   <Resources>
     <Resource Language="en-us" />
     <Resource Language="bg" />
@@ -56,7 +62,7 @@
     <Resource Language="ru" />
     <Resource Language="sk" />
     <Resource Language="sl" />
-    <Resource Language="sr" />
+    <Resource Language="sr-cyrl" />
     <Resource Language="sv" />
     <Resource Language="tr" />
     <Resource Language="uk" />

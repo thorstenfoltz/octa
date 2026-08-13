@@ -34,7 +34,7 @@ impl FormatReader for DuckDbReader {
     }
 
     fn write_file(&self, path: &Path, table: &DataTable) -> Result<()> {
-        self.write_file_schema_aware(path, table, false)
+        self.write_file_schema_aware(path, table, false, &Default::default())
     }
 
     fn write_file_schema_aware(
@@ -42,6 +42,7 @@ impl FormatReader for DuckDbReader {
         path: &Path,
         table: &DataTable,
         allow_schema_changes: bool,
+        _opts: &crate::formats::write_options::WriteOptions,
     ) -> Result<()> {
         let meta = table
             .db_meta

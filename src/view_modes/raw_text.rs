@@ -267,14 +267,18 @@ pub fn render_raw_view(
         let plain_hl_current = current_range.clone();
         let plain_text_color = colors.text_primary;
         let plain_highlight_layouter =
-            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+            // `_wrap_width` is the pane width egui offers for wrapping. All three
+            // layouters ignore it by design: the view lays out unwrapped and the
+            // enclosing ScrollArea::both scrolls to long lines instead of folding
+            // them. The parameter cannot be dropped, egui fixes the signature.
+            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap_width: f32| {
                 let mut job = egui::text::LayoutJob::simple(
                     text.as_str().to_owned(),
                     egui::FontId::new(13.0, egui::FontFamily::Monospace),
                     plain_text_color,
-                    wrap_width,
+                    f32::INFINITY,
                 );
-                job.wrap.max_width = wrap_width;
+                job.wrap.max_width = f32::INFINITY;
                 ui::search_highlight::apply_highlight(
                     &mut job,
                     &plain_hl_ranges,
@@ -315,14 +319,15 @@ pub fn render_raw_view(
         let syntect_hl_ranges = match_ranges.clone();
         let syntect_hl_current = current_range.clone();
         let syntect_layouter =
-            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap_width: f32| {
                 let mut job = octa::ui::syntax::highlight_layout_job(
                     text.as_str(),
                     syntect_syntax.expect("syntect_layouter only used when syntax is Some"),
                     syntect_theme,
                     egui::FontId::new(13.0, egui::FontFamily::Monospace),
                 );
-                job.wrap.max_width = wrap_width;
+                // Never wrap; see the plain layouter above.
+                job.wrap.max_width = f32::INFINITY;
                 ui::search_highlight::apply_highlight(
                     &mut job,
                     &syntect_hl_ranges,
@@ -337,14 +342,14 @@ pub fn render_raw_view(
         let colored_hl_current = current_range.clone();
         let colored_layouter = move |ui: &egui::Ui,
                                      text: &dyn egui::TextBuffer,
-                                     wrap_width: f32| {
+                                     _wrap_width: f32| {
             let font = egui::FontId::new(13.0, egui::FontFamily::Monospace);
             let default_color = ui.visuals().text_color();
             let mut job = egui::text::LayoutJob::default();
-            // Wraps like the other two. A padded CSV row wider than the pane
-            // loses its column look on the wrapped rows, which still beats the
-            // old behaviour of putting it out of reach entirely.
-            job.wrap.max_width = wrap_width;
+            // Never wraps, like the other two. This is the layouter that made
+            // wrapping worst: folding a padded CSV row destroys the column
+            // alignment that "Align Columns" exists to produce.
+            job.wrap.max_width = f32::INFINITY;
 
             let text_str = text.as_str();
             let mut first_line = true;
@@ -405,10 +410,18 @@ pub fn render_raw_view(
             egui::Sense::click(),
         );
 
-        // Vertical only: the editor wraps at the pane width, so there is nothing
-        // to scroll sideways to. It used to lay out unwrapped, which put every
-        // long line out of reach as soon as the pane got narrow.
-        egui::ScrollArea::vertical()
+        // Both directions: the layouters below lay out unwrapped, so a line
+        // longer than the pane extends sideways and this scrolls to it. Wrapping
+        // was tried instead, because unwrapped text inside a vertical-only
+        // ScrollArea put long lines permanently out of reach; the fix for that
+        // is the horizontal scrollbar, not folding the line.
+        //
+        // `available_width` has to be read BEFORE entering the ScrollArea:
+        // egui sets the inner ui's available size to infinity on every axis it
+        // can scroll, so reading it inside would hand `desired_width` an
+        // infinite value.
+        let pane_width = ui.available_width();
+        egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.horizontal_top(|ui| {
@@ -423,14 +436,16 @@ pub fn render_raw_view(
                     );
                     ui.painter().rect_filled(sep_rect, 0.0, colors.border);
                     ui.add_space(4.0);
-                    // Text editor (wraps at the pane width).
+                    // Text editor: lays out unwrapped and is at least as wide as
+                    // the pane, so short files still fill it and a long line
+                    // grows the widget for the ScrollArea to scroll to.
                     // lock_focus(true) prevents Tab from navigating to other widgets
                     let editor_id = egui::Id::new("raw_text_editor");
                     let mut output = if use_col_colors {
                         egui::TextEdit::multiline(content)
                             .id(editor_id)
                             .font(mono_font)
-                            .desired_width(f32::INFINITY)
+                            .desired_width(pane_width)
                             .lock_focus(true)
                             .interactive(!readonly)
                             .layouter(&mut colored_layouter.clone())
@@ -439,7 +454,7 @@ pub fn render_raw_view(
                         egui::TextEdit::multiline(content)
                             .id(editor_id)
                             .font(mono_font)
-                            .desired_width(f32::INFINITY)
+                            .desired_width(pane_width)
                             .lock_focus(true)
                             .interactive(!readonly)
                             .layouter(&mut syntect_layouter.clone())
@@ -448,7 +463,7 @@ pub fn render_raw_view(
                         egui::TextEdit::multiline(content)
                             .id(editor_id)
                             .font(mono_font)
-                            .desired_width(f32::INFINITY)
+                            .desired_width(pane_width)
                             .lock_focus(true)
                             .interactive(!readonly)
                             .text_color(colors.text_primary)

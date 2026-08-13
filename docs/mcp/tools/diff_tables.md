@@ -32,16 +32,17 @@ whole rows are unique to a side.
 
 ## Input schema
 
-| Parameter   | Type     | Required?       | Default               | Description                                           |
-|-------------|----------|-----------------|-----------------------|-------------------------------------------------------|
-| `path_a`    | string   | yes             | (no default)          | Path to the first file (side A)                       |
-| `path_b`    | string   | yes             | (no default)          | Path to the second file (side B)                      |
-| `mode`      | string   | no              | `set`                 | `set`, `ordered`, or `join`                           |
-| `on`        | string[] | for `join` only | (no default)          | Key column(s) for `join`, matched by name             |
-| `table_a`   | string   | no              | (no default)          | Specific table to read from A (multi-table sources)   |
-| `table_b`   | string   | no              | (no default)          | Specific table to read from B (multi-table sources)   |
-| `limit`     | int      | no              | server default (1000) | Max rows returned *per side*. `0` = unlimited         |
-| `unlimited` | bool     | no              | `false`               | Lift the 5,000,000-row file-loader cap for both files |
+| Parameter   | Type     | Required?       | Default               | Description                                                                                                                                          |
+|-------------|----------|-----------------|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `path_a`    | string   | yes             | (no default)          | Path to the first file (side A)                                                                                                                      |
+| `path_b`    | string   | yes             | (no default)          | Path to the second file (side B)                                                                                                                     |
+| `mode`      | string   | no              | `set`                 | `set`, `ordered`, or `join`                                                                                                                          |
+| `on`        | string[] | for `join` only | (no default)          | Key column(s) for `join`, matched by name                                                                                                            |
+| `table_a`   | string   | no              | (no default)          | Specific table to read from A (multi-table sources)                                                                                                  |
+| `table_b`   | string   | no              | (no default)          | Specific table to read from B (multi-table sources)                                                                                                  |
+| `limit`     | int      | no              | server default (1000) | Max rows returned *per side*. `0` = unlimited                                                                                                        |
+| `unlimited` | bool     | no              | `false`               | Lift the 5,000,000-row file-loader cap for both files                                                                                                |
+| `b_db`      | object   | no              | -                     | Compare against a live database table instead of a second file: `{"connection": "NAME", "table": "SCHEMA.TABLE"}`. Replaces `path_b` / `open_tab_b`. |
 
 ## Response shape
 
@@ -92,6 +93,35 @@ present in both files. Unchanged rows are not returned.
   }
 }
 ```
+
+## Comparing against a database table
+
+Pass `b_db` instead of `path_b` to check a file against a live table, for
+example to confirm that a load landed:
+
+```json
+{
+  "path_a": "orders.csv",
+  "b_db": { "connection": "warehouse", "table": "public.orders" },
+  "mode": "join",
+  "on": ["id"]
+}
+```
+
+- `connection` is the name of a saved database connection. The
+  `list_db_connections` tool enumerates them; they are configured under
+  [Database Connections](../../usage/database-connections.md).
+- `table` is `SCHEMA.TABLE`, or `CATALOG.SCHEMA.TABLE` on Snowflake,
+  Databricks and BigQuery. An unqualified name uses the connection's own
+  database.
+- Side A stays the file, so `only_in_a` means "in the file, not the
+  table".
+- The database side is read under the normal row cap, so a large table is
+  compared on its first rows.
+
+The GUI equivalent is
+[Compare with a Database Table](../../usage/compare-with-database.md); on
+the command line it is `--diff-db`.
 
 ## See also
 

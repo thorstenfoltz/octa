@@ -309,6 +309,10 @@ pub enum ShortcutAction {
     /// All Open Tabs or Directory and a results list. Reachable via
     /// **Search -> Multi-search...**.
     MultiSearch,
+    /// Jump to the next cell flagged by validation or outlier detection.
+    NextProblem,
+    /// Jump to the previous flagged cell.
+    PrevProblem,
     /// Open a Chart tab for the active table. Equivalent to clicking
     /// **Analyse -> Chart** in the toolbar. The new tab is single-mode
     /// (`ViewMode::Chart`), holds a clone of the source table, and
@@ -355,6 +359,28 @@ pub enum ShortcutAction {
     /// Open the Fill-missing-values (impute) dialog. Also
     /// **Edit -> Fill missing values...**.
     OpenImpute,
+    OpenCleanupPanel,
+    OpenTimeseries,
+    OpenBatchConvert,
+    /// Open the Schema drift dialog. Also **File -> Schema drift...**.
+    OpenSchemaDrift,
+    /// Open the Report dialog. Also **File -> Report...**.
+    OpenReport,
+    /// Open the Fuzzy join dialog. Also **Data -> Fuzzy join...**.
+    OpenFuzzyJoin,
+    /// Open the File internals tab. Also **Analyse -> File internals...**.
+    OpenFileInternals,
+    /// Open the database/cloud compare dialog. Also
+    /// **Analyse -> Compare with database or cloud...**.
+    OpenDbCompare,
+    /// Open the Join key finder. Also **Analyse -> Join key finder...**.
+    OpenJoinKeys,
+    /// Open Join diagnostics. Also **Analyse -> Join diagnostics...**.
+    OpenJoinDiag,
+    /// Open the Harmonise schemas dialog. Also **File -> Harmonise schemas...**.
+    OpenHarmonise,
+    /// Toggle the search bar's plain-language Ask mode.
+    ToggleAskFilter,
     /// Open the Union-tables dialog. Also **Analyse -> Union tables...**.
     OpenUnion,
     /// Open the Join-tables dialog. Also **Analyse -> Join tables...**.
@@ -445,6 +471,8 @@ impl ShortcutAction {
             Self::OpenFuzzyDuplicates => "Find near-duplicates...",
             Self::ExportSchema => "Export schema...",
             Self::MultiSearch => "Open multi-search panel",
+            Self::NextProblem => "Jump to next flagged cell",
+            Self::PrevProblem => "Jump to previous flagged cell",
             Self::OpenChart => "Open chart tab",
             Self::ScrollPageUp => "Scroll up one page",
             Self::ScrollPageDown => "Scroll down one page",
@@ -461,6 +489,18 @@ impl ShortcutAction {
             Self::CopyAsMarkdown => "Copy as Markdown table",
             Self::OpenDedupe => "Drop duplicate rows...",
             Self::OpenImpute => "Fill missing values...",
+            Self::OpenCleanupPanel => "Clean-up suggestions",
+            Self::OpenTimeseries => "Time series...",
+            Self::OpenBatchConvert => "Batch convert...",
+            Self::OpenSchemaDrift => "Schema drift...",
+            Self::OpenReport => "Report...",
+            Self::OpenFuzzyJoin => "Fuzzy join...",
+            Self::OpenFileInternals => "File internals...",
+            Self::OpenDbCompare => "Compare with database or cloud...",
+            Self::OpenJoinKeys => "Join key finder...",
+            Self::OpenJoinDiag => "Join diagnostics...",
+            Self::OpenHarmonise => "Harmonise schemas...",
+            Self::ToggleAskFilter => "Toggle Ask (plain-language filter)",
             Self::OpenUnion => "Union tables...",
             Self::OpenJoin => "Join tables",
             Self::OpenPartition => "Partition by column",
@@ -538,6 +578,16 @@ impl ShortcutAction {
             // already the column-filter shortcut and Ctrl+F is the
             // active-tab search - both useful enough to keep.
             Self::MultiSearch => KeyCombo::plain(Key::F6),
+            // F10 and Shift+F10 are the only free function keys: F1-F9 are
+            // documentation, edit cell, settings, cycle view, chart,
+            // multi-search, schema export, read-only and compare.
+            Self::NextProblem => KeyCombo::plain(Key::F10),
+            Self::PrevProblem => KeyCombo {
+                key: Some(Key::F10),
+                ctrl: false,
+                shift: true,
+                alt: false,
+            },
             // F5 is the only free F-key in the (F4-F9) cluster after the
             // v3 batch; "refresh" semantics also map naturally to "re-plot".
             Self::OpenChart => KeyCombo::plain(Key::F5),
@@ -582,6 +632,20 @@ impl ShortcutAction {
             Self::OpenTableFolder => KeyCombo::UNBOUND,
             Self::ListCloudInventory => KeyCombo::UNBOUND,
             Self::RunSqlOnServer => KeyCombo::UNBOUND,
+            // Every Ctrl+Shift letter is taken, and Ctrl+Shift+C / X / V fire
+            // egui clipboard events on the table.
+            Self::OpenCleanupPanel => KeyCombo::UNBOUND,
+            Self::OpenTimeseries => KeyCombo::UNBOUND,
+            Self::OpenBatchConvert => KeyCombo::UNBOUND,
+            Self::OpenSchemaDrift => KeyCombo::UNBOUND,
+            Self::OpenReport => KeyCombo::UNBOUND,
+            Self::OpenFuzzyJoin => KeyCombo::UNBOUND,
+            Self::OpenFileInternals => KeyCombo::UNBOUND,
+            Self::OpenDbCompare => KeyCombo::UNBOUND,
+            Self::OpenJoinKeys => KeyCombo::UNBOUND,
+            Self::OpenJoinDiag => KeyCombo::UNBOUND,
+            Self::OpenHarmonise => KeyCombo::UNBOUND,
+            Self::ToggleAskFilter => KeyCombo::UNBOUND,
         }
     }
 }
@@ -663,6 +727,7 @@ impl ShortcutAction {
             | Self::QuitApp => G::File,
             Self::NextTab | Self::PrevTab | Self::RenameActiveTab => G::Tabs,
             Self::FocusSearch
+            | Self::ToggleAskFilter
             | Self::ToggleFindReplace
             | Self::OpenColumnFilter
             | Self::FindDuplicates
@@ -675,7 +740,9 @@ impl ShortcutAction {
             | Self::JumpFirstCol
             | Self::JumpLastCol
             | Self::ScrollPageUp
-            | Self::ScrollPageDown => G::Navigation,
+            | Self::ScrollPageDown
+            | Self::NextProblem
+            | Self::PrevProblem => G::Navigation,
             Self::SelectAllRows
             | Self::ExtendSelectionUp
             | Self::ExtendSelectionDown
@@ -714,6 +781,17 @@ impl ShortcutAction {
             | Self::OpenSummary
             | Self::OpenDedupe
             | Self::OpenImpute
+            | Self::OpenCleanupPanel
+            | Self::OpenTimeseries
+            | Self::OpenBatchConvert
+            | Self::OpenSchemaDrift
+            | Self::OpenReport
+            | Self::OpenFuzzyJoin
+            | Self::OpenFileInternals
+            | Self::OpenDbCompare
+            | Self::OpenJoinKeys
+            | Self::OpenJoinDiag
+            | Self::OpenHarmonise
             | Self::OpenUnion
             | Self::OpenJoin
             | Self::OpenPartition

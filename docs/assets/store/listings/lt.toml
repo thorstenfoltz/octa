@@ -1,11 +1,13 @@
 # lt: written natively, not translated from English.
 
-short = "Atverkite Parquet, CSV, Excel, SQLite ir dar apie 30 duomenų formatų greitoje lentelėje. Rikiavimas, filtrai, paieška, redagavimas ir SQL, viskas vietoje."
+short = "Parquet, CSV, Excel, SQLite ir dar apie trisdešimt formatų greitoje lentelėje. Rikiuok, filtruok, ieškok, redaguok ir vykdyk SQL savo kompiuteryje."
 
 long = """
-Octa atveria Parquet, CSV, Excel, SQLite, DuckDB, JSON ir dar apie trisdešimt formatų iškart greitoje lentelėje. Be importavimo ir be nustatymų.
+Octa atveria Parquet, CSV, Excel, SQLite, DuckDB ir JSON failus bei dar apie trisdešimt kitų duomenų formatų, be importavimo ir be varginančio derinimo.
 
-Rikiuokite, filtruokite, ieškokite ir redaguokite duomenis, teikite jiems SQL užklausas per DuckDB, kurkite diagramas arba palyginkite du failus. Viskas veikia jūsų kompiuteryje ir joks failas niekur nesiunčiamas.
+Duomenis gali rikiuoti, filtruoti, juose ieškoti ir redaguoti, vykdyti SQL užklausas su DuckDB, kurti diagramas arba palyginti du failus. Įtaisytame pokalbyje apie duomenis gali paklausti ir paprasta kalba.
 
-Sąsaja 32 kalbomis. Laisva programinė įranga su MIT licencija.
+Duomenys apdorojami vietoje, tavo kompiuteryje, jei tik naudojamai funkcijai nereikia išorinės API.
+
+Sąsaja pateikiama 32 kalbomis. Octa yra laisva programinė įranga su MIT licencija.
 """

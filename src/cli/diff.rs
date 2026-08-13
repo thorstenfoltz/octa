@@ -23,13 +23,20 @@ use super::output::write_table;
 
 pub fn run(
     path_a: PathBuf,
-    path_b: PathBuf,
+    path_b: Option<PathBuf>,
+    db_b: Option<(String, String)>,
     mode: CompareMode,
     on: Vec<String>,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     let a = super::read_table(&path_a)?;
-    let b = super::read_table(&path_b)?;
+    let b = match (&path_b, &db_b) {
+        (Some(p), _) => super::read_table(p)?,
+        (None, Some((conn_name, spec))) => read_db_side(conn_name, spec)?,
+        (None, None) => {
+            anyhow::bail!("--diff needs a second file, or --diff-db with --diff-db-table")
+        }
+    };
 
     match mode {
         CompareMode::Set => {
@@ -100,4 +107,19 @@ fn build_set_table(
     out.columns = columns;
     out.rows = rows;
     out
+}
+
+/// Read the B side from a saved database connection. Same cap as any other
+/// read, so a large table is compared on its first `initial_load_rows` rows;
+/// the caller's summary line says so.
+fn read_db_side(conn_name: &str, spec: &str) -> anyhow::Result<octa::data::DataTable> {
+    let settings = octa::ui::settings::AppSettings::load();
+    let conn = settings
+        .db_connections
+        .iter()
+        .find(|c| c.name == conn_name)
+        .ok_or_else(|| anyhow::anyhow!("no saved database connection named '{conn_name}'"))?;
+    let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
+    let (catalog, schema, table) = octa::db::fetch_table::split_qualified(spec);
+    octa::db::fetch_table::fetch_table(conn, secret.as_deref(), catalog.as_deref(), &schema, &table)
 }

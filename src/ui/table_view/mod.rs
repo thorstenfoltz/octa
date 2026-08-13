@@ -18,8 +18,10 @@ pub struct TableViewState {
     pub selected_cell: Option<(usize, usize)>,
     /// Cell currently being edited, with its buffer.
     pub editing_cell: Option<(usize, usize, String)>,
-    /// Whether the edit widget needs initial focus (set true when editing starts).
-    edit_needs_focus: bool,
+    /// Whether the edit widget needs initial focus (set true when editing
+    /// starts). Public because the Record view runs the same begin-edit /
+    /// focus-once / commit-on-lost-focus cycle outside this module.
+    pub edit_needs_focus: bool,
     /// Column widths (auto-sized initially, user can resize later).
     pub col_widths: Vec<f32>,
     /// Whether col_widths have been initialized.

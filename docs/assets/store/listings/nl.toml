@@ -1,11 +1,13 @@
-# nl: eigenstaendig verfasst / written natively, not translated.
+# nl: written natively, not translated from English.
 
-short = "Open Parquet, CSV, Excel, SQLite en zo'n 30 andere dataformaten in een snelle tabel. Sorteren, filteren, zoeken, bewerken en SQL uitvoeren, volledig lokaal."
+short = "Parquet, CSV, Excel, SQLite en zo'n dertig andere formaten in een snelle tabel. Sorteren, filteren, zoeken, bewerken en SQL uitvoeren op je eigen computer."
 
 long = """
-Octa opent Parquet, CSV, Excel, SQLite, DuckDB, JSON en een dertigtal andere formaten meteen in een vlotte tabel. Zonder import, zonder installatiegedoe.
+Octa opent Parquet-, CSV-, Excel-, SQLite-, DuckDB- en JSON-bestanden en daarnaast zo'n dertig andere gegevensformaten, zonder importstap en zonder omslachtige installatie.
 
-Sorteer, filter, doorzoek en bewerk je gegevens, bevraag ze met DuckDB-SQL, maak grafieken of vergelijk twee bestanden. Alles draait op je eigen machine; er wordt niets geüpload.
+Je sorteert, filtert, doorzoekt en bewerkt je gegevens, voert SQL-query's uit met DuckDB, maakt grafieken of vergelijkt twee bestanden. Via de ingebouwde chat kun je je gegevens ook in gewone taal bevragen.
 
-Interface in 32 talen. Vrije software onder MIT-licentie.
+De verwerking gebeurt lokaal op je eigen computer, tenzij de functie die je gebruikt een externe API nodig heeft.
+
+De interface is beschikbaar in 32 talen. Octa is vrije software onder de MIT-licentie.
 """

@@ -24,12 +24,14 @@ impl OctaApp {
             // Painted before any content so widgets sit on top.
             ui::theme::paint_background_decoration(ui.painter(), ui.max_rect(), self.theme_mode);
 
-            // Status message - auto-fades after 10s.
+            // Status message - auto-fades. Failures linger far longer than
+            // confirmations: an error is the one message worth reading twice
+            // and copying, and ten seconds is not enough to do either.
             if let Some((ref msg, instant)) = self.status_message
-                && instant.elapsed().as_secs() < 10
+                && instant.elapsed().as_secs() < message_lifetime_secs(msg)
             {
                 let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
-                let color = if msg.starts_with("Saved") {
+                let color = if is_success_message(msg) {
                     colors.success
                 } else if msg.starts_with('\u{1f419}') {
                     // Easter-egg messages (kraken, etc.) get the accent.
@@ -37,9 +39,12 @@ impl OctaApp {
                 } else {
                     colors.error
                 };
+                // Selectable + right-click Copy: a failure message here is
+                // often the whole reason a save or a connection did not work.
+                let msg = msg.clone();
                 ui.horizontal(|ui| {
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new(msg).color(color).size(12.0));
+                    ui::message::selectable_message_sized(ui, color, &msg, Some(12.0));
                 });
                 ui.add_space(4.0);
             }
@@ -205,6 +210,122 @@ impl OctaApp {
                 self.pending_trim_warning = None;
             }
 
+            // Number-promotion banner. Lists the text columns that were read as
+            // European- or English-formatted numbers. Okay accepts, Dismiss
+            // puts the original strings back.
+            let mut dismiss_numbers = false;
+            let mut undo_numbers = false;
+            if let Some(warning) = self
+                .pending_number_warning
+                .as_ref()
+                .filter(|w| w.tab_idx == self.active_tab && !w.entries.is_empty())
+            {
+                let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
+                let summary = warning
+                    .entries
+                    .iter()
+                    .map(|e| e.column_name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let style_label = warning.entries[0].style_label;
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(
+                            octa::i18n::t("banner.numbers_promoted")
+                                .replace("{n}", &warning.entries.len().to_string())
+                                .replace("{cols}", &summary)
+                                .replace("{style}", style_label),
+                        )
+                        .color(colors.warning)
+                        .size(12.0),
+                    );
+                    if ui
+                        .small_button(octa::i18n::t("banner.okay"))
+                        .on_hover_text(octa::i18n::t("banner.numbers_keep_tip"))
+                        .clicked()
+                    {
+                        dismiss_numbers = true;
+                    }
+                    if ui
+                        .small_button(octa::i18n::t("banner.dismiss"))
+                        .on_hover_text(octa::i18n::t("banner.numbers_undo_tip"))
+                        .clicked()
+                    {
+                        undo_numbers = true;
+                    }
+                });
+                ui.add_space(4.0);
+            }
+            if undo_numbers {
+                self.revert_promoted_number_columns();
+            } else if dismiss_numbers {
+                self.pending_number_warning = None;
+            }
+
+            // Per-tab notice banner (parse fallback, inventory truncation, the
+            // file-internals facts). The Raw view renders this itself inside
+            // its scroll area, so only the other views need it here - without
+            // this, a banner set on a table-shaped tab was simply invisible.
+            if self.tabs[self.active_tab].view_mode != ViewMode::Raw
+                && let Some(text) = self.tabs[self.active_tab].parse_error_banner.clone()
+                && crate::view_modes::raw_text::render_parse_error_banner(
+                    ui,
+                    &text,
+                    self.theme_mode,
+                )
+            {
+                self.tabs[self.active_tab].parse_error_banner = None;
+            }
+
+            // Comparison-filter chips (`amount greater than 1000`), applied by
+            // the search bar's Ask mode. Shown so a wrong interpretation is
+            // visible and removable rather than a mystery.
+            if !self.tabs[self.active_tab].predicate_filters.is_empty() {
+                let mut remove: Option<usize> = None;
+                let labels: Vec<String> = {
+                    let tab = &self.tabs[self.active_tab];
+                    tab.predicate_filters
+                        .iter()
+                        .map(|f| f.label(&tab.table))
+                        .collect()
+                };
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new(octa::i18n::t("search.ask_filters"))
+                            .size(11.0)
+                            .color(ui::theme::ThemeColors::for_mode(self.theme_mode).text_muted),
+                    );
+                    for (i, label) in labels.iter().enumerate() {
+                        if ui
+                            .small_button(format!("{label}  x"))
+                            .on_hover_text(octa::i18n::t("search.ask_filter_remove"))
+                            .clicked()
+                        {
+                            remove = Some(i);
+                        }
+                    }
+                    if labels.len() > 1
+                        && ui
+                            .small_button(octa::i18n::t("search.ask_filters_clear"))
+                            .clicked()
+                    {
+                        remove = Some(usize::MAX);
+                    }
+                });
+                ui.add_space(4.0);
+                if let Some(i) = remove {
+                    let tab = &mut self.tabs[self.active_tab];
+                    if i == usize::MAX {
+                        tab.predicate_filters.clear();
+                    } else if i < tab.predicate_filters.len() {
+                        tab.predicate_filters.remove(i);
+                    }
+                    tab.filter_dirty = true;
+                }
+            }
+
             // Recompute filter before drawing (toolbar actions earlier in the
             // frame may have dirtied it).
             if self.tabs[self.active_tab].filter_dirty {
@@ -285,6 +406,15 @@ impl OctaApp {
                 );
                 return;
             }
+            if self.tabs[self.active_tab].view_mode == ViewMode::Record {
+                view_modes::render_record_view(
+                    ui,
+                    &mut self.tabs[self.active_tab],
+                    self.theme_mode,
+                    readonly,
+                );
+                return;
+            }
             if self.tabs[self.active_tab].view_mode == ViewMode::Raw {
                 self.maybe_offer_raw_perf_prompt();
                 let raw_action = view_modes::render_raw_view(
@@ -354,6 +484,7 @@ impl OctaApp {
             // "Filter to marked" is narrowing the visible rows.
             let filter_active = !tab.search_text.is_empty()
                 || !tab.column_filters.is_empty()
+                || !tab.predicate_filters.is_empty()
                 || tab.mark_filter_active;
             let show_sequential = self.settings.show_sequential_row_numbers && filter_active;
             let hidden_cols = tab.hidden_columns.clone();
@@ -527,6 +658,38 @@ impl OctaApp {
                     None => CellValue::Null,
                 };
                 tab.table.rows[row][entry.col_idx] = new_cell;
+            }
+            if let Some(col) = tab.table.columns.get_mut(entry.col_idx) {
+                col.data_type = "Utf8".to_string();
+            }
+        }
+        tab.filter_dirty = true;
+        tab.table_state.invalidate_row_heights();
+    }
+
+    /// Undo the load-time number promotion, putting the original strings back
+    /// and returning the columns to text. Called from the "Dismiss" button on
+    /// the number banner; the sibling of `revert_promoted_date_columns`.
+    fn revert_promoted_number_columns(&mut self) {
+        use octa::data::CellValue;
+        let Some(warning) = self.pending_number_warning.take() else {
+            return;
+        };
+        let Some(tab) = self.tabs.get_mut(warning.tab_idx) else {
+            return;
+        };
+        for entry in &warning.entries {
+            if entry.col_idx >= tab.table.col_count() {
+                continue;
+            }
+            for (row, original) in entry.original_values.iter().enumerate() {
+                if row >= tab.table.row_count() {
+                    break;
+                }
+                tab.table.rows[row][entry.col_idx] = match original {
+                    Some(s) => CellValue::String(s.clone()),
+                    None => CellValue::Null,
+                };
             }
             if let Some(col) = tab.table.columns.get_mut(entry.col_idx) {
                 col.data_type = "Utf8".to_string();
@@ -905,4 +1068,44 @@ fn render_empty_file_placeholder(ui: &mut egui::Ui, theme_mode: ui::theme::Theme
                 .color(colors.text_secondary),
         );
     });
+}
+
+/// A confirmation, as opposed to a failure. Only the prefix Octa itself
+/// writes is recognised; anything else is treated as a failure, which is the
+/// safe way round (a failure shown for too long beats one that vanishes).
+fn is_success_message(msg: &str) -> bool {
+    msg.starts_with("Saved")
+}
+
+/// How long a status message stays on screen.
+///
+/// Failures get a minute rather than ten seconds: the user has to read it,
+/// often select it, and right-click Copy, and ten seconds is not enough for
+/// that. Confirmations and easter eggs keep the short fade, since re-reading
+/// "Saved" has no value.
+fn message_lifetime_secs(msg: &str) -> u64 {
+    if is_success_message(msg) || msg.starts_with('\u{1f419}') {
+        10
+    } else {
+        60
+    }
+}
+
+#[cfg(test)]
+mod status_message_tests {
+    use super::*;
+
+    #[test]
+    fn failures_outlive_confirmations() {
+        assert_eq!(message_lifetime_secs("Saved data.csv"), 10);
+        assert_eq!(message_lifetime_secs("\u{1f419} the kraken stirs"), 10);
+        assert_eq!(message_lifetime_secs("Could not write: HTTP 403"), 60);
+    }
+
+    /// Anything unrecognised is a failure, so it lingers rather than flashing.
+    #[test]
+    fn an_unknown_message_is_treated_as_a_failure() {
+        assert_eq!(message_lifetime_secs(""), 60);
+        assert!(!is_success_message("Could not save"));
+    }
 }

@@ -33,6 +33,110 @@ Either way the in-memory table stays at full precision, so the choice
 only affects the bytes on disk. Tabs without a rounding format save
 directly with no prompt.
 
+## Formatting in Excel files
+
+Colour marks, [conditional formatting](conditional-formatting.md) colours,
+[frozen columns](table-view.md#freeze-columns) and per-column
+[number formats](table-view.md#number-display-separators-and-rounding) are
+display-only everywhere else, but `.xlsx` can hold all four. Carrying them
+across is **off by default**, since most saves are meant as plain data.
+
+Turn it on under **Settings → Files → Write options → Include formatting in
+Excel files**. Independently of that switch, saving a tab that actually
+carries any of the four to `.xlsx` asks once:
+
+- **Include formatting** writes the colours, the frozen columns and the
+  number formats into the workbook.
+- **Plain data** writes the values alone.
+- **Do not ask again** stores your answer as the Settings default, so later
+  Excel saves go straight through.
+
+Only `.xlsx` is affected. Every other format, `.ods` included, writes plain
+data and never asks.
+
+This travels one way. Opening the saved workbook back in Octa reads the values
+alone: the reader does not import colours, frozen panes or number formats, so
+a round-trip through Octa loses them. The formatting is there for whoever
+opens the file in a spreadsheet.
+
+### What Excel cannot say the same way
+
+Most conditional rules cross over as **live** Excel rules, which keep working
+when you edit the sheet in Excel. Three kinds cannot, and their colours are
+**painted** onto the cells matching today instead. A painted colour is a
+snapshot: it stays put when the cell changes in Excel.
+
+- **Ordering comparisons over text** (greater than, less than and so on with
+  a non-numeric value). Excel orders text by locale collation, Octa by plain
+  character order, so a live rule would colour different cells.
+- **Case-sensitive equality or contains rules.** Excel's own equality and
+  `SEARCH()` are always case-insensitive, so a live rule would colour more
+  cells than Octa does.
+- **Every rule after the first painted one.** Octa applies rules
+  first-match-wins, but in Excel a live rule always beats a cell's own fill,
+  with no notion of order between the two. Painting the remainder is what
+  keeps the file agreeing with the screen. Rules before the first painted one
+  stay live.
+
+One further difference is accepted rather than engineered around: an equality
+rule whose value looks like a number exports as a numeric comparison, while
+Octa compares equality as text. A cell holding `42.0` against a rule value of
+`42` can therefore colour in Excel but not in Octa.
+
+## Write options
+
+How a file is written is configurable, separately from what is written.
+The defaults live under [**Settings → Files → Write
+options**](../reference/settings.md) and apply to every save, export and
+conversion, including [command-line](../cli/convert.md) conversions that
+do not name `--compression` or `--row-group-size` explicitly. [Batch
+Convert](batch-convert.md) shows the same controls in its own **Write
+options** expander, where they apply to that run only.
+
+Parquet is compressed with **zstd** unless you choose otherwise.
+Uncompressed Parquet is only about 1.6x smaller than the same data as
+CSV, where zstd reaches roughly 5x, and it costs about 1% more write time
+and 3% more read time. The [File internals](file-internals.md) view
+reports the codec of any file you open, so you can check what you got.
+
+### Parquet write options
+
+| Option              | Default        | What it does                                                                                         |
+|---------------------|----------------|------------------------------------------------------------------------------------------------------|
+| Compression         | `zstd`         | Codec for the file. `zstd` is the best size for the cost; `uncompressed` writes fastest and largest. |
+| Rows per row group  | writer default | Larger groups scan faster; smaller groups let readers skip more precisely.                           |
+| Dictionary encoding | on             | Stores repeated values once. Much smaller files when a column has few distinct values.               |
+| Column statistics   | on             | Writes min/max per chunk. Without them a query engine cannot skip row groups and reads everything.   |
+
+### CSV / TSV write options
+
+| Option       | Default          | What it does                                                                                                                |
+|--------------|------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| Delimiter    | the format's own | Applies to CSV. Left at a comma, each file keeps the delimiter it was opened with; a `.tsv` writes tabs whatever this says. |
+| Quoting      | only when needed | Or quote every field, or suppress defensive quoting.                                                                        |
+| Line endings | LF               | Switch to CRLF for consumers that require Windows line endings.                                                             |
+| Header row   | on               | Turn off to write data only.                                                                                                |
+
+### Excel write options
+
+One switch, **Include formatting in Excel files**, covered in full under
+[Formatting in Excel files](#formatting-in-excel-files) above. Off by default.
+
+Apart from the Parquet codec, which is `zstd`, the defaults reproduce
+exactly what Octa wrote before these options existed. Formats other than
+Parquet, CSV, TSV and `.xlsx` ignore them.
+
+**Save As** uses the Settings defaults: it is the operating system's file
+picker, so there is nowhere to put per-save controls. Use Batch Convert
+(or the CLI flags below) when you want to override them for one run.
+
+On the command line the same two Parquet knobs are `--compression` and
+`--row-group-size`, on both [`--convert`](../cli/convert.md) and
+[`--batch-convert`](../cli/batch-convert.md). **Leaving them off uses
+these same Settings**, so a conversion in the terminal writes the same
+file the app would. A machine with no settings file, such as a container
+or a CI runner, falls back to the built-in defaults.
+
 ## File-format families
 
 ### Text formats (CSV / TSV / JSON / JSONL / XML / TOML / YAML / Markdown / Plain Text)
@@ -75,6 +179,9 @@ Excel **write** only emits `.xlsx` structure, since `rust_xlsxwriter`
 can't write the older formats, and writes the **active tab's single
 sheet**, since there's no multi-sheet write. Save legacy workbooks as
 `.xlsx` to round-trip them through Octa.
+
+`.xlsx` is the one format that can carry the table's on-screen formatting;
+see [Formatting in Excel files](#formatting-in-excel-files).
 
 ### OpenDocument Spreadsheet (`.ods`)
 

@@ -160,6 +160,8 @@ pub(crate) struct TabState {
     /// Active "Date/Time calculation" dialog state, or `None` when closed.
     pub(crate) time_calc: Option<TimeCalcDialog>,
     pub(crate) sql_query: String,
+    /// Text in the SQL panel's plain-language Ask box (session only).
+    pub(crate) sql_ask_input: String,
     pub(crate) sql_result: Option<DataTable>,
     pub(crate) sql_error: Option<String>,
     /// Clicked cell in the SQL result grid (row, col), highlighted and used as
@@ -345,6 +347,17 @@ pub(crate) struct TabState {
     /// never written (an "allow nothing" filter would just hide every row, so
     /// we interpret it as "remove the filter" on Apply / Clear).
     pub(crate) column_filters: std::collections::HashMap<usize, std::collections::HashSet<String>>,
+    /// Comparison filters (`amount > 1000`) applied on top of
+    /// `column_filters`, which can only hold allow-sets of values. ANDed with
+    /// everything else. Session-only; set by the search bar's Ask mode and
+    /// removable from the chip row.
+    pub(crate) predicate_filters: Vec<octa::data::predicate_filter::PredicateFilter>,
+    /// Ask mode: the search box sends its text to an assistant instead of
+    /// matching it. Session-only, per tab.
+    pub(crate) search_ask_mode: bool,
+    /// Which chat profile answers an Ask. Session-only; seeded from the active
+    /// profile the first time the toolbar renders.
+    pub(crate) search_ask_profile: String,
     /// Whether the Column Filter modal is open for this tab.
     pub(crate) show_column_filter: bool,
     /// Window-size mode for the Column Filter dialog.
@@ -567,6 +580,14 @@ pub(crate) struct OctaApp {
     pub(crate) show_unalign_confirm: bool,
     /// Update check state shared with background thread
     pub(crate) update_state: Arc<Mutex<UpdateState>>,
+    /// One-shot: the startup update check has been kicked off. Only set when
+    /// the check actually ran, so a later manual "Check for updates" is not
+    /// mistaken for the startup one.
+    pub(crate) startup_update_started: bool,
+    /// One-shot: the startup check's result has been acted on.
+    pub(crate) startup_update_seen: bool,
+    /// `(version, notes)` of a newly discovered release, waiting to be shown.
+    pub(crate) pending_release_notes: Option<(String, String)>,
     pub(crate) status_message: Option<(String, std::time::Instant)>,
     /// Last time the auto-save timer ran a pass (transient, set at startup and
     /// after each pass / Settings apply). Drives `drive_auto_save`.
@@ -646,6 +667,13 @@ pub(crate) struct OctaApp {
     /// Pending whitespace-trim banner: the columns that had leading/trailing
     /// whitespace stripped on load. `None` once dismissed.
     pub(crate) pending_trim_warning: Option<TrimWarning>,
+    /// Pending number-promotion banner: the text columns read as European- or
+    /// English-formatted numbers on load. `None` once dismissed.
+    pub(crate) pending_number_warning: Option<NumberWarning>,
+    /// Queue of columns that are numeric but written ambiguously (`1,234` is
+    /// one thousand in a German file and one point two three four in an
+    /// English one). Shown one modal at a time, head of the queue first.
+    pub(crate) pending_number_pickers: std::collections::VecDeque<NumberAmbiguity>,
     /// Pending malformed-file repair prompt (opt-in via
     /// `offer_repair_on_malformed`). Set by `load_file` when a CSV/TSV looks
     /// malformed; resolved by `dialogs::repair_file::render_repair_file_dialog`.
@@ -654,6 +682,15 @@ pub(crate) struct OctaApp {
     /// that has per-column rounding formats; resolved by
     /// `round_save_prompt::render_round_save_prompt_dialog`.
     pub(crate) pending_round_save: Option<RoundSavePrompt>,
+    /// Pending "include formatting?" prompt. Set when saving a tab that has
+    /// marks, conditional colours, frozen columns or number formats to
+    /// `.xlsx`; resolved by
+    /// `xlsx_style_save::render_xlsx_style_save_dialog`.
+    pub(crate) pending_xlsx_style_save: Option<XlsxStylePrompt>,
+    /// Session-only "do not ask again" tick on the formatting prompt itself
+    /// (the checkbox state persists across prompts within one run; whether it
+    /// is applied is decided per answer).
+    pub(crate) xlsx_style_remember: bool,
     /// Pending "apply schema changes?" prompt. Set when saving a DB tab whose
     /// columns differ from the on-disk schema; resolved by
     /// `schema_change_save::render_schema_change_save_dialog`.
@@ -665,8 +702,13 @@ pub(crate) struct OctaApp {
     pub(crate) pending_db_write_back: Option<crate::app::dialogs::db_write_back::DbWriteBackPrompt>,
     /// In-flight live-DB write-back worker, if any (one at a time app-wide).
     pub(crate) db_write_back_job: Option<crate::app::dialogs::db_write_back::DbWriteBackJob>,
-    /// Active "Copy table to another connection" dialog, or `None` when
-    /// closed (see `src/app/dialogs/db_copy.rs`).
+    pub(crate) ask_filter_job: Option<AskFilterJob>,
+    /// In-flight plain-language query request ("Ask" in the SQL panel header).
+    /// `Some` while the assistant is answering; drained by `drain_ask_sql`.
+    pub(crate) ask_sql_job: Option<AskSqlJob>,
+    pub(crate) join_keys_dialog: Option<crate::app::dialogs::join_keys::JoinKeysState>,
+    pub(crate) join_diag_dialog: Option<crate::app::dialogs::join_diag::JoinDiagState>,
+    pub(crate) db_compare_dialog: Option<crate::app::dialogs::db_compare::DbCompareState>,
     pub(crate) db_copy_dialog: Option<crate::app::dialogs::db_copy::DbCopyState>,
     /// Copy / move / delete a cloud object or folder (cloud tree context menu).
     pub(crate) cloud_transfer_dialog:
@@ -683,6 +725,21 @@ pub(crate) struct OctaApp {
     /// the active tab; running it builds a DuckDB PIVOT/UNPIVOT query and lands
     /// the result in a new detached tab (see `src/app/dialogs/pivot.rs`).
     pub(crate) pivot_dialog: Option<PivotState>,
+    pub(crate) timeseries_dialog: Option<TimeseriesState>,
+    pub(crate) batch_convert_dialog: Option<BatchConvertState>,
+    /// Pending Schema drift scan dialog. Opened from the Analyse menu or a
+    /// folder's sidebar context menu; the scan itself runs on a worker.
+    pub(crate) schema_drift_dialog: Option<SchemaDriftState>,
+    pub(crate) harmonise_dialog: Option<crate::app::state::HarmoniseState>,
+    /// Pending Report dialog (File -> Report...). The build runs on a
+    /// worker; the result slot is drained by the update loop.
+    pub(crate) report_dialog: Option<ReportState>,
+    /// Pending Fuzzy join dialog (Data -> Fuzzy join...). The join runs
+    /// on a worker; the result slot is drained by the update loop.
+    pub(crate) fuzzy_join_dialog: Option<FuzzyJoinState>,
+    /// The last report written this session, so the status bar can offer
+    /// to open it. Session-only.
+    pub(crate) last_report_path: Option<std::path::PathBuf>,
     /// Active multi-column sort dialog state, or `None` when closed. Sorts the
     /// active tab in place (see `src/app/dialogs/multi_sort.rs`).
     pub(crate) multi_sort_dialog: Option<MultiSortState>,
@@ -792,6 +849,7 @@ pub(crate) struct OctaApp {
     /// worker. Initialised hidden; opened via **Search -> Multi-search...**
     /// or the `MultiSearch` keyboard shortcut.
     pub(crate) multi_search: super::multi_search::MultiSearchState,
+    pub(crate) cleanup_panel: super::cleanup_panel::CleanupPanelState,
     /// In-GUI chat assistant panel state (conversation, input, provider
     /// switching). Initialised hidden; opened via the toolbar Assistant
     /// button or the `ToggleChatPanel` shortcut.

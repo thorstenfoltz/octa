@@ -29,7 +29,9 @@ Auto-save never interrupts you with a dialog. It quietly skips:
   **Save As** once first).
 - Cloud-backed tabs while cloud writing is turned off.
 - A save that would normally ask a question first, namely a tab with a per-column
-  rounding format, or a database file where you added or removed columns. Save
-  those by hand so you can answer the prompt.
+  rounding format, an `.xlsx` tab carrying colours, frozen columns or number
+  formats (see [Formatting in Excel files](saving.md#formatting-in-excel-files)),
+  or a database file where you added or removed columns. Save those by hand so
+  you can answer the prompt.
 - A tab you are editing at that exact moment; it saves on the next tick once the
   edit is committed.

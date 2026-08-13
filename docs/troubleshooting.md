@@ -19,6 +19,10 @@ If you want to permanently mark the binary as trusted, right-click
 `octa.exe` → **Properties** → check **Unblock** at the bottom of
 the General tab → OK.
 
+**Avoid it entirely**: install Octa from the
+[Microsoft Store](https://apps.microsoft.com/detail/9PF9BVRT9PX4). That build is
+signed by the Store, so the prompt never appears.
+
 ### macOS: developer cannot be verified
 
 The full message is *"Octa.app cannot be opened because the
@@ -407,6 +411,17 @@ but the auto-updater can't write there as your user. Two options:
 - Run the update step with `sudo`.
 
 The dialog explains and links to both paths.
+
+## Copying an error message
+
+Error text in Octa is selectable, and right-clicking it offers **Copy**.
+That covers the message under the toolbar, the **Test connection** and
+**Sign in** results in Settings, and the failures a save or a connection
+reports. Failures stay on screen for a minute rather than the ten seconds
+a confirmation gets, so there is time to read one and copy it.
+
+Paste it straight into an issue: the text usually carries the whole reason,
+including the HTTP status a server replied with.
 
 ## Still stuck?
 

@@ -12,6 +12,10 @@ use super::super::state::OctaApp;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
+/// The published documentation site (GitHub Pages). Read from the manifest's
+/// `homepage` so the URL lives in one place; Cargo does not export
+/// `documentation`, only `homepage`.
+const DOCUMENTATION: &str = env!("CARGO_PKG_HOMEPAGE");
 const EMAIL: &str = "thorsten.foltz@live.com";
 
 /// Strip the `<email>` suffix Cargo embeds in `CARGO_PKG_AUTHORS` so the
@@ -130,6 +134,14 @@ pub(crate) fn render_about_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 ui.add_space(4.0);
                 if ui
                     .hyperlink_to(octa::i18n::t("dialog.about_repo"), REPOSITORY)
+                    .clicked()
+                {
+                    // egui opens the link automatically
+                }
+                ui.add_space(4.0);
+                if ui
+                    .hyperlink_to(octa::i18n::t("dialog.about_docs"), DOCUMENTATION)
+                    .on_hover_text(DOCUMENTATION)
                     .clicked()
                 {
                     // egui opens the link automatically

@@ -37,6 +37,10 @@ pub enum ViewMode {
     /// [`chart::build_chart`](super::chart::build_chart) so the same code path
     /// is integration-tested.
     Chart,
+    /// One row shown vertically as field-name / value pairs, for tables too
+    /// wide to read in the grid. Navigates `filtered_rows`, edits through the
+    /// same cell overlay the grid uses.
+    Record,
 }
 
 /// Tile-rendering mode for the Map view. `Tiles` fetches raster tiles from
