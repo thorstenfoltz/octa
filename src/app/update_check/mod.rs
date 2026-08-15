@@ -102,19 +102,18 @@ Aborting update."
     Ok(())
 }
 
-/// Pull `(version, notes)` out of a GitHub `releases/latest` response.
-/// The tag is normalised (`v0.17.0` -> `0.17.0`) so it can be compared with
-/// `CARGO_PKG_VERSION`; the body is the release description, which GitHub
-/// omits entirely for a release published without one.
-fn parse_release(body: &str) -> Result<(String, String), String> {
+/// Pull the version out of a GitHub `releases/latest` response. The tag is
+/// normalised (`v0.17.0` -> `0.17.0`) so it can be compared with
+/// `CARGO_PKG_VERSION`. The release body is ignored: the notes window reads
+/// the copy baked into the binary, so this request only answers "is there a
+/// newer version".
+fn parse_release(body: &str) -> Result<String, String> {
     let resp: serde_json::Value =
         serde_json::from_str(body).map_err(|e| format!("Invalid JSON: {}", e))?;
-    let version = resp["tag_name"]
+    resp["tag_name"]
         .as_str()
         .map(|s: &str| s.trim_start_matches('v').to_string())
-        .ok_or_else(|| "No tag_name in response".to_string())?;
-    let notes = resp["body"].as_str().unwrap_or("").trim().to_string();
-    Ok((version, notes))
+        .ok_or_else(|| "No tag_name in response".to_string())
 }
 
 pub(crate) enum UpdateOutcome {
@@ -144,7 +143,7 @@ impl OctaApp {
         let ctx = ctx.clone();
         *state.lock().unwrap() = UpdateState::Checking;
         std::thread::spawn(move || {
-            let result = (|| -> Result<(String, String), String> {
+            let result = (|| -> Result<String, String> {
                 let body =
                     ureq::get("https://api.github.com/repos/thorstenfoltz/octa/releases/latest")
                         .header("User-Agent", &format!("octa/{}", VERSION))
@@ -162,10 +161,8 @@ impl OctaApp {
 
             let mut s = state.lock().unwrap();
             match result {
-                Ok((version, notes)) if version != VERSION => {
-                    *s = UpdateState::Available { version, notes }
-                }
-                Ok((_, notes)) => *s = UpdateState::UpToDate { notes },
+                Ok(version) if version != VERSION => *s = UpdateState::Available { version },
+                Ok(_) => *s = UpdateState::UpToDate,
                 Err(e) => *s = UpdateState::Error(e),
             }
             ctx.request_repaint();

@@ -81,6 +81,14 @@ impl OctaApp {
         } else {
             None
         };
+        // A new version brings its own notes with it. They are baked into the
+        // binary, so this needs neither a network round-trip nor the update
+        // check: it is a fact about the build the user is running.
+        let show_release_notes = super::dialogs::release_notes::should_show(
+            settings.show_release_notes,
+            &settings.last_release_notes_version,
+            env!("CARGO_PKG_VERSION"),
+        );
         // Build the chat panel state from settings before `settings` is moved.
         let chat = super::chat_panel::ChatPanelState::new(&settings);
         // Mark this session running (sentinel) and detect an unclean prior exit
@@ -128,7 +136,7 @@ impl OctaApp {
             update_state: Arc::new(Mutex::new(UpdateState::Idle)),
             startup_update_started: false,
             startup_update_seen: false,
-            pending_release_notes: None,
+            pending_release_notes: show_release_notes,
             status_message: audit_warning,
             last_auto_save: std::time::Instant::now(),
             recent_files,

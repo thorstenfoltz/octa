@@ -258,10 +258,10 @@ The full list of actions lives on the
 
 ## Updates
 
-| Setting                            | Default | Notes                                                                                             |
-|------------------------------------|---------|---------------------------------------------------------------------------------------------------|
-| **Check for updates at start**     | on      | One GitHub request per launch. Downloads and installs nothing; silent when up to date or offline. |
-| **Show what a new release brings** | on      | Opens the release notes once per new version. The window's tick box turns this off.               |
+| Setting                            | Default | Notes                                                                                                                             |
+|------------------------------------|---------|-----------------------------------------------------------------------------------------------------------------------------------|
+| **Check for updates at start**     | on      | One GitHub request per launch. Downloads and installs nothing; silent when up to date or offline.                                 |
+| **Show what a new release brings** | on      | Opens the notes for the version you are running, at every start until you tick them away. No request; the notes ship inside Octa. |
 
 See [Updates](updates.md) for the whole flow, including Microsoft Store copies.
 
@@ -271,6 +271,11 @@ The Settings dialog footer has a **Reset to defaults** button (red,
 in the right corner). It replaces every value with its default in
 the draft; nothing is written to disk until you click **Apply**,
 so **Cancel** still reverts.
+
+Your *content* is kept: saved database and cloud connections, the keys stored
+for them, your chat profiles and your pinned tabs all survive a reset. Only the
+settings themselves go back to default. That includes custom keyboard
+shortcuts, which do go back to their defaults.
 
 A confirmation dialog protects against misfires.
 

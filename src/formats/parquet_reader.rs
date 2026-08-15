@@ -633,24 +633,27 @@ pub fn write_parquet_with(
     }
     let props = builder.build();
 
-    let file = File::create(path)?;
-    let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props))?;
+    // Written to a sibling temp and renamed over `path`, so a failure part-way
+    // leaves the existing file untouched instead of truncated.
+    crate::formats::write_atomically(path, |tmp| {
+        let file = File::create(tmp)?;
+        let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props))?;
 
-    // Build Arrow arrays column by column
-    let num_rows = table.row_count();
-    let mut arrays: Vec<Arc<dyn Array>> = Vec::with_capacity(table.col_count());
+        // Build Arrow arrays column by column
+        let num_rows = table.row_count();
+        let mut arrays: Vec<Arc<dyn Array>> = Vec::with_capacity(table.col_count());
 
-    for col_idx in 0..table.col_count() {
-        let arrow_type = data_type_from_string(&table.columns[col_idx].data_type);
-        let array = build_arrow_array(&arrow_type, table, col_idx, num_rows);
-        arrays.push(array);
-    }
+        for col_idx in 0..table.col_count() {
+            let arrow_type = data_type_from_string(&table.columns[col_idx].data_type);
+            let array = build_arrow_array(&arrow_type, table, col_idx, num_rows);
+            arrays.push(array);
+        }
 
-    let batch = arrow::record_batch::RecordBatch::try_new(schema, arrays)?;
-    writer.write(&batch)?;
-    writer.close()?;
-
-    Ok(())
+        let batch = arrow::record_batch::RecordBatch::try_new(schema, arrays)?;
+        writer.write(&batch)?;
+        writer.close()?;
+        Ok(())
+    })
 }
 
 /// Outcome of coercing one cell to `f64` for the float builders.

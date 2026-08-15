@@ -13,6 +13,13 @@ use crate::view_modes;
 
 impl OctaApp {
     pub(crate) fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        // While the Shortcuts grid is capturing a key, that key is input to
+        // the grid and nothing else. `KeyCombo::triggered` enforces this for
+        // every dispatch site (table view, clipboard actions, this one); the
+        // early return here just skips the work.
+        if octa::ui::shortcuts::capture_mode() {
+            return;
+        }
         let shortcuts = self.settings.shortcuts.clone();
         let action_fired = |a: SA| ctx.input(|i| shortcuts.triggered(a, i));
 

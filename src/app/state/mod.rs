@@ -347,6 +347,10 @@ pub(crate) struct TabState {
     /// never written (an "allow nothing" filter would just hide every row, so
     /// we interpret it as "remove the filter" on Apply / Clear).
     pub(crate) column_filters: std::collections::HashMap<usize, std::collections::HashSet<String>>,
+    /// Column names as of the last [`TabState::sync_column_keys`] run, so the
+    /// index-keyed view state above can be remapped when columns are inserted,
+    /// deleted, moved or reordered.
+    pub(crate) column_key_names: Vec<String>,
     /// Comparison filters (`amount > 1000`) applied on top of
     /// `column_filters`, which can only hold allow-sets of values. ANDed with
     /// everything else. Session-only; set by the search bar's Ask mode and
@@ -586,8 +590,10 @@ pub(crate) struct OctaApp {
     pub(crate) startup_update_started: bool,
     /// One-shot: the startup check's result has been acted on.
     pub(crate) startup_update_seen: bool,
-    /// `(version, notes)` of a newly discovered release, waiting to be shown.
-    pub(crate) pending_release_notes: Option<(String, String)>,
+    /// Whether the release-notes window for the running version is waiting to
+    /// be shown. Both the version and the notes are compile-time constants, so
+    /// there is nothing to carry.
+    pub(crate) pending_release_notes: bool,
     pub(crate) status_message: Option<(String, std::time::Instant)>,
     /// Last time the auto-save timer ran a pass (transient, set at startup and
     /// after each pass / Settings apply). Drives `drive_auto_save`.

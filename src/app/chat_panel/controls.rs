@@ -204,9 +204,17 @@ impl OctaApp {
         let server_child = self.chat.ollama.server_child.clone();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
-            let (mut child, start_err) = match ollama::start_server() {
-                Ok(child) => (Some(child), None),
-                Err(e) => (None, Some(e)),
+            // Park the child BEFORE the probe: quitting during these three
+            // seconds used to leave `ollama serve` and its multi-GB
+            // `llama-server` running with nothing able to stop them, since
+            // `on_exit` only sees what is in this slot and the server runs in
+            // its own process group.
+            let start_err = match ollama::start_server() {
+                Ok(child) => {
+                    *server_child.lock().unwrap() = Some(child);
+                    None
+                }
+                Err(e) => Some(e),
             };
             // Give the server a moment to bind, then probe a few times.
             let mut running = false;
@@ -221,12 +229,14 @@ impl OctaApp {
             // because a server was already running), we do NOT own the live
             // server - drop the dead handle so Stop / on-exit don't think they
             // can kill it.
-            if let Some(c) = child.as_mut()
-                && matches!(c.try_wait(), Ok(Some(_)))
             {
-                child = None;
+                let mut slot = server_child.lock().unwrap();
+                if let Some(c) = slot.as_mut()
+                    && matches!(c.try_wait(), Ok(Some(_)))
+                {
+                    *slot = None;
+                }
             }
-            *server_child.lock().unwrap() = child;
 
             let (models, error) = if running {
                 match ollama::list_models(&base) {

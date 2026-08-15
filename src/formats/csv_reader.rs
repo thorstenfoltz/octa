@@ -592,37 +592,41 @@ pub fn write_delimited_with(
     } else {
         opts.delimiter
     };
-    let mut wtr = csv::WriterBuilder::new()
-        .delimiter(delimiter)
-        .quote_style(match opts.quote_style {
-            QuoteStyle::Necessary => csv::QuoteStyle::Necessary,
-            QuoteStyle::Always => csv::QuoteStyle::Always,
-            QuoteStyle::Never => csv::QuoteStyle::Never,
-        })
-        .terminator(if opts.crlf {
-            csv::Terminator::CRLF
-        } else {
-            csv::Terminator::Any(b'\n')
-        })
-        .from_path(path)?;
-
-    if opts.write_header {
-        let headers: Vec<&str> = table.columns.iter().map(|c| c.name.as_str()).collect();
-        wtr.write_record(&headers)?;
-    }
-
-    for row_idx in 0..table.row_count() {
-        let record: Vec<String> = (0..table.col_count())
-            .map(|col_idx| {
-                table
-                    .get(row_idx, col_idx)
-                    .map(|v| v.to_string())
-                    .unwrap_or_default()
+    // Through a sibling temp + rename: a half-written CSV must not replace the
+    // user's file (see `formats::write_atomically`).
+    crate::formats::write_atomically(path, |tmp| {
+        let mut wtr = csv::WriterBuilder::new()
+            .delimiter(delimiter)
+            .quote_style(match opts.quote_style {
+                QuoteStyle::Necessary => csv::QuoteStyle::Necessary,
+                QuoteStyle::Always => csv::QuoteStyle::Always,
+                QuoteStyle::Never => csv::QuoteStyle::Never,
             })
-            .collect();
-        wtr.write_record(&record)?;
-    }
+            .terminator(if opts.crlf {
+                csv::Terminator::CRLF
+            } else {
+                csv::Terminator::Any(b'\n')
+            })
+            .from_path(tmp)?;
 
-    wtr.flush()?;
-    Ok(())
+        if opts.write_header {
+            let headers: Vec<&str> = table.columns.iter().map(|c| c.name.as_str()).collect();
+            wtr.write_record(&headers)?;
+        }
+
+        for row_idx in 0..table.row_count() {
+            let record: Vec<String> = (0..table.col_count())
+                .map(|col_idx| {
+                    table
+                        .get(row_idx, col_idx)
+                        .map(|v| v.to_string())
+                        .unwrap_or_default()
+                })
+                .collect();
+            wtr.write_record(&record)?;
+        }
+
+        wtr.flush()?;
+        Ok(())
+    })
 }

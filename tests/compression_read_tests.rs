@@ -64,3 +64,44 @@ fn cap_hit_is_a_clear_error() {
     let err = read_table_auto(&path, None, 100).unwrap_err().to_string();
     assert!(err.contains("decompressing"), "{err}");
 }
+
+#[test]
+fn a_failed_write_leaves_the_original_file_intact() {
+    // The whole point of the temp + rename: `File::create` used to truncate
+    // the user's file before the first byte was written.
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("precious.csv");
+    std::fs::write(&target, "id,name\n1,alice\n").unwrap();
+
+    let err = octa::formats::write_atomically(&target, |tmp| -> anyhow::Result<()> {
+        std::fs::write(tmp, "half a fi").unwrap();
+        anyhow::bail!("disk full")
+    })
+    .unwrap_err();
+    assert!(err.to_string().contains("disk full"));
+
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "id,name\n1,alice\n",
+        "the original must survive a failed write"
+    );
+    let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok().map(|e| e.file_name()))
+        .filter(|n| n != "precious.csv")
+        .collect();
+    assert!(leftovers.is_empty(), "temp file left behind: {leftovers:?}");
+}
+
+#[test]
+fn a_successful_write_replaces_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("data.csv");
+    std::fs::write(&target, "old\n").unwrap();
+    octa::formats::write_atomically(&target, |tmp| {
+        std::fs::write(tmp, "new\n")?;
+        Ok::<(), anyhow::Error>(())
+    })
+    .unwrap();
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "new\n");
+}

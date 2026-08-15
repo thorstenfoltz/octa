@@ -42,8 +42,19 @@ impl FormatReader for DuckDbReader {
         path: &Path,
         table: &DataTable,
         allow_schema_changes: bool,
-        _opts: &crate::formats::write_options::WriteOptions,
+        opts: &crate::formats::write_options::WriteOptions,
     ) -> Result<()> {
+        self.write_file_retagged(path, table, allow_schema_changes, opts)
+            .map(|_| ())
+    }
+
+    fn write_file_retagged(
+        &self,
+        path: &Path,
+        table: &DataTable,
+        allow_schema_changes: bool,
+        _opts: &crate::formats::write_options::WriteOptions,
+    ) -> Result<Option<Vec<Option<i64>>>> {
         let meta = table
             .db_meta
             .as_ref()
@@ -106,6 +117,10 @@ impl FormatReader for DuckDbReader {
             .unwrap_or(1);
         let mut next_id = next_id;
 
+        // `new_tags` collects the identity each row has in the file once this
+        // transaction commits, so the caller can re-tag `db_meta` and a second
+        // save does not INSERT this session's new rows all over again.
+        let mut new_tags: Vec<Option<i64>> = Vec::with_capacity(meta.row_tags.len());
         for (row_idx, tag) in meta.row_tags.iter().enumerate() {
             let row_vals: Vec<CellValue> = (0..table.columns.len())
                 .map(|c| table.get(row_idx, c).cloned().unwrap_or(CellValue::Null))
@@ -122,10 +137,12 @@ impl FormatReader for DuckDbReader {
                     let mut params: Vec<duckdb::types::Value> =
                         row_vals.iter().map(cell_to_duckdb_value).collect();
                     params.push(duckdb::types::Value::BigInt(next_id));
+                    new_tags.push(Some(next_id));
                     next_id += 1;
                     tx.execute(&sql, duckdb::params_from_iter(params))?;
                 }
                 Some(tag) => {
+                    new_tags.push(Some(*tag));
                     let original = meta.original.get(tag);
                     // After a schema change the added / retyped columns must be
                     // written even for rows whose cells "match" the stale
@@ -152,7 +169,7 @@ impl FormatReader for DuckDbReader {
         }
 
         tx.commit()?;
-        Ok(())
+        Ok(Some(new_tags))
     }
 
     fn list_tables(&self, path: &Path) -> Result<Option<Vec<TableInfo>>> {

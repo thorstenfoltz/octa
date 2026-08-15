@@ -11,9 +11,30 @@
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use eframe::egui;
 use serde::{Deserialize, Serialize};
+
+/// Whether a key press is being captured for rebinding rather than acted on.
+///
+/// Process-wide because the dispatch sites are spread out: the app's shortcut
+/// handler, the table view's own key handling and the clipboard actions in the
+/// central panel all ask [`KeyCombo::triggered`] independently, and guarding
+/// only the first of them meant recording Ctrl+C still copied the selection.
+/// One flag inside the shared matcher covers every site, including later ones.
+static CAPTURE_MODE: AtomicBool = AtomicBool::new(false);
+
+/// Suppress (or re-enable) shortcut dispatch. Set once per frame by the app
+/// from the Settings dialog's recording state.
+pub fn set_capture_mode(on: bool) {
+    CAPTURE_MODE.store(on, Ordering::Relaxed);
+}
+
+/// Whether shortcut dispatch is currently suppressed.
+pub fn capture_mode() -> bool {
+    CAPTURE_MODE.load(Ordering::Relaxed)
+}
 
 /// A keyboard combination: a main key plus modifier flags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -74,7 +95,13 @@ impl KeyCombo {
 
     /// Check whether this combination was just pressed this frame. Matches on
     /// exact modifier equality (e.g. Ctrl+A will not fire for Ctrl+Shift+A).
+    ///
+    /// Always false while the Settings dialog is recording a new binding: the
+    /// key press belongs to the grid then, not to whatever currently owns it.
     pub fn triggered(&self, input: &egui::InputState) -> bool {
+        if capture_mode() {
+            return false;
+        }
         let Some(key) = self.key else {
             return false;
         };
@@ -150,6 +177,8 @@ fn letter_or_other(k: egui::Key) -> &'static str {
     // Return a static str for letter keys. egui::Key's Debug gives "A", "B", etc.,
     // but that's an owned string. Map the common letters explicitly so we keep
     // the signature &'static str (the combo label is produced on demand anyway).
+    // Anything else falls back to egui's own name rather than a bare "?", which
+    // told the user nothing about what they had just bound.
     match k {
         egui::Key::A => "A",
         egui::Key::B => "B",
@@ -189,7 +218,7 @@ fn letter_or_other(k: egui::Key) -> &'static str {
         egui::Key::F10 => "F10",
         egui::Key::F11 => "F11",
         egui::Key::F12 => "F12",
-        _ => "?",
+        other => other.name(),
     }
 }
 
@@ -455,7 +484,7 @@ impl ShortcutAction {
             Self::Copy => "Copy selection",
             Self::Cut => "Cut selection",
             Self::Paste => "Paste",
-            Self::Mark => "Mark selection (default color)",
+            Self::Mark => "Mark selection (default colour)",
             Self::Undo => "Undo last change",
             Self::Redo => "Redo last undone change",
             Self::OpenSettings => "Open settings",

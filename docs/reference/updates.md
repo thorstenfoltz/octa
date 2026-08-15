@@ -19,31 +19,28 @@ through **Help > Check for Updates**, which is unchanged.
 
 ## Show what a new release brings
 
-On by default. The first time Octa sees a version you do not have, it opens a
-window with that release's notes, taken straight from the release page and
-rendered as Markdown.
+On by default. After an upgrade, Octa opens a window titled *What's new in Octa
+x.y.z* with the notes for the version you are now running, rendered as Markdown.
 
-| Button     | What it does                                                             |
-|------------|--------------------------------------------------------------------------|
-| Update now | Hands over to the usual update dialog: download, install, restart prompt |
-| Close      | Leaves everything as it is; you can update later from the Help menu      |
+The notes are **built into Octa**. They are the same text the release page
+carries, shipped inside the binary, so the window costs no request, works
+offline and works on a Microsoft Store copy. It is also independent of the
+update check: turning "check for updates at start" off does not silence it.
 
-The window appears **once per version, not once per launch**. Closing it records
-the version, so the same notes never interrupt you twice. A release published
-without notes still announces itself, just with nothing to read.
+The window opens **at every start until you dismiss it**:
 
-The same window also opens for the version you are **already running**, the
-first time Octa sees it. So an update brings its own notes with it instead of
-you having to wait for the release after it. That form is titled *What's new in
-Octa x.y.z*, carries the notes and nothing else: there is no **Update now**
-button, because there is nothing to install.
+| Action                                        | What happens next                                        |
+|-----------------------------------------------|----------------------------------------------------------|
+| **Close**                                     | It opens again the next time you start                   |
+| **Do not show these notes again**, then Close | Silent for this version; the next release opens it again |
+| Setting turned off here                       | Silent for every version                                 |
 
-The window also carries a **Do not show this again** tick box. Ticking it is the
-same as turning the setting off, and **Settings > Updates** turns it back on.
+So the tick box answers "I have read these", not "never show me release notes".
+Only the setting does the latter.
 
-With release notes switched off but the start-up check left on, an available
-version is mentioned once in the status bar instead of opening a window. Turning
-the start-up check off silences both.
+With the start-up check left on, an available new version is mentioned once in
+the status bar. Its notes are on the release page, and inside Octa once you have
+upgraded.
 
 ## What the check sends
 
@@ -55,13 +52,13 @@ no token, and nothing about your files or your machine. See the
 ## Microsoft Store copies
 
 A copy installed from the Microsoft Store is updated by the Store itself. Octa
-cannot replace its own files inside `WindowsApps`, so the update button is left
-out of both windows and each names the Store as the thing that will do the
+cannot replace its own files inside `WindowsApps`, so the update dialog leaves
+the install button out and names the Store as the thing that will do the
 updating. **Help > Check for Updates** is still there and still works; only the
 install is missing.
 
-The check and the release notes still work there, so you can read what is coming
-before the Store gets round to installing it.
+The release notes are unaffected: they ship inside the copy the Store installed,
+so an upgrade announces itself there like anywhere else.
 
 ## Installing an update
 

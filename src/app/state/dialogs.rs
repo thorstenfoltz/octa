@@ -1455,15 +1455,11 @@ pub(crate) enum UpdateState {
     Idle,
     /// Checking GitHub for latest version
     Checking,
-    /// A newer version is available. `notes` is the release body as GitHub
-    /// returned it (Markdown, possibly empty for a release published without
-    /// a description).
-    Available { version: String, notes: String },
-    /// Already on the latest version. Carries that release's `notes` (same
-    /// body as `Available`, from the same request) so the startup check can
-    /// show what the version the user is *running* brought - the window would
-    /// otherwise have to wait for the next release to exist.
-    UpToDate { notes: String },
+    /// A newer version is available. The release body is not carried: the
+    /// notes window shows the running version's notes, baked into the binary.
+    Available { version: String },
+    /// Already on the latest version.
+    UpToDate,
     /// Currently downloading and installing
     Updating,
     /// Linux only: the new binary has been downloaded to `tmp_path`, but the

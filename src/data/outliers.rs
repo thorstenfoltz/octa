@@ -7,13 +7,22 @@ pub enum OutlierMethod {
     ZScore,
 }
 
+/// A cell as a number, or `None` when it is not one.
+///
+/// `NaN` and the infinities count as "not a number here": they are what R's
+/// `write.csv` and `pandas.to_csv(na_rep='NaN')` put in a column for a missing
+/// value, and `"NaN".parse::<f64>()` happily returns one. Statistics treat
+/// them as missing, the way `na.rm` does - which also keeps them out of the
+/// sort below, where a `NaN` used to make `partial_cmp` return `None` and
+/// panic the whole app on the UI thread.
 fn numeric(v: &CellValue) -> Option<f64> {
-    match v {
-        CellValue::Int(i) => Some(*i as f64),
-        CellValue::Float(f) => Some(*f),
-        CellValue::String(s) => s.trim().parse().ok(),
-        _ => None,
-    }
+    let n = match v {
+        CellValue::Int(i) => *i as f64,
+        CellValue::Float(f) => *f,
+        CellValue::String(s) => s.trim().parse().ok()?,
+        _ => return None,
+    };
+    n.is_finite().then_some(n)
 }
 
 /// Flag numeric outlier cells in the given columns. IQR: outside
@@ -36,7 +45,7 @@ pub fn detect_outliers(
         match method {
             OutlierMethod::Iqr => {
                 let mut sorted: Vec<f64> = vals.iter().map(|(_, v)| *v).collect();
-                sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                sorted.sort_by(|a, b| a.total_cmp(b));
                 let q = |p: f64| {
                     let idx = ((sorted.len() - 1) as f64 * p).round() as usize;
                     sorted[idx]
@@ -131,5 +140,32 @@ mod tests {
         // (sd = 0 path for ZScore skips the column)
         let flagged = detect_outliers(&t, &[0], OutlierMethod::ZScore, 1.5);
         assert!(flagged.is_empty());
+    }
+
+    #[test]
+    fn a_nan_column_is_analysed_instead_of_crashing() {
+        // R writes NaN and pandas writes NaN for a missing number, so a real
+        // CSV brings them in. They used to reach `partial_cmp().unwrap()` and
+        // panic the app on the UI thread.
+        let mut t = DataTable::empty();
+        t.columns = vec![ColumnInfo {
+            name: "v".into(),
+            data_type: "Float64".into(),
+        }];
+        t.rows = (1..=10).map(|i| vec![CellValue::Int(i)]).collect();
+        t.rows.push(vec![CellValue::String("NaN".into())]);
+        t.rows.push(vec![CellValue::Float(f64::NAN)]);
+        t.rows.push(vec![CellValue::Int(1000)]);
+
+        let flagged = detect_outliers(&t, &[0], OutlierMethod::Iqr, 1.5);
+        assert!(
+            flagged.contains(&(12, 0)),
+            "the real outlier is still found"
+        );
+        assert!(
+            !flagged.contains(&(10, 0)),
+            "NaN is missing, not an outlier"
+        );
+        assert!(!flagged.contains(&(11, 0)));
     }
 }

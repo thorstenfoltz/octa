@@ -191,24 +191,13 @@ impl DataTable {
                     self.edits = new_edits;
                 }
                 UndoAction::MoveRow { from, to } => {
-                    // Reverse the move
-                    if to < self.rows.len() && from < self.rows.len() {
-                        let row = self.rows.remove(to);
-                        self.rows.insert(from, row);
-                    }
+                    // Reverse the move. Goes through the same helper the
+                    // forward move uses, so row tags, edits and marks come
+                    // back with the row instead of staying where they were.
+                    self.move_row_raw(to, from);
                 }
                 UndoAction::MoveColumn { from, to } => {
-                    if to < self.columns.len() && from < self.columns.len() {
-                        let col = self.columns.remove(to);
-                        self.columns.insert(from, col);
-                        for row in &mut self.rows {
-                            if to < row.len() {
-                                let val = row.remove(to);
-                                let ins = from.min(row.len());
-                                row.insert(ins, val);
-                            }
-                        }
-                    }
+                    self.move_column_raw(to, from);
                 }
                 UndoAction::ReorderColumns { ref order } => {
                     let inv = Self::invert_order(order);
@@ -372,23 +361,10 @@ impl DataTable {
                     }
                 }
                 UndoAction::MoveRow { from, to } => {
-                    if from < self.rows.len() && to < self.rows.len() {
-                        let row = self.rows.remove(from);
-                        self.rows.insert(to, row);
-                    }
+                    self.move_row_raw(from, to);
                 }
                 UndoAction::MoveColumn { from, to } => {
-                    if from < self.columns.len() && to < self.columns.len() {
-                        let col = self.columns.remove(from);
-                        self.columns.insert(to, col);
-                        for row in &mut self.rows {
-                            if from < row.len() {
-                                let val = row.remove(from);
-                                let ins = to.min(row.len());
-                                row.insert(ins, val);
-                            }
-                        }
-                    }
+                    self.move_column_raw(from, to);
                 }
                 UndoAction::ReorderColumns { ref order } => {
                     self.apply_order(order);

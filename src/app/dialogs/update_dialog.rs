@@ -27,7 +27,7 @@ pub(crate) fn render_update_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         ui.label(octa::i18n::t("dialog.ud_checking"));
                     });
                 }
-                UpdateState::UpToDate { .. } => {
+                UpdateState::UpToDate => {
                     ui.label(format!(
                         "{} ({}).",
                         octa::i18n::t("dialog.ud_latest"),

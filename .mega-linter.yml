@@ -2,6 +2,13 @@
 # See all available variables at https://megalinter.io/configuration/
 # and in linters documentation
 
+ADDITIONAL_EXCLUDED_DIRECTORIES:
+  # Cargo's build tree. Gitignored, so the file-based linters already skip it,
+  # but the project-mode scanners (betterleaks, checkov, trivy) crawl the
+  # workspace themselves: without this they report the test keys bundled inside
+  # duckdb's vendored mbedtls as leaked private keys. MegaLinter v10 forwards
+  # this list to those linters.
+  - target
 APPLY_FIXES: none # all, none, or list of linter keys
 BASH_SHELLCHECK_ARGUMENTS: -e "SC2162"
 # partner.microsoft.com serves a cert chain lychee's container CA store rejects
@@ -19,12 +26,16 @@ ENABLE_LINTERS:
   - JSON_JSONLINT
   - JSON_PRETTIER
   - JSON_V8R
-  - MAKEFILE_CHECKMAKE
+  # MAKEFILE_CHECKMAKE was removed in MegaLinter v10 with no replacement, so
+  # the Makefile is no longer linted by anything.
+  # MARKDOWN_MARKDOWN_LINK_CHECK was removed in v10 as well; SPELL_LYCHEE below
+  # already checks every link.
   - MARKDOWN_MARKDOWNLINT
-  - MARKDOWN_MARKDOWN_LINK_CHECK
   - MARKDOWN_MARKDOWN_TABLE_FORMATTER
-  - REPOSITORY_GITLEAKS
-  - REPOSITORY_KICS
+  # v10 replacements: gitleaks -> betterleaks (reads the same .gitleaks.toml),
+  # kics -> checkov.
+  - REPOSITORY_BETTERLEAKS
+  - REPOSITORY_CHECKOV
   - REPOSITORY_LS_LINT
   - REPOSITORY_SECRETLINT
   - REPOSITORY_TRIVY
@@ -35,18 +46,25 @@ ENABLE_LINTERS:
   - YAML_YAMLLINT
 FAIL_IF_UPDATED_SOURCES: false
 FILEIO_REPORTER: false
-FILTER_REGEX_EXCLUDE: "(CLAUDE\\.md|release_notes\\.md|WIP_CHANGES\\.md|docs/assets/screenshots/INDEX\\.md|licenses/)"
+# `release_notes.md` is NOT excluded: it ships inside the binary (the
+# release-notes window reads it via include_str!), so it is product text and
+# gets linted like the rest of the documentation.
+FILTER_REGEX_EXCLUDE: "(CLAUDE\\.md|WIP_CHANGES\\.md|docs/assets/screenshots/INDEX\\.md|licenses/)"
 FLAVOR_SUGGESTIONS: false
 FORMATTERS_DISABLE_ERRORS: false
 IGNORE_GITIGNORED_FILES: true
 LINTER_RULES_PATH: .linters
 LOG_LEVEL: INFO
 MARKDOWN_DEFAULT_STYLE: markdownlint
-MARKDOWN_MARKDOWN_LINK_CHECK_RULES_PATH: .linters
 PARALLEL: false
 PLUGINS:
   - file://.linters/mega-linter-plugin-branchname/branchname.megalinter-descriptor.yml
 PRINT_ALPACA: false
+# `assets/Dockerfile.sublime-syntax` is a syntax-highlighting definition for
+# the Raw view, not a Dockerfile; checkov reads it as one because of the name
+# and asks it to create a user. Skipping the one path keeps every Dockerfile
+# rule live for the real Dockerfile.
+REPOSITORY_CHECKOV_ARGUMENTS: --skip-path assets/Dockerfile.sublime-syntax
 REPOSITORY_LS_LINT_RULES_PATH: .linters
 # The workflows deliberately pin GitHub Actions to major version tags (e.g.
 # actions/checkout@v5, docker/build-push-action@v7), not full commit SHAs -- see
@@ -57,7 +75,19 @@ REPOSITORY_TRIVY_RULES_PATH: .linters
 SECURITY_SUGGESTIONS: false
 SHOW_ELAPSED_TIME: true
 SHOW_SKIPPED_LINTERS: true
+# The rules file must be named `.proselintrc.json`: as plain `.proselintrc`
+# MegaLinter did not find it and reported the linter inactive on every run, so
+# nothing was ever checked.
+#
+# It disables `lexical_illusions` and `typography.punctuation.hyperbole`, and
+# JSON cannot carry the reason. Both were ALREADY off under their pre-0.16 key
+# names (`lexical_illusions.misc`, `typography.exclamation`, both still in the
+# file); proselint renamed them, the old keys stopped matching and the checks
+# turned themselves back on. Neither says anything about the prose here:
+# `lexical_illusions` reads a heading and the sentence under it as one stream,
+# so every "# Bookmarks" / "Bookmarks are..." page trips it, as does any
+# repeated value in a CLI output block, and the hyperbole check fires on every
+# mkdocs `!!! warning` admonition marker.
 SPELL_PROSELINT_RULES_PATH: .linters
-SPELL_VALE_RULES_PATH: .linters
 YAML_V8R_FILTER_REGEX_EXCLUDE: "(^\\.mega-linter\\.yml$)"
 VALIDATE_ALL_CODEBASE: false

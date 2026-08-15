@@ -52,6 +52,27 @@ pub(crate) enum DbListState {
     Error(String),
 }
 
+/// Turns a listing node that is still `Loading` when its worker ends into an
+/// error, so a panicking worker cannot leave the node spinning for the rest of
+/// the session. A no-op on the normal path, where the result is already in.
+struct ListingGuard {
+    listings: Arc<Mutex<HashMap<ConnSchema, DbListState>>>,
+    key: ConnSchema,
+}
+
+impl Drop for ListingGuard {
+    fn drop(&mut self) {
+        if let Ok(mut m) = self.listings.lock()
+            && matches!(m.get(&self.key), Some(DbListState::Loading))
+        {
+            m.insert(
+                self.key.clone(),
+                DbListState::Error("listing did not finish".to_string()),
+            );
+        }
+    }
+}
+
 /// A finished table load waiting to be opened on the main thread (workers
 /// must not touch tabs/egui), or a load that failed.
 pub(crate) enum DbOpenResult {
@@ -158,6 +179,13 @@ impl OctaApp {
         let ctx = ctx.clone();
         let cache = self.db_conn_cache.clone();
         std::thread::spawn(move || {
+            // A panicking worker would leave this node on `Loading` forever:
+            // the expand path only starts a worker when the key is absent, so
+            // collapsing and re-expanding never retries.
+            let _guard = ListingGuard {
+                listings: listings.clone(),
+                key: key.clone(),
+            };
             let secret = get_db_secret(&conn.id, &settings);
             let result = cache.with_conn(&conn, secret.as_deref(), |c| {
                 let parts = split_path(&schema);

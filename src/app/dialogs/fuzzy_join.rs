@@ -417,12 +417,14 @@ fn start_join(app: &mut OctaApp, ctx: &egui::Context) {
     let ctx = ctx.clone();
 
     std::thread::spawn(move || {
+        // Clears `running` however the worker ends: a panic here used to
+        // wedge the flag true for the rest of the session.
+        let _running = crate::app::flag_guard::FlagOnDrop::new(running, false);
         let refs: Vec<&octa::data::DataTable> = snapshots.iter().collect();
         let outcome = fuzzy_join(&refs, &steps, &cancel).map_err(|e| e.to_string());
         if let Ok(mut slot) = result.lock() {
             *slot = Some(outcome);
         }
-        running.store(false, Ordering::Relaxed);
         ctx.request_repaint();
     });
 }

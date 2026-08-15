@@ -13,7 +13,7 @@ use crate::mcp::tools::ToolContext;
 
 use super::providers::{ChatProvider, ProviderConfig};
 use super::session::{ChatSessionState, StreamingTurn, TurnPhase};
-use super::types::{ChatEvent, ContentBlock, Message, StopReason, ToolDef};
+use super::types::{ChatEvent, ContentBlock, Message, Role, StopReason, ToolDef};
 
 /// Cap on the size of a single tool result fed back to the model, so one big
 /// `read_table` can't blow the context window.
@@ -70,12 +70,13 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
         tool_ctx,
         max_iterations,
         cancel,
-        running: _running,
+        running,
         audit_session,
     } = req;
 
     for _iteration in 0..max_iterations.max(1) {
         if cancel.load(Ordering::Relaxed) {
+            answer_cancelled_tool_calls(state);
             return;
         }
 
@@ -137,14 +138,15 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
         };
 
         if let Err(e) = stream_result {
-            state.lock().unwrap().error = Some(format!("{}: {e}", provider.name()));
+            set_error_if_current(state, &running, format!("{}: {e}", provider.name()));
             return;
         }
         if let Some(e) = error {
-            state.lock().unwrap().error = Some(e);
+            set_error_if_current(state, &running, e);
             return;
         }
         if cancel.load(Ordering::Relaxed) {
+            answer_cancelled_tool_calls(state);
             return;
         }
 
@@ -191,6 +193,7 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
         let mut result_blocks: Vec<ContentBlock> = Vec::new();
         for (id, name, input) in tool_calls {
             if cancel.load(Ordering::Relaxed) {
+                answer_cancelled_tool_calls(state);
                 return;
             }
             let args_bytes = input.to_string().len();
@@ -231,6 +234,57 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
     }
 }
 
+/// Answer any tool call the cancel left hanging.
+///
+/// The assistant message carrying `tool_use` is already in the transcript by
+/// the time the user hits Cancel, and providers reject a replay where a
+/// `tool_use` has no matching `tool_result`. The session was therefore broken
+/// for good: every later turn failed with the same error and only "New chat"
+/// recovered it. One synthetic result per outstanding call keeps the
+/// transcript valid, and says plainly what happened.
+fn answer_cancelled_tool_calls(state: &Arc<Mutex<ChatSessionState>>) {
+    let Ok(mut s) = state.lock() else {
+        return;
+    };
+    let Some(last) = s.messages.last() else {
+        return;
+    };
+    if last.role != Role::Assistant {
+        return;
+    }
+    let pending: Vec<ContentBlock> = last
+        .blocks
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::ToolUse { id, .. } => Some(ContentBlock::ToolResult {
+                id: id.clone(),
+                content: "Cancelled by the user.".to_string(),
+                is_error: true,
+            }),
+            _ => None,
+        })
+        .collect();
+    if pending.is_empty() {
+        return;
+    }
+    s.messages.push(Message::tool_results(pending));
+}
+
+/// Report an error only while this worker is still the active turn: a
+/// cancelled worker's late network failure must not land as a banner on the
+/// turn that replaced it.
+fn set_error_if_current(
+    state: &Arc<Mutex<ChatSessionState>>,
+    running: &Arc<std::sync::atomic::AtomicBool>,
+    message: String,
+) {
+    if let Ok(mut s) = state.lock()
+        && Arc::ptr_eq(&s.running, running)
+    {
+        s.error = Some(message);
+    }
+}
+
 /// Cap a tool result so a single oversized payload doesn't overflow context.
 fn truncate_for_model(s: &str) -> String {
     if s.len() <= MAX_TOOL_RESULT_BYTES {
@@ -247,4 +301,46 @@ fewer columns via run_sql) to see the rest.]",
         cut,
         s.len()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session_with_pending_tool_call() -> Arc<Mutex<ChatSessionState>> {
+        let mut s = ChatSessionState::new("anthropic", "some-model");
+        s.messages.push(Message::user_text("summarise the table"));
+        s.messages
+            .push(Message::assistant(vec![ContentBlock::ToolUse {
+                id: "call_1".into(),
+                name: "read_table".into(),
+                input: serde_json::json!({}),
+            }]));
+        Arc::new(Mutex::new(s))
+    }
+
+    #[test]
+    fn cancelling_before_a_tool_ran_leaves_a_replayable_transcript() {
+        let state = session_with_pending_tool_call();
+        answer_cancelled_tool_calls(&state);
+
+        let s = state.lock().unwrap();
+        let last = s.messages.last().expect("a result message was appended");
+        match last.blocks.as_slice() {
+            [ContentBlock::ToolResult { id, is_error, .. }] => {
+                assert_eq!(id, "call_1", "the result must answer the call");
+                assert!(is_error, "a cancelled call is not a success");
+            }
+            other => panic!("expected one tool result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_transcript_with_nothing_outstanding_is_left_alone() {
+        let mut s = ChatSessionState::new("anthropic", "some-model");
+        s.messages.push(Message::user_text("hello"));
+        let state = Arc::new(Mutex::new(s));
+        answer_cancelled_tool_calls(&state);
+        assert_eq!(state.lock().unwrap().messages.len(), 1);
+    }
 }

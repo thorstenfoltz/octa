@@ -3,10 +3,15 @@
 Every action below is remappable under **Settings → Shortcuts**.
 The bindings shown are the defaults shipped with Octa.
 
-The Settings dialog flags conflicting bindings. If you rebind one
-action to a combo already used by another, both rows highlight and
-the **Apply** button explains the conflict. Resolve it (rebind one
-of them, or clear the binding on one) before applying.
+Click **Record** on a row and press the combination you want. While Octa waits
+for that press the keys do nothing else, so recording <kbd>Ctrl</kbd>+<kbd>S</kbd>
+records it rather than saving the file. <kbd>Esc</kbd> stops recording.
+
+Two actions can never share a combination. If the one you press is already
+taken, Octa names the action holding it and offers **Take it over**: the key
+moves to the action you are recording, and the previous owner is left unbound
+(it shows `(none)` and you can record a new key for it). Nothing is written
+until you click **Apply**, so **Cancel** still discards the whole lot.
 
 ## File operations
 

@@ -32,7 +32,9 @@ There are a few optional outbound network calls, all of which you control:
   and nothing else, and it downloads and installs nothing by itself. Turn
   **Settings -> Updates -> Check for updates at start** off to limit it to the
   menu entry. Copies installed from the Microsoft Store are updated by the
-  Store; the check there only tells you a new version exists.
+  Store; the check there only tells you a new version exists. The release notes
+  Octa shows you after an upgrade cost no request at all: they are built into
+  the binary.
 - **Map tiles.** When you open a geographic file in **Map** view, Octa fetches
   background map tiles from OpenStreetMap (`tile.openstreetmap.org`). Switch the
   Map view to geometry-only to avoid this.

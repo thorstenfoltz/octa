@@ -215,6 +215,11 @@ pub(crate) struct CloudBrowserState {
     /// One-shot status message from a background upload (save-back), drained
     /// into the status bar per frame.
     pub(crate) status: Arc<Mutex<Option<String>>>,
+    /// A cloned egui context, stamped on the first frame, so a worker can wake
+    /// the UI. The upload worker has no context of its own (`save_tab`, three
+    /// calls up, never had one to pass), and without a repaint its result sat
+    /// invisible until the user happened to move the mouse.
+    pub(crate) repaint: Option<egui::Context>,
     /// Memoised "is this cloud's CLI on PATH" per kind. `cli_available` shells
     /// out to `which`/`where`, so we compute it once per session instead of
     /// every repaint. (Install a CLI mid-session -> reopen Octa to pick it up.)
@@ -241,6 +246,7 @@ impl Default for CloudBrowserState {
             pending_open: Arc::new(Mutex::new(Vec::new())),
             sign_in_status: Arc::new(Mutex::new(HashMap::new())),
             status: Arc::new(Mutex::new(None)),
+            repaint: None,
             cli_cache: HashMap::new(),
             secret_cache: HashMap::new(),
             sign_out_confirm: None,
@@ -790,16 +796,6 @@ impl OctaApp {
         let Some(conn) = self.find_cloud_conn(&origin.conn_id) else {
             return;
         };
-        let bytes = match std::fs::read(&local_path) {
-            Ok(b) => b,
-            Err(e) => {
-                self.status_message = Some((
-                    format!("{} {e}", octa::i18n::t("cloud.upload_failed")),
-                    std::time::Instant::now(),
-                ));
-                return;
-            }
-        };
         let settings = self.settings.clone();
         let status = self.cloud_browser.status.clone();
         let url = if conn.account_level {
@@ -811,8 +807,13 @@ impl OctaApp {
             format!("{} {url}", octa::i18n::t("cloud.uploading")),
             std::time::Instant::now(),
         ));
+        let repaint = self.cloud_browser.repaint.clone();
         std::thread::spawn(move || {
+            // Reading the file happens here, not on the UI thread: a saved
+            // table is exactly as big as the table, and the window froze for
+            // as long as the read took.
             let result = (|| -> anyhow::Result<()> {
+                let bytes = std::fs::read(&local_path)?;
                 let (bconn, real_key) = bind_bucket(&conn, &origin.key);
                 let creds = resolve_creds(&bconn, &settings);
                 let provider = cloud::build_provider(&bconn, &creds)?;
@@ -824,6 +825,11 @@ impl OctaApp {
             };
             if let Ok(mut s) = status.lock() {
                 *s = Some(msg);
+            }
+            // Every other worker in this file wakes the UI; this one did not,
+            // so its result waited for an unrelated repaint.
+            if let Some(ctx) = repaint {
+                ctx.request_repaint();
             }
         });
     }

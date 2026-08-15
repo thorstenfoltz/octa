@@ -138,7 +138,7 @@ pub(super) const EDITING: &str = r#"# Editing & Undo/Redo
 - Click outside the cell or press **Tab** / **Enter** to confirm; **Escape**
   cancels.
 - **Undo** (Ctrl+Z) and **Redo** (Ctrl+Y) cover cell edits, row/column
-  insert/delete/move, and color marks. Both are also available in the **Edit**
+  insert/delete/move, and colour marks. Both are also available in the **Edit**
   menu and remappable in **Settings > Shortcuts**.
 
 Structural edits:
@@ -446,7 +446,7 @@ values as checkboxes, uncheck the ones to hide.
 - Column filters AND with each other: a row must satisfy every active
   column filter to remain visible.
 - Column filters also AND with the toolbar text search.
-- A small accent-colored dot appears next to filtered column headers so
+- A small accent-coloured dot appears next to filtered column headers so
   active filters are visible at a glance.
 - Filters live with the tab. Closing the tab discards them; they are
   not saved to disk.
@@ -1247,16 +1247,16 @@ the previous session are gone if you didn't save them. Save with
 Ctrl+S (or Save As) before quitting.
 "#;
 
-pub(super) const MARKING: &str = r#"# Color Marking
+pub(super) const MARKING: &str = r#"# Colour Marking
 
 Right-click a **cell**, **row number**, or **column header** to open the
-context menu, then use the **Mark** submenu. Available colors: Red, Orange,
+context menu, then use the **Mark** submenu. Available colours: Red, Orange,
 Yellow, Green, Blue, Purple.
 
 The **Edit > Mark** menu, and the **Mark** keyboard shortcut (default
-**Ctrl+M**), apply a single color to the **whole current selection**: a row
+**Ctrl+M**), apply a single colour to the **whole current selection**: a row
 block, column block, multi-cell selection, or single cell. The shortcut uses
-the color set under **Settings > Table > Default mark color** (Yellow by
+the colour set under **Settings > Table > Default mark colour** (Yellow by
 default).
 
 Mark precedence: cell > row > column. To clear a mark, right-click and choose
@@ -1502,7 +1502,7 @@ enabled.
   filtering, and editing.
 - **Raw Text**: shows the file content as plain text. For CSV/TSV the toolbar
   exposes Quote / Escape / Delimiter combos and an **Align Columns** toggle
-  with per-column coloring. Syntect-based syntax highlighting kicks in for
+  with per-column colouring. Syntect-based syntax highlighting kicks in for
   source-code extensions (Python, Rust, shell, Terraform, ...) and also for
   JSON, YAML, XML and TOML files; the size cap is configurable under
   **Settings -> Performance**. Dragging a selection to the edge of the view
@@ -1997,7 +1997,7 @@ The **Customise** collapsible exposes:
 - **Grid**: tick to draw the background grid lines, untick for a
   clean plot area.
 - **Series**: per-Y-column **Label** override (used in the legend +
-  tooltip) and a custom **Color** picker.
+  tooltip) and a custom **Colour** picker.
 
 ### Y axis
 
@@ -2504,9 +2504,9 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
 
 - **Appearance**: font size and family, theme, icon variant, custom font
   path, custom title bar. The chosen theme applies when you press **Apply**.
-- **Table View**: row numbers, alternating row colors, negative-number
+- **Table View**: row numbers, alternating row colours, negative-number
   highlight, thousand separators + number style (English / European)
-  for numeric cells, edit highlight, default mark color, line breaks,
+  for numeric cells, edit highlight, default mark colour, line breaks,
   clickable web links, binary display mode (Binary / Hex / Text).
 - **Files**: recent-files count, "open as text" extensions, and
   **Auto-save** (on/off + interval in minutes). See the **Saving** section.
@@ -2515,7 +2515,7 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
 - **Summary**: a checkbox per statistic the **Analyse > Summary** tab can
   show (Min, Max, Mean, Median, Std dev, quartiles, null counts, unique,
   distinct ratio, total rows). Column and Type are always shown.
-- **File-Specific**: column coloring for raw CSV/TSV, "warn before
+- **File-Specific**: column colouring for raw CSV/TSV, "warn before
   un-aligning" guard, "warn on date format change" banner, "trim
   whitespace on load" + "warn on whitespace trim" toggles, "read-only
   mode notice" toggle, notebook output layout.
@@ -2555,6 +2555,12 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
 - **Updates**: "check for updates at start" and "show what a new release
   brings", both on by default. See the **Updates** section.
 
+**Reset to defaults**, in the dialog footer, puts every setting back the way it
+shipped. Your content is kept: saved database and cloud connections, the keys
+stored for them, your chat profiles and your pinned tabs all survive it. Custom
+keyboard shortcuts are settings, so those do go back to default. Nothing is
+written until you click Apply, so Cancel still undoes the reset.
+
 Settings persist to:
 
 - Linux: `~/.config/octa/settings.toml`
@@ -2566,6 +2572,15 @@ pub(super) const SHORTCUTS_INTRO: &str = r#"# Shortcuts
 
 Every action below can be rebound under **Help > Settings > Shortcuts**.
 Unbound actions show `(none)`. The bindings shown are the current ones:
+
+Click **Record** on a row and press the combination you want. While Octa is
+waiting for that press, the keys do nothing else: recording Ctrl+S records
+Ctrl+S, it does not save the file. Esc stops recording.
+
+Two actions can never share a combination. If the one you press is already
+taken, Octa says which action holds it and offers **Take it over**: the key
+moves to the action you are recording and the previous owner is left unbound.
+Nothing is written until you click Apply.
 "#;
 
 pub(super) const DEDUPE: &str = r#"# Drop Duplicate Rows
@@ -2854,28 +2869,27 @@ Turn it off and Octa never contacts GitHub unless you ask it to through
 
 ## Show what a new release brings
 
-On by default. The first time Octa sees a version you do not have, it opens a
-window with that release's notes, taken straight from the release page. You
-get **Update now**, which hands over to the usual update dialog, and
-**Close**, which leaves everything as it is.
+On by default. After an upgrade, Octa opens a window with the notes for the
+version you are now running. The notes are built into Octa itself, so the
+window needs no internet connection and has nothing to do with the update
+check: turning "check for updates at start" off does not silence it.
 
-The window appears once per release, not once per launch: closing it records
-the version, so the same notes never interrupt you twice. A release published
-without notes still announces itself, just with nothing to read.
+The window opens at every start until you tick **Do not show these notes
+again** and close it. That tick covers this version only - the next release
+opens the window again. To switch the window off for good, turn the setting
+off here.
 
-The window carries a **Do not show this again** tick box. Ticking it is the
-same as turning the setting off, and **Settings > Updates** turns it back on.
-
-With notes switched off but the start-up check left on, an available version
-is mentioned once in the status bar instead of opening a window.
+With the start-up check left on, an available new version is mentioned once in
+the status bar. Its notes are on the release page and in Octa itself once you
+have upgraded.
 
 ## Microsoft Store copies
 
 A copy installed from the Microsoft Store is updated by the Store itself. Octa
-cannot replace its own files there, so the update button is left out and each
-window says who does the updating instead. Everything else still works:
-**Help > Check for Updates** is present, and the release notes still appear, so
-you can see what is coming before the Store gets to it.
+cannot replace its own files there, so **Help > Check for Updates** tells you
+a version exists and says who does the updating instead of offering a button
+that cannot work. The release notes are unaffected: they ship inside the copy
+you installed.
 "#;
 
 pub(super) const DIAGNOSTICS: &str = r#"# Debug & Reports

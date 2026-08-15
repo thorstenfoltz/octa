@@ -279,6 +279,9 @@ fn spawn_plan(st: &mut HarmoniseState, ctx: &egui::Context) {
     let ctx = ctx.clone();
 
     std::thread::spawn(move || {
+        // Clears `running` however the worker ends: a panic here used to
+        // wedge the flag true for the rest of the session.
+        let _running = crate::app::flag_guard::FlagOnDrop::new(running, false);
         let outcome = if dir.is_dir() {
             let registry = octa::formats::FormatRegistry::new();
             let (files, _skipped) = collect_schemas(&dir, recursive, &registry);
@@ -311,7 +314,6 @@ fn spawn_plan(st: &mut HarmoniseState, ctx: &egui::Context) {
         if let Ok(mut s) = slot.lock() {
             *s = Some(outcome);
         }
-        running.store(false, Ordering::Relaxed);
         ctx.request_repaint();
     });
 }
@@ -336,6 +338,9 @@ fn spawn_run(st: &mut HarmoniseState, ctx: &egui::Context) {
     let write_opts = octa::formats::write_options::WriteOptions::default();
 
     std::thread::spawn(move || {
+        // Clears `running` however the worker ends: a panic here used to
+        // wedge the flag true for the rest of the session.
+        let _running = crate::app::flag_guard::FlagOnDrop::new(running, false);
         let cancel = std::sync::atomic::AtomicBool::new(false);
         let report = run_harmonise(
             &plan,
@@ -351,7 +356,6 @@ fn spawn_run(st: &mut HarmoniseState, ctx: &egui::Context) {
         if let Ok(mut s) = slot.lock() {
             *s = Some(Ok(report));
         }
-        running.store(false, Ordering::Relaxed);
         ctx.request_repaint();
     });
 }

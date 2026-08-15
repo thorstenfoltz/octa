@@ -216,3 +216,38 @@ fn test_empty_database_read_errors() {
 
 // Sanity check that read_file works through DataTable's existing API.
 fn _ensure_datatable_compiles(_t: &DataTable) {}
+
+#[test]
+fn a_second_save_does_not_insert_the_new_row_again() {
+    // The bug: `write_file` leaves the added row tagged `None`, so every
+    // later save INSERTs it again - invisible until the file is reopened.
+    let f = NamedTempFile::with_suffix(".sqlite").unwrap();
+    seed_users_db(f.path());
+    let mut table = SqliteReader.read_table(f.path(), "users").unwrap();
+    table.insert_row(table.row_count());
+    let new_idx = table.row_count() - 1;
+    table.set(new_idx, 1, CellValue::String("Dave".into()));
+    table.apply_edits();
+
+    let tags = SqliteReader
+        .write_file_retagged(f.path(), &table, false, &Default::default())
+        .unwrap()
+        .expect("SQLite reports row identity");
+    assert!(
+        tags.iter().all(|t| t.is_some()),
+        "every saved row is tagged"
+    );
+    table.retag_db_rows(tags);
+
+    // Second save: only a typo fix elsewhere, nothing about Dave.
+    table.set(0, 1, CellValue::String("Alicia".into()));
+    table.apply_edits();
+    SqliteReader.write_file(f.path(), &table).unwrap();
+
+    let reloaded = SqliteReader.read_table(f.path(), "users").unwrap();
+    assert_eq!(reloaded.row_count(), 4, "Dave was inserted twice");
+    assert_eq!(
+        reloaded.get(0, 1),
+        Some(&CellValue::String("Alicia".into()))
+    );
+}

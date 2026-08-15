@@ -12,7 +12,7 @@ use egui;
 
 use crate::ui::settings::chat_profiles::ChatModelProfile;
 use crate::ui::settings::{
-    ChatPanelPosition, ChatProviderKind, ChatTestRequest, SettingsDialog, chat_models,
+    ChatPanelPosition, ChatProviderKind, ChatTestRequest, SecretPurge, SettingsDialog, chat_models,
     chat_troubleshoot, secrets,
 };
 
@@ -90,6 +90,7 @@ impl SettingsDialog {
             let p = self.draft.chat_profiles.remove(i);
             // A profile's own key is meaningless once the profile is gone.
             secrets::delete_profile_key(&p.id, &mut self.draft);
+            self.purge_secret(SecretPurge::Chat(secrets::profile_key_id(&p.id)));
             if self.chat_profile_form_id == p.id {
                 self.clear_chat_profile_form();
             }
@@ -510,6 +511,7 @@ impl SettingsDialog {
             // Turning the override off drops the key rather than leaving an
             // unused secret behind.
             secrets::delete_profile_key(&id, &mut self.draft);
+            self.purge_secret(SecretPurge::Chat(secrets::profile_key_id(&id)));
         }
 
         // The panel always needs a selected profile; the first one saved wins.
@@ -738,6 +740,7 @@ impl SettingsDialog {
                     );
                     if ui.button(crate::i18n::t("chat.clear_key_yes")).clicked() {
                         secrets::delete_api_key(provider, &mut self.draft);
+                        self.purge_secret(SecretPurge::Chat(provider.id().to_string()));
                         self.chat_key_status_msg = Some(crate::i18n::t("chat.key_cleared"));
                         self.chat_key_clear_confirm = None;
                     }

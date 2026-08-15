@@ -648,7 +648,6 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub alternating_row_colors: bool,
     /// Whether negative numbers are displayed in red.
-    #[serde(default)]
     pub negative_numbers_red: bool,
     /// Raise log verbosity to debug for the `octa` crate (live, no restart).
     #[serde(default)]
@@ -683,7 +682,6 @@ pub struct AppSettings {
     #[serde(default)]
     pub notebook_output_layout: NotebookOutputLayout,
     /// Maximum number of recently opened files shown in the File menu.
-    #[serde(default = "default_max_recent")]
     pub max_recent_files: usize,
     /// Periodically write modified file-backed tabs to disk. Off by default.
     #[serde(default)]
@@ -1150,10 +1148,6 @@ fn default_language() -> String {
     "en".to_string()
 }
 
-fn default_max_recent() -> usize {
-    5
-}
-
 fn default_auto_save_interval() -> u32 {
     5
 }
@@ -1397,25 +1391,18 @@ impl AppSettings {
         // a distroless image typically has no `HOME`, `XDG_CONFIG_HOME` or
         // `APPDATA`, so without it every branch below returns `None` and the
         // CLI / MCP server silently has no settings at all.
-        if let Ok(dir) = std::env::var("OCTA_CONFIG_DIR")
-            && !dir.trim().is_empty()
-        {
-            return Some(PathBuf::from(dir));
+        if let Some(dir) = env_path("OCTA_CONFIG_DIR") {
+            return Some(dir);
         }
         #[cfg(target_os = "linux")]
         {
-            std::env::var("XDG_CONFIG_HOME")
-                .map(PathBuf::from)
-                .ok()
+            env_path("XDG_CONFIG_HOME")
                 .or_else(|| dirs_path_home().map(|h| h.join(".config")))
                 .map(|d| d.join("octa"))
         }
         #[cfg(target_os = "windows")]
         {
-            std::env::var("APPDATA")
-                .map(PathBuf::from)
-                .ok()
-                .map(|d| d.join("Octa"))
+            env_path("APPDATA").map(|d| d.join("Octa"))
         }
         #[cfg(target_os = "macos")]
         {
@@ -1535,15 +1522,31 @@ pub fn restrict_dir_to_owner(path: &Path) {
     }
 }
 
+/// A path from an environment variable, treating "set but empty" as unset.
+///
+/// On Unix an exported-but-empty variable reads as `Ok("")`, not `Err`, and
+/// `PathBuf::from("").join("octa")` is the *relative* path `octa` - so an empty
+/// `HOME` or `XDG_CONFIG_HOME` used to drop `settings.toml`, plaintext secrets
+/// and all, into whatever directory Octa happened to be started from.
+fn env_path(var: &str) -> Option<PathBuf> {
+    non_empty_path(std::env::var(var).ok())
+}
+
+/// The decision `env_path` makes, split out so it is testable without
+/// mutating the process environment.
+fn non_empty_path(value: Option<String>) -> Option<PathBuf> {
+    value.filter(|v| !v.trim().is_empty()).map(PathBuf::from)
+}
+
 /// Helper: get the user's home directory without pulling in the `dirs` crate.
 fn dirs_path_home() -> Option<PathBuf> {
     #[cfg(unix)]
     {
-        std::env::var("HOME").map(PathBuf::from).ok()
+        env_path("HOME")
     }
     #[cfg(windows)]
     {
-        std::env::var("USERPROFILE").map(PathBuf::from).ok()
+        env_path("USERPROFILE")
     }
 }
 
@@ -1571,12 +1574,44 @@ pub struct ChatTestRequest {
     pub ctx: egui::Context,
 }
 
+/// A secret the dialog has just deleted, for the app to delete from the live
+/// settings as well.
+///
+/// Clearing a key is a real, immediate side effect: the keyring entry is gone
+/// the moment the button is clicked. The plaintext fallback, though, was only
+/// removed from the draft - so closing Settings with the `x` (which is Cancel)
+/// left the key sitting in `settings.toml` after the UI had said "cleared".
+/// The string is the connection / profile id the secret is filed under.
+#[derive(Debug, Clone)]
+pub enum SecretPurge {
+    Chat(String),
+    Cloud(String),
+    Db(String),
+}
+
+/// A recorded combo that another action already owns, plus who owns it, so the
+/// grid can offer to move the binding instead of only refusing it.
+#[derive(Debug, Clone, Copy)]
+pub struct ShortcutTakeover {
+    /// The action being recorded, which would gain the combo.
+    pub action: ShortcutAction,
+    /// The combo the user pressed.
+    pub combo: super::shortcuts::KeyCombo,
+    /// The action that holds it today, and would be left unbound.
+    pub previous: ShortcutAction,
+}
+
 /// Transient state for the settings dialog.
 #[derive(Default)]
 pub struct SettingsDialog {
     pub open: bool,
     /// Working copy - committed on Apply/OK.
     pub draft: AppSettings,
+    /// Snapshot of the settings the draft was seeded from. The app keeps
+    /// running behind this window, so on Apply the two are compared to tell
+    /// "the user changed this here" from "another surface changed it since"
+    /// - see [`SettingsDialog::carry_external_edits`].
+    seed: AppSettings,
     /// Whether the icon changed (needs texture + window icon refresh).
     pub icon_changed: bool,
     /// Whether font size changed (needs style reapply).
@@ -1730,6 +1765,12 @@ pub struct SettingsDialog {
     /// Set when the user tries to bind a combo that is already used by another
     /// action. Cleared when they record successfully or edit the grid again.
     shortcut_conflict: Option<String>,
+    /// The pending "that key is taken - take it over?" offer that goes with
+    /// `shortcut_conflict`. `None` = nothing to decide.
+    shortcut_takeover: Option<ShortcutTakeover>,
+    /// Secrets deleted in the dialog, waiting to be deleted from the live
+    /// settings too. Drained per frame by the app; see [`SecretPurge`].
+    secret_purges: Vec<SecretPurge>,
     /// Whether the "Reset to defaults" confirmation modal is currently shown.
     show_reset_confirm: bool,
     /// Index of the connection currently loaded into the cloud form (edit

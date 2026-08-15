@@ -24,6 +24,7 @@ pub(crate) mod easter_eggs;
 pub(crate) mod edit_ops;
 pub(crate) mod file_io;
 pub(crate) mod find_replace;
+pub(crate) mod flag_guard;
 pub(crate) mod init;
 pub(crate) mod mark_bookmark;
 pub(crate) mod multi_search;

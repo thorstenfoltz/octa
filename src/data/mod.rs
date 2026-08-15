@@ -387,6 +387,33 @@ impl DataTable {
         }
     }
 
+    /// The permutation that moves item `from` to position `to` in a list of
+    /// `len` items, in `order[new_pos] = old_pos` form.
+    fn move_order(len: usize, from: usize, to: usize) -> Vec<usize> {
+        let mut order: Vec<usize> = (0..len).collect();
+        let moved = order.remove(from);
+        order.insert(to.min(order.len()), moved);
+        order
+    }
+
+    /// Move a row from `from` to `to`, without touching the undo/redo stacks.
+    pub(crate) fn move_row_raw(&mut self, from: usize, to: usize) {
+        if from == to || from >= self.rows.len() || to >= self.rows.len() {
+            return;
+        }
+        let order = Self::move_order(self.rows.len(), from, to);
+        self.apply_row_order(&order);
+    }
+
+    /// Move a column from `from` to `to`, without touching the undo/redo stacks.
+    pub(crate) fn move_column_raw(&mut self, from: usize, to: usize) {
+        if from == to || from >= self.columns.len() || to >= self.columns.len() {
+            return;
+        }
+        let order = Self::move_order(self.columns.len(), from, to);
+        self.apply_order(&order);
+    }
+
     /// Move a row from `from` to `to`. Both must be valid indices.
     pub fn move_row(&mut self, from: usize, to: usize) {
         if from == to || from >= self.rows.len() || to >= self.rows.len() {
@@ -395,29 +422,7 @@ impl DataTable {
         self.structural_changes = true;
         self.undo_stack.push(UndoAction::MoveRow { from, to });
         self.redo_stack.clear();
-        let row = self.rows.remove(from);
-        self.rows.insert(to, row);
-        if let Some(meta) = self.db_meta.as_mut()
-            && from < meta.row_tags.len()
-        {
-            let tag = meta.row_tags.remove(from);
-            meta.row_tags.insert(to.min(meta.row_tags.len()), tag);
-        }
-        // Remap edits
-        let mut new_edits = HashMap::new();
-        for (&(r, c), v) in &self.edits {
-            let new_r = if r == from {
-                to
-            } else if from < to {
-                // Row moved down: rows in (from, to] shift up by 1
-                if r > from && r <= to { r - 1 } else { r }
-            } else {
-                // Row moved up: rows in [to, from) shift down by 1
-                if r >= to && r < from { r + 1 } else { r }
-            };
-            new_edits.insert((new_r, c), v.clone());
-        }
-        self.edits = new_edits;
+        self.move_row_raw(from, to);
     }
 
     /// Move a column from `from` to `to`. Both must be valid indices.
@@ -428,28 +433,7 @@ impl DataTable {
         self.structural_changes = true;
         self.undo_stack.push(UndoAction::MoveColumn { from, to });
         self.redo_stack.clear();
-        let col_info = self.columns.remove(from);
-        self.columns.insert(to, col_info);
-        for row in &mut self.rows {
-            if from < row.len() {
-                let val = row.remove(from);
-                let ins = to.min(row.len());
-                row.insert(ins, val);
-            }
-        }
-        // Remap edits
-        let mut new_edits = HashMap::new();
-        for (&(r, c), v) in &self.edits {
-            let new_c = if c == from {
-                to
-            } else if from < to {
-                if c > from && c <= to { c - 1 } else { c }
-            } else {
-                if c >= to && c < from { c + 1 } else { c }
-            };
-            new_edits.insert((r, new_c), v.clone());
-        }
-        self.edits = new_edits;
+        self.move_column_raw(from, to);
     }
 
     /// Reorder all columns according to a permutation.
@@ -483,11 +467,15 @@ impl DataTable {
             self.columns[new_pos] = old_cols[old_pos].clone();
         }
 
-        // Reorder each row's cell data
+        // Reorder each row's cell data. Indices are checked because a row can
+        // be shorter than the column list (a ragged import); the old
+        // `move_column` tolerated that and this is now its only path.
         for row in &mut self.rows {
             let old_row = row.clone();
             for (new_pos, &old_pos) in order.iter().enumerate() {
-                row[new_pos] = old_row[old_pos].clone();
+                if new_pos < row.len() && old_pos < old_row.len() {
+                    row[new_pos] = old_row[old_pos].clone();
+                }
             }
         }
 
@@ -503,6 +491,77 @@ impl DataTable {
             }
         }
         self.edits = new_edits;
+
+        // Marks travel with their column. Insert and delete already shift
+        // them; reordering used not to, so a marked cell kept the colour of
+        // whatever column landed on its index.
+        if !self.marks.is_empty() {
+            let mut new_marks = HashMap::new();
+            for (key, color) in std::mem::take(&mut self.marks) {
+                let new_key = match key {
+                    MarkKey::Column(c) if c < n => MarkKey::Column(old_to_new[c]),
+                    MarkKey::Cell(r, c) if c < n => MarkKey::Cell(r, old_to_new[c]),
+                    other => other,
+                };
+                new_marks.insert(new_key, color);
+            }
+            self.marks = new_marks;
+        }
+    }
+
+    /// Apply a row permutation (`order[new_pos] = old_pos`) to everything
+    /// keyed by row index: the cells, the DB row tags, the edit overlay and
+    /// the marks.
+    ///
+    /// They are four views of the same row. Moving only `rows` is what made a
+    /// sorted database table save every row's values onto a different row's
+    /// primary key: the writers pair `rows[i]` with `db_meta.row_tags[i]`
+    /// positionally.
+    fn apply_row_order(&mut self, order: &[usize]) {
+        let n = self.rows.len();
+        if order.len() != n || order.iter().any(|&i| i >= n) {
+            return;
+        }
+        let mut old_to_new = vec![0usize; n];
+        for (new_pos, &old_pos) in order.iter().enumerate() {
+            old_to_new[old_pos] = new_pos;
+        }
+
+        let mut old_rows = std::mem::take(&mut self.rows);
+        self.rows = order
+            .iter()
+            .map(|&old| std::mem::take(&mut old_rows[old]))
+            .collect();
+
+        if let Some(meta) = self.db_meta.as_mut()
+            && meta.row_tags.len() == n
+        {
+            let old_tags = std::mem::take(&mut meta.row_tags);
+            meta.row_tags = order.iter().map(|&old| old_tags[old]).collect();
+        }
+
+        if !self.edits.is_empty() {
+            let mut new_edits = HashMap::new();
+            for (&(r, c), v) in &self.edits {
+                if r < n {
+                    new_edits.insert((old_to_new[r], c), v.clone());
+                }
+            }
+            self.edits = new_edits;
+        }
+
+        if !self.marks.is_empty() {
+            let mut new_marks = HashMap::new();
+            for (key, color) in std::mem::take(&mut self.marks) {
+                let new_key = match key {
+                    MarkKey::Row(r) if r < n => MarkKey::Row(old_to_new[r]),
+                    MarkKey::Cell(r, c) if r < n => MarkKey::Cell(old_to_new[r], c),
+                    other => other,
+                };
+                new_marks.insert(new_key, color);
+            }
+            self.marks = new_marks;
+        }
     }
 
     /// Compute the inverse of a column permutation (`inv[order[i]] = i`).
@@ -526,12 +585,16 @@ impl DataTable {
         self.apply_edits();
         self.structural_changes = true;
 
-        self.rows.sort_by(|a, b| {
-            let va = a.get(col_idx).unwrap_or(&CellValue::Null);
-            let vb = b.get(col_idx).unwrap_or(&CellValue::Null);
+        // Sort an index permutation, not the rows themselves: row tags and
+        // marks have to travel with their row (see `apply_row_order`).
+        let mut order: Vec<usize> = (0..self.rows.len()).collect();
+        order.sort_by(|&a, &b| {
+            let va = self.rows[a].get(col_idx).unwrap_or(&CellValue::Null);
+            let vb = self.rows[b].get(col_idx).unwrap_or(&CellValue::Null);
             let cmp = cmp_cell_values(va, vb);
             if ascending { cmp } else { cmp.reverse() }
         });
+        self.apply_row_order(&order);
     }
 
     /// Sort rows by several columns at once. `keys` lists `(col_idx, ascending)`
@@ -551,10 +614,11 @@ impl DataTable {
         self.apply_edits();
         self.structural_changes = true;
 
-        self.rows.sort_by(|a, b| {
+        let mut order: Vec<usize> = (0..self.rows.len()).collect();
+        order.sort_by(|&a, &b| {
             for &(col_idx, ascending) in &valid {
-                let va = a.get(col_idx).unwrap_or(&CellValue::Null);
-                let vb = b.get(col_idx).unwrap_or(&CellValue::Null);
+                let va = self.rows[a].get(col_idx).unwrap_or(&CellValue::Null);
+                let vb = self.rows[b].get(col_idx).unwrap_or(&CellValue::Null);
                 let cmp = cmp_cell_values(va, vb);
                 let cmp = if ascending { cmp } else { cmp.reverse() };
                 if cmp != std::cmp::Ordering::Equal {
@@ -563,6 +627,22 @@ impl DataTable {
             }
             std::cmp::Ordering::Equal
         });
+        self.apply_row_order(&order);
+    }
+
+    /// Merge the edits into the rows like [`apply_edits`](Self::apply_edits),
+    /// but hand the overlay back so a caller whose write can fail is able to
+    /// put it back.
+    ///
+    /// `is_modified()` reads the overlay, so clearing it before the write
+    /// means a failed save leaves the tab looking clean: the dirty marker
+    /// disappears, closing it asks nothing, and the edits are gone. Restoring
+    /// the returned map is a no-op for the displayed values (they are already
+    /// in `rows`) and puts the tab back in its unsaved state.
+    pub fn apply_edits_recoverable(&mut self) -> HashMap<(usize, usize), CellValue> {
+        let overlay = self.edits.clone();
+        self.apply_edits();
+        overlay
     }
 
     /// Apply all edits to the underlying data (merges edits into rows).
@@ -802,6 +882,51 @@ impl DataTable {
             // Edits in evicted range (r < count) are discarded
         }
         self.edits = new_edits;
+        // Marks shift with their row, same as the edits above; marks on
+        // evicted rows go with them.
+        if !self.marks.is_empty() {
+            let mut new_marks = HashMap::new();
+            for (key, color) in std::mem::take(&mut self.marks) {
+                match key {
+                    MarkKey::Row(r) if r < count => continue,
+                    MarkKey::Cell(r, _) if r < count => continue,
+                    MarkKey::Row(r) => {
+                        new_marks.insert(MarkKey::Row(r - count), color);
+                    }
+                    MarkKey::Cell(r, c) => {
+                        new_marks.insert(MarkKey::Cell(r - count, c), color);
+                    }
+                    other => {
+                        new_marks.insert(other, color);
+                    }
+                }
+            }
+            self.marks = new_marks;
+        }
+    }
+
+    /// Adopt the row identity a writer just assigned, and take the current
+    /// rows as the new baseline.
+    ///
+    /// After a diff-based save the file holds exactly these rows, so the rows
+    /// the user added this session are no longer `None`: leaving them so made
+    /// the next save INSERT them a second time. No-op for a table that carries
+    /// no DB identity, or when the writer reported a different row count than
+    /// the table has.
+    pub fn retag_db_rows(&mut self, tags: Vec<Option<i64>>) {
+        let Some(meta) = self.db_meta.as_mut() else {
+            return;
+        };
+        if tags.len() != self.rows.len() {
+            return;
+        }
+        meta.original = tags
+            .iter()
+            .zip(self.rows.iter())
+            .filter_map(|(tag, row)| tag.map(|t| (t, row.clone())))
+            .collect();
+        meta.row_tags = tags;
+        meta.original_columns = self.columns.iter().map(|c| c.name.clone()).collect();
     }
 
     /// Reset the modification tracking (call after saving).

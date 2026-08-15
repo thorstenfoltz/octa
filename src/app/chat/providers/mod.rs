@@ -157,7 +157,14 @@ pub(crate) fn stream_sse(
     // `.config()...build()` erases ureq's `WithBody` type-state and drops
     // `send_json`. `http_status_as_error(false)` surfaces non-2xx as a normal
     // response so we can read the error body the provider returned.
+    // Two bounded waits, and deliberately no global one: a long answer may
+    // legitimately stream for minutes, but a server that never accepts the
+    // connection, or accepts and then says nothing, must not wedge the worker
+    // forever - which is what blocked the Ask boxes for a whole session, since
+    // their cancel flag is not reachable from any UI.
     let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_connect(Some(std::time::Duration::from_secs(15)))
+        .timeout_recv_response(Some(std::time::Duration::from_secs(120)))
         .http_status_as_error(false)
         .build()
         .into();

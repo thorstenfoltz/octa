@@ -362,12 +362,15 @@ pub fn render_sql_view(
             ui.menu_button(octa::i18n::t("sql.history"), |ui| {
                 ui.set_min_width(220.0);
                 for q in &tab.sql_history {
-                    // One-line preview; full query on hover.
-                    let preview = q.replace('\n', " ");
-                    let preview = if preview.len() > 60 {
-                        format!("{}...", &preview[..57])
+                    // One-line preview; full query on hover. Counted in chars,
+                    // not bytes: `&preview[..57]` panicked on any query
+                    // holding a multi-byte character (a city called Muenchen
+                    // spelled properly was enough).
+                    let flat = q.replace('\n', " ");
+                    let preview = if flat.chars().count() > 60 {
+                        format!("{}...", flat.chars().take(57).collect::<String>())
                     } else {
-                        preview
+                        flat
                     };
                     if ui.button(preview).on_hover_text(q).clicked() {
                         action.recall_query = Some(q.clone());
