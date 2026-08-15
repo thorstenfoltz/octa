@@ -212,4 +212,4 @@ jobs:
             -e GITHUB_RUN_ID="$GITHUB_RUN_ID" \
             -e GITHUB_SERVER_URL="$GITHUB_SERVER_URL" \
             -e GITHUB_API_URL="$GITHUB_API_URL" \
-            ghcr.io/oxsecurity/megalinter-rust:v9
+            ghcr.io/oxsecurity/megalinter-rust:v10

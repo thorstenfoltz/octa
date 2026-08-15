@@ -10,9 +10,9 @@ use eframe::egui;
 
 use crate::db::{DbAuth, DbAuthKind, DbConnection, DbEngine};
 use crate::i18n::t;
-use crate::ui::settings::SettingsDialog;
 use crate::ui::settings::db_secrets;
 use crate::ui::settings::secrets::KeyStorage;
+use crate::ui::settings::{SecretPurge, SettingsDialog};
 
 /// Short auth-mode label for the combo + list rows.
 fn auth_label(auth: &DbAuth) -> String {
@@ -110,6 +110,7 @@ impl SettingsDialog {
         {
             let conn = self.draft.db_connections.remove(i);
             db_secrets::delete_db_secret(&conn.id, &mut self.draft);
+            self.purge_secret(SecretPurge::Db(conn.id.clone()));
             if self.db_form_id == conn.id {
                 self.clear_db_form();
             }
@@ -431,6 +432,7 @@ impl SettingsDialog {
                     );
                     if ui.button(t("cloud.secret_clear_yes")).clicked() {
                         db_secrets::delete_db_secret(&self.db_form_id, &mut self.draft);
+                        self.purge_secret(SecretPurge::Db(self.db_form_id.clone()));
                         self.db_secret_status_msg = Some(t("cloud.secret_cleared"));
                         self.db_secret_clear_confirm = None;
                     }

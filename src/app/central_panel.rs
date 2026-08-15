@@ -584,6 +584,13 @@ impl OctaApp {
             });
         });
 
+        // While the Shortcuts grid is recording, Ctrl+C / X / V are a binding
+        // being typed, not a clipboard command. The events are still drained
+        // above so nothing later in the frame acts on them either.
+        if octa::ui::shortcuts::capture_mode() {
+            return;
+        }
+
         // If any TextEdit holds focus (SQL editor, raw editor, search bar,
         // inline cell editor, dialogs, status-bar nav...), the events above
         // were already handled by that editor when it rendered. Drop them
@@ -1011,6 +1018,11 @@ impl OctaApp {
 
                 if format_name == "Parquet" {
                     std::thread::spawn(move || {
+                        // Bad bytes at row two million, or a USB stick pulled
+                        // mid-scroll, must not leave the app repainting every
+                        // frame with a spinner that never stops.
+                        let _done =
+                            crate::app::flag_guard::FlagOnDrop::new(done_flag.clone(), true);
                         if let Err(e) = load_remaining_parquet_rows(
                             &path,
                             skip_rows,
@@ -1029,6 +1041,8 @@ impl OctaApp {
                         csv_delimiter
                     };
                     std::thread::spawn(move || {
+                        let _done =
+                            crate::app::flag_guard::FlagOnDrop::new(done_flag.clone(), true);
                         if let Err(e) = formats::csv_reader::load_csv_rows_chunk(
                             &path,
                             delimiter,

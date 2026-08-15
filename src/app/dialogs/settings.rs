@@ -19,9 +19,41 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         spawn_chat_test(req);
     }
 
-    let Some(new_settings) = applied else {
+    // Clearing a secret already deleted the keyring entry, so the plaintext
+    // fallback has to go from the LIVE settings too - the dialog can only
+    // reach its own draft, which closing with the `x` throws away, and the
+    // user was told the key was cleared.
+    let purges = app.settings_dialog.take_secret_purges();
+    if !purges.is_empty() {
+        for purge in purges {
+            match purge {
+                octa::ui::settings::SecretPurge::Chat(key_id) => {
+                    octa::ui::settings::secrets::delete_key_for(&key_id, &mut app.settings);
+                }
+                octa::ui::settings::SecretPurge::Cloud(conn_id) => {
+                    octa::ui::settings::cloud_secrets::delete_cloud_secret(
+                        &conn_id,
+                        &mut app.settings,
+                    );
+                }
+                octa::ui::settings::SecretPurge::Db(conn_id) => {
+                    octa::ui::settings::db_secrets::delete_db_secret(&conn_id, &mut app.settings);
+                }
+            }
+        }
+        app.settings.save();
+        app.cloud_browser.secret_cache.clear();
+    }
+
+    let Some(mut new_settings) = applied else {
         return;
     };
+
+    // The dialog's draft is a snapshot taken when it opened, and the app kept
+    // running behind it. Take back the fields another surface has written
+    // since, or Apply silently undoes them.
+    app.settings_dialog
+        .carry_external_edits(&mut new_settings, &app.settings);
 
     let icon_changed = app.settings_dialog.icon_changed;
     let font_changed = app.settings_dialog.font_changed;

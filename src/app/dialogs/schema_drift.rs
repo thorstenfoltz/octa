@@ -181,6 +181,9 @@ fn start_scan(app: &mut OctaApp, ctx: &egui::Context) {
     let ctx = ctx.clone();
 
     std::thread::spawn(move || {
+        // Clears `running` however the worker ends: a panic here used to
+        // wedge the flag true for the rest of the session.
+        let _running = crate::app::flag_guard::FlagOnDrop::new(running, false);
         let outcome = if dir.is_dir() {
             let registry = octa::formats::FormatRegistry::new();
             let (files, skipped) = collect_schemas(&dir, opts.recursive, &registry);
@@ -197,7 +200,6 @@ fn start_scan(app: &mut OctaApp, ctx: &egui::Context) {
         if let Ok(mut slot) = result.lock() {
             *slot = Some(outcome);
         }
-        running.store(false, Ordering::Relaxed);
         ctx.request_repaint();
     });
 }

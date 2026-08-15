@@ -47,26 +47,22 @@ fn parse_sha256sums_lowercases_hashes() {
 }
 
 #[test]
-fn parse_release_strips_the_tag_prefix_and_trims_the_notes() {
-    let (version, notes) =
-        parse_release(r#"{"tag_name": "v0.17.0", "body": "Added a thing\n\n"}"#).unwrap();
+fn parse_release_strips_the_tag_prefix() {
+    let version = parse_release(r#"{"tag_name": "v0.17.0", "body": "Added a thing\n\n"}"#).unwrap();
     assert_eq!(version, "0.17.0");
-    assert_eq!(notes, "Added a thing");
 }
 
 #[test]
-fn parse_release_tolerates_a_release_published_without_notes() {
+fn parse_release_ignores_the_release_body() {
     // GitHub omits `body`, or sends null, for a release with no description.
-    // Neither may fail the check: the tag is the part that decides whether an
-    // update exists at all.
+    // The tag is the only part that decides whether an update exists, and the
+    // notes the user reads are baked into the binary.
     for json in [
         r#"{"tag_name": "1.0.0"}"#,
         r#"{"tag_name": "1.0.0", "body": null}"#,
-        r#"{"tag_name": "1.0.0", "body": ""}"#,
+        r#"{"tag_name": "1.0.0", "body": "Added a thing"}"#,
     ] {
-        let (version, notes) = parse_release(json).unwrap();
-        assert_eq!(version, "1.0.0", "for {json}");
-        assert!(notes.is_empty(), "for {json}");
+        assert_eq!(parse_release(json).unwrap(), "1.0.0", "for {json}");
     }
 }
 

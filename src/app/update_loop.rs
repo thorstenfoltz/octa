@@ -6,8 +6,6 @@ use eframe::egui;
 
 use super::state::{OctaApp, UpdateState};
 
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-
 impl eframe::App for OctaApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
@@ -30,8 +28,24 @@ impl eframe::App for OctaApp {
                         to_enqueue.push(path);
                     }
                     surviving.push(path_str);
-                } else {
+                } else if std::fs::read_dir(
+                    // A bare file name has an empty parent, which means the
+                    // working directory.
+                    path.parent()
+                        .filter(|p| !p.as_os_str().is_empty())
+                        .unwrap_or(std::path::Path::new(".")),
+                )
+                .is_ok()
+                {
+                    // The folder is there and readable, so the file really is
+                    // gone.
                     pruned = true;
+                } else {
+                    // The folder is not reachable: an unmounted NAS, a volume
+                    // still locked at login, a slow autofs mount. "Missing" is
+                    // not the same as "deleted", and this prune is persisted
+                    // on frame one with no undo.
+                    surviving.push(path_str);
                 }
             }
             self.settings.pinned_tabs = surviving;
@@ -67,6 +81,15 @@ impl eframe::App for OctaApp {
             self.check_for_updates(&ctx);
         }
         self.drain_startup_update_check();
+        // Workers spawned from paths that carry no context (a cloud save-back
+        // starts three calls below `save_tab`) borrow this one to wake the UI.
+        if self.cloud_browser.repaint.is_none() {
+            self.cloud_browser.repaint = Some(ctx.clone());
+        }
+
+        // Recording a binding takes the keyboard away from every shortcut for
+        // that frame - see `ui::shortcuts::set_capture_mode`.
+        octa::ui::shortcuts::set_capture_mode(self.settings_dialog.is_recording_shortcut());
 
         self.handle_shortcuts(&ctx);
         self.update_easter_egg_inputs(&ctx);
@@ -96,6 +119,12 @@ impl eframe::App for OctaApp {
         self.expire_sql_diff_highlights(&ctx);
         self.drive_auto_save(&ctx);
 
+        // Columns may have been inserted, deleted or reordered since the last
+        // frame; the filters and hidden columns are keyed by index and have to
+        // follow. Runs before the filter recompute that consumes them.
+        if self.tabs[self.active_tab].sync_column_keys() {
+            self.tabs[self.active_tab].filter_dirty = true;
+        }
         if self.tabs[self.active_tab].filter_dirty {
             self.recompute_filter();
         }
@@ -135,43 +164,25 @@ impl eframe::App for OctaApp {
 }
 
 impl OctaApp {
-    /// Act on the startup check exactly once. An available version either
-    /// raises the release-notes window or, when the user turned notes off,
-    /// says so in the status bar - the check would otherwise be a silent
-    /// no-op. "Up to date" and a failed request stay quiet: neither is worth
-    /// interrupting a launch for.
+    /// Act on the startup check exactly once. An available version says so in
+    /// the status bar - the check would otherwise be a silent no-op. "Up to
+    /// date" and a failed request stay quiet: neither is worth interrupting a
+    /// launch for. Release notes are not this function's business; they come
+    /// from the binary at startup (see `dialogs::release_notes`).
     fn drain_startup_update_check(&mut self) {
         if self.startup_update_seen || !self.startup_update_started {
             return;
         }
         let state = self.update_state.lock().unwrap().clone();
         match state {
-            UpdateState::Available { version, notes } => {
+            UpdateState::Available { version } => {
                 self.startup_update_seen = true;
-                if self.settings.show_release_notes
-                    && self.settings.last_release_notes_version != version
-                {
-                    self.pending_release_notes = Some((version, notes));
-                } else {
-                    self.status_message = Some((
-                        octa::i18n::t("release.toast").replace("{version}", &version),
-                        std::time::Instant::now(),
-                    ));
-                }
+                self.status_message = Some((
+                    octa::i18n::t("release.toast").replace("{version}", &version),
+                    std::time::Instant::now(),
+                ));
             }
-            UpdateState::UpToDate { notes } => {
-                self.startup_update_seen = true;
-                // Notes for the version the user is already on. Shown once per
-                // version, so upgrading announces itself instead of waiting for
-                // the *next* release to exist. Silent when notes are off: there
-                // is nothing to act on, unlike an available update.
-                if self.settings.show_release_notes
-                    && self.settings.last_release_notes_version != VERSION
-                {
-                    self.pending_release_notes = Some((VERSION.to_string(), notes));
-                }
-            }
-            UpdateState::Error(_) => {
+            UpdateState::UpToDate | UpdateState::Error(_) => {
                 self.startup_update_seen = true;
             }
             _ => {}

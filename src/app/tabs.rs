@@ -32,6 +32,68 @@ impl TabState {
         )
     }
 
+    /// Keep the index-keyed view state pointing at the columns it was set on,
+    /// returning whether anything had to move.
+    ///
+    /// `column_filters`, `predicate_filters`, `hidden_columns` and
+    /// `column_number_formats` all address columns by index, and inserting,
+    /// deleting, moving or reordering a column renumbers them. Nothing
+    /// remapped them, so a filter set on `status` silently became a filter on
+    /// whatever column landed on that index - and `filtered_rows` is exactly
+    /// what a filtered **Save As** writes to disk.
+    ///
+    /// Rather than shifting at each of the ~20 places that mutate columns,
+    /// this remembers the names the keys were set against and remaps the whole
+    /// lot by name whenever they stop matching. One caller, in the frame loop,
+    /// so no column-editing path can forget it.
+    ///
+    /// ponytail: a renamed column drops its filter instead of following the
+    /// rename, and duplicate names resolve to the first match. Both are
+    /// visible on screen; filtering the wrong column silently is not. Key the
+    /// maps by name if that ever matters.
+    pub(crate) fn sync_column_keys(&mut self) -> bool {
+        let current: Vec<String> = self.table.columns.iter().map(|c| c.name.clone()).collect();
+        if current == self.column_key_names {
+            return false;
+        }
+        let remap: std::collections::HashMap<usize, usize> = self
+            .column_key_names
+            .iter()
+            .enumerate()
+            .filter_map(|(old, name)| current.iter().position(|n| n == name).map(|new| (old, new)))
+            .collect();
+        self.column_key_names = current;
+
+        self.column_filters = std::mem::take(&mut self.column_filters)
+            .into_iter()
+            .filter_map(|(col, values)| remap.get(&col).map(|&new| (new, values)))
+            .collect();
+        self.column_number_formats = std::mem::take(&mut self.column_number_formats)
+            .into_iter()
+            .filter_map(|(col, fmt)| remap.get(&col).map(|&new| (new, fmt)))
+            .collect();
+        self.hidden_columns = self
+            .hidden_columns
+            .iter()
+            .filter_map(|col| remap.get(col).copied())
+            .collect();
+        if let Some(snapshot) = self.mark_filter_hidden_snapshot.as_mut() {
+            *snapshot = snapshot
+                .iter()
+                .filter_map(|c| remap.get(c).copied())
+                .collect();
+        }
+        self.predicate_filters
+            .retain_mut(|p| match remap.get(&p.col) {
+                Some(&new) => {
+                    p.col = new;
+                    true
+                }
+                None => false,
+            });
+        true
+    }
+
     pub(crate) fn new(search_mode: data::SearchMode) -> Self {
         Self {
             table: DataTable::empty(),
@@ -141,6 +203,7 @@ impl TabState {
             custom_tab_label: None,
             user_tab_name: None,
             column_filters: std::collections::HashMap::new(),
+            column_key_names: Vec::new(),
             predicate_filters: Vec::new(),
             search_ask_mode: false,
             search_ask_profile: String::new(),
@@ -1195,5 +1258,79 @@ impl OctaApp {
                         });
                     });
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use octa::data::ColumnInfo;
+    use std::collections::HashSet;
+
+    fn tab_with_columns(names: &[&str]) -> TabState {
+        let mut tab = TabState::new(data::SearchMode::Plain);
+        tab.table.columns = names
+            .iter()
+            .map(|n| ColumnInfo {
+                name: (*n).to_string(),
+                data_type: "Utf8".into(),
+            })
+            .collect();
+        assert!(tab.sync_column_keys(), "first sync records the names");
+        tab
+    }
+
+    #[test]
+    fn deleting_a_column_renumbers_the_filters_that_follow_it() {
+        let mut tab = tab_with_columns(&["id", "name", "status"]);
+        tab.column_filters
+            .insert(2, HashSet::from(["active".to_string()]));
+        tab.hidden_columns.insert(1);
+        tab.predicate_filters
+            .push(octa::data::predicate_filter::PredicateFilter {
+                col: 2,
+                op: octa::data::conditional_format::CondOp::Eq,
+                value: "active".into(),
+                case_sensitive: false,
+            });
+
+        tab.table.columns.remove(0); // the user deletes `id`
+        assert!(tab.sync_column_keys());
+
+        assert!(
+            tab.column_filters.contains_key(&1),
+            "filter follows `status`"
+        );
+        assert!(tab.hidden_columns.contains(&0), "hidden follows `name`");
+        assert_eq!(tab.predicate_filters[0].col, 1);
+    }
+
+    #[test]
+    fn moving_a_column_moves_its_filter() {
+        let mut tab = tab_with_columns(&["id", "name", "status"]);
+        tab.column_filters
+            .insert(0, HashSet::from(["7".to_string()]));
+        tab.table.move_column(0, 2); // id goes last
+        assert!(tab.sync_column_keys());
+        assert!(tab.column_filters.contains_key(&2));
+    }
+
+    #[test]
+    fn a_column_that_is_gone_loses_its_filter() {
+        let mut tab = tab_with_columns(&["id", "status"]);
+        tab.column_filters
+            .insert(1, HashSet::from(["active".to_string()]));
+        tab.table.columns.pop(); // `status` deleted
+        assert!(tab.sync_column_keys());
+        assert!(
+            tab.column_filters.is_empty(),
+            "a filter must never survive onto another column"
+        );
+    }
+
+    #[test]
+    fn an_unchanged_column_list_is_a_no_op() {
+        let mut tab = tab_with_columns(&["id", "status"]);
+        assert!(!tab.sync_column_keys());
     }
 }

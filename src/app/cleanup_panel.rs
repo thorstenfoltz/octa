@@ -88,11 +88,14 @@ impl OctaApp {
         // Detached on purpose: the thread owns its snapshot and only writes
         // through the shared slots, so there is nothing to join.
         std::thread::spawn(move || {
+            // A panic in the scan would otherwise leave `running` true for the
+            // rest of the session: the panel would spin "Scanning..." forever
+            // and `start_cleanup_scan` would refuse to try again.
+            let _running = crate::app::flag_guard::FlagOnDrop::new(running, false);
             let found = suggest_cleanups(&snapshot, &limits, &cancel);
             if let Ok(mut slot) = results.lock() {
                 *slot = found;
             }
-            running.store(false, Ordering::Relaxed);
             ctx.request_repaint();
         });
     }

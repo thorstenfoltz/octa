@@ -105,22 +105,27 @@ pub fn decompress_to_temp(
 /// Compress `src` onto `dest` (overwrites). Used by save-back so a file
 /// opened from `data.csv.gz` saves back to `data.csv.gz`.
 pub fn compress_file(src: &Path, dest: &Path, codec: Codec) -> Result<()> {
-    let mut input =
-        std::fs::File::open(src).with_context(|| format!("opening {}", src.display()))?;
-    let out = std::fs::File::create(dest).with_context(|| format!("writing {}", dest.display()))?;
-    match codec {
-        Codec::Gzip => {
-            let mut enc = flate2::write::GzEncoder::new(out, flate2::Compression::default());
-            io::copy(&mut input, &mut enc)?;
-            enc.finish()?;
+    // Through a temp + rename: `dest` is the user's real `data.csv.gz`, and a
+    // failure part-way used to leave it truncated with the data gone.
+    crate::formats::write_atomically(dest, |tmp| {
+        let mut input =
+            std::fs::File::open(src).with_context(|| format!("opening {}", src.display()))?;
+        let out =
+            std::fs::File::create(tmp).with_context(|| format!("writing {}", dest.display()))?;
+        match codec {
+            Codec::Gzip => {
+                let mut enc = flate2::write::GzEncoder::new(out, flate2::Compression::default());
+                io::copy(&mut input, &mut enc)?;
+                enc.finish()?;
+            }
+            Codec::Zstd => {
+                let mut enc = zstd::stream::write::Encoder::new(out, 3)?;
+                io::copy(&mut input, &mut enc)?;
+                enc.finish()?;
+            }
         }
-        Codec::Zstd => {
-            let mut enc = zstd::stream::write::Encoder::new(out, 3)?;
-            io::copy(&mut input, &mut enc)?;
-            enc.finish()?;
-        }
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 #[cfg(test)]

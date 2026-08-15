@@ -241,6 +241,9 @@ impl OctaApp {
                 let max_file_bytes = self.settings.grep_max_file_bytes();
 
                 let handle = std::thread::spawn(move || {
+                    // Clears `running` however the worker ends: a panic here used to
+                    // wedge the flag true for the rest of the session.
+                    let _running = crate::app::flag_guard::FlagOnDrop::new(running, false);
                     directory_worker(
                         files,
                         query,
@@ -252,7 +255,6 @@ impl OctaApp {
                         last_error,
                         skipped,
                     );
-                    running.store(false, Ordering::Relaxed);
                 });
                 self.multi_search.handle = Some(handle);
                 self.multi_search.scan_completed = true;

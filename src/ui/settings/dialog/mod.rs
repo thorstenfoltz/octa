@@ -17,60 +17,11 @@ impl SettingsDialog {
     /// Open the dialog, seeding the draft from current settings.
     pub fn open(&mut self, current: &AppSettings) {
         self.draft = current.clone();
+        self.seed = current.clone();
         self.icon_changed = false;
         self.font_changed = false;
         self.theme_changed = false;
-        self.sql_row_limit_buf = current.sql_default_row_limit.to_string();
-        self.write_row_group_buf = current
-            .write_options
-            .parquet
-            .row_group_size
-            .map(|n| n.to_string())
-            .unwrap_or_default();
-        // Pick the most natural unit for the current bytes value so the
-        // user sees "1 MB" rather than "1,048,576 Bytes" when the setting
-        // is at the default.
-        self.syntax_highlight_size_unit =
-            SyntaxSizeUnit::best_fit(current.syntax_highlight_max_bytes);
-        // `SyntaxSizeUnit::factor` is always >= 1, so the division is safe.
-        let unit_factor = self.syntax_highlight_size_unit.factor();
-        self.syntax_highlight_max_bytes_buf =
-            crate::ui::status_bar::format_number(current.syntax_highlight_max_bytes / unit_factor);
-        self.initial_load_rows_buf =
-            crate::ui::status_bar::format_number(current.initial_load_rows);
-        self.raw_view_max_mb_buf =
-            crate::ui::status_bar::format_number(current.raw_view_max_bytes / 1_000_000);
-        self.max_decompressed_mb_buf = crate::ui::status_bar::format_number(
-            (current.max_decompressed_bytes / 1_000_000) as usize,
-        );
-        self.folder_union_max_files_buf =
-            crate::ui::status_bar::format_number(current.folder_union_max_files);
-        self.text_mode_extensions_buf = current.text_mode_extensions.join(", ");
-        // MCP buffers seed from the live settings.
-        self.mcp_unlimited_rows = current.mcp_default_row_limit.is_none();
-        self.mcp_row_limit_buf =
-            crate::ui::status_bar::format_number(current.mcp_default_row_limit.unwrap_or(1000));
-        self.mcp_cell_bytes_buf =
-            crate::ui::status_bar::format_number(current.mcp_default_cell_bytes);
-        self.grep_max_file_size_buf =
-            crate::ui::status_bar::format_number(current.grep_max_file_size_mb as usize);
-        self.chart_max_points_buf = crate::ui::status_bar::format_number(current.chart_max_points);
-        self.chart_max_categories_buf =
-            crate::ui::status_bar::format_number(current.chart_max_categories);
-        self.table_picker_visible_rows_buf =
-            crate::ui::status_bar::format_number(current.table_picker_visible_rows);
-        self.excel_max_auto_sheets_buf =
-            crate::ui::status_bar::format_number(current.excel_max_auto_sheets);
-        self.search_history_limit_buf = current.search_history_limit.to_string();
-        self.auto_save_interval_buf = current.auto_save_interval_minutes.to_string();
-        self.chat_temperature_buf = format!("{:.2}", current.chat_temperature);
-        self.chat_max_iterations_buf = current.chat_max_tool_iterations.to_string();
-        self.chat_max_tokens_buf = crate::ui::status_bar::format_number(current.chat_max_tokens);
-        self.chat_result_row_limit_buf = current.chat_result_row_limit.to_string();
-        self.chat_unlimited_rows = current.chat_result_row_limit_unlimited;
-        self.chat_unlimited_tokens = current.chat_max_tokens_unlimited;
-        self.chat_audit_warn_mb_buf =
-            (current.chat_audit_log_warn_bytes / (1024 * 1024)).to_string();
+        self.seed_buffers();
         self.chat_key_input_buf.clear();
         self.chat_key_status_msg = None;
         self.chat_key_clear_confirm = None;
@@ -89,8 +40,149 @@ impl SettingsDialog {
         self.focus_db_section = false;
         self.recording = None;
         self.shortcut_conflict = None;
+        self.shortcut_takeover = None;
         self.show_reset_confirm = false;
         self.open = true;
+    }
+
+    /// Take the secrets deleted since the last call, for the app to delete
+    /// from the live settings too. See [`SecretPurge`].
+    pub fn take_secret_purges(&mut self) -> Vec<SecretPurge> {
+        std::mem::take(&mut self.secret_purges)
+    }
+
+    /// Record a deleted secret for the app to mirror into the live settings.
+    pub(super) fn purge_secret(&mut self, purge: SecretPurge) {
+        self.secret_purges.push(purge);
+    }
+
+    /// Whether the Shortcuts grid is waiting for a key press.
+    ///
+    /// The frame loop dispatches shortcuts before this dialog draws, so
+    /// without this the key being recorded ALSO fired its current action:
+    /// recording Ctrl+S saved the file, Ctrl+W closed the tab.
+    pub fn is_recording_shortcut(&self) -> bool {
+        self.recording.is_some()
+    }
+
+    /// Put the draft back to defaults, keeping the user's content.
+    ///
+    /// Saved connections, stored secrets, chat profiles and pinned tabs are
+    /// work the user did, not values this dialog owns - and wiping the secrets
+    /// here also orphaned their keyring entries, which no later Cancel could
+    /// put back. Everything else, shortcuts included, goes back to default.
+    pub(crate) fn reset_draft(&mut self) {
+        let kept = std::mem::take(&mut self.draft);
+        self.draft = AppSettings {
+            cloud_connections: kept.cloud_connections,
+            db_connections: kept.db_connections,
+            cloud_secrets: kept.cloud_secrets,
+            db_secrets: kept.db_secrets,
+            chat_api_keys: kept.chat_api_keys,
+            chat_profiles: kept.chat_profiles,
+            chat_active_profile: kept.chat_active_profile,
+            pinned_tabs: kept.pinned_tabs,
+            last_release_notes_version: kept.last_release_notes_version,
+            ..AppSettings::default()
+        };
+        self.seed_buffers();
+    }
+
+    /// Fill every text buffer / unit picker from the draft.
+    ///
+    /// Both opening the dialog and "Reset to defaults" need this, and reset
+    /// used to re-seed only some of them: Apply parses **all** the buffers
+    /// back over the draft, so ten settings (raw-view cap, decompression cap,
+    /// grep size, chart caps, table-picker rows, Excel sheets, search history,
+    /// auto-save interval, audit warning) quietly survived the reset.
+    fn seed_buffers(&mut self) {
+        let d = &self.draft;
+        self.sql_row_limit_buf = d.sql_default_row_limit.to_string();
+        self.write_row_group_buf = d
+            .write_options
+            .parquet
+            .row_group_size
+            .map(|n| n.to_string())
+            .unwrap_or_default();
+        // Pick the most natural unit for the current bytes value so the
+        // user sees "1 MB" rather than "1,048,576 Bytes" when the setting
+        // is at the default.
+        self.syntax_highlight_size_unit = SyntaxSizeUnit::best_fit(d.syntax_highlight_max_bytes);
+        // `SyntaxSizeUnit::factor` is always >= 1, so the division is safe.
+        let unit_factor = self.syntax_highlight_size_unit.factor();
+        let d = &self.draft;
+        self.syntax_highlight_max_bytes_buf =
+            crate::ui::status_bar::format_number(d.syntax_highlight_max_bytes / unit_factor);
+        self.initial_load_rows_buf = crate::ui::status_bar::format_number(d.initial_load_rows);
+        self.raw_view_max_mb_buf =
+            crate::ui::status_bar::format_number(d.raw_view_max_bytes / 1_000_000);
+        self.max_decompressed_mb_buf =
+            crate::ui::status_bar::format_number((d.max_decompressed_bytes / 1_000_000) as usize);
+        self.folder_union_max_files_buf =
+            crate::ui::status_bar::format_number(d.folder_union_max_files);
+        self.text_mode_extensions_buf = d.text_mode_extensions.join(", ");
+        // MCP buffers seed from the live settings.
+        self.mcp_unlimited_rows = d.mcp_default_row_limit.is_none();
+        self.mcp_row_limit_buf =
+            crate::ui::status_bar::format_number(d.mcp_default_row_limit.unwrap_or(1000));
+        self.mcp_cell_bytes_buf = crate::ui::status_bar::format_number(d.mcp_default_cell_bytes);
+        self.grep_max_file_size_buf =
+            crate::ui::status_bar::format_number(d.grep_max_file_size_mb as usize);
+        self.chart_max_points_buf = crate::ui::status_bar::format_number(d.chart_max_points);
+        self.chart_max_categories_buf =
+            crate::ui::status_bar::format_number(d.chart_max_categories);
+        self.table_picker_visible_rows_buf =
+            crate::ui::status_bar::format_number(d.table_picker_visible_rows);
+        self.excel_max_auto_sheets_buf =
+            crate::ui::status_bar::format_number(d.excel_max_auto_sheets);
+        self.search_history_limit_buf = d.search_history_limit.to_string();
+        self.auto_save_interval_buf = d.auto_save_interval_minutes.to_string();
+        self.chat_temperature_buf = format!("{:.2}", d.chat_temperature);
+        self.chat_max_iterations_buf = d.chat_max_tool_iterations.to_string();
+        self.chat_max_tokens_buf = crate::ui::status_bar::format_number(d.chat_max_tokens);
+        self.chat_result_row_limit_buf = d.chat_result_row_limit.to_string();
+        self.chat_unlimited_rows = d.chat_result_row_limit_unlimited;
+        self.chat_unlimited_tokens = d.chat_max_tokens_unlimited;
+        self.chat_audit_warn_mb_buf = (d.chat_audit_log_warn_bytes / (1024 * 1024)).to_string();
+    }
+
+    /// Keep values that other surfaces also write across an Apply.
+    ///
+    /// The draft is seeded when the window opens and the app stays live behind
+    /// it (the window can even be minimized), so committing the draft wholesale
+    /// reverts everything written elsewhere in the meantime: a cloud secret
+    /// cleared from the sidebar comes back, a tab pinned since the window
+    /// opened is lost, the model picked in the chat panel snaps back.
+    ///
+    /// The rule is per field: if the dialog did not change it (draft still
+    /// equals the seed), take whatever the app holds now. Only the fields
+    /// another surface writes need listing - for every other field the live
+    /// value and the seed are the same thing.
+    pub fn carry_external_edits(&self, applied: &mut AppSettings, live: &AppSettings) {
+        macro_rules! keep_live {
+            ($($field:ident).+) => {
+                if applied.$($field).+ == self.seed.$($field).+ {
+                    applied.$($field).+ = live.$($field).+.clone();
+                }
+            };
+        }
+        // Written by `tabs.rs` (pin / unpin) and pruned by `update_loop.rs`.
+        keep_live!(pinned_tabs);
+        // Plaintext secret fallbacks: cleared by the sidebar's "Sign out" and
+        // by the per-connection Delete buttons. Restoring one would put a
+        // secret the user just cleared back into `settings.toml`.
+        keep_live!(cloud_secrets);
+        keep_live!(db_secrets);
+        keep_live!(chat_api_keys);
+        // The chat panel's own profile dropdown and Ollama model list.
+        keep_live!(chat_active_profile);
+        keep_live!(chat_profiles);
+        // "Do not show this again" on the read-only notice.
+        keep_live!(show_readonly_notice);
+        // Remembered answer to the .xlsx formatting-export prompt.
+        keep_live!(write_options.xlsx.include_formatting);
+        // Ticked away on the release-notes window.
+        keep_live!(last_release_notes_version);
     }
 
     /// Draw the dialog. Returns `Some(settings)` when the user clicks Apply.
@@ -357,33 +449,7 @@ impl SettingsDialog {
                 });
             });
         if confirm {
-            self.draft = AppSettings::default();
-            self.sql_row_limit_buf = self.draft.sql_default_row_limit.to_string();
-            self.syntax_highlight_size_unit =
-                SyntaxSizeUnit::best_fit(self.draft.syntax_highlight_max_bytes);
-            // `SyntaxSizeUnit::factor` is always >= 1, so the division is safe.
-            let factor = self.syntax_highlight_size_unit.factor();
-            self.syntax_highlight_max_bytes_buf = crate::ui::status_bar::format_number(
-                self.draft.syntax_highlight_max_bytes / factor,
-            );
-            self.initial_load_rows_buf =
-                crate::ui::status_bar::format_number(self.draft.initial_load_rows);
-            self.folder_union_max_files_buf =
-                crate::ui::status_bar::format_number(self.draft.folder_union_max_files);
-            self.text_mode_extensions_buf = self.draft.text_mode_extensions.join(", ");
-            self.mcp_unlimited_rows = self.draft.mcp_default_row_limit.is_none();
-            self.mcp_row_limit_buf = crate::ui::status_bar::format_number(
-                self.draft.mcp_default_row_limit.unwrap_or(1000),
-            );
-            self.mcp_cell_bytes_buf =
-                crate::ui::status_bar::format_number(self.draft.mcp_default_cell_bytes);
-            self.chat_temperature_buf = format!("{:.2}", self.draft.chat_temperature);
-            self.chat_max_iterations_buf = self.draft.chat_max_tool_iterations.to_string();
-            self.chat_max_tokens_buf =
-                crate::ui::status_bar::format_number(self.draft.chat_max_tokens);
-            self.chat_result_row_limit_buf = self.draft.chat_result_row_limit.to_string();
-            self.chat_unlimited_rows = self.draft.chat_result_row_limit_unlimited;
-            self.chat_unlimited_tokens = self.draft.chat_max_tokens_unlimited;
+            self.reset_draft();
             self.icon_changed = true;
             self.font_changed = true;
             self.theme_changed = true;

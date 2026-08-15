@@ -1291,3 +1291,115 @@ fn test_convert_column_invalid_index() {
     let mut table = sample_table();
     assert!(!table.convert_column(99, "Float64"));
 }
+
+// --- Row identity survives reordering (A1 / A4 / B11) ---
+
+/// `sample_table()` as it looks when it came from a database: rowids 1, 2, 3
+/// paired positionally with Alice, Bob, Charlie.
+fn db_backed_table() -> DataTable {
+    let mut t = sample_table();
+    let mut original = HashMap::new();
+    for (i, row) in t.rows.iter().enumerate() {
+        original.insert(i as i64 + 1, row.clone());
+    }
+    t.db_meta = Some(DbRowMeta {
+        table_name: "people".into(),
+        schema: None,
+        row_tags: vec![Some(1), Some(2), Some(3)],
+        original,
+        original_columns: t.columns.iter().map(|c| c.name.clone()).collect(),
+    });
+    t
+}
+
+/// The tag of the row holding `name`, i.e. the rowid the writers would use.
+fn tag_of(t: &DataTable, name: &str) -> Option<i64> {
+    let idx = t
+        .rows
+        .iter()
+        .position(|r| r[1] == CellValue::String(name.into()))?;
+    t.db_meta.as_ref()?.row_tags[idx]
+}
+
+#[test]
+fn sorting_carries_db_row_tags_with_their_row() {
+    let mut t = db_backed_table();
+    t.sort_rows_by_column(1, false); // Charlie, Bob, Alice
+    assert_eq!(t.rows[0][1], CellValue::String("Charlie".into()));
+    // Every row must still point at its own rowid, or the next save writes
+    // Charlie's values onto Alice's row.
+    assert_eq!(tag_of(&t, "Alice"), Some(1));
+    assert_eq!(tag_of(&t, "Bob"), Some(2));
+    assert_eq!(tag_of(&t, "Charlie"), Some(3));
+}
+
+#[test]
+fn multi_column_sorting_carries_db_row_tags_too() {
+    let mut t = db_backed_table();
+    t.sort_rows_by_columns(&[(2, true)]); // by score: Bob, Charlie, Alice
+    assert_eq!(t.rows[0][1], CellValue::String("Bob".into()));
+    assert_eq!(tag_of(&t, "Alice"), Some(1));
+    assert_eq!(tag_of(&t, "Bob"), Some(2));
+    assert_eq!(tag_of(&t, "Charlie"), Some(3));
+}
+
+#[test]
+fn sorting_carries_marks_with_their_row() {
+    let mut t = db_backed_table();
+    t.set_mark(MarkKey::Row(0), MarkColor::Green); // Alice
+    t.set_mark(MarkKey::Cell(2, 1), MarkColor::Red); // Charlie's name
+    t.sort_rows_by_column(1, false); // Charlie, Bob, Alice
+    assert_eq!(t.get_mark_color(2, 0), Some(MarkColor::Green));
+    assert_eq!(t.get_mark_color(0, 1), Some(MarkColor::Red));
+}
+
+#[test]
+fn undoing_a_row_move_restores_the_row_tags() {
+    let mut t = db_backed_table();
+    t.move_row(0, 2); // Bob, Charlie, Alice
+    assert_eq!(tag_of(&t, "Alice"), Some(1));
+    t.undo();
+    assert_eq!(t.rows[0][1], CellValue::String("Alice".into()));
+    assert_eq!(tag_of(&t, "Alice"), Some(1));
+    assert_eq!(tag_of(&t, "Charlie"), Some(3));
+}
+
+#[test]
+fn undoing_a_row_move_takes_the_edit_with_it() {
+    let mut t = sample_table();
+    t.set(2, 1, CellValue::String("Chuck".into())); // edit Charlie's name
+    t.move_row(2, 0);
+    assert_eq!(t.get(0, 1), Some(&CellValue::String("Chuck".into())));
+    t.undo();
+    // The edit must land back on row 2 with the row it belongs to, not stay
+    // on row 0 where it would rename Alice.
+    assert_eq!(t.get(2, 1), Some(&CellValue::String("Chuck".into())));
+    assert_eq!(t.get(0, 1), Some(&CellValue::String("Alice".into())));
+}
+
+#[test]
+fn undoing_a_column_move_takes_the_edit_with_it() {
+    let mut t = sample_table();
+    t.set(0, 2, CellValue::Float(1.5)); // score
+    t.move_column(2, 0);
+    assert_eq!(t.get(0, 0), Some(&CellValue::Float(1.5)));
+    t.undo();
+    assert_eq!(t.get(0, 2), Some(&CellValue::Float(1.5)));
+    assert_eq!(t.columns[2].name, "score");
+}
+
+#[test]
+fn a_recoverable_apply_can_put_the_tab_back_in_its_unsaved_state() {
+    // What a failed save does: apply the edits for the writer, then restore
+    // the overlay because nothing reached the disk.
+    let mut t = sample_table();
+    t.set(0, 1, CellValue::String("Alicia".into()));
+    assert!(t.is_modified());
+
+    let overlay = t.apply_edits_recoverable();
+    assert!(!t.is_modified(), "apply_edits clears the dirty flag");
+
+    t.edits = overlay;
+    assert!(t.is_modified(), "a failed write must leave the table dirty");
+    assert_eq!(t.get(0, 1), Some(&CellValue::String("Alicia".into())));
+}

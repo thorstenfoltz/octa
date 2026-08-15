@@ -54,6 +54,16 @@ impl FormatReader for GeoPackageReader {
         SqliteReader.write_file_schema_aware(path, table, allow_schema_changes, _opts)
     }
 
+    fn write_file_retagged(
+        &self,
+        path: &Path,
+        table: &DataTable,
+        allow_schema_changes: bool,
+        opts: &crate::formats::write_options::WriteOptions,
+    ) -> Result<Option<Vec<Option<i64>>>> {
+        SqliteReader.write_file_retagged(path, table, allow_schema_changes, opts)
+    }
+
     fn list_tables(&self, path: &Path) -> Result<Option<Vec<TableInfo>>> {
         // Prefer the GPKG-aware listing so the picker hides metadata tables.
         // If `gpkg_contents` is absent - i.e. the file has a `.gpkg` extension

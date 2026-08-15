@@ -41,6 +41,51 @@ use anyhow::Result;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// Write through a sibling temp file, then rename it over `path`.
+///
+/// `File::create` (and every writer built on it) truncates the target before a
+/// single byte is written, so a full disk, a pulled USB stick or any mid-write
+/// error left a truncated file exactly where the user's data had been. A
+/// rename within the same directory is atomic, so the original survives intact
+/// until the replacement is complete.
+///
+/// The closure is handed the temp path and writes there. The temp is removed
+/// on failure, and the target's permissions are carried over so replacing a
+/// 0600 file does not hand it back at 0644.
+///
+/// ponytail: used by the plain-file writers that rewrite a whole file. The
+/// SQLite / DuckDB writers deliberately do NOT use it - they edit the existing
+/// database in a transaction, which is its own atomicity.
+pub fn write_atomically<T>(
+    path: &Path,
+    write: impl FnOnce(&Path) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let Some(name) = path.file_name() else {
+        anyhow::bail!("{} is not a file path", path.display());
+    };
+    let tmp = {
+        let mut s = std::ffi::OsString::from(".");
+        s.push(name);
+        s.push(format!(".octa-tmp-{}", std::process::id()));
+        path.with_file_name(s)
+    };
+    let value = match write(&tmp) {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e);
+        }
+    };
+    if let Ok(meta) = std::fs::metadata(path) {
+        let _ = std::fs::set_permissions(&tmp, meta.permissions());
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(anyhow::anyhow!("replacing {}: {e}", path.display()));
+    }
+    Ok(value)
+}
+
 /// Copy an existing file to a timestamped sidecar `<path>.bak-YYYYMMDD-HHMMSS`
 /// before it is modified in place. Returns the backup path, or `Ok(None)` when
 /// `path` does not exist yet (nothing to back up). Names are made unique with a
@@ -239,6 +284,27 @@ pub trait FormatReader: Send + Sync {
         opts: &write_options::WriteOptions,
     ) -> anyhow::Result<()> {
         self.write_file_with_options(path, table, opts)
+    }
+
+    /// Write like [`write_file_schema_aware`](Self::write_file_schema_aware),
+    /// reporting the row identity the file now holds (parallel to
+    /// `table.rows`).
+    ///
+    /// The diff-based writers assign a fresh id to every row the user added
+    /// this session (`db_meta.row_tags[i] == None`). Without those ids back in
+    /// `db_meta`, the *next* save still sees `None` and INSERTs the same rows
+    /// again - a duplicate that stays invisible until the file is reopened.
+    /// `None` means the format keeps no row identity, so there is nothing to
+    /// re-tag.
+    fn write_file_retagged(
+        &self,
+        path: &std::path::Path,
+        table: &crate::data::DataTable,
+        allow_schema_changes: bool,
+        opts: &write_options::WriteOptions,
+    ) -> anyhow::Result<Option<Vec<Option<i64>>>> {
+        self.write_file_schema_aware(path, table, allow_schema_changes, opts)
+            .map(|()| None)
     }
 
     /// Write `table` to `path` honouring `opts`. The default ignores the

@@ -354,11 +354,13 @@ fn start_scan(app: &mut OctaApp, st: &mut FuzzyDuplicatesState, _cols: &[String]
     let cancel = st.cancel.clone();
 
     let handle = std::thread::spawn(move || {
+        // Clears `running` however the worker ends: a panic here used to
+        // wedge the flag true for the rest of the session.
+        let _running = crate::app::flag_guard::FlagOnDrop::new(running, false);
         let res = find_fuzzy_duplicates(&table, &cfg, &cancel);
         if let Ok(mut slot) = result.lock() {
             *slot = Some(res);
         }
-        running.store(false, Ordering::Relaxed);
     });
     st.handle = Some(handle);
 }

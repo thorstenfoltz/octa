@@ -11,9 +11,9 @@ use eframe::egui;
 
 use crate::cloud::{CloudConnection, CloudKind, CloudSecret};
 use crate::i18n::t;
-use crate::ui::settings::SettingsDialog;
 use crate::ui::settings::cloud_secrets;
 use crate::ui::settings::secrets::KeyStorage;
+use crate::ui::settings::{SecretPurge, SettingsDialog};
 
 impl SettingsDialog {
     /// Body of the "Cloud storage" Settings section.
@@ -105,6 +105,7 @@ impl SettingsDialog {
         {
             let conn = self.draft.cloud_connections.remove(i);
             cloud_secrets::delete_cloud_secret(&conn.id, &mut self.draft);
+            self.purge_secret(SecretPurge::Cloud(conn.id.clone()));
             if self.cloud_form_id == conn.id {
                 self.clear_cloud_form();
             }
@@ -422,6 +423,7 @@ impl SettingsDialog {
                 );
                 if ui.button(t("cloud.secret_clear_yes")).clicked() {
                     cloud_secrets::delete_cloud_secret(&self.cloud_form_id, &mut self.draft);
+                    self.purge_secret(SecretPurge::Cloud(self.cloud_form_id.clone()));
                     self.cloud_secret_status_msg = Some(t("cloud.secret_cleared"));
                     self.cloud_secret_clear_confirm = None;
                 }

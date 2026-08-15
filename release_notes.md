@@ -1,198 +1,143 @@
-# Release notes
+This is a repair release. It fixes a group of defects that could lose or
+corrupt your edits without saying anything, several that crashed or wedged the
+app, and a handful where a setting did not do what the dialog promised.
+Keyboard shortcuts can be rebound properly again, and the release notes you are
+reading no longer need a network connection.
 
-This release is a large one. Octa learns to point out what is wrong with a
-table before you go looking, to work on a whole folder rather than one file at
-a time, to join tables whose values almost match, and to answer a question
-typed in plain English. Everything new is reachable from the app, the command
-line and the assistant unless a section says otherwise.
+## Release notes without a request
 
-## Octa tells you what is wrong with the table
+The notes for the version you are running now ship inside Octa itself, so the
+window opens after an upgrade whether or not you are online, and on a Microsoft
+Store copy. It used to appear only as a side effect of the start-up update
+check, which meant that turning that check off also silenced the notes, though
+the two have nothing to do with each other. **Settings > Updates** now holds two
+independent switches:
 
-**Clean-up suggestions** is a new panel under **Analyse**. Opening it scans the
-table and lists what looks wrong: stray spaces around values, a column of
-numbers stored as text, empty columns, duplicate rows, untidy column titles,
-personal data, outliers, and text that was decoded with the wrong character set.
-Each entry says in one sentence what the problem is, what Octa would do about
-it, and shows up to three of the real offending values so you can judge for
-yourself. **Apply** fixes it, and a single **Ctrl+Z** takes the fix back.
+- **Check for updates at start** asks GitHub once per launch whether a newer
+  version exists. It no longer has any say over the notes.
+- **Show what a new release brings** is the notes window itself. Turn it off and
+  you never see it, for any version.
 
-Nothing runs while the panel is closed, and nothing is detected twice: every
-suggestion is a translation of a check Octa already had, so the panel and the
-menu entry can never disagree about your data.
+While that second switch is on, the window opens at every start until you tick
+**Do not show these notes again** and close it. The tick covers the version you
+are running and nothing else, so the next release opens the window again, and
+unticking it brings the window back. Previously the tick box and the setting
+were one and the same, so there was no way to say "I have read these" without
+also saying "never show me any".
 
-**Problem navigation.** **F10** and **Shift+F10** step through the cells that
-Octa has already flagged, the way a spell checker walks from mistake to
-mistake. Validation failures and outliers are included, hidden rows are
-skipped, and the status bar counts them: `Problem 3 of 27`.
+## Edits and rows stay where you put them
 
-**Broken characters can be repaired.** A file read with the wrong character set
-turns `Müller` into `MÃ¼ller`. Octa now recognises
-that pattern and can undo it, both as a clean-up suggestion and as a
-**Repair encoding** step in **Transform column**. The repair is verified rather
-than guessed: Octa converts the text back and only accepts the result if it
-comes out cleanly, so a name that merely looks unusual is left alone.
+**Sorting a database table no longer scrambles which row is which.** Sorting a
+table opened from a SQLite or DuckDB file moved the visible rows but left the
+row identity behind, so the next save wrote each row's values onto a different
+row. Colour marks had the same problem, on every reorder rather than only on
+sorting. Rows, their identity and their marks now move together.
 
-**European numbers are understood.** `1.234,56` used to arrive as text in every
-reader, because it is not a number to Rust. Octa now decides per column, not per
-value: a column where the grouping is consistent is promoted to numbers, and a
-column that is genuinely ambiguous asks you which reading you meant, the same
-way the date question already worked. A banner reports what changed and
-**Dismiss** puts it back.
+**A failed save leaves the tab unsaved.** If writing failed, on a full disk or
+a read-only folder, Octa reported the error but cleared the unsaved marker
+anyway. Closing the tab then asked nothing and the edits were gone. The tab now
+stays modified, and auto-save keeps retrying.
 
-## Reading a very wide table
+**Column filters follow their column.** Filters and hidden columns were
+remembered by column position, so inserting, deleting or moving a column
+silently pointed them at a different column, and a filtered **Save As** wrote a
+different set of rows than the chips on screen described. They now follow the
+column they were set on.
 
-**Record view** (**F4**, or **View > Record**) shows a single row vertically as
-a list of field and value pairs, which is how you read a row that has ninety
-columns. Stepping to the next record follows the active filter, editing a value
-works as it does in the grid, and the row you are looking at is the row selected
-in the table, so both views stay in step.
+**Undo puts a moved row back completely.** Undoing a row or column move
+restored the order but not the edited cells or the database row identity, so a
+value could reappear against the wrong row and be written there.
 
-## Time series
+**Saving a database file twice no longer duplicates rows.** A row added during
+the session was inserted again on every later save of the same file, which
+stayed invisible until the file was reopened.
 
-**Analyse > Time series...** does the two things people leave a spreadsheet for.
+**Settings no longer reverts what you changed elsewhere.** The dialog takes a
+copy of your settings when it opens, and the rest of Octa keeps running behind
+it. Applying wrote that copy back wholesale, undoing anything changed in the
+meantime: a pinned tab, the model picked in the assistant panel, and, worst of
+all, a cloud key you had just cleared from the sidebar, which came back after
+Octa had said it was gone.
 
-**Time buckets** group rows into equal periods, per minute up to per year, and
-condense each period into one row: daily totals from a log of individual
-events. **Rolling window** calculates a running result over the last N rows, a
-seven day moving average for example, and keeps one value per row.
+## Crashes and hangs
 
-The dialog explains in a sentence what it is about to do and shows a small live
-preview built from a sample, so you can see the shape of the answer before
-creating the tab. On the command line the same two builders are `--resample`
-and `--rolling`, and the assistant has them as tools.
+- **A `NaN` in a numeric column no longer takes the app down.** R and pandas
+  both write `NaN` for a missing number, and finding outliers or filling with
+  a median walked straight into it. Non-numbers now count as missing, the way
+  `na.rm` does.
+- **The SQL history menu survives non-English queries.** A query containing a
+  character such as `ü` crashed Octa when the History list tried to shorten it.
+- **A background row load that fails now stops.** Bad bytes deep in a large
+  CSV, or a drive removed mid-scroll, left the spinner turning and the app
+  redrawing every frame for the rest of the session, burning battery and never
+  loading another row.
+- **Cancelling an assistant turn no longer breaks the chat.** Cancelling while
+  a tool was running left the conversation in a state every provider rejects,
+  so every later message failed with the same error and only **New chat**
+  recovered.
+- **A panel whose scan fails can be used again.** A failed clean-up, report,
+  drift, harmonise, batch-convert or fuzzy-match run left its panel stuck on
+  "Scanning..." for the rest of the session.
+- **Quitting during Ollama start-up no longer orphans the server.** Closing
+  Octa in the few seconds while a local model server was starting left it, and
+  its multi-gigabyte model, running with nothing able to stop them.
+- **Ask gives up instead of hanging.** A model endpoint that accepted the
+  connection and then said nothing blocked both Ask boxes for the rest of the
+  session.
 
-## Working on a folder instead of a file
+## Settings behave the way the dialog says
 
-**Batch convert** (**File > Batch convert...**, or select files in the sidebar)
-turns many files into one format in a single run. Every decision that can fail
-is made before any file is written: output names, two inputs that would collide
-on the same name, outputs that already exist, and a target format Octa cannot
-write. One bad file does not abort the run, and the report at the end says what
-happened to each. Also `--batch-convert` on the command line.
+- **Reset to defaults keeps your content.** It used to wipe saved database and
+  cloud connections, their stored keys, chat profiles and pinned tabs, none of
+  which the confirmation mentioned and the keys of which no undo could restore.
+  It now resets the settings and leaves that content alone.
+- **Reset to defaults resets everything it shows.** Ten values, among them the
+  raw-view and decompression caps, the chart limits and the auto-save interval,
+  quietly survived a reset and came back on Apply.
+- **Clearing a saved key really clears it.** Keys live in the operating
+  system's keyring, and `settings.toml` holds one only on a machine with no
+  keyring to use. Where that fallback was in play, **Clear API key** deleted
+  the keyring entry but dropped the plaintext copy from the dialog's unsaved
+  working copy alone, so closing Settings with the window's `x` left the key on
+  disk after the message said it was gone. Cloud and database connection
+  secrets behaved the same way.
+- **A pinned file on a disconnected drive is no longer forgotten.** Pins were
+  pruned at start-up whenever the file could not be found, so a network share
+  that was not mounted yet emptied the list permanently.
+- **An empty `HOME` no longer scatters settings.** An exported but empty
+  `HOME`, `XDG_CONFIG_HOME` or `APPDATA` made Octa write `settings.toml`, with
+  any plaintext secrets in it, into whatever folder it was started from.
+- **Fresh installs and upgrades agree.** Two settings, red negative numbers and
+  the length of the recent-files list, had different values depending on
+  whether the settings file already existed.
 
-**Schema drift** (**File > Schema drift...**) answers the question a folder of
-data parts eventually raises: do these files still agree about their columns?
-Files are grouped by their exact set of columns rather than compared in pairs,
-so the answer reads as "497 files look like this, 3 look like that", with the
-largest group first. On the command line `--schema-drift` exits with an error
-code when a folder has drifted, so a build can fail on it.
+## Changing a keyboard shortcut works
 
-**Harmonise schemas** (**File > Harmonise schemas...**) is the repair for what
-drift finds. It writes a new folder in which every file has the same columns in
-the same order, and never touches the originals. A file whose values would not
-survive a conversion is refused rather than written with blanks in place of
-them: a folder of quietly emptied cells looks clean and is not.
+Recording a binding was close to unusable: the key you pressed also ran
+whatever it was already bound to, so recording **Ctrl+S** saved the file, and
+no combination could be recorded at all, because the press of the modifier
+itself was captured as the key and stored as something that could never fire.
+While Octa waits for your key, that key now belongs to the recording and
+nothing else, and modifiers are recognised as modifiers.
 
-## Joining tables that do not quite match
+If the combination you press is already taken, Octa says so under the row you
+are editing, rather than in a message at the top of the section that was
+usually scrolled out of sight, and offers **Take it over**: the key moves to
+the action you are recording and the previous owner is left unbound. Two
+actions still cannot share a combination.
 
-**Fuzzy join** joins on "similar to" instead of "equals", for the case where one
-table says `Mueller GmbH` and the other says `Mueller Gmbh.`. Each row keeps its
-single best partner, and the result carries the match score alongside a flag for
-the rows where the runner up was almost as good, so a doubtful match is visible
-rather than buried. Works across any number of tables, one step at a time, and
-is available as `--fuzzy-join` and as an assistant tool.
-
-**Join key finder** (**Analyse**) looks at two or more tables and ranks the
-column pairs that would actually join, which saves opening both schemas and
-guessing. **Use in Join** carries the answer straight into the Join dialog.
-
-**Join diagnostics** (**Analyse**) explains a join that returned far fewer rows
-than expected. It counts the keys on each side, shows examples of the values
-that found no partner, and names the one change that would help: trimming
-spaces, ignoring case, or dropping leading zeros. A change is only suggested
-when it genuinely improves the match, so an empty answer is a real answer.
-
-## Comparing against something that is not a file
-
-**Compare with a database or cloud object.** The compare dialog can now put a
-live database table or an object in cloud storage on the other side, instead of
-a second file. Nothing new does the comparing: the same key based comparison
-Octa already used simply gets its second table from elsewhere. The command line
-spells it `--diff --diff-db`, and the assistant has it too.
-
-**Cloud objects work as paths.** Any command line action that takes a file now
-takes `s3://`, `az://` or `gs://` in its place, with no flag of its own. Octa
-finds the credentials in the connection you saved, or falls back to whatever the
-machine already has configured.
-
-## Asking in plain English
-
-**Ask** in the search bar turns a sentence into a filter. Type "orders over
-1000 from last March" and Octa applies the conditions and shows them as
-removable chips above the table. This needed a new kind of filter, since the
-old one could only pick values from a list and not express "greater than".
-
-**Ask SQL** in the SQL panel is its sibling: describe what you want and the
-query is written into the editor at your cursor. It is never run for you. You
-read it and press **Run**. Anything that is not a single SELECT is refused
-outright, and a failed request applies nothing rather than half a query. Both
-boxes send exactly one request to your configured model, with no tools and no
-agent loop behind them.
-
-## Files Octa writes
-
-**Parquet is compressed now.** Octa used to write Parquet uncompressed, which
-on a 300,000 row test file came out only 1.6 times smaller than the same data
-as CSV, where zstd reached 5.4 times. The new default is **zstd**, costing about
-1% more time to write and 3% more to read. The file name does not change: the
-codec lives inside the Parquet file, so every reader opens it as before. All
-five codecs remain in **Settings > Files > Write options**, and `--compression`
-and `--row-group-size` still override per run.
-
-**A `.tsv` is always tab separated.** A saved delimiter of, say, a semicolon
-used to be written into TSV files as well. The delimiter setting is a preference
-about CSV; a TSV keeps its tab whatever it says.
-
-**The command line follows those settings too.** Previously `octa --convert`
-used the built in defaults, so the terminal and the app could write different
-files from the same source on the same machine. A machine with no settings file,
-a container or a build agent, still gets the built in defaults.
-
-**Excel keeps its colours.** Saving to `.xlsx` can now carry marks, conditional
-formatting, frozen columns and per column number formats into the workbook.
-Where Excel's own rules would colour more cells than Octa does, and they do
-differ on case and on comparing text, Octa paints the cells directly instead, so
-the saved workbook looks like the screen. The switch is off by default, and a
-tab that has any of the four asks once when you save.
-
-**File internals** (**Analyse > File internals...**) reports the physical shape
-of a file rather than its data: row groups, compression, encodings, statistics
-and which tool wrote it, plus a few plain remarks such as "the row groups are
-very small". Also `--describe --deep` and available to the assistant.
-
-## An HTML report
-
-**File > Report...** writes one self contained HTML file with statistics,
-distribution charts, top values and a correlation matrix. No JavaScript, nothing
-fetched when it is opened, so it can be mailed to somebody. It invents no
-analysis: every number and every picture comes from a view Octa already has, and
-a report built while a filter is active describes only the rows you can see.
-Also `--report` on the command line and a tool for the assistant.
-
-## Updates and release notes
-
-Octa checks once at launch whether a newer release exists, and shows the release
-notes in a window when there is something to read. The notes for the version you
-are running are shown once as well, so an upgrade announces itself instead of
-waiting for the next release to exist. Both behaviours are checkboxes in
-**Settings > Updates** and can be turned off, and the window has a
-"do not show this again" of its own. A failed check stays quiet, because a
-flaky network should not nag at every launch.
+**Ctrl+C**, **Ctrl+X** and **Ctrl+V** can now be recorded too, and any key you
+bind is named properly in the list instead of showing as `?`.
 
 ## Smaller things
 
-- **Signing in with a browser can be cancelled**, and gives up after five
-  minutes. A provider that refuses before showing the consent screen used to
-  leave the button spinning with no way back.
-- **Error messages can be selected and copied.** An error that cannot be quoted
-  is hard to report.
-- **Union can ignore case** when matching column names, in the dialog, on the
-  command line and in the assistant.
-- **Date and time calculation converts between time zones**, with both ends of
-  a daylight saving change reported as empty rather than guessed.
-- **A security fix in the SQL Server driver.** Octa's driver was the last
-  component using an end of life TLS stack, which meant the binary carried two
-  complete copies of it. It now runs on a patched fork with the current one, and
-  the old stack is gone from the build.
-- **Documentation** for all of the above, in the in app help and on the
+- **Files are written through a temporary file and then renamed.** Writing a
+  Parquet, CSV or compressed file emptied the target before the first byte was
+  written, so a failure part-way left a truncated file where your data had
+  been. The original now survives until the replacement is complete, and keeps
+  its permissions.
+- **The container image names its base image explicitly** instead of leaving it
+  untagged, and runs as a numeric user id, which lets Kubernetes verify for
+  itself that Octa is not running as root.
+- **Documentation** for all of the above, in the in-app help and on the
   documentation site.

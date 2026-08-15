@@ -412,10 +412,11 @@ impl OctaApp {
         let filtered_count = filtered_table.as_ref().map(|t| t.row_count()).unwrap_or(0);
 
         if tab.table.format_name.as_deref() == Some("CSV") && tab.csv_delimiter != b',' {
+            let mut pending_edits = None;
             let write_result = if let Some(ref ftab) = filtered_table {
                 formats::csv_reader::write_delimited(&path, tab.csv_delimiter, ftab)
             } else {
-                tab.table.apply_edits();
+                pending_edits = Some(tab.table.apply_edits_recoverable());
                 let to_write = rounded_live.as_ref().unwrap_or(&tab.table);
                 formats::csv_reader::write_delimited(&path, tab.csv_delimiter, to_write)
             };
@@ -443,6 +444,10 @@ impl OctaApp {
                     }
                 }
                 Err(e) => {
+                    // Nothing reached the disk, so the tab must stay unsaved.
+                    if let Some(edits) = pending_edits {
+                        self.tabs[tab_idx].table.edits = edits;
+                    }
                     self.status_message = Some((
                         format!("Error saving file: {}", e),
                         std::time::Instant::now(),
@@ -559,18 +564,28 @@ impl OctaApp {
                 // Save As is the OS file picker and has nowhere to host one.
                 // `opts` (built above) additionally carries the resolved
                 // `.xlsx` formatting choice for this save.
+                let mut pending_edits = None;
                 let write_result = if let Some(ref ftab) = filtered_table {
-                    reader.write_file_with_options(&path, ftab, &opts)
+                    reader
+                        .write_file_with_options(&path, ftab, &opts)
+                        .map(|()| None)
                 } else {
-                    tab.table.apply_edits();
+                    pending_edits = Some(tab.table.apply_edits_recoverable());
                     let to_write = rounded_live.as_ref().unwrap_or(&tab.table);
-                    reader.write_file_schema_aware(&path, to_write, allow_schema, &opts)
+                    reader.write_file_retagged(&path, to_write, allow_schema, &opts)
                 };
                 match write_result {
-                    Ok(()) => {
+                    Ok(new_tags) => {
                         if filtered_table.is_none() {
                             tab.table.source_path = Some(path.to_string_lossy().to_string());
                             tab.table.clear_modified();
+                            // A diff-based writer (SQLite / DuckDB) reports the
+                            // identity the saved rows now have. Without it the
+                            // rows added this session stay untagged and the
+                            // next save INSERTs them again.
+                            if let Some(tags) = new_tags {
+                                tab.table.retag_db_rows(tags);
+                            }
                         }
                         self.status_message = Some((
                             if filtered_table.is_some() {
@@ -590,6 +605,12 @@ impl OctaApp {
                         }
                     }
                     Err(e) => {
+                        // Nothing reached the disk, so the tab must stay
+                        // unsaved: otherwise the dirty marker clears, closing
+                        // it asks nothing and the edits are lost.
+                        if let Some(edits) = pending_edits {
+                            self.tabs[tab_idx].table.edits = edits;
+                        }
                         self.status_message = Some((
                             format!("Error saving file: {}", e),
                             std::time::Instant::now(),

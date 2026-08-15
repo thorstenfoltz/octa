@@ -163,7 +163,7 @@ For correct round-tripping, the input would need to be either:
 'Smith, "John" Doe'       -- Single + any escape
 ```
 
-## Column alignment + coloring
+## Column alignment + colouring
 
 These two toggles work alongside the Quote/Escape combos:
 
@@ -206,4 +206,4 @@ the Raw view tokeniser gives up.
 - [Raw Text view](../usage/view-modes/raw-text.md) is where the
   toolbar combos live.
 - [Settings → File-Specific](settings.md#file-specific) toggles
-  the column-coloring option.
+  the column-colouring option.

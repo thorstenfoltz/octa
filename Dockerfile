@@ -44,7 +44,7 @@ COPY Cargo.toml Cargo.lock build.rs ./
 COPY src ./src
 COPY assets ./assets
 COPY locales ./locales
-COPY LICENSE THIRD_PARTY_LICENSES.md ./
+COPY LICENSE THIRD_PARTY_LICENSES.md release_notes.md ./
 COPY licenses ./licenses
 
 # Release builds pass --build-arg OCTA_VERSION=X.Y.Z to stamp the binary's
@@ -83,7 +83,10 @@ RUN set -eux; \
     chown -R 65532:65532 /out/home/octa /out/config
 
 # ---- runtime ----------------------------------------------------------------
-FROM gcr.io/distroless/cc-debian12
+# Tagged `nonroot` rather than left untagged: an untagged base means `latest`,
+# which makes the build unreproducible from one day to the next. The tag also
+# matches how the image is run - as uid 65532, set below.
+FROM gcr.io/distroless/cc-debian12:nonroot
 
 # Single copy of the pre-assembled tree (binary + liblzma + licenses + the
 # octa user's passwd/group/home). COPY --from preserves the builder's uid/gid,
@@ -93,7 +96,12 @@ COPY --from=builder /out/ /
 # Run as the non-root `octa` user so the container never executes as root.
 # HOME points at the owned home dir so config lookups (~/.config/octa) resolve
 # even if OCTA_CONFIG_DIR is overridden to nothing.
-USER octa:octa
+#
+# Spelled numerically (65532 is the `octa` user written above): a name has to
+# be resolved through the image's passwd, which a host-side tool inspecting the
+# image cannot do, and Kubernetes' `runAsNonRoot` check rejects a container
+# whose USER it cannot prove is non-zero.
+USER 65532:65532
 ENV HOME=/home/octa
 
 # One obvious place to mount settings.toml, instead of a nested

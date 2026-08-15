@@ -121,7 +121,13 @@ impl DbConnector for ExasolConnector {
         // Exasol has no `BEGIN` statement (transactions are implicit); swallow
         // it so the shared write_table_generic driver works. COMMIT/ROLLBACK
         // are real and pass through.
-        if sql.trim_start().len() >= 5 && sql.trim_start()[..5].eq_ignore_ascii_case("BEGIN") {
+        // `get` rather than a byte slice: `[..5]` panics when the statement
+        // opens with a multi-byte character.
+        if sql
+            .trim_start()
+            .get(..5)
+            .is_some_and(|head| head.eq_ignore_ascii_case("BEGIN"))
+        {
             return Ok(0);
         }
         let res = runtime()

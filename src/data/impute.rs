@@ -16,13 +16,18 @@ fn is_missing(v: Option<&CellValue>) -> bool {
         || matches!(v, Some(CellValue::String(s)) if s.is_empty())
 }
 
+/// A cell as a number, or `None` when it is not one. `NaN` and the infinities
+/// are treated as missing (see the same helper in
+/// [`outliers`](crate::data::outliers)): they are how R and pandas spell a
+/// missing number in a CSV, and averaging or sorting them is meaningless.
 fn numeric(v: &CellValue) -> Option<f64> {
-    match v {
-        CellValue::Int(i) => Some(*i as f64),
-        CellValue::Float(f) => Some(*f),
-        CellValue::String(s) => s.trim().parse().ok(),
-        _ => None,
-    }
+    let n = match v {
+        CellValue::Int(i) => *i as f64,
+        CellValue::Float(f) => *f,
+        CellValue::String(s) => s.trim().parse().ok()?,
+        _ => return None,
+    };
+    n.is_finite().then_some(n)
 }
 
 /// Return `col`'s values with missing cells (null / empty string) filled per strategy.
@@ -54,7 +59,7 @@ pub fn impute_column(
                 nums.iter().sum::<f64>() / nums.len() as f64
             } else {
                 let mut s = nums.clone();
-                s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                s.sort_by(|a, b| a.total_cmp(b));
                 let m = s.len() / 2;
                 if s.len() % 2 == 1 {
                     s[m]
@@ -205,5 +210,24 @@ mod tests {
         let out = impute_column(&t, 0, &ImputeStrategy::BackwardFill).unwrap();
         assert_eq!(out[0], CellValue::Float(9.0));
         assert_eq!(out[1], CellValue::Float(9.0));
+    }
+
+    #[test]
+    fn a_nan_is_treated_as_missing_rather_than_crashing_the_median() {
+        let t = col(vec![
+            CellValue::Float(1.0),
+            CellValue::Float(f64::NAN),
+            CellValue::Float(3.0),
+            CellValue::Null,
+            CellValue::String("NaN".into()),
+        ]);
+        let out = impute_column(&t, 0, &ImputeStrategy::Median).unwrap();
+        assert_eq!(out[3], CellValue::Float(2.0), "median of 1 and 3");
+        let out = impute_column(&t, 0, &ImputeStrategy::Mean).unwrap();
+        assert_eq!(
+            out[3],
+            CellValue::Float(2.0),
+            "NaN must not poison the mean"
+        );
     }
 }
