@@ -99,6 +99,64 @@ On Arch:
 sudo pacman -S gtk3 libxcb libxkbcommon openssl fontconfig freetype2
 ```
 
+### Linux: AppImage does nothing when double-clicked
+
+No window, no error, no dialog. Two causes, in this order:
+
+1. **The execute bit is missing.** Browsers save the file without it, and
+   most file managers respond to a double-click on a non-executable
+   AppImage by doing nothing whatsoever. Fix it once:
+
+    ```bash
+    chmod 750 Octa-*-x86_64.AppImage
+    ```
+
+2. **`libfuse2` is missing.** Releases up to and including 0.17.1 need it,
+   and Ubuntu 22.10 and later, and Mint 22, no longer install it. Later
+   releases carry a statically linked FUSE runtime and are unaffected. On
+   an affected release, either install `libfuse2` (`libfuse2t64` on Ubuntu
+   24.04 and newer) or skip FUSE entirely:
+
+    ```bash
+    ./Octa-*-x86_64.AppImage --appimage-extract-and-run
+    ```
+
+Whichever it is, run the AppImage from a terminal rather than the file
+manager while you are diagnosing it. A double-click discards the error; a
+terminal prints it.
+
+### The window cannot be moved or resized, or controls near an edge ignore clicks
+
+Octa draws its own title bar by default, which means it also has to provide its
+own window-moving and window-resizing behaviour. That relies on the desktop
+honouring two standard requests, and not every window manager does.
+
+The universal fallback is to hand the job back to your desktop. Open
+`settings.toml` (see [Debug Mode and Reports](reference/diagnostics.md) for the
+location) and set:
+
+```toml
+use_custom_title_bar = false
+```
+
+Restart Octa. You get your desktop's normal title bar, and Octa stops managing
+window geometry entirely. The same switch is **Settings -> Appearance -> Window
+controls in toolbar**, but editing the file works even when the interface
+itself is misbehaving, which is the situation this fallback is for.
+
+### Linux: install.sh stops with a permission error
+
+`./install.sh` with no argument installs into `/usr/local` (`/usr` on Arch
+Linux), and neither is writable by a normal user. Either give it root, or
+give it a prefix you own:
+
+```bash
+sudo ./install.sh          # system-wide
+./install.sh ~/.local      # user-local, no sudo
+```
+
+After a user-local install, make sure `~/.local/bin` is on your `PATH`.
+
 ### octa command not found
 
 The binary isn't on your `PATH` after install. Three options:

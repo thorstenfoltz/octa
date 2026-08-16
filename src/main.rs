@@ -112,7 +112,13 @@ fn main() -> ExitCode {
         None => "Octa".to_string(),
     };
 
-    let settings = AppSettings::load();
+    let mut settings = AppSettings::load();
+    // `OCTA_DEBUG=1 octa` turns diagnostics on without going through Settings.
+    // That matters when the GUI is the thing being diagnosed: a user whose
+    // dialog buttons do not respond cannot reach the checkbox that enables it.
+    if std::env::var_os("OCTA_DEBUG").is_some() {
+        settings.debug_mode = true;
+    }
 
     // GUI diagnostics: file logging (size-capped) + a panic hook that records
     // crashes. The MCP path keeps its own stderr subscriber and is unaffected.

@@ -111,7 +111,14 @@ curl -fsSL https://raw.githubusercontent.com/thorstenfoltz/octa/master/get-octa.
 ```
 
 An AppImage and a plain tarball are on the
-[releases page](https://github.com/thorstenfoltz/octa/releases).
+[releases page](https://github.com/thorstenfoltz/octa/releases). A downloaded
+AppImage still needs its execute bit, and a file manager will silently ignore a
+double-click until it has one:
+
+```bash
+chmod 750 Octa-*-x86_64.AppImage
+./Octa-*-x86_64.AppImage
+```
 
 ### Docker
 

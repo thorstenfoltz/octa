@@ -57,6 +57,10 @@ self-contained bundle; invoke it directly:
 ./Octa-x86_64.AppImage --mcp
 ```
 
+A freshly downloaded AppImage has no permission to run yet, so give it
+one first with `chmod 750 Octa-*-x86_64.AppImage`. See
+[Installation](../getting-started/installation.md#appimage).
+
 ## Available actions
 
 | Flag                                             | Description                                   | Reference                                   |

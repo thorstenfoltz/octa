@@ -856,6 +856,15 @@ octa --remove-connection warehouse
   containers, which usually set none of those; without it Octa reports that
   it has no config directory rather than silently running without settings.
 
+*OCTA_DEBUG*::
+  Set to 1 to force debug mode on for one run without changing the saved
+  setting: verbose logging, plus one log line per mouse press and release
+  recording its position, whether it counted as a click, and which layer of
+  the interface it reached. Intended for diagnosing the GUI itself, when the
+  Settings dialog is the thing misbehaving and its checkbox cannot be reached.
+  A build from source additionally outlines every clickable area on screen;
+  release binaries cannot, since the toolkit compiles that drawing out.
+
 *OCTA_NO_KEYRING*::
   Set to 1 to skip the OS keyring entirely, so secrets are read from and
   written to *settings.toml* (chmod 0600). Secrets already fall back to the

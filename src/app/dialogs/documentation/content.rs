@@ -2927,6 +2927,18 @@ entries (it applies immediately, no restart). Leave it off for normal use:
 debug entries fill the 5 MB cap faster, so the log rotates sooner and keeps
 less history. Switch it on while reproducing a bug, then back off.
 
+Starting Octa as 'OCTA_DEBUG=1 octa' turns the same thing on for one run,
+without touching any saved setting. That is for the case where the GUI itself
+is the problem and the Settings checkbox cannot be reached. Debug mode also
+logs every mouse press and release (position, whether it counted as a click,
+which layer it hit). The environment variable additionally outlines the widget
+under the cursor and every clickable area, which distinguishes a click
+swallowed by something drawn on top from a control that was never registered as
+interactive; those outlines repaint the whole interface, so the Settings
+checkbox alone never turns them on, and they need a development build because
+the toolkit compiles its debug drawing out of release binaries. The log works
+in both.
+
 ## After a crash
 
 Octa records failures two ways. A panic handler writes the time, location,
