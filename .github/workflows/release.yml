@@ -159,8 +159,17 @@ jobs:
           # older bundled plugin would ignore that variable *silently* and ship
           # the libfuse2-dependent default runtime, and nothing else in this
           # build would notice. Fail loudly instead.
+          # Not a full-length compare: appimagetool writes the payload's MD5
+          # into the embedded runtime's .digest_md5 section ("Embedding MD5
+          # digest" in its log) and owns the .upd_info/.sha256_sig sections
+          # after it, so the tail differs by design. Compare everything up to
+          # that section, read from the runtime's own section table so a
+          # runtime bump doesn't need a new magic number here.
           RUNTIME="$RUNNER_TEMP/appimage-runtime"
-          if ! cmp -n "$(stat -c%s "$RUNTIME")" "$RUNTIME" "$OUTPUT"; then
+          DIGEST_OFF=$(readelf -SW "$RUNTIME" |
+            awk '{for (i = 1; i < NF; i++) if ($i == ".digest_md5") { print $(i+3); exit }}')
+          : "${DIGEST_OFF:?could not locate .digest_md5 in $RUNTIME}"
+          if ! cmp -n "$((16#$DIGEST_OFF))" "$RUNTIME" "$OUTPUT"; then
             echo "::error::AppImage was not built with the static FUSE runtime (LDAI_RUNTIME_FILE ignored?)"
             exit 1
           fi
