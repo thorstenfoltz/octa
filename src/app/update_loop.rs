@@ -148,6 +148,10 @@ impl eframe::App for OctaApp {
         self.render_snowfall(&ctx);
         self.render_new_year_overlay(&ctx);
         self.render_crash_offer(&ctx);
+        // Last, so the overlays it switches on describe the frame just built.
+        if self.settings.debug_mode {
+            octa::diagnostics::input_trace::trace(&ctx);
+        }
     }
 
     /// Cleanup on shutdown: persist the live chat session and stop any Ollama

@@ -110,6 +110,13 @@ jobs:
           cd "$RUNNER_TEMP"
           wget -q -O linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           wget -q -O linuxdeploy-plugin-gtk https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh
+          # The AppImage runtime that ends up *inside* our AppImage (not tooling
+          # for this runner). appimagetool's own default runtime dlopen()s
+          # libfuse.so.2, which Ubuntu 22.10+ and Mint 22 no longer ship, so the
+          # AppImage dies on the user's machine - silently, if they launched it
+          # from a file manager. This one links libfuse statically. Pinned to a
+          # dated tag rather than "continuous" so a release is reproducible.
+          wget -q -O appimage-runtime https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
           chmod +x linuxdeploy linuxdeploy-plugin-gtk
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
@@ -121,9 +128,15 @@ jobs:
           # transitively through eframe at runtime); set it explicitly to
           # match the libgtk-3-dev we install above.
           DEPLOY_GTK_VERSION: "3"
-        # APPIMAGE_EXTRACT_AND_RUN sidesteps FUSE: ubuntu-latest (24.04) no
-        # longer ships libfuse2 by default, and running AppImages without it
-        # otherwise fails with "dlopen(): error loading libfuse.so.2".
+          # linuxdeploy-plugin-appimage forwards this to appimagetool's
+          # --runtime-file. See the download step for why we replace the
+          # default runtime.
+          LDAI_RUNTIME_FILE: ${{ runner.temp }}/appimage-runtime
+        # APPIMAGE_EXTRACT_AND_RUN sidesteps FUSE for the *tooling* on this
+        # runner: ubuntu-latest (24.04) no longer ships libfuse2 by default, and
+        # running the linuxdeploy AppImage without it fails with "dlopen():
+        # error loading libfuse.so.2". Unrelated to LDAI_RUNTIME_FILE above,
+        # which fixes the same class of failure on the *user's* machine.
         run: |
           rm -rf AppDir
           APPIMAGE_EXTRACT_AND_RUN=1 linuxdeploy \
@@ -140,6 +153,16 @@ jobs:
           # filename derived from the desktop Name field.
           if [ ! -f "$OUTPUT" ]; then
             mv Octa-*.AppImage "$OUTPUT"
+          fi
+          # The runtime is literally the AppImage's own header, so the built
+          # file must start with the bytes we handed to LDAI_RUNTIME_FILE. An
+          # older bundled plugin would ignore that variable *silently* and ship
+          # the libfuse2-dependent default runtime, and nothing else in this
+          # build would notice. Fail loudly instead.
+          RUNTIME="$RUNNER_TEMP/appimage-runtime"
+          if ! cmp -n "$(stat -c%s "$RUNTIME")" "$RUNTIME" "$OUTPUT"; then
+            echo "::error::AppImage was not built with the static FUSE runtime (LDAI_RUNTIME_FILE ignored?)"
+            exit 1
           fi
 
       - name: Upload AppImage artifact

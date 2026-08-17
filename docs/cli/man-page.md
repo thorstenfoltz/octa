@@ -800,6 +800,36 @@ Start the MCP server:
 octa --mcp
 ```
 
+## Environment
+
+`OCTA_CONFIG_DIR`
+:   Directory holding `settings.toml`, used verbatim on every platform
+    and taking precedence over `XDG_CONFIG_HOME` / `HOME` / `APPDATA`.
+    Required in containers, which usually set none of those; without it
+    Octa reports that it has no config directory rather than silently
+    running without settings.
+
+`OCTA_DEBUG`
+:   Set to 1 to force debug mode on for one run without changing the
+    saved setting: verbose logging, plus one log line per mouse press
+    and release recording its position, whether it counted as a click,
+    and which layer of the interface it reached. Intended for
+    diagnosing the GUI itself, when the Settings dialog is the thing
+    misbehaving and its checkbox cannot be reached. A build from source
+    additionally outlines every clickable area on screen; release
+    binaries cannot, since the toolkit compiles that drawing out. See
+    [Diagnostics](../reference/diagnostics.md).
+
+`OCTA_NO_KEYRING`
+:   Set to 1 to skip the OS keyring entirely, so secrets are read from
+    and written to `settings.toml` (chmod 0600). Secrets already fall
+    back to the file when the keyring errors; this avoids the lookup on
+    systems where it can never work, such as a container with no D-Bus.
+
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AZURE_STORAGE_ACCOUNT`, `GOOGLE_APPLICATION_CREDENTIALS`
+:   Ambient cloud credentials, used when no saved connection covers a
+    URL.
+
 ## Files
 
 `$XDG_CONFIG_HOME/octa/settings.toml`

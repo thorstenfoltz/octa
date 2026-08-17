@@ -16,6 +16,20 @@ ICON_DIR="$PREFIX/share/icons/hicolor/scalable/apps"
 DESKTOP_DIR="$PREFIX/share/applications"
 MAN_DIR="$PREFIX/share/man/man1"
 
+# Same pre-flight as install.sh: removing from /usr/local needs root, and a
+# partial uninstall is worse than none.
+PROBE="$BIN_DIR"
+while [ ! -d "$PROBE" ]; do
+	PROBE="$(dirname "$PROBE")"
+done
+if [ ! -w "$PROBE" ]; then
+	echo "Error: cannot write to $PROBE, so prefix $PREFIX needs root."
+	echo
+	echo "  System-wide:  sudo ./uninstall.sh"
+	echo "  User-local:   ./uninstall.sh ~/.local"
+	exit 1
+fi
+
 echo "Uninstalling Octa from prefix: $PREFIX"
 
 for file in "$BIN_DIR/octa" "$ICON_DIR/octa.svg" "$DESKTOP_DIR/octa.desktop" "$MAN_DIR/octa.1" "$MAN_DIR/octa.1.gz"; do

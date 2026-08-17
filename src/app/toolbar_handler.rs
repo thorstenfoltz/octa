@@ -9,6 +9,8 @@ use super::state::OctaApp;
 
 /// Height of the toolbar's widget row plus its frame margins.
 const TOOLBAR_ROW_H: f32 = 40.0;
+/// Id of the single foreground layer every window-resize grab strip lives in.
+const HANDLE_LAYER: &str = "octa_window_resize_handles";
 /// Total height of the toolbar panel: the widget row plus the strip its
 /// horizontal scrollbar lives in. One definition, used both for the panel itself
 /// and to keep the window resize-grab strips clear of it.
@@ -20,9 +22,10 @@ impl OctaApp {
     ///
     /// A borderless window (`with_decorations(false)`) loses the WM's resize
     /// frame on most compositors, so without this the window can't be resized
-    /// at all. Each strip is a foreground [`egui::Area`] that hands control to
-    /// the windowing system via [`egui::ViewportCommand::BeginResize`] (winit's
-    /// native `drag_resize_window`), so the actual resize is done by the OS.
+    /// at all. Each strip is a drag-sensing rect in one shared foreground layer
+    /// that hands control to the windowing system via
+    /// [`egui::ViewportCommand::BeginResize`] (winit's native
+    /// `drag_resize_window`), so the actual resize is done by the OS.
     ///
     /// Two details make it feel like a native border rather than a clunky
     /// widget:
@@ -36,7 +39,12 @@ impl OctaApp {
     ///   exactly what killed the min/max/close buttons. Drag-only lets a plain
     ///   click pass straight through (egui splits the click/drag hit-test), and
     ///   we additionally keep the side strips **below the toolbar row** so they
-    ///   never overlap the menus or the window-control buttons at all.
+    ///   never overlap the menus or the window-control buttons at all. Note the
+    ///   click/drag split only saves widgets a strip *partially* covers: a
+    ///   foreground hit that fully covers the pointer's search radius discards
+    ///   the layers beneath it whatever it senses, which is why the strips
+    ///   staying their intended size is a correctness requirement, not a
+    ///   cosmetic one.
     ///
     /// Geometry: bottom + side targets are generous, bottom corners are large
     /// diagonal zones (a borderless window has no forgiving margin *outside*
@@ -130,12 +138,40 @@ impl OctaApp {
             ),
         ];
 
+        // All eight strips live in ONE foreground layer, each registered at an
+        // absolute rect.
+        //
+        // Deliberately NOT `egui::Area`, which is what this was: an Area decides
+        // its own rect by laying out its contents, and it can settle somewhere
+        // other than the rect handed to `allocate_rect` inside it. On Linux Mint
+        // (Cinnamon) the bottom strip ended up covering [[20 640] - [1900 1040]]
+        // instead of its 8-point band, i.e. the lower 40% of the window. The
+        // layer is Foreground, and egui's hit test stops at the first hit that
+        // covers the search area and discards every layer beneath it
+        // (`hit_test.rs`), so every widget in that band went dead - no hover, no
+        // click - while dragging and scrolling the same dialog still worked.
+        // `Ui::interact` registers exactly the rect it is given, so the strips
+        // cannot wander no matter what the window manager reports.
+        let ui = egui::Ui::new(
+            ctx.clone(),
+            egui::Id::new(HANDLE_LAYER),
+            egui::UiBuilder::new()
+                .layer_id(egui::LayerId::new(
+                    egui::Order::Foreground,
+                    egui::Id::new(HANDLE_LAYER),
+                ))
+                // Also the clip rect `Ui::interact` intersects each strip with,
+                // so it has to span the whole window.
+                .max_rect(rect),
+        );
+
         for (id, grab, dir, cursor) in handles {
-            let resp = egui::Area::new(egui::Id::new(id))
-                .order(egui::Order::Foreground)
-                .fixed_pos(grab.min)
-                .show(ctx, |ui| ui.allocate_rect(grab, egui::Sense::drag()))
-                .inner;
+            let resp = ui.interact(grab, egui::Id::new(id), egui::Sense::drag());
+            // The invariant the Area silently broke. Free in release builds.
+            debug_assert_eq!(
+                resp.interact_rect, grab,
+                "resize strip {id} must be hit-tested at exactly the rect it was given"
+            );
             if resp.contains_pointer() {
                 ctx.set_cursor_icon(cursor);
             }

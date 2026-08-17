@@ -1422,11 +1422,19 @@ impl AppSettings {
     /// alongside as `settings.toml.bak-<unix-timestamp>` before defaults are
     /// returned, so the user can recover their values manually.
     pub fn load() -> Self {
+        let existed = Self::config_path().is_some_and(|p| p.exists());
         let mut settings = Self::load_raw();
         // Every load path (fresh install, unreadable config, parse failure,
         // normal load) must come out with at least one chat profile and a
         // valid active one, so the assistant panel always has a model to use.
         chat_profiles::ensure_profiles(&mut settings);
+        // First run: write the defaults out so the file exists to hand-edit.
+        // Octa otherwise only writes `settings.toml` on Settings-Apply, which
+        // leaves a fresh install with no file at all - and therefore no way to
+        // change a setting when the GUI itself is what is misbehaving.
+        if !existed {
+            settings.save();
+        }
         settings
     }
 

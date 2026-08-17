@@ -4,7 +4,9 @@ A multi-format data viewer and editor for Parquet, CSV, JSON, Excel, and more.
 
 ## Install
 
-Run the install script (installs to `/usr/local` by default, requires sudo):
+Given no argument the install script uses `/usr/local` (`/usr` on Arch Linux),
+and that needs root. It checks before copying anything, so a run without the
+necessary rights stops with a message rather than half-installing.
 
 ```bash
 sudo ./install.sh

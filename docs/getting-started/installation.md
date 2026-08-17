@@ -79,11 +79,11 @@ mv octa ~/.local/bin/octa
 Octa is also published as an
 [AppImage](https://appimage.org/) for users who prefer a single
 self-contained file. Download `Octa-*-x86_64.AppImage` from the
-[releases page](https://github.com/thorstenfoltz/octa/releases) and make
-it executable:
+[releases page](https://github.com/thorstenfoltz/octa/releases) and give
+it the execute bit, for you and your group only:
 
 ```bash
-chmod +x Octa-*-x86_64.AppImage
+chmod 750 Octa-*-x86_64.AppImage
 ```
 
 Then run it directly:
@@ -92,16 +92,27 @@ Then run it directly:
 ./Octa-*-x86_64.AppImage
 ```
 
-The AppImage bundles GTK and every native dependency, so it works on
-any reasonably recent Linux distribution without needing the system
-packages listed under [Build from source](#build-from-source).
+!!! warning "A downloaded AppImage is not executable yet"
 
-!!! note "FUSE-less hosts"
+    Browsers save it without the execute bit, and most file managers
+    respond to a double-click on a non-executable AppImage by doing
+    **nothing at all**, with no error and no dialog. If clicking the file
+    seems to be ignored, run the `chmod` above first. When something else
+    is wrong, launch it from a terminal rather than the file manager:
+    that is where the reason gets printed.
 
-    AppImages mount themselves via FUSE. If your distribution doesn't
-    ship `libfuse2` (Ubuntu 24.04 dropped it, some minimal containers
-    don't include it), run the AppImage with the built-in extract-and-run
-    fallback instead:
+The AppImage bundles GTK and the other native libraries Octa needs, so
+you do not need the system packages listed under
+[Build from source](#build-from-source).
+
+!!! note "FUSE"
+
+    AppImages mount themselves via FUSE. Octa's AppImage carries a
+    statically linked FUSE runtime, so it does not need the `libfuse2`
+    package that Ubuntu 22.10 and later, and Mint 22, no longer install.
+    Releases up to and including 0.17.1 predate that change and do need
+    it. On those, or on a host without `/dev/fuse` at all (some minimal
+    containers), use the built-in extract-and-run fallback:
 
     ```bash
     ./Octa-*-x86_64.AppImage --appimage-extract-and-run
@@ -111,13 +122,21 @@ packages listed under [Build from source](#build-from-source).
 
 A release tarball (and a source checkout) ships `install.sh`. Once you have
 downloaded and extracted a release archive, run it from inside the extracted
-directory. System-wide (requires sudo):
+directory.
+
+**Given no argument it installs into `/usr/local` (`/usr` on Arch Linux), and
+that needs root.** There is no unprivileged default: pass a prefix you own if
+you do not want to use `sudo`. The script checks this before it copies
+anything, so a run without the necessary rights stops with a message instead
+of half-installing.
+
+System-wide, into `/usr/local`:
 
 ```bash
 sudo ./install.sh
 ```
 
-User-local (no sudo):
+User-local, no sudo:
 
 ```bash
 ./install.sh ~/.local

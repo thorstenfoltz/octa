@@ -1,6 +1,7 @@
 //! Diagnostics: file logging, crash capture, and a redacted debug report.
 
 pub mod crash;
+pub mod input_trace;
 pub mod report;
 mod rotating_writer;
 

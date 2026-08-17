@@ -107,6 +107,10 @@ file directly. No extraction, no wrapper script, no separate
 install step. The same single-file binary that opens the GUI also
 serves as the MCP endpoint.
 
+Give it permission to run first (`chmod 750 Octa-*-x86_64.AppImage`).
+Without it the client cannot start the server, and what it reports is a
+bare permission error rather than anything pointing at the cause.
+
 ```json
 {
   "mcpServers": {

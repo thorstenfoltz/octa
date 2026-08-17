@@ -17,6 +17,22 @@ DESKTOP_DIR="$PREFIX/share/applications"
 DOC_DIR="$PREFIX/share/doc/octa"
 MAN_DIR="$PREFIX/share/man/man1"
 
+# Refuse now rather than fail halfway. Both default prefixes (/usr/local, or
+# /usr on Arch) need root, and `install` would otherwise copy the binary and
+# then die on the icon directory, leaving a half-installed system behind. Walk
+# up to the nearest directory that exists: BIN_DIR itself may not yet.
+PROBE="$BIN_DIR"
+while [ ! -d "$PROBE" ]; do
+	PROBE="$(dirname "$PROBE")"
+done
+if [ ! -w "$PROBE" ]; then
+	echo "Error: cannot write to $PROBE, so prefix $PREFIX needs root."
+	echo
+	echo "  System-wide:  sudo ./install.sh"
+	echo "  User-local:   ./install.sh ~/.local"
+	exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # If a pre-built binary exists next to this script, use it; otherwise build from source

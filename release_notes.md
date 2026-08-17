@@ -1,143 +1,97 @@
-This is a repair release. It fixes a group of defects that could lose or
-corrupt your edits without saying anything, several that crashed or wedged the
-app, and a handful where a setting did not do what the dialog promised.
-Keyboard shortcuts can be rebound properly again, and the release notes you are
-reading no longer need a network connection.
+This release repairs Octa on Linux. On some desktops a large part of the
+window quietly ignored every click, the AppImage would not start at all, and
+the install script failed halfway through instead of saying what it needed.
 
-## Release notes without a request
+**If you are on Windows or macOS, none of those faults were seen on your
+platform**, and the AppImage and the install script do not exist there at all.
+Two of the changes below do reach every platform, and both are improvements
+rather than repairs: Octa now writes its settings file on the first launch, and
+debug logging can be switched on from outside the program.
 
-The notes for the version you are running now ship inside Octa itself, so the
-window opens after an upgrade whether or not you are online, and on a Microsoft
-Store copy. It used to appear only as a side effect of the start-up update
-check, which meant that turning that check off also silenced the notes, though
-the two have nothing to do with each other. **Settings > Updates** now holds two
-independent switches:
+## Buttons that did nothing
 
-- **Check for updates at start** asks GitHub once per launch whether a newer
-  version exists. It no longer has any say over the notes.
-- **Show what a new release brings** is the notes window itself. Turn it off and
-  you never see it, for any version.
+On some Linux desktops, Linux Mint's Cinnamon among them, controls in the
+lower part of the window did not respond. Apply and Cancel in Settings, the
+Close button on this very notes window, buttons at the bottom of other
+dialogs: no highlight when the mouse passed over them, and nothing at all when
+clicked. The same dialogs could still be dragged around and scrolled, which
+made it look as though dialogs in general were broken.
 
-While that second switch is on, the window opens at every start until you tick
-**Do not show these notes again** and close it. The tick covers the version you
-are running and nothing else, so the next release opens the window again, and
-unticking it brings the window back. Previously the tick box and the setting
-were one and the same, so there was no way to say "I have read these" without
-also saying "never show me any".
+The cause was Octa's own title bar. Because Octa replaces the one your desktop
+would draw, it also has to supply the invisible strips along the window edges
+that you grab to resize a window. Those strips are meant to be about eight
+pixels wide and they sit above everything else on screen, so that a window
+edge can always be grabbed. On the affected desktops the bottom strip came out
+several hundred pixels tall instead, covering the lower part of the window.
+Every click in that band went to the invisible strip rather than to the button
+underneath it.
 
-## Edits and rows stay where you put them
+The strips are now positioned exactly, so no desktop can stretch them.
 
-**Sorting a database table no longer scrambles which row is which.** Sorting a
-table opened from a SQLite or DuckDB file moved the visible rows but left the
-row identity behind, so the next save wrote each row's values onto a different
-row. Colour marks had the same problem, on every reorder rather than only on
-sorting. Rows, their identity and their marks now move together.
+Whether you saw this depended on your desktop rather than your hardware. Octa
+starts maximised and skips the strips entirely for a maximised window, since
+the desktop handles resizing then. KDE and GNOME report a window as maximised
+and so were never affected. Cinnamon does not report it, so the strips were
+drawn anyway, and the stretched one landed on top of the dialogs.
 
-**A failed save leaves the tab unsaved.** If writing failed, on a full disk or
-a read-only folder, Octa reported the error but cleared the unsaved marker
-anyway. Closing the tab then asked nothing and the edits were gone. The tab now
-stays modified, and auto-save keeps retrying.
+Octa draws its own window controls by default, which is what puts it in charge
+of moving and resizing the window in the first place. If either misbehaves on a
+desktop we have not seen, turn **Window controls in toolbar** off under
+**Settings > Appearance**: your desktop then draws its usual title bar and
+handles the window itself.
 
-**Column filters follow their column.** Filters and hidden columns were
-remembered by column position, so inserting, deleting or moving a column
-silently pointed them at a different column, and a filtered **Save As** wrote a
-different set of rows than the chips on screen described. They now follow the
-column they were set on.
+## The AppImage starts
 
-**Undo puts a moved row back completely.** Undoing a row or column move
-restored the order but not the edited cells or the database row identity, so a
-value could reappear against the wrong row and be written there.
+Double-clicking the AppImage could do nothing whatsoever: no window, no error,
+no dialog. There were two independent reasons, and both are addressed.
 
-**Saving a database file twice no longer duplicates rows.** A row added during
-the session was inserted again on every later save of the same file, which
-stayed invisible until the file was reopened.
+Browsers save a downloaded file without permission to run it, and most file
+managers respond to a double-click on an AppImage in that state by doing
+nothing at all, silently. The documentation now says so and gives the command
+that fixes it. If an AppImage ever seems to be ignored, run it from a terminal
+instead: that is where the reason gets printed.
 
-**Settings no longer reverts what you changed elsewhere.** The dialog takes a
-copy of your settings when it opens, and the rest of Octa keeps running behind
-it. Applying wrote that copy back wholesale, undoing anything changed in the
-meantime: a pinned tab, the model picked in the assistant panel, and, worst of
-all, a cloud key you had just cleared from the sidebar, which came back after
-Octa had said it was gone.
+The AppImage also needed the `libfuse2` package, which Ubuntu 22.10 and later,
+and Mint 22, no longer install. It now carries that machinery inside itself and
+needs nothing installed alongside it.
 
-## Crashes and hangs
+## The install script says what it needs
 
-- **A `NaN` in a numeric column no longer takes the app down.** R and pandas
-  both write `NaN` for a missing number, and finding outliers or filling with
-  a median walked straight into it. Non-numbers now count as missing, the way
-  `na.rm` does.
-- **The SQL history menu survives non-English queries.** A query containing a
-  character such as `ü` crashed Octa when the History list tried to shorten it.
-- **A background row load that fails now stops.** Bad bytes deep in a large
-  CSV, or a drive removed mid-scroll, left the spinner turning and the app
-  redrawing every frame for the rest of the session, burning battery and never
-  loading another row.
-- **Cancelling an assistant turn no longer breaks the chat.** Cancelling while
-  a tool was running left the conversation in a state every provider rejects,
-  so every later message failed with the same error and only **New chat**
-  recovered.
-- **A panel whose scan fails can be used again.** A failed clean-up, report,
-  drift, harmonise, batch-convert or fuzzy-match run left its panel stuck on
-  "Scanning..." for the rest of the session.
-- **Quitting during Ollama start-up no longer orphans the server.** Closing
-  Octa in the few seconds while a local model server was starting left it, and
-  its multi-gigabyte model, running with nothing able to stop them.
-- **Ask gives up instead of hanging.** A model endpoint that accepted the
-  connection and then said nothing blocked both Ask boxes for the rest of the
-  session.
+`./install.sh` installs into `/usr/local` (`/usr` on Arch Linux), which needs
+root. Run without it, the script used to copy the program and then stop on a
+permission error at the next step, leaving a half-installed system behind. It
+now checks before it copies anything and names the two ways that work:
+`sudo ./install.sh` for everyone on the machine, or `./install.sh ~/.local` for
+just you. `uninstall.sh` had the same flaw and got the same check.
 
-## Settings behave the way the dialog says
+## A settings file from the very first launch
 
-- **Reset to defaults keeps your content.** It used to wipe saved database and
-  cloud connections, their stored keys, chat profiles and pinned tabs, none of
-  which the confirmation mentioned and the keys of which no undo could restore.
-  It now resets the settings and leaves that content alone.
-- **Reset to defaults resets everything it shows.** Ten values, among them the
-  raw-view and decompression caps, the chart limits and the auto-save interval,
-  quietly survived a reset and came back on Apply.
-- **Clearing a saved key really clears it.** Keys live in the operating
-  system's keyring, and `settings.toml` holds one only on a machine with no
-  keyring to use. Where that fallback was in play, **Clear API key** deleted
-  the keyring entry but dropped the plaintext copy from the dialog's unsaved
-  working copy alone, so closing Settings with the window's `x` left the key on
-  disk after the message said it was gone. Cloud and database connection
-  secrets behaved the same way.
-- **A pinned file on a disconnected drive is no longer forgotten.** Pins were
-  pruned at start-up whenever the file could not be found, so a network share
-  that was not mounted yet emptied the list permanently.
-- **An empty `HOME` no longer scatters settings.** An exported but empty
-  `HOME`, `XDG_CONFIG_HOME` or `APPDATA` made Octa write `settings.toml`, with
-  any plaintext secrets in it, into whatever folder it was started from.
-- **Fresh installs and upgrades agree.** Two settings, red negative numbers and
-  the length of the recent-files list, had different values depending on
-  whether the settings file already existed.
+Octa wrote `settings.toml` only when you pressed Apply in Settings, so a fresh
+installation had no settings file at all. That matters when the interface
+itself is what is misbehaving, because editing the file by hand is then the
+only way to change anything. The file is now written with its defaults the
+first time Octa starts.
 
-## Changing a keyboard shortcut works
+## Diagnosing the interface itself
 
-Recording a binding was close to unusable: the key you pressed also ran
-whatever it was already bound to, so recording **Ctrl+S** saved the file, and
-no combination could be recorded at all, because the press of the modifier
-itself was captured as the key and stored as something that could never fire.
-While Octa waits for your key, that key now belongs to the recording and
-nothing else, and modifiers are recognised as modifiers.
+Starting Octa as `OCTA_DEBUG=1 octa` turns debug logging on for that one run
+without touching your saved settings, and without needing the Settings dialog,
+which is precisely what you cannot reach when the interface is the problem. It
+records every mouse press and release: where it was, whether it counted as a
+click, and which layer of the interface it reached. A build from source also
+outlines every clickable area on screen, which shows at a glance whether a
+control that looks clickable actually is one.
 
-If the combination you press is already taken, Octa says so under the row you
-are editing, rather than in a message at the top of the section that was
-usually scrolled out of sight, and offers **Take it over**: the key moves to
-the action you are recording and the previous owner is left unbound. Two
-actions still cannot share a combination.
-
-**Ctrl+C**, **Ctrl+X** and **Ctrl+V** can now be recorded too, and any key you
-bind is named properly in the list instead of showing as `?`.
+This is how the fault above was identified after reading the code had failed
+to explain it.
 
 ## Smaller things
 
-- **Files are written through a temporary file and then renamed.** Writing a
-  Parquet, CSV or compressed file emptied the target before the first byte was
-  written, so a failure part-way left a truncated file where your data had
-  been. The original now survives until the replacement is complete, and keeps
-  its permissions.
-- **The container image names its base image explicitly** instead of leaving it
-  untagged, and runs as a numeric user id, which lets Kubernetes verify for
-  itself that Octa is not running as root.
 - **Documentation** for all of the above, in the in-app help and on the
-  documentation site.
+  documentation site: what to do when an AppImage seems to be ignored, when
+  the install script stops on a permission error, and when a window cannot be
+  moved or resized.
+- **The manual page lists its environment variables on the documentation
+  site.** `man octa` has always described `OCTA_CONFIG_DIR` and its
+  companions, but that section was missing from the copy published on the
+  site.

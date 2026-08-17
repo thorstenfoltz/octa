@@ -75,6 +75,38 @@ Leaving it off is recommended for normal use: debug-level entries fill the
 5 MB cap far faster, so the log rotates sooner and less history is retained.
 Turn it on only while reproducing an issue, then turn it back off.
 
+### Turning it on without the Settings dialog
+
+Start Octa with `OCTA_DEBUG=1` to enable debug logging for that one run:
+
+```bash
+OCTA_DEBUG=1 octa
+```
+
+This exists for the case where the GUI itself is what is being investigated: if
+buttons or dialogs are not responding, the Settings checkbox is out of reach.
+The variable does not change any saved setting.
+
+Two extra aids come with it, for exactly that situation:
+
+- **Input tracing**, which follows debug mode however you switched it on.
+  Every mouse press and release is written to the log with its position,
+  whether the toolkit counted it as a click, and which layer of the interface
+  it landed on. That is usually enough to tell a click being swallowed by
+  something drawn on top from one the toolkit rejected outright.
+- **Widget outlines**, which need `OCTA_DEBUG` specifically and are never
+  switched on by the Settings checkbox alone. The widget under the cursor is
+  outlined and labelled, and every clickable area is boxed. A control that is
+  drawn but has no box around it is not registered as interactive at all,
+  which is a different fault with a different cause.
+
+The outlines repaint the whole interface, which is why they are kept off the
+Settings checkbox: that box promises log detail, not a redecorated program.
+They also require a **development build** (`cargo build` from a source
+checkout): the toolkit compiles its debug drawing out of release binaries
+entirely, so a downloaded release run with `OCTA_DEBUG=1` gives you the log but
+no boxes. The input trace works in both. Neither aid is meant for daily use.
+
 ## After a crash
 
 Octa records failures two complementary ways, both in the `logs` folder:
