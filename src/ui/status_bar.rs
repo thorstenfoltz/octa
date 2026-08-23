@@ -5,6 +5,24 @@ use super::theme::{ThemeColors, ThemeMode};
 use crate::data::DataTable;
 
 /// Format a number with comma thousand separators (e.g. 1234567 -> "1,234,567").
+/// Compact human-readable byte size (B/KB/MB/GB). Shared by the cloud
+/// browser's object listing and the large-file notice, so one file's size
+/// reads the same wherever it is shown.
+pub fn human_size(bytes: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{size:.1} {}", UNITS[unit])
+    }
+}
+
 pub fn format_number(n: usize) -> String {
     let s = n.to_string();
     let mut result = String::with_capacity(s.len() + s.len() / 3);

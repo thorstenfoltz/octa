@@ -56,10 +56,34 @@ pub struct Params {
 /// Shared sync implementation called by both the MCP `handle` wrapper and the
 /// in-GUI chat agent.
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    let source = source_from(&p.open_tab, &p.path, &p.table);
+    let cap = ctx.resolve_row_cap(p.limit);
+    // A big file is paged rather than loaded: returning a hundred rows should
+    // not cost five million. `unlimited` is refused here rather than honoured,
+    // because the whole point is that this file does not fit.
+    if let Some(scan) = ctx.scan_for(&source) {
+        let want = match cap {
+            Some(0) | None => scan.row_count(),
+            Some(n) => n,
+        };
+        // The scan is ordered by the first column so a page is reproducible:
+        // DuckDB parallelises a scan, and an unordered LIMIT would return a
+        // different hundred rows each call.
+        let page = scan.page(0, want, Some((0, true)), None)?;
+        let mut out = table_to_json(&page, cap, ctx.cell_byte_cap);
+        if let Some(m) = out.as_object_mut() {
+            m.insert("streamed".to_string(), Value::Bool(true));
+            m.insert(
+                "total_rows_available".to_string(),
+                Value::from(scan.row_count()),
+            );
+        }
+        return Ok(out);
+    }
     let _g = p
         .unlimited
         .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
-    let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
+    let dt = ctx.resolve(&source)?;
     Ok(table_to_json(
         &dt,
         ctx.resolve_row_cap(p.limit),

@@ -5,8 +5,9 @@ file argument. The file-writing exceptions are `convert` (writes a new
 output file), `write_table` (writes model-supplied rows to a new file),
 `edit_table` (edits an existing file in place), `transform_columns`
 (rename / cast / drop columns, writes back), `anonymize` (mask /
-scramble columns, writes the result), and `partition_table` (writes one
-file per group). The live-database write tools (`write_db_table`,
+scramble columns, writes the result), `partition_table` (writes one
+file per group), and `write_workbook` (writes one `.xlsx` holding several
+tables). The live-database write tools (`write_db_table`,
 `copy_db_table`) and `run_sql`'s `write_to` are gated the same way. All
 of these are dropped when the server is started with `--mcp-read-only`.
 
@@ -60,11 +61,16 @@ of these are dropped when the server is started with `--mcp-read-only`.
 | **[`create_report`](create_report.md)**                     | Write a self-contained HTML profiling report            | Writes the output path          |
 | **[`fuzzy_join`](fuzzy_join.md)**                           | Join on similarity rather than equality                 | No                              |
 | **[`diagnose_join`](diagnose_join.md)**                     | Why two key columns do not join                         | No                              |
-| **`list_db_connections`** [^db]                             | List saved live-database connections                    | No                              |
-| **`list_db_tables`** [^db]                                  | List schemas / tables on a live connection              | No                              |
-| **`query_db`** [^db]                                        | Run SQL on a live database server                       | Mutations need Allow writes     |
-| **`write_db_table`** [^db]                                  | Write a table into a live database                      | Yes (server table)              |
-| **`copy_db_table`** [^db]                                   | Copy a table server-to-server through DuckDB            | Yes (target server table)       |
+| **[`check_rules`](check_rules.md)**                         | Check values against a saved rules file                 | No                              |
+| **[`data_drift`](data_drift.md)**                           | How a dataset changed between two versions              | No                              |
+| **[`sync_sql`](sync_sql.md)**                               | SQL that would make a server table match a file         | No                              |
+| **[`write_workbook`](write_workbook.md)**                   | Write several tables into one .xlsx workbook            | Writes the output path          |
+| **[`list_db_connections`](list_db_connections.md)** [^db]   | List saved live-database connections                    | No                              |
+| **[`list_db_tables`](list_db_tables.md)** [^db]             | List schemas / tables on a live connection              | No                              |
+| **[`db_relationships`](db_relationships.md)** [^db]         | Foreign keys a live database declares                   | No                              |
+| **[`query_db`](query_db.md)** [^db]                         | Run SQL on a live database server                       | Mutations need Allow writes     |
+| **[`write_db_table`](write_db_table.md)** [^db]             | Write a table into a live database                      | Yes (server table)              |
+| **[`copy_db_table`](copy_db_table.md)** [^db]               | Copy a table server-to-server through DuckDB            | Yes (target server table)       |
 
 [^db]: The live-database tools work on the connections saved under
     **Settings -> Databases** (loaded once at server startup) and are

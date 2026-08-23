@@ -86,7 +86,7 @@ pub(crate) enum DbOpenResult {
         schema: String,
         table_name: String,
         /// Primary-key column names (ordinal order); empty = none found.
-        pk_cols: Vec<String>,
+        identity: Option<octa::db::write_back::RowIdentity>,
     },
     /// A finished table-metadata load ("Show metadata..."): opened as a plain
     /// read-only detached tab (no db_origin, no PK, not editable).
@@ -237,7 +237,10 @@ impl OctaApp {
         ));
         let cache = self.db_conn_cache.clone();
         std::thread::spawn(move || {
-            let result = (|| -> anyhow::Result<(octa::data::DataTable, Vec<String>)> {
+            let result = (|| -> anyhow::Result<(
+                octa::data::DataTable,
+                Option<octa::db::write_back::RowIdentity>,
+            )> {
                 let secret = get_db_secret(&conn.id, &settings);
                 let sql = db::select_sample_sql(
                     conn.engine,
@@ -246,7 +249,7 @@ impl OctaApp {
                     &table_name,
                     octa::formats::initial_load_rows(),
                 );
-                let (mut table, pk_cols) = cache.with_conn(&conn, secret.as_deref(), |c| {
+                let (mut table, identity) = cache.with_conn(&conn, secret.as_deref(), |c| {
                     let table = c.query(&sql)?;
                     // Catalog engines expose no discoverable PK: skip the lookup
                     // so the tab opens read-only and no unqualified
@@ -255,27 +258,49 @@ impl OctaApp {
                     let pk_cols = if conn.engine.has_catalogs() {
                         Vec::new()
                     } else {
-                        let pk_sql = db::primary_key_sql(
-                            conn.engine,
-                            catalog.as_deref(),
-                            &schema,
-                            &table_name,
-                        );
-                        c.query(&pk_sql)
+                        let key_sql =
+                            db::row_key_sql(conn.engine, catalog.as_deref(), &schema, &table_name);
+                        c.query(&key_sql)
                             .map(|t| {
-                                t.rows
+                                let rows: Vec<db::RowKeyCandidate> = t
+                                    .rows
                                     .iter()
-                                    .filter_map(|r| r.first().map(|v| v.to_string()))
-                                    .collect::<Vec<String>>()
+                                    .filter_map(|r| {
+                                        Some(db::RowKeyCandidate {
+                                            constraint_type: r.first()?.to_string(),
+                                            constraint_name: r.get(1)?.to_string(),
+                                            column_name: r.get(2)?.to_string(),
+                                            nullable: r
+                                                .get(3)
+                                                .map(|v| v.to_string().eq_ignore_ascii_case("YES"))
+                                                .unwrap_or(true),
+                                        })
+                                    })
+                                    .collect();
+                                db::choose_row_key(&rows)
                             })
                             .unwrap_or_default()
                     };
-                    Ok((table, pk_cols))
+                    // A key when the server guarantees one. Failing that,
+                    // and only on engines whose plain UPDATE edits one row,
+                    // fall back to matching every column of the baseline row -
+                    // safe because `apply_write_back` then refuses any
+                    // statement that did not touch exactly one row.
+                    let identity = if !pk_cols.is_empty() {
+                        Some(octa::db::write_back::RowIdentity::Key(pk_cols))
+                    } else if conn.engine.supports_row_update() && !table.columns.is_empty() {
+                        Some(octa::db::write_back::RowIdentity::FullRow(
+                            table.columns.iter().map(|c| c.name.clone()).collect(),
+                        ))
+                    } else {
+                        None
+                    };
+                    Ok((table, identity))
                 })?;
                 // A writable tab needs row identity for the diff-based
                 // write-back: tag every loaded row and snapshot it as the
                 // baseline (same shape as the SQLite/DuckDB file readers).
-                if conn.allow_writes && !pk_cols.is_empty() {
+                if conn.allow_writes && identity.is_some() {
                     let original: std::collections::HashMap<i64, Vec<octa::data::CellValue>> =
                         table
                             .rows
@@ -291,17 +316,17 @@ impl OctaApp {
                         original_columns: table.columns.iter().map(|c| c.name.clone()).collect(),
                     });
                 }
-                Ok((table, pk_cols))
+                Ok((table, identity))
             })();
             let item = match result {
-                Ok((table, pk_cols)) => DbOpenResult::Ready {
+                Ok((table, identity)) => DbOpenResult::Ready {
                     table: Box::new(table),
                     label,
                     conn_id,
                     catalog,
                     schema,
                     table_name,
-                    pk_cols,
+                    identity,
                 },
                 Err(e) => DbOpenResult::Failed(format!(
                     "{} {label}: {e:#}",
@@ -384,7 +409,7 @@ impl OctaApp {
                     catalog,
                     schema,
                     table_name,
-                    pk_cols,
+                    identity,
                 } => {
                     let mut new_tab =
                         super::state::TabState::new(self.settings.default_search_mode);
@@ -397,18 +422,26 @@ impl OctaApp {
                         catalog,
                         schema,
                         table: table_name,
-                        pk_cols,
+                        identity,
                     };
                     // Dismissible note explaining the tab's editability:
-                    // writable -> none; connection read-only -> the standard
-                    // note; writes allowed but no PK -> why it stays locked.
+                    // writable by a key -> none; writable only by matching
+                    // whole rows -> say so, because that has a ceiling the
+                    // user has to know about; connection read-only or no way
+                    // to address a row -> why it stays locked.
                     let writable = self.db_origin_writable(&origin);
+                    let full_row = matches!(
+                        origin.identity,
+                        Some(octa::db::write_back::RowIdentity::FullRow(_))
+                    );
                     let conn_allows = self
                         .settings
                         .db_connections
                         .iter()
                         .any(|c| c.id == origin.conn_id && c.allow_writes);
-                    new_tab.parse_error_banner = if writable {
+                    new_tab.parse_error_banner = if writable && full_row {
+                        Some(octa::i18n::t("db.tab_full_row_note"))
+                    } else if writable {
                         None
                     } else if conn_allows {
                         Some(octa::i18n::t("db.tab_no_pk_note"))

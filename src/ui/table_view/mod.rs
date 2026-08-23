@@ -30,6 +30,20 @@ pub struct TableViewState {
     resizing_col: Option<usize>,
     /// Vertical scroll offset in pixels (persisted across frames).
     scroll_y: f32,
+    /// `(page offset, rows in the whole file)` when the vertical scrollbar
+    /// stands for a file bigger than the loaded page (large-file mode).
+    /// `None` everywhere else. See `set_virtual_rows`.
+    virtual_rows: Option<(usize, usize)>,
+    /// Row the virtual thumb is being dragged to, while the button is held.
+    /// The jump fires on release: each one is a DuckDB query, and one per
+    /// frame of a drag would stall the window it exists to keep responsive.
+    virtual_drag_row: Option<f32>,
+    /// A display row the viewport should be moved onto, honoured on the next
+    /// frame. Callers outside this module cannot turn a row into a pixel
+    /// offset - the row height is `(font_size * 2).max(26)` and rows carrying
+    /// line breaks are taller still - so they name the row and `draw_table`
+    /// does the arithmetic with the real measurements.
+    pending_scroll_row: Option<usize>,
     /// Horizontal scroll offset in pixels.
     scroll_x: f32,
     /// Column drag-and-drop state
@@ -445,11 +459,49 @@ pub struct TableInteraction {
     /// no columns) was just clicked. Counted by the snow easter egg -
     /// three within 1.5s triggers a 5-second snowfall.
     pub welcome_logo_clicked: bool,
+    /// The virtual scrollbar was dragged or clicked to this row of the whole
+    /// file. Only ever set when `TableViewState::set_virtual_rows` is on, i.e.
+    /// in large-file mode, where it means "page the window over this row".
+    pub jump_to_row: Option<usize>,
     /// Screen-space rect the welcome-screen logo image was painted into, if
     /// the welcome screen rendered this frame. Used by the Christmas easter
     /// egg to overlay a Santa hat at a position the binary side can compute
     /// without re-deriving the centred-image math.
     pub welcome_logo_rect: Option<egui::Rect>,
+}
+
+/// Geometry of the vertical scrollbar thumb when it stands for a whole file
+/// rather than for the loaded rows (large-file mode).
+pub(crate) struct VirtualThumb {
+    /// Thumb height in pixels, floored so it stays grabbable.
+    pub height: f32,
+    /// Thumb top, in pixels below the track top.
+    pub offset: f32,
+    /// Pixels the thumb can travel: track height minus thumb height.
+    pub travel: f32,
+    /// Highest row the top of the viewport can sit on.
+    pub max_row: f32,
+}
+
+/// Map "row `top_row` of `file_rows` is at the top of the viewport" onto a
+/// thumb. Pure so the arithmetic can be checked without a `Ui`; the drag and
+/// click handlers invert it through `travel` / `max_row`.
+pub(crate) fn virtual_thumb(
+    top_row: f32,
+    file_rows: usize,
+    visible_rows: f32,
+    track_height: f32,
+) -> VirtualThumb {
+    let visible = visible_rows.max(1.0);
+    let max_row = (file_rows as f32 - visible).max(1.0);
+    let height = ((visible / file_rows.max(1) as f32) * track_height).clamp(24.0, track_height);
+    let travel = (track_height - height).max(0.0);
+    VirtualThumb {
+        height,
+        offset: (top_row / max_row).clamp(0.0, 1.0) * travel,
+        travel,
+        max_row,
+    }
 }
 
 /// Draw the data table with true row virtualization.
@@ -657,6 +709,21 @@ pub fn draw_table(
     let total_content_height =
         HEADER_HEIGHT + 1.0 + total_data_height + horizontal_scrollbar_height;
 
+    // A row someone else asked us to scroll onto, honoured now that the real
+    // row height and viewport are known. Deliberately outside the keyboard
+    // block below, which is skipped while a text field has focus: the request
+    // comes from a page fetch, not from a keystroke, and must not be swallowed
+    // because the search box happens to be focused.
+    if let Some(display_idx) = state.pending_scroll_row.take() {
+        scroll_row_into_view(
+            state,
+            display_idx.min(row_count.saturating_sub(1)),
+            row_height,
+            (view_height - HEADER_HEIGHT - 1.0 - horizontal_scrollbar_height).max(0.0),
+            (total_content_height - view_height).max(0.0),
+        );
+    }
+
     // Handle scroll input and keyboard shortcuts
     ui.input(|input| {
         let scroll_delta = input.smooth_scroll_delta;
@@ -689,8 +756,21 @@ pub fn draw_table(
             (view_height - HEADER_HEIGHT - 1.0 - horizontal_scrollbar_height).max(0.0);
 
         let triggered = |a: ShortcutAction| ui.input(|i| shortcuts.triggered(a, i));
-        let jump_first_row = triggered(ShortcutAction::JumpFirstRow);
-        let jump_last_row = triggered(ShortcutAction::JumpLastRow);
+        let mut jump_first_row = triggered(ShortcutAction::JumpFirstRow);
+        let mut jump_last_row = triggered(ShortcutAction::JumpLastRow);
+        // In large-file mode "first"/"last" row means the file's, not the
+        // loaded page's. Handled here rather than below because the in-page
+        // move would scroll to a page edge, which is exactly what re-arms the
+        // paging triggers - the jump would be undone in the same frame.
+        if let Some((_, file_rows)) = state.virtual_rows.filter(|&(_, n)| n > filtered_rows.len()) {
+            if jump_first_row {
+                interaction.jump_to_row = Some(0);
+            } else if jump_last_row {
+                interaction.jump_to_row = Some(file_rows.saturating_sub(1));
+            }
+            jump_first_row = false;
+            jump_last_row = false;
+        }
         let jump_first_col = triggered(ShortcutAction::JumpFirstCol);
         let jump_last_col = triggered(ShortcutAction::JumpLastCol);
         let ext_up = triggered(ShortcutAction::ExtendSelectionUp);
@@ -1112,7 +1192,64 @@ pub fn draw_table(
     }
 
     // --- Vertical scrollbar ---
-    if total_content_height > view_height {
+    // In large-file mode the bar stands for the whole file, not for the loaded
+    // page: a 2,000-row page out of 100,000,000 gives a thumb that says nothing
+    // and a drag that reaches nowhere. `virtual_rows` swaps the arithmetic over
+    // to rows and reports the landing row instead of moving `scroll_y`.
+    if let Some((page_offset, file_rows)) = state.virtual_rows.filter(|&(_, n)| n > row_count) {
+        let scrollbar_width = 10.0;
+        let scrollbar_x = panel_rect.right() - scrollbar_width - 1.0;
+        let track_top = panel_rect.top();
+        let track_height = view_height;
+        let track_rect = egui::Rect::from_min_size(
+            egui::pos2(scrollbar_x, track_top),
+            Vec2::new(scrollbar_width, track_height),
+        );
+        painter.rect_filled(track_rect, scrollbar_width / 2.0, colors.scrollbar_track);
+
+        // Where in the file the top of the viewport sits - or, mid-drag, where
+        // the user has dragged it to, so the thumb tracks the cursor even
+        // though the page itself only moves on release.
+        let top_row = page_offset as f32 + state.scroll_y / row_height;
+        let shown_row = state.virtual_drag_row.unwrap_or(top_row);
+        let VirtualThumb {
+            height,
+            offset,
+            travel,
+            max_row,
+        } = virtual_thumb(shown_row, file_rows, view_height / row_height, track_height);
+        let thumb_rect = egui::Rect::from_min_size(
+            egui::pos2(scrollbar_x, track_top + offset),
+            Vec2::new(scrollbar_width, height),
+        );
+
+        let sb = ui.interact(thumb_rect, ui.id().with("vscroll_thumb"), Sense::drag());
+        painter.rect_filled(
+            thumb_rect,
+            scrollbar_width / 2.0,
+            if sb.dragged() || sb.hovered() {
+                colors.scrollbar_thumb_hover
+            } else {
+                colors.scrollbar_thumb
+            },
+        );
+        if sb.dragged() && travel > 0.0 {
+            let rows_per_pixel = max_row / travel;
+            let from = state.virtual_drag_row.unwrap_or(top_row);
+            state.virtual_drag_row =
+                Some((from + sb.drag_delta().y * rows_per_pixel).clamp(0.0, max_row));
+        }
+        if sb.drag_stopped() {
+            interaction.jump_to_row = state.virtual_drag_row.take().map(|r| r as usize);
+        }
+        let track_resp = ui.interact(track_rect, ui.id().with("vscroll_track"), Sense::click());
+        if track_resp.clicked()
+            && let Some(pos) = track_resp.interact_pointer_pos()
+        {
+            let fraction = ((pos.y - track_top) / track_height).clamp(0.0, 1.0);
+            interaction.jump_to_row = Some((fraction * max_row) as usize);
+        }
+    } else if total_content_height > view_height {
         let scrollbar_width = 10.0;
         let scrollbar_x = panel_rect.right() - scrollbar_width - 1.0;
         let scrollbar_track_top = panel_rect.top();

@@ -21,6 +21,20 @@ const SCROLL_BAR_INNER_MARGIN: f32 = 2.0;
 const SCROLL_BAR_STRIP: f32 = SCROLL_BAR_WIDTH + SCROLL_BAR_INNER_MARGIN;
 
 impl TabState {
+    /// Whether Save can write this tab without asking for a path.
+    ///
+    /// True for a file-backed tab, and for a live-database tab whose Save is
+    /// the write-back dialog. A db tab deliberately carries no `source_path`,
+    /// so gating on that alone silently routes it to the Save As picker; that
+    /// is the bug this predicate exists to prevent, and it is why every save
+    /// entry point must ask this question here rather than inline.
+    ///
+    /// Not the same question as "has a file on disk", which still gates
+    /// Reopen as and git compare: those genuinely need a file to re-read.
+    pub(crate) fn saves_in_place(&self) -> bool {
+        self.db_origin.is_some() || self.table.source_path.is_some()
+    }
+
     /// Build the [`RowMatcher`](octa::data::search::RowMatcher) for this tab's
     /// current search text honouring the case-sensitive / whole-word toggles.
     pub(crate) fn search_matcher(&self) -> octa::data::search::RowMatcher {
@@ -118,6 +132,7 @@ impl TabState {
             raw_file_size: None,
             raw_perf_prompt_resolved: false,
             raw_view_formatted: false,
+            sheet_name: None,
             csv_delimiter: b',',
             raw_csv_quote: RawCsvQuote::default(),
             raw_csv_escape: RawCsvEscape::default(),
@@ -238,6 +253,8 @@ impl TabState {
             cloud_origin: None,
             db_origin: None,
             compressed_origin: None,
+            large: None,
+            large_page_key: None,
         }
     }
 
@@ -349,7 +366,7 @@ impl TabState {
         if let Some(label) = &self.custom_tab_label {
             return label.clone();
         }
-        let name = if let Some(ref path) = self.table.source_path {
+        let mut name = if let Some(ref path) = self.table.source_path {
             std::path::Path::new(path)
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
@@ -357,6 +374,10 @@ impl TabState {
         } else {
             "Untitled".to_string()
         };
+        // One workbook opened as several tabs: say which sheet each one is.
+        if let Some(sheet) = &self.sheet_name {
+            name = format!("{name} - {sheet}");
+        }
         if self.is_modified() {
             format!("{} *", name)
         } else {
@@ -1278,6 +1299,58 @@ mod tests {
             .collect();
         assert!(tab.sync_column_keys(), "first sync records the names");
         tab
+    }
+
+    #[test]
+    fn sheets_of_one_workbook_get_tabs_that_can_be_told_apart() {
+        // Three sheets of one file are three tabs, and the file name is the
+        // same on all three, so the sheet has to be in the label.
+        let mut tab = TabState::new(data::SearchMode::Plain);
+        tab.table.source_path = Some("/tmp/book.xlsx".to_string());
+        assert_eq!(tab.title_display(), "book.xlsx");
+
+        tab.sheet_name = Some("Costs".to_string());
+        assert_eq!(tab.title_display(), "book.xlsx - Costs");
+
+        // The modified marker still has to survive - that is why this is its
+        // own field and not `custom_tab_label`, which swallows it.
+        tab.table.insert_row(0);
+        assert_eq!(tab.title_display(), "book.xlsx - Costs *");
+
+        // A name the user typed themselves still wins over both.
+        tab.user_tab_name = Some("mine".to_string());
+        assert_eq!(tab.title_display(), "mine *");
+    }
+
+    #[test]
+    fn a_database_tab_saves_in_place_even_without_a_source_path() {
+        // A live-database tab deliberately has no file on disk, so any save
+        // path that gates on `source_path` alone silently routes it to the
+        // Save As picker instead of the write-back dialog.
+        let mut tab = TabState::new(data::SearchMode::Plain);
+        assert!(!tab.saves_in_place(), "a blank tab has nowhere to save");
+
+        tab.table.source_path = Some("/tmp/x.csv".to_string());
+        assert!(tab.saves_in_place(), "a file-backed tab saves to its file");
+
+        let mut db = TabState::new(data::SearchMode::Plain);
+        db.db_origin = Some(crate::app::state::DbOrigin {
+            conn_id: "conn-1".to_string(),
+            catalog: None,
+            schema: "public".to_string(),
+            table: "people".to_string(),
+            identity: Some(octa::db::write_back::RowIdentity::Key(vec![
+                "id".to_string(),
+            ])),
+        });
+        assert!(
+            db.table.source_path.is_none(),
+            "db tabs never carry a source path"
+        );
+        assert!(
+            db.saves_in_place(),
+            "Ctrl+S on a db tab must reach the write-back dialog, not Save As"
+        );
     }
 
     #[test]

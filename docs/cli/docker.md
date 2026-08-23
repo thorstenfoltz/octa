@@ -182,8 +182,8 @@ podman run --rm -i -v "$PWD:/data" octa --mcp
 ## Image contents
 
 - `/usr/local/bin/octa` - the binary (entrypoint).
-- `/usr/share/octa/` - `LICENSE`, `THIRD_PARTY_LICENSES.md`, and the
-  `licenses/` directory, mirroring what `install.sh` ships.
+- `/usr/share/octa/` - `LICENSE`, `NOTICE`, `THIRD_PARTY_LICENSES.md`, and
+  the `licenses/` directory, mirroring what `install.sh` ships.
 - The container runs as the non-root user `octa` (uid 65532) with home
   `/home/octa`, not root.
 

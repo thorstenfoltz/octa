@@ -3,7 +3,7 @@
 //! permissions apply.
 
 use anyhow::{Context, Result};
-use tokio_postgres::types::Type;
+use tokio_postgres::types::{FromSql, Type};
 
 use crate::data::{CellValue, ColumnInfo, DataTable};
 
@@ -123,6 +123,95 @@ impl PostgresConnector {
     }
 }
 
+/// Decode Postgres' binary `numeric` wire format into an exact decimal string.
+///
+/// tokio-postgres has no `FromSql` for `NUMERIC` unless a decimal crate is
+/// compiled in, and the generic text fallback does not apply either: asking
+/// for a `String` returns `Err`, which used to be swallowed and turned the
+/// cell into NULL. Since a database tab writes back full rows, that silently
+/// replaced real values on the server with NULL. Hence an exact decoder here
+/// rather than a lossy hop through `f64`.
+///
+/// Layout (`src/backend/utils/adt/numeric.c`): `i16 ndigits`, `i16 weight`,
+/// `u16 sign`, `u16 dscale`, then `ndigits` base-10000 groups.
+fn decode_pg_numeric(raw: &[u8]) -> Option<String> {
+    if raw.len() < 8 {
+        return None;
+    }
+    let be16 = |o: usize| i16::from_be_bytes([raw[o], raw[o + 1]]);
+    let ndigits = be16(0);
+    let weight = be16(2) as i32;
+    let sign = be16(4) as u16;
+    let dscale = be16(6) as usize;
+    if ndigits < 0 || raw.len() < 8 + ndigits as usize * 2 {
+        return None;
+    }
+    match sign {
+        0xC000 => return Some("NaN".to_string()),
+        0xD000 => return Some("Infinity".to_string()),
+        0xF000 => return Some("-Infinity".to_string()),
+        _ => {}
+    }
+    let digits: Vec<i16> = (0..ndigits as usize).map(|i| be16(8 + i * 2)).collect();
+
+    let mut out = String::new();
+    if sign == 0x4000 {
+        out.push('-');
+    }
+    // Integer part: groups 0..=weight, the first written bare so 1 does not
+    // become 0001.
+    if weight < 0 {
+        out.push('0');
+    } else {
+        for i in 0..=weight {
+            let d = digits.get(i as usize).copied().unwrap_or(0);
+            if i == 0 {
+                out.push_str(&d.to_string());
+            } else {
+                out.push_str(&format!("{d:04}"));
+            }
+        }
+    }
+    // Fractional part: keep exactly `dscale` digits, padding with the zero
+    // groups that a negative weight implies.
+    if dscale > 0 {
+        out.push('.');
+        let mut frac = String::new();
+        let mut i = weight + 1;
+        while frac.len() < dscale {
+            let d = if i < 0 {
+                0
+            } else {
+                digits.get(i as usize).copied().unwrap_or(0)
+            };
+            frac.push_str(&format!("{d:04}"));
+            i += 1;
+        }
+        frac.truncate(dscale);
+        out.push_str(&frac);
+    }
+    Some(out)
+}
+
+/// `NUMERIC` as its exact decimal text. See [`decode_pg_numeric`].
+#[derive(Debug)]
+struct PgNumeric(String);
+
+impl<'a> FromSql<'a> for PgNumeric {
+    fn from_sql(
+        _ty: &Type,
+        raw: &'a [u8],
+    ) -> std::result::Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        decode_pg_numeric(raw)
+            .map(PgNumeric)
+            .ok_or_else(|| "malformed numeric wire value".into())
+    }
+
+    fn accepts(ty: &Type) -> bool {
+        matches!(*ty, Type::NUMERIC)
+    }
+}
+
 /// Map a Postgres wire type to the Arrow-name strings the rest of Octa uses
 /// (same vocabulary as `duckdb_type_to_arrow`). NUMERIC arrives as text: a
 /// lossless decimal has no f64 representation.
@@ -133,6 +222,8 @@ fn pg_type_to_arrow(t: &Type) -> &'static str {
         Type::BOOL => "Boolean",
         Type::DATE => "Date32",
         Type::TIMESTAMP | Type::TIMESTAMPTZ => "Timestamp(Microsecond, None)",
+        // Exact decimal text: a lossless NUMERIC has no f64 representation.
+        Type::NUMERIC => "Utf8",
         _ => "Utf8",
     }
 }
@@ -195,6 +286,12 @@ fn pg_value_to_cell(row: &tokio_postgres::Row, i: usize) -> CellValue {
             .ok()
             .flatten()
             .map(|d| CellValue::DateTime(d.format("%Y-%m-%d %H:%M:%S").to_string()))
+            .unwrap_or(CellValue::Null),
+        Type::NUMERIC => row
+            .try_get::<_, Option<PgNumeric>>(i)
+            .ok()
+            .flatten()
+            .map(|n| CellValue::String(n.0))
             .unwrap_or(CellValue::Null),
         _ => row
             .try_get::<_, Option<String>>(i)
@@ -306,5 +403,78 @@ mod tests {
     #[test]
     fn table_schema_literal_is_escaped() {
         assert!(list_tables_sql(PgDialect::Postgres, "a'b").contains("'a''b'"));
+    }
+}
+
+#[cfg(test)]
+mod numeric_tests {
+    use super::decode_pg_numeric;
+
+    /// Build a binary `numeric` payload the way Postgres does.
+    fn enc(weight: i16, sign: u16, dscale: u16, digits: &[i16]) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&(digits.len() as i16).to_be_bytes());
+        v.extend_from_slice(&weight.to_be_bytes());
+        v.extend_from_slice(&sign.to_be_bytes());
+        v.extend_from_slice(&dscale.to_be_bytes());
+        for d in digits {
+            v.extend_from_slice(&d.to_be_bytes());
+        }
+        v
+    }
+
+    #[test]
+    fn decodes_a_money_like_value() {
+        // 99.50 -> groups [99, 5000], weight 0, scale 2
+        assert_eq!(
+            decode_pg_numeric(&enc(0, 0, 2, &[99, 5000])).unwrap(),
+            "99.50"
+        );
+    }
+
+    #[test]
+    fn keeps_trailing_zeros_of_the_declared_scale() {
+        // 120.50 must not come back as 120.5: numeric(10,2) means two digits.
+        assert_eq!(
+            decode_pg_numeric(&enc(0, 0, 2, &[120, 5000])).unwrap(),
+            "120.50"
+        );
+    }
+
+    #[test]
+    fn decodes_values_below_one() {
+        // 0.05 -> weight -1 (no integer group at all)
+        assert_eq!(decode_pg_numeric(&enc(-1, 0, 2, &[500])).unwrap(), "0.05");
+        // 0.000005 = 500 * 10000^-2, so a whole zero group precedes the digits
+        assert_eq!(
+            decode_pg_numeric(&enc(-2, 0, 6, &[500])).unwrap(),
+            "0.000005"
+        );
+    }
+
+    #[test]
+    fn decodes_negative_and_multi_group_values() {
+        assert_eq!(
+            decode_pg_numeric(&enc(0, 0x4000, 4, &[1234, 5678])).unwrap(),
+            "-1234.5678"
+        );
+        // 10000 needs the second group padded to 0000, not written as 0.
+        assert_eq!(decode_pg_numeric(&enc(1, 0, 0, &[1])).unwrap(), "10000");
+    }
+
+    #[test]
+    fn decodes_the_special_signs() {
+        assert_eq!(decode_pg_numeric(&enc(0, 0xC000, 0, &[])).unwrap(), "NaN");
+        assert_eq!(
+            decode_pg_numeric(&enc(0, 0xD000, 0, &[])).unwrap(),
+            "Infinity"
+        );
+    }
+
+    #[test]
+    fn refuses_a_truncated_payload() {
+        assert!(decode_pg_numeric(&[0, 1, 0, 0]).is_none());
+        // header promises one group, body has none
+        assert!(decode_pg_numeric(&[0, 1, 0, 0, 0, 0, 0, 0]).is_none());
     }
 }

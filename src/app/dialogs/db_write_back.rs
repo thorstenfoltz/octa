@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use eframe::egui;
 
-use octa::db::write_back::{DbWriteBackPlan, DbWriteBackReport, apply_write_back};
+use octa::db::write_back::{DbWriteBackPlan, DbWriteBackReport, apply_write_back, render_plan_sql};
 use octa::i18n::t;
 
 use super::super::state::{OctaApp, TabState};
@@ -30,7 +30,7 @@ pub(crate) struct DbWriteBackPrompt {
     pub(crate) plan: DbWriteBackPlan,
     /// Column snapshot matching the plan's row layout.
     pub(crate) columns: Vec<octa::data::ColumnInfo>,
-    pub(crate) pk_cols: Vec<String>,
+    pub(crate) identity: octa::db::write_back::RowIdentity,
 }
 
 /// One in-flight write-back (at most one at a time, app-wide).
@@ -44,25 +44,118 @@ impl OctaApp {
     /// Entry point from the Save paths: diff the tab's edits and raise the
     /// confirmation modal (or a status message when there is nothing to do
     /// or the write cannot proceed).
+    /// Validate a db-origin tab and diff its edits into a plan.
+    ///
+    /// Shared by the write-back modal and the SQL export so the two can never
+    /// disagree about what a save would do. `Err` carries the message to show;
+    /// `Ok(None)` means "nothing to write", which is not an error.
+    fn db_plan_for_tab(
+        &self,
+        tab_idx: usize,
+    ) -> Result<
+        Option<(
+            super::super::state::DbOrigin,
+            octa::db::write_back::RowIdentity,
+            octa::data::DataTable,
+            DbWriteBackPlan,
+        )>,
+        String,
+    > {
+        let Some(origin) = self.tabs[tab_idx].db_origin.clone() else {
+            return Ok(None);
+        };
+        if !self.tabs[tab_idx].is_modified() {
+            return Ok(None);
+        }
+        // Belt and braces: is_readonly() already prevented edits on a
+        // non-writable tab, but the connection may have changed since.
+        if !self.db_origin_writable(&origin) {
+            return Err(t("db.tab_readonly_note"));
+        }
+        // `db_origin_writable` above guarantees this is Some.
+        let Some(identity) = origin.identity.clone() else {
+            return Err(t("db.tab_readonly_note"));
+        };
+        let mut snapshot = self.tabs[tab_idx].table.clone();
+        snapshot.apply_edits();
+        let plan = octa::db::write_back::build_write_back_plan(&snapshot, &identity)
+            .map_err(|e| format!("{} {e:#}", t("db.wb_failed")))?;
+        if plan.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some((origin, identity, snapshot, plan)))
+    }
+
+    /// Write the tab's pending edits to a `.sql` file for review instead of
+    /// applying them. Reachable from File > Save SQL and its (unbound)
+    /// shortcut, never from Save: reviewing a script and saving are different
+    /// intents, and tying them together made Save mean two things.
+    pub(crate) fn save_db_sql(&mut self, tab_idx: usize) {
+        let status = |msg: String| (msg, std::time::Instant::now());
+        let (origin, identity, snapshot, plan) = match self.db_plan_for_tab(tab_idx) {
+            Ok(Some(v)) => v,
+            Ok(None) => {
+                self.status_message = Some(status(t("db.wb_no_changes")));
+                return;
+            }
+            Err(msg) => {
+                self.status_message = Some(status(msg));
+                return;
+            }
+        };
+        let Some(engine) = self
+            .settings
+            .db_connections
+            .iter()
+            .find(|c| c.id == origin.conn_id)
+            .map(|c| c.engine)
+        else {
+            self.status_message = Some(status(t("db.wb_failed")));
+            return;
+        };
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("SQL", &["sql"])
+            .set_file_name(format!("{}_{}.sql", origin.schema, origin.table))
+            .save_file()
+        else {
+            return;
+        };
+        let sql = render_plan_sql(
+            engine,
+            &origin.schema,
+            &origin.table,
+            &snapshot.columns,
+            identity.columns(),
+            &plan,
+        );
+        // The tab stays modified on purpose: nothing reached the server, so
+        // the edits are still pending.
+        let msg = match std::fs::write(&path, sql) {
+            Ok(()) => t("dialog.dwb_saved_sql").replace("{path}", &path.display().to_string()),
+            Err(e) => format!("{e}"),
+        };
+        self.status_message = Some(status(msg));
+    }
+
     pub(crate) fn begin_db_write_back(&mut self, tab_idx: usize) {
         let status = |msg: String| (msg, std::time::Instant::now());
         if self.db_write_back_job.is_some() {
             self.status_message = Some(status(t("dialog.dwb_busy")));
             return;
         }
-        let Some(origin) = self.tabs[tab_idx].db_origin.clone() else {
-            return;
+        let (origin, identity, snapshot, plan) = match self.db_plan_for_tab(tab_idx) {
+            Ok(Some(v)) => v,
+            Ok(None) => {
+                if self.tabs[tab_idx].db_origin.is_some() {
+                    self.status_message = Some(status(t("db.wb_no_changes")));
+                }
+                return;
+            }
+            Err(msg) => {
+                self.status_message = Some(status(msg));
+                return;
+            }
         };
-        if !self.tabs[tab_idx].is_modified() {
-            self.status_message = Some(status(t("db.wb_no_changes")));
-            return;
-        }
-        // Belt and braces: is_readonly() already prevented edits on a
-        // non-writable tab, but the connection may have changed since.
-        if !self.db_origin_writable(&origin) {
-            self.status_message = Some(status(t("db.tab_readonly_note")));
-            return;
-        }
         let conn_name = self
             .settings
             .db_connections
@@ -70,21 +163,7 @@ impl OctaApp {
             .find(|c| c.id == origin.conn_id)
             .map(|c| c.name.clone())
             .unwrap_or_default();
-
-        let mut snapshot = self.tabs[tab_idx].table.clone();
-        snapshot.apply_edits();
-        let plan = match octa::db::write_back::build_write_back_plan(&snapshot, &origin.pk_cols) {
-            Ok(p) => p,
-            Err(e) => {
-                self.status_message = Some(status(format!("{} {e:#}", t("db.wb_failed"))));
-                return;
-            }
-        };
-        if plan.is_empty() {
-            self.status_message = Some(status(t("db.wb_no_changes")));
-            return;
-        }
-        self.pending_db_write_back = Some(DbWriteBackPrompt {
+        let prompt = DbWriteBackPrompt {
             tab_idx,
             conn_id: origin.conn_id,
             schema: origin.schema.clone(),
@@ -92,8 +171,13 @@ impl OctaApp {
             target_label: format!("{}.{} @ {conn_name}", origin.schema, origin.table),
             plan,
             columns: snapshot.columns.clone(),
-            pk_cols: origin.pk_cols,
-        });
+            identity: identity.clone(),
+        };
+        // Queued either way. `render_db_write_back_dialog` spawns it without
+        // drawing anything when confirmation is switched off in Settings; that
+        // keeps the egui Context out of every save path's signature, and keeps
+        // the close-tab guard (which watches this slot) working unchanged.
+        self.pending_db_write_back = Some(prompt);
     }
 
     /// Spawn the worker that applies a confirmed plan. Runs off the UI
@@ -135,7 +219,7 @@ impl OctaApp {
                         &prompt.schema,
                         &prompt.table,
                         &prompt.columns,
-                        &prompt.pk_cols,
+                        &prompt.identity,
                         &prompt.plan,
                     )
                 })
@@ -185,7 +269,7 @@ impl OctaApp {
                 // Keep the edits (tab stays modified); the user can fix and
                 // retry.
                 self.status_message = Some((
-                    format!("{} {e}", t("db.wb_failed")),
+                    format!("{} {e:#}", t("db.wb_failed")),
                     std::time::Instant::now(),
                 ));
             }
@@ -220,6 +304,15 @@ fn retag_db_meta(tab: &mut TabState) {
 /// The forced-choice confirmation modal (no close 'x'; Confirm / Cancel
 /// only, like the schema-change prompt).
 pub(crate) fn render_db_write_back_dialog(app: &mut OctaApp, ctx: &egui::Context) {
+    if app.pending_db_write_back.is_some() && !app.settings.confirm_db_write_back {
+        // Confirmation switched off: apply straight away, no modal. Still one
+        // transaction, and still refused when another write is in flight.
+        if app.db_write_back_job.is_none() {
+            let prompt = app.pending_db_write_back.take().expect("checked above");
+            app.spawn_db_write_back(prompt, ctx);
+        }
+        return;
+    }
     let Some(prompt) = &app.pending_db_write_back else {
         return;
     };

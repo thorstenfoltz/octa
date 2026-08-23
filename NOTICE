@@ -1,0 +1,40 @@
+# Notice
+
+This file records the third-party material that Octa bundles but that is not a
+Rust crate, so it does not appear in `THIRD_PARTY_LICENSES.md` (that file is
+generated from `Cargo.lock`).
+
+Octa ships four attribution artefacts side by side, and every distribution
+channel copies all four: `LICENSE`, this file, `THIRD_PARTY_LICENSES.md` and
+the `licenses/` directory of full licence texts. Octa itself is distributed
+under the MIT License; see `LICENSE`.
+
+## Bundled fonts
+
+The following font files are embedded in the Octa binary from `assets/`. All
+five are licensed under the SIL Open Font License, Version 1.1, whose full text
+is `licenses/OFL-1.1.txt`.
+
+| File                           | Copyright                                                                                        |
+|--------------------------------|--------------------------------------------------------------------------------------------------|
+| `Roboto-Medium.ttf`            | Copyright 2011 The Roboto Project Authors (<https://github.com/googlefonts/roboto-classic>)      |
+| `Roboto-Bold.ttf`              | Copyright 2011 The Roboto Project Authors (<https://github.com/googlefonts/roboto-classic>)      |
+| `NotoSansCJK-subset.otf`       | Copyright 2014-2021 Adobe (<http://www.adobe.com/>)                                              |
+| `NotoSansSymbols2-Regular.ttf` | Copyright 2022 The Noto Project Authors (<https://github.com/notofonts/symbols>)                 |
+| `JetBrainsMono-Regular.ttf`    | Copyright 2020 The JetBrains Mono Project Authors (<https://github.com/JetBrains/JetBrainsMono>) |
+
+Roboto is a trademark of Google. Noto is a trademark of Google Inc. JetBrains
+Mono is a trademark of JetBrains s.r.o. Those names identify the fonts here and
+imply no endorsement of Octa.
+
+`NotoSansCJK-subset.otf` is a subset of Noto Sans CJK SC Regular, so it is a
+Modified Version under the OFL. Upstream Noto Sans CJK declares no Reserved
+Font Name, so the name is kept. The subsetting tool dropped the licence records
+the original file carried in its name table, which is why this notice states
+the licence on its behalf.
+
+## Bundled syntax definitions
+
+`assets/Terraform.sublime-syntax`, `assets/TOML.sublime-syntax` and
+`assets/Dockerfile.sublime-syntax` were written for Octa and are covered by
+`LICENSE`.

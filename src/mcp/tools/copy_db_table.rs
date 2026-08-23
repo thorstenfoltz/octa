@@ -159,7 +159,7 @@ mod tests {
             conn("src", octa::db::DbEngine::MySql, false),
             conn("tgt", octa::db::DbEngine::Postgres, true),
         ];
-        let ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, conns, true);
+        let ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, conns, true, 0);
         let err = run(&ctx, &params()).unwrap_err().to_string();
         assert!(err.contains("disabled for this session"), "{err}");
     }
@@ -170,7 +170,7 @@ mod tests {
             conn("src", octa::db::DbEngine::MySql, false),
             conn("tgt", octa::db::DbEngine::Postgres, false),
         ];
-        let ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, conns, false);
+        let ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, conns, false, 0);
         let err = run(&ctx, &params()).unwrap_err().to_string();
         assert!(err.contains("Allow writes"), "{err}");
     }

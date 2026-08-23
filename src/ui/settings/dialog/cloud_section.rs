@@ -157,7 +157,9 @@ impl SettingsDialog {
                             CloudKind::Gcs,
                             kind_label(CloudKind::Gcs),
                         );
-                    });
+                    })
+                    .response
+                    .on_hover_text(t("cloud.provider_hint"));
                 ui.end_row();
 
                 ui.label("");
@@ -186,7 +188,8 @@ impl SettingsDialog {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.cloud_form_prefix)
                             .hint_text(t("cloud.prefix_hint")),
-                    );
+                    )
+                    .on_hover_text(t("cloud.prefix_hint"));
                     ui.end_row();
                 }
 
@@ -197,18 +200,21 @@ impl SettingsDialog {
                         ui.add(
                             egui::TextEdit::singleline(&mut self.cloud_form_endpoint)
                                 .hint_text(t("cloud.endpoint_hint")),
-                        );
+                        )
+                        .on_hover_text(t("cloud.endpoint_hint"));
                         ui.end_row();
                         ui.label(t("cloud.region"))
                             .on_hover_text(t("cloud.region_hint"));
-                        ui.text_edit_singleline(&mut self.cloud_form_region);
+                        ui.text_edit_singleline(&mut self.cloud_form_region)
+                            .on_hover_text(t("cloud.region_hint"));
                         ui.end_row();
                         ui.label(t("cloud.profile"))
                             .on_hover_text(t("cloud.profile_hint"));
                         ui.add(
                             egui::TextEdit::singleline(&mut self.cloud_form_profile)
                                 .hint_text(t("cloud.profile_hint")),
-                        );
+                        )
+                        .on_hover_text(t("cloud.profile_hint"));
                         ui.end_row();
                         ui.label("");
                         ui.checkbox(&mut self.cloud_form_path_style, t("cloud.path_style"))
@@ -250,14 +256,16 @@ impl SettingsDialog {
                             ui.add(
                                 egui::TextEdit::singleline(&mut self.cloud_form_project)
                                     .hint_text(t("cloud.gcs_project_hint")),
-                            );
+                            )
+                            .on_hover_text(t("cloud.gcs_project_hint"));
                             ui.end_row();
                             ui.label(t("cloud.gcs_account"))
                                 .on_hover_text(t("cloud.gcs_account_hint"));
                             ui.add(
                                 egui::TextEdit::singleline(&mut self.cloud_form_account)
                                     .hint_text(t("cloud.gcs_account_hint")),
-                            );
+                            )
+                            .on_hover_text(t("cloud.gcs_account_hint"));
                             ui.end_row();
                         }
                         ui.label(t("db.field_oauth_client_id"))

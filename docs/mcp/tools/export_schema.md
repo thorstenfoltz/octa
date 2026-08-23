@@ -30,6 +30,7 @@ dialog; all three share the same renderers.
 | `postgres`     | `CREATE TABLE` in the Postgres dialect.                       |
 | `mysql`        | `CREATE TABLE` in the MySQL dialect (backticks, `UNSIGNED`).  |
 | `sqlite`       | `CREATE TABLE` in the SQLite dialect (affinity types).        |
+| `mssql`        | `CREATE TABLE` in the SQL Server dialect (brackets, T-SQL).   |
 | `databricks`   | `CREATE TABLE` in the Databricks (Spark SQL / Delta) dialect. |
 | `snowflake`    | `CREATE TABLE` in the Snowflake dialect.                      |
 | `pydantic`     | Pydantic v2 `BaseModel`.                                      |

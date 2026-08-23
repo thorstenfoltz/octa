@@ -104,6 +104,10 @@ unzip -q -o "$WORK/$ZIP" -d "$WORK/extracted"
 # --- stage the payload (mirrors the release workflow) ------------------------
 mkdir -p "$WORK/msix/Images"
 cp "$WORK/extracted/octa.exe" "$WORK/msix/octa.exe"
+# Attribution bundle, taken from the repo like the logos below: the Store
+# package redistributes the same binary and owes the same notices.
+cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$ROOT/THIRD_PARTY_LICENSES.md" "$WORK/msix/"
+cp -r "$ROOT/licenses" "$WORK/msix/licenses"
 magick "$ROOT/assets/octa.png" -resize 44x44 "$WORK/msix/Images/Square44x44Logo.png"
 magick "$ROOT/assets/octa.png" -resize 71x71 "$WORK/msix/Images/Square71x71Logo.png"
 magick "$ROOT/assets/octa.png" -resize 150x150 "$WORK/msix/Images/Square150x150Logo.png"

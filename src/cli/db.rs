@@ -17,6 +17,12 @@ use super::output::write_table;
 
 /// Look a saved connection up by name (case-insensitive) or id. The error
 /// lists what is available so a typo is a one-step fix.
+/// Public wrapper so sibling CLI actions (`--sync-sql`) can resolve a saved
+/// connection by name without duplicating the lookup and its error text.
+pub fn find_connection_pub(name: &str) -> Result<(DbConnection, AppSettings)> {
+    find_connection(name)
+}
+
 fn find_connection(name: &str) -> Result<(DbConnection, AppSettings)> {
     let settings = AppSettings::load();
     let found = settings

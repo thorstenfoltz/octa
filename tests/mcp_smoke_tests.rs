@@ -279,6 +279,48 @@ fn handshake_advertises_a_wellformed_tool_surface() {
         );
     }
 
+    // Every advertised tool has to be documented somewhere under `docs/`,
+    // and every page under `docs/mcp/tools/` has to be reachable from the
+    // mkdocs nav. Both halves shipped broken on one branch: two tool pages
+    // were written and never added to the nav, so they existed in the repo
+    // and not on the site, and two tools shipped with no page at all.
+    let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs");
+    let mut prose = String::new();
+    for entry in walk_docs(&docs) {
+        prose.push_str(&std::fs::read_to_string(&entry).unwrap_or_default());
+    }
+    let nav = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("mkdocs.yml"),
+    )
+    .expect("mkdocs.yml");
+    for tool in tools {
+        let name = tool["name"].as_str().expect("tool name");
+        assert!(
+            prose.contains(name),
+            "`{name}` is advertised but never mentioned anywhere under docs/"
+        );
+        // Being named in the tools index is not documentation. Five live-database
+        // tools were listed there and had no page of their own for a whole
+        // release, which the "mentioned anywhere" check above could not see.
+        assert!(
+            docs.join(format!("mcp/tools/{name}.md")).is_file(),
+            "`{name}` has no page at docs/mcp/tools/{name}.md"
+        );
+    }
+    for entry in std::fs::read_dir(docs.join("mcp/tools")).expect("docs/mcp/tools") {
+        let path = entry.expect("dir entry").path();
+        let Some(file) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !file.ends_with(".md") {
+            continue;
+        }
+        assert!(
+            nav.contains(&format!("mcp/tools/{file}")),
+            "docs/mcp/tools/{file} is not in the mkdocs nav, so it never reaches the site"
+        );
+    }
+
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     for expected in [
         "read_table",
@@ -289,6 +331,9 @@ fn handshake_advertises_a_wellformed_tool_surface() {
         "describe_file",
         "write_table",
         "convert",
+        "sync_sql",
+        "write_workbook",
+        "db_relationships",
     ] {
         assert!(
             names.contains(&expected),
@@ -448,6 +493,7 @@ fn read_only_server_hides_the_write_tools() {
         "partition_table",
         "write_db_table",
         "copy_db_table",
+        "write_workbook",
         "batch_convert",
         "copy_object",
         "move_object",
@@ -467,6 +513,11 @@ fn read_only_server_hides_the_write_tools() {
         "grep_files",
         "resample_timeseries",
         "rolling_window",
+        "data_drift",
+        "check_rules",
+        // Reads a table and returns SQL text; writes nothing, so a read-only
+        // server keeps it.
+        "sync_sql",
     ] {
         assert!(
             names.contains(&read_tool),
@@ -570,6 +621,31 @@ fn diff_tables_rejects_an_unknown_db_connection() {
     );
 }
 
+/// `db_relationships` is reachable over the wire and reports an unknown
+/// connection rather than answering with an empty map. The roster assertion
+/// above only proves the tool is advertised, not that a call reaches it.
+#[test]
+fn db_relationships_rejects_an_unknown_db_connection() {
+    let dir = fixture_dir();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+
+    let resp = server.request(
+        2,
+        "tools/call",
+        json!({
+            "name": "db_relationships",
+            "arguments": { "connection": "no_such_connection" }
+        }),
+    );
+    assert_call_failed(&resp, "db_relationships with an unknown connection");
+    let text = serde_json::to_string(&resp).unwrap();
+    assert!(
+        text.contains("no_such_connection"),
+        "the error should name the connection: {text}"
+    );
+}
+
 /// `suggest_join_keys` finds the pairing whose names do not match: `a.csv`'s
 /// `id` against `cities.csv`'s `city_id`.
 #[test]
@@ -592,6 +668,11 @@ fn suggest_join_keys_finds_the_planted_key() {
         first["overlap"].as_f64().unwrap_or(0.0) > 0.9,
         "overlap should be high: {first}"
     );
+    // `a.csv` has ids 1..3 and `cities.csv` has 1, 2, 3 and 9, so the left
+    // side is fully covered: the orphan count is the tie-breaker and must be
+    // present on every candidate.
+    assert_eq!(first["left_orphans"], json!(0), "got {first}");
+    assert_eq!(first["left_distinct_values"], json!(3), "got {first}");
 }
 
 /// One table is not a comparison: the tool says so rather than returning an
@@ -838,4 +919,165 @@ fn fuzzy_join_matches_spelling_variants() {
         json!(1),
         "the spelling variant should match: {out}"
     );
+}
+
+/// The drift tool over the wire: `a.csv` has a missing amount and `b.csv`
+/// does not, so the null rate moves and a five percent gate must fail.
+#[test]
+fn data_drift_reports_a_moved_null_rate() {
+    let dir = fixture_dir();
+    // A later extract of the same table that lost one amount.
+    std::fs::write(
+        dir.path().join("later.csv"),
+        "id,city,amount\n1,Tokyo,10\n2,Helsinki,20\n3,Tokyo,\n",
+    )
+    .unwrap();
+    let a = dir.path().join("a.csv").to_string_lossy().into_owned();
+    let b = dir.path().join("later.csv").to_string_lossy().into_owned();
+
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({
+            "name": "data_drift",
+            "arguments": { "path_a": a, "path_b": b, "fail_on": "null_rate:0.05" },
+        }),
+    ));
+    assert_eq!(
+        payload["failed"], true,
+        "a moved null rate must breach the gate: {payload}"
+    );
+    let rows = payload["drift"].as_array().expect("drift array");
+    assert!(
+        rows.iter()
+            .any(|r| r["metric"] == "null_rate" && r["breached"] == true),
+        "no breached null_rate row: {payload}"
+    );
+}
+
+/// The rules gate over the wire: a duplicated key must fail, and the failing
+/// rule must be named with a sample of what broke it.
+#[test]
+fn check_rules_reports_a_failing_rule() {
+    let dir = fixture_dir();
+    std::fs::write(dir.path().join("dup.csv"), "order_id\n1\n1\n").unwrap();
+    std::fs::write(
+        dir.path().join("q.toml"),
+        "[[rule]]\ncolumn = \"order_id\"\nkind = \"unique\"\n",
+    )
+    .unwrap();
+    let data = dir.path().join("dup.csv").to_string_lossy().into_owned();
+    let rules = dir.path().join("q.toml").to_string_lossy().into_owned();
+
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "check_rules", "arguments": { "path": data, "rules_path": rules } }),
+    ));
+    assert_eq!(payload["passed"], false, "unexpected shape: {payload}");
+    let v = payload["violations"].as_array().expect("violations array");
+    assert!(
+        v.iter()
+            .any(|r| r["rule"] == "unique" && r["column"] == "order_id"),
+        "no unique failure named: {payload}"
+    );
+}
+
+/// Large-file streaming over the wire.
+///
+/// The threshold comes from settings, so the test writes a tiny one into the
+/// server's config dir. Without streaming, `count_rows` on a file past the
+/// initial-load cap answers short and `unlimited: true` loads the whole thing;
+/// with it the count is exact and free, and `run_sql` aggregates every row.
+#[test]
+fn a_large_file_is_scanned_in_place() {
+    let dir = fixture_dir();
+    let config = dir.path().join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    // 1 KB threshold, and a 10-row load cap so a non-streamed read would be
+    // visibly short.
+    std::fs::write(
+        config.join("settings.toml"),
+        "large_file_min_bytes = 1024\ninitial_load_rows = 10\n",
+    )
+    .unwrap();
+
+    let mut csv = String::from("id,name\n");
+    for i in 0..5_000 {
+        csv.push_str(&format!("{i},row{i}\n"));
+    }
+    std::fs::write(dir.path().join("big.csv"), csv).unwrap();
+    let big = dir.path().join("big.csv").to_string_lossy().into_owned();
+
+    let mut server = Server::start(&config, &[]);
+    server.handshake();
+
+    let counted = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "count_rows", "arguments": { "path": big } }),
+    ));
+    assert_eq!(counted["streamed"], true, "unexpected shape: {counted}");
+    assert_eq!(
+        counted["row_count"], 5000,
+        "a scanned count must be exact, not bounded by the load cap: {counted}"
+    );
+
+    let queried = call_payload(&server.ok_request(
+        3,
+        "tools/call",
+        json!({
+            "name": "run_sql",
+            "arguments": { "path": big, "query": "SELECT count(*) AS n FROM data" },
+        }),
+    ));
+    assert_eq!(queried["streamed"], true, "unexpected shape: {queried}");
+    let n = queried["result"]["rows"][0][0].clone();
+    assert!(
+        n == json!(5000) || n == json!("5000"),
+        "the aggregate must cover every row, got {n} in {queried}"
+    );
+
+    // A small file in the same session must NOT be streamed, or the opt-in is
+    // not an opt-in.
+    let small = dir.path().join("a.csv").to_string_lossy().into_owned();
+    let small_count = call_payload(&server.ok_request(
+        4,
+        "tools/call",
+        json!({ "name": "count_rows", "arguments": { "path": small } }),
+    ));
+    assert!(
+        small_count.get("streamed").is_none(),
+        "a small file should read normally: {small_count}"
+    );
+}
+
+/// Every `.md` under `docs/`, so a tool can be documented on its own page or
+/// inside a guide (the live-database tools live in the Database Connections
+/// guide, and that is the right place for them).
+fn walk_docs(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            // The design specs live under docs/ but are working notes, not
+            // published pages; a tool named only there is undocumented.
+            if path.file_name().is_some_and(|n| n == "superpowers") {
+                continue;
+            }
+            out.extend(walk_docs(&path));
+        } else if path.extension().is_some_and(|e| e == "md") {
+            out.push(path);
+        }
+    }
+    out
 }

@@ -96,17 +96,13 @@ pub(crate) fn render_sheet_picker_dialog(app: &mut OctaApp, ctx: &egui::Context)
                     .small_button(octa::i18n::t("dialog.select_all"))
                     .clicked()
                 {
-                    for v in &mut picker.selected {
-                        *v = true;
-                    }
+                    picker.selected.fill(true);
                 }
                 if ui
                     .small_button(octa::i18n::t("dialog.select_none"))
                     .clicked()
                 {
-                    for v in &mut picker.selected {
-                        *v = false;
-                    }
+                    picker.selected.fill(false);
                 }
             });
             ui.add_space(4.0);

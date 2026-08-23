@@ -67,6 +67,12 @@ pub(crate) struct BookmarkDraft {
 #[derive(Clone, Default)]
 pub(crate) struct RenameColumnsState {
     pub input_buf: String,
+    /// Also give every repeated column name a numbered suffix on Apply. Set
+    /// by the Columns -> "Fix duplicate names..." entry, which is the same
+    /// dialog opened straight onto this half of it.
+    pub fix_duplicates: bool,
+    /// Whether `Name` and `name` count as the same name.
+    pub dedupe_ignore_case: bool,
     pub size: ui::settings::DialogSize,
 }
 
@@ -80,6 +86,8 @@ impl RenameColumnsState {
         }
         Self {
             input_buf,
+            fix_duplicates: false,
+            dedupe_ignore_case: false,
             size: ui::settings::DialogSize::default(),
         }
     }
@@ -309,6 +317,28 @@ impl HarmoniseState {
 
 /// State for the Batch convert dialog (sidebar selection, or File -> Batch
 /// convert...). Inputs are resolved before the dialog opens.
+/// "Export workbook": which open tabs go into one .xlsx, and under what
+/// sheet names. Names are seeded from the tab labels and editable, because a
+/// tab label can be long, duplicated, or carry characters Excel refuses.
+/// "Open URL": the address being typed, the in-flight download, and the
+/// redirect question if the download ended up somewhere else.
+pub(crate) struct OpenUrlState {
+    pub(crate) url: String,
+    pub(crate) error: Option<String>,
+    pub(crate) running: bool,
+    pub(crate) slot: super::super::dialogs::open_url::UrlSlot,
+    /// Set when the download was redirected and the user asked to be told.
+    /// The file is already on disk; only opening it is pending.
+    pub(crate) pending_redirect: Option<octa::cloud::FetchOutcome>,
+}
+
+pub(crate) struct WorkbookState {
+    /// One entry per open tab, in tab order.
+    pub(crate) selected: Vec<bool>,
+    pub(crate) names: Vec<String>,
+    pub(crate) error: Option<String>,
+}
+
 pub(crate) struct BatchConvertState {
     pub(crate) inputs: Vec<std::path::PathBuf>,
     /// Target extension, chosen from the writable registry formats.
@@ -976,6 +1006,8 @@ pub(crate) struct PartitionState {
     /// Extension override (e.g. `"csv"`). Empty = use the source file's own
     /// extension.
     pub(crate) format: String,
+    /// Flat files or Hive `col=value/` directories.
+    pub(crate) layout: octa::data::partition::PartitionLayout,
     /// Last inline error from Apply.
     pub(crate) error: Option<String>,
     /// Dialog window sizing (Normal / Maximized / Minimized).

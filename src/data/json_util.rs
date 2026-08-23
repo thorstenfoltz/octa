@@ -303,6 +303,94 @@ pub fn parse_json_edit(input: &str) -> Value {
     Value::String(input.to_string())
 }
 
+/// Newline plus one indent step per nesting level.
+fn break_line(out: &mut String, depth: usize) {
+    out.push('\n');
+    for _ in 0..depth {
+        out.push_str("  ");
+    }
+}
+
+/// Re-indent JSON text **without parsing it into a value**.
+///
+/// Only the whitespace *between* tokens changes: every literal is copied
+/// through byte for byte, so numbers keep their exact digits (`1.50` stays
+/// `1.50`), strings keep their exact escapes, and key order is whatever the
+/// file had. Round-tripping through `serde_json::Value` would not manage any
+/// of that - it normalises numbers, cannot hold integers wider than `u64`,
+/// and this buffer is one the user can save back over their own file.
+///
+/// A minified file is one endless line in the raw editor, which is the whole
+/// reason this exists. Empty containers stay on one line (`{}`, `[]`).
+/// Anything that is not valid JSON is still re-indented by its brackets
+/// rather than rejected - the raw view is where you go to look at a file the
+/// parser already choked on.
+pub fn pretty_print(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() * 2);
+    let mut depth: usize = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    // Set right after `{` or `[`: the container is still empty, so the newline
+    // its first member needs has not been written yet.
+    let mut pending_open = false;
+
+    for ch in text.chars() {
+        if in_string {
+            out.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        // Outside a string every run of whitespace is ours to redraw.
+        if ch.is_whitespace() {
+            continue;
+        }
+
+        match ch {
+            '}' | ']' => {
+                depth = depth.saturating_sub(1);
+                if pending_open {
+                    pending_open = false; // empty container: `{}` on one line
+                } else {
+                    break_line(&mut out, depth);
+                }
+                out.push(ch);
+            }
+            ',' => {
+                pending_open = false;
+                out.push(ch);
+                break_line(&mut out, depth);
+            }
+            ':' => out.push_str(": "),
+            _ => {
+                if pending_open {
+                    break_line(&mut out, depth);
+                    pending_open = false;
+                }
+                match ch {
+                    '{' | '[' => {
+                        out.push(ch);
+                        depth += 1;
+                        pending_open = true;
+                    }
+                    '"' => {
+                        in_string = true;
+                        out.push(ch);
+                    }
+                    _ => out.push(ch),
+                }
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 #[path = "json_util_tests.rs"]
 mod tests;

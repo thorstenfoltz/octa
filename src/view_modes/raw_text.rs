@@ -86,6 +86,7 @@ pub fn render_raw_view(
         // Toolbar for CSV/TSV: align columns + delimiter selector
         let is_csv = tab.table.format_name.as_deref() == Some("CSV");
         let is_tsv = tab.table.format_name.as_deref() == Some("TSV");
+        let is_json = tab.table.format_name.as_deref() == Some("JSON");
         if is_csv || is_tsv {
             ui.horizontal(|ui| {
                 if ui
@@ -203,6 +204,38 @@ pub fn render_raw_view(
                 }
             });
             ui.add_space(2.0);
+        } else if is_json {
+            // A minified JSON file is one endless line here. Formatting it
+            // reuses the CSV toolbar's two flags unchanged - `raw_view_formatted`
+            // means "the buffer is a reformatted view", `raw_content_original`
+            // is what un-ticking restores.
+            //
+            // Unlike Align Columns this does NOT set `raw_content_modified`:
+            // re-indenting is a way of reading the file, not an edit of it, so
+            // toggling it must not turn a Save into a rewrite of the whole
+            // document. Once the user edits the formatted buffer themselves the
+            // flag goes up through the normal editor path and Save keeps their
+            // indentation.
+            ui.horizontal(|ui| {
+                if ui
+                    .checkbox(&mut tab.raw_view_formatted, octa::i18n::t("view.rt_pretty"))
+                    .on_hover_text(octa::i18n::t("view.rt_pretty_hint"))
+                    .changed()
+                {
+                    if tab.raw_view_formatted {
+                        *content = octa::data::json_util::pretty_print(content);
+                    } else if warn_unalign && tab.raw_content_modified {
+                        // Going back to the file on disk would drop edits the
+                        // user made in the formatted buffer - confirm first.
+                        tab.raw_view_formatted = true;
+                        action.confirm_unalign = true;
+                    } else if let Some(ref original) = tab.raw_content_original {
+                        *content = original.clone();
+                        tab.raw_content_modified = false;
+                    }
+                }
+            });
+            ui.add_space(2.0);
         }
 
         // Line numbers + text editor side by side. Only the gutter column is
@@ -292,12 +325,15 @@ pub fn render_raw_view(
         // Syntect-based syntax highlighting for known languages. Only kicks
         // in when:
         //   - We're NOT doing CSV/TSV column coloring (those keep their own palette).
-        //   - The file extension is on the syntax module's whitelist
-        //     (JSON/YAML/XML/Markdown/TOML are deliberately excluded - they
-        //     have dedicated tree/preview views, and running syntect every
-        //     frame on a multi-MB JSON made the raw editor sluggish).
-        //   - The buffer is below `MAX_HIGHLIGHT_BYTES` (1 MB) - past that
-        //     point per-line tokenisation on every layouter call is too slow.
+        //   - The file extension is on the syntax module's whitelist, which
+        //     now includes JSON/YAML/XML/TOML.
+        //   - The buffer is below `syntax_highlight_max_bytes` (1 MB).
+        //
+        // **egui calls this layouter on every frame**, before its galley cache
+        // is consulted, so whatever it does is a per-frame cost. Tokenising is
+        // therefore memoized inside `syntax::highlight_layout_job`; without
+        // that memo a 700 KB JSON cost seconds per frame and froze the app.
+        // Anything added here has to be cheap per frame or memoized too.
         let syntect_syntax = (!use_col_colors && content.len() <= syntax_highlight_max_bytes)
             .then(|| {
                 tab.table.source_path.as_deref().and_then(|p| {

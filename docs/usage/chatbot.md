@@ -13,6 +13,10 @@ Everything is local-first and provider-agnostic: pick a cloud model (Claude,
 GPT, Gemini) or run a model entirely on your own machine with
 [Ollama](#using-ollama).
 
+For how the assistant works out what your columns mean before it writes a
+query, and what does and does not reach your model provider, see
+[How the Assistant Understands Your Data](assistant-context.md).
+
 <!-- SCREENSHOT: chat-panel.png: The chat assistant docked on the right of the table view. -->
 ![Chat Assistant](../assets/screenshots/chatbot.png)
 

@@ -23,6 +23,7 @@ fn sample_ctx() -> ToolContext {
         vec![CellValue::Int(2), CellValue::String("b".into())],
     ];
     ToolContext {
+        large_file_min_bytes: 0,
         open_tabs: vec![TableSnapshot {
             handle: "#1".into(),
             display_name: "demo".into(),
@@ -63,6 +64,7 @@ fn id_tab(handle: &str, name: &str, ids: &[i64]) -> TableSnapshot {
 
 fn multi_ctx() -> ToolContext {
     ToolContext {
+        large_file_min_bytes: 0,
         open_tabs: vec![
             id_tab("#1", "a.csv", &[1, 2, 3]),
             id_tab("#2", "b.csv", &[2, 3, 4]),
@@ -195,6 +197,7 @@ fn text_ctx(lines: &[&str], source_path: Option<&str>) -> ToolContext {
         .map(|l| vec![CellValue::String((*l).into())])
         .collect();
     ToolContext {
+        large_file_min_bytes: 0,
         open_tabs: vec![TableSnapshot {
             handle: "#1".into(),
             display_name: "notes.md".into(),

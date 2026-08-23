@@ -782,8 +782,7 @@ fn build_line_or_scatter(
         })
         .collect();
 
-    let categories: Option<Vec<String>>;
-    if x_is_numeric {
+    let categories: Option<Vec<String>> = if x_is_numeric {
         // Original numeric / date path.
         let mut any_x = false;
         for &row in &sampled {
@@ -815,7 +814,7 @@ fn build_line_or_scatter(
                     .sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
             }
         }
-        categories = None;
+        None
     } else {
         // Categorical path: build a first-seen-order category list,
         // place each row at its category index. No aggregation - multiple
@@ -856,8 +855,8 @@ fn build_line_or_scatter(
         // Do NOT sort by X here: row-encounter order is the only sensible
         // sequence for a categorical Line ("connect the bars left to right"),
         // and sorting by category-index is already the encounter order.
-        categories = Some(category_order);
-    }
+        Some(category_order)
+    };
 
     if series_buf.iter().all(|s| s.points.is_empty()) {
         let first = col_name(table, y_cols[0]);

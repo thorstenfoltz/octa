@@ -102,6 +102,49 @@ pub fn plan_renames(columns: &[String], pairs: &[(String, String)]) -> RenamePla
     plan
 }
 
+/// Plan the renames that make every column name unique.
+///
+/// The first column carrying a name keeps it; every later one gets `_2`,
+/// `_3`, ... appended, skipping any suffix that some *other* column already
+/// owns, so de-colliding `a`, `a`, `a_2` renames only the middle one (to
+/// `a_3`) instead of pushing the rename down the row.
+///
+/// With `ignore_case` the comparison folds case, so `Name` and `name` count
+/// as the same name; the kept column's own spelling is never touched.
+///
+/// Returns `(col_index, old_name, new_name)` like [`RenamePlan::matched`],
+/// addressed **by index** - which is the whole point, since the one thing a
+/// name cannot identify is a column whose name is a duplicate.
+pub fn plan_dedupe(columns: &[String], ignore_case: bool) -> Vec<(usize, String, String)> {
+    let fold = |s: &str| {
+        if ignore_case {
+            s.to_lowercase()
+        } else {
+            s.to_string()
+        }
+    };
+    let owned: std::collections::HashSet<String> = columns.iter().map(|c| fold(c)).collect();
+    let mut taken: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut renames = Vec::new();
+    for (index, name) in columns.iter().enumerate() {
+        if taken.insert(fold(name)) {
+            continue;
+        }
+        let mut n = 2;
+        let new = loop {
+            let candidate = format!("{name}_{n}");
+            let key = fold(&candidate);
+            if !taken.contains(&key) && !owned.contains(&key) {
+                break candidate;
+            }
+            n += 1;
+        };
+        taken.insert(fold(&new));
+        renames.push((index, name.clone(), new));
+    }
+    renames
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,5 +199,58 @@ mod tests {
         let plan = plan_renames(&cols, &[("a".into(), "b".into()), ("b".into(), "a".into())]);
         assert!(plan.collisions.is_empty(), "got {:?}", plan.collisions);
         assert_eq!(plan.matched.len(), 2);
+    }
+
+    #[test]
+    fn dedupe_suffixes_repeats_in_column_order() {
+        let cols = vec!["a".into(), "b".into(), "a".into(), "a".into()];
+        assert_eq!(
+            plan_dedupe(&cols, false),
+            vec![
+                (2, "a".to_string(), "a_2".to_string()),
+                (3, "a".to_string(), "a_3".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn dedupe_leaves_unique_names_alone() {
+        let cols = vec!["a".into(), "B".into()];
+        assert!(plan_dedupe(&cols, false).is_empty());
+        // Case-folded they are still different names.
+        assert!(plan_dedupe(&cols, true).is_empty());
+    }
+
+    #[test]
+    fn dedupe_can_ignore_case() {
+        let cols = vec!["Name".into(), "name".into()];
+        assert!(plan_dedupe(&cols, false).is_empty());
+        assert_eq!(
+            plan_dedupe(&cols, true),
+            vec![(1, "name".to_string(), "name_2".to_string())]
+        );
+    }
+
+    #[test]
+    fn dedupe_does_not_steal_a_suffix_another_column_owns() {
+        // `a_2` is a real column here, so the duplicate `a` has to become `a_3`
+        // and `a_2` keeps its name.
+        let cols = vec!["a".into(), "a".into(), "a_2".into()];
+        assert_eq!(
+            plan_dedupe(&cols, false),
+            vec![(1, "a".to_string(), "a_3".to_string())]
+        );
+    }
+
+    #[test]
+    fn dedupe_result_has_no_duplicates_left() {
+        let cols: Vec<String> = vec!["x".into(), "x".into(), "X".into(), "x_2".into()];
+        let mut out = cols.clone();
+        for (i, _, new) in plan_dedupe(&cols, true) {
+            out[i] = new;
+        }
+        let folded: std::collections::HashSet<String> =
+            out.iter().map(|s| s.to_lowercase()).collect();
+        assert_eq!(folded.len(), out.len(), "{out:?}");
     }
 }

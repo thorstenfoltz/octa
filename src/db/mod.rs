@@ -35,6 +35,7 @@ pub mod fetch_table;
 pub mod mssql;
 pub mod mysql;
 pub mod postgres;
+pub mod relationships;
 pub(crate) mod rest;
 pub mod snowflake;
 pub mod write_back;
@@ -108,6 +109,25 @@ impl DbEngine {
         }
     }
 
+    /// Whether a plain `UPDATE ... WHERE` / `DELETE ... WHERE` edits one row,
+    /// which is what the full-row write-back fallback needs.
+    ///
+    /// ClickHouse spells it `ALTER TABLE ... UPDATE` and applies it
+    /// asynchronously, and the three catalog warehouses have limited or
+    /// non-transactional DML, so a table without a key stays read-only there
+    /// rather than being edited by a statement that may not do what the
+    /// confirmation dialog just promised.
+    pub fn supports_row_update(self) -> bool {
+        matches!(
+            self,
+            DbEngine::Postgres
+                | DbEngine::MySql
+                | DbEngine::Mssql
+                | DbEngine::Redshift
+                | DbEngine::Exasol
+        )
+    }
+
     /// Whether DuckDB can `ATTACH` this engine natively (via its
     /// `postgres`/`mysql` extensions). Redshift speaks the Postgres wire
     /// protocol so it rides the same extension.
@@ -142,6 +162,28 @@ impl DbEngine {
             DbEngine::Snowflake | DbEngine::Databricks | DbEngine::BigQuery
         )
     }
+
+    /// Whether the engine has foreign keys to read at all. ClickHouse is the
+    /// one that does not: it has no referential constraints of any kind, so
+    /// there is nothing for the relationship map to ask it. The rest declare
+    /// them, though Redshift, Snowflake and BigQuery accept a declaration
+    /// without enforcing it.
+    pub fn has_foreign_keys(self) -> bool {
+        !matches!(self, DbEngine::ClickHouse)
+    }
+
+    /// Whether a declared foreign key is also a fact about the rows.
+    ///
+    /// The four warehouses accept `REFERENCES` and never check it, so a child
+    /// value pointing at a parent that does not exist is possible there. That
+    /// is the difference between reading the catalog and measuring the data,
+    /// and it is why the relationship map offers to measure.
+    pub fn enforces_foreign_keys(self) -> bool {
+        matches!(
+            self,
+            DbEngine::Postgres | DbEngine::MySql | DbEngine::Mssql | DbEngine::Exasol
+        )
+    }
 }
 
 #[cfg(test)]
@@ -152,6 +194,32 @@ mod engine_tests {
     fn all_lists_nine_engines() {
         assert_eq!(DbEngine::ALL.len(), 9);
         assert!(DbEngine::ALL.contains(&DbEngine::Snowflake));
+    }
+
+    /// An engine cannot enforce a constraint it does not have, and the
+    /// relationship map branches on both: `has_foreign_keys` decides whether
+    /// to ask at all, `enforces_foreign_keys` whether the answer also says
+    /// anything about the rows.
+    #[test]
+    fn only_engines_with_foreign_keys_can_enforce_them() {
+        for e in DbEngine::ALL {
+            if e.enforces_foreign_keys() {
+                assert!(e.has_foreign_keys(), "{e:?} enforces what it does not have");
+            }
+        }
+        assert!(!DbEngine::ClickHouse.has_foreign_keys());
+        assert!(DbEngine::Postgres.enforces_foreign_keys());
+        // The warehouses take a declaration and check nothing, which is the
+        // whole reason the map offers to measure.
+        for e in [
+            DbEngine::Redshift,
+            DbEngine::Snowflake,
+            DbEngine::Databricks,
+            DbEngine::BigQuery,
+        ] {
+            assert!(e.has_foreign_keys(), "{e:?} should declare foreign keys");
+            assert!(!e.enforces_foreign_keys(), "{e:?} does not enforce them");
+        }
     }
 
     #[test]
@@ -751,29 +819,88 @@ pub fn select_sample_sql(
 /// MySQL/MariaDB, SQL Server all expose these views); values are embedded as
 /// string literals with `''` doubling. The `engine` parameter is kept in the
 /// signature in case a dialect split ever becomes necessary.
-pub fn primary_key_sql(
-    engine: DbEngine,
-    catalog: Option<&str>,
-    schema: &str,
-    table: &str,
-) -> String {
-    // Two-level engines only reach this; catalog engines skip the PK lookup
-    // (they expose no discoverable PK). Kept in the signature for uniformity.
+/// One row of [`row_key_sql`]'s result, as [`choose_row_key`] wants it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowKeyCandidate {
+    /// `PRIMARY KEY` or `UNIQUE`, straight from `information_schema`.
+    pub constraint_type: String,
+    pub constraint_name: String,
+    pub column_name: String,
+    /// `true` when `information_schema.columns.is_nullable` is `YES`.
+    pub nullable: bool,
+}
+
+/// SQL listing every constraint that could address a single row: the primary
+/// key and every unique constraint, with each column's nullability.
+///
+/// Widened from a primary-key-only lookup because **a UNIQUE constraint over
+/// NOT NULL columns identifies a row exactly as well as a primary key** - it
+/// is the same server-enforced guarantee - and plenty of real tables (views
+/// of legacy schemas, ETL output) have one without ever declaring a PK. Those
+/// tables used to open read-only for no reason a user could act on.
+///
+/// One generic `information_schema` query, as before, so Postgres, MySQL and
+/// SQL Server all share it. Nullability comes along because `WHERE col = NULL`
+/// never matches, so a nullable unique column would silently update no rows;
+/// [`choose_row_key`] drops those candidates.
+pub fn row_key_sql(engine: DbEngine, catalog: Option<&str>, schema: &str, table: &str) -> String {
+    // Two-level engines only reach this; catalog engines skip the lookup
+    // (they expose no discoverable key). Kept in the signature for uniformity.
     let _ = (engine, catalog);
     let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
     format!(
-        "SELECT kcu.column_name \
+        "SELECT tc.constraint_type, tc.constraint_name, kcu.column_name, c.is_nullable \
          FROM information_schema.table_constraints tc \
          JOIN information_schema.key_column_usage kcu \
            ON kcu.constraint_name = tc.constraint_name \
           AND kcu.table_schema = tc.table_schema \
           AND kcu.table_name = tc.table_name \
-         WHERE tc.constraint_type = 'PRIMARY KEY' \
+         JOIN information_schema.columns c \
+           ON c.table_schema = tc.table_schema \
+          AND c.table_name = tc.table_name \
+          AND c.column_name = kcu.column_name \
+         WHERE tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE') \
            AND tc.table_schema = {} AND tc.table_name = {} \
-         ORDER BY kcu.ordinal_position",
+         ORDER BY tc.constraint_type, tc.constraint_name, kcu.ordinal_position",
         lit(schema),
         lit(table)
     )
+}
+
+/// Pick the columns that address one server row, from [`row_key_sql`]'s rows.
+///
+/// A primary key always wins. Failing that, the **narrowest unique constraint
+/// whose columns are all NOT NULL** is taken, ties broken by constraint name
+/// so the choice is stable: the baseline snapshot taken at load is addressed
+/// by this key at save, and a key that changed between the two would write to
+/// the wrong rows. An empty result means the tab stays read-only.
+pub fn choose_row_key(rows: &[RowKeyCandidate]) -> Vec<String> {
+    use std::collections::BTreeMap;
+    // BTreeMap so iteration is by constraint name, i.e. deterministic.
+    let mut by_constraint: BTreeMap<(&str, &str), Vec<&RowKeyCandidate>> = BTreeMap::new();
+    for r in rows {
+        by_constraint
+            .entry((r.constraint_type.as_str(), r.constraint_name.as_str()))
+            .or_default()
+            .push(r);
+    }
+
+    if let Some(((_, _), cols)) = by_constraint
+        .iter()
+        .find(|((ty, _), _)| ty.eq_ignore_ascii_case("PRIMARY KEY"))
+    {
+        return cols.iter().map(|c| c.column_name.clone()).collect();
+    }
+
+    by_constraint
+        .iter()
+        .filter(|((ty, _), cols)| {
+            ty.eq_ignore_ascii_case("UNIQUE") && cols.iter().all(|c| !c.nullable)
+        })
+        // Narrowest first; BTreeMap order settles a tie by constraint name.
+        .min_by_key(|(_, cols)| cols.len())
+        .map(|(_, cols)| cols.iter().map(|c| c.column_name.clone()).collect())
+        .unwrap_or_default()
 }
 
 /// SQL returning a table's metadata for the sidebar "Show metadata..." action,
@@ -1067,7 +1194,9 @@ mod tests {
                 data_type: "Int64".to_string(),
             }],
         );
-        assert!(sql.contains("analytics.orders"), "got: {sql}");
+        // Quoted, because the INSERT that follows this DDL quotes too, and
+        // Snowflake folds an unquoted identifier to upper case.
+        assert!(sql.contains(r#""analytics"."orders""#), "got: {sql}");
         let qualified = qualified_name(
             DbEngine::Snowflake,
             Some("sales_prod"),
@@ -1124,13 +1253,88 @@ mod tests {
         );
     }
 
+    fn cand(ty: &str, name: &str, col: &str, nullable: bool) -> RowKeyCandidate {
+        RowKeyCandidate {
+            constraint_type: ty.to_string(),
+            constraint_name: name.to_string(),
+            column_name: col.to_string(),
+            nullable,
+        }
+    }
+
     #[test]
-    fn primary_key_sql_quotes_literals() {
-        let sql = primary_key_sql(DbEngine::Postgres, None, "pub'lic", "orders");
+    fn a_primary_key_always_wins() {
+        let rows = vec![
+            cand("UNIQUE", "uq_code", "code", false),
+            cand("PRIMARY KEY", "pk_orders", "id", false),
+        ];
+        assert_eq!(choose_row_key(&rows), vec!["id".to_string()]);
+    }
+
+    #[test]
+    fn a_composite_primary_key_keeps_its_column_order() {
+        let rows = vec![
+            cand("PRIMARY KEY", "pk", "tenant", false),
+            cand("PRIMARY KEY", "pk", "id", false),
+        ];
+        assert_eq!(
+            choose_row_key(&rows),
+            vec!["tenant".to_string(), "id".to_string()]
+        );
+    }
+
+    /// A UNIQUE constraint over NOT NULL columns is the same server-enforced
+    /// one-row guarantee a primary key gives, so a table with one is editable.
+    #[test]
+    fn a_not_null_unique_constraint_stands_in_for_a_primary_key() {
+        let rows = vec![cand("UNIQUE", "uq_code", "code", false)];
+        assert_eq!(choose_row_key(&rows), vec!["code".to_string()]);
+    }
+
+    /// `WHERE col = NULL` matches nothing, so a nullable unique column would
+    /// silently update zero rows and report success.
+    #[test]
+    fn a_nullable_unique_constraint_is_refused() {
+        let rows = vec![cand("UNIQUE", "uq_code", "code", true)];
+        assert!(choose_row_key(&rows).is_empty());
+    }
+
+    /// The key is taken again at save time against a baseline snapshotted at
+    /// load, so a table with several unique constraints must always yield the
+    /// same one - otherwise the write addresses different rows than it read.
+    #[test]
+    fn several_unique_constraints_resolve_to_the_narrowest_one_deterministically() {
+        let rows = vec![
+            cand("UNIQUE", "uq_b_wide", "x", false),
+            cand("UNIQUE", "uq_b_wide", "y", false),
+            cand("UNIQUE", "uq_a_narrow", "code", false),
+        ];
+        assert_eq!(choose_row_key(&rows), vec!["code".to_string()]);
+        // Same inputs in the other order must still pick the same key.
+        let reversed: Vec<_> = rows.into_iter().rev().collect();
+        assert_eq!(choose_row_key(&reversed), vec!["code".to_string()]);
+    }
+
+    #[test]
+    fn no_constraint_at_all_leaves_the_tab_read_only() {
+        assert!(choose_row_key(&[]).is_empty());
+    }
+
+    #[test]
+    fn row_key_sql_quotes_literals_and_asks_for_both_constraint_kinds() {
+        let sql = row_key_sql(DbEngine::Postgres, None, "pub'lic", "orders");
         assert!(sql.contains("tc.table_schema = 'pub''lic'"), "{sql}");
         assert!(sql.contains("tc.table_name = 'orders'"), "{sql}");
-        assert!(sql.contains("constraint_type = 'PRIMARY KEY'"), "{sql}");
-        assert!(sql.ends_with("ORDER BY kcu.ordinal_position"), "{sql}");
+        assert!(
+            sql.contains("constraint_type IN ('PRIMARY KEY', 'UNIQUE')"),
+            "{sql}"
+        );
+        // Nullability decides whether a unique constraint can address a row.
+        assert!(sql.contains("c.is_nullable"), "{sql}");
+        assert!(
+            sql.ends_with("ORDER BY tc.constraint_type, tc.constraint_name, kcu.ordinal_position"),
+            "{sql}"
+        );
     }
 
     #[test]

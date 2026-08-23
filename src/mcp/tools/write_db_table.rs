@@ -102,7 +102,7 @@ mod tests {
             oauth_client_id: None,
             oauth_tenant: None,
         };
-        let ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, vec![conn], false);
+        let ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, vec![conn], false, 0);
         let p = Params {
             connection: "wh".into(),
             schema: "public".into(),
@@ -131,7 +131,7 @@ mod tests {
             oauth_client_id: None,
             oauth_tenant: None,
         };
-        let ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, vec![conn], false);
+        let ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, vec![conn], false, 0);
         let p = Params {
             connection: "wh".into(),
             schema: "public".into(),

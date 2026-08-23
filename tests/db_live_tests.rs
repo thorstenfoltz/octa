@@ -178,21 +178,29 @@ fn exercise_write_back(engine: DbEngine, env_var: &str, schema: &str) {
     ))
     .expect("seed rows");
 
-    // PK discovery via the shared information_schema query.
-    let pk = c
-        .query(&octa::db::primary_key_sql(
-            engine,
-            None,
-            schema,
-            &table_name,
-        ))
-        .expect("pk query");
-    let pk_cols: Vec<String> = pk
+    // Row-key discovery via the shared information_schema query: a primary
+    // key when there is one, else a NOT NULL unique constraint.
+    let keys = c
+        .query(&octa::db::row_key_sql(engine, None, schema, &table_name))
+        .expect("row key query");
+    let candidates: Vec<octa::db::RowKeyCandidate> = keys
         .rows
         .iter()
-        .filter_map(|r| r.first().map(|v| v.to_string()))
+        .filter_map(|r| {
+            Some(octa::db::RowKeyCandidate {
+                constraint_type: r.first()?.to_string(),
+                constraint_name: r.get(1)?.to_string(),
+                column_name: r.get(2)?.to_string(),
+                nullable: r
+                    .get(3)
+                    .map(|v| v.to_string().eq_ignore_ascii_case("YES"))
+                    .unwrap_or(true),
+            })
+        })
         .collect();
+    let pk_cols = octa::db::choose_row_key(&candidates);
     assert_eq!(pk_cols, vec!["id".to_string()]);
+    let identity = octa::db::write_back::RowIdentity::Key(pk_cols);
 
     // Load + baseline, exactly as the sidebar open worker builds it.
     let mut t = c
@@ -237,7 +245,7 @@ fn exercise_write_back(engine: DbEngine, env_var: &str, schema: &str) {
         .push(vec![CellValue::Int(9), CellValue::String("z".into())]);
     t.db_meta.as_mut().unwrap().row_tags.push(None);
 
-    let plan = build_write_back_plan(&t, &pk_cols).expect("plan");
+    let plan = build_write_back_plan(&t, &identity).expect("plan");
     assert_eq!(plan.change_count(), 3);
     let report = apply_write_back(
         c.as_mut(),
@@ -245,7 +253,7 @@ fn exercise_write_back(engine: DbEngine, env_var: &str, schema: &str) {
         schema,
         &table_name,
         &t.columns,
-        &pk_cols,
+        &identity,
         &plan,
     )
     .expect("apply");
@@ -274,7 +282,7 @@ fn exercise_write_back(engine: DbEngine, env_var: &str, schema: &str) {
         schema,
         &table_name,
         &t.columns,
-        &pk_cols,
+        &identity,
         &bad,
     )
     .expect_err("duplicate PK insert must fail");
@@ -731,4 +739,69 @@ fn fetch_table_defaults_the_schema_live() {
     assert_eq!(t.row_count(), 2);
 
     c.execute("DROP TABLE octa_fetch_live").unwrap();
+}
+
+/// Postgres `numeric` must survive the round trip exactly.
+///
+/// Regression test for a silent data-loss bug: tokio-postgres has no
+/// `FromSql<String>` for NUMERIC, the generic fallback swallowed the error,
+/// and every decimal column read as NULL. Because a database tab writes back
+/// full rows, saving any edit then replaced real values on the server with
+/// NULL. Money columns are the common case, so this asserts exact text, not
+/// an approximation: `99.50` must not come back as `99.5`.
+#[test]
+fn postgres_numeric_round_trip_live() {
+    let env_var = "OCTA_TEST_POSTGRES_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::Postgres) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret)).expect("connect");
+
+    c.execute("DROP TABLE IF EXISTS octa_numeric_probe").ok();
+    c.execute(
+        "CREATE TABLE octa_numeric_probe (\
+             id int PRIMARY KEY, money numeric(12,2), tiny numeric, \
+             big numeric, neg numeric(10,4), nul numeric)",
+    )
+    .expect("create probe table");
+    c.execute(
+        "INSERT INTO octa_numeric_probe VALUES \
+         (1, 99.50, 0.05, 10000, -1234.5678, NULL), \
+         (2, 120.50, 0.000005, 123456789, -0.0001, NULL), \
+         (3, 0.00, 12345678.87654321, 1, 0.0000, NULL)",
+    )
+    .expect("insert probe rows");
+
+    let got = c
+        .query("SELECT id, money, tiny, big, neg, nul FROM octa_numeric_probe ORDER BY id")
+        .expect("select");
+    c.execute("DROP TABLE octa_numeric_probe").ok();
+
+    let cell = |row: usize, col: usize| -> String {
+        got.get(row, col).map(|v| v.to_string()).unwrap_or_default()
+    };
+
+    assert_eq!(got.row_count(), 3, "expected three probe rows");
+    // Trailing zeros are part of the declared scale and must not be trimmed.
+    assert_eq!(cell(0, 1), "99.50");
+    assert_eq!(cell(1, 1), "120.50");
+    assert_eq!(cell(2, 1), "0.00");
+    // Values below one exercise a negative weight in the wire format.
+    assert_eq!(cell(0, 2), "0.05");
+    assert_eq!(cell(1, 2), "0.000005");
+    // More than one base-10000 group, integer and fractional.
+    assert_eq!(cell(2, 2), "12345678.87654321");
+    assert_eq!(cell(0, 3), "10000");
+    assert_eq!(cell(1, 3), "123456789");
+    // Negatives keep their sign and scale.
+    assert_eq!(cell(0, 4), "-1234.5678");
+    assert_eq!(cell(1, 4), "-0.0001");
+    assert_eq!(cell(2, 4), "0.0000");
+    // A real NULL must still read as NULL, not as an empty decimal.
+    assert!(
+        matches!(got.get(0, 5), Some(CellValue::Null) | None),
+        "NULL numeric should stay NULL, got {:?}",
+        got.get(0, 5)
+    );
 }

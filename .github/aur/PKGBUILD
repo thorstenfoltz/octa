@@ -38,5 +38,9 @@ package() {
     install -Dm644 "assets/octa.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/octa.svg"
     install -Dm644 "octa.desktop" "$pkgdir/usr/share/applications/octa.desktop"
     install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 "NOTICE" "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
+    install -Dm644 "THIRD_PARTY_LICENSES.md" \
+        "$pkgdir/usr/share/licenses/$pkgname/THIRD_PARTY_LICENSES.md"
+    install -Dm644 -t "$pkgdir/usr/share/licenses/$pkgname/licenses" licenses/*.txt
     install -Dm644 "octa.1" "$pkgdir/usr/share/man/man1/octa.1"
 }

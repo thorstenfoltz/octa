@@ -266,6 +266,24 @@ impl SqlWorkspace {
         self.register_or_replace("data", table, TableOrigin::ActiveTab)
     }
 
+    /// Register a file as a DuckDB **view** that scans it in place, so a
+    /// query never materialises its rows. Only the formats DuckDB can scan
+    /// qualify; the caller checks that with
+    /// [`ScanKind::for_path`](crate::formats::large::ScanKind::for_path).
+    ///
+    /// This is what makes `--sql --stream` able to aggregate a file far larger
+    /// than memory: the rows are DuckDB's problem, not ours.
+    pub fn add_view_from_scan(&mut self, sql_name: &str, path: &Path) -> Result<()> {
+        let kind = crate::formats::large::ScanKind::for_path(path)
+            .ok_or_else(|| anyhow!("{} cannot be scanned in place", path.display()))?;
+        let name = sanitize_sql_name(sql_name);
+        self.conn.execute_batch(&format!(
+            "CREATE OR REPLACE VIEW {name} AS SELECT * FROM {}",
+            kind.scan_expr(path)
+        ))?;
+        Ok(())
+    }
+
     /// Register a `DataTable` under `sql_name`. Returns the row count for
     /// the caller's UI. Replaces any existing registration with the same name.
     pub fn add_table(

@@ -151,8 +151,17 @@ You pick:
 - **Leave as text**: keep the column as `Utf8`, no promotion.
 
 The dialog shows a few sample values from the column so you have
-context. The choice applies only to *that column*; other ambiguous
-columns get their own dialog.
+context. By default the choice applies only to *that column*, and other
+ambiguous columns get their own dialog.
+
+A wide file can raise a lot of these, so the dialog says how many are
+still queued and offers **Use this answer for all remaining columns**.
+Ticking it settles every other queued column that offers the layout you
+picked; a column whose candidates are different is still asked
+separately, because answering it with a layout it never offered would
+silently reinterpret its values. **Leave as text** with the box ticked
+clears the whole queue, since leaving a column alone is an answer every
+column can take.
 
 When the dialog blocks (multiple files queued), the open queue
 **pauses** until you resolve it, so you can answer one file's
@@ -167,6 +176,12 @@ Octa shows a dismissible banner at the top of the table:
 > Note: The column `created_at` was detected as **DD.MM.YYYY
 > (European)** and converted to canonical ISO display
 > (`YYYY-MM-DD`). The source file is unchanged. [Dismiss]
+
+The banner names at most six columns and then counts the rest ("and 22
+more"); hover it to see the full list. Spelled out in full, a file with
+dozens of date columns produced a single line wider than the screen,
+which pushed the banner's own buttons out of reach in a strip that does
+not scroll sideways.
 
 Reason: the on-disk values are `15.01.2024` but the table shows
 `2024-01-15`. The banner makes that explicit so you're not

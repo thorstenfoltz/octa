@@ -14,7 +14,7 @@ re-typing every column name.
 | **Menu**              | **File → Export schema…** opens the dialog on the first target (Postgres). |
 | **Keyboard shortcut** | <kbd>F7</kbd> (remappable under Settings → Shortcuts).                     |
 
-The dialog renders all nine targets the same way. Switch between
+The dialog renders all ten targets the same way. Switch between
 them with the chip row inside the dialog. No need to pick a target
 up front from a submenu.
 
@@ -26,6 +26,7 @@ The dialog lists targets alphabetically:
 |--------------------------|-------------------------------------------------------------------------------------------|----------------|
 | **Databricks**           | `CREATE TABLE` with Spark SQL / Delta types (`STRING`, `TIMESTAMP_NTZ`).                  | `.sql`         |
 | **JSON Schema**          | Draft 2020-12 object schema with `properties` and `required`.                             | `.json`        |
+| **MS SQL Server**        | `CREATE TABLE` with T-SQL types (`NVARCHAR(MAX)`, `BIT`, `DATETIME2`), bracket-quoted.    | `.sql`         |
 | **MySQL**                | `CREATE TABLE` with MySQL types (`UNSIGNED` / `DATETIME` / `BLOB`).                       | `.sql`         |
 | **Postgres**             | `CREATE TABLE` with Postgres types.                                                       | `.sql`         |
 | **Pydantic v2**          | `BaseModel` subclass with annotated fields and the correct `datetime` / `Field` imports.  | `.py`          |
@@ -77,6 +78,26 @@ The two cloud-warehouse SQL dialects map types as follows:
 `*` Neither dialect has unsigned integers; UInt64 round-trips as a
 20-digit decimal with a `/* … */` note. The two `Timestamp` mappings
 are the tz-less Arrow timestamp vs. the tz-aware one.
+
+MS SQL Server maps types as follows:
+
+| Arrow type             | MS SQL Server                  |
+|------------------------|--------------------------------|
+| `Int8 / Int16`         | `SMALLINT`                     |
+| `Int32`                | `INT`                          |
+| `Int64`                | `BIGINT`                       |
+| `UInt8 … UInt32`       | widened up one                 |
+| `UInt64`               | `NUMERIC(20, 0)` *             |
+| `Float16 / Float32`    | `REAL`                         |
+| `Float64`              | `FLOAT`                        |
+| `Boolean`              | `BIT`                          |
+| `Utf8 / LargeUtf8`     | `NVARCHAR(MAX)`                |
+| `Date32 / Date64`      | `DATE`                         |
+| `Timestamp(…)`         | `DATETIME2` / `DATETIMEOFFSET` |
+| `Binary / LargeBinary` | `VARBINARY(MAX)`               |
+
+`*` T-SQL has no unsigned integers either. Identifiers are quoted with
+brackets (`[column name]`, an embedded `]` doubled), not double quotes.
 
 Arrow types that fall outside the table above (e.g. `Decimal256`,
 `List<…>`) fall through to each target's TEXT-equivalent with a

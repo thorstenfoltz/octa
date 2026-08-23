@@ -332,27 +332,29 @@ impl SqlEditorFont {
     }
 }
 
-/// Display unit for the syntax-highlight size cap in the Settings dialog.
-/// Octa stores the cap as raw bytes in `settings.toml`; this enum only
+/// Display unit for a byte-size setting in the Settings dialog.
+/// Octa stores every such size as raw bytes in `settings.toml`; this enum only
 /// governs how the value is presented and edited in the dialog. Not
 /// persisted to the toml - defaults to MB at each open and the dialog
 /// picks the most natural unit for the current value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SyntaxSizeUnit {
+pub enum SizeUnit {
     Bytes,
     KB,
     #[default]
     MB,
+    GB,
 }
 
-impl SyntaxSizeUnit {
-    pub const ALL: &[SyntaxSizeUnit] = &[Self::Bytes, Self::KB, Self::MB];
+impl SizeUnit {
+    pub const ALL: &[SizeUnit] = &[Self::Bytes, Self::KB, Self::MB, Self::GB];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Bytes => "Bytes",
             Self::KB => "KB",
             Self::MB => "MB",
+            Self::GB => "GB",
         }
     }
 
@@ -361,6 +363,7 @@ impl SyntaxSizeUnit {
             Self::Bytes => crate::i18n::t("enum.unit_bytes"),
             Self::KB => "KB".to_string(),
             Self::MB => "MB".to_string(),
+            Self::GB => "GB".to_string(),
         }
     }
 
@@ -369,14 +372,18 @@ impl SyntaxSizeUnit {
             Self::Bytes => 1,
             Self::KB => 1_024,
             Self::MB => 1_024 * 1_024,
+            Self::GB => 1_024 * 1_024 * 1_024,
         }
     }
 
     /// Pick the largest unit that represents `bytes` as an integer
-    /// (so 1,048,576 -> 1 MB; 2,048 -> 2 KB; 1,500 -> 1500 Bytes).
+    /// (so 1,073,741,824 -> 1 GB; 1,048,576 -> 1 MB; 1,500 -> 1500 Bytes).
     pub fn best_fit(bytes: usize) -> Self {
         if bytes == 0 {
             return Self::MB;
+        }
+        if bytes.is_multiple_of(Self::GB.factor()) {
+            return Self::GB;
         }
         if bytes.is_multiple_of(Self::MB.factor()) {
             return Self::MB;
@@ -662,6 +669,11 @@ pub struct AppSettings {
     /// even when `thousands_separators_in_cells` is off. Default English.
     #[serde(default)]
     pub number_separator_style: crate::data::num_format::SeparatorStyle,
+    /// What the relationship map's Export button writes. PDF by default; the
+    /// picker beside the button changes it and the change sticks, so a user
+    /// who always wants SVG (or the interactive HTML) sets it once.
+    #[serde(default)]
+    pub rel_map_export_format: crate::data::rel_map_export::RelMapExportFormat,
     /// Default search behaviour: `Filter` hides non-matching rows (table only),
     /// `Highlight` keeps every row and highlights matches in place. The
     /// search-bar toggle overrides this per session. Text/tree views always
@@ -802,6 +814,15 @@ pub struct AppSettings {
     /// high to opt out of the guard.
     #[serde(default = "default_syntax_highlight_max_bytes")]
     pub syntax_highlight_max_bytes: usize,
+    /// Files at least this big open in large-file mode, which keeps the rows
+    /// on disk and pages them in instead of loading them into memory.
+    /// Default 10 GB.
+    #[serde(default = "default_large_file_min_bytes")]
+    pub large_file_min_bytes: usize,
+    /// Explain what large-file mode can and cannot do, and ask, before opening
+    /// such a file. Default on.
+    #[serde(default = "default_true")]
+    pub show_large_file_notice: bool,
     /// Maximum number of rows loaded into the active `DataTable` on first
     /// open for streaming formats (Parquet, CSV, TSV). Additional rows
     /// load in the background as the user scrolls toward the bottom.
@@ -861,6 +882,19 @@ pub struct AppSettings {
     /// the F8 session read-only mode (which blocks every in-memory edit).
     #[serde(default = "default_true")]
     pub write_protection: bool,
+    /// Ask before opening a web address that redirected somewhere else.
+    /// Default **true**. A link can bounce you to a different address than
+    /// the one you typed, and the file you get is the one at the end of that
+    /// chain, so the confirmation is the only place the change is visible.
+    #[serde(default = "default_true")]
+    pub confirm_url_redirects: bool,
+    /// Ask for confirmation before writing a database tab's edits back to the
+    /// server, listing what would change. Default **true**. Turning it off
+    /// makes Save apply the diff straight away, which is what a user who
+    /// writes back constantly will want and what a user editing production
+    /// will not; the write is still one transaction either way.
+    #[serde(default = "default_true")]
+    pub confirm_db_write_back: bool,
     /// Copy an existing file to `<name>.<ext>.bak-YYYYMMDD-HHMMSS` before any
     /// in-place modification (every format). Default **true**.
     #[serde(default = "default_true")]
@@ -1172,6 +1206,10 @@ fn default_syntax_highlight_max_bytes() -> usize {
     1024 * 1024
 }
 
+fn default_large_file_min_bytes() -> usize {
+    10 * 1024 * 1024 * 1024
+}
+
 fn default_initial_load_rows() -> usize {
     5_000_000
 }
@@ -1263,6 +1301,7 @@ impl Default for AppSettings {
             debug_mode: false,
             thousands_separators_in_cells: true,
             number_separator_style: crate::data::num_format::SeparatorStyle::default(),
+            rel_map_export_format: crate::data::rel_map_export::RelMapExportFormat::default(),
             search_result_mode: crate::data::SearchResultMode::default(),
             search_history_limit: default_search_history_limit(),
             highlight_edits: false,
@@ -1297,6 +1336,8 @@ impl Default for AppSettings {
             show_readonly_notice: true,
             use_custom_title_bar: true,
             syntax_highlight_max_bytes: default_syntax_highlight_max_bytes(),
+            large_file_min_bytes: default_large_file_min_bytes(),
+            show_large_file_notice: true,
             initial_load_rows: default_initial_load_rows(),
             initial_load_rows_unlimited: false,
             raw_view_max_bytes: default_raw_view_max_bytes(),
@@ -1306,6 +1347,8 @@ impl Default for AppSettings {
             folder_union_max_files: default_folder_union_max_files(),
             folder_union_max_files_unlimited: false,
             write_protection: true,
+            confirm_url_redirects: true,
+            confirm_db_write_back: true,
             backup_before_modify: true,
             text_mode_extensions: Vec::new(),
             pinned_tabs: Vec::new(),
@@ -1639,7 +1682,11 @@ pub struct SettingsDialog {
     syntax_highlight_max_bytes_buf: String,
     /// Display unit for the syntax-highlight size input. Not persisted -
     /// reset each time the dialog opens.
-    syntax_highlight_size_unit: SyntaxSizeUnit,
+    syntax_highlight_size_unit: SizeUnit,
+    /// Buffer and display unit for the large-file size threshold, same shape
+    /// as the syntax-highlight pair above. Parsed on Apply.
+    large_file_min_bytes_buf: String,
+    large_file_size_unit: SizeUnit,
     /// Buffer backing the initial-load-rows text input. Holds a comma-
     /// separated integer (e.g. "1,000,000"). Parsed on Apply.
     initial_load_rows_buf: String,
@@ -1764,6 +1811,9 @@ pub struct SettingsDialog {
     /// Set by the sidebar's "Add connection" button so the Cloud storage
     /// section opens expanded; consumed (reset) once the dialog has honoured it.
     pub focus_cloud_section: bool,
+    /// Set when the user unticks "Ask about redirects", cleared by the warning
+    /// modal. Turning a safety check off is a decision worth explaining once.
+    pub confirm_url_redirect_disable: bool,
     /// One-shot: also expand the add/edit-connection sub-section inside
     /// Cloud storage (the sidebar's "+ Add" sets it; consumed on render).
     pub focus_cloud_form: bool,

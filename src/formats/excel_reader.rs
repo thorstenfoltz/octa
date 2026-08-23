@@ -261,10 +261,41 @@ fn cell_fill(
 ///
 /// `style: None` reproduces byte for byte what Octa wrote before this feature
 /// existed, which is what `plain_save_is_unchanged_by_the_feature` pins.
-fn write_excel_styled(path: &Path, table: &DataTable, style: Option<&TableStyle>) -> Result<()> {
+/// Write one workbook, one worksheet per entry.
+///
+/// The single-table `write_file` path is a one-element call into this, so
+/// there is one writer rather than two that can drift apart: everything the
+/// styling export does (marks, conditional colours, frozen columns, number
+/// formats) applies per sheet with no extra code.
+pub fn write_workbook(
+    path: &Path,
+    sheets: &[(String, &DataTable, Option<&TableStyle>)],
+) -> Result<()> {
+    if sheets.is_empty() {
+        anyhow::bail!("a workbook needs at least one sheet");
+    }
     let mut workbook = Workbook::new();
-    let worksheet = workbook.add_worksheet();
+    let mut taken: Vec<String> = Vec::new();
+    for (name, table, style) in sheets {
+        let sheet_name = crate::formats::xlsx_style::sanitize_sheet_name(name, &mut taken);
+        let worksheet = workbook.add_worksheet();
+        worksheet.set_name(&sheet_name)?;
+        write_sheet(worksheet, table, *style)?;
+    }
+    workbook.save(path)?;
+    Ok(())
+}
 
+fn write_excel_styled(path: &Path, table: &DataTable, style: Option<&TableStyle>) -> Result<()> {
+    write_workbook(path, &[("Sheet1".to_string(), table, style)])
+}
+
+/// Write one table into an already-created worksheet.
+fn write_sheet(
+    worksheet: &mut Worksheet,
+    table: &DataTable,
+    style: Option<&TableStyle>,
+) -> Result<()> {
     // The first rule that cannot live natively in Excel decides a partition,
     // not just its own fate. In Excel a live conditional-format rule always
     // overrides a cell's direct fill, with no notion of Octa's list ordering
@@ -340,7 +371,6 @@ fn write_excel_styled(path: &Path, table: &DataTable, style: Option<&TableStyle>
         apply_conditional(worksheet, table, style, bake_from)?;
     }
 
-    workbook.save(path)?;
     Ok(())
 }
 

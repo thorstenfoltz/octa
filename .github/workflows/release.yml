@@ -91,7 +91,11 @@ jobs:
           cp assets/octa.svg "$DIR/assets/"
           cp assets/octa.png "$DIR/assets/"
           cp pkg/README-linux.md "$DIR/README.md"
-          cp LICENSE "$DIR/" 2>/dev/null || true
+          # The attribution bundle is a redistribution condition of nearly
+          # every dependency, so copy it unconditionally: install.sh skips
+          # these files silently when they are absent.
+          cp LICENSE NOTICE THIRD_PARTY_LICENSES.md "$DIR/"
+          cp -r licenses "$DIR/licenses"
           cp octa.1 "$DIR/"
           tar czf "${DIR}.tar.gz" "$DIR/"
 
@@ -139,6 +143,11 @@ jobs:
         # which fixes the same class of failure on the *user's* machine.
         run: |
           rm -rf AppDir
+          # linuxdeploy only adds to AppDir, so seeding the attribution bundle
+          # first is enough to get it inside the AppImage.
+          mkdir -p AppDir/usr/share/doc/octa
+          cp LICENSE NOTICE THIRD_PARTY_LICENSES.md AppDir/usr/share/doc/octa/
+          cp -r licenses AppDir/usr/share/doc/octa/licenses
           APPIMAGE_EXTRACT_AND_RUN=1 linuxdeploy \
             --appdir AppDir \
             --executable target/release/octa \
@@ -230,7 +239,9 @@ jobs:
           Copy-Item "assets\octa.png" "$dir\assets\"
           if (Test-Path "assets\octa.ico") { Copy-Item "assets\octa.ico" "$dir\assets\" }
           Copy-Item "pkg\README-windows.md" "$dir\README.md"
-          if (Test-Path "LICENSE") { Copy-Item "LICENSE" "$dir\" }
+          # See the Linux step: the attribution bundle must always ship.
+          Copy-Item "LICENSE","NOTICE","THIRD_PARTY_LICENSES.md" -Destination "$dir\"
+          Copy-Item "licenses" -Destination "$dir\licenses" -Recurse
           Compress-Archive -Path "$dir\*" -DestinationPath "octa-$env:VERSION-windows-x86_64.zip"
 
       - name: Upload artifact
@@ -281,6 +292,12 @@ jobs:
           cp target/aarch64-apple-darwin/release/octa "$APP/Contents/MacOS/octa"
           chmod +x "$APP/Contents/MacOS/octa"
           cp assets/octa.icns "$APP/Contents/Resources/octa.icns"
+          # Inside the bundle, not just beside it: users drag Octa.app out of
+          # the archive and discard the rest, so this is the only copy that
+          # keeps travelling with the binary. Must happen before the ad-hoc
+          # codesign below, which seals the bundle.
+          cp LICENSE NOTICE THIRD_PARTY_LICENSES.md "$APP/Contents/Resources/"
+          cp -r licenses "$APP/Contents/Resources/licenses"
           cat > "$APP/Contents/Info.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -321,7 +338,9 @@ jobs:
           mkdir -p "$DIR"
           cp -R Octa.app "$DIR/"
           cp pkg/README-macos.md "$DIR/README.md"
-          cp LICENSE "$DIR/" 2>/dev/null || true
+          # See the Linux step: the attribution bundle must always ship.
+          cp LICENSE NOTICE THIRD_PARTY_LICENSES.md "$DIR/"
+          cp -r licenses "$DIR/licenses"
           tar czf "${DIR}.tar.gz" "$DIR/"
 
       - name: Upload artifact

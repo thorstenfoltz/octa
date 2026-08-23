@@ -26,6 +26,7 @@ pub(crate) mod file_io;
 pub(crate) mod find_replace;
 pub(crate) mod flag_guard;
 pub(crate) mod init;
+pub(crate) mod large_file;
 pub(crate) mod mark_bookmark;
 pub(crate) mod multi_search;
 pub(crate) mod search_history;

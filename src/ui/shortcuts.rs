@@ -230,6 +230,14 @@ pub enum ShortcutAction {
     OpenFile,
     SaveFile,
     SaveFileAs,
+    /// Write a live-database tab's pending edits out as a SQL script instead
+    /// of applying them. Deliberately separate from SaveFile: reviewing a
+    /// script and saving are different intents.
+    SaveDbSql,
+    /// Write several open tabs into one .xlsx workbook.
+    ExportWorkbook,
+    /// Read a file straight from a web address.
+    OpenUrl,
     ReloadFile,
     FocusSearch,
     ToggleFindReplace,
@@ -333,6 +341,7 @@ pub enum ShortcutAction {
     /// Pydantic v2 / TypeScript / JSON Schema / Rust) to render, so a
     /// single key is enough. Also reachable via **File -> Export schema...**.
     ExportSchema,
+    SaveTableToDb,
     /// Open the cross-tab + directory multi-search panel. The active-tab
     /// search bar (`Ctrl+F`) is unchanged - multi-search adds scope =
     /// All Open Tabs or Directory and a results list. Reachable via
@@ -370,7 +379,7 @@ pub enum ShortcutAction {
     OpenConditionalColumn,
     /// Open the Anonymise-columns dialog. Also **Edit -> Anonymise columns...**.
     OpenAnonymize,
-    /// Open the Data-validation dialog. Also **Edit -> Data validation...**.
+    /// Open the Data-validation dialog. Also **Data -> Data validation...**.
     OpenValidation,
     /// Open the multi-column Sort dialog. Also **Analyse -> Sort by columns...**.
     OpenMultiSort,
@@ -402,6 +411,8 @@ pub enum ShortcutAction {
     /// Open the database/cloud compare dialog. Also
     /// **Analyse -> Compare with database or cloud...**.
     OpenDbCompare,
+    OpenDataDrift,
+    OpenRelMap,
     /// Open the Join key finder. Also **Analyse -> Join key finder...**.
     OpenJoinKeys,
     /// Open Join diagnostics. Also **Analyse -> Join diagnostics...**.
@@ -452,6 +463,9 @@ impl ShortcutAction {
             Self::NewFile => "New file",
             Self::OpenFile => "Open file",
             Self::SaveFile => "Save file",
+            Self::SaveDbSql => "Save database changes as SQL...",
+            Self::ExportWorkbook => "Export workbook...",
+            Self::OpenUrl => "Open URL...",
             Self::SaveFileAs => "Save file as...",
             Self::ReloadFile => "Reload file from disk",
             Self::FocusSearch => "Focus search box",
@@ -499,6 +513,7 @@ impl ShortcutAction {
             Self::FindDuplicates => "Find duplicate rows...",
             Self::OpenFuzzyDuplicates => "Find near-duplicates...",
             Self::ExportSchema => "Export schema...",
+            Self::SaveTableToDb => "Save to database...",
             Self::MultiSearch => "Open multi-search panel",
             Self::NextProblem => "Jump to next flagged cell",
             Self::PrevProblem => "Jump to previous flagged cell",
@@ -526,6 +541,8 @@ impl ShortcutAction {
             Self::OpenFuzzyJoin => "Fuzzy join...",
             Self::OpenFileInternals => "File internals...",
             Self::OpenDbCompare => "Compare with database or cloud...",
+            Self::OpenDataDrift => "Data drift...",
+            Self::OpenRelMap => "Relationship map...",
             Self::OpenJoinKeys => "Join key finder...",
             Self::OpenJoinDiag => "Join diagnostics...",
             Self::OpenHarmonise => "Harmonise schemas...",
@@ -553,6 +570,9 @@ impl ShortcutAction {
             Self::NewFile => KeyCombo::ctrl(Key::N),
             Self::OpenFile => KeyCombo::ctrl(Key::O),
             Self::SaveFile => KeyCombo::ctrl(Key::S),
+            Self::SaveDbSql => KeyCombo::UNBOUND,
+            Self::ExportWorkbook => KeyCombo::UNBOUND,
+            Self::OpenUrl => KeyCombo::UNBOUND,
             Self::SaveFileAs => KeyCombo::ctrl_shift(Key::S),
             Self::ReloadFile => KeyCombo::ctrl(Key::R),
             Self::FocusSearch => KeyCombo::ctrl(Key::F),
@@ -603,6 +623,8 @@ impl ShortcutAction {
             // OS-level `Event::Cut` for Ctrl+Shift+X, which collides
             // with `do_cut`. F-keys don't generate clipboard events.
             Self::ExportSchema => KeyCombo::plain(Key::F7),
+            // Unbound: every clipboard-safe Ctrl+Shift letter is taken.
+            Self::SaveTableToDb => KeyCombo::UNBOUND,
             // F6 mirrors the feature ID (v3 batch). Ctrl+Shift+F is
             // already the column-filter shortcut and Ctrl+F is the
             // active-tab search - both useful enough to keep.
@@ -671,6 +693,9 @@ impl ShortcutAction {
             Self::OpenFuzzyJoin => KeyCombo::UNBOUND,
             Self::OpenFileInternals => KeyCombo::UNBOUND,
             Self::OpenDbCompare => KeyCombo::UNBOUND,
+            // No clipboard-safe Ctrl+Shift letter is left, so this ships unbound.
+            Self::OpenDataDrift => KeyCombo::UNBOUND,
+            Self::OpenRelMap => KeyCombo::UNBOUND,
             Self::OpenJoinKeys => KeyCombo::UNBOUND,
             Self::OpenJoinDiag => KeyCombo::UNBOUND,
             Self::OpenHarmonise => KeyCombo::UNBOUND,
@@ -748,7 +773,11 @@ impl ShortcutAction {
             | Self::OpenFile
             | Self::SaveFile
             | Self::SaveFileAs
+            | Self::SaveDbSql
+            | Self::ExportWorkbook
+            | Self::OpenUrl
             | Self::ExportSchema
+            | Self::SaveTableToDb
             | Self::ReloadFile
             | Self::CloseTab
             | Self::ReopenLastClosedTab
@@ -818,6 +847,8 @@ impl ShortcutAction {
             | Self::OpenFuzzyJoin
             | Self::OpenFileInternals
             | Self::OpenDbCompare
+            | Self::OpenDataDrift
+            | Self::OpenRelMap
             | Self::OpenJoinKeys
             | Self::OpenJoinDiag
             | Self::OpenHarmonise

@@ -113,6 +113,43 @@ pub fn num_format_code(fmt: &NumberFormat, thousands: bool) -> String {
     }
 }
 
+/// Make a worksheet name Excel will accept, unique within one workbook.
+///
+/// Excel's rules: at most 31 characters, none of `[ ] : * ? / \`, not empty,
+/// and unique. `taken` accumulates the names already used, so collisions are
+/// numbered in input order and the caller does not have to track them.
+///
+/// Length is counted in characters, not bytes: 31 CJK characters are 93 bytes,
+/// and truncating by bytes would both undershoot the limit and risk splitting a
+/// character.
+pub fn sanitize_sheet_name(raw: &str, taken: &mut Vec<String>) -> String {
+    const FORBIDDEN: [char; 7] = ['[', ']', ':', '*', '?', '/', '\\'];
+    const LIMIT: usize = 31;
+
+    let cleaned: String = raw
+        .trim()
+        .chars()
+        .map(|c| if FORBIDDEN.contains(&c) { '_' } else { c })
+        .collect();
+    let base: String = if cleaned.trim().is_empty() {
+        "Sheet".to_string()
+    } else {
+        cleaned.chars().take(LIMIT).collect()
+    };
+
+    let mut candidate = base.clone();
+    let mut n = 1usize;
+    while taken.contains(&candidate) {
+        n += 1;
+        let suffix = format!("_{n}");
+        let room = LIMIT.saturating_sub(suffix.chars().count());
+        let stem: String = base.chars().take(room).collect();
+        candidate = format!("{stem}{suffix}");
+    }
+    taken.push(candidate.clone());
+    candidate
+}
+
 #[cfg(test)]
 #[path = "xlsx_style_tests.rs"]
 mod tests;

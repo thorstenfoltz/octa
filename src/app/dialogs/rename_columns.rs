@@ -8,7 +8,7 @@
 use eframe::egui;
 use egui::RichText;
 
-use octa::data::rename_map::{parse_mapping, plan_renames};
+use octa::data::rename_map::{parse_mapping, plan_dedupe, plan_renames};
 use octa::ui::settings::{
     DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
 };
@@ -37,6 +37,13 @@ pub(crate) fn render_rename_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
 
     let pairs = parse_mapping(&state.input_buf);
     let plan = plan_renames(&columns, &pairs);
+    // Recomputed every frame like the rename plan, so ticking the case box
+    // updates the preview straight away. Empty unless the box is ticked.
+    let dedupe = if state.fix_duplicates {
+        plan_dedupe(&columns, state.dedupe_ignore_case)
+    } else {
+        Vec::new()
+    };
 
     let dialog_id = egui::Id::new("octa_rename_columns_dialog");
     let size_key = dialog_id.with("octa_dlg_size");
@@ -109,6 +116,35 @@ pub(crate) fn render_rename_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
 
             ui.separator();
 
+            // Duplicate column names. Their fix cannot go through the mapping
+            // text above: that addresses a column by its name, and the one
+            // thing a name cannot pick out is a column whose name is a
+            // duplicate. This half works by index instead.
+            ui.horizontal_wrapped(|ui| {
+                ui.checkbox(
+                    &mut state.fix_duplicates,
+                    octa::i18n::t("dialog.rename_dedupe"),
+                )
+                .on_hover_text(octa::i18n::t("dialog.rename_dedupe_hint"));
+                ui.add_space(8.0);
+                ui.add_enabled_ui(state.fix_duplicates, |ui| {
+                    ui.checkbox(
+                        &mut state.dedupe_ignore_case,
+                        octa::i18n::t("dialog.rename_dedupe_case"),
+                    )
+                    .on_hover_text(octa::i18n::t("dialog.rename_dedupe_case_hint"));
+                });
+                if state.fix_duplicates && dedupe.is_empty() {
+                    ui.label(
+                        RichText::new(octa::i18n::t("dialog.rename_dedupe_none"))
+                            .size(11.0)
+                            .color(ui.visuals().weak_text_color()),
+                    );
+                }
+            });
+
+            ui.separator();
+
             // Preview lists.
             egui::ScrollArea::vertical()
                 .id_salt("rename_preview_scroll")
@@ -124,6 +160,20 @@ pub(crate) fn render_rename_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
                     );
                     for (_, old, new) in &plan.matched {
                         ui.label(format!("{old}  ->  {new}"));
+                    }
+                    if !dedupe.is_empty() {
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(format!(
+                                "{} ({})",
+                                octa::i18n::t("dialog.rename_dedupe_found"),
+                                dedupe.len()
+                            ))
+                            .strong(),
+                        );
+                        for (_, old, new) in &dedupe {
+                            ui.label(format!("{old}  ->  {new}"));
+                        }
                     }
                     if !plan.unmatched.is_empty() {
                         ui.add_space(4.0);
@@ -159,7 +209,8 @@ pub(crate) fn render_rename_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                let can_apply = plan.collisions.is_empty() && !plan.matched.is_empty();
+                let can_apply =
+                    plan.collisions.is_empty() && !(plan.matched.is_empty() && dedupe.is_empty());
                 if ui
                     .add_enabled(
                         can_apply,
@@ -204,6 +255,15 @@ pub(crate) fn render_rename_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
             let start = tab.table.undo_stack.len();
             for (index, _old, new) in &plan.matched {
                 tab.table.rename_column(*index, new.clone());
+            }
+            // Re-planned against the names the renames above just produced,
+            // never against the preview's stale ones, and folded into the same
+            // undo step so one Ctrl+Z takes the whole dialog back.
+            if state.fix_duplicates {
+                let names: Vec<String> = tab.table.columns.iter().map(|c| c.name.clone()).collect();
+                for (index, _old, new) in plan_dedupe(&names, state.dedupe_ignore_case) {
+                    tab.table.rename_column(index, new);
+                }
             }
             tab.table.coalesce_undo_since(start);
             // Keep the DB diff-save baseline in step with the new names, the

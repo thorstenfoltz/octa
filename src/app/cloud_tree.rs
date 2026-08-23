@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use eframe::egui;
 
 use octa::cloud::{CloudConnection, CloudKind};
+use octa::ui::status_bar::human_size;
 
 use super::cloud_browser::{
     CloudSelection, CloudSort, ConnPrefix, ListState, SignInState, root_prefix, sorted_entries,
@@ -748,22 +749,6 @@ fn format_entry_meta(
         (Some(sz), None) => format!("  ({})", human_size(sz)),
         (None, Some(t)) => format!("  ({})", t),
         (None, None) => String::new(),
-    }
-}
-
-/// Compact human-readable byte size (B/KB/MB/GB).
-fn human_size(bytes: u64) -> String {
-    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
-    let mut size = bytes as f64;
-    let mut unit = 0;
-    while size >= 1024.0 && unit < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{bytes} B")
-    } else {
-        format!("{size:.1} {}", UNITS[unit])
     }
 }
 

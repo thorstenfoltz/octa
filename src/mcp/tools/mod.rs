@@ -4,6 +4,7 @@
 
 pub mod anonymize;
 pub mod batch_convert;
+pub mod check_rules;
 pub mod compare_schemas;
 pub mod convert;
 pub mod copy_db_table;
@@ -13,6 +14,8 @@ pub mod count_rows;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
 pub mod create_chart;
 pub mod create_report;
+pub mod data_drift;
+pub mod db_relationships;
 pub mod dedupe;
 pub mod delete_object;
 pub mod describe_file;
@@ -51,6 +54,7 @@ pub mod schema;
 pub mod schema_drift;
 pub mod search;
 pub mod suggest_join_keys;
+pub mod sync_sql;
 pub mod tail;
 pub mod transform_columns;
 pub mod union;
@@ -61,6 +65,7 @@ pub mod write_db_table;
 pub mod write_table;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
 pub mod write_text;
+pub mod write_workbook;
 
 use std::path::{Path, PathBuf};
 
@@ -140,6 +145,10 @@ pub struct ToolContext {
     pub active_tab: Option<usize>,
     /// Default response row cap when a call omits `limit` (None = unlimited).
     pub default_row_limit: Option<usize>,
+    /// Local files at least this big are **scanned in place** by the few tools
+    /// that can answer without the rows, rather than materialised. `0` never
+    /// streams. See [`ToolContext::scan_for`].
+    pub large_file_min_bytes: usize,
     /// Per-cell byte cap for serialised responses (0 = unlimited).
     pub cell_byte_cap: usize,
     /// When set (the in-GUI chat agent), file access is sandboxed: reads are
@@ -191,11 +200,13 @@ impl ToolContext {
         backup_before_modify: bool,
         db_connections: Vec<octa::db::DbConnection>,
         read_only: bool,
+        large_file_min_bytes: usize,
     ) -> Self {
         Self {
             open_tabs: Vec::new(),
             active_tab: None,
             default_row_limit,
+            large_file_min_bytes,
             cell_byte_cap,
             restrict_filesystem: false,
             allowed_read_paths: Vec::new(),
@@ -280,6 +291,29 @@ impl ToolContext {
                 // read it as usual. Credentials come from a saved connection
                 // (chat) or ambient creds (MCP/CLI); see `resolve_cloud`.
                 let path_str = path.to_string_lossy();
+                // A plain http(s) URL is not a filesystem path, so
+                // `ensure_readable` does not apply: that gate governs the local
+                // disk. The network needs its own gate, because a sandboxed
+                // profile reaching arbitrary URLs would be a way straight out
+                // of the sandbox - hence `AgentSupplied`, which confines the
+                // request to public hosts.
+                if octa::cloud::is_http_url(&path_str) {
+                    let fetched = octa::cloud::fetch_http_to_temp(
+                        &path_str,
+                        octa::cloud::UrlTrust::AgentSupplied,
+                    )?;
+                    // Every hop was already checked, so this is not a safety
+                    // refusal: it is that nobody is here to be asked. Naming
+                    // the destination lets the caller request it deliberately,
+                    // which is then judged on its own merits.
+                    if let Some(final_url) = fetched.redirected_to {
+                        anyhow::bail!(
+                            "{path_str} redirects to {final_url}. Request that address \
+                             directly if it is the one you want."
+                        );
+                    }
+                    return read_with_registry(&fetched.path, table.as_deref());
+                }
                 if octa::cloud::parse_cloud_url(&path_str).is_some() {
                     let temp = self.cloud_fetch_to_temp(&path_str)?;
                     return read_with_registry(&temp, table.as_deref());
@@ -309,6 +343,53 @@ impl ToolContext {
                 Ok(snap.table.clone())
             }
         }
+    }
+
+    /// A scan handle for `source`, or `None` when it should be read normally.
+    ///
+    /// This is deliberately **not** wired into [`Self::resolve`]. Most tools
+    /// need the rows themselves: `union_tables`, `join_tables`, `diff_tables`,
+    /// `correlation`, `detect_outliers` and the rest would silently answer
+    /// from a slice if `resolve` started handing out pages. Only the few tools
+    /// that can answer *without* materialising anything opt in, and they say
+    /// so with `"streamed": true` in their response.
+    ///
+    /// What it buys is not only memory. Today `count_rows` on a forty gigabyte
+    /// file either answers short (bounded by the streaming cap) or, with
+    /// `unlimited: true`, tries to load the whole file. Over a scan it is
+    /// exact and costs nothing.
+    ///
+    /// Every gate `resolve` applies still applies here, the sandbox included:
+    /// an open tab wins over the path, URLs are not local files, and
+    /// `ensure_readable` decides.
+    pub fn scan_for(&self, source: &Source) -> Option<octa::formats::large::LargeTable> {
+        if self.large_file_min_bytes == 0 {
+            return None;
+        }
+        let Source::Path { path, table } = source else {
+            return None;
+        };
+        // An inner table name means a multi-table source, which no scan
+        // expression addresses.
+        if table.is_some() || path.as_os_str().is_empty() {
+            return None;
+        }
+        let as_str = path.to_string_lossy();
+        // `resolve` prefers an open tab addressed through `path`; so must this,
+        // or the two would disagree about what the caller meant.
+        if self.snapshot_for_pathish(&as_str).is_some() {
+            return None;
+        }
+        if octa::cloud::is_http_url(&as_str) || octa::cloud::parse_cloud_url(&as_str).is_some() {
+            return None;
+        }
+        self.ensure_readable(path).ok()?;
+        octa::formats::large::ScanKind::for_path(path)?;
+        let len = std::fs::metadata(path).ok()?.len();
+        if (len as usize) < self.large_file_min_bytes {
+            return None;
+        }
+        octa::formats::large::open(path).ok()
     }
 
     /// Resolve a cloud URL to a provider + parsed location. Prefers a saved

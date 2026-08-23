@@ -49,6 +49,13 @@ fn auth_uses_secret(kind: DbAuthKind) -> bool {
 impl SettingsDialog {
     /// Body of the "Databases" Settings section.
     pub(super) fn db_section_body(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label(t("settings.confirm_db_write_back"))
+                .on_hover_text(t("settings_hint.confirm_db_write_back"));
+            ui.checkbox(&mut self.draft.confirm_db_write_back, "")
+                .on_hover_text(t("settings_hint.confirm_db_write_back"));
+        });
+        ui.separator();
         self.db_connection_list(ui);
         ui.separator();
         // The add/edit form lives behind its own sub-header so the section
@@ -157,7 +164,8 @@ impl SettingsDialog {
             .spacing([12.0, 6.0])
             .show(ui, |ui| {
                 ui.label(t("cloud.name")).on_hover_text(t("db.name_hint"));
-                ui.text_edit_singleline(&mut self.db_form_name);
+                ui.text_edit_singleline(&mut self.db_form_name)
+                    .on_hover_text(t("db.name_hint"));
                 ui.end_row();
 
                 ui.label(t("db.engine")).on_hover_text(t("db.engine_hint"));
@@ -168,7 +176,9 @@ impl SettingsDialog {
                         for &e in DbEngine::ALL {
                             ui.selectable_value(&mut self.db_form_engine, e, e.label());
                         }
-                    });
+                    })
+                    .response
+                    .on_hover_text(t("db.engine_hint"));
                 if self.db_form_engine != prev_engine {
                     // Auto-fill the conventional port unless the user typed
                     // a custom one.
@@ -187,7 +197,8 @@ impl SettingsDialog {
                 ui.end_row();
 
                 ui.label(t("db.host")).on_hover_text(t("db.host_hint"));
-                ui.text_edit_singleline(&mut self.db_form_host);
+                ui.text_edit_singleline(&mut self.db_form_host)
+                    .on_hover_text(t("db.host_hint"));
                 ui.end_row();
 
                 ui.label(t("db.port")).on_hover_text(t("db.port_hint"));
@@ -195,17 +206,20 @@ impl SettingsDialog {
                     egui::TextEdit::singleline(&mut self.db_form_port)
                         .desired_width(80.0)
                         .hint_text(self.db_form_engine.default_port().to_string()),
-                );
+                )
+                .on_hover_text(t("db.port_hint"));
                 ui.end_row();
 
                 ui.label(t("db.database"))
                     .on_hover_text(t("db.database_hint"));
-                ui.text_edit_singleline(&mut self.db_form_database);
+                ui.text_edit_singleline(&mut self.db_form_database)
+                    .on_hover_text(t("db.database_hint"));
                 ui.end_row();
 
                 ui.label(t("db.username"))
                     .on_hover_text(t("db.username_hint"));
-                ui.text_edit_singleline(&mut self.db_form_username);
+                ui.text_edit_singleline(&mut self.db_form_username)
+                    .on_hover_text(t("db.username_hint"));
                 ui.end_row();
 
                 ui.label(t("db.auth")).on_hover_text(t("db.auth_hint"));
@@ -220,44 +234,34 @@ impl SettingsDialog {
                                 t(&format!("db.{}", kind.i18n_key())),
                             );
                         }
-                    });
+                    })
+                    .response
+                    .on_hover_text(t("db.auth_hint"));
                 if selected_kind != self.db_form_auth.kind() {
                     self.db_form_auth = self.auth_from_kind(selected_kind);
                 }
                 ui.end_row();
 
-                // A small helper for the labelled secret field (label depends
-                // on the auth kind).
-                let secret_field = |ui: &mut egui::Ui, buf: &mut String, label: String| {
-                    ui.label(label);
-                    ui.add(
-                        egui::TextEdit::singleline(buf)
-                            .password(true)
-                            .desired_width(220.0),
-                    );
-                    ui.end_row();
-                };
-                let text_field = |ui: &mut egui::Ui, buf: &mut String, label: String| {
-                    ui.label(label);
-                    ui.add(egui::TextEdit::singleline(buf).desired_width(260.0));
-                    ui.end_row();
-                };
-                // Text field with a hover tooltip on its label.
+                // Every auth field is labelled and hinted the same way. The
+                // hint goes on BOTH the label and the field: a tooltip on the
+                // label alone does not answer a hover over the widget beside
+                // it, which is what a user actually points at.
                 let text_field_h =
                     |ui: &mut egui::Ui, buf: &mut String, label: String, hint: String| {
-                        ui.label(label).on_hover_text(hint);
-                        ui.add(egui::TextEdit::singleline(buf).desired_width(260.0));
+                        ui.label(label).on_hover_text(hint.clone());
+                        ui.add(egui::TextEdit::singleline(buf).desired_width(260.0))
+                            .on_hover_text(hint);
                         ui.end_row();
                     };
-                // Password field with a hover tooltip on its label.
                 let secret_field_h =
                     |ui: &mut egui::Ui, buf: &mut String, label: String, hint: String| {
-                        ui.label(label).on_hover_text(hint);
+                        ui.label(label).on_hover_text(hint.clone());
                         ui.add(
                             egui::TextEdit::singleline(buf)
                                 .password(true)
                                 .desired_width(220.0),
-                        );
+                        )
+                        .on_hover_text(hint);
                         ui.end_row();
                     };
                 let note = |ui: &mut egui::Ui, msg: String| {
@@ -267,7 +271,12 @@ impl SettingsDialog {
                 };
                 match self.db_form_auth.kind() {
                     DbAuthKind::Password => {
-                        secret_field(ui, &mut self.db_form_secret, t("db.password"));
+                        secret_field_h(
+                            ui,
+                            &mut self.db_form_secret,
+                            t("db.password"),
+                            t("db.password_hint"),
+                        );
                     }
                     DbAuthKind::AwsIam => {
                         ui.label(t("cloud.region"))
@@ -275,18 +284,35 @@ impl SettingsDialog {
                         ui.add(
                             egui::TextEdit::singleline(&mut self.db_form_region)
                                 .hint_text(t("db.aws_region_hint")),
-                        );
+                        )
+                        .on_hover_text(t("db.aws_region_hint"));
                         ui.end_row();
                         note(ui, t("db.aws_iam_note"));
                         note(ui, t("db.aws_sso_note"));
-                        text_field(
+                        text_field_h(
                             ui,
                             &mut self.db_form_sso_start_url,
                             t("db.field_sso_start_url"),
+                            t("db.field_sso_start_url_hint"),
                         );
-                        text_field(ui, &mut self.db_form_sso_region, t("db.field_sso_region"));
-                        text_field(ui, &mut self.db_form_sso_account, t("db.field_sso_account"));
-                        text_field(ui, &mut self.db_form_sso_role, t("db.field_sso_role"));
+                        text_field_h(
+                            ui,
+                            &mut self.db_form_sso_region,
+                            t("db.field_sso_region"),
+                            t("db.field_sso_region_hint"),
+                        );
+                        text_field_h(
+                            ui,
+                            &mut self.db_form_sso_account,
+                            t("db.field_sso_account"),
+                            t("db.field_sso_account_hint"),
+                        );
+                        text_field_h(
+                            ui,
+                            &mut self.db_form_sso_role,
+                            t("db.field_sso_role"),
+                            t("db.field_sso_role_hint"),
+                        );
                     }
                     DbAuthKind::AzureAd => {
                         note(ui, t("db.azure_ad_note"));
@@ -321,21 +347,56 @@ impl SettingsDialog {
                         note(ui, t("db.browser_signin_hint"));
                     }
                     DbAuthKind::Token => {
-                        secret_field(ui, &mut self.db_form_secret, t("db.field_pat"));
+                        secret_field_h(
+                            ui,
+                            &mut self.db_form_secret,
+                            t("db.field_pat"),
+                            t("db.password_hint"),
+                        );
                     }
                     DbAuthKind::KeyPairJwt => {
-                        text_field(ui, &mut self.db_form_private_key, t("db.field_private_key"));
-                        secret_field(ui, &mut self.db_form_secret, t("db.field_passphrase"));
+                        text_field_h(
+                            ui,
+                            &mut self.db_form_private_key,
+                            t("db.field_private_key"),
+                            t("db.field_private_key_hint"),
+                        );
+                        secret_field_h(
+                            ui,
+                            &mut self.db_form_secret,
+                            t("db.field_passphrase"),
+                            t("db.password_hint"),
+                        );
                     }
                     DbAuthKind::OAuthClientCredentials => {
-                        text_field(ui, &mut self.db_form_client_id, t("db.field_client_id"));
-                        text_field(ui, &mut self.db_form_token_url, t("db.field_token_url"));
-                        secret_field(ui, &mut self.db_form_secret, t("db.field_client_secret"));
+                        text_field_h(
+                            ui,
+                            &mut self.db_form_client_id,
+                            t("db.field_client_id"),
+                            t("db.field_client_id_hint"),
+                        );
+                        text_field_h(
+                            ui,
+                            &mut self.db_form_token_url,
+                            t("db.field_token_url"),
+                            t("db.field_token_url_hint"),
+                        );
+                        secret_field_h(
+                            ui,
+                            &mut self.db_form_secret,
+                            t("db.field_client_secret"),
+                            t("db.password_hint"),
+                        );
                     }
                     DbAuthKind::OAuthBrowser => note(ui, t("db.auth_oauth_browser_note")),
                     DbAuthKind::GcpAdc => note(ui, t("db.auth_gcp_adc_note")),
                     DbAuthKind::GcpServiceAccount => {
-                        text_field(ui, &mut self.db_form_sa_key, t("db.field_sa_key"));
+                        text_field_h(
+                            ui,
+                            &mut self.db_form_sa_key,
+                            t("db.field_sa_key"),
+                            t("db.field_sa_key_hint"),
+                        );
                     }
                 }
 

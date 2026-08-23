@@ -32,7 +32,8 @@ fn main() -> ExitCode {
         Ok(Some(action)) => {
             // For --union and --join the positional files are intentional (they
             // form the first sources); --impute, --outliers, --partition-by,
-            // --resample, --rolling and --batch-convert take positional FILEs too.
+            // --resample, --rolling, --batch-convert, --to-workbook and
+            // --db-write-table take positional FILEs too.
             // All other actions ignore them, so warn.
             if !cli.files.is_empty()
                 && !matches!(
@@ -46,7 +47,9 @@ fn main() -> ExitCode {
                         | cli::Action::Rolling { .. }
                         | cli::Action::BatchConvert { .. }
                         | cli::Action::Report { .. }
+                        | cli::Action::ToWorkbook { .. }
                         | cli::Action::FuzzyJoin(_)
+                        | cli::Action::DbWrite { .. }
                 )
             {
                 eprintln!(
@@ -56,6 +59,13 @@ fn main() -> ExitCode {
                         .map(|p| p.display().to_string())
                         .collect::<Vec<_>>()
                         .join(", ")
+                );
+            }
+            // Only --sql can scan a file in place. Saying so beats a flag
+            // that quietly does nothing.
+            if cli.stream && !matches!(action, cli::Action::Sql { .. }) {
+                eprintln!(
+                    "warning: --stream only applies to --sql; this action reads the rows themselves"
                 );
             }
             // `--mcp` is handled here rather than in `cli::dispatch` because
@@ -233,6 +243,7 @@ fn run_mcp(read_only: bool) -> ExitCode {
         read_only,
         allow_schema_changes,
         backup_before_modify,
+        settings.large_file_min_bytes,
     )) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

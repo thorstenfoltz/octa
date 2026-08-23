@@ -6,7 +6,7 @@ use super::*;
 
 #[test]
 fn read_only_drops_write_tools() {
-    let ro = OctaMcpServer::new(Some(1000), 65536, true, false, true);
+    let ro = OctaMcpServer::new(Some(1000), 65536, true, false, true, 0);
     for name in [
         "write_table",
         "edit_table",
@@ -51,7 +51,7 @@ fn read_only_drops_write_tools() {
 
 #[test]
 fn default_keeps_write_tools() {
-    let rw = OctaMcpServer::new(Some(1000), 65536, false, false, true);
+    let rw = OctaMcpServer::new(Some(1000), 65536, false, false, true, 0);
     for name in [
         "write_table",
         "write_db_table",

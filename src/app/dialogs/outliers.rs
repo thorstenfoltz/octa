@@ -170,14 +170,10 @@ pub(crate) fn render_outliers_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             // Column picker.
             ui.horizontal(|ui| {
                 if ui.small_button(octa::i18n::t("dialog.sel_all")).clicked() {
-                    for b in &mut st.col_selected {
-                        *b = true;
-                    }
+                    st.col_selected.fill(true);
                 }
                 if ui.small_button(octa::i18n::t("dialog.sel_none")).clicked() {
-                    for b in &mut st.col_selected {
-                        *b = false;
-                    }
+                    st.col_selected.fill(false);
                 }
                 let selected_count = st.col_selected.iter().filter(|&&b| b).count();
                 ui.label(

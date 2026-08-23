@@ -107,12 +107,16 @@ impl SettingsDialog {
         // Pick the most natural unit for the current bytes value so the
         // user sees "1 MB" rather than "1,048,576 Bytes" when the setting
         // is at the default.
-        self.syntax_highlight_size_unit = SyntaxSizeUnit::best_fit(d.syntax_highlight_max_bytes);
-        // `SyntaxSizeUnit::factor` is always >= 1, so the division is safe.
+        self.syntax_highlight_size_unit = SizeUnit::best_fit(d.syntax_highlight_max_bytes);
+        // `SizeUnit::factor` is always >= 1, so the division is safe.
         let unit_factor = self.syntax_highlight_size_unit.factor();
         let d = &self.draft;
         self.syntax_highlight_max_bytes_buf =
             crate::ui::status_bar::format_number(d.syntax_highlight_max_bytes / unit_factor);
+        self.large_file_size_unit = SizeUnit::best_fit(d.large_file_min_bytes);
+        self.large_file_min_bytes_buf = crate::ui::status_bar::format_number(
+            d.large_file_min_bytes / self.large_file_size_unit.factor(),
+        );
         self.initial_load_rows_buf = crate::ui::status_bar::format_number(d.initial_load_rows);
         self.raw_view_max_mb_buf =
             crate::ui::status_bar::format_number(d.raw_view_max_bytes / 1_000_000);
@@ -202,6 +206,7 @@ impl SettingsDialog {
         // Render the reset-confirm modal first so it sits above the Settings
         // window in the same frame.
         self.draw_reset_confirm(ctx);
+        self.draw_url_redirect_disable_confirm(ctx);
 
         // Custom title bar (egui's is disabled below) - we render Min /
         // Max / Close buttons inline next to the title, like a typical
@@ -277,6 +282,10 @@ impl SettingsDialog {
                                 let unit_factor = self.syntax_highlight_size_unit.factor();
                                 self.draft.syntax_highlight_max_bytes =
                                     n.saturating_mul(unit_factor);
+                            }
+                            if let Ok(n) = parse_comma_number(&self.large_file_min_bytes_buf) {
+                                let unit_factor = self.large_file_size_unit.factor();
+                                self.draft.large_file_min_bytes = n.saturating_mul(unit_factor);
                             }
                             if let Ok(n) = parse_comma_number(&self.initial_load_rows_buf)
                                 && n >= 1
@@ -426,6 +435,54 @@ impl SettingsDialog {
     /// changed flags are set so the existing Apply path re-applies them.
     /// Nothing is written to disk and the Settings window stays open - the
     /// user still has to click Apply (or Cancel) to commit / discard.
+    /// Explain what turning off the redirect confirmation means, once.
+    ///
+    /// A forced choice rather than a toast: the switch removes the only place
+    /// a changed destination becomes visible, so it should not be possible to
+    /// flip it without reading why.
+    fn draw_url_redirect_disable_confirm(&mut self, ctx: &egui::Context) {
+        if !self.confirm_url_redirect_disable {
+            return;
+        }
+        let mut turn_off = false;
+        let mut keep = false;
+        egui::Window::new(crate::i18n::t("settings.url_redirect_off_title"))
+            .resizable(false)
+            .collapsible(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.set_max_width(460.0);
+                ui.label(crate::i18n::t("settings.url_redirect_off_body"));
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(crate::i18n::t("settings.url_redirect_off_warn"))
+                        .color(ui.visuals().warn_fg_color),
+                );
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(crate::i18n::t("settings.url_redirect_off_keep"))
+                        .clicked()
+                    {
+                        keep = true;
+                    }
+                    if ui
+                        .button(crate::i18n::t("settings.url_redirect_off_confirm"))
+                        .clicked()
+                    {
+                        turn_off = true;
+                    }
+                });
+            });
+        if turn_off {
+            self.confirm_url_redirect_disable = false;
+        } else if keep {
+            // Put the tick back: the switch only moves on an explicit choice.
+            self.draft.confirm_url_redirects = true;
+            self.confirm_url_redirect_disable = false;
+        }
+    }
+
     fn draw_reset_confirm(&mut self, ctx: &egui::Context) {
         if !self.show_reset_confirm {
             return;
@@ -491,7 +548,9 @@ impl SettingsDialog {
                                     *name,
                                 );
                             }
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.language"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.font_size"))
@@ -508,7 +567,9 @@ impl SettingsDialog {
                                     format!("{} pt", sz),
                                 );
                             }
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.font_size"));
                     if self.draft.font_size != old_size {
                         self.font_changed = true;
                     }
@@ -527,7 +588,9 @@ impl SettingsDialog {
                                     preset.label(),
                                 );
                             }
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.default_theme"));
                     if self.draft.default_theme != old_theme {
                         self.theme_changed = true;
                     }
@@ -546,7 +609,9 @@ impl SettingsDialog {
                                     choice.label_t(),
                                 );
                             }
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.body_font"));
                     if self.draft.body_font != old_body_font {
                         self.font_changed = true;
                     }
@@ -560,7 +625,8 @@ impl SettingsDialog {
                             egui::TextEdit::singleline(&mut self.draft.custom_font_path)
                                 .hint_text(crate::i18n::t("settings_hint.custom_font_placeholder"))
                                 .desired_width(220.0),
-                        );
+                        )
+                        .on_hover_text(crate::i18n::t("settings_hint.custom_font"));
                         if ui.button(crate::i18n::t("dialog.swb_browse")).clicked()
                             && let Some(p) = rfd::FileDialog::new()
                                 .add_filter("Font (.ttf, .otf, .ttc)", &["ttf", "otf", "ttc"])
@@ -597,7 +663,9 @@ impl SettingsDialog {
                                         );
                                     });
                                 }
-                            });
+                            })
+                            .response
+                            .on_hover_text(crate::i18n::t("settings_hint.icon_color"));
                     });
                     if self.draft.icon_variant != old_icon {
                         self.icon_changed = true;
@@ -606,7 +674,8 @@ impl SettingsDialog {
 
                     ui.label(crate::i18n::t("settings.window_controls"))
                         .on_hover_text(crate::i18n::t("settings_hint.window_controls"));
-                    ui.checkbox(&mut self.draft.use_custom_title_bar, "");
+                    ui.checkbox(&mut self.draft.use_custom_title_bar, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.window_controls"));
                     ui.end_row();
                 });
         });
@@ -637,7 +706,9 @@ impl SettingsDialog {
                                     n.to_string(),
                                 );
                             }
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.max_recent"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.open_as_text"))
@@ -646,12 +717,14 @@ impl SettingsDialog {
                         egui::TextEdit::singleline(&mut self.text_mode_extensions_buf)
                             .desired_width(280.0)
                             .hint_text("log4j, myproj, rawdata"),
-                    );
+                    )
+                    .on_hover_text(crate::i18n::t("settings_hint.open_as_text"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.auto_save"))
                         .on_hover_text(crate::i18n::t("settings_hint.auto_save"));
-                    ui.checkbox(&mut self.draft.auto_save_enabled, "");
+                    ui.checkbox(&mut self.draft.auto_save_enabled, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.auto_save"));
                     ui.end_row();
 
                     if self.draft.auto_save_enabled {
@@ -661,7 +734,8 @@ impl SettingsDialog {
                             egui::TextEdit::singleline(&mut self.auto_save_interval_buf)
                                 .desired_width(120.0)
                                 .hint_text("5"),
-                        );
+                        )
+                        .on_hover_text(crate::i18n::t("settings_hint.auto_save_interval"));
                         ui.end_row();
                     }
                 });
@@ -690,37 +764,59 @@ impl SettingsDialog {
                 .show(ui, |ui| {
                     ui.label(crate::i18n::t("settings.color_aligned"))
                         .on_hover_text(crate::i18n::t("settings_hint.color_aligned"));
-                    ui.checkbox(&mut self.draft.color_aligned_columns, "");
+                    ui.checkbox(&mut self.draft.color_aligned_columns, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.color_aligned"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.warn_unalign"))
                         .on_hover_text(crate::i18n::t("settings_hint.warn_unalign"));
-                    ui.checkbox(&mut self.draft.warn_raw_align_reload, "");
+                    ui.checkbox(&mut self.draft.warn_raw_align_reload, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.warn_unalign"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.warn_date_change"))
                         .on_hover_text(crate::i18n::t("settings_hint.warn_date_change"));
-                    ui.checkbox(&mut self.draft.warn_on_date_format_change, "");
+                    ui.checkbox(&mut self.draft.warn_on_date_format_change, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.warn_date_change"));
+                    ui.end_row();
+
+                    // Belongs with the other "warn me before this happens"
+                    // toggles: it is about opening a file, not about cloud
+                    // connections.
+                    ui.label(crate::i18n::t("settings.confirm_url_redirects"))
+                        .on_hover_text(crate::i18n::t("settings_hint.confirm_url_redirects"));
+                    let redirects_before = self.draft.confirm_url_redirects;
+                    ui.checkbox(&mut self.draft.confirm_url_redirects, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.confirm_url_redirects"));
+                    // Turning a safety check off deserves an explanation, not
+                    // a silent tick. Turning it back on does not.
+                    if redirects_before && !self.draft.confirm_url_redirects {
+                        self.confirm_url_redirect_disable = true;
+                    }
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.trim_whitespace"))
                         .on_hover_text(crate::i18n::t("settings_hint.trim_whitespace"));
-                    ui.checkbox(&mut self.draft.trim_whitespace_on_load, "");
+                    ui.checkbox(&mut self.draft.trim_whitespace_on_load, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.trim_whitespace"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.warn_trim"))
                         .on_hover_text(crate::i18n::t("settings_hint.warn_trim"));
-                    ui.checkbox(&mut self.draft.warn_on_whitespace_trim, "");
+                    ui.checkbox(&mut self.draft.warn_on_whitespace_trim, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.warn_trim"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.clean_headers"))
                         .on_hover_text(crate::i18n::t("settings_hint.clean_headers"));
-                    ui.checkbox(&mut self.draft.clean_headers_on_load, "");
+                    ui.checkbox(&mut self.draft.clean_headers_on_load, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.clean_headers"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.offer_repair"))
                         .on_hover_text(crate::i18n::t("settings_hint.offer_repair"));
-                    ui.checkbox(&mut self.draft.offer_repair_on_malformed, "");
+                    ui.checkbox(&mut self.draft.offer_repair_on_malformed, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.offer_repair"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("wo.title"))
@@ -730,7 +826,8 @@ impl SettingsDialog {
 
                     ui.label(crate::i18n::t("settings.readonly_notice"))
                         .on_hover_text(crate::i18n::t("settings_hint.readonly_notice"));
-                    ui.checkbox(&mut self.draft.show_readonly_notice, "");
+                    ui.checkbox(&mut self.draft.show_readonly_notice, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.readonly_notice"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.notebook_output"))
@@ -748,7 +845,9 @@ impl SettingsDialog {
                                 NotebookOutputLayout::Beneath,
                                 crate::i18n::t("enum.nb_beneath"),
                             );
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.notebook_output"));
                     ui.end_row();
                 });
         });
@@ -768,22 +867,26 @@ impl SettingsDialog {
                 .show(ui, |ui| {
                     ui.label(crate::i18n::t("settings.show_row_numbers"))
                         .on_hover_text(crate::i18n::t("settings_hint.show_row_numbers"));
-                    ui.checkbox(&mut self.draft.show_row_numbers, "");
+                    ui.checkbox(&mut self.draft.show_row_numbers, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.show_row_numbers"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.show_sequential_rows"))
                         .on_hover_text(crate::i18n::t("settings_hint.show_sequential_rows"));
-                    ui.checkbox(&mut self.draft.show_sequential_row_numbers, "");
+                    ui.checkbox(&mut self.draft.show_sequential_row_numbers, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.show_sequential_rows"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.alternating_rows"))
                         .on_hover_text(crate::i18n::t("settings_hint.alternating_rows"));
-                    ui.checkbox(&mut self.draft.alternating_row_colors, "");
+                    ui.checkbox(&mut self.draft.alternating_row_colors, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.alternating_rows"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.negative_red"))
                         .on_hover_text(crate::i18n::t("settings_hint.negative_red"));
-                    ui.checkbox(&mut self.draft.negative_numbers_red, "");
+                    ui.checkbox(&mut self.draft.negative_numbers_red, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.negative_red"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.mark_filter_cell_mode"))
@@ -801,12 +904,15 @@ impl SettingsDialog {
                                     crate::i18n::t(mode.i18n_key()),
                                 );
                             }
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.mark_filter_cell_mode"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.thousand_sep"))
                         .on_hover_text(crate::i18n::t("settings_hint.thousand_sep"));
-                    ui.checkbox(&mut self.draft.thousands_separators_in_cells, "");
+                    ui.checkbox(&mut self.draft.thousands_separators_in_cells, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.thousand_sep"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.number_style"))
@@ -823,22 +929,27 @@ impl SettingsDialog {
                                     style.label_t(),
                                 );
                             }
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.number_style"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.highlight_edits"))
                         .on_hover_text(crate::i18n::t("settings_hint.highlight_edits"));
-                    ui.checkbox(&mut self.draft.highlight_edits, "");
+                    ui.checkbox(&mut self.draft.highlight_edits, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.highlight_edits"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.cell_line_breaks"))
                         .on_hover_text(crate::i18n::t("settings_hint.cell_line_breaks"));
-                    ui.checkbox(&mut self.draft.cell_line_breaks, "");
+                    ui.checkbox(&mut self.draft.cell_line_breaks, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.cell_line_breaks"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.clickable_links"))
                         .on_hover_text(crate::i18n::t("settings_hint.clickable_links"));
-                    ui.checkbox(&mut self.draft.clickable_links, "");
+                    ui.checkbox(&mut self.draft.clickable_links, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.clickable_links"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.binary_display"))
@@ -861,7 +972,9 @@ impl SettingsDialog {
                                 BinaryDisplayMode::Text,
                                 BinaryDisplayMode::Text.label_t(),
                             );
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.binary_display"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.default_mark_color"))
@@ -876,7 +989,9 @@ impl SettingsDialog {
                                     color.label_t(),
                                 );
                             }
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.default_mark_color"));
                     ui.end_row();
                 });
         });
@@ -914,7 +1029,10 @@ impl SettingsDialog {
                         ui.label(stat.column_id())
                             .on_hover_text(crate::i18n::t(stat.hint_key()));
                         let mut on = self.draft.summary_stats.contains(&stat);
-                        if ui.checkbox(&mut on, "").changed() {
+                        let toggle = ui
+                            .checkbox(&mut on, "")
+                            .on_hover_text(crate::i18n::t(stat.hint_key()));
+                        if toggle.changed() {
                             if on {
                                 if !self.draft.summary_stats.contains(&stat) {
                                     self.draft.summary_stats.push(stat);
@@ -961,7 +1079,9 @@ impl SettingsDialog {
                                 SearchMode::Regex,
                                 crate::i18n::t("enum.search_regex"),
                             );
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.default_search_mode"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.search_result_mode"))
@@ -979,7 +1099,9 @@ impl SettingsDialog {
                                 SearchResultMode::Highlight,
                                 crate::i18n::t("enum.search_result_highlight"),
                             );
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.search_result_mode"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.search_history_limit"))
@@ -988,7 +1110,8 @@ impl SettingsDialog {
                         egui::TextEdit::singleline(&mut self.search_history_limit_buf)
                             .desired_width(120.0)
                             .hint_text("5"),
-                    );
+                    )
+                    .on_hover_text(crate::i18n::t("settings_hint.search_history_limit"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.tab_size"))
@@ -1000,7 +1123,9 @@ impl SettingsDialog {
                             for n in 1..=16 {
                                 ui.selectable_value(&mut self.draft.tab_size, n, n.to_string());
                             }
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.tab_size"));
                     ui.end_row();
                 });
         });
@@ -1020,7 +1145,8 @@ impl SettingsDialog {
                 .show(ui, |ui| {
                     ui.label(crate::i18n::t("settings.sql_open_default"))
                         .on_hover_text(crate::i18n::t("settings_hint.sql_open_default"));
-                    ui.checkbox(&mut self.draft.sql_panel_default_open, "");
+                    ui.checkbox(&mut self.draft.sql_panel_default_open, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.sql_open_default"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.sql_panel_position"))
@@ -1035,7 +1161,9 @@ impl SettingsDialog {
                                     pos.label_t(),
                                 );
                             }
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.sql_panel_position"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.default_row_limit"))
@@ -1044,12 +1172,14 @@ impl SettingsDialog {
                         egui::TextEdit::singleline(&mut self.sql_row_limit_buf)
                             .desired_width(80.0)
                             .hint_text("100"),
-                    );
+                    )
+                    .on_hover_text(crate::i18n::t("settings_hint.sql_row_limit"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.autocomplete"))
                         .on_hover_text(crate::i18n::t("settings_hint.autocomplete"));
-                    ui.checkbox(&mut self.draft.sql_autocomplete, "");
+                    ui.checkbox(&mut self.draft.sql_autocomplete, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.autocomplete"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.editor_font"))
@@ -1064,12 +1194,15 @@ impl SettingsDialog {
                                     font.label_t(),
                                 );
                             }
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.editor_font"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.sql_diff_highlight"))
                         .on_hover_text(crate::i18n::t("settings_hint.sql_diff_highlight"));
-                    ui.checkbox(&mut self.draft.sql_row_diff_highlight_enabled, "");
+                    ui.checkbox(&mut self.draft.sql_row_diff_highlight_enabled, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.sql_diff_highlight"));
                     ui.end_row();
 
                     ui.add_enabled_ui(self.draft.sql_row_diff_highlight_enabled, |ui| {
@@ -1088,7 +1221,9 @@ impl SettingsDialog {
                                         n.to_string(),
                                     );
                                 }
-                            });
+                            })
+                            .response
+                            .on_hover_text(crate::i18n::t("settings_hint.sql_diff_secs"));
                     });
                     ui.end_row();
                 });
@@ -1119,7 +1254,9 @@ impl SettingsDialog {
                         let edit = egui::TextEdit::singleline(&mut self.mcp_row_limit_buf)
                             .desired_width(100.0)
                             .hint_text("1,000");
-                        ui.add_enabled(!self.mcp_unlimited_rows, edit);
+                        ui.add_enabled(!self.mcp_unlimited_rows, edit)
+                            .on_hover_text(crate::i18n::t("settings_hint.mcp_row_limit"))
+                            .on_disabled_hover_text(crate::i18n::t("settings_hint.mcp_row_limit"));
                         ui.checkbox(
                             &mut self.mcp_unlimited_rows,
                             crate::i18n::t("settings.unlimited"),
@@ -1133,7 +1270,8 @@ impl SettingsDialog {
                         egui::TextEdit::singleline(&mut self.mcp_cell_bytes_buf)
                             .desired_width(120.0)
                             .hint_text("65,536"),
-                    );
+                    )
+                    .on_hover_text(crate::i18n::t("settings_hint.cell_byte_cap"));
                     ui.end_row();
                 });
         });
@@ -1249,12 +1387,15 @@ impl SettingsDialog {
                                     m.label_t(),
                                 );
                             }
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.map_default_mode"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.map_fallback"))
                         .on_hover_text(crate::i18n::t("settings_hint.map_fallback"));
-                    ui.checkbox(&mut self.draft.map_fallback_to_geometry, "");
+                    ui.checkbox(&mut self.draft.map_fallback_to_geometry, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.map_fallback"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.tile_url"))
@@ -1263,7 +1404,8 @@ impl SettingsDialog {
                         egui::TextEdit::singleline(&mut self.draft.map_tile_url_template)
                             .desired_width(380.0)
                             .hint_text("https://tile.openstreetmap.org/{z}/{x}/{y}.png"),
-                    );
+                    )
+                    .on_hover_text(crate::i18n::t("settings_hint.tile_url"));
                     ui.end_row();
                 });
         });
@@ -1293,12 +1435,15 @@ impl SettingsDialog {
                                     pos.label_t(),
                                 );
                             }
-                        });
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.sidebar_position"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.directory_tree_filter"))
                         .on_hover_text(crate::i18n::t("settings_hint.directory_tree_filter"));
-                    ui.checkbox(&mut self.draft.directory_tree_filter_enabled, "");
+                    ui.checkbox(&mut self.draft.directory_tree_filter_enabled, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.directory_tree_filter"));
                     ui.end_row();
                 });
         });
@@ -1342,7 +1487,9 @@ impl SettingsDialog {
                             egui::TextEdit::singleline(&mut self.initial_load_rows_buf)
                                 .desired_width(120.0)
                                 .hint_text("5,000,000"),
-                        );
+                        )
+                        .on_hover_text(crate::i18n::t("settings_hint.initial_load_cap"))
+                        .on_disabled_hover_text(crate::i18n::t("settings_hint.initial_load_cap"));
                         ui.checkbox(
                             &mut self.draft.initial_load_rows_unlimited,
                             crate::i18n::t("settings.unlimited"),
@@ -1359,7 +1506,9 @@ impl SettingsDialog {
                             egui::TextEdit::singleline(&mut self.raw_view_max_mb_buf)
                                 .desired_width(120.0)
                                 .hint_text("500"),
-                        );
+                        )
+                        .on_hover_text(crate::i18n::t("settings_hint.raw_view_cap"))
+                        .on_disabled_hover_text(crate::i18n::t("settings_hint.raw_view_cap"));
                         ui.checkbox(
                             &mut self.draft.raw_view_max_bytes_unlimited,
                             crate::i18n::t("settings.unlimited"),
@@ -1376,7 +1525,9 @@ impl SettingsDialog {
                             egui::TextEdit::singleline(&mut self.max_decompressed_mb_buf)
                                 .desired_width(120.0)
                                 .hint_text("4,295"),
-                        );
+                        )
+                        .on_hover_text(crate::i18n::t("settings_hint.decompress_cap"))
+                        .on_disabled_hover_text(crate::i18n::t("settings_hint.decompress_cap"));
                         ui.checkbox(
                             &mut self.draft.max_decompressed_unlimited,
                             crate::i18n::t("settings.unlimited"),
@@ -1397,15 +1548,47 @@ impl SettingsDialog {
                             .selected_text(self.syntax_highlight_size_unit.label_t())
                             .width(70.0)
                             .show_ui(ui, |ui| {
-                                for &unit in SyntaxSizeUnit::ALL {
+                                for &unit in SizeUnit::ALL {
                                     ui.selectable_value(
                                         &mut self.syntax_highlight_size_unit,
                                         unit,
                                         unit.label_t(),
                                     );
                                 }
+                            })
+                            .response
+                            .on_hover_text(crate::i18n::t("settings_hint.syntax_size_cap"));
+                    });
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.large_file_min_bytes"))
+                        .on_hover_text(crate::i18n::t("settings_hint.large_file_min_bytes"));
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.large_file_min_bytes_buf)
+                                .desired_width(100.0)
+                                .hint_text("10"),
+                        )
+                        .on_hover_text(crate::i18n::t("settings_hint.large_file_min_bytes"));
+                        egui::ComboBox::from_id_salt("large_file_size_unit_combo")
+                            .selected_text(self.large_file_size_unit.label_t())
+                            .width(70.0)
+                            .show_ui(ui, |ui| {
+                                for &unit in SizeUnit::ALL {
+                                    ui.selectable_value(
+                                        &mut self.large_file_size_unit,
+                                        unit,
+                                        unit.label_t(),
+                                    );
+                                }
                             });
                     });
+                    ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.show_large_file_notice"))
+                        .on_hover_text(crate::i18n::t("settings_hint.show_large_file_notice"));
+                    ui.checkbox(&mut self.draft.show_large_file_notice, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.show_large_file_notice"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.folder_union_cap"))
@@ -1416,7 +1599,9 @@ impl SettingsDialog {
                             egui::TextEdit::singleline(&mut self.folder_union_max_files_buf)
                                 .desired_width(120.0)
                                 .hint_text("500"),
-                        );
+                        )
+                        .on_hover_text(crate::i18n::t("settings_hint.folder_union_cap"))
+                        .on_disabled_hover_text(crate::i18n::t("settings_hint.folder_union_cap"));
                         ui.checkbox(
                             &mut self.draft.folder_union_max_files_unlimited,
                             crate::i18n::t("settings.unlimited"),
@@ -1433,7 +1618,9 @@ impl SettingsDialog {
                             egui::TextEdit::singleline(&mut self.grep_max_file_size_buf)
                                 .desired_width(120.0)
                                 .hint_text("50"),
-                        );
+                        )
+                        .on_hover_text(crate::i18n::t("settings_hint.multi_search_cap"))
+                        .on_disabled_hover_text(crate::i18n::t("settings_hint.multi_search_cap"));
                         ui.checkbox(
                             &mut self.draft.grep_max_file_size_unlimited,
                             crate::i18n::t("settings.unlimited"),
@@ -1448,7 +1635,8 @@ impl SettingsDialog {
                         egui::TextEdit::singleline(&mut self.chart_max_points_buf)
                             .desired_width(120.0)
                             .hint_text("100,000"),
-                    );
+                    )
+                    .on_hover_text(crate::i18n::t("settings_hint.chart_max_points"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.chart_max_categories"))
@@ -1457,7 +1645,8 @@ impl SettingsDialog {
                         egui::TextEdit::singleline(&mut self.chart_max_categories_buf)
                             .desired_width(120.0)
                             .hint_text("200"),
-                    );
+                    )
+                    .on_hover_text(crate::i18n::t("settings_hint.chart_max_categories"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.tables_in_picker"))
@@ -1466,7 +1655,8 @@ impl SettingsDialog {
                         egui::TextEdit::singleline(&mut self.table_picker_visible_rows_buf)
                             .desired_width(120.0)
                             .hint_text("10"),
-                    );
+                    )
+                    .on_hover_text(crate::i18n::t("settings_hint.tables_in_picker"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.excel_auto_open"))
@@ -1475,7 +1665,8 @@ impl SettingsDialog {
                         egui::TextEdit::singleline(&mut self.excel_max_auto_sheets_buf)
                             .desired_width(120.0)
                             .hint_text("5"),
-                    );
+                    )
+                    .on_hover_text(crate::i18n::t("settings_hint.excel_auto_open"));
                     ui.end_row();
                 });
         });
@@ -1495,7 +1686,8 @@ impl SettingsDialog {
                 .show(ui, |ui| {
                     ui.label(crate::i18n::t("settings.start_maximised"))
                         .on_hover_text(crate::i18n::t("settings_hint.start_maximised"));
-                    ui.checkbox(&mut self.draft.start_maximized, "");
+                    ui.checkbox(&mut self.draft.start_maximized, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.start_maximised"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("settings.initial_window_size"))
@@ -1511,7 +1703,9 @@ impl SettingsDialog {
                                         size.label(),
                                     );
                                 }
-                            });
+                            })
+                            .response
+                            .on_hover_text(crate::i18n::t("settings_hint.initial_window_size"));
                     });
                     ui.end_row();
                 });
@@ -1532,12 +1726,14 @@ impl SettingsDialog {
                 .show(ui, |ui| {
                     ui.label(crate::i18n::t("release.check_on_start"))
                         .on_hover_text(crate::i18n::t("release.check_on_start_hint"));
-                    ui.checkbox(&mut self.draft.check_updates_on_start, "");
+                    ui.checkbox(&mut self.draft.check_updates_on_start, "")
+                        .on_hover_text(crate::i18n::t("release.check_on_start_hint"));
                     ui.end_row();
 
                     ui.label(crate::i18n::t("release.show_notes"))
                         .on_hover_text(crate::i18n::t("release.show_notes_hint"));
-                    ui.checkbox(&mut self.draft.show_release_notes, "");
+                    ui.checkbox(&mut self.draft.show_release_notes, "")
+                        .on_hover_text(crate::i18n::t("release.show_notes_hint"));
                     ui.end_row();
                 });
         });
@@ -1557,11 +1753,13 @@ impl SettingsDialog {
                 .show(ui, |ui| {
                     ui.label(crate::i18n::t("diagnostics.debug_mode"))
                         .on_hover_text(crate::i18n::t("diagnostics.debug_mode_hint"));
-                    ui.checkbox(&mut self.draft.debug_mode, "");
+                    ui.checkbox(&mut self.draft.debug_mode, "")
+                        .on_hover_text(crate::i18n::t("diagnostics.debug_mode_hint"));
                     ui.end_row();
                 });
             if ui
                 .button(crate::i18n::t("diagnostics.open_log_folder"))
+                .on_hover_text(crate::i18n::t("diagnostics.open_log_folder_hint"))
                 .clicked()
                 && let Some(dir) = crate::diagnostics::logs_dir()
             {

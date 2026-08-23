@@ -50,6 +50,9 @@ pub struct OctaMcpServer {
     pub default_row_limit: Option<usize>,
     /// Per-cell byte cap. `0` means no cap.
     pub cell_byte_cap: usize,
+    /// Local files at least this big are scanned in place by the tools that
+    /// can answer without the rows. Read once from `AppSettings` at startup.
+    pub large_file_min_bytes: usize,
     /// Permit schema-changing DuckDB/SQLite/GeoPackage saves. Read once from
     /// `AppSettings` (`!write_protection`) at server startup.
     pub allow_schema_changes: bool,
@@ -77,6 +80,7 @@ impl OctaMcpServer {
             self.backup_before_modify,
             self.db_connections.clone(),
             self.read_only,
+            self.large_file_min_bytes,
         )
     }
 }
@@ -89,6 +93,7 @@ impl OctaMcpServer {
         read_only: bool,
         allow_schema_changes: bool,
         backup_before_modify: bool,
+        large_file_min_bytes: usize,
     ) -> Self {
         let mut tool_router = Self::tool_router();
         if read_only {
@@ -103,6 +108,7 @@ impl OctaMcpServer {
                 "partition_table",
                 "write_db_table",
                 "copy_db_table",
+                "write_workbook",
                 "copy_object",
                 "batch_convert",
                 "move_object",
@@ -116,6 +122,7 @@ impl OctaMcpServer {
         Self {
             default_row_limit,
             cell_byte_cap,
+            large_file_min_bytes,
             allow_schema_changes,
             backup_before_modify,
             read_only,
@@ -290,6 +297,25 @@ FROM schema.table). Read-only."
     }
 
     #[tool(
+        description = "Read the foreign keys a live database declares, so you learn how its \
+tables connect without reading a single row. Takes a saved `connection` (see \
+`list_db_connections`), optional `catalog` for Snowflake/Databricks/BigQuery, and `schemas` \
+(default: every schema). Returns `relationships`, each naming the child and parent table and \
+column plus the `constraint` name. Postgres, MySQL, SQL Server and Exasol enforce their foreign \
+keys, so an edge from those is also true of the rows; Redshift, Snowflake, Databricks and \
+BigQuery accept a declaration and enforce nothing. Pass `measure: true` to read a sample of rows \
+and add `overlap`, `score` and orphan counts both ways round per edge, which is how you find a \
+declared key nothing honours (a declared key is measured child to parent, so `left_orphans` is \
+the child rows pointing at a parent that does not exist). ClickHouse has no foreign keys at all. Read-only."
+    )]
+    async fn db_relationships(
+        &self,
+        Parameters(p): Parameters<tools::db_relationships::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::db_relationships::handle(self, p).await
+    }
+
+    #[tool(
         description = "Run one SQL statement on a saved live-database connection (see \
 `list_db_connections`), server-side and in the engine's NATIVE dialect (PostgreSQL, \
 MySQL/MariaDB, or SQL Server - not DuckDB SQL). SELECTs return `{schema, rows, ...}` like \
@@ -302,6 +328,37 @@ your own LIMIT/TOP for large tables - the whole result is fetched from the serve
         Parameters(p): Parameters<tools::query_db::Params>,
     ) -> Result<CallToolResult, McpError> {
         tools::query_db::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Return the SQL that would make a live database table match a file or an \
+open tab, WITHOUT running it. Use when a change to a server table has to be reviewed before it \
+is applied. Reads the table (see `list_db_connections`), compares it to the source on the `on` \
+key columns, and returns one transaction: DELETEs for rows only on the server, full-row UPDATEs \
+for rows whose values differ, INSERTs for rows only in the source. Nothing is written. Columns \
+present only in the source are reported in `ignored_columns` and skipped - this never emits \
+ALTER TABLE. Numbers are compared as numbers, so 120.50 and 120.5 are not a change."
+    )]
+    async fn sync_sql(
+        &self,
+        Parameters(p): Parameters<tools::sync_sql::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::sync_sql::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Write several tables into ONE .xlsx workbook, one worksheet per entry. \
+Each sheet names a source: `path` (any readable file) or `open_tab` (in-GUI assistant only), \
+plus an optional sheet `name` (default: the file stem or tab name). Sheet names are corrected \
+to Excel's rules automatically - at most 31 characters, no forbidden punctuation, duplicates \
+numbered - so a write cannot produce a workbook Excel refuses to open. Use this instead of \
+calling `convert` once per table when the user wants one file."
+    )]
+    async fn write_workbook(
+        &self,
+        Parameters(p): Parameters<tools::write_workbook::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::write_workbook::handle(self, p).await
     }
 
     #[tool(
@@ -338,7 +395,8 @@ to the source's. Returns `{rows_copied, created}`."
 For streaming formats (Parquet, CSV, TSV) the count is bounded by Octa's 5,000,000-row \
 initial-load cap; the response flags `initial_load_capped: true` when the count may not \
 reflect every row in the source. Pass `unlimited: true` to lift the cap and get the true \
-total."
+total. A large Parquet, CSV or JSON file is counted exactly straight from the file without \
+reading it, and the response then carries `streamed: true`."
     )]
     async fn count_rows(
         &self,
@@ -554,6 +612,38 @@ one distinct value. Pass `unlimited: true` to scan the full file."
     }
 
     #[tool(
+        description = "Check a table's values against a TOML rules file and report which rules \
+failed. Rules name their columns, and each supports one check: `not_null`, `unique`, `range` \
+(min/max), `regex` (pattern) or `max_length`. The response carries `passed`, one entry per failing \
+rule with its failure count and up to three offending values, and `unknown` for rules naming \
+columns the table does not have. A rule that cannot run counts as a failure, never as a pass. Use \
+it to verify an extract before trusting it; the same file works from the command line as `octa \
+--check FILE --rules RULES`."
+    )]
+    async fn check_rules(
+        &self,
+        Parameters(p): Parameters<tools::check_rules::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::check_rules::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Compare two versions of the same dataset and report how it moved: columns \
+added or removed, and per shared column the change in null rate, distinct count and (for numeric \
+columns) minimum, maximum and mean. Columns with few distinct values also report which category \
+values appeared and vanished. Use it to answer whether today's extract still looks like \
+yesterday's, before trusting a load. Pass `fail_on` (e.g. `null_rate:0.05,rows:0.1`) to have the \
+response's `failed` flag act as a gate. Either path may be an open tab or a cloud object URL. \
+This measures distributions, not rows: use `diff_tables` when you need to know which rows changed."
+    )]
+    async fn data_drift(
+        &self,
+        Parameters(p): Parameters<tools::data_drift::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::data_drift::handle(self, p).await
+    }
+
+    #[tool(
         description = "Scan a folder of data files and report which of them disagree about their \
 columns. Files are grouped by identical schema, so 500 Parquet parts come back as a handful of \
 variants rather than 500 entries. Returns `has_drift`, `variants` (each with its file list and \
@@ -606,9 +696,14 @@ first if you do not know which columns to compare."
 much their values overlap, weighted by distinctness so a status column cannot outrank a real \
 key. Use before `join_tables` when the key columns have different names or are unknown. Takes \
 `paths` and/or `open_tabs` (two or more sources in total). Returns `candidates` best first, \
-each naming both sides plus `overlap`, `left_distinct`, `right_distinct` and `score`. Sampled \
-(`sample`, default 10000 rows per table), so a high overlap is strong evidence rather than \
-proof. Read-only."
+each naming both sides plus `overlap`, `left_distinct`, `right_distinct`, `score`, and orphan \
+counts BOTH ways round: `left_orphans` out of `left_distinct_values` and `right_orphans` out of \
+`right_distinct_values`, how many distinct values on each side find no partner on the other. \
+Orphans are what separate two candidates that score identically, which happens whenever both \
+tables number their rows from 1; only the count read from the CHILD side separates them, so \
+check both. Sampled (`sample`, \
+default 10000 rows per table), so a high overlap is strong evidence rather than proof. \
+Read-only."
     )]
     async fn suggest_join_keys(
         &self,
@@ -935,11 +1030,16 @@ impl ServerHandler for OctaMcpServer {
              - `unlimited: true` - also lifts the streaming file-loader cap so the tool sees \
              every row on disk. Use both together to truly return every row.\n\
              Flags `truncated` / `cell_truncated` tell you when re-querying is worthwhile.\n\n\
-             Available tools: read_table, tail, sample, schema, list_tables, count_rows, \
-             run_sql, convert, export_schema, profile, find_duplicates, value_frequency, \
-             search, compare_schemas, diff_tables, union_tables, validate_against_schema, \
-             describe_file, unique_columns, suggest_join_keys, diagnose_join, pivot, correlation, grep_files, transform_columns, \
-             list_db_connections, list_db_tables, query_db, write_db_table, copy_db_table."
+             Available tools: read_table, tail, sample, schema, list_tables, list_objects, \
+             copy_object, move_object, delete_object, list_db_connections, list_db_tables, db_relationships, query_db, \
+             sync_sql, write_workbook, write_db_table, copy_db_table, count_rows, run_sql, convert, \
+             export_schema, profile, find_duplicates, fuzzy_duplicates, value_frequency, search, \
+             compare_schemas, diff_tables, validate_against_schema, describe_file, unique_columns, \
+             check_rules, data_drift, schema_drift, create_report, fuzzy_join, suggest_join_keys, \
+             diagnose_join, harmonise_schemas, write_table, edit_table, pivot, resample_timeseries, \
+             batch_convert, rolling_window, correlation, grep_files, transform_columns, anonymize, \
+             union_tables, join_tables, drop_duplicates, fill_missing, detect_outliers, detect_pii, \
+             partition_table."
         );
         // NOT `Implementation::from_build_env()`: its `env!` macros expand
         // inside the rmcp crate, so it reports the server as `rmcp` at
@@ -960,6 +1060,7 @@ pub async fn run(
     read_only: bool,
     allow_schema_changes: bool,
     backup_before_modify: bool,
+    large_file_min_bytes: usize,
 ) -> anyhow::Result<()> {
     let row_str = default_row_limit.map_or_else(|| "unlimited".to_string(), |n| n.to_string());
     let cell_str = if cell_byte_cap == 0 {
@@ -988,6 +1089,7 @@ pub async fn run(
         read_only,
         allow_schema_changes,
         backup_before_modify,
+        large_file_min_bytes,
     );
     let service = server.serve(stdio()).await?;
     service.waiting().await?;

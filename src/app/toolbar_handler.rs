@@ -226,6 +226,11 @@ impl OctaApp {
                 if tab.search_ask_profile.is_empty() {
                     tab.search_ask_profile = self.settings.chat_active_profile.clone();
                 }
+                // Computed before the call: the argument list borrows several
+                // fields of `tab` mutably, and a &self method on the whole
+                // struct cannot coexist with those disjoint field borrows.
+                let can_save_in_place = tab.saves_in_place();
+                let is_db_tab = tab.db_origin.is_some();
                 let ask_controls = ui::toolbar::AskControls {
                     enabled: !ask_profiles.is_empty(),
                     profiles: &ask_profiles,
@@ -253,6 +258,8 @@ impl OctaApp {
                     tab.table.col_count() > 0,
                     tab.table.is_modified(),
                     tab.table.source_path.is_some(),
+                    can_save_in_place,
+                    is_db_tab,
                     tab.table_state.selected_cell,
                     &tab.table_state.selected_rows,
                     &tab.table_state.selected_cols,
@@ -411,6 +418,15 @@ impl OctaApp {
         }
         if action.save_file_as {
             self.save_file_as();
+        }
+        if action.save_db_sql {
+            self.save_db_sql(self.active_tab);
+        }
+        if action.export_workbook {
+            self.open_workbook_dialog();
+        }
+        if action.open_url {
+            self.open_url_dialog();
         }
         if action.exit {
             if self.tabs[self.active_tab].is_modified() && !self.confirmed_close {
@@ -743,6 +759,15 @@ impl OctaApp {
         if action.open_join_keys {
             self.open_join_keys_dialog();
         }
+        if action.open_drift {
+            self.open_drift_dialog();
+        }
+        if action.open_rel_map {
+            self.open_rel_map_dialog();
+        }
+        if action.open_table_to_db {
+            self.open_table_to_db_dialog();
+        }
         if action.open_db_compare {
             self.open_db_compare_dialog(None, None);
         }
@@ -826,7 +851,7 @@ impl OctaApp {
         {
             self.tidy_up_dialog = Some(crate::app::state::TidyUpState::default());
         }
-        if action.open_rename_columns
+        if (action.open_rename_columns || action.fix_duplicate_columns)
             && self.tabs[self.active_tab].table.col_count() > 0
             && !self.is_readonly()
         {
@@ -836,9 +861,11 @@ impl OctaApp {
                 .iter()
                 .map(|c| c.name.clone())
                 .collect();
-            self.rename_columns_state = Some(crate::app::state::RenameColumnsState::from_columns(
-                &columns,
-            ));
+            let mut state = crate::app::state::RenameColumnsState::from_columns(&columns);
+            // Same dialog either way; this entry just opens it onto its
+            // duplicates half.
+            state.fix_duplicates = action.fix_duplicate_columns;
+            self.rename_columns_state = Some(state);
         }
         if action.filter_to_marked {
             self.toggle_filter_to_marked();
@@ -863,6 +890,7 @@ impl OctaApp {
                 col: 0,
                 out_dir: None,
                 format: String::new(),
+                layout: octa::data::partition::PartitionLayout::default(),
                 error: None,
                 size: octa::ui::settings::DialogSize::default(),
             });

@@ -99,14 +99,10 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 if ui.small_button(octa::i18n::t("dialog.sel_all")).clicked() {
-                    for v in &mut tab.delete_col_selection {
-                        *v = true;
-                    }
+                    tab.delete_col_selection.fill(true);
                 }
                 if ui.small_button(octa::i18n::t("dialog.sel_none")).clicked() {
-                    for v in &mut tab.delete_col_selection {
-                        *v = false;
-                    }
+                    tab.delete_col_selection.fill(false);
                 }
             });
         });

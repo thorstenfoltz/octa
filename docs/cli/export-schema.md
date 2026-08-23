@@ -27,6 +27,7 @@ table. Like `--convert`, the schema-export action ignores it.
 | `postgres` *(default)* | `CREATE TABLE` in the Postgres dialect, double-quoted identifiers.                   |
 | `mysql`                | `CREATE TABLE` in the MySQL dialect, backtick identifiers, `UNSIGNED` types.         |
 | `sqlite`               | `CREATE TABLE` in the SQLite dialect, affinity types (INTEGER/REAL/TEXT/BLOB).       |
+| `mssql`                | `CREATE TABLE` in the SQL Server dialect, bracket identifiers, `NVARCHAR(MAX)`.      |
 | `databricks`           | `CREATE TABLE` in the Databricks (Spark SQL / Delta) dialect, backticks, `STRING`.   |
 | `snowflake`            | `CREATE TABLE` in the Snowflake dialect, double quotes, `VARCHAR` / `TIMESTAMP_NTZ`. |
 | `pydantic`             | Pydantic v2 `BaseModel` with annotated fields and the right imports.                 |

@@ -11,6 +11,11 @@ Pick a table and a key column on each side, then press **Diagnose**.
 It compares the two key columns and reports what is actually wrong. It
 **changes nothing**: the fixes it lists are advice, not actions.
 
+No language model is involved. Each suggested fix is the same
+count of matching keys, recomputed with one normalisation applied, and a
+fix is listed only when it strictly beats the current count. It runs
+locally and gives the same answer every time.
+
 ## What it reports
 
 | Field                        | Meaning                                                           |

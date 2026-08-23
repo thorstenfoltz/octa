@@ -52,6 +52,12 @@ pub struct ToolbarAction {
     pub clear_recent: bool,
     pub save_file: bool,
     pub save_file_as: bool,
+    /// Export a live-database tab's pending edits as a reviewable SQL script.
+    pub save_db_sql: bool,
+    /// Write several open tabs into one .xlsx, one sheet per tab.
+    pub export_workbook: bool,
+    /// Read a file straight from a web address.
+    pub open_url: bool,
     pub toggle_theme: bool,
     pub search_changed: bool,
     /// The search box lost focus with a non-empty query: record it in the
@@ -125,6 +131,10 @@ pub struct ToolbarAction {
     /// **Analyse -> Compare with database table...**: diff the active tab
     /// against a table on a saved database connection.
     pub open_db_compare: bool,
+    /// Analyse -> Data drift...
+    pub open_drift: bool,
+    /// Analyse -> Relationship map...
+    pub open_rel_map: bool,
     /// **Analyse -> Join key finder...**: rank the column pairs that would
     /// join the open tabs.
     pub open_join_keys: bool,
@@ -156,7 +166,7 @@ pub struct ToolbarAction {
     /// Fired by **Edit -> Conditional formatting...**.
     pub open_conditional_format: bool,
     /// Open the Data validation dialog for the active table.
-    /// Fired by **Edit -> Data validation...**.
+    /// Fired by **Data -> Data validation...**.
     pub open_validation: bool,
     /// Open the Transform-column dialog for the active table.
     /// Fired by **Edit -> Transform column...**.
@@ -170,6 +180,9 @@ pub struct ToolbarAction {
     /// Open the bulk "Rename columns" dialog for the active table.
     /// Fired by **Columns -> Rename columns...**.
     pub open_rename_columns: bool,
+    /// Columns -> "Fix duplicate names...": the rename dialog, opened with its
+    /// duplicates half already ticked.
+    pub fix_duplicate_columns: bool,
     /// Open a Data-quality report tab for the active table.
     /// Fired by **Analyse -> Data quality report...**.
     pub open_quality: bool,
@@ -257,6 +270,10 @@ pub struct ToolbarAction {
     /// The dialog itself lives in `app::dialogs::find_duplicates`; the
     /// toolbar just signals "user wants it open".
     pub show_find_duplicates: bool,
+    /// Open the write-to-database dialog sourced from the **open table**
+    /// rather than from a SQL result. Fired by **File -> Save to
+    /// database...** and the `SaveTableToDb` keyboard shortcut.
+    pub open_table_to_db: bool,
     /// Open the Schema Export dialog. The dialog itself lets the user
     /// switch between the seven supported targets; there's no need for
     /// the toolbar to pre-pick one. Fired by **File -> Export schema...**

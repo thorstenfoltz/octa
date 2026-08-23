@@ -73,6 +73,10 @@ to auto-open**) open all sheets at once, each in its own tab. With more
 than N sheets, a picker lets you choose which to open (you can pick more
 than N, or all).
 
+Each tab is labelled `workbook.xlsx - Sheet name` so sheets of one file can be
+told apart; a table picked out of a SQLite or DuckDB file is labelled the same
+way. Renaming the tab still overrides the label.
+
 ## Repairing a malformed CSV / TSV
 
 Turn on **Settings > File-Specific > Offer repair on malformed files** and,
@@ -971,6 +975,249 @@ at depth 8.
 `schema_drift` MCP tool, which the Assistant can call too.
 "#;
 
+pub(super) const DATA_DRIFT: &str = r#"# Data Drift
+
+Two versions of the same data, side by side, answering one question: does
+today's extract still look like yesterday's? Not which rows changed, which is
+what Compare and `--diff` answer, but whether the shape held: the same columns,
+the same fill rate, the same range, the same categories.
+
+**Opening it.** **Analyse > Data drift...**. Pick a source on each side, an
+open tab or a file from disk, put the older version in **Before**, and press
+**Compare**. The result opens in its own tab. No default keyboard shortcut;
+assign one under **Settings > Shortcuts** if you want it.
+
+**Reading the result.** One row per column per metric, in six columns.
+Hovering a header in the result tab shows the same explanation.
+
+- **column** - which column the row is about; blank for table-wide rows such
+  as the row count.
+- **metric** - what is measured. `rows` is the table's row count.
+  `null_rate` is the share of empty cells in the column, 0 to 1.
+  `distinct_count` is how many different values it holds. `min` / `max` /
+  `mean` are over the numeric values. `new_values` / `vanished_values` list
+  categories that appeared or disappeared, only for columns under the
+  category limit.
+- **before** / **after** - the value on each side.
+- **change** - how far it moved *relative to before*: (after - before) /
+  before. 0.1 means it moved by a tenth, whether that is 5 rows out of 50 or
+  5 million out of 50 million, which is what makes one threshold usable
+  across columns of very different size. Blank where a relative change is
+  meaningless, such as a list of categories. Negative when the value fell.
+  **A baseline of 0 that moved at all counts as an unbounded change**, so it
+  breaches any threshold - a null rate going from 0 to 0.5 is infinitely
+  worse in relative terms, and reporting 0 there would hide the most
+  interesting kind of drift.
+- **breached** - whether the row crossed a threshold. False everywhere unless
+  you set thresholds with `--fail-on`; the dialog sets none, so a comparison
+  run from the window reports movement without judging it.
+
+**What it compares.** Columns are matched by name. A column on one side only is
+reported as added or removed and gets no other rows: there is nothing to
+compare it against. Every shared column reports its null rate and distinct
+count, plus minimum, maximum and mean when both sides are numeric. Columns with
+few enough distinct values also list the category values that appeared and
+vanished by name, capped by the **Category limit** field (50 by default),
+because listing the new entries of a free-text column is noise rather than
+drift.
+
+Every number comes from the same Summary pass the Summary tab uses, called once
+per side, so the two can never tell you different things about one file.
+
+**Ceilings.** Columns are matched by name only, so a renamed column reads as
+one removed and one added. Both sides are read under the usual row cap.
+Category lists name at most ten values, then say how many more there were.
+
+**Elsewhere.** `octa --drift-report A B` prints the same report, and
+`--fail-on null_rate:0.05,rows:0.1` turns it into a CI gate that exits 1 when a
+metric moved too far. The `data_drift` MCP tool answers the same question with
+a `failed` flag, and the Assistant can call it.
+"#;
+
+pub(super) const REL_MAP: &str = r#"# Relationship Map
+
+How do these tables connect? One box per table listing its columns, a line
+between each pair of columns that relate, and a plain sentence on every line
+saying how well they match.
+
+**Opening it.** **Analyse > Relationship map...**. Choose the tabs you have
+open, or a folder of data files, and press **Scan**. Reading values takes a
+moment, so it runs in the background with a Cancel button. Drag the boxes into
+whatever arrangement suits you, and **drag a score chip to bend its line**: the
+chip is the curve's handle and the whole connection follows it, so two lines
+running through the same space can be pulled apart instead of overlapping. A
+chip you have not touched leaves its line straight. No default keyboard
+shortcut; assign one under **Settings > Shortcuts** if you want it.
+
+**What decides a line.** The same ranking as the Join key finder, whose help
+section sets the arithmetic out in full with a worked example. Column names
+take no part in it, only values. In short, each column becomes the set of its
+distinct values, read from a sample of rows, trimmed to text, empty cells
+skipped, and then for every pair of columns across two tables:
+
+    shared       = how many values appear in BOTH distinct sets
+    overlap      = shared / the smaller of the two distinct counts
+    distinctness = distinct values / non-empty values sampled  (each side)
+
+    score        = overlap * the LARGER of the two distinctness values
+
+    orphans      = distinct values on the left - shared
+
+Overlap is 1.00 when every value of the smaller side also exists on the larger
+side. Distinctness is how close a column comes to a different value in every
+row: a primary key is 1.00, a status column with three values across ten
+thousand rows is 0.0003. Taking the larger of the two is deliberate, since a
+foreign key is unique on the parent side and repeats on the child side, so
+asking whether *either* side identifies a row is the question with a yes for
+every real key. Multiplying is what stops a status column that happens to
+overlap perfectly from outranking a real key - and it is the **only** thing
+separating them, because a status pair usually has a perfect overlap and no
+orphans either.
+
+**How much is enough.** A line is drawn once its score reaches the threshold in
+**Show links from**, under the source options, which starts at **0.50**. So a
+pair whose values overlap completely needs the more distinct side to be at
+least half distinct; a pair overlapping only half the time needs a side that is
+essentially unique. Move it down to find weaker or partial links - a foreign
+key only half the rows use sits well below 0.50 - and up to keep only the
+strongest. The box beside it takes any value between 0 and 1 typed exactly,
+with either . or , as the decimal mark: the slider is for sweeping, the box for
+pinning a number down. It applies on the **next Scan**, since the threshold is
+used while the values are being compared.
+
+Each line also carries an orphan count: how many distinct values on one side
+find no partner on the other. That is the number meant to separate two
+candidates which score identically, and they do exactly when both tables
+number their rows from 1: with 1,000 orders and 4 customers, both
+`orders.id -> customers.id` and `orders.customer_id -> customers.id` score a
+perfect 1.00, and only the first leaves 996 orphans.
+
+An orphan count is directional, and the two ways round answer different
+questions ("customers who never ordered" against "orders pointing at a
+customer who is gone"). Only one of them settles a tie, and nothing in the
+arithmetic knows which of your tables is the child, so **both counts sit on
+every line** - hovering shows one sentence per direction. In the example above
+the customers side reads 0 for both candidates while the orders side reads 996
+and 0. The Join key finder section works it through in full. A declared foreign
+key has no ambiguity to begin with: it knows which end is the child, and
+Measure scores it in that direction.
+
+The orphan count is computed from the same sampled sets the score came from,
+so the two numbers on one line can never contradict each other.
+
+**A live database needs no guessing.** The two sources above read values and
+infer. A **Database** source does not have to: somebody already declared the
+foreign keys, and the server hands them over for the asking. Pick a saved
+connection, tick the schemas, and Scan. That reads **catalog information only,
+no table data**, so the size of the tables does not matter. Every line is a
+declared foreign key and names its constraint in the tooltip.
+
+Nothing was measured, so the chips read **FK** instead of a score. A
+declaration and a fact are not the same thing: Postgres, MySQL, SQL Server and
+Exasol enforce their foreign keys, so a line from those servers is true of the
+rows as well, while Redshift, Snowflake, Databricks and BigQuery accept a
+declaration and enforce nothing. **Measure** answers that: it reads a sample of
+rows from each drawn table and fills in the same overlap, score and orphan
+counts, so a declared key nothing honours shows up as orphans. It is a separate
+button and never automatic, because it is the step that reads your data.
+
+The **Tables** list under the schemas holds every table the scan saw. The ones
+taking part in a foreign key start ticked and the rest do not, since a grid of
+boxes with no lines between them is an inventory rather than a map. Ticking one
+redraws at once, without asking the server again. ClickHouse has no referential
+constraints of any kind, so there is nothing to read there.
+
+**Boxes that hold more than they show.** A box lists the first twelve columns
+and then a `+N` row saying how many it left out. That row is a button: click it
+and the box lists every column, click the `-N` it becomes and it folds back.
+It is not only cosmetic, because a line attaches to the row of the column it
+names and a column past the twelfth has nowhere to attach while the box is
+folded, so it lands on the last visible row. Open the box and the line moves to
+the column it is really about. Dragging the box still works from that row.
+
+**Exporting.** The **Export...** button writes the map as it stands at that
+moment: boxes where you dragged them, lines bent the way you bent them, column
+lists open as far as you opened them. The picker beside it chooses the format
+and remembers the choice, so "always SVG" is set once. **PDF** (the default)
+and **SVG** are vector and stay sharp at any size, **PNG** is rendered at 2x
+for pasting into a slide or a chat, and **HTML** is a self-contained page for
+someone who does not have Octa: it fetches nothing, works offline, and still
+pans, zooms and lets the boxes be dragged anywhere on screen with the lines
+re-routing live.
+Bending a line, clicking through to Join and Measure need Octa. Nothing is a
+screenshot: all four go through one hand-emitted SVG, so the export does not
+depend on your window size, your zoom or your screen's DPI.
+
+**Using a line.** Click one and the Join dialog opens with that pair already
+filled in. That works for open tabs; a folder or database scan draws the map
+and leaves the joining to you, since the tables are not open.
+
+**Ceilings.** Sampled at 10,000 rows per table, so a high score is strong
+evidence rather than proof. Single columns only. Values are compared as trimmed
+text. A folder scan reads at most 30 files and a database scan at most 30
+tables, and both say when they stopped. A declared key whose other end is not
+drawn is counted and reported rather than drawn into nowhere.
+
+**Elsewhere.** `octa --relationships DIR` prints the same ranking with its
+orphan counts, and `suggest_join_keys` carries them to the Assistant.
+"#;
+
+pub(super) const LARGE_FILES: &str = r#"# Large Files
+
+Large-file mode opens a file read-only, keeps its rows on disk and fetches only
+what is on screen. That is the whole trade: every row of a file far bigger than
+memory is reachable, and in exchange the tab cannot be edited. Editing cells,
+undo, colour marks, conditional formatting, validation highlighting and find
+and replace are all off. Scrolling, sorting, filtering, search, Summary, Chart,
+the SQL panel, export and convert all work.
+
+**When it happens.** Octa decides for you, when you open the file the ordinary
+way. There is no separate command for it. The mode kicks in for files of at
+least 10 GB, or for files that state more rows than Octa would load anyway
+without being read (Parquet says so in its footer; a CSV cannot). That row
+threshold is the **maximum rows loaded on open** setting you already have, not
+a second one to keep in step: set it to unlimited and only the file size
+decides. Both live under **Settings > Performance**. A dialog explains the
+trade and offers to open the file the ordinary way instead; tick **Do not show
+this again** to skip it in future, and turn the question back on in Settings.
+
+**Conversion.** Parquet, CSV, TSV and JSON are read where they lie. Any other
+format is converted to a temporary Parquet file first, which costs about what
+opening it normally costs plus similar free disk space, and can be cancelled
+while it runs. The dialog says which case you are in before you commit.
+
+**What the tab looks like.** A banner says the mode is on. Row numbers are the
+file's real positions, so scrolling into the middle of a forty million row file
+shows row 20,000,001. Sorting a column asks the file for that column in order.
+Typing in the search box becomes a condition applied to the file, once the
+typing settles: re-running a count over a file this size on every keystroke
+would lock the window.
+
+**Getting around.** The scrollbar spans the whole file, so dragging it lands
+anywhere in it directly, and jump-to-first-row / jump-to-last-row mean the
+file's first and last row. The mouse wheel moves within the loaded window and
+steps it a page at a time at the edges.
+
+**Why it is read-only.** Three reasons stack up. The rows on screen are one
+page fetched by a query, and scrolling replaces that page wholesale, so an edit
+written into it would vanish when the window moved. There is no row identity: a
+SQLite or DuckDB tab is editable because every row carries a rowid, so saving
+becomes an UPDATE for that rowid, and a Parquet or CSV scan has no such column
+at all. And the files cannot be patched in place anyway - Parquet is columnar
+and compressed per row group, so one cell means rewriting the file, and in a
+CSV a longer value shifts every byte after it. To change a large file, use the
+SQL panel on the tab and write the result out as a new file.
+
+**Ceilings.** Pages are fetched on the interface thread, which is comfortable
+for Parquet and slower for a very large CSV, where a deep position means
+walking the file.
+
+**Elsewhere.** `octa --sql FILE --query '...' --stream` lets DuckDB scan the
+file in place, so an aggregate covers every row no matter what `--rows` says.
+Other actions need the rows themselves and say so rather than ignoring the
+flag.
+"#;
+
 pub(super) const JOIN_DIAG: &str = r#"# Join Diagnostics
 
 You expected 10,000 matched rows and got 12. This tells you why, opened from
@@ -994,6 +1241,10 @@ It **changes nothing**. The fixes are advice; act on them with Transform column
 or by fixing the source. **Use in Join** hands the two columns to the Join
 dialog once you are satisfied.
 
+**No language model is involved.** Each suggested fix is the same matching-key
+count recomputed with one normalisation applied, run locally, same answer every
+time.
+
 Sampled at 10,000 rows per side by default. When either table is longer the
 report says so, because the counts are then partial.
 "#;
@@ -1012,9 +1263,108 @@ For every column pair across every ticked table pair it measures:
 - **Distinct**: distinct values relative to rows sampled. A key is near
   100%; a status or flag column is near zero.
 
-The ranking multiplies the two, which stops a `status` column that
-happens to hold the same three words on both sides from outranking
-`cust_id -> id`.
+## How the score is calculated
+
+**Step 1, each column becomes a set.** Octa reads the first 10,000 rows
+(the Sample rows per table box) and keeps that column's distinct values,
+plus how many non-empty values it saw. Cells are turned into text and
+trimmed, and empty cells are skipped entirely, counting towards neither
+number. So `1` in an integer column equals `"1"` in a text column, `1`
+and `1.0` do not, and a column that is half nulls is judged on the half
+that is there.
+
+**Step 2, every pair of columns is scored:**
+
+    shared       = how many values appear in BOTH distinct sets
+    overlap      = shared / the smaller of the two distinct counts
+    distinctness = distinct values / non-empty values sampled  (each side)
+
+    score        = overlap * the LARGER of the two distinctness values
+
+    orphans      = distinct values on this side - shared   (counted BOTH ways)
+
+A pair sharing no value at all is not a candidate, and a pair scoring
+below 0.2 is dropped as noise. The Relationship map raises that floor to
+0.50 by default. Every factor sits between 0 and 1, so the score does too.
+
+**Why the larger distinctness and not the smaller.** A real foreign key is
+unique on one side only: `customers.id` has a different value in every
+row while `orders.cust_id` repeats it once per order, so the child side's
+distinctness is low by design. Taking the smaller would punish exactly the
+shape being looked for. Taking the larger asks "is at least one of these
+two columns something that identifies a row?", which is true of every key
+pairing and false of a status column on both sides.
+
+**Worked example.** Two files, small enough to check by hand:
+
+    customers.csv            orders.csv
+    id,name,status           order_id,cust_id,status
+    c1,Alice,open            1,c1,open
+    c2,Bob,shut              2,c1,shut
+    c3,Cara,open             3,c2,open
+    c9,Dan,open              4,c3,open
+                             5,c3,open
+
+For customers.id against orders.cust_id:
+
+    distinct left    c1 c2 c3 c9                        4
+    distinct right   c1 c2 c3                           3
+    shared           c1 c2 c3                           3
+    overlap          3 / min(4, 3)                      1.00
+    distinctness L   4 distinct / 4 non-empty values    1.00
+    distinctness R   3 distinct / 5 non-empty values    0.60
+    score            1.00 * max(1.00, 0.60)             1.00
+    orphans          4 - 3                              1
+
+The orphan is c9, the customer who never ordered: a fact about the data,
+not a fault in the pairing. Now the trap, the two status columns, both
+holding just `open` and `shut`. They overlap **perfectly** and leave
+**zero** orphans:
+
+    overlap          2 / min(2, 2)                      1.00
+    distinctness L   2 distinct / 4 non-empty values    0.50
+    distinctness R   2 distinct / 5 non-empty values    0.40
+    score            1.00 * max(0.50, 0.40)             0.50
+
+Half the score of the real key, with nothing but distinctness separating
+them. At realistic sizes it collapses further: 2,000 customers and 10,000
+orders with three statuses score 1.00 * 3/2000 = 0.0015, under the floor,
+so it is not reported at all.
+
+**Orphans break the ties.** Two candidates can score identically and only
+one be real. It happens whenever both tables number their rows from 1,
+which is most tables with an auto-increment key. Take `customers.csv`
+with ids 1 to 4, and `orders.csv` with 1,000 orders, its own id 1 to
+1000, and a customer_id pointing at one of the four:
+
+    customers.id vs orders.customer_id     the real foreign key
+    customers.id vs orders.id              a coincidence, orders 1-4 exist
+
+Both score a perfect 1.00: full overlap, and a completely distinct side.
+The orphan counts break that tie, and they are reported **both ways
+round**, because only one of the two directions can settle it and nothing
+in the arithmetic knows which of your tables is the child:
+
+    pairing                              customers side   orders side
+    customers.id vs orders.id            0 of 4           996 of 1000
+    customers.id vs orders.customer_id   0 of 4           0 of 4
+
+Read from customers the two are identical, since all four ids appear in
+both columns they are compared against. Read from orders, 996 of the
+1,000 order numbers point at no customer at all while every customer_id
+finds one. That settles it, and it no longer matters which table you
+opened first. A relationship map from a live database has no ambiguity in
+the first place: a declared foreign key knows which end is the child, and
+Measure scores it in that direction.
+
+**Which side is left.** Overlap and score are symmetric, so swapping the
+two columns gives the same number. Orphans are not, which is why both
+directions are shown; left is simply the table that came first, not a
+claim about which one is the parent.
+
+**No language model is involved.** This is set arithmetic over the
+sampled values, computed on your own machine: nothing is sent anywhere,
+and the same tables always produce the same ranking.
 
 Tick two or more tables (three gives every pairing between them), adjust
 the sample size if you like, then press Scan. **Use in Join** opens the
@@ -1137,7 +1487,7 @@ pub(super) const SCHEMA_EXPORT: &str = r#"# Schema Export
 
 Open via **File > Export schema...** or **F7** (remappable).
 The dialog opens on the first target (Postgres DDL); switch between
-the seven supported targets with the chip row at the top of the
+the ten supported targets with the chip row at the top of the
 dialog.
 
 Supported targets:
@@ -1145,6 +1495,9 @@ Supported targets:
 - **SQL DDL (Postgres)**: CREATE TABLE with double-quoted identifiers.
 - **SQL DDL (MySQL)**: CREATE TABLE with backtick identifiers + UNSIGNED / DATETIME / BLOB types.
 - **SQL DDL (SQLite)**: CREATE TABLE with INTEGER / REAL / TEXT / BLOB affinity.
+- **SQL DDL (MS SQL Server)**: CREATE TABLE with bracket identifiers + NVARCHAR(MAX) / BIT / DATETIME2 types.
+- **SQL DDL (Databricks)**: CREATE TABLE with Spark SQL / Delta types (STRING, TIMESTAMP_NTZ).
+- **SQL DDL (Snowflake)**: CREATE TABLE with Snowflake types (VARCHAR, TIMESTAMP_NTZ).
 - **Pydantic v2**: BaseModel subclass with date / datetime imports.
 - **TypeScript interface**: number / string / boolean mappings.
 - **JSON Schema** (draft 2020-12): object schema with properties + required.
@@ -1306,7 +1659,7 @@ pub(super) const VALIDATION: &str = r#"# Data Validation
 
 Data validation flags cells that break a rule you define, painting each
 failing cell **red** so problems stand out. Open it via
-**Columns > Data validation...**.
+**Data > Data validation...**.
 
 ## Rules
 
@@ -1334,6 +1687,16 @@ file and does not change the data, only how it is shown. A manual colour
 mark or a conditional-formatting colour takes priority over the red
 validation highlight. **Add rule** appends a new rule; the **X** button
 removes one; **Clear all** removes them all.
+**Reusing a rule set.** Rules live with the tab and disappear when it closes,
+which is fine while exploring and useless once the same check has to run every
+week. **Save rules...** writes them to a TOML file and **Load rules...** reads
+one back. Rules are stored by column name, not position, because a rules file
+outlives the table it was written from. If a loaded file names a column this
+table does not have, the dialog says which ones rather than dropping them
+quietly: a rules file that half applies is worse than one that fails loudly.
+The same file runs as `octa --check FILE --rules RULES.toml`, which exits 1 on
+any violation and on any rule that could not run, and as the `check_rules` MCP
+tool.
 "#;
 
 pub(super) const PROBLEM_NAV: &str = r#"# Jump to Flagged Cells
@@ -1502,7 +1865,12 @@ enabled.
   filtering, and editing.
 - **Raw Text**: shows the file content as plain text. For CSV/TSV the toolbar
   exposes Quote / Escape / Delimiter combos and an **Align Columns** toggle
-  with per-column colouring. Syntect-based syntax highlighting kicks in for
+  with per-column colouring. For JSON it exposes a **Format JSON** toggle that
+  breaks a minified file into indented lines: only the whitespace between
+  tokens changes, so numbers keep their exact digits, text keeps its escapes
+  and the keys stay in file order. It is a way of reading the file rather than
+  an edit of it, so the tab is not marked changed and un-ticking puts the
+  on-disk text back. Syntect-based syntax highlighting kicks in for
   source-code extensions (Python, Rust, shell, Terraform, ...) and also for
   JSON, YAML, XML and TOML files; the size cap is configurable under
   **Settings -> Performance**. Dragging a selection to the edge of the view
@@ -2171,7 +2539,7 @@ show the same long-form output with worked examples for every action.
 ## MCP server
 
 `octa --mcp` runs a Model Context Protocol server on stdin/stdout.
-Six tools cover roughly the CLI surface plus row counting:
+The most-used tools cover roughly the CLI surface plus row counting:
 
 - `read_table(path, limit?, table?)`
 - `schema(path, table?)`
@@ -2181,7 +2549,9 @@ Six tools cover roughly the CLI surface plus row counting:
 - `run_sql(path, query, limit?, table?)`
 - `convert(input, output, table?)`
 
-(The full tool set is larger; see the online MCP docs.) Tools also
+(That is a small part of the roster; the full set covers data
+quality, joins, drift, reporting, live databases and cloud objects.
+See the online MCP docs for the tool-by-tool reference.) Tools also
 accept **cloud URLs** (`s3://`, `az://`, `gs://`) wherever they take a
 `path`, for both reading and writing, using ambient cloud credentials;
 `list_objects` browses a bucket.
@@ -2206,6 +2576,105 @@ claude mcp add --scope user octa -- octa --mcp
 Add `--mcp-read-only` alongside `--mcp` for a read-only server: the
 file-writing tools (`write_table`, `edit_table`, `convert`) are
 dropped, so an agent can read and query but not modify files.
+"#;
+
+pub(super) const ASSISTANT_CONTEXT: &str = r#"# How the Assistant Understands Your Data
+
+A query can be flawless SQL and still answer the wrong question, because
+it read `date` as the order date when it was the shipping date, or
+joined on the column that happened to be called `id`.
+
+Octa's answer is that the assistant does not interpret your data by
+reading its column names. It measures.
+
+## What it knows when the conversation starts
+
+Almost nothing. The system prompt tells the model which tabs are open,
+how many rows they hold and how many columns:
+
+```text
+Open tabs right now:
+- #1 "orders.parquet" (active): 4812993 rows, 11 columns
+- #2 "customers.csv": 91204 rows, 7 columns
+```
+
+That is deliberately all of it. No column names, no types, no sample
+rows. The prompt then tells the model to call `schema` or
+`describe_file` before reading anything.
+
+The effect is that it cannot form an opinion about a column before it
+has looked at one. A guess such as "the column is called `amount`, so it
+is the order total" has to survive a `profile` call showing the column
+is 94% null and ranges from -1 to 3.
+
+## The tools it reaches for
+
+Every one is a local, deterministic engine. None consults a language
+model, and the same table always produces the same answer.
+
+- `schema`, `describe_file`: what columns exist, of what type, and how
+  the file is physically laid out.
+- `profile`: per column - nulls, distinct count, min, max, quartiles.
+- `value_frequency`: what a column actually contains, and how often.
+- `unique_columns`: which column or combination identifies a row.
+- `suggest_join_keys`: which columns across two tables would genuinely
+  join.
+- `diagnose_join`: why a join that should have worked returned too few
+  rows.
+- `detect_pii`, `detect_outliers`, `correlation`, `schema_drift`.
+
+These are the same engines behind the menu entries, each documented in
+its own section here. Nothing is an assistant-only capability.
+
+## Why this matters for trust
+
+Because the measurements come first, you can check the reasoning: every
+tool call and its result is visible in the conversation. An answer that
+rests on a column being unique shows you the `unique_columns` call that
+established it.
+
+The online documentation carries the same material with a worked
+example over two small tables, start to finish.
+"#;
+
+pub(super) const PARSE_IN_NEW_TAB: &str = r#"# Parse in New Tab
+
+Take part of the table you are looking at and re-read it as a different
+format, in its own tab. Useful when a cell holds a JSON document, a
+column holds YAML fragments, or you want to see the whole table as
+Markdown without writing a file first.
+
+**Edit > Parse in new tab** offers four scopes:
+
+- **Cell**: the cell under the cursor, verbatim.
+- **Row**: the selected row.
+- **Column**: the selected column.
+- **Whole table**: everything.
+
+Then pick the format to parse it AS: JSON, JSON Lines, YAML, TOML, XML,
+CSV, TSV, Markdown or Plain Text. The list stops there on purpose -
+parsing arbitrary cell content as Parquet or Excel would need binary
+bytes and produce noise.
+
+## What actually happens
+
+Cell, Row and Column build a small table of their own first, keeping the
+source column names as headers, and that is what gets written out and
+re-read. So a row parsed as JSON comes back as an object with your
+column names as keys, not as a bare list of values. Plain Text is the
+exception: it is passed through verbatim.
+
+The result is written to a temporary file and opened through the normal
+reader for the format you picked, so it behaves like any other tab -
+same view modes, same SQL panel, same export. Its **source path is
+cleared**, so saving asks where to put it and can never overwrite the
+file you started from.
+
+## When the parse fails
+
+If the text is not valid in the format you chose, the tab opens in the
+Raw view with a banner saying so, rather than showing nothing. That is
+usually the fastest way to see which line is malformed.
 "#;
 
 pub(super) const ASSISTANT: &str = r#"# Assistant
@@ -2761,6 +3230,49 @@ example, partitioning a sales table by `region` gives you `North.csv`,
 
 The original table is not changed. Also available as
 `octa --partition-by` and the `partition_table` assistant/MCP tool.
+
+### Choosing how the pieces are named
+
+The **Layout** option offers four shapes. Taking `city` with values `New York`,
+`Berlin` and `Sao Paulo`, and writing CSV:
+
+- **Flat files** - `new_york.csv`, `berlin.csv`, `sao_paulo.csv`
+- **Folder per value** - `New York/part-0001.csv`, `Berlin/part-0002.csv`
+- **Hive folders** - `city=New York/data.csv`, `city=Berlin/data.csv`
+- **Hive folders, numbered files** - `city=New York/part-0001.csv`
+
+**All four hold the same rows**, and all four reopen as one table with
+**File > Open table folder...**, because the column you split on is written
+into every file whichever you pick. The choice is only about the names - but
+the names are not merely cosmetic.
+
+**Flat** is the only lossy one: the value goes through the tidy-up a SQL
+identifier gets, so capitals fold to lower case and anything that is not a
+letter or digit becomes an underscore. `New York`, `new-york` and `NEW_YORK`
+all arrive as `new_york`, and the second and third become `new_york_2.csv` and
+`new_york_3.csv`. No rows are lost, but the name stops telling you which value
+is inside. An empty value becomes `table.csv`, one starting with a digit gains
+a `t_` prefix.
+
+**The three folder layouts keep the value intact**, replacing only characters
+that cannot appear in a path. **Hive** (`column=value`) is what Spark, Athena,
+DuckDB and pandas expect from a partitioned dataset, so pick it when the files
+go into another tool; the **numbered** variants name the file `part-0001`
+rather than after the value or `data`, which is what those tools write
+themselves and some pipelines expect.
+
+You do not have to work this out from the descriptions. The dialog shows a
+**live preview** of the first few paths, built from your own column's values
+with the same code that writes the files, and it follows every change to the
+column, the format and the layout.
+
+Those names above are illustrations. In the dialog, **hover either option and
+it shows the names your own table would produce**: the first few real values
+of the column you picked, run through the same naming the writer uses, so the
+tooltip and the disk agree.
+
+Both options explain themselves on hover. Flat is the default, so nothing
+changes unless you pick otherwise.
 "#;
 
 pub(super) const OUTLIERS: &str = r#"# Detect Outliers
@@ -3200,6 +3712,57 @@ an independent request. A saved connection is just **configuration** (the
 bucket plus how to authenticate), like a bookmark; it stays in the list across
 restarts but nothing is "connected" in between. There is nothing to keep open
 and nothing that drains while idle.
+
+## Reading from a plain web address
+
+Anywhere Octa takes a file it also takes a URL, and an ordinary `http://` or
+`https://` address needs no configuration at all: Octa downloads it to a
+temporary file and reads that. Use **File > Open URL...**, or pass the address
+on the command line.
+
+The format is taken from the URL's path and any query string is ignored, so a
+signed link ending `sales.csv?token=...` still reads as CSV. A URL with no
+extension falls back to content sniffing. Reading is one-way: Octa never
+writes back to a web address, and a response that is not a success is reported
+with its status code rather than opened, so a 404 page is never parsed as a
+one-column table.
+
+Cloud object URLs are the other case on this page: they resolve through your
+saved connections and their credentials, and they can be written to.
+
+When the address comes from the assistant rather than from you, Octa resolves
+the host first and refuses anything that is not a public address: loopback,
+private ranges, and link-local (which includes the cloud metadata endpoint).
+A document can contain a URL, so without that rule a spreadsheet could talk
+the assistant into fetching your cloud credentials. Addresses you type
+yourself are not restricted.
+
+
+## Opening a file from a web address
+
+**File > Open URL...** takes an `http://` or `https://` address, downloads the
+file and opens it in a new tab. The download runs in the background, so the
+window stays usable while it happens.
+
+### When the link sends you somewhere else
+
+A link can bounce you on to a different address, and the file you end up with
+is the one at the end of that chain, not the one you typed. Octa follows the
+chain itself, and if it ended somewhere other than the address you gave, it
+shows you both and asks before opening anything. The file is already
+downloaded at that point but nothing has been opened, so declining costs you
+nothing.
+
+That question is on by default and lives under **Settings > Files > Ask
+about redirects**. Turning it off asks you to confirm, because the
+confirmation is the only place a changed destination is visible: with it off,
+Octa opens whatever the link finally points at without mentioning that it
+changed.
+
+One case is refused outright rather than offered as a choice: an address on
+the public internet that redirects inward, to your own machine or your own
+network. You asked for a public host, so being sent inside is not a preference
+to confirm.
 "#;
 
 pub(super) const DATA_QUALITY: &str = r#"# Data Quality Report
@@ -3298,6 +3861,28 @@ As you edit, a live preview shows:
 
 **Load from file...** appends more lines from a text file. Applying renames every
 matched column as one step, so a single Undo reverts the whole batch.
+
+## Duplicate column names
+
+A file can name two columns the same thing, and then the list above cannot
+help: it finds a column by its name, and a repeated name picks out the wrong
+one. **Fix duplicate names** in the same dialog handles those by position
+instead.
+
+Tick it and the preview lists what it would do. The first column keeps the
+name; every later one gets a number: `id`, `id_2`, `id_3`. A suffix another
+column already owns is skipped, so `a`, `a`, `a_2` renames only the middle one
+(to `a_3`) and leaves the real `a_2` alone.
+
+**Ignore upper/lower case** widens it, so `Name` and `name` count as the same
+name and the second one gets numbered. Off by default, since some files mean
+those as two different columns.
+
+**Columns > Fix duplicate names...** is the same dialog opened straight onto
+this half of it. Either way the renames join the same single undo step.
+
+Duplicate names are worth fixing before you run SQL over the table, join it or
+export it: those all address a column by name.
 "#;
 
 pub(super) const COMPRESSED_FILES: &str = r#"# Compressed Files
@@ -3451,21 +4036,65 @@ MySQL/MariaDB, ClickHouse and Exasol are genuinely two-level, and a
 PostgreSQL / Redshift / SQL Server connection browses its one connected
 database.
 
+## Saving an open table as a new database table
+
+**File > Save to database...** takes the table in the active tab - a CSV,
+a Parquet file, an Excel sheet, anything Octa can open - and writes it
+into a database as a new table. No SQL needed. It is the same dialog the
+SQL panel's **Write result to DB...** uses, so the targets are the same:
+one of your saved connections, or a DuckDB or SQLite file.
+
+Pick a target, a schema and a table name, then a mode: **Create** makes a
+new table and fails if the name is taken, **Replace** drops any existing
+table of that name first, and **Append** adds the rows to an existing
+table whose column names match.
+
+The table name is pre-filled from the file name. Column names are written
+exactly as they appear in Octa, capitals included, so a CSV with an
+FL_DATE header gets a column called FL_DATE and not fl_date. Pending cell
+edits are included; the file on disk is not touched. Writing to a
+connection still needs **Allow writes** on for it.
+
+Two cases are refused rather than half-done: a tab with nothing open has
+no table to write, and a tab in large-file mode is showing one page of a
+much bigger file, so use the SQL panel on that tab instead - it reads the
+whole file.
+
 ## Editing and write-back
 
 A database tab is **editable** when its connection has **Allow writes**
-on and Octa can discover a primary key; the [Read-only] pill disappears and
+on and Octa can discover a row key; the [Read-only] pill disappears and
 you can edit cells, insert or delete rows, and add columns as in any
 file tab. Ctrl+S then shows exactly what would change on the server
 (updates / inserts / deletes / added columns) and, after you confirm,
 applies it in **one transaction**, keyed by the primary key. On failure
 everything rolls back and your edits stay in the tab.
 
+The confirmation is on by default and can be switched off under
+**Settings > Databases > Confirm database write-back**, which makes Save
+apply the diff straight away. It stays one transaction either way, and a
+failed write still rolls back.
+
 Notes:
-- Without a primary key the tab stays read-only (edits could not be
-  addressed to server rows); a banner says so. ClickHouse and BigQuery
-  tables have no discoverable primary key, so they always open
-  read-only.
+- Saving builds an UPDATE ... WHERE key = per changed row, so Octa needs
+  something that addresses exactly one server row. A **primary key** is
+  used when there is one; failing that, a **UNIQUE constraint whose
+  columns are all NOT NULL**, which is the same one-row guarantee and is
+  what makes many tables without a declared primary key editable anyway.
+  The narrowest such constraint wins, so the key is the same at save as
+  at load. A nullable unique column is not enough - WHERE col = NULL
+  matches nothing, so the save would quietly touch no rows.
+- **With no key at all**, on Postgres, MySQL, SQL Server, Redshift and
+  Exasol, the table is still editable: the save matches each row on all
+  its baseline values (IS NULL where the original was NULL), and a
+  banner on the tab says so. What makes that safe is that **every such
+  statement is checked to have touched exactly one row**, inside the
+  transaction: two matched (duplicate rows the values cannot tell apart)
+  or none matched (changed on the server since you loaded it) both abort
+  the save and roll back. It refuses rather than guesses - so a table of
+  genuinely identical rows cannot be edited this way. ClickHouse and the
+  catalog warehouses are excluded, since their DML is not a plain
+  single-row UPDATE.
 - Only the loaded rows (the initial-load window) are compared; rows
   beyond it are never touched. Concurrent server edits between load and
   save are overwritten (last writer wins).
@@ -3474,6 +4103,67 @@ Notes:
   server**.
 - **Save As** exports the tab to a file and detaches it from the
   server.
+
+### Exporting the changes as SQL instead
+
+Some teams cannot let a tool write to production directly: the change
+has to be reviewed as a script first. **File > Save SQL...** writes
+exactly the statements a save would run to a `.sql` file and sends
+nothing to the server. The tab stays modified, so you can still save
+normally afterwards.
+
+The script is the same one Confirm would execute, produced by the same
+code, so a reviewed script and an applied write-back cannot drift
+apart. It is wrapped in a transaction and ordered the way the save
+applies it: added columns, deletes, updates, inserts.
+
+Save SQL has no keyboard shortcut by default. Assign one under
+**Settings > Shortcuts** if you use it often.
+
+### Generating the change as SQL instead of applying it
+
+`--sync-sql` answers a different question from `--db-query`: what SQL would
+make this server table match this file? It reads the table, compares it on the
+key columns you name, and prints one transaction. Nothing is written.
+
+```bash
+octa --sync-sql users.csv --db prod --sync-table public.users --sync-on id > change.sql
+```
+
+The script goes to stdout and the counts to stderr, so it pipes straight into a
+file or into `psql`. This is the headless twin of the GUI's **File > Save SQL**,
+and both call the same renderer, so a script reviewed here and a write-back
+applied there cannot drift apart.
+
+Numbers are compared as numbers, so a file's `120.50` and a `numeric(12,2)`
+column's `120.50` do not produce a phantom UPDATE. Columns present only in the
+file are reported and skipped; this never emits `ALTER TABLE`. Agents can ask
+the same question with the read-only `sync_sql` tool.
+
+### Exporting several tabs as one workbook
+
+**File > Export workbook...** writes any number of open tabs into a single
+`.xlsx`, one worksheet per tab. Tick the tabs you want, adjust the sheet names
+if you like, and choose where to save.
+
+Sheet names start from the tab labels and are editable, because a tab label can
+be long, repeated, or contain characters Excel refuses in a sheet name. Whatever
+you leave is corrected before writing: at most 31 characters, no forbidden
+punctuation, and duplicates numbered `Report`, `Report_2`. So the export cannot
+produce a workbook Excel will not open.
+
+Chart tabs and empty tabs are not offered, since they have no table to write.
+The entry has no keyboard shortcut by default; assign one under **Settings >
+Shortcuts** if you use it often.
+
+Headless, the same thing is `--to-workbook`:
+
+```bash
+octa --to-workbook report.xlsx sales.csv returns.parquet stock.json
+```
+
+Sheet names come from the file stems. Agents can do it with the `write_workbook`
+tool, which takes an explicit `name` per sheet.
 
 ## Copying a table between servers
 

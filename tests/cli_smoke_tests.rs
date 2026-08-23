@@ -942,3 +942,389 @@ fn convert_honours_write_options_from_settings() {
         deep.stdout
     );
 }
+
+#[test]
+fn sync_sql_needs_its_companion_flags() {
+    let fx = Fx::new();
+
+    // Missing --sync-on: the plan cannot address rows without key columns,
+    // so this must fail loudly rather than diff positionally.
+    let out = fx.run(&[
+        "--sync-sql",
+        &fx.path("a.csv"),
+        "--db",
+        "nope",
+        "--sync-table",
+        "public.orders",
+    ]);
+    assert_ne!(out.code, Some(0), "stdout:\n{}", out.stdout);
+    assert!(
+        out.stderr.contains("--sync-on"),
+        "stderr should name the missing flag, got:\n{}",
+        out.stderr
+    );
+
+    // Missing --sync-table: nothing says which server table to compare with.
+    let out = fx.run(&[
+        "--sync-sql",
+        &fx.path("a.csv"),
+        "--db",
+        "nope",
+        "--sync-on",
+        "id",
+    ]);
+    assert_ne!(out.code, Some(0));
+    assert!(
+        out.stderr.contains("--sync-table"),
+        "stderr should name the missing flag, got:\n{}",
+        out.stderr
+    );
+}
+
+#[test]
+fn to_workbook_writes_one_sheet_per_input() {
+    let fx = Fx::new();
+    let out = fx.path("book.xlsx");
+
+    let run = fx.run(&["--to-workbook", &out, &fx.path("a.csv"), &fx.path("b.csv")]);
+    run.ok("--to-workbook");
+    assert!(
+        std::path::Path::new(&out).exists(),
+        "workbook was not written\nstdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
+    // The listing names each sheet so a script can check what it produced.
+    assert!(run.stdout.contains('a'), "stdout was: {}", run.stdout);
+}
+
+#[test]
+fn to_workbook_needs_more_than_one_input() {
+    let fx = Fx::new();
+    let out = fx.path("single.xlsx");
+    let run = fx.run(&["--to-workbook", &out, &fx.path("a.csv")]);
+    assert_ne!(run.code, Some(0));
+    assert!(
+        run.stderr.contains("--convert"),
+        "a single input should point at --convert, got:\n{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn reads_a_table_from_stdin() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_octa"))
+        .args(["--schema", "-"])
+        .env("OCTA_CONFIG_DIR", dir.path().join("config"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn octa");
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin")
+        .write_all(b"name,age\nada,36\ngrace,45\n")
+        .unwrap();
+    let out = child.wait_with_output().expect("wait");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "exited {:?}\nstdout:\n{stdout}\nstderr:\n{}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // Sniffed as CSV even though a pipe has no file name to go by.
+    assert!(stdout.contains("name"), "stdout was: {stdout}");
+    assert!(stdout.contains("age"), "stdout was: {stdout}");
+}
+
+#[test]
+fn empty_stdin_is_an_error_not_an_empty_table() {
+    use std::process::Stdio;
+
+    let dir = tempfile::tempdir().unwrap();
+    let child = Command::new(env!("CARGO_BIN_EXE_octa"))
+        .args(["--schema", "-"])
+        .env("OCTA_CONFIG_DIR", dir.path().join("config"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn octa")
+        .wait_with_output()
+        .expect("wait");
+    assert_ne!(child.status.code(), Some(0));
+    let err = String::from_utf8_lossy(&child.stderr);
+    assert!(err.contains("stdin"), "stderr was: {err}");
+}
+
+#[test]
+fn convert_to_stdout_needs_an_explicit_format() {
+    let fx = Fx::new();
+    // Nothing in `-` says what format to write, so --to is required.
+    let run = fx.run(&["--convert", &fx.path("a.csv"), "-"]);
+    assert_ne!(run.code, Some(0));
+    assert!(
+        run.stderr.contains("--to"),
+        "stderr should name --to, got:\n{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn convert_writes_to_stdout() {
+    let fx = Fx::new();
+    let run = fx.run(&["--convert", &fx.path("a.csv"), "-", "--to", "json"]);
+    run.ok("--convert to stdout");
+    assert!(
+        run.stdout.trim_start().starts_with('['),
+        "expected JSON on stdout, got:\n{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn partition_hive_layout_writes_key_equals_value_directories() {
+    let fx = Fx::new();
+    let out = fx.path("hive_out");
+
+    let run = fx.run(&[
+        "--partition-by",
+        "city",
+        "--out-dir",
+        &out,
+        "--partition-layout",
+        "hive",
+        &fx.path("a.csv"),
+    ]);
+    run.ok("--partition-by --partition-layout hive");
+
+    let root = std::path::Path::new(&out);
+    assert!(
+        root.join("city=Tokyo").join("data.csv").exists(),
+        "missing Tokyo"
+    );
+    assert!(
+        root.join("city=Helsinki").join("data.csv").exists(),
+        "missing Helsinki"
+    );
+    // The listing still names every file it wrote.
+    assert!(
+        run.stdout.contains("city=Tokyo"),
+        "stdout was: {}",
+        run.stdout
+    );
+
+    // Case is preserved, unlike the flat layout's sanitised stems: the value
+    // has to be recoverable from the directory name for a reader to use it as
+    // a partition column.
+    assert!(
+        !root.join("city=tokyo").is_dir(),
+        "hive values must keep their case"
+    );
+
+    // The point of the layout: Octa reads the folder back as one table with
+    // `city` restored as a column from the directory names. Without this the
+    // feature is just a different filing scheme.
+    use octa::formats::lakehouse_reader::{LakehouseKind, PartsFamily, read_dir_report};
+    let (back, skipped) =
+        read_dir_report(root, LakehouseKind::Parts(PartsFamily::Delimited)).expect("read back");
+    assert!(skipped.is_empty(), "skipped: {skipped:?}");
+    assert_eq!(back.row_count(), 3, "all rows should come back");
+    assert!(
+        back.columns.iter().any(|c| c.name == "city"),
+        "partition column not restored: {:?}",
+        back.columns.iter().map(|c| &c.name).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn partition_defaults_to_flat_files() {
+    let fx = Fx::new();
+    let out = fx.path("flat_out");
+    let run = fx.run(&[
+        "--partition-by",
+        "city",
+        "--out-dir",
+        &out,
+        &fx.path("a.csv"),
+    ]);
+    run.ok("--partition-by");
+    let root = std::path::Path::new(&out);
+    // Flat stems go through `sanitize_sql_name`, which lowercases.
+    assert!(root.join("tokyo.csv").exists(), "default layout changed");
+    assert!(!root.join("city=Tokyo").is_dir(), "should not be Hive");
+}
+
+#[test]
+fn partition_rejects_an_unknown_layout() {
+    let fx = Fx::new();
+    let run = fx.run(&[
+        "--partition-by",
+        "city",
+        "--out-dir",
+        &fx.path("x"),
+        "--partition-layout",
+        "nested",
+        &fx.path("a.csv"),
+    ]);
+    assert_ne!(run.code, Some(0));
+    assert!(
+        run.stderr.contains("flat") && run.stderr.contains("hive"),
+        "the error should name both valid words, got:\n{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn drift_report_exits_one_when_a_threshold_is_breached() {
+    let fx = Fx::new();
+    // `a.csv` has one missing amount of three, `b.csv` has none, so the null
+    // rate moves far enough to breach a five percent gate.
+    let run = fx.run(&[
+        "--drift-report",
+        &fx.path("a.csv"),
+        &fx.path("b.csv"),
+        "--fail-on",
+        "null_rate:0.05",
+    ]);
+    assert_eq!(
+        run.code,
+        Some(1),
+        "stdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
+    assert!(
+        run.stdout.contains("null_rate"),
+        "the report should name the metric, got:\n{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn drift_report_exits_zero_without_thresholds() {
+    let fx = Fx::new();
+    let run = fx.run(&["--drift-report", &fx.path("a.csv"), &fx.path("b.csv")]);
+    run.ok("--drift-report without --fail-on is informational only");
+}
+
+/// `--check` is a CI gate, so its exit code is the contract: 1 when a rule
+/// fails, 1 when a rule cannot even run, 0 only when everything passed.
+#[test]
+fn check_exits_one_on_a_violation() {
+    let fx = Fx::new();
+    std::fs::write(fx.path("d.csv"), "order_id\n1\n1\n").unwrap();
+    std::fs::write(
+        fx.path("q.toml"),
+        "[[rule]]\ncolumn = \"order_id\"\nkind = \"unique\"\n",
+    )
+    .unwrap();
+
+    let run = fx.run(&["--check", &fx.path("d.csv"), "--rules", &fx.path("q.toml")]);
+    assert_eq!(run.code, Some(1), "stderr:\n{}", run.stderr);
+    assert!(
+        run.stdout.contains("order_id"),
+        "stdout was:\n{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn check_exits_zero_when_clean() {
+    let fx = Fx::new();
+    std::fs::write(fx.path("d.csv"), "order_id\n1\n2\n").unwrap();
+    std::fs::write(
+        fx.path("q.toml"),
+        "[[rule]]\ncolumn = \"order_id\"\nkind = \"unique\"\n",
+    )
+    .unwrap();
+
+    let run = fx.run(&["--check", &fx.path("d.csv"), "--rules", &fx.path("q.toml")]);
+    run.ok("--check on clean data");
+}
+
+#[test]
+fn check_exits_one_on_an_unknown_column() {
+    let fx = Fx::new();
+    std::fs::write(fx.path("d.csv"), "order_id\n1\n").unwrap();
+    std::fs::write(
+        fx.path("q.toml"),
+        "[[rule]]\ncolumn = \"missing\"\nkind = \"unique\"\n",
+    )
+    .unwrap();
+
+    let run = fx.run(&["--check", &fx.path("d.csv"), "--rules", &fx.path("q.toml")]);
+    assert_eq!(
+        run.code,
+        Some(1),
+        "a rule that cannot run must fail the gate; stderr:\n{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn relationships_names_a_shared_key() {
+    let fx = Fx::new();
+    let sub = fx.dir.path().join("rel");
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(sub.join("orders.csv"), "customer_id\n1\n2\n").unwrap();
+    std::fs::write(sub.join("customers.csv"), "id\n1\n2\n").unwrap();
+
+    let run = fx.run(&["--relationships", &sub.to_string_lossy()]);
+    run.ok("--relationships");
+    assert!(
+        run.stdout.contains("customer_id"),
+        "stdout was:\n{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains("orphans"),
+        "stdout was:\n{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn stream_mode_reads_schema_without_the_row_cap() {
+    let fx = Fx::new();
+    let mut s = String::from("id,name\n");
+    for i in 0..50_000 {
+        s.push_str(&format!("{i},row{i}\n"));
+    }
+    std::fs::write(fx.path("big.csv"), s).unwrap();
+
+    let run = fx.run(&[
+        "--sql",
+        &fx.path("big.csv"),
+        "--query",
+        "SELECT count(*) AS n FROM data",
+        "--stream",
+        "--rows",
+        "10",
+    ]);
+    run.ok("--sql --stream");
+    assert!(
+        run.stdout.contains("50000"),
+        "the whole file must be counted even with a tiny row cap; stdout was:\n{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn stream_warns_when_the_action_cannot_use_it() {
+    let fx = Fx::new();
+    let run = fx.run(&["--schema", &fx.path("a.csv"), "--stream"]);
+    run.ok("--schema --stream");
+    assert!(
+        run.stderr.contains("--stream"),
+        "an ignored flag must say so; stderr was:\n{}",
+        run.stderr
+    );
+}
