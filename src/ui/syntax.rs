@@ -6,7 +6,7 @@
 //! Used by the raw-text editor and the Jupyter notebook source-cell
 //! renderer. The SQL editor stays on its own simple keyword highlighter.
 
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use eframe::egui;
 use syntect::easy::HighlightLines;
@@ -102,9 +102,13 @@ const HIGHLIGHT_WHITELIST: &[&str] = &[
 /// rendering in either case.
 ///
 /// We deliberately don't trust `syntect`'s extension matcher for *everything*
-/// it knows because that matcher also covers JSON/YAML/XML/etc., which we
-/// want rendered through their dedicated tree views (and which were the
-/// source of the raw-editor slowdown).
+/// it knows: the whitelist is the list of extensions we have decided look
+/// better coloured, and it is what a reviewer reads to see the set.
+///
+/// JSON/YAML/XML/TOML **are** on it. They were once excluded because
+/// colouring them re-ran syntect on every frame and made the raw editor
+/// unusable; that is fixed at the source now (see [`HIGHLIGHT_MEMO`]), so
+/// the exclusion is gone. Do not re-derive the old rule from an old comment.
 pub fn syntax_for_extension(ext: &str) -> Option<&'static SyntaxReference> {
     if !HIGHLIGHT_WHITELIST.contains(&ext) {
         return None;
@@ -145,14 +149,94 @@ pub fn theme_for_mode(mode: ThemeMode) -> &'static Theme {
         .expect("syntect bundles at least one theme")
 }
 
+/// Last highlight result, kept so an unchanged buffer is tokenised once
+/// rather than once per frame.
+///
+/// **egui calls a `TextEdit` layouter on every frame, before any galley
+/// cache is consulted** - the galley cache is keyed on the `LayoutJob` the
+/// layouter returns, so it cannot save the work of producing one. Without a
+/// memo here, syntect re-tokenised the entire buffer 60 times a second: a
+/// 700 KB JSON cost 4.3 s per frame and the whole app was unusable while the
+/// raw view was open. Memoizing is what egui's own `TextEdit::layouter`
+/// documentation tells you to do.
+///
+/// One entry, because one raw editor is on screen at a time. A notebook with
+/// many source cells cycles the entry between cells and simply gets no
+/// benefit, which is the behaviour it had before this existed.
+///
+/// The entry outlives the tab that produced it: it holds the buffer plus one
+/// section per token until something else is highlighted. The text half is
+/// bounded by `syntax_highlight_max_bytes` (1 MB); the sections are not
+/// bounded by anything but the token count, so a token-dense megabyte can
+/// retain some tens of MB. Replaced, never grown, so it is a ceiling rather
+/// than a leak - clear it on tab close if that ever matters.
+static HIGHLIGHT_MEMO: Mutex<Option<Memo>> = Mutex::new(None);
+
+struct Memo {
+    syntax: String,
+    theme: String,
+    font: egui::FontId,
+    job: egui::text::LayoutJob,
+}
+
+impl Memo {
+    /// Whether this entry answers the request.
+    ///
+    /// The text is compared, not hashed: a `LayoutJob` already owns the text
+    /// it was built from, so the comparison is a `memcmp` against something
+    /// we are storing anyway. That is both cheaper than hashing the buffer
+    /// every frame and exact, where a cheap fingerprint would leave stale
+    /// colours behind on any edit that preserved the length.
+    fn answers(
+        &self,
+        text: &str,
+        syntax: &SyntaxReference,
+        theme: &Theme,
+        font_id: &egui::FontId,
+    ) -> bool {
+        self.syntax == syntax.name
+            && self.theme == theme.name.as_deref().unwrap_or_default()
+            && &self.font == font_id
+            && self.job.text == text
+    }
+}
+
 /// Highlight `text` with the given syntax + theme and produce an egui
 /// `LayoutJob`. `font_id` controls glyph size and family - pass whatever
 /// font the surrounding TextEdit uses so the highlighted spans align with
 /// the editor cursor.
 ///
+/// The result is memoized (see [`HIGHLIGHT_MEMO`]): calling this every frame
+/// with an unchanged buffer costs a comparison and a clone, not a
+/// re-tokenisation.
+///
 /// The job has wrapping disabled (`max_width = INFINITY`) which matches the
 /// raw editor's no-wrap convention. Long lines scroll horizontally.
 pub fn highlight_layout_job(
+    text: &str,
+    syntax: &SyntaxReference,
+    theme: &Theme,
+    font_id: egui::FontId,
+) -> egui::text::LayoutJob {
+    if let Ok(memo) = HIGHLIGHT_MEMO.lock()
+        && let Some(entry) = memo.as_ref()
+        && entry.answers(text, syntax, theme, &font_id)
+    {
+        return entry.job.clone();
+    }
+    let job = highlight_uncached(text, syntax, theme, font_id.clone());
+    if let Ok(mut memo) = HIGHLIGHT_MEMO.lock() {
+        *memo = Some(Memo {
+            syntax: syntax.name.clone(),
+            theme: theme.name.clone().unwrap_or_default(),
+            font: font_id,
+            job: job.clone(),
+        });
+    }
+    job
+}
+
+fn highlight_uncached(
     text: &str,
     syntax: &SyntaxReference,
     theme: &Theme,

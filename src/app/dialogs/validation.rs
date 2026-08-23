@@ -7,10 +7,18 @@
 use eframe::egui;
 use egui::RichText;
 
+use octa::data::validation::rules_file;
 use octa::data::validation::{ValidationKind, ValidationRule};
 use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+    DialogSize, draw_result_message, draw_window_controls, remember_dialog_rect, size_dialog_window,
 };
+
+/// Where the last Save / Load outcome is parked between frames. The dialog has
+/// no state struct of its own (its rules live on the tab), so the message rides
+/// in egui's temp memory, the same trick the dialog size uses.
+fn msg_id() -> egui::Id {
+    egui::Id::new("octa_validation_rules_msg")
+}
 
 use super::super::state::OctaApp;
 
@@ -31,6 +39,12 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let mut close_requested = false;
     let mut changed = false;
     let mut remove_idx: Option<usize> = None;
+    let mut save_requested = false;
+    let mut load_requested = false;
+    // Rules are stored by column NAME, so both directions need the real
+    // column list, not just the names used by the pickers below.
+    let columns = app.tabs[app.active_tab].table.columns.clone();
+    let rules_msg: Option<(bool, String)> = ctx.data(|d| d.get_temp(msg_id()));
     let mut size = app.tabs[app.active_tab].validation_size;
     let minimized = size == DialogSize::Minimized;
 
@@ -85,6 +99,21 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         rules.clear();
                         changed = true;
                     }
+                    if !rules.is_empty()
+                        && ui
+                            .button(octa::i18n::t("rules.save"))
+                            .on_hover_text(octa::i18n::t("rules.save_hint"))
+                            .clicked()
+                    {
+                        save_requested = true;
+                    }
+                    if ui
+                        .button(octa::i18n::t("rules.load"))
+                        .on_hover_text(octa::i18n::t("rules.load_hint"))
+                        .clicked()
+                    {
+                        load_requested = true;
+                    }
                     // Live violation count.
                     if !rules.is_empty() {
                         ui.label(
@@ -114,75 +143,101 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    for (i, rule) in rules.iter_mut().enumerate() {
-                        ui.horizontal(|ui| {
-                            // Column picker: "(any)" or a specific column.
-                            let col_label = match rule.column {
-                                None => octa::i18n::t("dialog.cnf_any_column"),
-                                Some(c) => col_names
-                                    .get(c)
-                                    .cloned()
-                                    .unwrap_or_else(|| format!("col {c}")),
-                            };
-                            egui::ComboBox::from_id_salt(("val_col", i))
-                                .selected_text(col_label)
-                                .width(130.0)
-                                .show_ui(ui, |ui| {
+                    // A grid, not one `horizontal` per rule: `ComboBox::width`
+                    // is a desired width, not a cap, so a long column name
+                    // widens its button and pushes everything after it right
+                    // on that row alone. A grid sizes each column to the
+                    // widest row, so the pickers line up.
+                    egui::Grid::new("validation_rules")
+                        .num_columns(4)
+                        .spacing([8.0, 6.0])
+                        .show(ui, |ui| {
+                            for (i, rule) in rules.iter_mut().enumerate() {
+                                {
+                                    // Column picker: "(any)" or a specific column.
+                                    let col_label = match rule.column {
+                                        None => octa::i18n::t("dialog.cnf_any_column"),
+                                        Some(c) => col_names
+                                            .get(c)
+                                            .cloned()
+                                            .unwrap_or_else(|| format!("col {c}")),
+                                    };
+                                    egui::ComboBox::from_id_salt(("val_col", i))
+                                        .selected_text(col_label)
+                                        .width(130.0)
+                                        .show_ui(ui, |ui| {
+                                            if ui
+                                                .selectable_label(
+                                                    rule.column.is_none(),
+                                                    octa::i18n::t("dialog.cnf_any_column"),
+                                                )
+                                                .clicked()
+                                            {
+                                                rule.column = None;
+                                                changed = true;
+                                            }
+                                            for (c, name) in col_names.iter().enumerate() {
+                                                if ui
+                                                    .selectable_label(rule.column == Some(c), name)
+                                                    .clicked()
+                                                {
+                                                    rule.column = Some(c);
+                                                    changed = true;
+                                                }
+                                            }
+                                        });
+
+                                    // Kind picker.
+                                    egui::ComboBox::from_id_salt(("val_kind", i))
+                                        .selected_text(octa::i18n::t(rule.kind.i18n_key()))
+                                        .width(150.0)
+                                        .show_ui(ui, |ui| {
+                                            for kind in ValidationKind::all() {
+                                                let selected = rule.kind.same_variant(&kind);
+                                                if ui
+                                                    .selectable_label(
+                                                        selected,
+                                                        octa::i18n::t(kind.i18n_key()),
+                                                    )
+                                                    .clicked()
+                                                    && !selected
+                                                {
+                                                    rule.kind = kind;
+                                                    changed = true;
+                                                }
+                                            }
+                                        });
+
+                                    // Per-kind parameter widgets, kept in one grid
+                                    // cell so a rule with two of them (Range) does not
+                                    // shift the remove button out of its column.
+                                    ui.horizontal(|ui| {
+                                        if kind_params(ui, i, &mut rule.kind) {
+                                            changed = true;
+                                        }
+                                    });
+
+                                    // `add_sized` with the standard interact
+                                    // height, not `small_button`: a small
+                                    // button is shorter than the combo boxes
+                                    // beside it and the row looks ragged.
                                     if ui
-                                        .selectable_label(
-                                            rule.column.is_none(),
-                                            octa::i18n::t("dialog.cnf_any_column"),
+                                        .add_sized(
+                                            [24.0, ui.spacing().interact_size.y],
+                                            egui::Button::new("X"),
                                         )
+                                        .on_hover_text(octa::i18n::t("dialog.cnf_remove"))
                                         .clicked()
                                     {
-                                        rule.column = None;
-                                        changed = true;
+                                        remove_idx = Some(i);
                                     }
-                                    for (c, name) in col_names.iter().enumerate() {
-                                        if ui
-                                            .selectable_label(rule.column == Some(c), name)
-                                            .clicked()
-                                        {
-                                            rule.column = Some(c);
-                                            changed = true;
-                                        }
-                                    }
-                                });
-
-                            // Kind picker.
-                            egui::ComboBox::from_id_salt(("val_kind", i))
-                                .selected_text(octa::i18n::t(rule.kind.i18n_key()))
-                                .width(150.0)
-                                .show_ui(ui, |ui| {
-                                    for kind in ValidationKind::all() {
-                                        let selected = rule.kind.same_variant(&kind);
-                                        if ui
-                                            .selectable_label(
-                                                selected,
-                                                octa::i18n::t(kind.i18n_key()),
-                                            )
-                                            .clicked()
-                                            && !selected
-                                        {
-                                            rule.kind = kind;
-                                            changed = true;
-                                        }
-                                    }
-                                });
-
-                            // Per-kind parameter widgets.
-                            if kind_params(ui, i, &mut rule.kind) {
-                                changed = true;
-                            }
-
-                            if ui
-                                .small_button("X")
-                                .on_hover_text(octa::i18n::t("dialog.cnf_remove"))
-                                .clicked()
-                            {
-                                remove_idx = Some(i);
+                                    ui.end_row();
+                                }
                             }
                         });
+                    if let Some((ok, msg)) = &rules_msg {
+                        ui.add_space(6.0);
+                        draw_result_message(ui, *ok, msg);
                     }
                     if rules.is_empty() {
                         ui.label(
@@ -199,6 +254,55 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
     }
     app.tabs[app.active_tab].validation_size = size;
+
+    if save_requested
+        && let Some(path) = rfd::FileDialog::new()
+            .add_filter("TOML", &["toml"])
+            .set_file_name("rules.toml")
+            .save_file()
+    {
+        let file = rules_file::to_named(&rules, &columns);
+        let msg = match rules_file::save(&path, &file) {
+            Ok(()) => (
+                true,
+                octa::i18n::t("rules.saved").replace("{path}", &path.display().to_string()),
+            ),
+            Err(e) => (false, format!("{e:#}")),
+        };
+        ctx.data_mut(|d| d.insert_temp(msg_id(), msg));
+    }
+    if load_requested
+        && let Some(path) = rfd::FileDialog::new()
+            .add_filter("TOML", &["toml"])
+            .pick_file()
+    {
+        let msg = match rules_file::load(&path) {
+            Ok(file) => {
+                let (resolved, unknown) = rules_file::resolve(&file, &columns);
+                let n = resolved.len();
+                rules = resolved;
+                changed = true;
+                if unknown.is_empty() {
+                    (
+                        true,
+                        octa::i18n::t("rules.loaded").replace("{n}", &n.to_string()),
+                    )
+                } else {
+                    // Naming what could not be applied, rather than dropping it
+                    // silently: a rules file whose columns were renamed would
+                    // otherwise look like it still checks everything.
+                    (
+                        false,
+                        octa::i18n::t("rules.unknown_columns")
+                            .replace("{n}", &unknown.len().to_string())
+                            .replace("{names}", &unknown.join(", ")),
+                    )
+                }
+            }
+            Err(e) => (false, format!("{e:#}")),
+        };
+        ctx.data_mut(|d| d.insert_temp(msg_id(), msg));
+    }
 
     if let Some(i) = remove_idx
         && i < rules.len()

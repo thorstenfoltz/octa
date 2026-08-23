@@ -50,7 +50,10 @@ mod factory;
 pub use factory::{ProviderCreds, build_provider, resolve_ambient_creds};
 
 mod fetch;
-pub use fetch::{conn_for_url, fetch_url_to_temp, provider_for_url};
+pub use fetch::{
+    FetchOutcome, UrlTrust, conn_for_url, fetch_http_to_temp, fetch_url_to_temp, is_http_url,
+    provider_for_url,
+};
 
 mod buckets;
 pub use buckets::list_account_buckets;

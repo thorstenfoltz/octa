@@ -343,23 +343,34 @@ fn mssql_quotes_with_brackets_and_flags_unknowns() {
     assert!(out.contains("unknown"), "got: {out}");
 }
 
+/// The name of this test was always the intent; the assertions used to
+/// contradict it, because `create_table_qualified` emitted safe-looking
+/// identifiers bare. That is what made every capitalised column name
+/// unwritable: the INSERT that follows this DDL always quotes, so Postgres
+/// created `id` and the insert then asked for `"ID"`.
 #[test]
 fn live_ddl_is_schema_qualified_and_always_quoted() {
     use octa::data::schema_export::sql::{LiveSqlDialect, create_table_qualified};
     let c = cols(&[("id", "Int64"), ("name", "Utf8")]);
     let pg = create_table_qualified(&c, LiveSqlDialect::Postgres, "reports", "q4");
-    assert_eq!(pg, "CREATE TABLE reports.q4 (id BIGINT, name TEXT)");
+    assert_eq!(
+        pg,
+        r#"CREATE TABLE "reports"."q4" ("id" BIGINT, "name" TEXT)"#
+    );
     let my = create_table_qualified(&c, LiveSqlDialect::Mysql, "", "q4");
-    assert_eq!(my, "CREATE TABLE q4 (id BIGINT, name TEXT)");
+    assert_eq!(my, "CREATE TABLE `q4` (`id` BIGINT, `name` TEXT)");
     let ms = create_table_qualified(&c, LiveSqlDialect::Mssql, "dbo", "my table");
-    assert!(ms.starts_with("CREATE TABLE dbo.[my table] ("), "got: {ms}");
+    assert!(
+        ms.starts_with("CREATE TABLE [dbo].[my table] ("),
+        "got: {ms}"
+    );
 }
 
 #[test]
 fn db_create_table_sql_dispatches_per_engine() {
     use octa::db::{DbEngine, create_table_sql};
     let c = cols(&[("x", "Boolean")]);
-    assert!(create_table_sql(DbEngine::Postgres, "s", "t", &c).contains("x BOOLEAN"));
-    assert!(create_table_sql(DbEngine::Mssql, "s", "t", &c).contains("x BIT"));
-    assert!(create_table_sql(DbEngine::MySql, "s", "t", &c).contains("x BOOLEAN"));
+    assert!(create_table_sql(DbEngine::Postgres, "s", "t", &c).contains(r#""x" BOOLEAN"#));
+    assert!(create_table_sql(DbEngine::Mssql, "s", "t", &c).contains("[x] BIT"));
+    assert!(create_table_sql(DbEngine::MySql, "s", "t", &c).contains("`x` BOOLEAN"));
 }

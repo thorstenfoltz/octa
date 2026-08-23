@@ -297,3 +297,23 @@ This is the same execution path as the GUI's SQL view, so:
   format.
 - [MCP `run_sql` tool](../mcp/tools/run_sql.md) is the same query
   path via MCP.
+
+## Files larger than memory
+
+`--stream` registers the file as a DuckDB **view** instead of loading its
+rows:
+
+```bash
+octa --sql huge.parquet --query 'SELECT count(*) FROM data' --stream
+```
+
+`data` then scans the file where it lies, so an aggregate covers every
+row no matter what `--rows` says. This works for Parquet, CSV, TSV and
+JSON; any other format falls back to a normal read with a note on
+stderr, and so does every action other than `--sql`.
+
+The trade is that nothing is held in memory to come back to: each query
+re-reads what it needs. For repeated queries over the same large file,
+convert it to Parquet once and query that.
+
+See [Large Files](../usage/large-files.md).

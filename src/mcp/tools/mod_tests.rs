@@ -7,6 +7,7 @@ use serde_json::json;
 
 fn sandbox_ctx(restrict: bool, allowed: &[&str], export: Option<&str>) -> ToolContext {
     ToolContext {
+        large_file_min_bytes: 0,
         open_tabs: Vec::new(),
         active_tab: None,
         default_row_limit: Some(100),
@@ -107,7 +108,7 @@ fn write_path_rejects_symlink_escape() {
 fn resolve_write_path_allows_existing_when_unlocked() {
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join("outside.csv");
-    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false);
+    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false, 0);
     // Simulate the chat sandbox with the unlock on.
     ctx.restrict_filesystem = true;
     ctx.export_dir = Some(dir.path().join("exports"));
@@ -129,7 +130,7 @@ fn unlocked_writes_still_put_bare_names_in_the_export_dir() {
     // launched from the desktop - silently ignoring Settings > Chat.
     let tmp = tempfile::tempdir().unwrap();
     let export = std::fs::canonicalize(tmp.path()).unwrap().join("exports");
-    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false);
+    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false, 0);
     ctx.restrict_filesystem = true;
     ctx.export_dir = Some(export.clone());
     ctx.allow_existing_writes = true;
@@ -153,7 +154,7 @@ fn unlocked_writes_pass_absolute_paths_through() {
     // file the user already has open.
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join("outside.csv");
-    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false);
+    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false, 0);
     ctx.restrict_filesystem = true;
     ctx.export_dir = Some(dir.path().join("exports"));
     ctx.allow_existing_writes = true;
@@ -164,7 +165,7 @@ fn unlocked_writes_pass_absolute_paths_through() {
 fn unlocked_writes_without_an_export_dir_stay_relative() {
     // Nothing to resolve against when the setting is blank: pass through
     // rather than invent a directory.
-    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false);
+    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false, 0);
     ctx.restrict_filesystem = true;
     ctx.export_dir = None;
     ctx.allow_existing_writes = true;

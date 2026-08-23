@@ -17,6 +17,9 @@ use crate::view_modes;
 
 impl OctaApp {
     pub(crate) fn render_central_panel(&mut self, parent_ui: &mut egui::Ui) {
+        // Cloned up front: the interaction handler needs a Context, and
+        // `parent_ui` is mutably borrowed by the panel closure below.
+        let ctx_for_interaction = parent_ui.ctx().clone();
         let ctx = parent_ui.ctx().clone();
         let ctx = &ctx;
         egui::CentralPanel::default().show(parent_ui, |ui| {
@@ -60,13 +63,17 @@ impl OctaApp {
                 .filter(|w| w.tab_idx == self.active_tab && !w.entries.is_empty())
             {
                 let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
-                let summary = warning
+                let names: Vec<String> = warning
                     .entries
                     .iter()
                     .map(|e| format!("{} ({})", e.column_name, e.source_label))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                ui.horizontal(|ui| {
+                    .collect();
+                // Bounded, and the row wraps: a wide file can promote two
+                // hundred columns, and spelled out in one non-wrapping row
+                // that label pushes Okay and Dismiss off the screen edge.
+                let summary = ui::message::elide_list(&names, ui::message::BANNER_LIST_MAX);
+                let full = names.join(", ");
+                ui.horizontal_wrapped(|ui| {
                     ui.add_space(8.0);
                     ui.label(
                         egui::RichText::new(
@@ -74,7 +81,8 @@ impl OctaApp {
                         )
                         .color(colors.warning)
                         .size(12.0),
-                    );
+                    )
+                    .on_hover_text(&full);
                     // "Okay" accepts the date display and closes the banner;
                     // "Dismiss" reverts the promoted columns back to text.
                     if ui
@@ -116,7 +124,7 @@ impl OctaApp {
                 .filter(|w| w.tab_idx == self.active_tab && !w.entries.is_empty())
             {
                 let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
-                let summary = warning
+                let names: Vec<String> = warning
                     .entries
                     .iter()
                     .map(|e| {
@@ -126,8 +134,10 @@ impl OctaApp {
                             e.column_name, e.source_label, e.parsed, e.total, samples
                         )
                     })
-                    .collect::<Vec<_>>()
-                    .join("; ");
+                    .collect();
+                // These entries are long sentences, so the cap is lower.
+                let summary = ui::message::elide_list(&names, 2);
+                let full = names.join("; ");
                 ui.horizontal_wrapped(|ui| {
                     ui.add_space(8.0);
                     ui.label(
@@ -136,7 +146,8 @@ impl OctaApp {
                         )
                         .color(colors.warning)
                         .size(12.0),
-                    );
+                    )
+                    .on_hover_text(&full);
                     if ui
                         .small_button(octa::i18n::t("banner.dismiss"))
                         .on_hover_text(octa::i18n::t("banner.close_tip"))
@@ -167,8 +178,10 @@ impl OctaApp {
                 .filter(|w| w.tab_idx == self.active_tab && !w.columns.is_empty())
             {
                 let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
-                let summary = warning.columns.join(", ");
-                ui.horizontal(|ui| {
+                let summary =
+                    ui::message::elide_list(&warning.columns, ui::message::BANNER_LIST_MAX);
+                let full = warning.columns.join(", ");
+                ui.horizontal_wrapped(|ui| {
                     ui.add_space(8.0);
                     ui.label(
                         egui::RichText::new(
@@ -178,7 +191,8 @@ impl OctaApp {
                         )
                         .color(colors.warning)
                         .size(12.0),
-                    );
+                    )
+                    .on_hover_text(&full);
                     // "Okay" accepts the trim and closes the banner; "Dismiss"
                     // undoes it, restoring the original leading/trailing
                     // whitespace.
@@ -221,14 +235,15 @@ impl OctaApp {
                 .filter(|w| w.tab_idx == self.active_tab && !w.entries.is_empty())
             {
                 let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
-                let summary = warning
+                let names: Vec<String> = warning
                     .entries
                     .iter()
                     .map(|e| e.column_name.clone())
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                    .collect();
+                let summary = ui::message::elide_list(&names, ui::message::BANNER_LIST_MAX);
+                let full = names.join(", ");
                 let style_label = warning.entries[0].style_label;
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.add_space(8.0);
                     ui.label(
                         egui::RichText::new(
@@ -239,7 +254,8 @@ impl OctaApp {
                         )
                         .color(colors.warning)
                         .size(12.0),
-                    );
+                    )
+                    .on_hover_text(&full);
                     if ui
                         .small_button(octa::i18n::t("banner.okay"))
                         .on_hover_text(octa::i18n::t("banner.numbers_keep_tip"))
@@ -472,6 +488,13 @@ impl OctaApp {
             let os_has_clipboard = self.os_clipboard_has_text();
             let readonly = self.is_readonly();
             let tab = &mut self.tabs[self.active_tab];
+            // Large-file mode: the vertical scrollbar addresses the file, not
+            // the loaded page. Off for every other tab.
+            let virtual_rows = match (&tab.large, tab.table.total_rows) {
+                (Some(_), Some(total)) => Some((tab.table.row_offset, total)),
+                _ => None,
+            };
+            tab.table_state.set_virtual_rows(virtual_rows);
             let filtered = tab.filtered_rows.clone();
             let search_matches: std::collections::HashSet<(usize, usize)> =
                 tab.search_cell_matches.iter().copied().collect();
@@ -526,7 +549,7 @@ impl OctaApp {
 
             let welcome_logo_clicked = interaction.welcome_logo_clicked;
             let welcome_logo_rect = interaction.welcome_logo_rect;
-            self.handle_table_interaction(interaction);
+            self.handle_table_interaction(interaction, &ctx_for_interaction);
             if welcome_logo_clicked {
                 self.register_welcome_logo_click(ctx);
             }
@@ -773,7 +796,11 @@ impl OctaApp {
         });
     }
 
-    fn handle_table_interaction(&mut self, interaction: ui::table_view::TableInteraction) {
+    fn handle_table_interaction(
+        &mut self,
+        interaction: ui::table_view::TableInteraction,
+        ctx: &egui::Context,
+    ) {
         let tab = &mut self.tabs[self.active_tab];
         if let Some(col_idx) = interaction.header_col_clicked {
             tab.insert_col_at = Some(col_idx + 1);
@@ -827,13 +854,21 @@ impl OctaApp {
         }
 
         let tab = &mut self.tabs[self.active_tab];
-        if let Some(col_idx) = interaction.sort_rows_asc_by {
-            tab.table.sort_rows_by_column(col_idx, true);
-            tab.filter_dirty = true;
-        }
-        if let Some(col_idx) = interaction.sort_rows_desc_by {
-            tab.table.sort_rows_by_column(col_idx, false);
-            tab.filter_dirty = true;
+        let large_sort = tab.large.is_some().then_some(()).and_then(|()| {
+            interaction
+                .sort_rows_asc_by
+                .map(|c| (c, true))
+                .or_else(|| interaction.sort_rows_desc_by.map(|c| (c, false)))
+        });
+        if large_sort.is_none() {
+            if let Some(col_idx) = interaction.sort_rows_asc_by {
+                tab.table.sort_rows_by_column(col_idx, true);
+                tab.filter_dirty = true;
+            }
+            if let Some(col_idx) = interaction.sort_rows_desc_by {
+                tab.table.sort_rows_by_column(col_idx, false);
+                tab.filter_dirty = true;
+            }
         }
 
         // --- Context menu: row operations ---
@@ -990,6 +1025,66 @@ impl OctaApp {
                 tab.table.clear_mark(key);
             }
         }
+
+        // --- Large-file mode: the loaded window follows the scroll ---
+        let tab = &self.tabs[self.active_tab];
+        if tab.large.is_some() {
+            // Dragging the (virtual) scrollbar addresses the file directly and
+            // outranks the edge triggers below, which only ever move by a page.
+            if let Some(row) = interaction.jump_to_row {
+                self.large_jump_to_row(row);
+                return;
+            }
+            // Sorting a file that is not in memory means asking for the page
+            // again with an ORDER BY, not reordering the rows on screen.
+            let step = if interaction.needs_more_rows {
+                Some(1)
+            } else if tab.table_state.scroll_y() <= 0.0
+                && tab.large_page_key.as_ref().is_some_and(|k| k.offset > 0)
+            {
+                Some(-1)
+            } else {
+                None
+            };
+            // The search box is a WHERE clause here, not a row-vector filter.
+            let order = large_sort.or_else(|| tab.large_page_key.as_ref().and_then(|k| k.order));
+            // The search box becomes a WHERE clause, but only once the typing
+            // stops: a `count(*)` per keystroke over a file this size would
+            // lock the window.
+            let want = crate::app::large_file::search_filter(tab, &tab.search_text.clone());
+            let applied = tab
+                .large_page_key
+                .as_ref()
+                .map(|k| k.filter.clone())
+                .unwrap_or_default();
+            const SETTLE: std::time::Duration = std::time::Duration::from_millis(400);
+            let mut filter_ready = want == applied;
+            if !filter_ready {
+                match &self.large_filter_pending {
+                    Some((pending, since)) if *pending == want => {
+                        if since.elapsed() >= SETTLE {
+                            filter_ready = true;
+                        } else {
+                            ctx.request_repaint_after(SETTLE);
+                        }
+                    }
+                    _ => {
+                        self.large_filter_pending = Some((want.clone(), std::time::Instant::now()));
+                        ctx.request_repaint_after(SETTLE);
+                    }
+                }
+            }
+            if filter_ready {
+                self.large_filter_pending = None;
+                self.large_apply_view(order, want);
+                if let Some(step) = step {
+                    self.large_page_step(step);
+                }
+            }
+            return;
+        }
+
+        let tab = &mut self.tabs[self.active_tab];
 
         // --- Lazy loading: load more rows on demand ---
         if interaction.needs_more_rows

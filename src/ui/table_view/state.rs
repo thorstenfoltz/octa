@@ -44,9 +44,36 @@ impl TableViewState {
         self.row_heights_generation = self.row_heights_generation.wrapping_add(1);
     }
 
+    /// Make the vertical scrollbar stand for a whole file rather than for the
+    /// loaded page: `(first row of the page, rows in the file)`. Set per frame
+    /// by large-file mode and left `None` everywhere else, where the page IS
+    /// the table. Dragging it emits [`TableInteraction::jump_to_row`].
+    pub fn set_virtual_rows(&mut self, offset_and_total: Option<(usize, usize)>) {
+        self.virtual_rows = offset_and_total;
+        if offset_and_total.is_none() {
+            // No file behind the bar means no drag in progress against it.
+            self.virtual_drag_row = None;
+        }
+    }
+
+    /// Ask for the viewport to be moved onto `display_idx` on the next frame.
+    /// Use this rather than `set_scroll_y` whenever the target is a *row*: the
+    /// row height is only known inside `draw_table`, and guessing it lands the
+    /// viewport short (a 24px guess against a 26px row misses the end of a
+    /// 2,000-row page by 130 rows).
+    pub fn scroll_to_row(&mut self, display_idx: usize) {
+        self.pending_scroll_row = Some(display_idx);
+    }
+
     /// Set the vertical scroll offset (used for navigation).
     pub fn set_scroll_y(&mut self, y: f32) {
         self.scroll_y = y;
+    }
+
+    /// The vertical scroll offset. Read by large-file mode to notice that the
+    /// user scrolled off the top of the loaded page.
+    pub fn scroll_y(&self) -> f32 {
+        self.scroll_y
     }
 
     /// Set the horizontal scroll offset (used for navigation).

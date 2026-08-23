@@ -135,7 +135,7 @@ fn rgba_css(c: [u8; 4]) -> String {
     )
 }
 
-fn escape_xml(s: &str) -> String {
+pub(crate) fn escape_xml(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

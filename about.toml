@@ -3,25 +3,23 @@
 #     cargo about generate about.hbs > THIRD_PARTY_LICENSES.md
 #
 # Produces the attribution bundle that ships alongside Octa binaries to
-# satisfy Apache-2.0 / MPL-2.0 / OFL / Ubuntu-font-1.0 license requirements.
-# Re-generate after any dependency change.
+# satisfy the Apache-2.0 / BSD / MIT / OFL / Ubuntu-font-1.0 notice
+# requirements. Re-generate after any dependency change. Bundled material that
+# is not a crate (the fonts) is hand-maintained in NOTICE instead.
 
 accepted = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "MIT",
-    "MITNFA",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "BSL-1.0",
     "CC0-1.0",
     "CDLA-Permissive-2.0",
     "ISC",
-    "MPL-2.0",
     "OFL-1.1",
     "Ubuntu-font-1.0",
     "Unicode-3.0",
-    "Unicode-DFS-2016",
     "Unlicense",
     "Zlib",
     "0BSD",
@@ -31,7 +29,3 @@ accepted = [
 ignore-build-dependencies = false
 ignore-dev-dependencies = true
 ignore-transitive-dependencies = false
-
-# `ring` license file is non-standard.
-[ring]
-accepted = ["ISC", "MIT", "OpenSSL"]

@@ -345,3 +345,62 @@ No. Object storage is not a persistent session - every list, open, and save is
 an independent request. A saved connection is just **configuration** (the
 bucket plus how to authenticate), like a bookmark; it stays in the list across
 restarts but nothing is "connected" in between, and nothing drains while idle.
+
+## Reading from a web address
+
+Anywhere Octa takes a file it also takes a URL. A plain `http://` or `https://`
+address is downloaded to a temporary file and then read like any other file, so
+it needs no configuration at all:
+
+```bash
+octa --schema https://example.org/exports/sales.csv
+```
+
+The format is taken from the URL's path and any query string is ignored, so a
+signed link ending `sales.csv?token=...` still reads as CSV. A URL with no
+extension falls back to content sniffing. Reading is one-way: Octa never writes
+back to a web address, and a non-2xx response is an error naming the status
+code rather than a file, so a 404 page is never parsed as a one-column table.
+
+Cloud object URLs (`s3://`, `az://`, `gs://`) are different: they resolve
+through your saved cloud connections and their credentials.
+
+### Why agents cannot fetch internal addresses
+
+When the URL comes from an agent (the MCP server or the assistant) rather than
+from you, Octa resolves the host and refuses anything that is not globally
+routable: loopback, private ranges, link-local, and unique-local IPv6. It does
+not follow redirects on that path either.
+
+The reason is specific. An assistant reads documents, and a document can
+contain a URL. Without this rule, a spreadsheet holding
+`http://169.254.169.254/latest/meta-data/iam/security-credentials/` could talk
+the assistant into fetching your cloud credentials and putting them in a tab,
+and a profile confined to open tabs could reach any service on your network.
+Addresses you type yourself are not restricted.
+
+## Opening a file from a web address
+
+**File > Open URL...** takes an `http://` or `https://` address, downloads the
+file and opens it in a new tab. The download runs in the background, so the
+window stays usable while it happens.
+
+### When the link sends you somewhere else
+
+A link can bounce you on to a different address, and the file you end up with
+is the one at the end of that chain, not the one you typed. Octa follows the
+chain itself, and if it ended somewhere other than the address you gave, it
+shows you both and asks before opening anything. The file is already
+downloaded at that point but nothing has been opened, so declining costs you
+nothing.
+
+That question is on by default and lives under **Settings > Files > Ask
+about redirects**. Turning it off asks you to confirm, because the
+confirmation is the only place a changed destination is visible: with it off,
+Octa opens whatever the link finally points at without mentioning that it
+changed.
+
+One case is refused outright rather than offered as a choice: an address on
+the public internet that redirects inward, to your own machine or your own
+network. You asked for a public host, so being sent inside is not a preference
+to confirm.

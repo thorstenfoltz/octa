@@ -95,3 +95,62 @@ fn scroll_col_into_view_accounts_for_the_frozen_band() {
     scroll_col_into_view(&mut state, 0, 360.0, 1000.0, 1, 100.0);
     assert_eq!(state.scroll_x, 100.0);
 }
+
+/// The virtual scrollbar has to address the whole file, not the loaded page:
+/// the thumb reaches both ends, and a drag across the full travel spans every
+/// row. Without that, a 2,000-row window over 100M rows can only be walked.
+#[test]
+fn virtual_thumb_spans_the_whole_file() {
+    let track = 600.0;
+    let rows = 100_000_000usize;
+    let visible = 40.0;
+
+    let top = virtual_thumb(0.0, rows, visible, track);
+    assert_eq!(top.offset, 0.0, "row 0 parks the thumb at the top");
+    assert!(top.height >= 24.0, "thumb stays grabbable: {}", top.height);
+    assert!(top.travel > 0.0);
+
+    // The drag handler inverts this geometry with `max_row / travel` rows per
+    // pixel. Dragging the thumb its full travel must therefore land on the last
+    // reachable row - that is what "the bar addresses the file" means.
+    let rows_per_pixel = top.max_row / top.travel;
+    let landed = (0.0 + top.travel * rows_per_pixel).min(top.max_row);
+    assert!(
+        landed as usize >= rows - visible as usize - 1,
+        "a full drag reached only row {landed} of {rows}"
+    );
+
+    // And the inversion round-trips: a thumb painted for row R, read back
+    // through the same rows-per-pixel, is row R again.
+    for row in [1_000.0f32, 25_000_000.0, 99_000_000.0] {
+        let g = virtual_thumb(row, rows, visible, track);
+        let back = g.offset * (g.max_row / g.travel);
+        assert!(
+            (back - row).abs() < row * 0.001 + 1.0,
+            "row {row} painted at {} reads back as {back}",
+            g.offset
+        );
+    }
+
+    let bottom = virtual_thumb(top.max_row, rows, visible, track);
+    assert!(
+        (bottom.offset - bottom.travel).abs() < 0.5,
+        "the last row parks the thumb at the bottom: {} vs {}",
+        bottom.offset,
+        bottom.travel
+    );
+
+    // Halfway down the file is halfway down the track.
+    let mid = virtual_thumb(rows as f32 / 2.0, rows, visible, track);
+    assert!((mid.offset - mid.travel / 2.0).abs() < 1.0);
+}
+
+/// A table shorter than the viewport must not produce a thumb taller than the
+/// track or a negative travel, which would invert the drag.
+#[test]
+fn virtual_thumb_survives_a_tiny_file() {
+    let t = virtual_thumb(0.0, 3, 40.0, 600.0);
+    assert!(t.height <= 600.0);
+    assert!(t.travel >= 0.0);
+    assert!(t.max_row >= 1.0, "never divide by zero");
+}

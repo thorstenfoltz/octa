@@ -326,3 +326,28 @@ changes. The undo stack is **not** preserved across reloads.
   the full format matrix.
 - [`octa --convert`](../cli/convert.md) drives the same writers
   from the CLI.
+
+### Exporting several tabs as one workbook
+
+**File > Export workbook...** writes any number of open tabs into a single
+`.xlsx`, one worksheet per tab. Tick the tabs you want, adjust the sheet names
+if you like, and choose where to save.
+
+Sheet names start from the tab labels and are editable, because a tab label can
+be long, repeated, or contain characters Excel refuses in a sheet name. Whatever
+you leave is corrected before writing: at most 31 characters, no forbidden
+punctuation, and duplicates numbered `Report`, `Report_2`. So the export cannot
+produce a workbook Excel will not open.
+
+Chart tabs and empty tabs are not offered, since they have no table to write.
+The entry has no keyboard shortcut by default; assign one under **Settings >
+Shortcuts** if you use it often.
+
+Headless, the same thing is `--to-workbook`:
+
+```bash
+octa --to-workbook report.xlsx sales.csv returns.parquet stock.json
+```
+
+Sheet names come from the file stems. Agents can do it with the `write_workbook`
+tool, which takes an explicit `name` per sheet.

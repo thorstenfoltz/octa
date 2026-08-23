@@ -98,11 +98,22 @@ fi
 if [[ -f "$SCRIPT_DIR/LICENSE" ]]; then
 	install -Dm644 "$SCRIPT_DIR/LICENSE" "$DOC_DIR/LICENSE"
 fi
+if [[ -f "$SCRIPT_DIR/NOTICE" ]]; then
+	install -Dm644 "$SCRIPT_DIR/NOTICE" "$DOC_DIR/NOTICE"
+fi
 if [[ -d "$SCRIPT_DIR/licenses" ]]; then
 	for f in "$SCRIPT_DIR/licenses"/*.txt; do
 		[[ -f "$f" ]] || continue
 		install -Dm644 "$f" "$DOC_DIR/licenses/$(basename "$f")"
 	done
+fi
+# Those four copies are conditional so the script still works from an odd
+# working directory, but a silent skip is how Octa shipped releases with no
+# third-party notices at all. Say so instead.
+if [[ ! -f "$SCRIPT_DIR/THIRD_PARTY_LICENSES.md" || ! -f "$SCRIPT_DIR/NOTICE" ]] ||
+	[[ ! -f "$SCRIPT_DIR/LICENSE" || ! -d "$SCRIPT_DIR/licenses" ]]; then
+	echo "Warning: the attribution bundle next to this script is incomplete," >&2
+	echo "  so this install is missing third-party notices it should carry." >&2
 fi
 
 echo "Updating icon cache..."

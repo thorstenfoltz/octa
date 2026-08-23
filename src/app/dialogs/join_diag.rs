@@ -115,7 +115,11 @@ fn side_picker(
 ) -> bool {
     let id = side.id();
     let mut changed = false;
-    ui.horizontal(|ui| {
+    // One grid row, not a `horizontal`: the two sides are rendered as two rows
+    // of the SAME grid, so the combo boxes line up under each other however
+    // wide "Left"/"Right" happen to be - which differs per locale.
+    {
+        let ui = &mut *ui;
         ui.label(RichText::new(side.label()).strong())
             .on_hover_text(side.hint());
         egui::ComboBox::from_id_salt(format!("{id}_tab"))
@@ -146,7 +150,8 @@ fn side_picker(
                     }
                 }
             });
-    });
+        ui.end_row();
+    }
     changed
 }
 
@@ -297,22 +302,31 @@ pub(crate) fn render_join_diag_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             ui.label(t("joindiag.body"));
             ui.add_space(6.0);
 
-            let mut changed = side_picker(
-                ui,
-                app,
-                Side::Left,
-                &tabs,
-                &mut st.left_tab,
-                &mut st.left_col,
-            );
-            changed |= side_picker(
-                ui,
-                app,
-                Side::Right,
-                &tabs,
-                &mut st.right_tab,
-                &mut st.right_col,
-            );
+            // Both sides in one grid: three columns (label, table, column),
+            // so the pickers sit in a straight line instead of starting
+            // wherever the label happens to end.
+            let mut changed = false;
+            egui::Grid::new("join_diag_sides")
+                .num_columns(3)
+                .spacing([8.0, 6.0])
+                .show(ui, |ui| {
+                    changed = side_picker(
+                        ui,
+                        app,
+                        Side::Left,
+                        &tabs,
+                        &mut st.left_tab,
+                        &mut st.left_col,
+                    );
+                    changed |= side_picker(
+                        ui,
+                        app,
+                        Side::Right,
+                        &tabs,
+                        &mut st.right_tab,
+                        &mut st.right_col,
+                    );
+                });
             if changed {
                 // The old report described different columns.
                 st.result = None;

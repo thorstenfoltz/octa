@@ -49,9 +49,22 @@ copy /y "%SCRIPT_DIR%assets\octa.svg" "%INSTALL_DIR%\octa.svg"
 copy /y "%SCRIPT_DIR%assets\octa.png" "%INSTALL_DIR%\octa.png"
 if exist "%SCRIPT_DIR%THIRD_PARTY_LICENSES.md" copy /y "%SCRIPT_DIR%THIRD_PARTY_LICENSES.md" "%INSTALL_DIR%\THIRD_PARTY_LICENSES.md"
 if exist "%SCRIPT_DIR%LICENSE" copy /y "%SCRIPT_DIR%LICENSE" "%INSTALL_DIR%\LICENSE"
+if exist "%SCRIPT_DIR%NOTICE" copy /y "%SCRIPT_DIR%NOTICE" "%INSTALL_DIR%\NOTICE"
 if exist "%SCRIPT_DIR%licenses" (
     if not exist "%INSTALL_DIR%\licenses" mkdir "%INSTALL_DIR%\licenses"
     copy /y "%SCRIPT_DIR%licenses\*.txt" "%INSTALL_DIR%\licenses\"
+)
+
+:: A silent skip above is how Octa shipped releases with no third-party
+:: notices at all. Say so instead.
+set "BUNDLE_OK=1"
+if not exist "%SCRIPT_DIR%THIRD_PARTY_LICENSES.md" set "BUNDLE_OK="
+if not exist "%SCRIPT_DIR%NOTICE" set "BUNDLE_OK="
+if not exist "%SCRIPT_DIR%LICENSE" set "BUNDLE_OK="
+if not exist "%SCRIPT_DIR%licenses" set "BUNDLE_OK="
+if not defined BUNDLE_OK (
+    echo Warning: the attribution bundle next to this script is incomplete,
+    echo   so this install is missing third-party notices it should carry.
 )
 
 :: Convert PNG to ICO if not already present and magick is available

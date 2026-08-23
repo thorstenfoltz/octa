@@ -110,6 +110,7 @@ impl eframe::App for OctaApp {
         self.drain_sql_server_job();
         self.drain_db_write_back_job();
         self.drain_batch_convert();
+        self.drain_open_url(&ctx);
         self.drain_schema_drift();
         self.drain_harmonise();
         self.drain_report();

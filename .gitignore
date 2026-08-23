@@ -3,7 +3,8 @@
 *.swo
 *~
 .DS_Store
-.claude/
+.claude/*
+!.claude/rules/
 megalinter-reports/
 pkg/build/
 *.tar.gz

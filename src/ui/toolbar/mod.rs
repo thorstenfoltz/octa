@@ -76,7 +76,16 @@ pub fn draw_toolbar(
     replace_text: &mut String,
     has_data: bool,
     has_edits: bool,
+    // "This tab has a file on disk": gates Reopen as and git compare, which
+    // genuinely need a file to re-read.
     has_source_path: bool,
+    // "Save can write this tab without asking for a path": also true for a
+    // live-database tab, whose Save is the write-back dialog. Distinct from
+    // has_source_path, and conflating the two hid Save on every db tab.
+    can_save_in_place: bool,
+    // This tab came from a live database connection, so its pending edits can
+    // be exported as a SQL script for review.
+    is_db_tab: bool,
     selected_cell: Option<(usize, usize)>,
     selected_rows: &HashSet<usize>,
     selected_cols: &HashSet<usize>,
@@ -263,6 +272,19 @@ pub fn draw_toolbar(
                                 action.open_table_folder = true;
                                 ui.close();
                             }
+                            // Belongs with the other ways IN, not with the
+                            // save/export block below: it was gated on
+                            // `has_data`, so the one moment you need it - an
+                            // empty window and a URL to open - was the one
+                            // moment it was hidden.
+                            if ui
+                                .button(crate::i18n::t("file_menu.open_url"))
+                                .on_hover_text(crate::i18n::t("file_menu.open_url_hint"))
+                                .clicked()
+                            {
+                                action.open_url = true;
+                                ui.close();
+                            }
                             if ui
                                 .button(crate::i18n::t("file_menu.batch_convert"))
                                 .on_hover_text(crate::i18n::t("file_menu.batch_convert_hint"))
@@ -322,7 +344,11 @@ pub fn draw_toolbar(
                             }
                             if has_data {
                                 ui.separator();
-                                if has_source_path
+                                // Every way of SAVING the open table, then a
+                                // separator, then every way of EXPORTING
+                                // something derived from it. Export workbook
+                                // used to sit between Save and Save as.
+                                if can_save_in_place
                                     && ui
                                         .button(crate::i18n::t("common.save"))
                                         .on_hover_text(crate::i18n::t("file_menu.save_hint"))
@@ -337,6 +363,34 @@ pub fn draw_toolbar(
                                     .clicked()
                                 {
                                     action.save_file_as = true;
+                                    ui.close();
+                                }
+                                if is_db_tab
+                                    && ui
+                                        .button(crate::i18n::t("file_menu.save_sql"))
+                                        .on_hover_text(crate::i18n::t("file_menu.save_sql_hint"))
+                                        .clicked()
+                                {
+                                    action.save_db_sql = true;
+                                    ui.close();
+                                }
+                                if ui
+                                    .button(crate::i18n::t("file_menu.save_to_db"))
+                                    .on_hover_text(crate::i18n::t("file_menu.save_to_db_hint"))
+                                    .clicked()
+                                {
+                                    action.open_table_to_db = true;
+                                    ui.close();
+                                }
+
+                                ui.separator();
+
+                                if ui
+                                    .button(crate::i18n::t("file_menu.export_workbook"))
+                                    .on_hover_text(crate::i18n::t("file_menu.export_workbook_hint"))
+                                    .clicked()
+                                {
+                                    action.export_workbook = true;
                                     ui.close();
                                 }
                                 if ui
@@ -772,6 +826,16 @@ pub fn draw_toolbar(
                                     action.open_rename_columns = true;
                                     ui.close();
                                 }
+                                if ui
+                                    .button(crate::i18n::t("edit_menu.fix_duplicate_cols"))
+                                    .on_hover_text(crate::i18n::t(
+                                        "edit_menu.fix_duplicate_cols_hint",
+                                    ))
+                                    .clicked()
+                                {
+                                    action.fix_duplicate_columns = true;
+                                    ui.close();
+                                }
 
                                 let can_move_left = selected_cell.is_some_and(|(_, c)| c > 0);
                                 let can_move_right =
@@ -850,15 +914,6 @@ pub fn draw_toolbar(
                                     .clicked()
                                 {
                                     action.open_conditional_format = true;
-                                    ui.close();
-                                }
-
-                                if ui
-                                    .button(crate::i18n::t("edit_menu.validation"))
-                                    .on_hover_text(crate::i18n::t("edit_menu.validation_hint"))
-                                    .clicked()
-                                {
-                                    action.open_validation = true;
                                     ui.close();
                                 }
 
@@ -976,6 +1031,19 @@ pub fn draw_toolbar(
                                     .clicked()
                                 {
                                     action.open_tidy_up = true;
+                                    ui.close();
+                                }
+
+                                // Data validation lives here rather than under
+                                // Columns: it is a statement about the data,
+                                // like dedupe and impute above it, not about
+                                // how a column is displayed.
+                                if ui
+                                    .button(crate::i18n::t("edit_menu.validation"))
+                                    .on_hover_text(crate::i18n::t("edit_menu.validation_hint"))
+                                    .clicked()
+                                {
+                                    action.open_validation = true;
                                     ui.close();
                                 }
 
@@ -1409,6 +1477,22 @@ pub fn draw_toolbar(
                                         .clicked()
                                     {
                                         action.open_db_compare = true;
+                                        ui.close();
+                                    }
+                                    if ui
+                                        .button(crate::i18n::t("datadrift.menu"))
+                                        .on_hover_text(crate::i18n::t("datadrift.menu_hint"))
+                                        .clicked()
+                                    {
+                                        action.open_drift = true;
+                                        ui.close();
+                                    }
+                                    if ui
+                                        .button(crate::i18n::t("relmap.menu"))
+                                        .on_hover_text(crate::i18n::t("relmap.menu_hint"))
+                                        .clicked()
+                                    {
+                                        action.open_rel_map = true;
                                         ui.close();
                                     }
                                     if ui

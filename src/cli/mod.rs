@@ -19,6 +19,7 @@ use octa::data::schema_export::SchemaTarget;
 
 pub mod anonymize;
 pub mod batch_convert;
+pub mod check;
 pub mod cloud;
 pub mod compare_schemas;
 pub mod connections;
@@ -27,6 +28,7 @@ pub mod db;
 pub mod dedupe;
 pub mod describe;
 pub mod diff;
+pub mod drift;
 pub mod export_schema;
 pub mod fuzzy_join;
 pub mod harmonise;
@@ -37,16 +39,19 @@ pub mod outliers;
 pub mod output;
 pub mod partition;
 pub mod pii;
+pub mod relationships;
 pub mod report;
 pub mod sample;
 pub mod schema;
 pub mod schema_drift;
 pub mod sql;
+pub mod sync_sql;
 pub mod tail;
 pub mod timeseries;
 pub mod union;
 pub mod unique_columns;
 pub mod validate_schema;
+pub mod workbook;
 
 /// Long help shown after the option list. Includes worked examples for
 /// every action and the SQL form the user asked to surface. Plain-text
@@ -600,6 +605,14 @@ pub struct Cli {
     #[arg(long = "partition-format", value_name = "EXT")]
     pub partition_format: Option<String>,
 
+    /// Naming for --partition-by. `flat` writes `value.ext` side by side;
+    /// `folder` writes `value/part-0001.ext`; `hive` writes
+    /// `col=value/data.ext`; `hive-parts` writes `col=value/part-0001.ext`.
+    /// All four hold the same rows and all four reopen as one table - the
+    /// choice is only about the names. Default `flat`.
+    #[arg(long, value_name = "LAYOUT", requires = "partition_by")]
+    pub partition_layout: Option<String>,
+
     /// Convert every positional FILE into --out-dir as --to EXT.
     ///
     /// One failed file does not stop the run; the exit code is 1 if any failed.
@@ -660,6 +673,19 @@ pub struct Cli {
     /// Needs --db NAME. Mutations require the connection's "Allow writes" switch.
     #[arg(long = "db-query", value_name = "SQL", group = "action")]
     pub db_query: Option<String>,
+    /// Print the SQL that would make a database table match FILE.
+    /// Reads the table, writes nothing.
+    #[arg(long, value_name = "FILE", group = "action")]
+    pub sync_sql: Option<PathBuf>,
+    /// Write the positional FILEs into one .xlsx, one worksheet per file.
+    #[arg(long, value_name = "OUT.xlsx", group = "action")]
+    pub to_workbook: Option<PathBuf>,
+    /// Target table for --sync-sql, as SCHEMA.TABLE.
+    #[arg(long, value_name = "SCHEMA.TABLE", requires = "sync_sql")]
+    pub sync_table: Option<String>,
+    /// Key columns matching file rows to table rows (comma separated).
+    #[arg(long, value_name = "COLS", requires = "sync_sql")]
+    pub sync_on: Option<String>,
 
     /// List schemas and tables of a saved database connection. Needs --db.
     #[arg(long = "db-tables", group = "action")]
@@ -888,6 +914,38 @@ pub struct Cli {
     #[arg(long = "schema-drift", value_name = "DIR", group = "action")]
     pub schema_drift: Option<PathBuf>,
 
+    /// Let DuckDB scan the file in place instead of loading it into memory.
+    /// Applies to --sql over a Parquet, CSV or JSON file; every other action
+    /// needs the rows themselves and says so rather than ignoring the flag.
+    #[arg(long = "stream")]
+    pub stream: bool,
+
+    /// Rank likely relationships between the tables in DIR.
+    #[arg(long = "relationships", value_name = "DIR", group = "action")]
+    pub relationships: Option<PathBuf>,
+
+    /// Check FILE's values against a rules file. Exits 1 on any violation.
+    #[arg(long = "check", value_name = "FILE", group = "action")]
+    pub check: Option<PathBuf>,
+
+    /// Rules file (TOML) listing the checks to run (--check).
+    #[arg(long = "rules", value_name = "FILE", requires = "check")]
+    pub rules: Option<PathBuf>,
+
+    /// Compare two versions of the same dataset (values, not just columns).
+    #[arg(
+        long = "drift-report",
+        value_name = "FILE",
+        num_args = 2,
+        group = "action"
+    )]
+    pub drift_report: Option<Vec<PathBuf>>,
+
+    /// Fail (exit 1) when a metric changed more than the given fraction,
+    /// e.g. --fail-on null_rate:0.05,rows:0.1 (--drift-report).
+    #[arg(long = "fail-on", value_name = "SPEC", requires = "drift_report")]
+    pub fail_on: Option<String>,
+
     /// Rewrite every file in a folder to one common schema, writing copies
     /// into --out-dir. The originals are never modified. Exits 1 if any file
     /// was refused.
@@ -974,6 +1032,8 @@ pub enum Action {
     Convert {
         input: PathBuf,
         output: PathBuf,
+        /// Explicit output format, required when `output` is `-` (stdout).
+        to: Option<String>,
         write_options: octa::formats::write_options::WriteOptions,
     },
     Sql {
@@ -982,6 +1042,9 @@ pub enum Action {
         extras: Vec<NamedPath>,
         attachments: Vec<NamedPath>,
         write_target: Option<sql::SqlWriteSpec>,
+        /// Register the file as a DuckDB view over the file rather than
+        /// loading its rows (`--stream`).
+        stream: bool,
     },
     ExportSchema {
         path: PathBuf,
@@ -1023,6 +1086,25 @@ pub enum Action {
         dir: PathBuf,
         recursive: bool,
         ignore_case: bool,
+    },
+    /// Rank likely relationships between the tables in a folder.
+    /// `--relationships DIR [--recursive]`. Always exits 0: a report, not a gate.
+    Relationships {
+        dir: PathBuf,
+        recursive: bool,
+    },
+    /// Check a file's values against a rules file.
+    /// `--check FILE --rules FILE`. Exits 1 on a violation or an unrunnable rule.
+    Check {
+        path: PathBuf,
+        rules: PathBuf,
+    },
+    /// Compare two versions of the same dataset.
+    /// `--drift-report A B [--fail-on SPEC]`. Exits 1 only on a breached gate.
+    DriftReport {
+        path_a: PathBuf,
+        path_b: PathBuf,
+        fail_on: Option<String>,
     },
     /// Rewrite a folder of files to one common schema.
     /// `--harmonise-schema DIR --out-dir DIR`. Exits 1 if any file was refused.
@@ -1109,10 +1191,21 @@ pub enum Action {
         out_dir: PathBuf,
         /// Output extension override (e.g. `csv`). `None` = use source extension.
         format: Option<String>,
+        layout: octa::data::partition::PartitionLayout,
     },
     DbQuery {
         conn: String,
         sql: String,
+    },
+    ToWorkbook {
+        out: PathBuf,
+        inputs: Vec<PathBuf>,
+    },
+    SyncSql {
+        path: PathBuf,
+        conn: String,
+        table: String,
+        on: String,
     },
     DbTables {
         conn: String,
@@ -1235,6 +1328,7 @@ impl Cli {
             return Ok(Some(Action::Convert {
                 input: self.convert[0].clone(),
                 output: self.convert[1].clone(),
+                to: self.to.clone(),
                 write_options: self.write_options(),
             }));
         }
@@ -1265,6 +1359,7 @@ impl Cli {
                 extras,
                 attachments,
                 write_target,
+                stream: self.stream,
             }));
         }
         if let Some(p) = &self.export_schema {
@@ -1357,6 +1452,33 @@ impl Cli {
                 dir: dir.clone(),
                 recursive: self.recursive,
                 ignore_case: self.ignore_case,
+            }));
+        }
+        if let Some(dir) = &self.relationships {
+            return Ok(Some(Action::Relationships {
+                dir: dir.clone(),
+                recursive: self.recursive,
+            }));
+        }
+        if let Some(path) = &self.check {
+            let Some(rules) = self.rules.clone() else {
+                return Err("--check requires --rules FILE");
+            };
+            return Ok(Some(Action::Check {
+                path: path.clone(),
+                rules,
+            }));
+        }
+        if let Some(paths) = &self.drift_report {
+            // clap's `num_args = 2` guarantees the pair, so this is a shape
+            // assertion rather than a user-facing error.
+            let [a, b] = paths.as_slice() else {
+                return Err("--drift-report needs exactly two files");
+            };
+            return Ok(Some(Action::DriftReport {
+                path_a: a.clone(),
+                path_b: b.clone(),
+                fail_on: self.fail_on.clone(),
             }));
         }
         if let Some(dir) = &self.harmonise_schema {
@@ -1554,11 +1676,45 @@ impl Cli {
                 .out_dir
                 .clone()
                 .ok_or("--partition-by requires --out-dir DIR")?;
+            let layout = match &self.partition_layout {
+                Some(word) => octa::data::partition::PartitionLayout::parse(word)
+                    .ok_or("--partition-layout must be one of: flat, folder, hive, hive-parts")?,
+                None => octa::data::partition::PartitionLayout::default(),
+            };
             return Ok(Some(Action::Partition {
                 path,
                 col: col.clone(),
                 out_dir,
                 format: self.partition_format.clone(),
+                layout,
+            }));
+        }
+        if let Some(out) = &self.to_workbook {
+            return Ok(Some(Action::ToWorkbook {
+                out: out.clone(),
+                inputs: self.files.clone(),
+            }));
+        }
+        if let Some(path) = &self.sync_sql {
+            let conn = self
+                .db
+                .clone()
+                .ok_or("--sync-sql requires --db CONNECTION")?;
+            let table = self
+                .sync_table
+                .clone()
+                .ok_or("--sync-sql requires --sync-table SCHEMA.TABLE")?;
+            // Without key columns there is no way to tell an updated row from
+            // a deleted-plus-inserted pair, so this is an error, not a default.
+            let on = self
+                .sync_on
+                .clone()
+                .ok_or("--sync-sql requires --sync-on COL[,COL...]")?;
+            return Ok(Some(Action::SyncSql {
+                path: path.clone(),
+                conn,
+                table,
+                on,
             }));
         }
         if let Some(sql) = &self.db_query {
@@ -1865,7 +2021,7 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
         return match validate_schema::run(path, schema_file, table, format) {
             Ok(code) => code,
             Err(e) => {
-                eprintln!("error: {e}");
+                eprintln!("error: {e:#}");
                 ExitCode::FAILURE
             }
         };
@@ -1886,7 +2042,30 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
         ) {
             Ok(code) => code,
             Err(e) => {
-                eprintln!("error: {e}");
+                eprintln!("error: {e:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if let Action::Check { path, rules } = action {
+        return match check::run(path, rules, format) {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("error: {e:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if let Action::DriftReport {
+        path_a,
+        path_b,
+        fail_on,
+    } = action
+    {
+        return match drift::run(path_a, path_b, fail_on, format) {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("error: {e:#}");
                 ExitCode::FAILURE
             }
         };
@@ -1915,7 +2094,7 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
         ) {
             Ok(code) => code,
             Err(e) => {
-                eprintln!("error: {e}");
+                eprintln!("error: {e:#}");
                 ExitCode::FAILURE
             }
         };
@@ -1931,7 +2110,7 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
         return match batch_convert::run(inputs, out_dir, target_ext, overwrite, write_options) {
             Ok(code) => code,
             Err(e) => {
-                eprintln!("error: {e}");
+                eprintln!("error: {e:#}");
                 ExitCode::FAILURE
             }
         };
@@ -1944,15 +2123,27 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
         Action::Convert {
             input,
             output,
+            to,
             write_options,
-        } => convert::run(input, output, write_options),
+        } => convert::run(input, output, to, write_options),
         Action::Sql {
             path,
             query,
             extras,
             attachments,
             write_target,
-        } => sql::run(path, query, format, extras, attachments, write_target),
+            stream,
+        } => sql::run(
+            sql::Args {
+                path,
+                query,
+                extras,
+                attachments,
+                write_target,
+                stream,
+            },
+            format,
+        ),
         Action::ExportSchema { path, target } => export_schema::run(path, target),
         Action::CompareSchemas {
             path_a,
@@ -2012,8 +2203,16 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             col,
             out_dir,
             format: partition_format,
-        } => partition::run(path, col, out_dir, partition_format),
+            layout,
+        } => partition::run(path, col, out_dir, partition_format, layout),
         Action::DbQuery { conn, sql } => db::run_query(conn, sql, format),
+        Action::ToWorkbook { out, inputs } => workbook::run(out, inputs),
+        Action::SyncSql {
+            path,
+            conn,
+            table,
+            on,
+        } => sync_sql::run(path, conn, table, on),
         Action::CloudLs { url, recursive } => cloud::ls(url, recursive, format),
         Action::CloudGet { url, out } => cloud::get(url, out),
         Action::CloudPut { file, url } => cloud::put(file, url),
@@ -2048,6 +2247,7 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             mode,
         ),
         Action::FuzzyJoin(args) => fuzzy_join::run(*args, format),
+        Action::Relationships { dir, recursive } => relationships::run(dir, recursive, format),
         Action::Report {
             out,
             path,
@@ -2057,6 +2257,8 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
         } => report::run(out, path, table, sample, sections),
         Action::ValidateSchema { .. } => unreachable!("handled above"),
         Action::SchemaDrift { .. } => unreachable!("handled above"),
+        Action::DriftReport { .. } => unreachable!("handled above"),
+        Action::Check { .. } => unreachable!("handled above"),
         Action::Harmonise { .. } => unreachable!("handled above"),
         Action::BatchConvert { .. } => unreachable!("handled above"),
         Action::Mcp => {
@@ -2067,7 +2269,10 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("error: {e}");
+            // `{:#}`, not `{}`: anyhow's plain Display prints only the
+            // outermost context, so a failed DB write said "creating the
+            // target table" and nothing about why the server refused it.
+            eprintln!("error: {e:#}");
             ExitCode::FAILURE
         }
     }
@@ -2092,8 +2297,68 @@ fn split_cols(s: &str) -> Vec<String> {
 /// and then read as usual, so every action taking a FILE takes a cloud object
 /// too without a flag of its own. The settings load happens inside the branch:
 /// a local read must not pay for it.
+/// Buffer stdin into a temp file.
+///
+/// Every reader needs `Seek` (a Parquet footer is at the end, a CSV sniff
+/// rewinds), so a pipe cannot be streamed straight through. The temp file is
+/// the honest cost of supporting `-`.
+fn stdin_to_temp() -> anyhow::Result<std::path::PathBuf> {
+    use anyhow::Context;
+    use std::io::{Read, Write};
+
+    let mut buf = Vec::new();
+    std::io::stdin()
+        .lock()
+        .read_to_end(&mut buf)
+        .context("reading stdin")?;
+    if buf.is_empty() {
+        anyhow::bail!("stdin was empty; `-` expects data on the pipe");
+    }
+    let mut tmp = tempfile::Builder::new()
+        .prefix("octa-stdin-")
+        .tempfile()
+        .context("creating a temp file for stdin")?;
+    tmp.write_all(&buf).context("buffering stdin")?;
+    let path = tmp.path().to_path_buf();
+    let _ = tmp.keep();
+    Ok(path)
+}
+
+/// Read a table from `-` (stdin), a URL, or a path.
 pub(crate) fn read_table(path: &std::path::Path) -> anyhow::Result<octa::data::DataTable> {
+    if path.as_os_str() == "-" {
+        let tmp = stdin_to_temp()?;
+        // A pipe has no name, so the format has to come from the bytes.
+        let name = octa::formats::sniff::sniff_format(&tmp).ok_or_else(|| {
+            anyhow::anyhow!(
+                "cannot tell what format the piped data is; sniffing recognises \
+                 Parquet, Arrow, Avro, JSON, JSON Lines, CSV and TSV"
+            )
+        })?;
+        let registry = octa::formats::FormatRegistry::new();
+        let reader = registry
+            .reader_by_name(name)
+            .ok_or_else(|| anyhow::anyhow!("no reader named {name}"))?;
+        return reader.read_file(&tmp);
+    }
     let as_str = path.to_string_lossy();
+    // The plainest URL of all: no credentials, no provider, just a download.
+    // Checked before the cloud branch because the schemes are disjoint and
+    // this one needs no settings load.
+    if octa::cloud::is_http_url(&as_str) {
+        let fetched =
+            octa::cloud::fetch_http_to_temp(&as_str, octa::cloud::UrlTrust::UserSupplied)?;
+        if let Some(final_url) = &fetched.redirected_to {
+            // Stderr, so a piped result stays parseable. There is nobody to
+            // ask on a command line; the GUI raises a confirmation instead.
+            eprintln!("note: {as_str} redirected to {final_url}");
+        }
+        return octa::formats::read_table_auto(
+            &fetched.path,
+            None,
+            octa::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
+        );
+    }
     if octa::cloud::parse_cloud_url(&as_str).is_some() {
         let settings = octa::ui::settings::AppSettings::load();
         let tmp = octa::cloud::fetch_url_to_temp(&as_str, &settings)?;

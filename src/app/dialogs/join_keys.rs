@@ -226,6 +226,19 @@ pub(crate) fn render_join_keys_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                                 ),
                                             ),
                                     );
+                                    // Both directions. Two candidates tie
+                                    // whenever both tables number their rows
+                                    // from 1, and only the count read from the
+                                    // child side tells them apart - which side
+                                    // that is, the finder cannot know.
+                                    ui.weak(
+                                        t("joinkeys.unmatched")
+                                            .replace("{left}", &k.left_orphans.to_string())
+                                            .replace("{lefttotal}", &k.left_values.to_string())
+                                            .replace("{right}", &k.right_orphans.to_string())
+                                            .replace("{righttotal}", &k.right_values.to_string()),
+                                    )
+                                    .on_hover_text(t("joinkeys.unmatched_hint"));
                                     ui.with_layout(
                                         egui::Layout::right_to_left(egui::Align::Center),
                                         |ui| {

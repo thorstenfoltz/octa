@@ -107,6 +107,32 @@ tab only** (those features tokenize on every keystroke and get
 laggy on very large files). The choice is **transient** and never
 persisted to `AppSettings`.
 
+## JSON: format a minified file
+
+A JSON file written without whitespace is one endless line here, which the
+Raw view will happily scroll sideways forever and nobody can read. For a
+`.json` file the toolbar carries a **Format JSON** tick box that breaks it
+into indented lines.
+
+- Only the whitespace *between* tokens changes. Numbers keep their exact
+  digits (`1.50` stays `1.50`, not `1.5`), text keeps its exact escapes, and
+  the keys stay in file order. Nothing is re-typed on the way through, so a
+  formatted buffer you save is the same data you opened.
+- Formatting is a way of **reading** the file, not an edit of it: ticking the
+  box does not mark the tab as changed, and un-ticking puts the on-disk text
+  back. Once you edit the formatted text yourself, that counts as an edit like
+  any other and saving keeps your indentation.
+- If you have edited the formatted buffer, un-ticking asks first, because it
+  reloads the file from disk. Turn the question off under
+  [**Settings → File-Specific**](../../reference/settings.md#file-specific).
+
+Formatting roughly doubles the size of a minified file (measured: 31 KB to
+59 KB), so a large one can cross the syntax-highlight size cap and drop to
+plain monospace. That is the cap doing its job, not a fault.
+
+The [JSON tree view](json-and-yaml-tree.md) is the other way to read the same
+file, with collapsible nodes instead of text.
+
 ## Parse-error fallback banner
 
 When opening a file with a known text-format extension fails (a

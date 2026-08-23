@@ -9,15 +9,15 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use octa::data::partition::partition_table;
+use octa::data::partition::{PartitionLayout, partition_table};
 use octa::formats::FormatRegistry;
-use octa::sql::sanitize_sql_name;
 
 pub fn run(
     path: PathBuf,
     col_name: String,
     out_dir: PathBuf,
     partition_format: Option<String>,
+    layout: PartitionLayout,
 ) -> anyhow::Result<()> {
     // Determine output extension: --partition-format takes precedence, then
     // the source file's own extension.
@@ -82,16 +82,15 @@ pub fn run(
     let mut stem_counts: HashMap<String, usize> = HashMap::new();
     let mut written: Vec<(PathBuf, usize)> = Vec::with_capacity(groups.len());
 
-    for (value, group_table) in &groups {
-        let base_stem = sanitize_sql_name(value);
-        let count = stem_counts.entry(base_stem.clone()).or_insert(0);
-        *count += 1;
-        let stem = if *count == 1 {
-            base_stem
-        } else {
-            format!("{base_stem}_{count}")
-        };
-        let out_path = out_dir.join(format!("{stem}.{ext}"));
+    for (idx, (value, group_table)) in groups.iter().enumerate() {
+        let rel = octa::data::partition::partition_path(layout, &col_name, value, &ext, idx + 1);
+        let rel = octa::data::partition::dedupe_flat_name(layout, rel, &ext, &mut stem_counts);
+        let out_path = out_dir.join(&rel);
+        if let Some(parent) = out_path.parent()
+            && parent != out_dir
+        {
+            std::fs::create_dir_all(parent)?;
+        }
         out_reader.write_file(&out_path, group_table)?;
         written.push((out_path, group_table.row_count()));
     }

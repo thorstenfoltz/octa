@@ -10,6 +10,8 @@
 //! One-variant-per-rule so adding a check is a drop-in (see
 //! `feedback_modular_features`).
 
+pub mod rules_file;
+
 use std::collections::{HashMap, HashSet};
 
 use crate::data::DataTable;

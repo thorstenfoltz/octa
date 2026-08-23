@@ -30,13 +30,16 @@ impl OctaApp {
             self.open_file();
         }
         if action_fired(SA::SaveFile) {
-            if self.tabs[self.active_tab].table.source_path.is_some() {
+            if self.tabs[self.active_tab].saves_in_place() {
                 self.save_file();
             } else if self.tabs[self.active_tab].table.col_count() > 0
                 || self.tabs[self.active_tab].raw_content_modified
             {
                 self.save_file_as();
             }
+        }
+        if action_fired(SA::SaveDbSql) {
+            self.save_db_sql(self.active_tab);
         }
         if action_fired(SA::FocusSearch) {
             self.search_focus_requested = true;
@@ -286,6 +289,12 @@ impl OctaApp {
         // / search bar undoes *text*, not the table, and so the F-key dialog
         // shortcuts don't pop a window out from under the user mid-typing.
         if !text_edit_focused {
+            if action_fired(SA::ExportWorkbook) {
+                self.open_workbook_dialog();
+            }
+            if action_fired(SA::OpenUrl) {
+                self.open_url_dialog();
+            }
             if action_fired(SA::Undo) && !self.is_readonly() {
                 self.do_undo();
             }
@@ -359,6 +368,9 @@ impl OctaApp {
             }
             if action_fired(SA::ExportSchema) {
                 super::dialogs::schema_export::open(self);
+            }
+            if action_fired(SA::SaveTableToDb) {
+                self.open_table_to_db_dialog();
             }
             if action_fired(SA::MultiSearch) {
                 self.toggle_multi_search();
@@ -498,6 +510,12 @@ impl OctaApp {
             if action_fired(SA::OpenDbCompare) {
                 self.open_db_compare_dialog(None, None);
             }
+            if action_fired(SA::OpenDataDrift) {
+                self.open_drift_dialog();
+            }
+            if action_fired(SA::OpenRelMap) {
+                self.open_rel_map_dialog();
+            }
             if action_fired(SA::OpenJoinKeys) {
                 self.open_join_keys_dialog();
             }
@@ -570,6 +588,7 @@ impl OctaApp {
                     col: 0,
                     out_dir: None,
                     format: String::new(),
+                    layout: octa::data::partition::PartitionLayout::default(),
                     error: None,
                     size: octa::ui::settings::DialogSize::default(),
                 });
@@ -655,18 +674,24 @@ impl OctaApp {
         // writes AND the table has a primary key (row identity for the
         // confirmed write-back on Save). Computed live so editing the
         // connection in Settings takes effect immediately.
+        // A large-file tab is read-only for a simpler reason: its rows are a
+        // page fetched from disk, so an edit would be written onto a window
+        // that scrolls away. This is the single chokepoint every edit path
+        // funnels through, so no other gate is needed.
         self.readonly_mode
             || self.tabs.get(self.active_tab).is_some_and(|t| {
-                t.db_origin
-                    .as_ref()
-                    .is_some_and(|o| !self.db_origin_writable(o))
+                t.large.is_some()
+                    || t.db_origin
+                        .as_ref()
+                        .is_some_and(|o| !self.db_origin_writable(o))
             })
     }
 
     /// A db-origin tab is editable iff its connection still exists, allows
-    /// writes, and the table has a primary key (row identity for write-back).
+    /// writes, and Octa found a way to address one server row (a key, or a
+    /// full-row match) for the write-back.
     pub(crate) fn db_origin_writable(&self, o: &super::state::DbOrigin) -> bool {
-        !o.pk_cols.is_empty()
+        o.identity.is_some()
             && self
                 .settings
                 .db_connections

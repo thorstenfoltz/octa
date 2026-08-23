@@ -307,3 +307,12 @@ fn reset_to_defaults_re_seeds_every_buffer() {
         d.auto_save_interval_minutes.to_string()
     );
 }
+
+#[test]
+fn size_unit_covers_gigabytes() {
+    assert_eq!(SizeUnit::GB.factor(), 1_024 * 1_024 * 1_024);
+    assert_eq!(SizeUnit::best_fit(10 * 1_024 * 1_024 * 1_024), SizeUnit::GB);
+    assert_eq!(SizeUnit::best_fit(5 * 1_024 * 1_024), SizeUnit::MB);
+    assert_eq!(SizeUnit::best_fit(1_500), SizeUnit::Bytes);
+    assert!(SizeUnit::ALL.contains(&SizeUnit::GB));
+}

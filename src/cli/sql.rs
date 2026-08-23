@@ -28,20 +28,48 @@ pub struct SqlWriteSpec {
     pub mode: WriteMode,
 }
 
-pub fn run(
-    path: PathBuf,
-    query: String,
-    format: OutputFormat,
-    extras: Vec<NamedPath>,
-    attachments: Vec<NamedPath>,
-    write_target: Option<SqlWriteSpec>,
-) -> anyhow::Result<()> {
+/// Everything `--sql` needs, bundled so the function keeps a readable
+/// signature as the flag list grows.
+pub struct Args {
+    pub path: PathBuf,
+    pub query: String,
+    pub extras: Vec<NamedPath>,
+    pub attachments: Vec<NamedPath>,
+    pub write_target: Option<SqlWriteSpec>,
+    /// Register the primary file as a scan view instead of loading its rows.
+    pub stream: bool,
+}
+
+pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<()> {
+    let Args {
+        path,
+        query,
+        extras,
+        attachments,
+        write_target,
+        stream,
+    } = args;
     // Build the workspace and register the primary file as `data`. The
     // primary file is *always* loaded as `data`; this is the contract the
     // single-file form has carried since the CLI shipped.
     let mut ws = SqlWorkspace::new()?;
-    let active = super::read_table(&path)?;
-    ws.set_active_table(&active)?;
+    // Streaming registers `data` as a view over the file, so an aggregate can
+    // cover every row of a file far larger than memory. Only the formats
+    // DuckDB can scan qualify; anything else falls back with a note rather
+    // than failing, because the query itself is still perfectly runnable.
+    let streamed = stream
+        && octa::formats::large::ScanKind::for_path(&path).is_some()
+        && ws.add_view_from_scan("data", &path).is_ok();
+    if stream && !streamed {
+        eprintln!(
+            "note: --stream does not apply to {}, reading it normally",
+            path.display()
+        );
+    }
+    if !streamed {
+        let active = super::read_table(&path)?;
+        ws.set_active_table(&active)?;
+    }
 
     for entry in &extras {
         let sql_name = sanitize_sql_name(&entry.name);
@@ -106,9 +134,8 @@ pub fn run(
             write_table(&outcome.table, format)?;
         }
     }
-    // Drop active_table reference for clarity; the workspace owns its own
-    // registration of the underlying data.
-    let _ = active;
+    // The workspace owns its own registration of the underlying data; these
+    // bindings only existed to build it.
     let _ = extras;
     let _ = attachments;
     Ok(())

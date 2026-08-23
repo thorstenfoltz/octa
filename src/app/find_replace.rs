@@ -40,6 +40,19 @@ impl OctaApp {
     }
 
     pub(crate) fn recompute_filter(&mut self) {
+        // A large-file tab filters in SQL, against the file, not with a row
+        // vector: `filtered_rows` over forty million rows is the allocation the
+        // mode exists to avoid. It still needs one row per row of the *page*,
+        // though - that is what the view renders from, and clearing it here is
+        // why a large tab used to show its column headers over nothing.
+        if self.tabs[self.active_tab].large.is_some() {
+            let tab = &mut self.tabs[self.active_tab];
+            tab.filtered_rows = (0..tab.table.row_count()).collect();
+            tab.filter_dirty = false;
+            tab.search_cell_matches.clear();
+            tab.validation_violations.clear();
+            return;
+        }
         let mode = self.search_result_mode;
         // Build the matcher under an immutable borrow that ends before the
         // mutable one below (the matcher is owned, so no borrow lingers).

@@ -34,11 +34,18 @@ pub struct KeyCandidate {
     pub right_distinct: f64,
     /// `overlap` weighted by the better distinctness of the two sides.
     pub score: f64,
+    /// Distinct values seen per side, and how many of them find no partner on
+    /// the other side. Reported **both ways round**; see [`PairScore`] for why
+    /// one direction cannot break a tie on its own.
+    pub left_values: usize,
+    pub right_values: usize,
+    pub left_orphans: usize,
+    pub right_orphans: usize,
 }
 
 /// Distinct trimmed values of one column, plus how many non-empty values were
 /// seen (the denominator for distinctness).
-fn column_values(table: &DataTable, col: usize, sample: usize) -> (HashSet<String>, usize) {
+pub fn column_values(table: &DataTable, col: usize, sample: usize) -> (HashSet<String>, usize) {
     let mut set = HashSet::new();
     let mut seen = 0usize;
     for row in 0..table.row_count().min(sample) {
@@ -54,6 +61,67 @@ fn column_values(table: &DataTable, col: usize, sample: usize) -> (HashSet<Strin
         set.insert(s.to_string());
     }
     (set, seen)
+}
+
+/// How well one ordered column pair joins. `None` when they share no value at
+/// all, which is not a candidate.
+///
+/// Extracted so the ranked list, the relationship map and the map's
+/// verify-a-declared-key pass all read the same formula. Duplicating it would
+/// let two numbers on one screen disagree.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PairScore {
+    pub overlap: f64,
+    pub left_distinct: f64,
+    pub right_distinct: f64,
+    pub score: f64,
+    /// Distinct values seen on each side: the denominators for the orphan
+    /// counts below.
+    pub left_values: usize,
+    pub right_values: usize,
+    /// Distinct values with no partner on the other side, **both ways round**.
+    ///
+    /// One direction is not enough. Two candidates tie exactly when both
+    /// tables number their rows from 1, and then the count only separates
+    /// them when read from the *child* side: with 4 customers and 1,000
+    /// orders, `customers.id` finds all four of its values in both
+    /// `orders.id` and `orders.customer_id` (0 either way, useless), while
+    /// `orders.id` leaves 996 unmatched and `orders.customer_id` leaves none.
+    /// Nothing here knows which side is the child, so both are reported and
+    /// the reader picks.
+    pub left_orphans: usize,
+    pub right_orphans: usize,
+}
+
+pub fn score_pair(
+    left: &HashSet<String>,
+    left_seen: usize,
+    right: &HashSet<String>,
+    right_seen: usize,
+) -> Option<PairScore> {
+    if left.is_empty() || right.is_empty() {
+        return None;
+    }
+    let shared = left.intersection(right).count();
+    if shared == 0 {
+        return None;
+    }
+    let smaller = left.len().min(right.len()) as f64;
+    let overlap = shared as f64 / smaller;
+    let left_distinct = left.len() as f64 / left_seen.max(1) as f64;
+    let right_distinct = right.len() as f64 / right_seen.max(1) as f64;
+    Some(PairScore {
+        overlap,
+        left_distinct,
+        right_distinct,
+        // Distinctness is the tie-breaker that keeps `flag` below `id`: both
+        // may overlap fully, only one identifies rows.
+        score: overlap * left_distinct.max(right_distinct),
+        left_values: left.len(),
+        right_values: right.len(),
+        left_orphans: left.len() - shared,
+        right_orphans: right.len() - shared,
+    })
 }
 
 /// Rank column pairs across every pair of tables, best first.
@@ -83,30 +151,23 @@ pub fn suggest_keys(tables: &[&DataTable], sample: usize) -> Vec<KeyCandidate> {
                     continue;
                 }
                 for (cj, (right_set, right_seen)) in sets[tj].iter().enumerate() {
-                    if right_set.is_empty() {
+                    let Some(p) = score_pair(left_set, *left_seen, right_set, *right_seen) else {
                         continue;
-                    }
-                    let shared = left_set.intersection(right_set).count() as f64;
-                    if shared == 0.0 {
-                        continue;
-                    }
-                    let smaller = left_set.len().min(right_set.len()) as f64;
-                    let overlap = shared / smaller;
-                    let left_distinct = left_set.len() as f64 / (*left_seen).max(1) as f64;
-                    let right_distinct = right_set.len() as f64 / (*right_seen).max(1) as f64;
-                    // Distinctness is the tie-breaker that keeps `flag` below
-                    // `id`: both may overlap fully, only one identifies rows.
-                    let score = overlap * left_distinct.max(right_distinct);
-                    if score < MIN_SCORE {
+                    };
+                    if p.score < MIN_SCORE {
                         continue;
                     }
                     out.push(KeyCandidate {
                         left: (ti, ci),
                         right: (tj, cj),
-                        overlap,
-                        left_distinct,
-                        right_distinct,
-                        score,
+                        overlap: p.overlap,
+                        left_distinct: p.left_distinct,
+                        right_distinct: p.right_distinct,
+                        score: p.score,
+                        left_values: p.left_values,
+                        right_values: p.right_values,
+                        left_orphans: p.left_orphans,
+                        right_orphans: p.right_orphans,
                     });
                 }
             }
@@ -144,6 +205,52 @@ mod tests {
             })
             .collect();
         t
+    }
+
+    #[test]
+    fn a_tie_is_broken_from_the_child_side_whichever_way_round_it_is_read() {
+        // Both tables number their rows from 1, which is what makes two
+        // candidates score identically: `customers.id` against `orders.id` is
+        // a coincidence (order numbers 1..4 simply exist), `customers.id`
+        // against `orders.customer_id` is the real key. Reading orphans from
+        // the parent side cannot tell them apart - all four customer ids are
+        // present either way - so both directions have to be reported.
+        let int_col = |name: &str| ColumnInfo {
+            name: name.to_string(),
+            data_type: "Int64".into(),
+        };
+        let mut customers = DataTable::empty();
+        customers.columns = vec![int_col("id")];
+        customers.rows = (1..=4i64).map(|i| vec![CellValue::Int(i)]).collect();
+        let mut orders = DataTable::empty();
+        orders.columns = vec![int_col("id"), int_col("customer_id")];
+        orders.rows = (1..=1000i64)
+            .map(|i| vec![CellValue::Int(i), CellValue::Int(1 + (i - 1) % 4)])
+            .collect();
+
+        let out = suggest_keys(&[&customers, &orders], DEFAULT_SAMPLE_ROWS);
+        let find = |right_col: usize| {
+            out.iter()
+                .find(|k| k.left == (0, 0) && k.right == (1, right_col))
+                .unwrap_or_else(|| panic!("no candidate for right column {right_col}"))
+        };
+        let coincidence = find(0);
+        let real_key = find(1);
+
+        // The tie itself: identical scores, and identical orphan counts in the
+        // direction the caller did not choose.
+        assert_eq!(
+            coincidence.score, real_key.score,
+            "the two must actually tie"
+        );
+        assert_eq!(coincidence.left_orphans, 0);
+        assert_eq!(real_key.left_orphans, 0);
+
+        // The other direction settles it.
+        assert_eq!(coincidence.right_orphans, 996);
+        assert_eq!(real_key.right_orphans, 0);
+        assert_eq!(coincidence.right_values, 1000);
+        assert_eq!(real_key.right_values, 4);
     }
 
     #[test]

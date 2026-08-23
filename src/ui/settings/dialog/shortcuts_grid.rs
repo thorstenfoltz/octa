@@ -101,16 +101,28 @@ impl SettingsDialog {
                             if ui.button(crate::i18n::t("settings.sc_stop")).clicked() {
                                 self.recording = None;
                             }
-                        } else if ui.button(crate::i18n::t("settings.sc_record")).clicked() {
+                        } else if ui
+                            .button(crate::i18n::t("settings.sc_record"))
+                            .on_hover_text(crate::i18n::t("settings.sc_record_hint"))
+                            .clicked()
+                        {
                             self.recording = Some(action);
                             // A pending offer belongs to the row it came from.
                             self.shortcut_conflict = None;
                             self.shortcut_takeover = None;
                         }
-                        if ui.button(crate::i18n::t("settings.clear")).clicked() {
+                        if ui
+                            .button(crate::i18n::t("settings.clear"))
+                            .on_hover_text(crate::i18n::t("settings.sc_clear_hint"))
+                            .clicked()
+                        {
                             self.draft.shortcuts.set(action, KeyCombo::UNBOUND);
                         }
-                        if ui.button(crate::i18n::t("settings.reset")).clicked() {
+                        if ui
+                            .button(crate::i18n::t("settings.reset"))
+                            .on_hover_text(crate::i18n::t("settings.sc_reset_hint"))
+                            .clicked()
+                        {
                             self.draft.shortcuts.reset(action);
                         }
                     });

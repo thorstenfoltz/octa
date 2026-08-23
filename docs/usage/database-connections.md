@@ -357,7 +357,8 @@ by side stays snappy. Editing a connection in Settings drops its cached
 connection.
 
 A database tab is **read-only** unless its connection has **Allow
-writes** on *and* Octa can discover a primary key for the table - see
+writes** on *and* Octa can discover a row key for the table (a primary
+key, or a NOT NULL unique constraint) - see
 [Editing and write-back](#editing-and-write-back). Read-only tabs show
 the usual `[Read-only]` pill and a dismissible note explaining why.
 **ClickHouse** and **BigQuery** tables have no discoverable primary key,
@@ -380,11 +381,42 @@ the whole diff in **one transaction**, keyed by the primary key
 `INSERT` per row). If anything fails the transaction rolls back and
 your edits stay in the tab, so you can fix the problem and save again.
 
+The confirmation dialog is on by default. Turn it off under **Settings >
+Databases > Confirm database write-back** if you write back constantly and
+the prompt is in the way; Save then applies the diff immediately. Both paths
+use a single transaction and both roll back on failure, so the setting
+changes whether you are asked, not how safely the write happens.
+
 Things to know:
 
-- **No primary key, no editing.** Without one, edits could not be
-  addressed to server rows; the tab stays read-only and a banner says
-  so.
+- **No row key, no editing.** Saving builds an `UPDATE ... WHERE key =`
+  per changed row, so Octa needs something that addresses exactly one
+  server row. A **primary key** is used when there is one. Failing that,
+  a **UNIQUE constraint whose columns are all NOT NULL** is taken
+  instead - that is the same one-row guarantee, enforced by the server,
+  and plenty of tables have one without ever declaring a primary key.
+  The narrowest such constraint wins, so the choice is the same at save
+  as it was at load. A *nullable* unique column is not enough:
+  `WHERE col = NULL` matches nothing, so the save would quietly touch no
+  rows.
+- **No key at all? Rows are matched on all their values.** On Postgres,
+  MySQL, SQL Server, Redshift and Exasol, a table with neither a primary
+  key nor a usable unique constraint is still editable: the save builds
+  `WHERE col1 = old1 AND col2 = old2 AND ...` from the whole baseline
+  row, with `IS NULL` where the original value was NULL. A banner on the
+  tab says this is what is happening.
+
+    What makes that safe is that **every such statement is checked to
+    have touched exactly one row**, inside the transaction. Two rows
+    matched (the table holds duplicates the values cannot tell apart) or
+    none matched (someone changed the row on the server since you loaded
+    it) both abort the whole save and roll back. It refuses rather than
+    guesses, so it cannot quietly rewrite the wrong rows - but it does
+    mean a table with genuinely identical rows cannot be edited this way.
+
+    ClickHouse and the three catalog warehouses are excluded: their DML
+    is not a plain single-row `UPDATE`, so they stay read-only without a
+    key.
 - **Only the loaded rows are compared.** The tab holds the initial-load
   window; rows beyond it are never touched by a save. Inserts always
   append.
@@ -398,6 +430,42 @@ Things to know:
 - **Save As detaches.** Saving the tab to a file exports it and turns
   it into an ordinary file tab; it no longer writes back to the
   server.
+
+### Exporting the changes as SQL instead
+
+Some teams cannot let a tool write to production directly: the change
+has to be reviewed as a script first. **File > Save SQL...** writes
+exactly the statements a save would run to a `.sql` file and sends
+nothing to the server. The tab stays modified, so you can still save
+normally afterwards.
+
+The script is the same one Confirm would execute, produced by the same
+code, so a reviewed script and an applied write-back cannot drift
+apart. It is wrapped in a transaction and ordered the way the save
+applies it: added columns, deletes, updates, inserts.
+
+Save SQL has no keyboard shortcut by default. Assign one under
+**Settings > Shortcuts** if you use it often.
+
+### Generating the change as SQL instead of applying it
+
+`--sync-sql` answers a different question from `--db-query`: what SQL would
+make this server table match this file? It reads the table, compares it on the
+key columns you name, and prints one transaction. Nothing is written.
+
+```bash
+octa --sync-sql users.csv --db prod --sync-table public.users --sync-on id > change.sql
+```
+
+The script goes to stdout and the counts to stderr, so it pipes straight into a
+file or into `psql`. This is the headless twin of the GUI's **File > Save SQL**,
+and both call the same renderer, so a script reviewed here and a write-back
+applied there cannot drift apart.
+
+Numbers are compared as numbers, so a file's `120.50` and a `numeric(12,2)`
+column's `120.50` do not produce a phantom UPDATE. Columns present only in the
+file are reported and skipped; this never emits `ALTER TABLE`. Agents can ask
+the same question with the read-only `sync_sql` tool.
 
 ## Copying a table between servers
 
@@ -478,6 +546,36 @@ counter directly above the grid.
 
 The **Write result to DB...** dialog also lists your connections as
 targets, writing the current result rows into a server table.
+
+## Saving an open table as a new database table
+
+You do not have to go through SQL. **File > Save to database...** takes
+the table in the active tab - a CSV, a Parquet file, an Excel sheet,
+anything Octa can open - and writes it into a database as a new table.
+The dialog is the one the SQL panel uses, so the targets are the same:
+one of your saved connections, or a DuckDB or SQLite file.
+
+Pick a target, a schema and a table name, and a mode:
+
+- **Create** - make a new table, and fail if that name is taken.
+- **Replace** - drop any existing table of that name first.
+- **Append** - add the rows to a table that already exists. The column
+  names have to match.
+
+The table name is pre-filled from the file name. Column names are
+written **exactly as they appear in Octa**, capitals included, so a CSV
+with an `FL_DATE` header gets a column called `FL_DATE` and not
+`fl_date`. Pending cell edits are included; the file on disk is not
+touched.
+
+Two cases are refused rather than half-done. A tab with nothing open has
+no table to write. And a tab in [large-file mode](large-files.md) is
+showing one page of a much bigger file, so writing it would put a
+partial table in your database and report success - use the SQL panel on
+that tab instead, which reads the whole file.
+
+Writing to a **connection** still needs **Allow writes** switched on for
+it, exactly as below.
 
 ## Writes
 
@@ -560,7 +658,9 @@ sidebar and copying a table both run to completion.
 
 ## MCP / Assistant
 
-Agents get five tools: `list_db_connections`, `list_db_tables`,
+Agents get six tools: `list_db_connections`, `list_db_tables`,
+[`db_relationships`](../mcp/tools/db_relationships.md) (the foreign keys
+the server declares, read from its catalog without touching a row),
 `query_db` (native-dialect SQL; mutations gated on Allow writes),
 `write_db_table`, and `copy_db_table` (the last two dropped entirely
 under `--mcp-read-only`). The in-app [Assistant](chatbot.md) has the

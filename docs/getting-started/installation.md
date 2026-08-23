@@ -148,9 +148,9 @@ The script installs:
 - the icon to `<prefix>/share/icons/hicolor/scalable/apps/octa.svg`
 - a desktop entry to `<prefix>/share/applications/octa.desktop`
 - the man page to `<prefix>/share/man/man1/octa.1`
-- the third-party licence bundle (`THIRD_PARTY_LICENSES.md` +
+- the attribution bundle (`THIRD_PARTY_LICENSES.md`, `NOTICE` and
   `licenses/`) next to the binary, satisfying the Apache-2.0 / MIT /
-  BSD / OFL attribution requirements.
+  BSD / OFL notice requirements for the bundled crates and fonts.
 
 The script resolves the `octa` binary in this order:
 

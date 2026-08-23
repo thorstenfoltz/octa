@@ -26,59 +26,63 @@ themselves. Your files stay on disk.
 
 ## The tools
 
-| Tool                      | What it does                                            | Reference                                      |
-|---------------------------|---------------------------------------------------------|------------------------------------------------|
-| `read_table`              | Load a file and return schema + rows as JSON            | [→ doc](tools/read_table.md)                   |
-| `tail`                    | Return the last N rows of a file                        | [→ doc](tools/tail.md)                         |
-| `sample`                  | Reproducible random N-row sample                        | [→ doc](tools/sample.md)                       |
-| `schema`                  | Return column schema only (no rows)                     | [→ doc](tools/schema.md)                       |
-| `list_tables`             | List tables in a multi-table source                     | [→ doc](tools/list_tables.md)                  |
-| `count_rows`              | Count rows in a tabular file                            | [→ doc](tools/count_rows.md)                   |
-| `run_sql`                 | Run a DuckDB SQL query against a file                   | [→ doc](tools/run_sql.md)                      |
-| `convert`                 | Convert a file from one format to another               | [→ doc](tools/convert.md)                      |
-| `export_schema`           | Render the schema as DDL / a model / a struct           | [→ doc](tools/export_schema.md)                |
-| `profile`                 | Per-column statistics via `SUMMARIZE`                   | [→ doc](tools/profile.md)                      |
-| `find_duplicates`         | Find rows sharing key-column values                     | [→ doc](tools/find_duplicates.md)              |
-| `fuzzy_duplicates`        | Cluster near-duplicate rows (fuzzy)                     | [→ doc](tools/fuzzy_duplicates.md)             |
-| `value_frequency`         | Count per-column values (`value_counts`)                | [→ doc](tools/value_frequency.md)              |
-| `search`                  | Match cells across every column                         | [→ doc](tools/search.md)                       |
-| `compare_schemas`         | Diff the column metadata of two files                   | [→ doc](tools/compare_schemas.md)              |
-| `diff_tables`             | Row-level diff of two files                             | [→ doc](tools/diff_tables.md)                  |
-| `describe_file`           | One-shot orientation snapshot                           | [→ doc](tools/describe_file.md)                |
-| `validate_against_schema` | Validate columns against a JSON Schema                  | [→ doc](tools/validate_against_schema.md)      |
-| `unique_columns`          | Unique columns / key candidates                         | [→ doc](tools/unique_columns.md)               |
-| `schema_drift`            | Which files in a folder disagree about columns          | [→ doc](tools/schema_drift.md)                 |
-| `create_report`           | Write a self-contained HTML profiling report            | [→ doc](tools/create_report.md)                |
-| `fuzzy_join`              | Join on similarity rather than equality                 | [→ doc](tools/fuzzy_join.md)                   |
-| `suggest_join_keys`       | Rank the column pairs that would join two tables        | [→ doc](tools/suggest_join_keys.md)            |
-| `pivot`                   | Reshape long <-> wide (PIVOT / UNPIVOT)                 | [→ doc](tools/pivot.md)                        |
-| `batch_convert`           | Convert many files into one format (writes)             | [→ doc](tools/batch_convert.md)                |
-| `resample_timeseries`     | Group rows into time buckets and aggregate              | [→ doc](tools/resample_timeseries.md)          |
-| `rolling_window`          | Rolling aggregate over the previous N rows              | [→ doc](tools/rolling_window.md)               |
-| `correlation`             | Pairwise numeric correlation matrix                     | [→ doc](tools/correlation.md)                  |
-| `grep_files`              | Grep a value across files in a directory                | [→ doc](tools/grep_files.md)                   |
-| `write_table`             | Write inline rows to a new file                         | [→ doc](tools/write_table.md)                  |
-| `edit_table`              | Add columns / set cells / insert / delete rows in place | [→ doc](tools/edit_table.md)                   |
-| `transform_columns`       | Rename / cast / drop columns, write back                | [→ doc](tools/transform_columns.md)            |
-| `anonymize`               | Mask / scramble columns, write the result               | [→ doc](tools/anonymize.md)                    |
-| `detect_pii`              | Find likely personal-data columns                       | [→ doc](tools/detect_pii.md)                   |
-| `detect_outliers`         | Flag numeric outlier cells                              | [→ doc](tools/detect_outliers.md)              |
-| `fill_missing`            | Impute empty cells in a column                          | [→ doc](tools/fill_missing.md)                 |
-| `drop_duplicates`         | Remove duplicate rows                                   | [→ doc](tools/drop_duplicates.md)              |
-| `union_tables`            | Stack tables vertically                                 | [→ doc](tools/union_tables.md)                 |
-| `join_tables`             | Join tables on key columns                              | [→ doc](tools/join_tables.md)                  |
-| `partition_table`         | One file per distinct column value                      | [→ doc](tools/partition_table.md)              |
-| `diagnose_join`           | Why two key columns do not join                         | [&rarr; doc](tools/diagnose_join.md)           |
-| `harmonise_schemas`       | Rewrite a folder of files to one schema (writes)        | [&rarr; doc](tools/harmonise_schemas.md)       |
-| `list_objects`            | List a cloud bucket folder (S3/Azure/GCS)               | [&rarr; doc](tools/list_objects.md)            |
-| `copy_object`             | Copy a cloud object or folder (writes)                  | [&rarr; doc](tools/copy_object.md)             |
-| `move_object`             | Move a cloud object or folder (writes)                  | [&rarr; doc](tools/move_object.md)             |
-| `delete_object`           | Delete a cloud object or folder (writes)                | [&rarr; doc](tools/delete_object.md)           |
-| `list_db_connections`     | List saved live-database connections                    | [&rarr; doc](../usage/database-connections.md) |
-| `list_db_tables`          | List schemas / tables on a live connection              | [&rarr; doc](../usage/database-connections.md) |
-| `query_db`                | Run SQL on a live database server                       | [&rarr; doc](../usage/database-connections.md) |
-| `write_db_table`          | Write a table into a live database (writes)             | [&rarr; doc](../usage/database-connections.md) |
-| `copy_db_table`           | Copy a table server-to-server (writes)                  | [&rarr; doc](../usage/database-connections.md) |
+| Tool                      | What it does                                                 | Reference                                      |
+|---------------------------|--------------------------------------------------------------|------------------------------------------------|
+| `read_table`              | Load a file and return schema + rows as JSON                 | [→ doc](tools/read_table.md)                   |
+| `tail`                    | Return the last N rows of a file                             | [→ doc](tools/tail.md)                         |
+| `sample`                  | Reproducible random N-row sample                             | [→ doc](tools/sample.md)                       |
+| `schema`                  | Return column schema only (no rows)                          | [→ doc](tools/schema.md)                       |
+| `list_tables`             | List tables in a multi-table source                          | [→ doc](tools/list_tables.md)                  |
+| `count_rows`              | Count rows in a tabular file                                 | [→ doc](tools/count_rows.md)                   |
+| `run_sql`                 | Run a DuckDB SQL query against a file                        | [→ doc](tools/run_sql.md)                      |
+| `convert`                 | Convert a file from one format to another                    | [→ doc](tools/convert.md)                      |
+| `export_schema`           | Render the schema as DDL / a model / a struct                | [→ doc](tools/export_schema.md)                |
+| `profile`                 | Per-column statistics via `SUMMARIZE`                        | [→ doc](tools/profile.md)                      |
+| `find_duplicates`         | Find rows sharing key-column values                          | [→ doc](tools/find_duplicates.md)              |
+| `fuzzy_duplicates`        | Cluster near-duplicate rows (fuzzy)                          | [→ doc](tools/fuzzy_duplicates.md)             |
+| `value_frequency`         | Count per-column values (`value_counts`)                     | [→ doc](tools/value_frequency.md)              |
+| `search`                  | Match cells across every column                              | [→ doc](tools/search.md)                       |
+| `compare_schemas`         | Diff the column metadata of two files                        | [→ doc](tools/compare_schemas.md)              |
+| `diff_tables`             | Row-level diff of two files                                  | [→ doc](tools/diff_tables.md)                  |
+| `describe_file`           | One-shot orientation snapshot                                | [→ doc](tools/describe_file.md)                |
+| `validate_against_schema` | Validate columns against a JSON Schema                       | [→ doc](tools/validate_against_schema.md)      |
+| `unique_columns`          | Unique columns / key candidates                              | [→ doc](tools/unique_columns.md)               |
+| `schema_drift`            | Which files in a folder disagree about columns               | [→ doc](tools/schema_drift.md)                 |
+| `data_drift`              | How two versions of one dataset differ                       | [→ doc](tools/data_drift.md)                   |
+| `check_rules`             | Check values against a TOML rules file                       | [→ doc](tools/check_rules.md)                  |
+| `create_report`           | Write a self-contained HTML profiling report                 | [→ doc](tools/create_report.md)                |
+| `fuzzy_join`              | Join on similarity rather than equality                      | [→ doc](tools/fuzzy_join.md)                   |
+| `suggest_join_keys`       | Rank the column pairs that would join two tables             | [→ doc](tools/suggest_join_keys.md)            |
+| `pivot`                   | Reshape long <-> wide (PIVOT / UNPIVOT)                      | [→ doc](tools/pivot.md)                        |
+| `batch_convert`           | Convert many files into one format (writes)                  | [→ doc](tools/batch_convert.md)                |
+| `resample_timeseries`     | Group rows into time buckets and aggregate                   | [→ doc](tools/resample_timeseries.md)          |
+| `rolling_window`          | Rolling aggregate over the previous N rows                   | [→ doc](tools/rolling_window.md)               |
+| `correlation`             | Pairwise numeric correlation matrix                          | [→ doc](tools/correlation.md)                  |
+| `grep_files`              | Grep a value across files in a directory                     | [→ doc](tools/grep_files.md)                   |
+| `write_table`             | Write inline rows to a new file                              | [→ doc](tools/write_table.md)                  |
+| `edit_table`              | Add columns / set cells / insert / delete rows in place      | [→ doc](tools/edit_table.md)                   |
+| `transform_columns`       | Rename / cast / drop columns, write back                     | [→ doc](tools/transform_columns.md)            |
+| `anonymize`               | Mask / scramble columns, write the result                    | [→ doc](tools/anonymize.md)                    |
+| `detect_pii`              | Find likely personal-data columns                            | [→ doc](tools/detect_pii.md)                   |
+| `detect_outliers`         | Flag numeric outlier cells                                   | [→ doc](tools/detect_outliers.md)              |
+| `fill_missing`            | Impute empty cells in a column                               | [→ doc](tools/fill_missing.md)                 |
+| `drop_duplicates`         | Remove duplicate rows                                        | [→ doc](tools/drop_duplicates.md)              |
+| `union_tables`            | Stack tables vertically                                      | [→ doc](tools/union_tables.md)                 |
+| `join_tables`             | Join tables on key columns                                   | [→ doc](tools/join_tables.md)                  |
+| `partition_table`         | One file per distinct column value                           | [→ doc](tools/partition_table.md)              |
+| `diagnose_join`           | Why two key columns do not join                              | [&rarr; doc](tools/diagnose_join.md)           |
+| `harmonise_schemas`       | Rewrite a folder of files to one schema (writes)             | [&rarr; doc](tools/harmonise_schemas.md)       |
+| `list_objects`            | List a cloud bucket folder (S3/Azure/GCS)                    | [&rarr; doc](tools/list_objects.md)            |
+| `copy_object`             | Copy a cloud object or folder (writes)                       | [&rarr; doc](tools/copy_object.md)             |
+| `move_object`             | Move a cloud object or folder (writes)                       | [&rarr; doc](tools/move_object.md)             |
+| `delete_object`           | Delete a cloud object or folder (writes)                     | [&rarr; doc](tools/delete_object.md)           |
+| `list_db_connections`     | List saved live-database connections                         | [&rarr; doc](../usage/database-connections.md) |
+| `list_db_tables`          | List schemas / tables on a live connection                   | [&rarr; doc](../usage/database-connections.md) |
+| `query_db`                | Run SQL on a live database server                            | [&rarr; doc](../usage/database-connections.md) |
+| `sync_sql`                | SQL that would make a db table match a file (writes nothing) | [&rarr; doc](../usage/database-connections.md) |
+| `write_workbook`          | Write several tables into one .xlsx (one sheet each)         | [&rarr; doc](../usage/saving.md)               |
+| `write_db_table`          | Write a table into a live database (writes)                  | [&rarr; doc](../usage/database-connections.md) |
+| `copy_db_table`           | Copy a table server-to-server (writes)                       | [&rarr; doc](../usage/database-connections.md) |
 
 Every tool that returns rows respects a configurable response
 row limit (default 1000) and cell byte cap (default 64 KiB),
@@ -179,3 +183,31 @@ the CLI, and MCP.
   tends to use the tools.
 - **[Troubleshooting](troubleshooting.md)** covers what to do when
   things don't work.
+
+## Very large files
+
+Four tools answer from the file itself rather than loading it, when the
+path is a local Parquet, CSV, TSV or JSON file at least
+`large_file_min_bytes` (**Settings -> Performance**, 10 GB by default):
+
+| Tool         | What changes                                                       |
+|--------------|--------------------------------------------------------------------|
+| `count_rows` | Exact count from the file's own metadata, no rows read             |
+| `schema`     | Columns from a `DESCRIBE`, no rows read                            |
+| `read_table` | Only `limit` rows are fetched, ordered so the page is reproducible |
+| `run_sql`    | `data` becomes a view over the file, so aggregates cover every row |
+
+Those responses carry **`streamed: true`**. Everything else reads
+normally.
+
+This is deliberately an opt-in per tool rather than a change to how
+every tool resolves its input. Tools that genuinely need the rows,
+`union_tables`, `join_tables`, `diff_tables`, `correlation`,
+`detect_outliers`, `data_drift` and the rest, would otherwise answer
+from a slice without saying so.
+
+It also fixes a wrong answer, not just memory use. Before, `count_rows`
+on a file past the initial-load cap reported the cap rather than the
+truth, and `unlimited: true` tried to load the whole file to correct it.
+
+See [Large Files](../usage/large-files.md).

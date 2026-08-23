@@ -15,6 +15,7 @@ pub mod hdf5_reader;
 pub mod json_reader;
 pub mod jupyter_reader;
 pub mod lakehouse_reader;
+pub mod large;
 pub mod markdown_reader;
 pub mod msgpack_reader;
 pub mod netcdf_reader;

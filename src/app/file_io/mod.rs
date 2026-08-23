@@ -345,6 +345,12 @@ impl OctaApp {
             self.load_lakehouse_dir(path);
             return;
         }
+        // Very large files get a different treatment entirely: the rows stay
+        // on disk. This either raises the question or starts that open, and in
+        // both cases the ordinary load must not also run.
+        if self.intercept_large_file(&path) {
+            return;
+        }
         // Transparent decompression: a `.csv.gz` / `.jsonl.zst` decompresses
         // to a temp file named with the inner extension and loads through the
         // normal path. The temp is kept for the tab's lifetime (the OS temp
@@ -461,7 +467,10 @@ impl OctaApp {
                         .collect();
                     for (name, res) in loaded {
                         match res {
-                            Ok(table) => self.apply_loaded_table(path.clone(), table),
+                            Ok(table) => {
+                                self.apply_loaded_table(path.clone(), table);
+                                self.label_active_tab_sheet(name);
+                            }
                             Err(e) => {
                                 self.status_message = Some((
                                     format!("Error reading sheet '{name}': {e}"),
@@ -605,6 +614,14 @@ impl OctaApp {
         }
     }
 
+    /// Record which table of a multi-table file the tab just filled holds, so
+    /// the tab strip can tell three sheets of one workbook apart.
+    fn label_active_tab_sheet(&mut self, name: String) {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            tab.sheet_name = Some(name);
+        }
+    }
+
     /// Load a specific named table from a DB-style multi-table source.
     pub(crate) fn load_table(&mut self, path: std::path::PathBuf, table_name: String) {
         let reader = match self.registry.reader_for_path(&path) {
@@ -612,7 +629,10 @@ impl OctaApp {
             None => return,
         };
         match reader.read_table(&path, &table_name) {
-            Ok(table) => self.apply_loaded_table(path, table),
+            Ok(table) => {
+                self.apply_loaded_table(path, table);
+                self.label_active_tab_sheet(table_name);
+            }
             Err(e) => {
                 self.status_message = Some((
                     format!("Error reading table '{table_name}': {e}"),
@@ -688,6 +708,10 @@ impl OctaApp {
                     .store(false, std::sync::atomic::Ordering::Relaxed);
             }
             tab.raw_view_formatted = false;
+            // Cleared here, set by the callers that opened a *named* table out
+            // of a multi-table file (see `load_table`), so a reused tab cannot
+            // keep the previous file's sheet name.
+            tab.sheet_name = None;
 
             if tab.table.format_name.as_deref() == Some("CSV") {
                 tab.csv_delimiter = detect_delimiter_from_file(&path);

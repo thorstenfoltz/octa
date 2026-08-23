@@ -8,9 +8,9 @@ use rmcp::model::{CallToolResult, ContentBlock};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
+use octa::data::partition::PartitionLayout;
 use octa::data::partition::partition_table;
 use octa::formats::FormatRegistry;
-use octa::sql::sanitize_sql_name;
 
 use crate::mcp::OctaMcpServer;
 
@@ -48,6 +48,14 @@ pub struct Params {
     /// open tab that has no associated file path.
     #[serde(default)]
     pub format: Option<String>,
+
+    /// Naming: `flat` (default) writes `<value>.<ext>` side by side;
+    /// `folder` writes `<value>/part-0001.<ext>`; `hive` writes
+    /// `<column>=<value>/data.<ext>`; `hive-parts` writes
+    /// `<column>=<value>/part-0001.<ext>`. All four hold the same rows and all
+    /// four reopen as one partitioned table - only the names differ.
+    #[serde(default)]
+    pub layout: Option<String>,
 }
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
@@ -126,16 +134,23 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         std::collections::HashMap::new();
     let mut files: Vec<Value> = Vec::with_capacity(groups.len());
 
-    for (value, group_table) in &groups {
-        let base_stem = sanitize_sql_name(value);
-        let count = stem_counts.entry(base_stem.clone()).or_insert(0);
-        *count += 1;
-        let stem = if *count == 1 {
-            base_stem
-        } else {
-            format!("{base_stem}_{count}")
-        };
-        let out_path = out_dir.join(format!("{stem}.{ext}"));
+    let layout = match &p.layout {
+        Some(word) => PartitionLayout::parse(word).ok_or_else(|| {
+            anyhow::anyhow!("`layout` must be one of: flat, folder, hive, hive-parts")
+        })?,
+        None => PartitionLayout::default(),
+    };
+
+    for (idx, (value, group_table)) in groups.iter().enumerate() {
+        let rel = octa::data::partition::partition_path(layout, &p.column, value, &ext, idx + 1);
+        let rel = octa::data::partition::dedupe_flat_name(layout, rel, &ext, &mut stem_counts);
+        let out_path = out_dir.join(&rel);
+        if let Some(parent) = out_path.parent()
+            && parent != out_dir.as_path()
+        {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| anyhow::anyhow!("could not create {}: {e}", parent.display()))?;
+        }
         if ctx.backup_before_modify && out_path.exists() {
             octa::formats::backup_existing_file(&out_path)?;
         }

@@ -180,3 +180,45 @@ fn number_format_codes_match_the_display() {
     assert_eq!(num_format_code(&auto, true), "#,##0.##########");
     assert_eq!(num_format_code(&auto, false), "");
 }
+
+#[test]
+fn sheet_names_obey_excel_rules() {
+    let mut taken = Vec::new();
+    assert_eq!(sanitize_sheet_name("Sales", &mut taken), "Sales");
+    // Forbidden characters become underscores.
+    assert_eq!(
+        sanitize_sheet_name("2024/Q1:est", &mut taken),
+        "2024_Q1_est"
+    );
+    // Truncated to Excel's 31 character limit.
+    let long = "a".repeat(40);
+    assert_eq!(sanitize_sheet_name(&long, &mut taken).chars().count(), 31);
+    // Empty becomes a default rather than an invalid workbook.
+    assert_eq!(sanitize_sheet_name("   ", &mut taken), "Sheet");
+    // Collisions are numbered in input order.
+    assert_eq!(sanitize_sheet_name("Sales", &mut taken), "Sales_2");
+    assert_eq!(sanitize_sheet_name("Sales", &mut taken), "Sales_3");
+}
+
+#[test]
+fn collision_suffix_still_fits_the_limit() {
+    let mut taken = Vec::new();
+    let long = "b".repeat(31);
+    let first = sanitize_sheet_name(&long, &mut taken);
+    let second = sanitize_sheet_name(&long, &mut taken);
+    assert_ne!(first, second, "a collision must not reuse the name");
+    assert!(
+        second.chars().count() <= 31,
+        "suffixed name overflows Excel's limit: {second}"
+    );
+}
+
+#[test]
+fn multibyte_names_are_counted_in_characters_not_bytes() {
+    // 31 CJK characters are 93 bytes; truncating by bytes would both
+    // overflow Excel's limit in the other direction and split a character.
+    let mut taken = Vec::new();
+    let name = "\u{8868}".repeat(40);
+    let got = sanitize_sheet_name(&name, &mut taken);
+    assert_eq!(got.chars().count(), 31);
+}

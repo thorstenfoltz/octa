@@ -37,6 +37,12 @@ octa --describe FILE [--table NAME] [--sample-rows N] [--deep] [-f FORMAT]
 octa --validate-schema FILE --expect-schema SCHEMA_FILE [--table NAME] [-f FORMAT]
 octa --schema-drift DIR [--recursive] [--ignore-case] [-f FORMAT]
 
+octa --drift-report FILE_A FILE_B [--fail-on SPEC] [-f FORMAT]
+
+octa --check FILE --rules RULES.toml [-f FORMAT]
+
+octa --relationships DIR [--recursive] [-f FORMAT]
+
 octa --harmonise-schema DIR --out-dir DIR [--target-file FILE]
        [--recursive] [--ignore-case] [--overwrite]
 octa --report OUT.html FILE [--report-sample N] [--report-sections LIST]
@@ -73,7 +79,8 @@ optionally opening the supplied *FILE*(s) in tabs. When invoked
 with one of the action flags (`--schema`, `--head`, `--tail`,
 `--sample`, `--convert`, `--sql`, `--export-schema`,
 `--compare-schemas`, `--diff`, `--describe`, `--validate-schema`,
-`--schema-drift`, `--harmonise-schema`, `--report`, `--fuzzy-join`,
+`--schema-drift`, `--drift-report`, `--check`, `--relationships`,
+`--harmonise-schema`, `--report`, `--fuzzy-join`,
 `--unique-columns`, `--anonymize`, `--dedupe`, `--impute`,
 `--outliers`, `--detect-pii`, `--union`, `--join`, `--partition-by`,
 `--batch-convert`, `--resample`, `--rolling`, `--mcp`), it performs
@@ -209,6 +216,70 @@ output still goes to a local path.
     CI-pipeable. Add `--recursive` to walk subdirectories (depth 8)
     and `--ignore-case` to treat names differing only in case as one
     column. See [`octa --schema-drift`](schema-drift.md).
+
+`--drift-report FILE_A FILE_B`
+:   Compare two versions of the same dataset and report how it moved.
+    Columns are matched by name: one present on a single side is
+    reported as added or removed, and every shared column gets its
+    null rate, distinct count and, when numeric, its minimum, maximum
+    and mean compared. Columns with few enough distinct values also
+    list the category values that appeared and vanished. Every figure
+    comes from the same Summary pass the **Analyse -> Summary** tab
+    uses. The report goes to stdout; the row counts, added and removed
+    column names and the pass/fail summary go to stderr. Exit code is
+    `0` unless `--fail-on` was given and a gate was breached. See
+    [`octa --drift-report`](drift-report.md).
+
+`--fail-on SPEC`
+:   Turn `--drift-report` into a CI gate. *SPEC* is a comma-separated
+    list of *metric*:*change* pairs, for example
+    `null_rate:0.05,rows:0.1`, where *change* is the largest relative
+    move that still passes. A metric that never appears is never
+    applied. A baseline of zero that moved at all counts as an
+    unbounded change, so a null rate going from `0` to `0.5` breaches
+    any gate. Metric names are `rows`, `null_rate`, `distinct_count`,
+    `min`, `max` and `mean`.
+
+`--check FILE`
+:   Check *FILE*'s values against the rules in `--rules` (required)
+    and report which rules failed. The rules file is TOML, one
+    `[[rule]]` table per check, naming its column and one of the kinds
+    `not_null`, `unique`, `range` (with `min` and `max`), `regex`
+    (with `pattern`) or `max_length`. A rule without a `column`
+    applies to every column. The report goes to stdout with one row
+    per failing rule, its failure count and up to three offending
+    values; the summary line goes to stderr. Exit code is `1` on any
+    violation **and** on any rule that could not run, because a rules
+    file whose columns have since been renamed would otherwise report
+    a clean run over checks it silently skipped. The same file is
+    written and read by the **Data -> Data validation...** dialog. See
+    [`octa --check`](check.md).
+
+`--rules FILE`
+:   The TOML rules file for `--check`.
+
+`--relationships DIR`
+:   Rank the likely relationships between the tables in *DIR* and
+    print them best first: which column of which table lines up with
+    which column of which other table. Names take no part in the
+    ranking; the score comes from how much the values overlap,
+    weighted by how distinct each side is. Each row also carries
+    `orphans`, the number of distinct values on the left with no
+    partner on the right, which is what separates two candidates that
+    overlap identically. Reads values, so it is capped at 30 files and
+    at 10,000 rows per table. Unreadable files are noted on stderr.
+    Always exits `0`: this is a report, not a gate. Add `--recursive`
+    to walk subdirectories. See
+    [`octa --relationships`](relationships.md).
+
+`--stream`
+:   Let DuckDB scan the file where it lies instead of loading its
+    rows. Applies to `--sql` over a Parquet, CSV or JSON file, where
+    it lets an aggregate cover every row of a file far larger than
+    memory: the primary file is registered as a view named `data`
+    rather than as a loaded table, so `--rows` no longer bounds what
+    the query sees. Every other action needs the rows themselves and
+    says so on stderr rather than ignoring the flag.
 
 `--harmonise-schema DIR`
 :   Rewrite every file in *DIR* to one common set of columns, writing
@@ -651,7 +722,8 @@ arguments, file-not-found, parse failure, write rejection, etc.).
 `--validate-schema` also exits **1** on a successful read where
 the schemas differ, and `--schema-drift` exits **1** on a successful
 scan where the files disagree, so CI pipelines can gate on the schema
-directly.
+directly. `--drift-report` exits **1** when a `--fail-on` gate was breached,
+and `--check` exits **1** on any failing or unrunnable rule.
 
 ## Examples
 

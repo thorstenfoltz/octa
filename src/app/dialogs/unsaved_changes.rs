@@ -25,13 +25,14 @@ pub(crate) fn render_close_confirm_dialog(app: &mut OctaApp, ctx: &egui::Context
                         // A live-database tab's Save raised the write-back
                         // confirmation instead of saving; closing now would
                         // discard the very edits being confirmed.
-                        if app.pending_db_write_back.is_none() {
+                        // Also wait on an in-flight write: `drain_db_write_back_job`
+                        // re-tags `tabs[tab_idx]`, and closing a tab now would
+                        // shift that index onto a different tab.
+                        if app.pending_db_write_back.is_none() && app.db_write_back_job.is_none() {
                             app.close_tab(tab_idx);
                         }
                     } else {
-                        if app.tabs[app.active_tab].table.source_path.is_some()
-                            || app.tabs[app.active_tab].db_origin.is_some()
-                        {
+                        if app.tabs[app.active_tab].saves_in_place() {
                             app.save_file();
                         } else {
                             app.save_file_as();
@@ -75,7 +76,7 @@ pub(crate) fn render_open_confirm_dialog(app: &mut OctaApp, ctx: &egui::Context)
             ui.horizontal(|ui| {
                 if ui.button(octa::i18n::t("common.save")).clicked() {
                     app.show_open_confirm = false;
-                    if app.tabs[app.active_tab].table.source_path.is_some() {
+                    if app.tabs[app.active_tab].saves_in_place() {
                         app.save_file();
                     } else {
                         app.save_file_as();

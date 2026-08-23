@@ -13,7 +13,8 @@ use super::{ToolContext, source_from};
 
 pub const DESCRIPTION: &str = "Count the rows in a tabular file or open tab. For streaming formats the count is bounded by \
 Octa's 5,000,000-row initial-load cap; `initial_load_capped` flags when it may be short. Pass \
-`unlimited: true` for the true total.";
+`unlimited: true` for the true total. A large Parquet, CSV or JSON file is counted exactly \
+straight from the file without reading it, and the response then carries `streamed: true`.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
@@ -38,10 +39,21 @@ pub struct Params {
 }
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
+    let source = source_from(&p.open_tab, &p.path, &p.table);
+    // A big file that DuckDB can scan answers this exactly, from its metadata,
+    // without reading a row. That is the difference between a count that is
+    // silently short and one that is right, and it costs nothing.
+    if let Some(scan) = ctx.scan_for(&source) {
+        let mut out = Map::new();
+        out.insert("row_count".to_string(), Value::from(scan.row_count()));
+        out.insert("initial_load_capped".to_string(), Value::Bool(false));
+        out.insert("streamed".to_string(), Value::Bool(true));
+        return Ok(Value::Object(out));
+    }
     let _g = p
         .unlimited
         .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
-    let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
+    let dt = ctx.resolve(&source)?;
     let row_count = dt.row_count();
     let initial_load_cap = if p.unlimited {
         usize::MAX

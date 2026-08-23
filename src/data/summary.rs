@@ -231,7 +231,7 @@ const MAX_EXACT_INT_F64: f64 = 9_007_199_254_740_992.0;
 /// real `Float`, so the table view's numeric display path groups and
 /// right-aligns it. No rounding - statistics are stored at full f64 precision.
 /// Non-finite values become a blank cell.
-fn num_cell(x: f64) -> CellValue {
+pub fn num_cell(x: f64) -> CellValue {
     if !x.is_finite() {
         return CellValue::String(String::new());
     }
@@ -267,7 +267,7 @@ fn typed_cell(s: &str) -> CellValue {
 /// when every present value is an integer, `Float64` when they're all numeric
 /// with at least one decimal, `Utf8` otherwise. Empty-string / null cells are
 /// ignored (a numeric column keeps its type even with blank rows).
-fn infer_column_type(cells: impl Iterator<Item = CellValue>) -> String {
+pub(crate) fn infer_column_type(cells: impl Iterator<Item = CellValue>) -> String {
     let mut saw_value = false;
     let mut saw_float = false;
     for cell in cells {

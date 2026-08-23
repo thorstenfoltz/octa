@@ -83,17 +83,21 @@ pub fn create_table_qualified(
     table: &str,
 ) -> String {
     let d = live_dialect(dialect);
+    // `quote_always`, not `quote_ident`: this DDL is paired with an INSERT
+    // that always quotes, and an engine that folds unquoted identifiers
+    // (Postgres to lower, Snowflake to upper) would otherwise create a
+    // differently-named column from the one the INSERT addresses.
     let target = if schema.is_empty() {
-        d.quote_ident(table)
+        d.quote_always(table)
     } else {
-        format!("{}.{}", d.quote_ident(schema), d.quote_ident(table))
+        format!("{}.{}", d.quote_always(schema), d.quote_always(table))
     };
     let cols: Vec<String> = columns
         .iter()
         .map(|c| {
             format!(
                 "{} {}",
-                d.quote_ident(&c.name),
+                d.quote_always(&c.name),
                 d.live_column_type(&c.data_type)
             )
         })
@@ -135,6 +139,21 @@ impl Dialect {
         if is_safe_ident(ident) {
             return ident.to_string();
         }
+        self.quote_always(ident)
+    }
+
+    /// Like [`quote_ident`](Self::quote_ident) but never emits an identifier
+    /// bare, for DDL that has to agree with SQL generated elsewhere.
+    ///
+    /// `db::write_table_generic` follows its CREATE with an INSERT whose
+    /// column list is quoted by `DbEngine::quote_ident`, which always quotes.
+    /// Emitting `ID` bare in the CREATE and `"ID"` in the INSERT made Postgres
+    /// fold the created column to `id` and then fail the insert on a column
+    /// that did not exist - so every table with a capital letter in a column
+    /// or table name was unwritable. The two quote tables agree character for
+    /// character on every engine; the bare-when-safe shortcut was the only
+    /// difference, so dropping it here is what makes them one.
+    fn quote_always(self, ident: &str) -> String {
         match self {
             // Postgres / SQLite / Snowflake accept double-quoted
             // identifiers. Escape an embedded `"` as `""`.
@@ -503,7 +522,7 @@ mod tests {
         let sql = create_table_qualified(&cols, LiveSqlDialect::Snowflake, "analytics", "orders");
         assert_eq!(
             sql,
-            "CREATE TABLE analytics.orders (id BIGINT, label VARCHAR)"
+            "CREATE TABLE \"analytics\".\"orders\" (\"id\" BIGINT, \"label\" VARCHAR)"
         );
     }
 
@@ -514,7 +533,7 @@ mod tests {
             data_type: "Utf8".to_string(),
         }];
         let sql = create_table_qualified(&cols, LiveSqlDialect::Databricks, "main", "t");
-        assert_eq!(sql, "CREATE TABLE main.t (label STRING)");
+        assert_eq!(sql, "CREATE TABLE `main`.`t` (`label` STRING)");
     }
 
     #[test]
@@ -532,7 +551,7 @@ mod tests {
         let sql = create_table_qualified(&cols, LiveSqlDialect::ClickHouse, "default", "events");
         assert_eq!(
             sql,
-            "CREATE TABLE default.events (id Nullable(Int64), label Nullable(String)) \
+            "CREATE TABLE `default`.`events` (`id` Nullable(Int64), `label` Nullable(String)) \
              ENGINE = MergeTree() ORDER BY tuple()"
         );
     }
@@ -556,7 +575,7 @@ mod tests {
         let sql = create_table_qualified(&cols, LiveSqlDialect::BigQuery, "analytics", "orders");
         assert_eq!(
             sql,
-            "CREATE TABLE analytics.orders (id INT64, ok BOOL, label STRING)"
+            "CREATE TABLE `analytics`.`orders` (`id` INT64, `ok` BOOL, `label` STRING)"
         );
     }
 
@@ -575,7 +594,7 @@ mod tests {
         let sql = create_table_qualified(&cols, LiveSqlDialect::Exasol, "s", "t");
         assert_eq!(
             sql,
-            "CREATE TABLE s.t (id DECIMAL(19,0), label VARCHAR(2000000))"
+            "CREATE TABLE \"s\".\"t\" (\"id\" DECIMAL(19,0), \"label\" VARCHAR(2000000))"
         );
     }
 
@@ -617,7 +636,42 @@ mod tests {
             data_type: "Float64".to_string(),
         }];
         let sql = create_table_qualified(&cols, LiveSqlDialect::BigQuery, "", "t");
-        assert_eq!(sql, "CREATE TABLE t (`order total` FLOAT64)");
+        assert_eq!(sql, "CREATE TABLE `t` (`order total` FLOAT64)");
+    }
+
+    /// The live CREATE is followed by an INSERT whose column list is quoted
+    /// by `DbEngine::quote_ident`, which always quotes. If this DDL emits a
+    /// safe-looking identifier bare, Postgres folds it to lower case (and
+    /// Snowflake to upper), and the INSERT then addresses a column that does
+    /// not exist. Every table with a capital letter in a header - which is
+    /// most CSVs - failed to write, reporting only "inserting rows".
+    #[test]
+    fn live_ddl_quotes_identifiers_so_the_insert_can_find_them() {
+        let cols = vec![ColumnInfo {
+            name: "FL_DATE".to_string(),
+            data_type: "Date32".to_string(),
+        }];
+        for (dialect, quoted) in [
+            (LiveSqlDialect::Postgres, "\"FL_DATE\""),
+            (LiveSqlDialect::Snowflake, "\"FL_DATE\""),
+            (LiveSqlDialect::Exasol, "\"FL_DATE\""),
+            (LiveSqlDialect::Mysql, "`FL_DATE`"),
+            (LiveSqlDialect::Databricks, "`FL_DATE`"),
+            (LiveSqlDialect::ClickHouse, "`FL_DATE`"),
+            (LiveSqlDialect::BigQuery, "`FL_DATE`"),
+            (LiveSqlDialect::Mssql, "[FL_DATE]"),
+        ] {
+            let sql = create_table_qualified(&cols, dialect, "public", "MyTable");
+            assert!(
+                sql.contains(quoted),
+                "{dialect:?} emitted {sql}, which does not quote the column"
+            );
+            // The table name folds too, and DROP / INSERT always quote it.
+            assert!(
+                !sql.contains("TABLE public.MyTable"),
+                "{dialect:?} left the table name bare: {sql}"
+            );
+        }
     }
 
     #[test]
@@ -628,7 +682,7 @@ mod tests {
         }];
         assert_eq!(
             create_table_qualified(&cols, LiveSqlDialect::Postgres, "public", "t"),
-            "CREATE TABLE public.t (id BIGINT)"
+            "CREATE TABLE \"public\".\"t\" (\"id\" BIGINT)"
         );
     }
 }

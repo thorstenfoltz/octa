@@ -19,7 +19,7 @@ fn ctx_with_tab(unlocked: bool) -> ToolContext {
         vec![CellValue::Int(1), CellValue::Int(10)],
         vec![CellValue::Int(2), CellValue::Int(20)],
     ];
-    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false);
+    let mut ctx = ToolContext::for_mcp(Some(1000), 65536, false, true, Vec::new(), false, 0);
     ctx.open_tabs = vec![TableSnapshot {
         handle: "#1".into(),
         display_name: "t".into(),

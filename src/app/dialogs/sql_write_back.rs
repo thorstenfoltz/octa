@@ -40,6 +40,21 @@ impl WriteBackKind {
     }
 }
 
+/// Which table the dialog is about to persist.
+///
+/// The dialog serves two entry points. The SQL panel's **Write result to
+/// DB...** persists the result of the SELECT the user just ran; File > **Save
+/// to database...** persists the open table itself, with no SQL involved. The
+/// target picker, the modes and the whole form are identical, so only the
+/// source of the rows differs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteBackSource {
+    /// The SQL panel's last result (`tab.sql_result`).
+    SqlResult,
+    /// The open table itself (`tab.table`, with pending cell edits applied).
+    ActiveTable,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteBackMode {
     Create,
@@ -58,6 +73,7 @@ impl WriteBackMode {
 }
 
 pub struct SqlWriteBackState {
+    pub source: WriteBackSource,
     pub target_path: PathBuf,
     pub kind: WriteBackKind,
     /// `Some(id)` targets a saved live-database connection instead of a
@@ -72,6 +88,14 @@ pub struct SqlWriteBackState {
 
 impl SqlWriteBackState {
     pub fn for_active_tab(tab_source: Option<&str>, default_table_hint: &str) -> Self {
+        Self::new(WriteBackSource::SqlResult, tab_source, default_table_hint)
+    }
+
+    pub fn new(
+        source: WriteBackSource,
+        tab_source: Option<&str>,
+        default_table_hint: &str,
+    ) -> Self {
         // Pre-fill with the tab's source file when it looks like a real DB
         // file; otherwise leave the path blank so the user picks one.
         let (target_path, kind) = match tab_source.map(PathBuf::from) {
@@ -87,6 +111,7 @@ impl SqlWriteBackState {
             _ => (PathBuf::new(), WriteBackKind::DuckDb),
         };
         Self {
+            source,
             target_path,
             kind,
             db_conn_id: None,
@@ -110,6 +135,58 @@ impl OctaApp {
         let hint = default_table_name_hint(&tab.sql_query);
         let source = tab.table.source_path.clone();
         tab.sql_write_back = Some(SqlWriteBackState::for_active_tab(source.as_deref(), &hint));
+    }
+
+    /// File > Save to database...: persist the **open table** as a new table,
+    /// in a saved live-database connection or a DuckDB/SQLite file. Same
+    /// dialog as the SQL panel's write-back, sourced from the tab instead of
+    /// from a query, so the user does not have to write `SELECT *` first.
+    pub(crate) fn open_table_to_db_dialog(&mut self) {
+        // A large-file tab holds one page of a much bigger file. Writing that
+        // would put a 2,000-row slice into the database under the file's name
+        // and report success, so it is refused rather than silently truncated.
+        if self.tabs[self.active_tab].large.is_some() {
+            self.status_message = Some((
+                octa::i18n::t("dialog.swb_err_large_tab"),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        let tab = &mut self.tabs[self.active_tab];
+        if tab.table.col_count() == 0 {
+            self.status_message = Some((
+                octa::i18n::t("dialog.swb_err_no_table"),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        let source = tab.table.source_path.clone();
+        // The file's own stem is the obvious table name; `sanitize_sql_name`
+        // is what the SQL workspace uses for the same job.
+        let hint = source
+            .as_deref()
+            .map(Path::new)
+            .and_then(|p| p.file_stem())
+            .map(|s| octa::sql::sanitize_sql_name(&s.to_string_lossy()))
+            .unwrap_or_else(|| "data".to_string());
+        tab.sql_write_back = Some(SqlWriteBackState::new(
+            WriteBackSource::ActiveTable,
+            source.as_deref(),
+            &hint,
+        ));
+    }
+
+    /// The rows the dialog is about to write, per its source.
+    fn write_back_rows(&self, state: &SqlWriteBackState) -> Option<octa::data::DataTable> {
+        let tab = &self.tabs[self.active_tab];
+        match state.source {
+            WriteBackSource::SqlResult => tab.sql_result.clone(),
+            WriteBackSource::ActiveTable => {
+                let mut snap = tab.table.clone();
+                snap.apply_edits();
+                Some(snap)
+            }
+        }
     }
 }
 
@@ -367,7 +444,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
             app.tabs[app.active_tab].sql_write_back = Some(state);
             return;
         };
-        let Some(result) = app.tabs[app.active_tab].sql_result.clone() else {
+        let Some(result) = app.write_back_rows(&state) else {
             state.error = Some(octa::i18n::t("dialog.swb_run_select_first"));
             app.tabs[app.active_tab].sql_write_back = Some(state);
             return;
@@ -449,25 +526,47 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
             app.tabs[app.active_tab].sql_write_back = Some(state);
             return;
         }
-        let result = {
-            let tab = &mut app.tabs[app.active_tab];
-            let ws = match tab.sql_workspace.as_mut() {
-                Some(w) => w,
-                None => {
-                    state.error = Some(octa::i18n::t("dialog.swb_err_no_ws"));
-                    tab.sql_write_back = Some(state);
-                    return;
+        let target = WriteTarget {
+            path: state.target_path.clone(),
+            kind: state.kind.to_attach(),
+            schema: schema.clone(),
+            table: state.table.trim().to_string(),
+            mode: state.mode.to_write_mode(),
+            // The file writer persists the result of a SELECT. Saving the open
+            // table is that same write with a trivial query over a workspace
+            // holding just this table, so there is one writer, not two.
+            source_query: match state.source {
+                WriteBackSource::SqlResult => last_query,
+                WriteBackSource::ActiveTable => "SELECT * FROM data".to_string(),
+            },
+            create_schema_if_missing: state.create_schema_if_missing,
+        };
+        let result = match state.source {
+            WriteBackSource::SqlResult => {
+                let tab = &mut app.tabs[app.active_tab];
+                match tab.sql_workspace.as_mut() {
+                    Some(ws) => ws.write_result_to_db(&target),
+                    None => {
+                        state.error = Some(octa::i18n::t("dialog.swb_err_no_ws"));
+                        tab.sql_write_back = Some(state);
+                        return;
+                    }
                 }
-            };
-            ws.write_result_to_db(&WriteTarget {
-                path: state.target_path.clone(),
-                kind: state.kind.to_attach(),
-                schema: schema.clone(),
-                table: state.table.trim().to_string(),
-                mode: state.mode.to_write_mode(),
-                source_query: last_query,
-                create_schema_if_missing: state.create_schema_if_missing,
-            })
+            }
+            // A throwaway workspace, like `src/cli/sql.rs` builds per run: the
+            // tab may never have opened the SQL panel, and a long-lived one
+            // could be holding a `data` snapshot older than the current edits.
+            WriteBackSource::ActiveTable => {
+                let Some(rows) = app.write_back_rows(&state) else {
+                    state.error = Some(octa::i18n::t("dialog.swb_err_no_table"));
+                    app.tabs[app.active_tab].sql_write_back = Some(state);
+                    return;
+                };
+                octa::sql::SqlWorkspace::new().and_then(|mut ws| {
+                    ws.set_active_table(&rows)?;
+                    ws.write_result_to_db(&target)
+                })
+            }
         };
         match result {
             Ok(report) => {

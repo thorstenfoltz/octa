@@ -76,7 +76,7 @@ mod tests {
     use super::*;
 
     fn ctx_with(conn: octa::db::DbConnection, read_only: bool) -> ToolContext {
-        ToolContext::for_mcp(Some(1000), 65536, false, true, vec![conn], read_only)
+        ToolContext::for_mcp(Some(1000), 65536, false, true, vec![conn], read_only, 0)
     }
 
     fn conn(allow_writes: bool) -> octa::db::DbConnection {

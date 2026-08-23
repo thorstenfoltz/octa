@@ -113,125 +113,154 @@ pub(crate) fn render_conditional_format_dialog(app: &mut OctaApp, ctx: &egui::Co
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    for (i, rule) in rules.iter_mut().enumerate() {
-                        ui.horizontal(|ui| {
-                            // Column picker: "(any)" or a specific column.
-                            let col_label = match rule.column {
-                                None => octa::i18n::t("dialog.cnf_any_column"),
-                                Some(c) => col_names
-                                    .get(c)
-                                    .cloned()
-                                    .unwrap_or_else(|| format!("col {c}")),
-                            };
-                            egui::ComboBox::from_id_salt(("cf_col", i))
-                                .selected_text(col_label)
-                                .width(130.0)
-                                .show_ui(ui, |ui| {
-                                    if ui
-                                        .selectable_label(
-                                            rule.column.is_none(),
-                                            octa::i18n::t("dialog.cnf_any_column"),
+                    // A grid, not one `horizontal` per rule: `ComboBox::width`
+                    // is a desired width, not a cap, so a long column name
+                    // widens its button and shifts everything after it right
+                    // on that row alone. A grid sizes each column to the
+                    // widest row, so the pickers line up. Same fix as the
+                    // Data validation dialog, which has the same shape.
+                    egui::Grid::new("cond_format_rules")
+                        .num_columns(6)
+                        .spacing([8.0, 6.0])
+                        .show(ui, |ui| {
+                            for (i, rule) in rules.iter_mut().enumerate() {
+                                {
+                                    // Column picker: "(any)" or a specific column.
+                                    let col_label = match rule.column {
+                                        None => octa::i18n::t("dialog.cnf_any_column"),
+                                        Some(c) => col_names
+                                            .get(c)
+                                            .cloned()
+                                            .unwrap_or_else(|| format!("col {c}")),
+                                    };
+                                    egui::ComboBox::from_id_salt(("cf_col", i))
+                                        .selected_text(col_label)
+                                        .width(130.0)
+                                        .show_ui(ui, |ui| {
+                                            if ui
+                                                .selectable_label(
+                                                    rule.column.is_none(),
+                                                    octa::i18n::t("dialog.cnf_any_column"),
+                                                )
+                                                .clicked()
+                                            {
+                                                rule.column = None;
+                                                changed = true;
+                                            }
+                                            for (c, name) in col_names.iter().enumerate() {
+                                                if ui
+                                                    .selectable_label(rule.column == Some(c), name)
+                                                    .clicked()
+                                                {
+                                                    rule.column = Some(c);
+                                                    changed = true;
+                                                }
+                                            }
+                                        });
+
+                                    // Operator picker.
+                                    egui::ComboBox::from_id_salt(("cf_op", i))
+                                        .selected_text(rule.op.label_t())
+                                        .width(150.0)
+                                        .show_ui(ui, |ui| {
+                                            for &op in CondOp::ALL {
+                                                if ui
+                                                    .selectable_label(rule.op == op, op.label_t())
+                                                    .clicked()
+                                                {
+                                                    rule.op = op;
+                                                    changed = true;
+                                                }
+                                            }
+                                        });
+
+                                    // Value box (greyed out for Empty / NotEmpty).
+                                    ui.add_enabled_ui(rule.op.uses_value(), |ui| {
+                                        if ui
+                                            .add(
+                                                egui::TextEdit::singleline(&mut rule.value)
+                                                    .desired_width(90.0)
+                                                    .hint_text(octa::i18n::t("dialog.cnf_value")),
+                                            )
+                                            .changed()
+                                        {
+                                            changed = true;
+                                        }
+                                    });
+
+                                    // Colour picker, each entry tinted with its swatch.
+                                    egui::ComboBox::from_id_salt(("cf_color", i))
+                                        .selected_text(
+                                            RichText::new(rule.color.label_t())
+                                                .color(ThemeColors::mark_swatch(rule.color)),
                                         )
-                                        .clicked()
+                                        .width(90.0)
+                                        .show_ui(ui, |ui| {
+                                            for &mc in MarkColor::ALL {
+                                                let label = RichText::new(mc.label_t())
+                                                    .color(ThemeColors::mark_swatch(mc));
+                                                if ui
+                                                    .selectable_label(rule.color == mc, label)
+                                                    .clicked()
+                                                {
+                                                    rule.color = mc;
+                                                    changed = true;
+                                                }
+                                            }
+                                        });
+
+                                    if ui
+                                        .checkbox(
+                                            &mut rule.case_sensitive,
+                                            octa::i18n::t("dialog.cnf_case"),
+                                        )
+                                        .changed()
                                     {
-                                        rule.column = None;
                                         changed = true;
                                     }
-                                    for (c, name) in col_names.iter().enumerate() {
+
+                                    // Reorder and remove share one cell, so the three
+                                    // buttons stay together at the end of every row.
+                                    ui.horizontal(|ui| {
+                                        // Rules are first-match-wins, so order is the
+                                        // if / else-if chain the user builds.
+                                        // All three at the standard interact
+                                        // height, so they match the combo
+                                        // boxes beside them instead of
+                                        // floating short in the row.
+                                        let btn = [24.0, ui.spacing().interact_size.y];
                                         if ui
-                                            .selectable_label(rule.column == Some(c), name)
+                                            .add_enabled_ui(i > 0, |ui| {
+                                                ui.add_sized(btn, egui::Button::new("^"))
+                                            })
+                                            .inner
+                                            .on_hover_text(octa::i18n::t("dialog.cnf_move_up"))
                                             .clicked()
                                         {
-                                            rule.column = Some(c);
-                                            changed = true;
+                                            move_up = Some(i);
                                         }
-                                    }
-                                });
-
-                            // Operator picker.
-                            egui::ComboBox::from_id_salt(("cf_op", i))
-                                .selected_text(rule.op.label_t())
-                                .width(150.0)
-                                .show_ui(ui, |ui| {
-                                    for &op in CondOp::ALL {
                                         if ui
-                                            .selectable_label(rule.op == op, op.label_t())
+                                            .add_enabled_ui(i + 1 < rule_count, |ui| {
+                                                ui.add_sized(btn, egui::Button::new("v"))
+                                            })
+                                            .inner
+                                            .on_hover_text(octa::i18n::t("dialog.cnf_move_down"))
                                             .clicked()
                                         {
-                                            rule.op = op;
-                                            changed = true;
+                                            move_down = Some(i);
                                         }
-                                    }
-                                });
-
-                            // Value box (greyed out for Empty / NotEmpty).
-                            ui.add_enabled_ui(rule.op.uses_value(), |ui| {
-                                if ui
-                                    .add(
-                                        egui::TextEdit::singleline(&mut rule.value)
-                                            .desired_width(90.0)
-                                            .hint_text(octa::i18n::t("dialog.cnf_value")),
-                                    )
-                                    .changed()
-                                {
-                                    changed = true;
+                                        if ui
+                                            .add_sized(btn, egui::Button::new("X"))
+                                            .on_hover_text(octa::i18n::t("dialog.cnf_remove"))
+                                            .clicked()
+                                        {
+                                            remove_idx = Some(i);
+                                        }
+                                    });
+                                    ui.end_row();
                                 }
-                            });
-
-                            // Colour picker, each entry tinted with its swatch.
-                            egui::ComboBox::from_id_salt(("cf_color", i))
-                                .selected_text(
-                                    RichText::new(rule.color.label_t())
-                                        .color(ThemeColors::mark_swatch(rule.color)),
-                                )
-                                .width(90.0)
-                                .show_ui(ui, |ui| {
-                                    for &mc in MarkColor::ALL {
-                                        let label = RichText::new(mc.label_t())
-                                            .color(ThemeColors::mark_swatch(mc));
-                                        if ui.selectable_label(rule.color == mc, label).clicked() {
-                                            rule.color = mc;
-                                            changed = true;
-                                        }
-                                    }
-                                });
-
-                            if ui
-                                .checkbox(
-                                    &mut rule.case_sensitive,
-                                    octa::i18n::t("dialog.cnf_case"),
-                                )
-                                .changed()
-                            {
-                                changed = true;
-                            }
-
-                            // Reorder: rules are first-match-wins, so order is
-                            // the if / else-if chain the user builds.
-                            if ui
-                                .add_enabled(i > 0, egui::Button::new("^").small())
-                                .on_hover_text(octa::i18n::t("dialog.cnf_move_up"))
-                                .clicked()
-                            {
-                                move_up = Some(i);
-                            }
-                            if ui
-                                .add_enabled(i + 1 < rule_count, egui::Button::new("v").small())
-                                .on_hover_text(octa::i18n::t("dialog.cnf_move_down"))
-                                .clicked()
-                            {
-                                move_down = Some(i);
-                            }
-
-                            if ui
-                                .small_button("✕")
-                                .on_hover_text(octa::i18n::t("dialog.cnf_remove"))
-                                .clicked()
-                            {
-                                remove_idx = Some(i);
                             }
                         });
-                    }
                     if rules.is_empty() {
                         ui.label(
                             RichText::new(octa::i18n::t("dialog.cnf_empty"))

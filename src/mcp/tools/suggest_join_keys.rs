@@ -15,8 +15,14 @@ pub const DESCRIPTION: &str = "Rank the column pairs that would actually join tw
 values overlap, weighted by distinctness so a status column cannot outrank a real key. Use before \
 join_tables when the key columns have different names or are unknown. Takes `paths` and/or \
 `open_tabs` (two or more sources in total). Returns `candidates` best first, each naming both \
-sides plus `overlap`, `left_distinct`, `right_distinct` and `score`. Sampled (`sample`, default \
-10000 rows per table), so a high overlap is strong evidence rather than proof. Read-only.";
+sides plus `overlap`, `left_distinct`, `right_distinct`, `score`, and orphan counts BOTH ways \
+round - `left_orphans` out of `left_distinct_values` and `right_orphans` out of \
+`right_distinct_values`, how many distinct values on each side find no partner on the other. Two \
+candidates tie exactly when both tables number their rows from 1, and only the count read from \
+the CHILD side separates them, so check both. The \
+orphan count is what separates two candidates that overlap identically, which happens whenever \
+both tables number their rows from 1. Sampled (`sample`, default 10000 rows per table), so a high \
+overlap is strong evidence rather than proof. Read-only.";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct Params {
@@ -58,19 +64,36 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         .unwrap_or(octa::data::join_keys::DEFAULT_SAMPLE_ROWS);
     let limit = p.limit.unwrap_or(20);
 
-    let candidates: Vec<Value> = octa::data::join_keys::suggest_keys(&refs, sample)
-        .into_iter()
+    // Through the relationship map rather than the raw ranking, so every
+    // candidate also carries its orphan count. `min_score: 0.0` keeps the
+    // ranking's own noise floor as the only filter, exactly as before.
+    let named: Vec<(String, &octa::data::DataTable)> =
+        labels.iter().cloned().zip(refs.iter().copied()).collect();
+    let map = octa::data::rel_map::build_map(
+        &named,
+        &octa::data::rel_map::RelMapOptions {
+            sample,
+            min_score: 0.0,
+        },
+    );
+    let candidates: Vec<Value> = map
+        .edges
+        .iter()
         .take(limit)
-        .map(|k| {
+        .map(|e| {
             json!({
-                "left_table": labels[k.left.0],
-                "left_column": refs[k.left.0].columns[k.left.1].name,
-                "right_table": labels[k.right.0],
-                "right_column": refs[k.right.0].columns[k.right.1].name,
-                "overlap": k.overlap,
-                "left_distinct": k.left_distinct,
-                "right_distinct": k.right_distinct,
-                "score": k.score,
+                "left_table": map.nodes[e.left_table].name,
+                "left_column": map.nodes[e.left_table].columns[e.left_col],
+                "right_table": map.nodes[e.right_table].name,
+                "right_column": map.nodes[e.right_table].columns[e.right_col],
+                "overlap": e.overlap,
+                "left_distinct": e.left_distinct,
+                "right_distinct": e.right_distinct,
+                "score": e.score,
+                "left_orphans": e.left_orphans,
+                "left_distinct_values": e.left_distinct_values,
+                "right_orphans": e.right_orphans,
+                "right_distinct_values": e.right_distinct_values,
             })
         })
         .collect();

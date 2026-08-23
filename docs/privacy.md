@@ -9,6 +9,14 @@ enable one of the optional features described below. The one exception is the
 version check: Octa asks GitHub once per launch whether a newer release exists,
 and you can switch that off under **Settings -> Updates**.
 
+**Only three features use a language model**, and all three are listed below:
+the Chat assistant and the two plain-language **Ask** boxes. Everything else
+Octa calls analysis, including the Join key finder, Join diagnostics, near
+duplicate and fuzzy matching, PII detection, outlier detection, clean-up
+suggestions, the Summary and the HTML report, is ordinary arithmetic running on
+your own machine. It consults no model, sends nothing anywhere, and gives the
+same answer every time.
+
 There are a few optional outbound network calls, all of which you control:
 
 - **AI assistant (Chat).** The in-app Chat assistant is off until you enable it
@@ -52,7 +60,9 @@ There are a few optional outbound network calls, all of which you control:
   as above. Where you choose browser or CLI sign-in, authentication goes to
   that vendor's identity service.
 
-Every item above is off until you configure it, and each one talks only to the
+The update check is the only one of these that runs on its own, once per launch,
+and Settings turns it off. Everything else waits for you to act: a connection you
+configure, a Map view you open, a chat profile you set up. Each talks only to the
 service you nominate. Octa has no servers of its own and no account system, so
 none of this data reaches the developer. No other network activity occurs.
 

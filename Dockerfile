@@ -44,7 +44,7 @@ COPY Cargo.toml Cargo.lock build.rs ./
 COPY src ./src
 COPY assets ./assets
 COPY locales ./locales
-COPY LICENSE THIRD_PARTY_LICENSES.md release_notes.md ./
+COPY LICENSE NOTICE THIRD_PARTY_LICENSES.md release_notes.md ./
 COPY licenses ./licenses
 
 # Release builds pass --build-arg OCTA_VERSION=X.Y.Z to stamp the binary's
@@ -75,7 +75,7 @@ RUN set -eux; \
     mkdir -p /out/usr/local/bin /out/usr/share/octa /out/usr/lib/x86_64-linux-gnu \
              /out/etc /out/home/octa /out/config; \
     cp target/release/octa            /out/usr/local/bin/octa; \
-    cp THIRD_PARTY_LICENSES.md LICENSE /out/usr/share/octa/; \
+    cp THIRD_PARTY_LICENSES.md LICENSE NOTICE /out/usr/share/octa/; \
     cp -r licenses                    /out/usr/share/octa/licenses; \
     cp /usr/lib/x86_64-linux-gnu/liblzma.so.5 /out/usr/lib/x86_64-linux-gnu/liblzma.so.5; \
     printf 'root:x:0:0:root:/root:/usr/sbin/nologin\nocta:x:65532:65532:octa:/home/octa:/usr/sbin/nologin\n' > /out/etc/passwd; \

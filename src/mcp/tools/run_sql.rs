@@ -21,7 +21,7 @@ use octa::sql::{
 
 use crate::mcp::OctaMcpServer;
 
-use super::{ToolContext, source_from, table_to_json};
+use super::{Source, ToolContext, source_from, table_to_json};
 
 pub const DESCRIPTION: &str = "Run a DuckDB SQL query against a tabular source. The primary source (a file `path` or an \
 `open_tab`) is registered as `data`. Use `extra_tables` to register more files for JOINs, \
@@ -136,9 +136,21 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         .unlimited
         .then(|| octa::formats::InitialLoadRowsGuard::new(usize::MAX));
 
-    let active = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
+    let source = source_from(&p.open_tab, &p.path, &p.table);
     let mut ws = SqlWorkspace::new()?;
-    ws.set_active_table(&active)?;
+    // The one that matters most: registering a big file as a view over the
+    // scan means an aggregate covers every row of it, where loading it would
+    // answer from the first few million or run out of memory trying not to.
+    let streamed = match &source {
+        Source::Path { path, table: None } if ctx.scan_for(&source).is_some() => {
+            ws.add_view_from_scan("data", path).is_ok()
+        }
+        _ => false,
+    };
+    if !streamed {
+        let active = ctx.resolve(&source)?;
+        ws.set_active_table(&active)?;
+    }
 
     for entry in &p.extra_tables {
         let sql_name = sanitize_sql_name(&entry.name);
@@ -254,6 +266,11 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     out.insert("kind".to_string(), Value::String(kind_str.to_string()));
     if let Some(n) = qo.affected {
         out.insert("affected".to_string(), Value::from(n));
+    }
+    if streamed {
+        // `data` was a view over the file, so the answer covers every row of
+        // it rather than the first few million.
+        out.insert("streamed".to_string(), Value::Bool(true));
     }
     out.insert("result".to_string(), table_value);
     Ok(Value::Object(out))

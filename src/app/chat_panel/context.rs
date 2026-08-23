@@ -57,6 +57,7 @@ impl OctaApp {
             // Cap how many rows a tool result puts into the model's context.
             // User-configurable (Settings > Chat); the Unlimited checkbox sends
             // `None` (no cap).
+            large_file_min_bytes: self.settings.large_file_min_bytes,
             default_row_limit: if self.settings.chat_result_row_limit_unlimited {
                 None
             } else {

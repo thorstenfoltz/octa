@@ -355,6 +355,11 @@ own tab.
 The first row of each sheet is used as the header row, the same as the
 single-sheet behaviour.
 
+Every tab is labelled `workbook.xlsx - Sheet name`, so three sheets of one
+file are three tabs you can tell apart rather than three tabs called
+`workbook.xlsx`. The same goes for a table you pick out of a SQLite or DuckDB
+file. Renaming the tab (right-click it) still overrides the label.
+
 ## Compressed files
 
 Gzip (`.gz`) and Zstandard (`.zst`) inputs decompress transparently:

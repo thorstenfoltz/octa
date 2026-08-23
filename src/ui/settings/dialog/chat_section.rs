@@ -160,7 +160,9 @@ impl SettingsDialog {
                                 kind.label(),
                             );
                         }
-                    });
+                    })
+                    .response
+                    .on_hover_text(crate::i18n::t("settings_hint.chat_provider"));
                 ui.end_row();
 
                 ui.label(t("chat.model"))
@@ -232,7 +234,8 @@ impl SettingsDialog {
                         egui::TextEdit::singleline(&mut self.chat_profile_form_base_url)
                             .desired_width(280.0)
                             .hint_text(hint),
-                    );
+                    )
+                    .on_hover_text(t("settings_hint.chat_profile_base_url"));
                     ui.end_row();
                 }
 
@@ -398,13 +401,16 @@ impl SettingsDialog {
                                 self.chat_profile_form_model = m.clone();
                             }
                         }
-                    });
+                    })
+                    .response
+                    .on_hover_text(crate::i18n::t("settings_hint.chat_model"));
             }
             ui.add(
                 egui::TextEdit::singleline(&mut self.chat_profile_form_model)
                     .desired_width(W)
                     .hint_text(chat_models::default_model(kind)),
-            );
+            )
+            .on_hover_text(crate::i18n::t("settings_hint.chat_model"));
         });
     }
 
@@ -560,7 +566,8 @@ impl SettingsDialog {
                     egui::TextEdit::singleline(&mut self.draft.chat_ollama_url)
                         .desired_width(280.0)
                         .hint_text("http://localhost:11434"),
-                );
+                )
+                .on_hover_text(crate::i18n::t("settings_hint.chat_ollama_url"));
                 ui.end_row();
 
                 ui.label(crate::i18n::t("chat.max_iterations"))
@@ -569,7 +576,8 @@ impl SettingsDialog {
                     egui::TextEdit::singleline(&mut self.chat_max_iterations_buf)
                         .desired_width(100.0)
                         .hint_text("12"),
-                );
+                )
+                .on_hover_text(crate::i18n::t("settings_hint.chat_max_iterations"));
                 ui.end_row();
 
                 ui.label(crate::i18n::t("chat.max_tokens"))
@@ -578,7 +586,9 @@ impl SettingsDialog {
                     let edit = egui::TextEdit::singleline(&mut self.chat_max_tokens_buf)
                         .desired_width(100.0)
                         .hint_text("16,384");
-                    ui.add_enabled(!self.chat_unlimited_tokens, edit);
+                    ui.add_enabled(!self.chat_unlimited_tokens, edit)
+                        .on_hover_text(crate::i18n::t("settings_hint.chat_max_tokens"))
+                        .on_disabled_hover_text(crate::i18n::t("settings_hint.chat_max_tokens"));
                     ui.checkbox(
                         &mut self.chat_unlimited_tokens,
                         crate::i18n::t("settings.unlimited"),
@@ -592,7 +602,11 @@ impl SettingsDialog {
                     let edit = egui::TextEdit::singleline(&mut self.chat_result_row_limit_buf)
                         .desired_width(100.0)
                         .hint_text("200");
-                    ui.add_enabled(!self.chat_unlimited_rows, edit);
+                    ui.add_enabled(!self.chat_unlimited_rows, edit)
+                        .on_hover_text(crate::i18n::t("settings_hint.chat_result_row_limit"))
+                        .on_disabled_hover_text(crate::i18n::t(
+                            "settings_hint.chat_result_row_limit",
+                        ));
                     ui.checkbox(
                         &mut self.chat_unlimited_rows,
                         crate::i18n::t("settings.unlimited"),
@@ -612,7 +626,9 @@ impl SettingsDialog {
                                 option.label_t(),
                             );
                         }
-                    });
+                    })
+                    .response
+                    .on_hover_text(crate::i18n::t("settings_hint.chat_position"));
                 ui.end_row();
 
                 ui.label(crate::i18n::t("chat.export_dir"))
@@ -621,7 +637,8 @@ impl SettingsDialog {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.draft.chat_export_dir)
                             .desired_width(280.0),
-                    );
+                    )
+                    .on_hover_text(crate::i18n::t("settings_hint.chat_export_dir"));
                     if ui.button(crate::i18n::t("chat.browse")).clicked()
                         && let Some(dir) = rfd::FileDialog::new().pick_folder()
                     {
@@ -634,23 +651,27 @@ impl SettingsDialog {
                 // schema-changing database saves) may do to existing files.
                 ui.label(crate::i18n::t("settings.write_protection"))
                     .on_hover_text(crate::i18n::t("settings_hint.write_protection"));
-                ui.checkbox(&mut self.draft.write_protection, "");
+                ui.checkbox(&mut self.draft.write_protection, "")
+                    .on_hover_text(crate::i18n::t("settings_hint.write_protection"));
                 ui.end_row();
 
                 ui.label(crate::i18n::t("settings.backup_before_modify"))
                     .on_hover_text(crate::i18n::t("settings_hint.backup_before_modify"));
-                ui.checkbox(&mut self.draft.backup_before_modify, "");
+                ui.checkbox(&mut self.draft.backup_before_modify, "")
+                    .on_hover_text(crate::i18n::t("settings_hint.backup_before_modify"));
                 ui.end_row();
 
                 ui.label(crate::i18n::t("chat.audit_log"))
                     .on_hover_text(crate::i18n::t("settings_hint.chat_audit_log"));
-                ui.checkbox(&mut self.draft.chat_audit_log_enabled, "");
+                ui.checkbox(&mut self.draft.chat_audit_log_enabled, "")
+                    .on_hover_text(crate::i18n::t("settings_hint.chat_audit_log"));
                 ui.end_row();
 
                 ui.label(crate::i18n::t("chat.audit_warn"))
                     .on_hover_text(crate::i18n::t("settings_hint.chat_audit_warn"));
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.draft.chat_audit_log_warn_enabled, "");
+                    ui.checkbox(&mut self.draft.chat_audit_log_warn_enabled, "")
+                        .on_hover_text(crate::i18n::t("settings_hint.chat_audit_warn"));
                     ui.add_enabled_ui(self.draft.chat_audit_log_warn_enabled, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut self.chat_audit_warn_mb_buf)

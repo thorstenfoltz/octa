@@ -2,7 +2,7 @@
 
 Data validation flags cells that break a rule you define, painting each
 failing cell **red** so problems stand out at a glance. Open it via
-**Columns -> Data validation...**.
+**Data -> Data validation...**.
 
 ![Data validation](../assets/screenshots/data-validation.png){ .screenshot-placeholder }
 
@@ -45,6 +45,41 @@ The same keys also step through cells flagged by
 [Detect Outliers](detect-outliers.md), since both are "cells worth
 looking at". Rows hidden by the current filter are skipped, so the
 counter always matches what you can actually see.
+
+## Saving rules to a file
+
+Rules live with the tab and disappear when it closes, which is fine
+while you are exploring and useless once the same check has to run every
+week. **Save rules...** writes the current list to a TOML file:
+
+```toml
+[[rule]]
+column = "order_id"
+kind = "unique"
+
+[[rule]]
+column = "amount"
+kind = "range"
+min = 0
+```
+
+**Load rules...** reads one back. Rules are stored by **column name**,
+not position, because a rules file outlives the table it was written
+from and an index stops meaning anything the moment a column moves.
+
+If a loaded file names a column this table does not have, the dialog
+says so and names the columns rather than dropping those rules quietly.
+A rules file that half applies is worse than one that fails loudly.
+
+The same file runs from the command line:
+
+```bash
+octa --check orders.parquet --rules quality.toml
+```
+
+That exits **1** on any violation and on any rule that could not run,
+so a CI step can gate on it. See [`--check`](../cli/check.md), and
+`check_rules` in the [MCP reference](../mcp/index.md) for the assistant.
 
 ## See also
 

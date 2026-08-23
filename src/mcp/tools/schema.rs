@@ -32,7 +32,19 @@ pub struct Params {
 }
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
-    let dt = ctx.resolve(&source_from(&p.open_tab, &p.path, &p.table))?;
+    let source = source_from(&p.open_tab, &p.path, &p.table);
+    // The columns of a big file come from a DESCRIBE over the scan, so asking
+    // what is in a forty gigabyte file reads none of it.
+    if let Some(scan) = ctx.scan_for(&source) {
+        let mut table = octa::data::DataTable::empty();
+        table.columns = scan.columns().to_vec();
+        let mut out = schema_to_json(&table);
+        if let Some(m) = out.as_object_mut() {
+            m.insert("streamed".to_string(), Value::Bool(true));
+        }
+        return Ok(out);
+    }
+    let dt = ctx.resolve(&source)?;
     Ok(schema_to_json(&dt))
 }
 

@@ -42,9 +42,11 @@ pub(crate) struct DbOrigin {
     pub(crate) catalog: Option<String>,
     pub(crate) schema: String,
     pub(crate) table: String,
-    /// Primary-key column names in ordinal order; empty = no PK found
-    /// (write-back has no row identity, so the tab stays read-only).
-    pub(crate) pk_cols: Vec<String>,
+    /// How a changed row is addressed on the server when saving. `None` means
+    /// there is no way to address one, so the tab stays read-only: either the
+    /// engine exposes no key and does not take a plain UPDATE (ClickHouse and
+    /// the three catalog engines), or the baseline has no columns.
+    pub(crate) identity: Option<octa::db::write_back::RowIdentity>,
 }
 
 pub(crate) struct TabState {
@@ -336,6 +338,12 @@ pub(crate) struct TabState {
     /// "Summary - sales.parquet"). When set it overrides the
     /// source-path-based title; `None` keeps the normal behaviour.
     pub(crate) custom_tab_label: Option<String>,
+    /// Which table inside a multi-table file this tab holds (an Excel sheet,
+    /// a table picked out of a SQLite/DuckDB file). Appended to the file name
+    /// in the tab strip - three sheets of one workbook otherwise open as three
+    /// tabs all called `book.xlsx`. `None` for single-table files. Kept apart
+    /// from `custom_tab_label` so the tab still gets its " *" modified marker.
+    pub(crate) sheet_name: Option<String>,
     /// User-chosen display name for this tab (via tab right-click ->
     /// "Rename tab..."). Overrides the auto-generated title in the tab strip
     /// only; the file path and on-disk name are unchanged. `None` = show the
@@ -477,6 +485,13 @@ pub(crate) struct TabState {
     /// Save re-compresses that temp back onto the original path. Save As to
     /// any other path leaves the original compressed file untouched.
     pub(crate) compressed_origin: Option<CompressedOrigin>,
+    /// Set when this tab is in large-file mode: the rows live on disk and the
+    /// handle pages in whatever the view is showing. Its presence is also what
+    /// makes the tab read-only (see `OctaApp::is_readonly`).
+    pub(crate) large: Option<octa::formats::large::LargeTable>,
+    /// The (offset, len, order, filter) the current page was fetched for, so
+    /// scrolling only re-queries when the window actually moved.
+    pub(crate) large_page_key: Option<crate::app::large_file::LargePageKey>,
 }
 
 /// Provenance of a transparently decompressed tab: the compressed file the
@@ -715,6 +730,20 @@ pub(crate) struct OctaApp {
     pub(crate) join_keys_dialog: Option<crate::app::dialogs::join_keys::JoinKeysState>,
     pub(crate) join_diag_dialog: Option<crate::app::dialogs::join_diag::JoinDiagState>,
     pub(crate) db_compare_dialog: Option<crate::app::dialogs::db_compare::DbCompareState>,
+    pub(crate) drift_dialog: Option<crate::app::dialogs::drift::DriftState>,
+    /// The pending "this file is very large" question, if one is on screen.
+    pub(crate) pending_large_file_notice:
+        Option<crate::app::dialogs::large_file_notice::LargeFileNotice>,
+    /// A running conversion to a temporary Parquet file.
+    pub(crate) large_convert_job: Option<crate::app::dialogs::large_file_notice::LargeConvertJob>,
+    /// Path the large-file size check must skip exactly once, set when the user
+    /// answered "Open normally".
+    pub(crate) large_check_bypass: Option<std::path::PathBuf>,
+    /// A filter typed but not yet run against a large file, with when it last
+    /// changed. Re-querying a multi-gigabyte file on every keystroke would
+    /// freeze the window, so the text has to settle first.
+    pub(crate) large_filter_pending: Option<(String, std::time::Instant)>,
+    pub(crate) rel_map_dialog: Option<crate::app::dialogs::rel_map::RelMapState>,
     pub(crate) db_copy_dialog: Option<crate::app::dialogs::db_copy::DbCopyState>,
     /// Copy / move / delete a cloud object or folder (cloud tree context menu).
     pub(crate) cloud_transfer_dialog:
@@ -733,6 +762,8 @@ pub(crate) struct OctaApp {
     pub(crate) pivot_dialog: Option<PivotState>,
     pub(crate) timeseries_dialog: Option<TimeseriesState>,
     pub(crate) batch_convert_dialog: Option<BatchConvertState>,
+    pub(crate) workbook_dialog: Option<WorkbookState>,
+    pub(crate) open_url_dialog: Option<OpenUrlState>,
     /// Pending Schema drift scan dialog. Opened from the Analyse menu or a
     /// folder's sidebar context menu; the scan itself runs on a worker.
     pub(crate) schema_drift_dialog: Option<SchemaDriftState>,
