@@ -5,13 +5,393 @@
 use egui;
 
 use super::*;
-use crate::data::{BinaryDisplayMode, MapMode, MarkColor, SearchMode, SearchResultMode};
-use crate::ui::theme::{BodyFont, ThemeMode};
+use crate::ui::shortcuts::ShortcutAction;
 
+mod appearance_section;
 mod chat_section;
 mod cloud_section;
 mod db_section;
+mod diagnostics_section;
+mod directory_tree_section;
+mod files_section;
+mod format_section;
+mod map_section;
+mod mcp_section;
+mod performance_section;
+mod search_editor_section;
 mod shortcuts_grid;
+mod sql_section;
+mod summary_section;
+mod table_section;
+mod updates_section;
+mod window_section;
+
+// ---------------------------------------------------------------------------
+// Settings-dialog state.
+//
+// Declared here in `dialog/mod.rs` rather than in a sibling file: the fields
+// below are private, and Rust makes a private field visible only inside the
+// declaring module and its descendants. The per-section renderers are children
+// of `dialog`, so they can see these; a sibling `dialog::state` module could
+// not, which is 555 compile errors' worth of difference.
+// ---------------------------------------------------------------------------
+
+/// A chat connection test the dialog wants run. The provider adapters live in
+/// the binary and this dialog in the library, so the request crosses that line
+/// as plain data: the app drains it once per frame, runs one tiny turn on a
+/// worker thread, and writes the outcome into `slot`.
+pub struct ChatTestRequest {
+    /// The profile as the form currently describes it (unsaved edits included).
+    pub profile: chat_profiles::ChatModelProfile,
+    /// Already-resolved key; empty for a keyless provider.
+    pub api_key: String,
+    /// Global base URL to use when the profile carries none (Ollama /
+    /// OpenAI-compatible only). Empty otherwise.
+    pub fallback_base_url: String,
+    pub slot: ChatTestSlot,
+    pub ctx: egui::Context,
+}
+
+/// A secret the dialog has just deleted, for the app to delete from the live
+/// settings as well.
+///
+/// Clearing a key is a real, immediate side effect: the keyring entry is gone
+/// the moment the button is clicked. The plaintext fallback, though, was only
+/// removed from the draft - so closing Settings with the `x` (which is Cancel)
+/// left the key sitting in `settings.toml` after the UI had said "cleared".
+/// The string is the connection / profile id the secret is filed under.
+#[derive(Debug, Clone)]
+pub enum SecretPurge {
+    Chat(String),
+    Cloud(String),
+    Db(String),
+}
+
+/// A recorded combo that another action already owns, plus who owns it, so the
+/// grid can offer to move the binding instead of only refusing it.
+#[derive(Debug, Clone, Copy)]
+pub struct ShortcutTakeover {
+    /// The action being recorded, which would gain the combo.
+    pub action: ShortcutAction,
+    /// The combo the user pressed.
+    pub combo: crate::ui::shortcuts::KeyCombo,
+    /// The action that holds it today, and would be left unbound.
+    pub previous: ShortcutAction,
+}
+
+/// Transient state for the settings dialog.
+#[derive(Default)]
+pub struct SettingsDialog {
+    pub open: bool,
+    /// Working copy - committed on Apply/OK.
+    pub draft: AppSettings,
+    /// Snapshot of the settings the draft was seeded from. The app keeps
+    /// running behind this window, so on Apply the two are compared to tell
+    /// "the user changed this here" from "another surface changed it since"
+    /// - see [`SettingsDialog::carry_external_edits`].
+    seed: AppSettings,
+    /// Whether the icon changed (needs texture + window icon refresh).
+    pub icon_changed: bool,
+    /// Whether font size changed (needs style reapply).
+    pub font_changed: bool,
+    /// Whether theme changed.
+    pub theme_changed: bool,
+    /// Buffer backing the SQL row-limit text input. Parsed into the draft
+    /// on Apply so the user can type freely without drag widgets fighting them.
+    sql_row_limit_buf: String,
+    /// Text buffer behind the default Parquet row-group size. Empty means
+    /// "leave it to the writer".
+    write_row_group_buf: String,
+    /// Buffer backing the syntax-highlight size text input. Holds the value
+    /// in whichever unit `syntax_highlight_size_unit` currently picks, with
+    /// comma thousand separators so it matches Octa's display conventions.
+    /// Parsed on Apply.
+    syntax_highlight_max_bytes_buf: String,
+    /// Display unit for the syntax-highlight size input. Not persisted -
+    /// reset each time the dialog opens.
+    syntax_highlight_size_unit: SizeUnit,
+    /// Buffer and display unit for the large-file size threshold, same shape
+    /// as the syntax-highlight pair above. Parsed on Apply.
+    large_file_min_bytes_buf: String,
+    large_file_size_unit: SizeUnit,
+    /// Buffer backing the initial-load-rows text input. Holds a comma-
+    /// separated integer (e.g. "1,000,000"). Parsed on Apply.
+    initial_load_rows_buf: String,
+    /// Buffer backing the live-database page-size input. Comma-separated
+    /// integer, parsed on Apply.
+    db_page_rows_buf: String,
+    /// Buffer backing the raw-view size cap input, in whole MB (the stored
+    /// value is bytes; converted on open / Apply). Parsed on Apply.
+    raw_view_max_mb_buf: String,
+    /// Buffer backing the transparent-decompression size cap input, in whole
+    /// MB (the stored value is bytes; converted on open / Apply).
+    max_decompressed_mb_buf: String,
+    /// Buffer backing the folder-union file cap input. Comma-tolerant integer;
+    /// ignored while `AppSettings.folder_union_max_files_unlimited` is ticked.
+    folder_union_max_files_buf: String,
+    /// Buffer backing the user-extensible "treat as text" extensions input.
+    /// Comma- or space-separated; canonicalised on Apply (lowercased,
+    /// leading dot stripped). Parsed on Apply.
+    text_mode_extensions_buf: String,
+    /// Buffer backing the MCP default-row-limit text input. Comma-separated
+    /// integer; ignored when `mcp_unlimited_rows` is checked.
+    mcp_row_limit_buf: String,
+    /// When true, the MCP server returns every row by default (the row
+    /// limit input is greyed out). Mirrors `AppSettings.mcp_default_row_limit ==
+    /// None`. Toggling on Apply writes `None`; toggling off writes
+    /// `Some(parse(mcp_row_limit_buf))`.
+    mcp_unlimited_rows: bool,
+    /// Buffer backing the MCP default cell-byte cap input. Comma-separated
+    /// integer; `0` means unlimited (same as the field semantic).
+    mcp_cell_bytes_buf: String,
+    /// Buffer backing the Multi-search file-size cap input. Comma-separated
+    /// integer in megabytes; parsed back into `grep_max_file_size_mb` on Apply.
+    /// Lives here (not on the field directly) so hover over the input doesn't
+    /// flash the drag-resize cursor egui's `DragValue` always renders.
+    grep_max_file_size_buf: String,
+    /// Buffer backing the chart `max_points` input. Same pattern as
+    /// `initial_load_rows_buf` so the user can paste "1,000,000" without
+    /// fighting commas.
+    chart_max_points_buf: String,
+    status_message_secs_buf: String,
+    /// Buffer backing the chart `max_categories` input.
+    chart_max_categories_buf: String,
+    /// Buffer backing the table-picker visible-rows input. Same comma-tolerant
+    /// pattern as the other numeric inputs.
+    table_picker_visible_rows_buf: String,
+    /// Buffer backing the Excel max-auto-sheets input.
+    excel_max_auto_sheets_buf: String,
+    /// Buffer backing the search-history-size input (text, not a DragValue, so
+    /// Settings shows no horizontal-drag cursor). Parsed on Apply.
+    search_history_limit_buf: String,
+    /// Buffer backing the auto-save interval input (minutes). Parsed + clamped
+    /// to >= 1 on Apply. Only used when `auto_save_enabled`.
+    auto_save_interval_buf: String,
+    /// Buffer backing the chat temperature input (text, not a slider, so
+    /// Settings shows no drag cursor). Parsed + clamped 0.0..=2.0 on Apply.
+    /// Legacy: temperature is per profile now, so this only seeds a migration.
+    chat_temperature_buf: String,
+
+    // --- Chat profile add/edit form ---
+    // The form doubles as "add" and "edit": a non-empty `chat_profile_form_id`
+    // means we are editing that existing profile, empty means adding a new one.
+    /// Id of the profile being edited; empty when adding a new one.
+    chat_profile_form_id: String,
+    chat_profile_form_name: String,
+    chat_profile_form_desc: String,
+    chat_profile_form_kind: ChatProviderKind,
+    chat_profile_form_model: String,
+    /// Comma-tolerant text buffer (Settings never shows a drag cursor).
+    chat_profile_form_temp: String,
+    chat_profile_form_reasoning: String,
+    chat_profile_form_base_url: String,
+    chat_profile_form_use_own_key: bool,
+    chat_profile_form_allow_writes: bool,
+    /// Password buffer for a profile's own key. Never populated from storage;
+    /// typing into it is the only way it gains a value.
+    chat_profile_form_key: String,
+    /// Inline result of the last profile save (validation error or confirmation).
+    chat_profile_status: Option<String>,
+    /// Buffer backing the chat max-tool-iterations input. Parsed + clamped
+    /// 1..=30 on Apply.
+    chat_max_iterations_buf: String,
+    /// Buffer backing the chat max-response-tokens input. Comma-tolerant
+    /// integer; ignored when `chat_unlimited_tokens` is checked. Parsed on Apply.
+    chat_max_tokens_buf: String,
+    /// Buffer backing the chat result-row-limit input (`chat_result_row_limit`).
+    /// Comma-tolerant integer (>= 1); ignored when `chat_unlimited_rows` is
+    /// checked. Parsed on Apply.
+    chat_result_row_limit_buf: String,
+    /// Mirrors `AppSettings.chat_result_row_limit_unlimited`: when true the row
+    /// limit input is greyed out and Apply writes the unlimited flag.
+    chat_unlimited_rows: bool,
+    /// Mirrors `AppSettings.chat_max_tokens_unlimited`: when true the cap input
+    /// is greyed out and Apply writes the unlimited flag.
+    chat_unlimited_tokens: bool,
+    /// Audit-log size-warning threshold in MB (text buffer; parsed on Apply
+    /// into `chat_audit_log_warn_bytes`).
+    chat_audit_warn_mb_buf: String,
+    /// Which provider's shared key the "API keys" sub-section edits. Its own
+    /// picker: `AppSettings.chat_provider` is a dead migration field now that
+    /// the provider lives on each profile, so it must not address the key form.
+    chat_key_provider: ChatProviderKind,
+    /// Masked API-key entry buffer for the chat provider, in the Chat section.
+    chat_key_input_buf: String,
+    /// Last "where the key was stored" status line after a Save/Clear.
+    chat_key_status_msg: Option<String>,
+    /// Set when the user clicks "Clear" on a chat API key: holds the provider
+    /// awaiting deletion confirmation. `None` = no pending confirmation. Guards
+    /// against an accidental one-click key wipe.
+    chat_key_clear_confirm: Option<ChatProviderKind>,
+    /// A connection test the profile form wants run, for the app to pick up.
+    /// `None` between tests; the app `take()`s it.
+    pub chat_test_request: Option<ChatTestRequest>,
+    /// Slot the in-flight test writes into. `Some` while a test is running.
+    chat_test_result: Option<ChatTestSlot>,
+    /// Last test outcome: `(succeeded, message)`.
+    chat_test_msg: Option<(bool, String)>,
+    /// i18n key of the "what to fix" hint for the last failed test, if the
+    /// error was recognisable. See [`chat_troubleshoot::hint_for`].
+    chat_test_hint: Option<&'static str>,
+    /// Set by the chat panel's Settings button so the Chat section opens
+    /// expanded; consumed (reset) once the dialog has honoured it.
+    pub focus_chat_section: bool,
+    /// One-shot: also expand the Model profiles sub-section inside Chat
+    /// (set alongside `focus_chat_section`; consumed on render).
+    pub focus_chat_profiles: bool,
+    /// Set by the sidebar's "Add connection" button so the Cloud storage
+    /// section opens expanded; consumed (reset) once the dialog has honoured it.
+    pub focus_cloud_section: bool,
+    /// Set when the user unticks "Ask about redirects", cleared by the warning
+    /// modal. Turning a safety check off is a decision worth explaining once.
+    pub confirm_url_redirect_disable: bool,
+    /// One-shot: also expand the add/edit-connection sub-section inside
+    /// Cloud storage (the sidebar's "+ Add" sets it; consumed on render).
+    pub focus_cloud_form: bool,
+    /// When the user clicks "Record" for a shortcut, the action is stored here
+    /// and the next key press captures a new binding. `None` = not recording.
+    recording: Option<ShortcutAction>,
+    /// Set when the user tries to bind a combo that is already used by another
+    /// action. Cleared when they record successfully or edit the grid again.
+    shortcut_conflict: Option<String>,
+    /// The pending "that key is taken - take it over?" offer that goes with
+    /// `shortcut_conflict`. `None` = nothing to decide.
+    shortcut_takeover: Option<ShortcutTakeover>,
+    /// Secrets deleted in the dialog, waiting to be deleted from the live
+    /// settings too. Drained per frame by the app; see [`SecretPurge`].
+    secret_purges: Vec<SecretPurge>,
+    /// Whether the "Reset to defaults" confirmation modal is currently shown.
+    show_reset_confirm: bool,
+    /// Index of the connection currently loaded into the cloud form (edit
+    /// mode); `None` = the form adds a new connection.
+    cloud_editing: Option<usize>,
+    /// Id of the connection being edited (empty = new); keeps the stable id
+    /// across the form so its keyring secret stays addressable.
+    cloud_form_id: String,
+    cloud_form_name: String,
+    cloud_form_kind: crate::cloud::CloudKind,
+    cloud_form_bucket: String,
+    cloud_form_region: String,
+    cloud_form_endpoint: String,
+    cloud_form_account: String,
+    cloud_form_profile: String,
+    cloud_form_path_style: bool,
+    cloud_form_allow_http: bool,
+    /// Public / anonymous access (skip signing; no secret or sign-in needed).
+    cloud_form_anonymous: bool,
+    /// Account-level connection: browse every bucket/container in the account.
+    cloud_form_account_level: bool,
+    /// Per-connection write permission (checked alongside the global cloud
+    /// writes switch). Defaults false: a new connection is read-only until
+    /// the user opts it in.
+    cloud_form_allow_writes: bool,
+    /// Optional key prefix to confine the connection to a folder in the bucket.
+    cloud_form_prefix: String,
+    /// GCS project id for account-level bucket listing (empty = active project).
+    cloud_form_project: String,
+    /// S3 access key id (secret entry).
+    cloud_form_access_key_id: String,
+    /// S3 secret access key / Azure account key / Azure SAS (per the toggle).
+    cloud_form_secret: String,
+    /// For Azure: the secret buffer is a SAS token rather than an account key.
+    cloud_form_azure_is_sas: bool,
+    /// BYO OAuth client-id buffer for native browser sign-in (Azure Blob / GCS
+    /// fallback); maps to `CloudConnection.oauth_client_id`.
+    cloud_form_oauth_client_id: String,
+    /// Azure tenant buffer for native browser sign-in; maps to
+    /// `CloudConnection.oauth_tenant`.
+    cloud_form_oauth_tenant: String,
+    /// Status line after a cloud secret save / clear.
+    cloud_secret_status_msg: Option<String>,
+    /// Armed Clear-secret confirmation: holds the connection id awaiting an
+    /// explicit second click. Guards against a one-click secret wipe.
+    cloud_secret_clear_confirm: Option<String>,
+    /// In-flight cloud browser sign-in slot (Azure Blob / GCS).
+    cloud_signin_result: Option<DbTestSlot>,
+    /// Last finished cloud browser sign-in outcome (ok flag + message).
+    cloud_signin_msg: Option<(bool, String)>,
+    /// Set by the sidebar's Databases "+ Add" button so the Databases section
+    /// opens expanded; consumed (reset) once the dialog has honoured it.
+    pub focus_db_section: bool,
+    /// Id of the DB connection being edited (empty = new); keeps the stable
+    /// id across the form so its keyring secret stays addressable.
+    db_form_id: String,
+    db_form_name: String,
+    db_form_engine: crate::db::DbEngine,
+    db_form_host: String,
+    /// Port as a text buffer; parsed on Save (falls back to the engine
+    /// default on unparsable input).
+    db_form_port: String,
+    db_form_database: String,
+    db_form_username: String,
+    db_form_auth: crate::db::DbAuth,
+    /// AWS region buffer for the IAM auth mode (empty = CLI default).
+    db_form_region: String,
+    /// IAM Identity Center (SSO) buffers for the AWS in-app browser sign-in;
+    /// all empty = ambient AWS credentials (`aws sso login`).
+    db_form_sso_start_url: String,
+    db_form_sso_region: String,
+    db_form_sso_account: String,
+    db_form_sso_role: String,
+    /// RSA private-key path buffer (Snowflake KeyPairJwt auth).
+    db_form_private_key: String,
+    /// OAuth client-id buffer (OAuthClientCredentials auth).
+    db_form_client_id: String,
+    /// OAuth token-URL buffer (OAuthClientCredentials auth; empty = default).
+    db_form_token_url: String,
+    /// Service-account key path buffer (BigQuery GcpServiceAccount auth).
+    db_form_sa_key: String,
+    /// BYO OAuth client-id buffer for native browser sign-in (Azure AD / GCP
+    /// IAM fallback); maps to `DbConnection.oauth_client_id`.
+    db_form_oauth_client_id: String,
+    /// Query-timeout buffer in whole seconds; maps to
+    /// `DbConnection.query_timeout_secs`. Shown only for the engines that
+    /// poll for their results.
+    db_form_query_timeout: String,
+    /// Athena workgroup buffer; maps to `DbConnection.athena_workgroup`.
+    db_form_athena_workgroup: String,
+    /// Athena S3 result location buffer; maps to
+    /// `DbConnection.athena_output_location`.
+    db_form_athena_output: String,
+    /// Azure tenant buffer for native browser sign-in; maps to
+    /// `DbConnection.oauth_tenant`.
+    db_form_oauth_tenant: String,
+    db_form_allow_writes: bool,
+    /// SSH-tunnel buffers: whether this connection goes through a jump host,
+    /// and where it is. Mapped to `DbConnection.ssh` on Save.
+    db_form_ssh_on: bool,
+    db_form_ssh_host: String,
+    db_form_ssh_port: String,
+    db_form_ssh_user: String,
+    db_form_ssh_auth: crate::db::ssh_tunnel::SshAuth,
+    db_form_ssh_key_path: String,
+    /// Bastion credential: the key's passphrase or the account password,
+    /// depending on `db_form_ssh_auth`. Stored under its own keyring entry so
+    /// it cannot overwrite the database secret.
+    db_form_ssh_secret: String,
+    db_form_ssh_accept_new: bool,
+    /// Secret buffer (password / PAT / passphrase / client secret depending on
+    /// the auth kind); stored to the keyring on Save.
+    db_form_secret: String,
+    /// Status line after a DB connection / secret save.
+    db_secret_status_msg: Option<String>,
+    /// Armed Clear-secret confirmation for the DB form.
+    db_secret_clear_confirm: Option<String>,
+    /// In-flight "Test connection" slot: Some while a test worker runs; the
+    /// worker writes Ok(()) or Err(message) and the form drains it per frame.
+    db_test_result: Option<DbTestSlot>,
+    /// Last finished connection-test outcome (ok flag + message).
+    db_test_msg: Option<(bool, String)>,
+    /// In-flight browser sign-in slot (Azure AD / GCP IAM): the worker writes
+    /// Ok(()) once the token is cached, or Err(message).
+    db_signin_result: Option<DbTestSlot>,
+    /// Last finished browser sign-in outcome (ok flag + message).
+    db_signin_msg: Option<(bool, String)>,
+    /// Window-size mode for the dialog (Normal / Maximized / Minimized).
+    /// Persists across re-opens within the same app session - closing and
+    /// reopening Settings keeps the size choice the user last picked.
+    size: DialogSize,
+}
 
 impl SettingsDialog {
     /// Open the dialog, seeding the draft from current settings.
@@ -118,6 +498,7 @@ impl SettingsDialog {
             d.large_file_min_bytes / self.large_file_size_unit.factor(),
         );
         self.initial_load_rows_buf = crate::ui::status_bar::format_number(d.initial_load_rows);
+        self.db_page_rows_buf = crate::ui::status_bar::format_number(d.db_page_rows);
         self.raw_view_max_mb_buf =
             crate::ui::status_bar::format_number(d.raw_view_max_bytes / 1_000_000);
         self.max_decompressed_mb_buf =
@@ -141,6 +522,7 @@ impl SettingsDialog {
             crate::ui::status_bar::format_number(d.excel_max_auto_sheets);
         self.search_history_limit_buf = d.search_history_limit.to_string();
         self.auto_save_interval_buf = d.auto_save_interval_minutes.to_string();
+        self.status_message_secs_buf = d.status_message_secs.to_string();
         self.chat_temperature_buf = format!("{:.2}", d.chat_temperature);
         self.chat_max_iterations_buf = d.chat_max_tool_iterations.to_string();
         self.chat_max_tokens_buf = crate::ui::status_bar::format_number(d.chat_max_tokens);
@@ -292,6 +674,11 @@ impl SettingsDialog {
                             {
                                 self.draft.initial_load_rows = n;
                             }
+                            if let Ok(n) = parse_comma_number(&self.db_page_rows_buf)
+                                && n >= 1
+                            {
+                                self.draft.db_page_rows = n;
+                            }
                             // Raw-view size cap, entered in whole MB, stored
                             // in bytes. 0 is valid ("never load raw text").
                             if let Ok(mb) = parse_comma_number(&self.raw_view_max_mb_buf) {
@@ -359,6 +746,14 @@ impl SettingsDialog {
                                 self.draft.search_history_limit = n;
                             }
                             // Auto-save interval: minutes, clamped to >= 1.
+                            if let Ok(n) = parse_comma_number(&self.status_message_secs_buf) {
+                                // Floored again at read time by
+                                // `status_message_duration`; clamping here too
+                                // means the value written to settings.toml is
+                                // the one actually in force.
+                                self.draft.status_message_secs =
+                                    (n as u64).max(crate::ui::settings::MIN_STATUS_MESSAGE_SECS);
+                            }
                             if let Ok(n) = parse_comma_number(&self.auto_save_interval_buf) {
                                 self.draft.auto_save_interval_minutes = (n as u32).max(1);
                             }
@@ -527,157 +922,7 @@ impl SettingsDialog {
         .id_salt("settings_section_appearance")
         .default_open(false)
         .show(ui, |ui| {
-            egui::Grid::new("settings_appearance")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("settings.language"))
-                        .on_hover_text(crate::i18n::t("settings_hint.language"));
-                    let current_lang_label = crate::i18n::LANGUAGES
-                        .iter()
-                        .find(|(c, _)| *c == self.draft.language)
-                        .map(|(_, name)| *name)
-                        .unwrap_or("English");
-                    egui::ComboBox::from_id_salt("settings_language_combo")
-                        .selected_text(current_lang_label)
-                        .show_ui(ui, |ui| {
-                            for (code, name) in crate::i18n::LANGUAGES {
-                                ui.selectable_value(
-                                    &mut self.draft.language,
-                                    (*code).to_string(),
-                                    *name,
-                                );
-                            }
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.language"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.font_size"))
-                        .on_hover_text(crate::i18n::t("settings_hint.font_size"));
-                    let old_size = self.draft.font_size;
-                    let current_pt = self.draft.font_size.round() as i32;
-                    egui::ComboBox::from_id_salt("font_size_combo")
-                        .selected_text(format!("{} pt", current_pt))
-                        .show_ui(ui, |ui| {
-                            for sz in 8..=32 {
-                                ui.selectable_value(
-                                    &mut self.draft.font_size,
-                                    sz as f32,
-                                    format!("{} pt", sz),
-                                );
-                            }
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.font_size"));
-                    if self.draft.font_size != old_size {
-                        self.font_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.default_theme"))
-                        .on_hover_text(crate::i18n::t("settings_hint.default_theme"));
-                    let old_theme = self.draft.default_theme;
-                    egui::ComboBox::from_id_salt("theme_combo")
-                        .selected_text(self.draft.default_theme.label())
-                        .show_ui(ui, |ui| {
-                            for &preset in ThemeMode::ALL {
-                                ui.selectable_value(
-                                    &mut self.draft.default_theme,
-                                    preset,
-                                    preset.label(),
-                                );
-                            }
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.default_theme"));
-                    if self.draft.default_theme != old_theme {
-                        self.theme_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.body_font"))
-                        .on_hover_text(crate::i18n::t("settings_hint.body_font"));
-                    let old_body_font = self.draft.body_font;
-                    egui::ComboBox::from_id_salt("body_font_combo")
-                        .selected_text(self.draft.body_font.label_t())
-                        .show_ui(ui, |ui| {
-                            for &choice in BodyFont::ALL {
-                                ui.selectable_value(
-                                    &mut self.draft.body_font,
-                                    choice,
-                                    choice.label_t(),
-                                );
-                            }
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.body_font"));
-                    if self.draft.body_font != old_body_font {
-                        self.font_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.custom_font"))
-                        .on_hover_text(crate::i18n::t("settings_hint.custom_font"));
-                    let old_path = self.draft.custom_font_path.clone();
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.draft.custom_font_path)
-                                .hint_text(crate::i18n::t("settings_hint.custom_font_placeholder"))
-                                .desired_width(220.0),
-                        )
-                        .on_hover_text(crate::i18n::t("settings_hint.custom_font"));
-                        if ui.button(crate::i18n::t("dialog.swb_browse")).clicked()
-                            && let Some(p) = rfd::FileDialog::new()
-                                .add_filter("Font (.ttf, .otf, .ttc)", &["ttf", "otf", "ttc"])
-                                .pick_file()
-                        {
-                            self.draft.custom_font_path = p.to_string_lossy().into_owned();
-                        }
-                        if !self.draft.custom_font_path.is_empty()
-                            && ui.button(crate::i18n::t("settings.clear")).clicked()
-                        {
-                            self.draft.custom_font_path.clear();
-                        }
-                    });
-                    if self.draft.custom_font_path != old_path {
-                        self.font_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.icon_color"))
-                        .on_hover_text(crate::i18n::t("settings_hint.icon_color"));
-                    let old_icon = self.draft.icon_variant;
-                    ui.horizontal(|ui| {
-                        paint_icon_swatch(ui, self.draft.icon_variant.preview_color());
-                        egui::ComboBox::from_id_salt("icon_combo")
-                            .selected_text(self.draft.icon_variant.label())
-                            .show_ui(ui, |ui| {
-                                for &variant in IconVariant::ALL {
-                                    ui.horizontal(|ui| {
-                                        paint_icon_swatch(ui, variant.preview_color());
-                                        ui.selectable_value(
-                                            &mut self.draft.icon_variant,
-                                            variant,
-                                            variant.label(),
-                                        );
-                                    });
-                                }
-                            })
-                            .response
-                            .on_hover_text(crate::i18n::t("settings_hint.icon_color"));
-                    });
-                    if self.draft.icon_variant != old_icon {
-                        self.icon_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.window_controls"))
-                        .on_hover_text(crate::i18n::t("settings_hint.window_controls"));
-                    ui.checkbox(&mut self.draft.use_custom_title_bar, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.window_controls"));
-                    ui.end_row();
-                });
+            self.appearance_section_body(ui);
         });
 
         // ── Files ──
@@ -689,64 +934,7 @@ impl SettingsDialog {
         .id_salt("settings_section_files")
         .default_open(false)
         .show(ui, |ui| {
-            egui::Grid::new("settings_files")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("settings.max_recent"))
-                        .on_hover_text(crate::i18n::t("settings_hint.max_recent"));
-                    egui::ComboBox::from_id_salt("max_recent_combo")
-                        .selected_text(self.draft.max_recent_files.to_string())
-                        .width(50.0)
-                        .show_ui(ui, |ui| {
-                            for n in 1..=30 {
-                                ui.selectable_value(
-                                    &mut self.draft.max_recent_files,
-                                    n,
-                                    n.to_string(),
-                                );
-                            }
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.max_recent"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.open_as_text"))
-                        .on_hover_text(crate::i18n::t("settings_hint.open_as_text"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.text_mode_extensions_buf)
-                            .desired_width(280.0)
-                            .hint_text("log4j, myproj, rawdata"),
-                    )
-                    .on_hover_text(crate::i18n::t("settings_hint.open_as_text"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.auto_save"))
-                        .on_hover_text(crate::i18n::t("settings_hint.auto_save"));
-                    ui.checkbox(&mut self.draft.auto_save_enabled, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.auto_save"));
-                    ui.end_row();
-
-                    if self.draft.auto_save_enabled {
-                        ui.label(crate::i18n::t("settings.auto_save_interval"))
-                            .on_hover_text(crate::i18n::t("settings_hint.auto_save_interval"));
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.auto_save_interval_buf)
-                                .desired_width(120.0)
-                                .hint_text("5"),
-                        )
-                        .on_hover_text(crate::i18n::t("settings_hint.auto_save_interval"));
-                        ui.end_row();
-                    }
-                });
-
-            // The write-option defaults are a group rather than a row pair, so
-            // they get the shared expander instead of a grid line.
-            crate::ui::settings::render_write_options(
-                ui,
-                &mut self.draft.write_options,
-                &mut self.write_row_group_buf,
-            );
+            self.files_section_body(ui);
         });
 
         // ── File-Specific ──
@@ -758,98 +946,7 @@ impl SettingsDialog {
         .id_salt("settings_section_format")
         .default_open(false)
         .show(ui, |ui| {
-            egui::Grid::new("settings_format")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("settings.color_aligned"))
-                        .on_hover_text(crate::i18n::t("settings_hint.color_aligned"));
-                    ui.checkbox(&mut self.draft.color_aligned_columns, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.color_aligned"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.warn_unalign"))
-                        .on_hover_text(crate::i18n::t("settings_hint.warn_unalign"));
-                    ui.checkbox(&mut self.draft.warn_raw_align_reload, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.warn_unalign"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.warn_date_change"))
-                        .on_hover_text(crate::i18n::t("settings_hint.warn_date_change"));
-                    ui.checkbox(&mut self.draft.warn_on_date_format_change, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.warn_date_change"));
-                    ui.end_row();
-
-                    // Belongs with the other "warn me before this happens"
-                    // toggles: it is about opening a file, not about cloud
-                    // connections.
-                    ui.label(crate::i18n::t("settings.confirm_url_redirects"))
-                        .on_hover_text(crate::i18n::t("settings_hint.confirm_url_redirects"));
-                    let redirects_before = self.draft.confirm_url_redirects;
-                    ui.checkbox(&mut self.draft.confirm_url_redirects, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.confirm_url_redirects"));
-                    // Turning a safety check off deserves an explanation, not
-                    // a silent tick. Turning it back on does not.
-                    if redirects_before && !self.draft.confirm_url_redirects {
-                        self.confirm_url_redirect_disable = true;
-                    }
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.trim_whitespace"))
-                        .on_hover_text(crate::i18n::t("settings_hint.trim_whitespace"));
-                    ui.checkbox(&mut self.draft.trim_whitespace_on_load, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.trim_whitespace"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.warn_trim"))
-                        .on_hover_text(crate::i18n::t("settings_hint.warn_trim"));
-                    ui.checkbox(&mut self.draft.warn_on_whitespace_trim, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.warn_trim"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.clean_headers"))
-                        .on_hover_text(crate::i18n::t("settings_hint.clean_headers"));
-                    ui.checkbox(&mut self.draft.clean_headers_on_load, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.clean_headers"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.offer_repair"))
-                        .on_hover_text(crate::i18n::t("settings_hint.offer_repair"));
-                    ui.checkbox(&mut self.draft.offer_repair_on_malformed, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.offer_repair"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("wo.title"))
-                        .on_hover_text(crate::i18n::t("settings_hint.write_options"));
-                    ui.label("");
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.readonly_notice"))
-                        .on_hover_text(crate::i18n::t("settings_hint.readonly_notice"));
-                    ui.checkbox(&mut self.draft.show_readonly_notice, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.readonly_notice"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.notebook_output"))
-                        .on_hover_text(crate::i18n::t("settings_hint.notebook_output"));
-                    egui::ComboBox::from_id_salt("notebook_layout_combo")
-                        .selected_text(self.draft.notebook_output_layout.label_t())
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.draft.notebook_output_layout,
-                                NotebookOutputLayout::Beside,
-                                crate::i18n::t("enum.nb_beside"),
-                            );
-                            ui.selectable_value(
-                                &mut self.draft.notebook_output_layout,
-                                NotebookOutputLayout::Beneath,
-                                crate::i18n::t("enum.nb_beneath"),
-                            );
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.notebook_output"));
-                    ui.end_row();
-                });
+            self.format_section_body(ui);
         });
 
         // ── Table View ──
@@ -861,139 +958,7 @@ impl SettingsDialog {
         .id_salt("settings_section_table")
         .default_open(false)
         .show(ui, |ui| {
-            egui::Grid::new("settings_table")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("settings.show_row_numbers"))
-                        .on_hover_text(crate::i18n::t("settings_hint.show_row_numbers"));
-                    ui.checkbox(&mut self.draft.show_row_numbers, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.show_row_numbers"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.show_sequential_rows"))
-                        .on_hover_text(crate::i18n::t("settings_hint.show_sequential_rows"));
-                    ui.checkbox(&mut self.draft.show_sequential_row_numbers, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.show_sequential_rows"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.alternating_rows"))
-                        .on_hover_text(crate::i18n::t("settings_hint.alternating_rows"));
-                    ui.checkbox(&mut self.draft.alternating_row_colors, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.alternating_rows"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.negative_red"))
-                        .on_hover_text(crate::i18n::t("settings_hint.negative_red"));
-                    ui.checkbox(&mut self.draft.negative_numbers_red, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.negative_red"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.mark_filter_cell_mode"))
-                        .on_hover_text(crate::i18n::t("settings_hint.mark_filter_cell_mode"));
-                    egui::ComboBox::from_id_salt("settings_mark_filter_cell_mode")
-                        .selected_text(crate::i18n::t(self.draft.mark_filter_cell_mode.i18n_key()))
-                        .show_ui(ui, |ui| {
-                            for mode in crate::data::mark_filter::MarkFilterCellMode::ALL
-                                .iter()
-                                .copied()
-                            {
-                                ui.selectable_value(
-                                    &mut self.draft.mark_filter_cell_mode,
-                                    mode,
-                                    crate::i18n::t(mode.i18n_key()),
-                                );
-                            }
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.mark_filter_cell_mode"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.thousand_sep"))
-                        .on_hover_text(crate::i18n::t("settings_hint.thousand_sep"));
-                    ui.checkbox(&mut self.draft.thousands_separators_in_cells, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.thousand_sep"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.number_style"))
-                        .on_hover_text(crate::i18n::t("settings_hint.number_style"));
-                    egui::ComboBox::from_id_salt("settings_number_separator_style")
-                        .selected_text(self.draft.number_separator_style.label_t())
-                        .show_ui(ui, |ui| {
-                            for style in
-                                crate::data::num_format::SeparatorStyle::ALL.iter().copied()
-                            {
-                                ui.selectable_value(
-                                    &mut self.draft.number_separator_style,
-                                    style,
-                                    style.label_t(),
-                                );
-                            }
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.number_style"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.highlight_edits"))
-                        .on_hover_text(crate::i18n::t("settings_hint.highlight_edits"));
-                    ui.checkbox(&mut self.draft.highlight_edits, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.highlight_edits"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.cell_line_breaks"))
-                        .on_hover_text(crate::i18n::t("settings_hint.cell_line_breaks"));
-                    ui.checkbox(&mut self.draft.cell_line_breaks, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.cell_line_breaks"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.clickable_links"))
-                        .on_hover_text(crate::i18n::t("settings_hint.clickable_links"));
-                    ui.checkbox(&mut self.draft.clickable_links, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.clickable_links"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.binary_display"))
-                        .on_hover_text(crate::i18n::t("settings_hint.binary_display"));
-                    egui::ComboBox::from_id_salt("binary_display_combo")
-                        .selected_text(self.draft.binary_display_mode.label_t())
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.draft.binary_display_mode,
-                                BinaryDisplayMode::Binary,
-                                BinaryDisplayMode::Binary.label_t(),
-                            );
-                            ui.selectable_value(
-                                &mut self.draft.binary_display_mode,
-                                BinaryDisplayMode::Hex,
-                                BinaryDisplayMode::Hex.label_t(),
-                            );
-                            ui.selectable_value(
-                                &mut self.draft.binary_display_mode,
-                                BinaryDisplayMode::Text,
-                                BinaryDisplayMode::Text.label_t(),
-                            );
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.binary_display"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.default_mark_color"))
-                        .on_hover_text(crate::i18n::t("settings_hint.default_mark_color"));
-                    egui::ComboBox::from_id_salt("default_mark_color_combo")
-                        .selected_text(self.draft.default_mark_color.label_t())
-                        .show_ui(ui, |ui| {
-                            for &color in MarkColor::ALL {
-                                ui.selectable_value(
-                                    &mut self.draft.default_mark_color,
-                                    color,
-                                    color.label_t(),
-                                );
-                            }
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.default_mark_color"));
-                    ui.end_row();
-                });
+            self.table_section_body(ui);
         });
 
         // ── Summary ──
@@ -1005,45 +970,7 @@ impl SettingsDialog {
         .id_salt("settings_section_summary")
         .default_open(false)
         .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(crate::i18n::t("settings_hint.summary_intro"))
-                    .weak()
-                    .size(11.0),
-            );
-            ui.add_space(6.0);
-            egui::Grid::new("settings_summary")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    use crate::data::summary::SummaryStat;
-                    for stat in SummaryStat::all() {
-                        // Column name + type are always shown, so there is
-                        // nothing to toggle: leave them out of the list
-                        // entirely (the intro note explains they are included).
-                        if stat.is_mandatory() {
-                            continue;
-                        }
-                        // Label each row by the exact column id the user will
-                        // see in the Summary table, with the localized
-                        // description on hover.
-                        ui.label(stat.column_id())
-                            .on_hover_text(crate::i18n::t(stat.hint_key()));
-                        let mut on = self.draft.summary_stats.contains(&stat);
-                        let toggle = ui
-                            .checkbox(&mut on, "")
-                            .on_hover_text(crate::i18n::t(stat.hint_key()));
-                        if toggle.changed() {
-                            if on {
-                                if !self.draft.summary_stats.contains(&stat) {
-                                    self.draft.summary_stats.push(stat);
-                                }
-                            } else {
-                                self.draft.summary_stats.retain(|s| *s != stat);
-                            }
-                        }
-                        ui.end_row();
-                    }
-                });
+            self.summary_section_body(ui);
         });
 
         // ── Search & Editor ──
@@ -1055,79 +982,7 @@ impl SettingsDialog {
         .id_salt("settings_section_search_editor")
         .default_open(false)
         .show(ui, |ui| {
-            egui::Grid::new("settings_search_editor")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("settings.default_search_mode"))
-                        .on_hover_text(crate::i18n::t("settings_hint.default_search_mode"));
-                    egui::ComboBox::from_id_salt("search_mode_combo")
-                        .selected_text(self.draft.default_search_mode.label_t())
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.draft.default_search_mode,
-                                SearchMode::Plain,
-                                crate::i18n::t("enum.search_plain"),
-                            );
-                            ui.selectable_value(
-                                &mut self.draft.default_search_mode,
-                                SearchMode::Wildcard,
-                                crate::i18n::t("enum.search_wildcard"),
-                            );
-                            ui.selectable_value(
-                                &mut self.draft.default_search_mode,
-                                SearchMode::Regex,
-                                crate::i18n::t("enum.search_regex"),
-                            );
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.default_search_mode"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.search_result_mode"))
-                        .on_hover_text(crate::i18n::t("settings_hint.search_result_mode"));
-                    egui::ComboBox::from_id_salt("search_result_mode_combo")
-                        .selected_text(self.draft.search_result_mode.label_t())
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.draft.search_result_mode,
-                                SearchResultMode::Filter,
-                                crate::i18n::t("enum.search_result_filter"),
-                            );
-                            ui.selectable_value(
-                                &mut self.draft.search_result_mode,
-                                SearchResultMode::Highlight,
-                                crate::i18n::t("enum.search_result_highlight"),
-                            );
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.search_result_mode"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.search_history_limit"))
-                        .on_hover_text(crate::i18n::t("settings_hint.search_history_limit"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.search_history_limit_buf)
-                            .desired_width(120.0)
-                            .hint_text("5"),
-                    )
-                    .on_hover_text(crate::i18n::t("settings_hint.search_history_limit"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.tab_size"))
-                        .on_hover_text(crate::i18n::t("settings_hint.tab_size"));
-                    egui::ComboBox::from_id_salt("tab_size_combo")
-                        .selected_text(self.draft.tab_size.to_string())
-                        .width(40.0)
-                        .show_ui(ui, |ui| {
-                            for n in 1..=16 {
-                                ui.selectable_value(&mut self.draft.tab_size, n, n.to_string());
-                            }
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.tab_size"));
-                    ui.end_row();
-                });
+            self.search_editor_section_body(ui);
         });
 
         // ── SQL ──
@@ -1139,94 +994,7 @@ impl SettingsDialog {
         .id_salt("settings_section_sql")
         .default_open(false)
         .show(ui, |ui| {
-            egui::Grid::new("settings_sql")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("settings.sql_open_default"))
-                        .on_hover_text(crate::i18n::t("settings_hint.sql_open_default"));
-                    ui.checkbox(&mut self.draft.sql_panel_default_open, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.sql_open_default"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.sql_panel_position"))
-                        .on_hover_text(crate::i18n::t("settings_hint.sql_panel_position"));
-                    egui::ComboBox::from_id_salt("sql_panel_position_combo")
-                        .selected_text(self.draft.sql_panel_position.label_t())
-                        .show_ui(ui, |ui| {
-                            for &pos in SqlPanelPosition::ALL {
-                                ui.selectable_value(
-                                    &mut self.draft.sql_panel_position,
-                                    pos,
-                                    pos.label_t(),
-                                );
-                            }
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.sql_panel_position"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.default_row_limit"))
-                        .on_hover_text(crate::i18n::t("settings_hint.sql_row_limit"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.sql_row_limit_buf)
-                            .desired_width(80.0)
-                            .hint_text("100"),
-                    )
-                    .on_hover_text(crate::i18n::t("settings_hint.sql_row_limit"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.autocomplete"))
-                        .on_hover_text(crate::i18n::t("settings_hint.autocomplete"));
-                    ui.checkbox(&mut self.draft.sql_autocomplete, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.autocomplete"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.editor_font"))
-                        .on_hover_text(crate::i18n::t("settings_hint.editor_font"));
-                    egui::ComboBox::from_id_salt("sql_editor_font_combo")
-                        .selected_text(self.draft.sql_editor_font.label_t())
-                        .show_ui(ui, |ui| {
-                            for &font in SqlEditorFont::ALL {
-                                ui.selectable_value(
-                                    &mut self.draft.sql_editor_font,
-                                    font,
-                                    font.label_t(),
-                                );
-                            }
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.editor_font"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.sql_diff_highlight"))
-                        .on_hover_text(crate::i18n::t("settings_hint.sql_diff_highlight"));
-                    ui.checkbox(&mut self.draft.sql_row_diff_highlight_enabled, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.sql_diff_highlight"));
-                    ui.end_row();
-
-                    ui.add_enabled_ui(self.draft.sql_row_diff_highlight_enabled, |ui| {
-                        ui.label(crate::i18n::t("settings.sql_diff_secs"))
-                            .on_hover_text(crate::i18n::t("settings_hint.sql_diff_secs"));
-                    });
-                    ui.add_enabled_ui(self.draft.sql_row_diff_highlight_enabled, |ui| {
-                        egui::ComboBox::from_id_salt("sql_diff_secs_combo")
-                            .selected_text(format!("{}", self.draft.sql_row_diff_highlight_secs))
-                            .width(56.0)
-                            .show_ui(ui, |ui| {
-                                for n in [1u32, 2, 3, 4, 5, 8, 10, 15] {
-                                    ui.selectable_value(
-                                        &mut self.draft.sql_row_diff_highlight_secs,
-                                        n,
-                                        n.to_string(),
-                                    );
-                                }
-                            })
-                            .response
-                            .on_hover_text(crate::i18n::t("settings_hint.sql_diff_secs"));
-                    });
-                    ui.end_row();
-                });
+            self.sql_section_body(ui);
         });
 
         // ── MCP server ──
@@ -1238,42 +1006,7 @@ impl SettingsDialog {
         .id_salt("settings_section_mcp")
         .default_open(false)
         .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(crate::i18n::t("settings_hint.mcp_intro"))
-                    .weak()
-                    .size(11.0),
-            );
-            ui.add_space(6.0);
-            egui::Grid::new("settings_mcp")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("settings.default_row_limit"))
-                        .on_hover_text(crate::i18n::t("settings_hint.mcp_row_limit"));
-                    ui.horizontal(|ui| {
-                        let edit = egui::TextEdit::singleline(&mut self.mcp_row_limit_buf)
-                            .desired_width(100.0)
-                            .hint_text("1,000");
-                        ui.add_enabled(!self.mcp_unlimited_rows, edit)
-                            .on_hover_text(crate::i18n::t("settings_hint.mcp_row_limit"))
-                            .on_disabled_hover_text(crate::i18n::t("settings_hint.mcp_row_limit"));
-                        ui.checkbox(
-                            &mut self.mcp_unlimited_rows,
-                            crate::i18n::t("settings.unlimited"),
-                        );
-                    });
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.cell_byte_cap"))
-                        .on_hover_text(crate::i18n::t("settings_hint.cell_byte_cap"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.mcp_cell_bytes_buf)
-                            .desired_width(120.0)
-                            .hint_text("65,536"),
-                    )
-                    .on_hover_text(crate::i18n::t("settings_hint.cell_byte_cap"));
-                    ui.end_row();
-                });
+            self.mcp_section_body(ui);
         });
 
         // ── Chat / Assistant ──
@@ -1365,49 +1098,7 @@ impl SettingsDialog {
         .id_salt("settings_section_map")
         .default_open(false)
         .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(crate::i18n::t("settings_hint.map_intro"))
-                    .weak()
-                    .size(11.0),
-            );
-            ui.add_space(6.0);
-            egui::Grid::new("settings_map")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("settings.map_default_mode"))
-                        .on_hover_text(crate::i18n::t("settings_hint.map_default_mode"));
-                    egui::ComboBox::from_id_salt("map_default_mode_combo")
-                        .selected_text(self.draft.map_default_mode.label_t())
-                        .show_ui(ui, |ui| {
-                            for &m in MapMode::ALL {
-                                ui.selectable_value(
-                                    &mut self.draft.map_default_mode,
-                                    m,
-                                    m.label_t(),
-                                );
-                            }
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.map_default_mode"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.map_fallback"))
-                        .on_hover_text(crate::i18n::t("settings_hint.map_fallback"));
-                    ui.checkbox(&mut self.draft.map_fallback_to_geometry, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.map_fallback"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.tile_url"))
-                        .on_hover_text(crate::i18n::t("settings_hint.tile_url"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.draft.map_tile_url_template)
-                            .desired_width(380.0)
-                            .hint_text("https://tile.openstreetmap.org/{z}/{x}/{y}.png"),
-                    )
-                    .on_hover_text(crate::i18n::t("settings_hint.tile_url"));
-                    ui.end_row();
-                });
+            self.map_section_body(ui);
         });
 
         // ── Directory Tree ──
@@ -1419,33 +1110,7 @@ impl SettingsDialog {
         .id_salt("settings_section_directory_tree")
         .default_open(false)
         .show(ui, |ui| {
-            egui::Grid::new("settings_directory_tree")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("settings.sidebar_position"))
-                        .on_hover_text(crate::i18n::t("settings_hint.sidebar_position"));
-                    egui::ComboBox::from_id_salt("directory_tree_position_combo")
-                        .selected_text(self.draft.directory_tree_position.label_t())
-                        .show_ui(ui, |ui| {
-                            for &pos in DirectoryTreePosition::ALL {
-                                ui.selectable_value(
-                                    &mut self.draft.directory_tree_position,
-                                    pos,
-                                    pos.label_t(),
-                                );
-                            }
-                        })
-                        .response
-                        .on_hover_text(crate::i18n::t("settings_hint.sidebar_position"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.directory_tree_filter"))
-                        .on_hover_text(crate::i18n::t("settings_hint.directory_tree_filter"));
-                    ui.checkbox(&mut self.draft.directory_tree_filter_enabled, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.directory_tree_filter"));
-                    ui.end_row();
-                });
+            self.directory_tree_section_body(ui);
         });
 
         // ── Shortcuts ──
@@ -1475,200 +1140,7 @@ impl SettingsDialog {
         .id_salt("settings_section_performance")
         .default_open(false)
         .show(ui, |ui| {
-            egui::Grid::new("settings_performance")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("settings.initial_load_cap"))
-                        .on_hover_text(crate::i18n::t("settings_hint.initial_load_cap"));
-                    ui.horizontal(|ui| {
-                        ui.add_enabled(
-                            !self.draft.initial_load_rows_unlimited,
-                            egui::TextEdit::singleline(&mut self.initial_load_rows_buf)
-                                .desired_width(120.0)
-                                .hint_text("5,000,000"),
-                        )
-                        .on_hover_text(crate::i18n::t("settings_hint.initial_load_cap"))
-                        .on_disabled_hover_text(crate::i18n::t("settings_hint.initial_load_cap"));
-                        ui.checkbox(
-                            &mut self.draft.initial_load_rows_unlimited,
-                            crate::i18n::t("settings.unlimited"),
-                        )
-                        .on_hover_text(crate::i18n::t("settings_hint.initial_load_unlimited"));
-                    });
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.raw_view_cap"))
-                        .on_hover_text(crate::i18n::t("settings_hint.raw_view_cap"));
-                    ui.horizontal(|ui| {
-                        ui.add_enabled(
-                            !self.draft.raw_view_max_bytes_unlimited,
-                            egui::TextEdit::singleline(&mut self.raw_view_max_mb_buf)
-                                .desired_width(120.0)
-                                .hint_text("500"),
-                        )
-                        .on_hover_text(crate::i18n::t("settings_hint.raw_view_cap"))
-                        .on_disabled_hover_text(crate::i18n::t("settings_hint.raw_view_cap"));
-                        ui.checkbox(
-                            &mut self.draft.raw_view_max_bytes_unlimited,
-                            crate::i18n::t("settings.unlimited"),
-                        )
-                        .on_hover_text(crate::i18n::t("settings_hint.raw_view_unlimited"));
-                    });
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.decompress_cap"))
-                        .on_hover_text(crate::i18n::t("settings_hint.decompress_cap"));
-                    ui.horizontal(|ui| {
-                        ui.add_enabled(
-                            !self.draft.max_decompressed_unlimited,
-                            egui::TextEdit::singleline(&mut self.max_decompressed_mb_buf)
-                                .desired_width(120.0)
-                                .hint_text("4,295"),
-                        )
-                        .on_hover_text(crate::i18n::t("settings_hint.decompress_cap"))
-                        .on_disabled_hover_text(crate::i18n::t("settings_hint.decompress_cap"));
-                        ui.checkbox(
-                            &mut self.draft.max_decompressed_unlimited,
-                            crate::i18n::t("settings.unlimited"),
-                        )
-                        .on_hover_text(crate::i18n::t("settings_hint.decompress_unlimited"));
-                    });
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.syntax_size_cap"))
-                        .on_hover_text(crate::i18n::t("settings_hint.syntax_size_cap"));
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.syntax_highlight_max_bytes_buf)
-                                .desired_width(100.0)
-                                .hint_text("1"),
-                        );
-                        egui::ComboBox::from_id_salt("syntax_size_unit_combo")
-                            .selected_text(self.syntax_highlight_size_unit.label_t())
-                            .width(70.0)
-                            .show_ui(ui, |ui| {
-                                for &unit in SizeUnit::ALL {
-                                    ui.selectable_value(
-                                        &mut self.syntax_highlight_size_unit,
-                                        unit,
-                                        unit.label_t(),
-                                    );
-                                }
-                            })
-                            .response
-                            .on_hover_text(crate::i18n::t("settings_hint.syntax_size_cap"));
-                    });
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.large_file_min_bytes"))
-                        .on_hover_text(crate::i18n::t("settings_hint.large_file_min_bytes"));
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.large_file_min_bytes_buf)
-                                .desired_width(100.0)
-                                .hint_text("10"),
-                        )
-                        .on_hover_text(crate::i18n::t("settings_hint.large_file_min_bytes"));
-                        egui::ComboBox::from_id_salt("large_file_size_unit_combo")
-                            .selected_text(self.large_file_size_unit.label_t())
-                            .width(70.0)
-                            .show_ui(ui, |ui| {
-                                for &unit in SizeUnit::ALL {
-                                    ui.selectable_value(
-                                        &mut self.large_file_size_unit,
-                                        unit,
-                                        unit.label_t(),
-                                    );
-                                }
-                            });
-                    });
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.show_large_file_notice"))
-                        .on_hover_text(crate::i18n::t("settings_hint.show_large_file_notice"));
-                    ui.checkbox(&mut self.draft.show_large_file_notice, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.show_large_file_notice"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.folder_union_cap"))
-                        .on_hover_text(crate::i18n::t("settings_hint.folder_union_cap"));
-                    ui.horizontal(|ui| {
-                        ui.add_enabled(
-                            !self.draft.folder_union_max_files_unlimited,
-                            egui::TextEdit::singleline(&mut self.folder_union_max_files_buf)
-                                .desired_width(120.0)
-                                .hint_text("500"),
-                        )
-                        .on_hover_text(crate::i18n::t("settings_hint.folder_union_cap"))
-                        .on_disabled_hover_text(crate::i18n::t("settings_hint.folder_union_cap"));
-                        ui.checkbox(
-                            &mut self.draft.folder_union_max_files_unlimited,
-                            crate::i18n::t("settings.unlimited"),
-                        )
-                        .on_hover_text(crate::i18n::t("settings_hint.folder_union_unlimited"));
-                    });
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.multi_search_cap"))
-                        .on_hover_text(crate::i18n::t("settings_hint.multi_search_cap"));
-                    ui.horizontal(|ui| {
-                        ui.add_enabled(
-                            !self.draft.grep_max_file_size_unlimited,
-                            egui::TextEdit::singleline(&mut self.grep_max_file_size_buf)
-                                .desired_width(120.0)
-                                .hint_text("50"),
-                        )
-                        .on_hover_text(crate::i18n::t("settings_hint.multi_search_cap"))
-                        .on_disabled_hover_text(crate::i18n::t("settings_hint.multi_search_cap"));
-                        ui.checkbox(
-                            &mut self.draft.grep_max_file_size_unlimited,
-                            crate::i18n::t("settings.unlimited"),
-                        )
-                        .on_hover_text(crate::i18n::t("settings_hint.multi_search_unlimited"));
-                    });
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.chart_max_points"))
-                        .on_hover_text(crate::i18n::t("settings_hint.chart_max_points"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.chart_max_points_buf)
-                            .desired_width(120.0)
-                            .hint_text("100,000"),
-                    )
-                    .on_hover_text(crate::i18n::t("settings_hint.chart_max_points"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.chart_max_categories"))
-                        .on_hover_text(crate::i18n::t("settings_hint.chart_max_categories"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.chart_max_categories_buf)
-                            .desired_width(120.0)
-                            .hint_text("200"),
-                    )
-                    .on_hover_text(crate::i18n::t("settings_hint.chart_max_categories"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.tables_in_picker"))
-                        .on_hover_text(crate::i18n::t("settings_hint.tables_in_picker"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.table_picker_visible_rows_buf)
-                            .desired_width(120.0)
-                            .hint_text("10"),
-                    )
-                    .on_hover_text(crate::i18n::t("settings_hint.tables_in_picker"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.excel_auto_open"))
-                        .on_hover_text(crate::i18n::t("settings_hint.excel_auto_open"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.excel_max_auto_sheets_buf)
-                            .desired_width(120.0)
-                            .hint_text("5"),
-                    )
-                    .on_hover_text(crate::i18n::t("settings_hint.excel_auto_open"));
-                    ui.end_row();
-                });
+            self.performance_section_body(ui);
         });
 
         // ── Window ──
@@ -1680,35 +1152,7 @@ impl SettingsDialog {
         .id_salt("settings_section_window")
         .default_open(false)
         .show(ui, |ui| {
-            egui::Grid::new("settings_window")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("settings.start_maximised"))
-                        .on_hover_text(crate::i18n::t("settings_hint.start_maximised"));
-                    ui.checkbox(&mut self.draft.start_maximized, "")
-                        .on_hover_text(crate::i18n::t("settings_hint.start_maximised"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("settings.initial_window_size"))
-                        .on_hover_text(crate::i18n::t("settings_hint.initial_window_size"));
-                    ui.add_enabled_ui(!self.draft.start_maximized, |ui| {
-                        egui::ComboBox::from_id_salt("window_size_combo")
-                            .selected_text(self.draft.window_size.label())
-                            .show_ui(ui, |ui| {
-                                for &size in WindowSize::ALL {
-                                    ui.selectable_value(
-                                        &mut self.draft.window_size,
-                                        size,
-                                        size.label(),
-                                    );
-                                }
-                            })
-                            .response
-                            .on_hover_text(crate::i18n::t("settings_hint.initial_window_size"));
-                    });
-                    ui.end_row();
-                });
+            self.window_section_body(ui);
         });
 
         // ── Updates ──
@@ -1720,22 +1164,7 @@ impl SettingsDialog {
         .id_salt("settings_section_updates")
         .default_open(false)
         .show(ui, |ui| {
-            egui::Grid::new("settings_updates")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("release.check_on_start"))
-                        .on_hover_text(crate::i18n::t("release.check_on_start_hint"));
-                    ui.checkbox(&mut self.draft.check_updates_on_start, "")
-                        .on_hover_text(crate::i18n::t("release.check_on_start_hint"));
-                    ui.end_row();
-
-                    ui.label(crate::i18n::t("release.show_notes"))
-                        .on_hover_text(crate::i18n::t("release.show_notes_hint"));
-                    ui.checkbox(&mut self.draft.show_release_notes, "")
-                        .on_hover_text(crate::i18n::t("release.show_notes_hint"));
-                    ui.end_row();
-                });
+            self.updates_section_body(ui);
         });
 
         // ── Diagnostics ──
@@ -1747,32 +1176,116 @@ impl SettingsDialog {
         .id_salt("settings_section_diagnostics")
         .default_open(false)
         .show(ui, |ui| {
-            egui::Grid::new("settings_diagnostics")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label(crate::i18n::t("diagnostics.debug_mode"))
-                        .on_hover_text(crate::i18n::t("diagnostics.debug_mode_hint"));
-                    ui.checkbox(&mut self.draft.debug_mode, "")
-                        .on_hover_text(crate::i18n::t("diagnostics.debug_mode_hint"));
-                    ui.end_row();
-                });
-            if ui
-                .button(crate::i18n::t("diagnostics.open_log_folder"))
-                .on_hover_text(crate::i18n::t("diagnostics.open_log_folder_hint"))
-                .clicked()
-                && let Some(dir) = crate::diagnostics::logs_dir()
-            {
-                // Ensure it exists so the file manager has something to show
-                // even before the first log line is written.
-                let _ = std::fs::create_dir_all(&dir);
-                #[cfg(target_os = "linux")]
-                let _ = std::process::Command::new("xdg-open").arg(&dir).spawn();
-                #[cfg(target_os = "macos")]
-                let _ = std::process::Command::new("open").arg(&dir).spawn();
-                #[cfg(target_os = "windows")]
-                let _ = std::process::Command::new("explorer").arg(&dir).spawn();
-            }
+            self.diagnostics_section_body(ui);
         });
+    }
+}
+
+#[cfg(test)]
+mod state_tests {
+    use super::*;
+    use crate::ui::settings::AppSettings;
+
+    #[test]
+    fn apply_keeps_settings_written_outside_the_dialog() {
+        // The dialog opened, then the sidebar cleared a saved cloud secret and a
+        // tab got pinned. Applying must not resurrect the secret or drop the pin.
+        let mut dialog = SettingsDialog::default();
+        dialog.open(&AppSettings::default());
+        dialog
+            .draft
+            .cloud_secrets
+            .insert("conn".into(), "sekrit".into());
+        dialog
+            .seed
+            .cloud_secrets
+            .insert("conn".into(), "sekrit".into());
+
+        let mut live = dialog.seed.clone();
+        live.cloud_secrets.remove("conn");
+        live.pinned_tabs.push("/data/sales.parquet".into());
+
+        let mut applied = dialog.draft.clone();
+        dialog.carry_external_edits(&mut applied, &live);
+
+        assert!(applied.cloud_secrets.is_empty(), "cleared secret came back");
+        assert_eq!(applied.pinned_tabs, live.pinned_tabs, "pin was reverted");
+    }
+
+    #[test]
+    fn apply_still_wins_for_fields_the_dialog_changed() {
+        // Same contested field, but this time the user edited it in the dialog:
+        // their choice must survive whatever the live settings hold.
+        let mut dialog = SettingsDialog::default();
+        dialog.open(&AppSettings::default());
+        dialog.draft.show_readonly_notice = false;
+
+        let mut live = dialog.seed.clone();
+        live.show_readonly_notice = true;
+
+        let mut applied = dialog.draft.clone();
+        dialog.carry_external_edits(&mut applied, &live);
+
+        assert!(
+            !applied.show_readonly_notice,
+            "the dialog's own edit was lost"
+        );
+    }
+
+    #[test]
+    fn reset_to_defaults_keeps_connections_and_secrets() {
+        let mut settings = AppSettings {
+            font_size: 22.0,
+            grep_max_file_size_mb: 999,
+            ..Default::default()
+        };
+        settings.cloud_secrets.insert("s3".into(), "sekrit".into());
+        settings.pinned_tabs.push("/data/sales.parquet".into());
+
+        let mut dialog = SettingsDialog::default();
+        dialog.open(&settings);
+        dialog.reset_draft();
+
+        assert_eq!(dialog.draft.font_size, AppSettings::default().font_size);
+        assert_eq!(
+            dialog.draft.cloud_secrets.get("s3").map(String::as_str),
+            Some("sekrit"),
+            "a reset must not orphan the keyring entry it cannot restore"
+        );
+        assert_eq!(dialog.draft.pinned_tabs.len(), 1);
+    }
+
+    // Lives here rather than in `settings/mod_tests.rs` because it reads
+    // `SettingsDialog`'s private buffer fields, which are visible only inside
+    // this module and its children.
+    #[test]
+    fn reset_to_defaults_re_seeds_every_buffer() {
+        // Apply parses all the text buffers back over the draft, so any buffer
+        // the reset forgets silently restores the old value.
+        let settings = AppSettings {
+            grep_max_file_size_mb: 999,
+            excel_max_auto_sheets: 42,
+            auto_save_interval_minutes: 17,
+            ..Default::default()
+        };
+
+        let mut dialog = SettingsDialog::default();
+        dialog.open(&settings);
+        assert_eq!(dialog.grep_max_file_size_buf, "999");
+        dialog.reset_draft();
+
+        let d = AppSettings::default();
+        assert_eq!(
+            dialog.grep_max_file_size_buf,
+            d.grep_max_file_size_mb.to_string()
+        );
+        assert_eq!(
+            dialog.excel_max_auto_sheets_buf,
+            d.excel_max_auto_sheets.to_string()
+        );
+        assert_eq!(
+            dialog.auto_save_interval_buf,
+            d.auto_save_interval_minutes.to_string()
+        );
     }
 }

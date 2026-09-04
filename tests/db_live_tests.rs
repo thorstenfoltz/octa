@@ -5,6 +5,8 @@
 //! export OCTA_TEST_POSTGRES_URL='host=127.0.0.1;port=5432;db=postgres;user=postgres;pass=pw'
 //! export OCTA_TEST_MYSQL_URL='host=127.0.0.1;port=3306;db=mysql;user=root;pass=pw'
 //! export OCTA_TEST_MSSQL_URL='host=127.0.0.1;port=1433;db=master;user=sa;pass=Str0ng!Pw'
+//! export OCTA_TEST_ORACLE_URL='host=127.0.0.1;port=1521;db=FREEPDB1;user=system;pass=pw'
+//! export OCTA_TEST_TRINO_URL='host=http://127.0.0.1;port=8080;db=tpch;user=octa'
 //! ```
 //!
 //! Without the env var a test prints "skipped" and passes, so CI stays green
@@ -47,6 +49,11 @@ fn conn_from_env(var: &str, engine: DbEngine) -> Option<(DbConnection, String)> 
             allow_writes: true,
             oauth_client_id: None,
             oauth_tenant: None,
+            athena_workgroup: None,
+            athena_output_location: None,
+            query_timeout_secs: octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
+            ssh: None,
+            tunnel_port: None,
         },
         pass,
     ))
@@ -78,7 +85,7 @@ fn exercise(engine: DbEngine, env_var: &str, expect_schema: &str, write_schema: 
         eprintln!("skipped: {env_var} not set");
         return;
     };
-    let mut c = connect(&conn, Some(&pass)).expect("connect");
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
 
     let one = c.query("SELECT 1 AS one").expect("select 1");
     assert_eq!(one.row_count(), 1);
@@ -152,7 +159,7 @@ fn exercise_write_back(engine: DbEngine, env_var: &str, schema: &str) {
         eprintln!("skipped: {env_var} not set");
         return;
     };
-    let mut c = connect(&conn, Some(&pass)).expect("connect");
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
     let table_name = format!(
         "octa_wb_{}",
         std::time::SystemTime::now()
@@ -334,7 +341,7 @@ fn query_row_cap_live() {
             eprintln!("skipped: {env_var} not set");
             continue;
         };
-        let mut c = connect(&conn, Some(&pass)).expect("connect");
+        let mut c = connect(&conn, Some(&pass), None).expect("connect");
         let capped = c.query(big_sql).expect("capped query");
         assert_eq!(capped.row_count(), 5, "{engine:?} result capped");
         let again = c
@@ -364,7 +371,7 @@ fn cancel_running_query_live() {
             eprintln!("skipped: {env_var} not set");
             continue;
         };
-        let mut c = connect(&conn, Some(&pass)).expect("connect");
+        let mut c = connect(&conn, Some(&pass), None).expect("connect");
         let cancel = c
             .cancel_handle()
             .unwrap_or_else(|| panic!("{engine:?} has a cancel handle"));
@@ -396,12 +403,12 @@ fn mysql_write_back_live() {
         eprintln!("skipped: OCTA_TEST_MYSQL_URL not set");
         return;
     };
-    let mut c = connect(&conn, Some(&pass)).expect("connect");
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
     c.execute("CREATE DATABASE IF NOT EXISTS octa_wb_db")
         .expect("create db");
     drop(c);
     exercise_write_back(DbEngine::MySql, "OCTA_TEST_MYSQL_URL", "octa_wb_db");
-    let mut c = connect(&conn, Some(&pass)).expect("reconnect");
+    let mut c = connect(&conn, Some(&pass), None).expect("reconnect");
     c.execute("DROP DATABASE octa_wb_db").expect("drop db");
 }
 
@@ -428,7 +435,7 @@ fn mysql_live() {
         eprintln!("skipped: OCTA_TEST_MYSQL_URL not set");
         return;
     };
-    let mut c = connect(&conn, Some(&pass)).expect("connect");
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
     c.execute("CREATE DATABASE IF NOT EXISTS octa_test_db")
         .expect("create db");
     drop(c);
@@ -438,7 +445,7 @@ fn mysql_live() {
         "octa_test_db",
         "octa_test_db",
     );
-    let mut c = connect(&conn, Some(&pass)).expect("reconnect");
+    let mut c = connect(&conn, Some(&pass), None).expect("reconnect");
     c.execute("DROP DATABASE octa_test_db").expect("drop db");
 }
 
@@ -466,7 +473,7 @@ fn mssql_session_encryption_live() {
         eprintln!("skipped: OCTA_TEST_MSSQL_URL not set");
         return;
     };
-    let mut c = connect(&conn, Some(&pass)).expect("connect");
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
 
     let t = c
         .query("SELECT encrypt_option FROM sys.dm_exec_connections WHERE session_id = @@SPID")
@@ -497,7 +504,7 @@ fn clickhouse_read_roundtrip() {
         eprintln!("skipped: OCTA_TEST_CLICKHOUSE_URL not set");
         return;
     };
-    let mut c = connect(&conn, Some(&pass)).expect("connect");
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
     let one = c.query("SELECT 1 AS one").expect("select 1");
     assert_eq!(one.row_count(), 1);
     assert_eq!(one.rows[0][0], CellValue::Int(1));
@@ -519,10 +526,393 @@ fn exasol_read_roundtrip() {
         eprintln!("skipped: OCTA_TEST_EXASOL_URL not set");
         return;
     };
-    let mut c = connect(&conn, Some(&pass)).expect("connect");
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
     let one = c.query("SELECT 1 AS ONE").expect("select 1");
     assert_eq!(one.row_count(), 1);
     assert_eq!(one.rows[0][0], CellValue::Int(1));
+}
+
+/// Oracle: read plus a full write round trip, because the DDL mapping (NUMBER
+/// precisions, VARCHAR2 widths) and the ANSI date literals are new here and a
+/// SELECT alone would exercise neither. Runs in the connecting user's own
+/// schema, which is the one Oracle grants CREATE TABLE on by default.
+#[test]
+fn oracle_read_write_roundtrip() {
+    let Some((conn, pass)) = conn_from_env("OCTA_TEST_ORACLE_URL", DbEngine::Oracle) else {
+        eprintln!("skipped: OCTA_TEST_ORACLE_URL not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
+    // Pre-23c Oracle has no FROM-less SELECT.
+    let one = c.query("SELECT 1 AS one FROM dual").expect("select 1");
+    assert_eq!(one.row_count(), 1);
+    assert_eq!(one.rows[0][0], CellValue::Int(1));
+
+    // The catalog folds an unquoted user name to upper case.
+    let schema = conn.username.to_uppercase();
+    let _ = c.list_tables(None, &schema).expect("list tables");
+
+    let table_name = format!(
+        "OCTA_TEST_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let report = c
+        .write_table(
+            None,
+            &schema,
+            &table_name,
+            DbWriteMode::Create,
+            &sample_table(),
+        )
+        .expect("create + write");
+    assert!(report.created);
+    assert_eq!(report.rows_written, 2);
+    let target = format!(
+        "{}.{}",
+        DbEngine::Oracle.quote_ident(&schema),
+        DbEngine::Oracle.quote_ident(&table_name)
+    );
+    // Octa's DDL quotes every identifier, so the columns it created are
+    // lower case on a server that would otherwise fold them to upper: the
+    // read back has to quote them too.
+    let names = c
+        .query(&format!(
+            "SELECT {} FROM {target} WHERE {} = 2",
+            DbEngine::Oracle.quote_ident("name"),
+            DbEngine::Oracle.quote_ident("id")
+        ))
+        .expect("select names");
+    assert_eq!(names.rows.len(), 1);
+    assert_eq!(names.rows[0][0], CellValue::String("o'hara".into()));
+    let count = c
+        .query(&format!("SELECT COUNT(*) AS n FROM {target}"))
+        .expect("count");
+    assert_eq!(count.rows[0][0], CellValue::Int(2));
+    c.execute(&format!("DROP TABLE {target}")).expect("drop");
+}
+
+/// The Oracle-only SQL Octa generates, against a real server: the FETCH FIRST
+/// sample, the OFFSET/FETCH page, the ALL_* catalogue queries that stand in
+/// for `information_schema`, the PL/SQL drop behind Replace mode, and the
+/// ANSI date literals. Each of these is a dialect arm no other engine
+/// exercises, so a unit test can only check the text, never that Oracle
+/// accepts it.
+#[test]
+fn oracle_dialect_paths_live() {
+    use octa::db::{choose_row_key, select_sample_sql};
+
+    let Some((conn, pass)) = conn_from_env("OCTA_TEST_ORACLE_URL", DbEngine::Oracle) else {
+        eprintln!("skipped: OCTA_TEST_ORACLE_URL not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
+    let schema = conn.username.to_uppercase();
+    let q = |s: &str| DbEngine::Oracle.quote_ident(s);
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let parent = format!("OCTA_P_{stamp}");
+    let child = format!("OCTA_C_{stamp}");
+
+    // Unquoted DDL, i.e. the upper-case names an Oracle schema really has.
+    c.execute(&format!(
+        "CREATE TABLE {parent} (id NUMBER(10) PRIMARY KEY, born DATE, seen TIMESTAMP)"
+    ))
+    .expect("create parent");
+    c.execute(&format!(
+        "CREATE TABLE {child} (id NUMBER(10) PRIMARY KEY, parent_id NUMBER(10)          CONSTRAINT {child}_FK REFERENCES {parent} (id))"
+    ))
+    .expect("create child");
+    for i in 1..=7 {
+        c.execute(&format!(
+            "INSERT INTO {parent} (id, born, seen) VALUES              ({i}, DATE '2024-01-0{i}', TIMESTAMP '2024-01-0{i} 10:00:00')"
+        ))
+        .expect("seed parent");
+    }
+    c.execute("COMMIT").expect("commit");
+
+    // FETCH FIRST, not LIMIT: Oracle has no LIMIT clause.
+    let sample = c
+        .query(&select_sample_sql(
+            DbEngine::Oracle,
+            None,
+            &schema,
+            &parent,
+            3,
+        ))
+        .expect("sample");
+    assert_eq!(sample.row_count(), 3);
+    // Oracle DATE carries a time, so it reads as a timestamp, and the ANSI
+    // literals above survived the round trip.
+    let born = sample
+        .columns
+        .iter()
+        .position(|c| c.name == "BORN")
+        .unwrap();
+    assert_eq!(
+        sample.rows[0][born],
+        CellValue::DateTime("2024-01-01 00:00:00".into())
+    );
+    let seen = sample
+        .columns
+        .iter()
+        .position(|c| c.name == "SEEN")
+        .unwrap();
+    assert_eq!(
+        sample.rows[0][seen],
+        CellValue::DateTime("2024-01-01 10:00:00".into())
+    );
+
+    // OFFSET/FETCH paging, through the copy lane's own entry point: 7 rows
+    // in pages of 3. Oracle rejects the `AS` alias every other engine takes,
+    // so this is the arm that would fail with the shared text.
+    let mut pages = Vec::new();
+    let mut first_of_last = CellValue::Null;
+    c.fetch_batches(
+        &format!("SELECT id FROM {parent} ORDER BY id"),
+        3,
+        &mut |t| {
+            pages.push(t.row_count());
+            first_of_last = t.rows[0][0].clone();
+            Ok(())
+        },
+    )
+    .expect("fetch_batches");
+    assert_eq!(pages, vec![3, 3, 1]);
+    assert_eq!(first_of_last, CellValue::Int(7));
+
+    // Row-key discovery out of ALL_CONSTRAINTS instead of information_schema.
+    let keys = c
+        .query(&octa::db::row_key_sql(
+            DbEngine::Oracle,
+            None,
+            &schema,
+            &parent,
+        ))
+        .expect("row key query");
+    let candidates: Vec<octa::db::RowKeyCandidate> = keys
+        .rows
+        .iter()
+        .filter_map(|r| {
+            Some(octa::db::RowKeyCandidate {
+                constraint_type: r.first()?.to_string(),
+                constraint_name: r.get(1)?.to_string(),
+                column_name: r.get(2)?.to_string(),
+                nullable: r
+                    .get(3)
+                    .map(|v| v.to_string().eq_ignore_ascii_case("YES"))
+                    .unwrap_or(true),
+            })
+        })
+        .collect();
+    assert_eq!(choose_row_key(&candidates), vec!["ID".to_string()]);
+
+    // Column metadata for the "Show metadata..." tab.
+    let meta = c
+        .query(&octa::db::table_metadata_sql(
+            DbEngine::Oracle,
+            None,
+            &schema,
+            &parent,
+        ))
+        .expect("metadata");
+    assert_eq!(meta.row_count(), 3);
+
+    // The declared foreign key, read from ALL_CONSTRAINTS + ALL_CONS_COLUMNS.
+    let (columns, fks) =
+        octa::db::relationships::scan(c.as_mut(), None, std::slice::from_ref(&schema))
+            .expect("scan");
+    assert!(
+        columns
+            .iter()
+            .any(|(_, t, col)| t == &child && col == "PARENT_ID")
+    );
+    let fk = fks
+        .iter()
+        .find(|f| f.child_table == child)
+        .expect("the declared foreign key");
+    assert_eq!(fk.parent_table, parent);
+    assert_eq!(fk.child_column, "PARENT_ID");
+    assert_eq!(fk.parent_column, "ID");
+
+    // Replace mode drops through the PL/SQL wrapper: once with the table
+    // there, once without, and only ORA-00942 may be swallowed.
+    let data = sample_table();
+    let repl = format!("OCTA_R_{stamp}");
+    for _ in 0..2 {
+        let report = c
+            .write_table(None, &schema, &repl, DbWriteMode::Replace, &data)
+            .expect("replace");
+        assert!(report.created);
+        assert_eq!(report.rows_written, 2);
+    }
+
+    // Every cell kind Octa can write, through the Oracle DDL mapping and the
+    // Oracle literal forms, read back as what it went in as. This is the
+    // round trip the docs promise: NUMBER(1) booleans, ANSI date literals,
+    // and decimals as NUMBER rather than the BINARY_DOUBLE this driver
+    // cannot read back.
+    let mut mixed = DataTable::empty();
+    mixed.columns = ["n", "x", "flag", "d", "ts", "txt"]
+        .iter()
+        .zip([
+            "Int64",
+            "Float64",
+            "Boolean",
+            "Date32",
+            "Timestamp(Microsecond, None)",
+            "Utf8",
+        ])
+        .map(|(name, ty)| ColumnInfo {
+            name: (*name).into(),
+            data_type: ty.into(),
+        })
+        .collect();
+    mixed.rows = vec![vec![
+        CellValue::Int(-7),
+        CellValue::Float(1.5),
+        CellValue::Bool(true),
+        CellValue::Date("2024-01-31".into()),
+        CellValue::DateTime("2024-01-31 10:00:00".into()),
+        CellValue::String("o'hara".into()),
+    ]];
+    let types = format!("OCTA_T_{stamp}");
+    c.write_table(None, &schema, &types, DbWriteMode::Create, &mixed)
+        .expect("write every cell kind");
+    let back = c
+        .query(&format!(
+            "SELECT {} FROM {}.{}",
+            mixed
+                .columns
+                .iter()
+                .map(|c| q(&c.name))
+                .collect::<Vec<_>>()
+                .join(", "),
+            q(&schema),
+            q(&types)
+        ))
+        .expect("read back");
+    assert_eq!(back.rows[0][0], CellValue::Int(-7));
+    assert_eq!(back.rows[0][1], CellValue::Float(1.5));
+    // A boolean is NUMBER(1) on a server older than 23c, so it comes back as
+    // the 1 that was written, not as true.
+    assert_eq!(back.rows[0][2], CellValue::Int(1));
+    assert_eq!(
+        back.rows[0][3],
+        CellValue::DateTime("2024-01-31 00:00:00".into())
+    );
+    assert_eq!(
+        back.rows[0][4],
+        CellValue::DateTime("2024-01-31 10:00:00".into())
+    );
+    assert_eq!(back.rows[0][5], CellValue::String("o'hara".into()));
+
+    for t in [&types, &repl, &child, &parent] {
+        c.execute(&format!("DROP TABLE {}.{}", q(&schema), q(t)))
+            .expect("drop");
+    }
+}
+
+/// Trino: the statement API end to end. A local coordinator has the `tpch`
+/// catalog built in, so the catalogue listings and a real query both have
+/// something to find without any setup.
+///
+/// `OCTA_TEST_TRINO_URL='host=http://127.0.0.1,port=8080,db=tpch,user=octa'`
+/// against `docker run -p 8080:8080 trinodb/trino`; the `http://` prefix is
+/// what selects plaintext, and a coordinator with no authentication takes any
+/// password.
+#[test]
+fn trino_read_live() {
+    let Some((conn, pass)) = conn_from_env("OCTA_TEST_TRINO_URL", DbEngine::Trino) else {
+        eprintln!("skipped: OCTA_TEST_TRINO_URL not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
+
+    let one = c.query("SELECT 1 AS one").expect("select 1");
+    assert_eq!(one.row_count(), 1);
+    assert_eq!(one.rows[0][0], CellValue::Int(1));
+
+    // Three-level: catalogs, then schemas within one, then tables.
+    let catalogs = c.list_catalogs().expect("list catalogs");
+    assert!(catalogs.iter().any(|c| c == "tpch"), "{catalogs:?}");
+    let schemas = c.list_schemas(Some("tpch")).expect("list schemas");
+    assert!(schemas.iter().any(|s| s == "tiny"), "{schemas:?}");
+    let tables = c.list_tables(Some("tpch"), "tiny").expect("list tables");
+    assert!(tables.iter().any(|t| t == "nation"), "{tables:?}");
+
+    // Types: tpch.tiny.nation is (bigint, varchar, bigint, varchar).
+    let nation = c
+        .query("SELECT nationkey, name FROM tpch.tiny.nation ORDER BY nationkey LIMIT 3")
+        .expect("query nation");
+    assert_eq!(nation.row_count(), 3);
+    assert_eq!(nation.columns[0].data_type, "Int64");
+    assert_eq!(nation.columns[1].data_type, "Utf8");
+    assert_eq!(nation.rows[0][0], CellValue::Int(0));
+    assert_eq!(nation.rows[0][1], CellValue::String("ALGERIA".into()));
+
+    // Paging through the copy lane: 25 nations in pages of 10. Trino takes
+    // the standard LIMIT/OFFSET form, which is what `paged_sql` emits.
+    let mut pages = Vec::new();
+    c.fetch_batches(
+        "SELECT nationkey FROM tpch.tiny.nation ORDER BY nationkey",
+        10,
+        &mut |t| {
+            pages.push(t.row_count());
+            Ok(())
+        },
+    )
+    .expect("fetch_batches");
+    assert_eq!(pages, vec![10, 10, 5]);
+
+    // A failed statement must report Trino's own message, which arrives in
+    // the result body rather than as an HTTP status.
+    let err = c
+        .query("SELECT nope FROM tpch.tiny.nation")
+        .expect_err("a bad column must fail");
+    let text = format!("{err:#}");
+    assert!(text.contains("COLUMN_NOT_FOUND"), "{text}");
+    // And the connection is still usable afterwards.
+    assert_eq!(c.query("SELECT 2 AS two").expect("reuse").row_count(), 1);
+}
+
+/// Athena, against a real AWS account. Unlike the other engines there is no
+/// container to run it in, so this one only ever runs where someone points it
+/// at an account:
+/// `OCTA_TEST_ATHENA_URL='host=athena.eu-central-1.amazonaws.com;db=default'`
+/// with credentials in the environment or the aws CLI, and a workgroup that
+/// sets its own result location (or `athena_output_location` on the saved
+/// connection).
+#[test]
+fn athena_read_live() {
+    let Some((mut conn, _)) = conn_from_env("OCTA_TEST_ATHENA_URL", DbEngine::Athena) else {
+        eprintln!("skipped: OCTA_TEST_ATHENA_URL not set");
+        return;
+    };
+    // Athena signs every request; there is no password to resolve, and the
+    // region rides on the auth mode.
+    conn.auth = DbAuth::AwsIam {
+        region: std::env::var("AWS_REGION").ok(),
+        sso_start_url: None,
+        sso_region: None,
+        sso_account_id: None,
+        sso_role: None,
+    };
+    conn.athena_output_location = std::env::var("OCTA_TEST_ATHENA_OUTPUT").ok();
+    let mut c = connect(&conn, None, None).expect("connect");
+
+    let one = c.query("SELECT 1 AS one").expect("select 1");
+    assert_eq!(one.row_count(), 1);
+    assert_eq!(one.rows[0][0], CellValue::Int(1));
+
+    // The Glue catalogue answers the sidebar's two levels.
+    let schemas = c.list_schemas(None).expect("list databases");
+    assert!(!schemas.is_empty(), "no Glue databases visible");
+    let _ = c.list_tables(None, &schemas[0]).expect("list tables");
 }
 
 #[test]
@@ -533,7 +923,7 @@ fn snowflake_read_roundtrip() {
         eprintln!("skipped: OCTA_TEST_SNOWFLAKE_URL not set");
         return;
     };
-    let mut c = connect(&conn, Some(&pass)).expect("connect");
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
     let one = c.query("SELECT 1 AS ONE").expect("select 1");
     assert_eq!(one.row_count(), 1);
     assert_eq!(one.rows[0][0], CellValue::Int(1));
@@ -547,7 +937,7 @@ fn databricks_read_roundtrip() {
         eprintln!("skipped: OCTA_TEST_DATABRICKS_URL not set");
         return;
     };
-    let mut c = connect(&conn, Some(&pass)).expect("connect");
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
     let one = c.query("SELECT 1 AS one").expect("select 1");
     assert_eq!(one.row_count(), 1);
     assert_eq!(one.rows[0][0], CellValue::Int(1));
@@ -562,7 +952,7 @@ fn bigquery_read_roundtrip() {
         eprintln!("skipped: OCTA_TEST_BIGQUERY_URL not set");
         return;
     };
-    let mut c = connect(&conn, Some(&pass)).expect("connect");
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
     let one = c.query("SELECT 1 AS one").expect("select 1");
     assert_eq!(one.row_count(), 1);
     assert_eq!(one.rows[0][0], CellValue::Int(1));
@@ -587,7 +977,7 @@ fn mysql_to_postgres_copy_live() {
     };
 
     // Seed a source table in MySQL.
-    let mut my = connect(&my_conn, Some(&my_pass)).expect("connect mysql");
+    let mut my = connect(&my_conn, Some(&my_pass), None).expect("connect mysql");
     my.execute("CREATE DATABASE IF NOT EXISTS octa_copy_db")
         .expect("create db");
     my.execute("DROP TABLE IF EXISTS octa_copy_db.people")
@@ -598,12 +988,14 @@ fn mysql_to_postgres_copy_live() {
         .expect("seed");
 
     let source = DbCopyEnd {
+        ssh_secret: None,
         conn: my_conn.clone(),
         catalog: None,
         schema: "octa_copy_db".into(),
         table: "people".into(),
     };
     let target = DbCopyEnd {
+        ssh_secret: None,
         conn: pg_conn.clone(),
         catalog: None,
         schema: "public".into(),
@@ -617,12 +1009,13 @@ fn mysql_to_postgres_copy_live() {
         &target,
         Some(&pg_pass),
         DbWriteMode::Create,
+        &|_| {},
     )
     .expect("create copy");
     assert_eq!(report.rows_copied, 3);
     assert!(report.created);
 
-    let mut pg = connect(&pg_conn, Some(&pg_pass)).expect("connect pg");
+    let mut pg = connect(&pg_conn, Some(&pg_pass), None).expect("connect pg");
     let back = pg
         .query("SELECT id, name FROM public.octa_copied_people ORDER BY id")
         .expect("read back");
@@ -636,6 +1029,7 @@ fn mysql_to_postgres_copy_live() {
         &target,
         Some(&pg_pass),
         DbWriteMode::Append,
+        &|_| {},
     )
     .expect("append copy");
     assert_eq!(report.rows_copied, 3);
@@ -650,6 +1044,7 @@ fn mysql_to_postgres_copy_live() {
         &target,
         Some(&pg_pass),
         DbWriteMode::Replace,
+        &|_| {},
     )
     .expect("replace copy");
     let n = pg
@@ -660,6 +1055,7 @@ fn mysql_to_postgres_copy_live() {
     // The target's write gate is enforced.
     pg_conn.allow_writes = false;
     let gated = DbCopyEnd {
+        ssh_secret: None,
         conn: pg_conn,
         ..target.clone()
     };
@@ -669,6 +1065,7 @@ fn mysql_to_postgres_copy_live() {
         &gated,
         Some(&pg_pass),
         DbWriteMode::Replace,
+        &|_| {},
     )
     .unwrap_err()
     .to_string();
@@ -690,16 +1087,22 @@ fn file_vs_postgres_table_diff_live() {
         println!("skipped: OCTA_TEST_POSTGRES_URL");
         return;
     };
-    let mut c = connect(&conn, Some(&secret)).expect("connect");
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
     c.execute("DROP TABLE IF EXISTS octa_diff_live").unwrap();
     c.execute("CREATE TABLE octa_diff_live (id INT PRIMARY KEY, name TEXT)")
         .unwrap();
     c.execute("INSERT INTO octa_diff_live VALUES (1,'a'),(2,'b'),(3,'c')")
         .unwrap();
 
-    let db_side =
-        octa::db::fetch_table::fetch_table(&conn, Some(&secret), None, "public", "octa_diff_live")
-            .expect("fetch_table");
+    let db_side = octa::db::fetch_table::fetch_table(
+        &conn,
+        Some(&secret),
+        None,
+        None,
+        "public",
+        "octa_diff_live",
+    )
+    .expect("fetch_table");
     assert_eq!(db_side.row_count(), 3, "seeded rows must come back");
 
     // The "file" side: row 2 changed, row 3 gone, row 4 new.
@@ -727,15 +1130,16 @@ fn fetch_table_defaults_the_schema_live() {
         println!("skipped: OCTA_TEST_MYSQL_URL");
         return;
     };
-    let mut c = connect(&conn, Some(&secret)).expect("connect");
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
     c.execute("DROP TABLE IF EXISTS octa_fetch_live").unwrap();
     c.execute("CREATE TABLE octa_fetch_live (id INT PRIMARY KEY)")
         .unwrap();
     c.execute("INSERT INTO octa_fetch_live VALUES (1),(2)")
         .unwrap();
 
-    let t = octa::db::fetch_table::fetch_table(&conn, Some(&secret), None, "", "octa_fetch_live")
-        .expect("fetch_table with an empty schema");
+    let t =
+        octa::db::fetch_table::fetch_table(&conn, Some(&secret), None, None, "", "octa_fetch_live")
+            .expect("fetch_table with an empty schema");
     assert_eq!(t.row_count(), 2);
 
     c.execute("DROP TABLE octa_fetch_live").unwrap();
@@ -756,7 +1160,7 @@ fn postgres_numeric_round_trip_live() {
         eprintln!("skipped: {env_var} not set");
         return;
     };
-    let mut c = connect(&conn, Some(&secret)).expect("connect");
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
 
     c.execute("DROP TABLE IF EXISTS octa_numeric_probe").ok();
     c.execute(

@@ -119,7 +119,7 @@ its constraint name in the tooltip.
 Because nothing was measured, the chips read **FK** rather than a score.
 A declaration and a fact are not the same thing:
 
-- Postgres, MySQL, SQL Server and Exasol **enforce** their foreign keys,
+- Postgres, MySQL, SQL Server, Oracle and Exasol **enforce** their foreign keys,
   so a line from those servers is also true of the rows.
 - Redshift, Snowflake, Databricks and BigQuery **accept a declaration
   and enforce nothing**. A child value pointing at a parent that does

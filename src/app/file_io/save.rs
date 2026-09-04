@@ -35,30 +35,30 @@ fn round_table_in_place(
 }
 
 impl OctaApp {
+    /// Save the active tab in place. Every in-place save goes through
+    /// [`OctaApp::save_tab`], so the guards live in one function rather than
+    /// in each caller.
     pub(crate) fn save_file(&mut self) {
-        // A live-database tab has no source file: Save means "write the diff
-        // back to the server", confirmed via the write-back dialog.
-        if self.tabs[self.active_tab].db_origin.is_some() {
-            self.begin_db_write_back(self.active_tab);
-            return;
-        }
-        // Cloud-opened tab: block when writes are disabled globally or for
-        // this connection (the user can still Save As to a local copy),
-        // otherwise upload after the local write.
-        if !self.cloud_tab_writable(self.active_tab) {
-            self.status_message = Some((
-                octa::i18n::t("cloud.write_disabled"),
-                std::time::Instant::now(),
-            ));
-            return;
-        }
-        if let Some(ref path) = self.tabs[self.active_tab].table.source_path.clone() {
-            let path = std::path::Path::new(path);
-            // Regular save writes the full table back to the source path,
-            // never the filtered view - the file on disk represents the
-            // user's data, not their current view.
-            self.do_save(path.to_path_buf(), false);
-            self.maybe_upload_cloud(self.active_tab, path);
+        self.save_tab(self.active_tab);
+    }
+
+    /// Has the tab's source file changed on disk since this tab last read or
+    /// wrote it?
+    ///
+    /// `false` for a tab with no recorded stamp (nothing to compare against)
+    /// and for a file that is now missing: saving recreates a deleted file,
+    /// which is what the user asked for, and there is no other version to
+    /// lose. Only a file that exists AND differs is worth stopping for.
+    pub(crate) fn source_changed_on_disk(&self, tab_idx: usize) -> bool {
+        let Some(tab) = self.tabs.get(tab_idx) else {
+            return false;
+        };
+        let (Some(known), Some(path)) = (tab.file_stamp, tab.table.source_path.as_ref()) else {
+            return false;
+        };
+        match super::file_stamp(std::path::Path::new(path)) {
+            Some(current) => current != known,
+            None => false,
         }
     }
 
@@ -208,11 +208,18 @@ impl OctaApp {
         }
     }
 
+    /// Save one tab back over its own file. The single in-place save path:
+    /// Ctrl+S, the close prompt, and auto-save all arrive here.
     pub(crate) fn save_tab(&mut self, tab_idx: usize) {
+        // A live-database tab has no source file: Save means "write the diff
+        // back to the server", confirmed via the write-back dialog.
         if self.tabs[tab_idx].db_origin.is_some() {
             self.begin_db_write_back(tab_idx);
             return;
         }
+        // Cloud-opened tab: block when writes are disabled globally or for
+        // this connection (the user can still Save As to a local copy),
+        // otherwise upload after the local write.
         if !self.cloud_tab_writable(tab_idx) {
             self.status_message = Some((
                 octa::i18n::t("cloud.write_disabled"),
@@ -222,6 +229,18 @@ impl OctaApp {
         }
         if let Some(ref path) = self.tabs[tab_idx].table.source_path.clone() {
             let path = std::path::Path::new(path);
+            // Something else rewrote the file while this tab held it. Saving
+            // now would replace that with a snapshot taken before it existed,
+            // silently. Ask instead. Save As is not guarded: the user picked
+            // that path in a file dialog moments ago, and the picker asks
+            // about overwriting itself.
+            if self.source_changed_on_disk(tab_idx) {
+                self.pending_overwrite_confirm = Some(tab_idx);
+                return;
+            }
+            // Regular save writes the full table back to the source path,
+            // never the filtered view - the file on disk represents the
+            // user's data, not their current view.
             self.do_save_tab(tab_idx, path.to_path_buf(), false);
             self.maybe_upload_cloud(tab_idx, path);
         }
@@ -425,6 +444,7 @@ impl OctaApp {
                     if filtered_table.is_none() {
                         tab.table.source_path = Some(path.to_string_lossy().to_string());
                         tab.table.clear_modified();
+                        tab.file_stamp = super::file_stamp(&path);
                     }
                     self.status_message = Some((
                         if filtered_table.is_some() {
@@ -579,6 +599,7 @@ impl OctaApp {
                         if filtered_table.is_none() {
                             tab.table.source_path = Some(path.to_string_lossy().to_string());
                             tab.table.clear_modified();
+                            tab.file_stamp = super::file_stamp(&path);
                             // A diff-based writer (SQLite / DuckDB) reports the
                             // identity the saved rows now have. Without it the
                             // rows added this session stay untagged and the

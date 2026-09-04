@@ -35,3 +35,7 @@ Auto-save never interrupts you with a dialog. It quietly skips:
   you can answer the prompt.
 - A tab you are editing at that exact moment; it saves on the next tick once the
   edit is committed.
+- A tab whose file has been changed on disk by something else since you opened
+  it (see [When the file changed underneath you](saving.md#when-the-file-changed-underneath-you)).
+  Auto-save leaves it alone so the question is put to you when you next save by
+  hand.

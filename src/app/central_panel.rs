@@ -27,11 +27,15 @@ impl OctaApp {
             // Painted before any content so widgets sit on top.
             ui::theme::paint_background_decoration(ui.painter(), ui.max_rect(), self.theme_mode);
 
-            // Status message - auto-fades. Failures linger far longer than
-            // confirmations: an error is the one message worth reading twice
-            // and copying, and ten seconds is not enough to do either.
+            // Status message - auto-fades after `status_message_secs`, the
+            // same span for every message. Confirmations and failures used to
+            // differ (10s vs 60s) so an error could be read and copied; the
+            // hover pause below does that job now without making every other
+            // message outstay its welcome.
+            let message_lifetime = self.settings.status_message_duration();
+            let mut dismiss_status = false;
             if let Some((ref msg, instant)) = self.status_message
-                && instant.elapsed().as_secs() < message_lifetime_secs(msg)
+                && instant.elapsed() < message_lifetime
             {
                 let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
                 let color = if is_success_message(msg) {
@@ -45,11 +49,51 @@ impl OctaApp {
                 // Selectable + right-click Copy: a failure message here is
                 // often the whole reason a save or a connection did not work.
                 let msg = msg.clone();
-                ui.horizontal(|ui| {
+                let row = ui.horizontal(|ui| {
                     ui.add_space(8.0);
                     ui::message::selectable_message_sized(ui, color, &msg, Some(12.0));
+                    // Dismiss now, for anyone who has read it and wants the
+                    // room back before the timer runs out.
+                    if ui
+                        .small_button("x")
+                        .on_hover_text(octa::i18n::t("status_bar.dismiss_hint"))
+                        .clicked()
+                    {
+                        dismiss_status = true;
+                    }
                 });
+                // Pause the countdown while the pointer is over the message.
+                // Implemented by pushing the stored start forward by one
+                // frame rather than by tracking paused time separately, so
+                // `elapsed()` simply stops growing and the ~30 places that
+                // set `status_message` keep working unchanged.
+                // `contains_pointer`, not `hovered`: the message itself is a
+                // selectable (interactive) label, so it takes the hover from
+                // the row that wraps it and the pause never fired.
+                if row.response.contains_pointer()
+                    && let Some((_, ref mut started)) = self.status_message
+                {
+                    let dt = ui.ctx().input(|i| i.stable_dt).min(0.25);
+                    if let Some(pushed) =
+                        started.checked_add(std::time::Duration::from_secs_f32(dt))
+                    {
+                        *started = pushed;
+                    }
+                    // Keep animating while hovered so the pause is honoured
+                    // even when nothing else asks for a repaint.
+                    ui.ctx().request_repaint();
+                } else {
+                    // egui only paints when something asks it to, so a message
+                    // whose time is up stays on screen until the next unrelated
+                    // event repaints the frame - which read as "the timeout in
+                    // Settings does nothing". Book the frame that removes it.
+                    ui.ctx()
+                        .request_repaint_after(message_lifetime.saturating_sub(instant.elapsed()));
+                }
                 ui.add_space(4.0);
+            }
+            if dismiss_status {
+                self.status_message = None;
             }
 
             // Date format-change banner. Stays visible until the user
@@ -516,40 +560,59 @@ impl OctaApp {
             let validation_violations = tab.validation_violations.clone();
             let outlier_cells = tab.outlier_cells.clone();
             let os_has_clip = tab.table_state.clipboard.is_some() || os_has_clipboard;
-            let interaction = ui::table_view::draw_table(
-                ui,
-                &mut tab.table,
-                &mut tab.table_state,
-                self.theme_mode,
-                &filtered,
-                os_has_clip,
-                self.settings.show_row_numbers,
-                show_sequential,
-                self.settings.alternating_row_colors,
-                self.settings.negative_numbers_red,
-                self.settings.highlight_edits,
-                self.settings.font_size * self.zoom_percent as f32 / 100.0,
-                self.settings.cell_line_breaks,
-                self.settings.clickable_links,
-                self.settings.binary_display_mode,
-                self.welcome_logo_texture.as_ref(),
-                &self.settings.shortcuts,
+            let table_cx = ui::table_view::TableCtx {
+                theme_mode: self.theme_mode,
+                filtered_rows: &filtered,
+                os_clipboard_has_content: os_has_clip,
+                show_row_numbers: self.settings.show_row_numbers,
+                show_sequential_numbers: show_sequential,
+                alternating_row_colors: self.settings.alternating_row_colors,
+                negative_numbers_red: self.settings.negative_numbers_red,
+                highlight_edits: self.settings.highlight_edits,
+                font_size: self.settings.font_size * self.zoom_percent as f32 / 100.0,
+                cell_line_breaks: self.settings.cell_line_breaks,
+                clickable_links: self.settings.clickable_links,
+                binary_display_mode: self.settings.binary_display_mode,
+                welcome_logo_texture: self.welcome_logo_texture.as_ref(),
+                shortcuts: &self.settings.shortcuts,
                 readonly,
-                &filtered_cols,
-                &hidden_cols,
-                self.settings.thousands_separators_in_cells,
-                self.settings.number_separator_style,
-                &col_number_formats,
-                &search_matches,
+                filtered_columns: &filtered_cols,
+                hidden_columns: &hidden_cols,
+                thousands_separators: self.settings.thousands_separators_in_cells,
+                separator_style: self.settings.number_separator_style,
+                column_number_formats: &col_number_formats,
+                search_matches: &search_matches,
                 current_match,
-                &cond_format_rules,
-                &validation_violations,
-                &outlier_cells,
-            );
+                conditional_format_rules: &cond_format_rules,
+                validation_violations: &validation_violations,
+                outlier_cells: &outlier_cells,
+                handles_input: true,
+                // Only the split view has other panes to keep in step; it
+                // overrides this per pane.
+                scroll_all: false,
+            };
+            // Split view draws the same table once per pane, so it reports
+            // one interaction per band; everything else reports exactly one.
+            // The welcome screen (no columns) is not a table to split, and
+            // `draw_table` short-circuits to the logo before any band exists.
+            let interactions = if tab.table_state.is_split() && tab.table.col_count() > 0 {
+                ui::table_view::draw_table_split(ui, &mut tab.table, &mut tab.table_state, table_cx)
+            } else {
+                vec![ui::table_view::draw_table(
+                    ui,
+                    &mut tab.table,
+                    &mut tab.table_state,
+                    table_cx,
+                )]
+            };
 
-            let welcome_logo_clicked = interaction.welcome_logo_clicked;
-            let welcome_logo_rect = interaction.welcome_logo_rect;
-            self.handle_table_interaction(interaction, &ctx_for_interaction);
+            let mut welcome_logo_clicked = false;
+            let mut welcome_logo_rect = None;
+            for interaction in interactions {
+                welcome_logo_clicked |= interaction.welcome_logo_clicked;
+                welcome_logo_rect = welcome_logo_rect.or(interaction.welcome_logo_rect);
+                self.handle_table_interaction(interaction, &ctx_for_interaction);
+            }
             if welcome_logo_clicked {
                 self.register_welcome_logo_click(ctx);
             }
@@ -566,7 +629,7 @@ impl OctaApp {
 
     /// Route `Event::Copy` / `Event::Cut` / `Event::Paste` and the remappable
     /// `ShortcutAction::Copy/Cut/Paste` triggers to the table-level clipboard
-    /// ops - but only when no TextEdit has keyboard focus.
+    /// ops - but only when no text is marked and no TextEdit has focus.
     ///
     /// Subtle invariant: egui's TextEdit reads `Event::Paste` etc. without
     /// removing them from `i.events`, AND `draw_table` later in the frame
@@ -576,6 +639,15 @@ impl OctaApp {
     /// TextEdit is focused, the events have already been consumed by that
     /// editor in an earlier panel and we just throw them away.
     fn handle_table_clipboard(&mut self, ctx: &egui::Context) {
+        // Marked text owns Ctrl+C, wherever it is: a chat bubble, tool output,
+        // a message in a dialog, the focused text box. Stand down entirely -
+        // the events stay in the queue for egui's own copy, and `do_copy`
+        // never runs, so the direct OS-clipboard write cannot race the one
+        // egui queues at the end of the pass. Clicking outside the text clears
+        // the selection and hands the shortcut straight back to the table.
+        if octa::ui::text_selection::has_active_selection(ctx) {
+            return;
+        }
         if self.tabs[self.active_tab].view_mode != ViewMode::Table {
             return;
         }
@@ -624,18 +696,6 @@ impl OctaApp {
             .is_some()
             || ctx.egui_wants_keyboard_input();
         if text_edit_focused {
-            return;
-        }
-
-        // Yield to in-chat text selection: when the pointer is over the visible
-        // chat panel, let the chat label's own copy stand instead of clobbering
-        // the clipboard with the table selection.
-        if self.chat.visible
-            && let Some(rect) = self.chat.panel_rect
-            && ctx
-                .input(|i| i.pointer.hover_pos())
-                .is_some_and(|p| rect.contains(p))
-        {
             return;
         }
 
@@ -1105,7 +1165,104 @@ impl OctaApp {
             // Settings choice applies to both passes consistently.
             let max_chunk = formats::initial_load_rows();
 
-            if let Some(ref source_path) = tab.table.source_path.clone() {
+            // A live-database tab has no `source_path`; it pages the server
+            // instead, with the same buffer/flag protocol the file readers use.
+            if tab.table.source_path.is_none()
+                && let Some(origin) = tab.db_origin.clone()
+            {
+                let page_rows = self.settings.db_page_size();
+                let conn = self
+                    .settings
+                    .db_connections
+                    .iter()
+                    .find(|c| c.id == origin.conn_id)
+                    .cloned();
+                if let Some(conn) = conn {
+                    let secret =
+                        octa::ui::settings::db_secrets::get_db_secret(&conn.id, &self.settings);
+                    let ssh_secret =
+                        octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &self.settings);
+                    let cache = self.db_conn_cache.clone();
+                    // Reuse the sidebar's own result channel rather than
+                    // adding a second one: it is drained every frame and puts
+                    // the message in the status bar. A page that failed
+                    // silently would look exactly like the end of the table,
+                    // which is the failure this whole path exists to remove.
+                    let pending = self.db_browser.pending_open.clone();
+                    let failure_label = format!("{} @ {}", origin.table, conn.name);
+                    let repaint = ctx.clone();
+                    let (load_finished, cancel_slot, cancelled) = self.begin_db_load(format!(
+                        "{} {failure_label}",
+                        octa::i18n::t("db.loading_more")
+                    ));
+                    // ponytail: LIMIT/OFFSET paging with no ORDER BY, so a
+                    // server free to reorder between pages can repeat or skip
+                    // a row. Same ceiling `fetch_batches` and every table copy
+                    // already accept; an ORDER BY would force a full sort per
+                    // page on exactly the warehouse tables this is for.
+                    let sql = octa::db::paged_sql(
+                        conn.engine,
+                        &octa::db::select_all_sql(
+                            conn.engine,
+                            origin.catalog.as_deref(),
+                            &origin.schema,
+                            &origin.table,
+                        ),
+                        page_rows,
+                        skip_rows,
+                    );
+                    std::thread::spawn(move || {
+                        let _done = crate::app::flag_guard::FlagOnDrop::new(done_flag, true);
+                        let _load = crate::app::flag_guard::FlagOnDrop::new(load_finished, true);
+                        let read =
+                            cache.with_conn(&conn, secret.as_deref(), ssh_secret.as_deref(), |c| {
+                                // Same reason as the sidebar open: `with_conn`
+                                // retries once, and after a Cancel that retry
+                                // would re-run the statement just stopped.
+                                if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                                    anyhow::bail!("{}", octa::i18n::t("db.load_cancelled"));
+                                }
+                                if let Ok(mut slot) = cancel_slot.lock() {
+                                    *slot = c.cancel_handle();
+                                }
+                                c.query(&sql)
+                            });
+                        match read {
+                            Ok(t) => {
+                                // A short page is the end of the table.
+                                if t.rows.len() < page_rows {
+                                    exhausted_flag
+                                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                                }
+                                if let Ok(mut buf) = buffer.lock() {
+                                    buf.extend(t.rows);
+                                }
+                            }
+                            Err(e) => {
+                                // Deliberately NOT `exhausted`: this page
+                                // failed or was cancelled, which says nothing
+                                // about whether the server still holds rows.
+                                // Claiming otherwise would retire the tab's
+                                // "+" and report a partial table as complete.
+                                // `bg_can_load_more` is already false, so
+                                // nothing retries on its own; reopen the table
+                                // to try again.
+                                if let Ok(mut p) = pending.lock() {
+                                    p.push(super::db_browser::DbOpenResult::Failed(format!(
+                                        "{} {failure_label}: {e:#}",
+                                        octa::i18n::t("db.page_failed")
+                                    )));
+                                }
+                                repaint.request_repaint();
+                            }
+                        }
+                    });
+                } else {
+                    // The connection was deleted while the tab was open.
+                    exhausted_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                    done_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            } else if let Some(ref source_path) = tab.table.source_path.clone() {
                 let path = std::path::PathBuf::from(source_path);
                 let format_name = tab.table.format_name.clone().unwrap_or_default();
                 let num_cols = tab.table.col_count();
@@ -1141,12 +1298,16 @@ impl OctaApp {
                         if let Err(e) = formats::csv_reader::load_csv_rows_chunk(
                             &path,
                             delimiter,
-                            skip_rows,
-                            max_chunk,
-                            num_cols,
-                            buffer,
-                            done_flag,
-                            exhausted_flag,
+                            formats::csv_reader::ChunkSpec {
+                                skip_rows,
+                                max_rows: max_chunk,
+                                num_cols,
+                            },
+                            formats::csv_reader::ChunkSink {
+                                buffer,
+                                done: done_flag,
+                                exhausted: exhausted_flag,
+                            },
                         ) {
                             eprintln!("Background CSV loading error: {}", e);
                         }
@@ -1188,33 +1349,52 @@ fn is_success_message(msg: &str) -> bool {
 
 /// How long a status message stays on screen.
 ///
-/// Failures get a minute rather than ten seconds: the user has to read it,
-/// often select it, and right-click Copy, and ten seconds is not enough for
-/// that. Confirmations and easter eggs keep the short fade, since re-reading
-/// "Saved" has no value.
-fn message_lifetime_secs(msg: &str) -> u64 {
-    if is_success_message(msg) || msg.starts_with('\u{1f419}') {
-        10
-    } else {
-        60
-    }
-}
-
 #[cfg(test)]
 mod status_message_tests {
     use super::*;
+    use octa::ui::settings::{AppSettings, MIN_STATUS_MESSAGE_SECS};
 
+    /// Every message now gets the same span. Failures used to get 60s against
+    /// 10s for confirmations so an error could be read and copied; that is the
+    /// hover pause's job now, and the split is gone deliberately. This test
+    /// exists so bringing it back is a conscious act, not a quiet regression.
     #[test]
-    fn failures_outlive_confirmations() {
-        assert_eq!(message_lifetime_secs("Saved data.csv"), 10);
-        assert_eq!(message_lifetime_secs("\u{1f419} the kraken stirs"), 10);
-        assert_eq!(message_lifetime_secs("Could not write: HTTP 403"), 60);
+    fn every_message_gets_the_same_lifetime() {
+        let s = AppSettings::default();
+        assert_eq!(s.status_message_duration().as_secs(), 10);
     }
 
-    /// Anything unrecognised is a failure, so it lingers rather than flashing.
+    /// The setting has no "off": a message that never expires covers the
+    /// status bar until restart.
     #[test]
-    fn an_unknown_message_is_treated_as_a_failure() {
-        assert_eq!(message_lifetime_secs(""), 60);
+    fn the_timeout_cannot_be_disabled() {
+        for secs in [0, 1, 2] {
+            let s = AppSettings {
+                status_message_secs: secs,
+                ..Default::default()
+            };
+            assert_eq!(
+                s.status_message_duration().as_secs(),
+                MIN_STATUS_MESSAGE_SECS,
+                "{secs}s should be floored"
+            );
+        }
+    }
+
+    /// A longer value is honoured as written.
+    #[test]
+    fn a_longer_timeout_is_kept() {
+        let s = AppSettings {
+            status_message_secs: 45,
+            ..Default::default()
+        };
+        assert_eq!(s.status_message_duration().as_secs(), 45);
+    }
+
+    /// The colour still depends on the message; only the lifetime is uniform.
+    #[test]
+    fn colour_classification_is_unchanged() {
+        assert!(is_success_message("Saved data.csv"));
         assert!(!is_success_message("Could not save"));
     }
 }

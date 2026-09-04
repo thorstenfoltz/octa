@@ -249,11 +249,13 @@ impl OctaApp {
                         query,
                         mode,
                         max_file_bytes,
-                        results,
-                        scanned,
-                        cancel,
-                        last_error,
-                        skipped,
+                        WorkerChannels {
+                            results,
+                            scanned,
+                            cancel,
+                            last_error,
+                            skipped,
+                        },
                     );
                 });
                 self.multi_search.handle = Some(handle);
@@ -339,10 +341,14 @@ impl OctaApp {
         self.drain_finished_multi_search();
 
         let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
+        // Leave the table something to live in once the window is small;
+        // `panel_fit::clamp` is a no-op on a normal window.
+        let (default_size, min_size) =
+            octa::ui::panel_fit::clamp(parent_ui.available_height(), 220.0, 140.0);
         egui::Panel::bottom("multi_search_panel")
             .resizable(true)
-            .default_size(220.0)
-            .min_size(140.0)
+            .default_size(default_size)
+            .min_size(min_size)
             .show(parent_ui, |ui| {
                 let mut run_clicked = false;
                 let mut cancel_clicked = false;
@@ -655,18 +661,35 @@ fn collect_directory_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
         .collect())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn directory_worker(
-    files: Vec<PathBuf>,
-    query: String,
-    mode: SearchMode,
-    max_file_bytes: u64,
+/// The shared state a multi-search worker reports into, as one argument.
+///
+/// These five handles are always created, cloned and passed together: they are
+/// the worker's whole connection back to the UI thread. Bundling them keeps
+/// `directory_worker` inside clippy's argument budget without an `#[allow]`,
+/// and means adding a sixth channel is a named field rather than one more
+/// positional `Arc` in a row of them.
+struct WorkerChannels {
     results: Arc<Mutex<Vec<MultiSearchHit>>>,
     scanned: Arc<AtomicUsize>,
     cancel: Arc<AtomicBool>,
     last_error: Arc<Mutex<Option<String>>>,
     skipped: Arc<Mutex<Vec<SkippedFile>>>,
+}
+
+fn directory_worker(
+    files: Vec<PathBuf>,
+    query: String,
+    mode: SearchMode,
+    max_file_bytes: u64,
+    channels: WorkerChannels,
 ) {
+    let WorkerChannels {
+        results,
+        scanned,
+        cancel,
+        last_error,
+        skipped,
+    } = channels;
     let matcher = data::search::RowMatcher::new(&query, mode);
     if matches!(matcher, data::search::RowMatcher::Invalid) {
         if let Ok(mut e) = last_error.lock() {

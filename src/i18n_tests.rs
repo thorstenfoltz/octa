@@ -64,6 +64,35 @@ fn every_language_covers_every_english_key() {
     }
 }
 
+/// Keys whose text carries a `{...}` placeholder the code substitutes. A
+/// translation that drops one produces a message with a hole in it - a prompt
+/// that never names the file, a status line that never names the path - and
+/// nothing else would notice.
+const PLACEHOLDERS: &[(&str, &str)] = &[
+    ("chat.explain_prompt", "{file}"),
+    ("chat.usage", "{in}"),
+    ("pdf.pages", "{n}"),
+    ("pdf.written", "{path}"),
+    ("pdf.failed", "{error}"),
+    ("transpose.too_many_rows", "{n}"),
+];
+
+#[test]
+fn every_translation_keeps_its_placeholders() {
+    let _g = LANG_LOCK.lock().unwrap();
+    for (lang, _) in LANGUAGES {
+        set_language(lang);
+        for (key, placeholder) in PLACEHOLDERS {
+            let text = t(key);
+            assert!(
+                text.contains(placeholder),
+                "[{lang}] {key} lost its {placeholder} placeholder: {text:?}"
+            );
+        }
+    }
+    set_language("en");
+}
+
 /// Locales written in a non-Latin script, with a character range that any
 /// real translation in that language must contain.
 const NON_LATIN_SCRIPTS: &[(&str, [char; 2])] = &[
@@ -251,6 +280,8 @@ const OPENS_SOMETHING: &[&str] = &[
     "analyse_menu.pivot",
     "analyse_menu.timeseries",      // dialog
     "analyse_menu.correlation",     // dialog
+    "distcmp.menu",                 // dialog
+    "refint.menu",                  // dialog
     "analyse_menu.multi_sort",      // dialog
     "analyse_menu.random_sample",   // dialog
     "analyse_menu.value_frequency", // dialog
@@ -259,6 +290,9 @@ const OPENS_SOMETHING: &[&str] = &[
     "help_menu.about",              // window
     "help_menu.check_updates",      // window
     "ai_report.menu",               // window
+    "analyse_menu.row_compare",
+    "file_menu.export_pdf",
+    "context_menu.export_pdf",
 ];
 
 /// Menu entries that just do the thing, in place: no tab, no window, nothing to
@@ -277,6 +311,10 @@ const JUST_EXECUTES: &[&str] = &[
     "view_menu.record",    // switches view mode in place
     "view_menu.reopen_as", // re-reads the file in place
     "view_menu.readonly",
+    "view_menu.split",      // toggles the second row band in place
+    "view_menu.split_side", // same, side by side
+    "view_menu.add_pane",   // one more band, in place
+    "view_menu.remove_pane",
     "view_menu.zoom_reset",
     "search_menu.find",
     "search_menu.find_replace",
@@ -284,6 +322,7 @@ const JUST_EXECUTES: &[&str] = &[
     "analyse_menu.cleanup",     // toggles a docked panel
     "analyse_menu.sql",         // toggles a docked panel
     "analyse_menu.assistant",   // toggles a docked panel
+    "chat.explain",             // opens the docked chat panel and sends
     "diagnostics.menu_export",  // writes the report and reveals it
 ];
 
@@ -316,4 +355,44 @@ fn menu_ellipsis_means_something_opens() {
         }
     }
     set_language("en");
+}
+
+/// egui's bundled font has no glyph for typographic punctuation, so an em
+/// dash, en dash, arrow or ellipsis character in a UI string paints as a
+/// tofu box on the one screen the reader is looking at. Octa's prose rule
+/// bans em dashes outright and asks for `...` rather than a single-character
+/// ellipsis, so this holds every catalogue to what the English one already
+/// does. 174 of these had crept into nine locales before the test existed.
+///
+/// Script punctuation is deliberately NOT on this list: the Korean
+/// interpunct in `가운뎃점` lists and the Greek ano teleia are letters'
+/// company, not decoration, and replacing them would damage the sentence.
+#[test]
+fn locales_carry_no_typographic_punctuation() {
+    const TOFU: [(char, &str); 4] = [
+        ('\u{2014}', "em dash, write '-'"),
+        ('\u{2013}', "en dash, write '-'"),
+        ('\u{2192}', "arrow, write '->'"),
+        ('\u{2026}', "ellipsis, write '...'"),
+    ];
+    let cat = catalog();
+    let mut offenders: Vec<String> = Vec::new();
+    for (lang, _) in LANGUAGES {
+        let map = cat
+            .get(*lang)
+            .unwrap_or_else(|| panic!("missing locale {lang}"));
+        for (key, value) in map {
+            for (ch, advice) in TOFU {
+                if value.contains(ch) {
+                    offenders.push(format!("[{lang}] {key}: {advice} - {value:?}"));
+                }
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "{} UI string(s) carry punctuation egui renders as tofu:\n{}",
+        offenders.len(),
+        offenders.join("\n")
+    );
 }

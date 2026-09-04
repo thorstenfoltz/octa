@@ -78,6 +78,17 @@ impl PostgresConnector {
             .dbname(&conn.database)
             .user(&conn.username)
             .password(&password);
+        // Through a jump host the socket goes to the loopback forward while
+        // `host` stays the database's own name. tokio-postgres validates the
+        // certificate against `host` and dials `hostaddr`, so a tunnelled
+        // connection verifies TLS exactly as a direct one does.
+        if conn.is_tunnelled() {
+            let (dial_host, dial_port) = conn.dial_target();
+            let addr: std::net::IpAddr = dial_host
+                .parse()
+                .context("the SSH tunnel's local address is not an IP")?;
+            cfg.hostaddr(addr).port(dial_port);
+        }
         let tls = tokio_postgres_rustls::MakeRustlsConnect::new(super::rustls_client_config());
         let (client, connection) = runtime().block_on(cfg.connect(tls)).with_context(|| {
             format!(

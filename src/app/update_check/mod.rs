@@ -70,9 +70,14 @@ fn fetch_sha256sums(new_version: &str) -> Option<String> {
 }
 
 /// Verify a downloaded release archive against the release's SHA256SUMS.
-/// When the file is absent (older releases) the update proceeds with a
-/// logged warning; when it is present, a missing entry or a hash mismatch
-/// aborts the update - a wrong checksum is exactly the tamper signal.
+/// An unreachable checksum file, a missing entry or a hash mismatch all abort
+/// the update.
+///
+/// Absence used to be tolerated with a logged warning, for releases published
+/// before checksums shipped. That made the check opt-out by accident: the one
+/// state an attacker can force is "no checksum file", so the weakest release on
+/// the server decided whether verification happened at all. Every supported
+/// release carries SHA256SUMS, so failing here costs nothing and closes that.
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn verify_archive_checksum(
     new_version: &str,
@@ -80,10 +85,10 @@ fn verify_archive_checksum(
     bytes: &[u8],
 ) -> Result<(), String> {
     let Some(text) = fetch_sha256sums(new_version) else {
-        eprintln!(
-            "octa: SHA256SUMS not found for release {new_version}; skipping checksum verification."
-        );
-        return Ok(());
+        return Err(format!(
+            "Checksum verification failed: SHA256SUMS could not be fetched for release \
+{new_version}. Aborting update; download it manually from the releases page instead."
+        ));
     };
     let sums = parse_sha256sums(&text);
     let Some(expected) = sums.get(archive_name) else {

@@ -94,5 +94,6 @@ fn build_analysis_table(a: &UniqueAnalysis) -> DataTable {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }

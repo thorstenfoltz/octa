@@ -260,6 +260,7 @@ impl FormatReader for DuckDbReader {
                 original,
                 original_columns,
             }),
+            formulas: std::collections::HashMap::new(),
         })
     }
 }

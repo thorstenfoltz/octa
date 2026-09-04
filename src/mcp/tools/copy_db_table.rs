@@ -82,12 +82,14 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let src_secret = ctx.db_secret(&src_conn);
     let tgt_secret = ctx.db_secret(&tgt_conn);
     let source = octa::db::copy::DbCopyEnd {
+        ssh_secret: ctx.db_ssh_secret(&src_conn),
         conn: src_conn,
         catalog: p.source_catalog.clone(),
         schema: p.source_schema.clone(),
         table: p.source_table.clone(),
     };
     let target = octa::db::copy::DbCopyEnd {
+        ssh_secret: ctx.db_ssh_secret(&tgt_conn),
         conn: tgt_conn,
         catalog: p.target_catalog.clone(),
         schema: target_schema.clone(),
@@ -99,6 +101,8 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         &target,
         tgt_secret.as_deref(),
         mode,
+        // No terminal to report into: the tool answers with the row count.
+        &|_| {},
     )?;
     Ok(json!({
         "source": format!("{}.{} @ {}", source.schema, source.table, source.conn.name),
@@ -136,6 +140,11 @@ mod tests {
             allow_writes,
             oauth_client_id: None,
             oauth_tenant: None,
+            athena_workgroup: None,
+            athena_output_location: None,
+            ssh: None,
+            query_timeout_secs: octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
+            tunnel_port: None,
         }
     }
 

@@ -53,7 +53,7 @@ Read-only, and kept when the server runs with `--mcp-read-only`.
 
 `enforced` is the field to read before you trust an edge:
 
-- Postgres, MySQL, SQL Server and Exasol **enforce** their foreign keys,
+- Postgres, MySQL, SQL Server, Oracle and Exasol **enforce** their foreign keys,
   so an edge from those servers is true of the rows as well.
 - Redshift, Snowflake, Databricks and BigQuery **accept a declaration and
   enforce nothing**. A child value pointing at a parent that does not

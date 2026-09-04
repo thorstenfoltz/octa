@@ -401,6 +401,7 @@ fn synthetic_table(headers: &[String], rows: Vec<Vec<String>>) -> octa::data::Da
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }
 

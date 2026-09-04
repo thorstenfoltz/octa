@@ -387,6 +387,36 @@ fn tool_calls_read_the_file_and_run_sql() {
     assert_eq!(rows[1][0].as_str(), Some("Tokyo"));
     assert_eq!(rows[1][1].as_str(), Some("40"));
 
+    // Distribution comparison over the wire. The fixture is tiny, so the
+    // engine's own floor answers rather than a verdict - which is the
+    // response shape a client has to handle, and the one worth pinning.
+    let dist = call_payload(&server.ok_request(
+        4,
+        "tools/call",
+        json!({
+            "name": "compare_distributions",
+            "arguments": { "path": csv, "column": "amount", "column_b": "amount" },
+        }),
+    ));
+    assert_eq!(
+        dist["skipped"],
+        json!("na_too_few_values"),
+        "unexpected shape: {dist}"
+    );
+
+    // Referential integrity over the wire, as a self-reference: every id
+    // matches itself, so `clean` is true and the orphan list is empty.
+    let refs = call_payload(&server.ok_request(
+        5,
+        "tools/call",
+        json!({
+            "name": "check_references",
+            "arguments": { "path": csv, "parent_column": "id", "child_column": "id" },
+        }),
+    ));
+    assert_eq!(refs["clean"], json!(true), "unexpected shape: {refs}");
+    assert_eq!(refs["orphan_rows"], json!(0));
+
     // The two time-series tools: same builders as the GUI dialog and the
     // CLI flags, reached over the wire.
     let ts = dir.path().join("ts.csv").to_string_lossy().into_owned();
@@ -1080,4 +1110,106 @@ fn walk_docs(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
         }
     }
     out
+}
+
+/// `--mcp-tools` on the wire: the advertised list is exactly what was asked
+/// for, and a call to something left out is refused rather than silently
+/// working.
+#[test]
+fn a_tool_filter_shapes_the_advertised_list() {
+    let dir = fixture_dir();
+    let mut server = Server::start(
+        &dir.path().join("config"),
+        &["--mcp-tools", "core,databases"],
+    );
+    server.handshake();
+
+    let listed = server.ok_request(2, "tools/list", json!({}));
+    let names: Vec<&str> = listed["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|t| t["name"].as_str())
+        .collect();
+
+    for kept in [
+        "read_table",
+        "run_sql",
+        "schema",
+        "query_db",
+        "list_db_tables",
+    ] {
+        assert!(
+            names.contains(&kept),
+            "`{kept}` was asked for but is not advertised: {names:?}"
+        );
+    }
+    for dropped in ["fuzzy_join", "detect_pii", "list_objects", "write_table"] {
+        assert!(
+            !names.contains(&dropped),
+            "`{dropped}` was not asked for but is advertised"
+        );
+    }
+
+    let refused = server.request(
+        3,
+        "tools/call",
+        json!({ "name": "detect_pii", "arguments": { "path": "x.csv" } }),
+    );
+    assert_call_failed(&refused, "calling a tool left out by --mcp-tools");
+}
+
+/// The server's own `instructions` name the tools, and a client reads them as
+/// the truth. They have to follow the filter, or the model is told about tools
+/// it cannot call.
+#[test]
+fn the_instructions_name_only_the_advertised_tools() {
+    let dir = fixture_dir();
+    let mut server = Server::start(&dir.path().join("config"), &["--mcp-tools", "core"]);
+    let init = server.handshake();
+    let instructions = init["instructions"].as_str().expect("instructions");
+
+    assert!(instructions.contains("read_table"), "{instructions}");
+    for dropped in ["fuzzy_join", "detect_pii", "write_table"] {
+        assert!(
+            !instructions.contains(dropped),
+            "`{dropped}` is not advertised but the instructions mention it"
+        );
+    }
+}
+
+/// `--mcp-without` is the other direction, and the two combine.
+#[test]
+fn without_removes_from_what_is_left() {
+    let dir = fixture_dir();
+    let mut server = Server::start(
+        &dir.path().join("config"),
+        &["--mcp-tools", "core", "--mcp-without", "run_sql"],
+    );
+    server.handshake();
+
+    let listed = server.ok_request(2, "tools/list", json!({}));
+    let names: Vec<&str> = listed["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|t| t["name"].as_str())
+        .collect();
+    assert!(names.contains(&"read_table"));
+    assert!(!names.contains(&"run_sql"), "explicitly removed");
+}
+
+/// A typo stops the server instead of starting one with the wrong surface.
+#[test]
+fn an_unknown_group_is_refused_at_startup() {
+    let dir = fixture_dir();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_octa"))
+        .args(["--mcp", "--mcp-tools", "kwality"])
+        .env("OCTA_CONFIG_DIR", dir.path().join("config"))
+        .output()
+        .expect("run octa");
+    assert!(!out.status.success(), "a bad group must not start a server");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("kwality"), "{err}");
+    assert!(err.contains("quality"), "the valid names are listed: {err}");
 }

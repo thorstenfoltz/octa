@@ -2,39 +2,41 @@
 //! handles, and the right-click context menu. Split out of [`super`] (the
 //! 2,300-line table_view.rs) for navigability; no behaviour change.
 
-use std::collections::HashSet;
-
 use egui::{Align2, Color32, CursorIcon, RichText, Sense, Ui, Vec2};
 
-use crate::data::{BinaryDisplayMode, DataTable, MarkKey};
-use crate::ui::theme::ThemeColors;
+use crate::data::{DataTable, MarkKey};
 
 use super::{
-    COL_INDEX_HEIGHT, DEFAULT_COL_WIDTH, HEADER_HEIGHT, MIN_COL_WIDTH, NumFmtCtx,
-    RESIZE_HANDLE_WIDTH, SORT_ARROW_SIZE, TableInteraction, TableViewState, col_index_letter,
-    compute_optimal_col_width, mark_submenu,
+    COL_INDEX_HEIGHT, DEFAULT_COL_WIDTH, HEADER_HEIGHT, MIN_COL_WIDTH, RESIZE_HANDLE_WIDTH,
+    SORT_ARROW_SIZE, TableInteraction, TableViewState, col_index_letter, compute_optimal_col_width,
+    mark_submenu,
 };
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_header_direct(
     ui: &mut Ui,
     painter: &egui::Painter,
     table: &DataTable,
     state: &mut TableViewState,
-    colors: &ThemeColors,
-    left_x: f32,
-    top_y: f32,
-    panel_rect: egui::Rect,
     interaction: &mut TableInteraction,
-    font_size: f32,
-    filtered_rows: &[usize],
-    binary_display_mode: BinaryDisplayMode,
-    filtered_columns: &HashSet<usize>,
-    hidden_columns: &HashSet<usize>,
-    num_fmt: NumFmtCtx<'_>,
-    frozen_cols: usize,
-    frozen_width: f32,
+    cx: &super::PaintCtx<'_>,
 ) {
+    // Destructured so the body keeps the names it already used.
+    let super::PaintCtx {
+        colors,
+        left_x,
+        top_y,
+        panel_rect,
+        font_size,
+        filtered_rows,
+        binary_display_mode,
+        filtered_columns,
+        hidden_columns,
+        num_fmt,
+        frozen_cols,
+        frozen_width,
+        ..
+    } = *cx;
+    let colors = &colors;
     let rn_rect = egui::Rect::from_min_size(
         egui::pos2(left_x, top_y),
         Vec2::new(state.row_number_width, HEADER_HEIGHT),

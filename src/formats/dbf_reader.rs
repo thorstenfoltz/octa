@@ -65,6 +65,7 @@ impl FormatReader for DbfReader {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             db_meta: None,
+            formulas: std::collections::HashMap::new(),
         })
     }
 
@@ -164,8 +165,8 @@ fn build_writer_for(
             // i64/u64 don't fit in DBF Integer (i32) - store as wide Numeric.
             "Int64" | "UInt64" => builder.add_numeric_field(field_name, 20, 0),
             "Float32" | "Float64" => builder.add_numeric_field(field_name, 20, 8),
-            "Date" => builder.add_date_field(field_name),
-            "DateTime" => builder.add_datetime_field(field_name),
+            t if is_date(t) => builder.add_date_field(field_name),
+            t if is_datetime(t) => builder.add_datetime_field(field_name),
             "Binary" => {
                 return Err(anyhow!(
                     "DBF cannot store Binary columns (column '{}')",
@@ -212,8 +213,8 @@ fn cell_to_field_value(cell: &CellValue, data_type: &str) -> FieldValue {
     match cell {
         CellValue::Null => match data_type {
             "Boolean" => FieldValue::Logical(None),
-            "Date" => FieldValue::Date(None),
-            "DateTime" => FieldValue::DateTime(default_datetime()),
+            t if is_date(t) => FieldValue::Date(None),
+            t if is_datetime(t) => FieldValue::DateTime(default_datetime()),
             t if int_field(t) => FieldValue::Integer(0),
             "Int64" | "UInt64" | "Float32" | "Float64" => FieldValue::Numeric(None),
             _ => FieldValue::Character(None),
@@ -233,6 +234,30 @@ fn cell_to_field_value(cell: &CellValue, data_type: &str) -> FieldValue {
         CellValue::Binary(_) => FieldValue::Character(None),
         CellValue::Nested(s) => FieldValue::Character(Some(s.clone())),
     }
+}
+
+/// Whether `t` names a date column.
+///
+/// The field declared in the header and the value written into it are decided
+/// in two different places, and they have to agree. They did not: the header
+/// matched the literal string `"Date"` while the value came from the
+/// `CellValue` variant, so a table whose dates were inferred on load - those
+/// columns are spelled `Date32` - declared a Character field and then wrote a
+/// Date into it, which `dbase` rejects. Routing the name through the one
+/// function that knows every spelling Octa uses keeps the two ends together.
+fn is_date(t: &str) -> bool {
+    matches!(
+        crate::formats::parquet_reader::data_type_from_string(t),
+        arrow::datatypes::DataType::Date32 | arrow::datatypes::DataType::Date64
+    )
+}
+
+/// Whether `t` names a timestamp column. See [`is_date`].
+fn is_datetime(t: &str) -> bool {
+    matches!(
+        crate::formats::parquet_reader::data_type_from_string(t),
+        arrow::datatypes::DataType::Timestamp(_, _)
+    )
 }
 
 fn int_field(t: &str) -> bool {

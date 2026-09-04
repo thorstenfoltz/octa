@@ -51,6 +51,18 @@ pub enum CleanupKind {
     /// Text decoded with the wrong character set and stored as valid UTF-8,
     /// so `Ã¤` appears where `ä` belongs. Fixed directly.
     Mojibake,
+    /// Every row carries the same value, so the column distinguishes nothing.
+    /// Fixed directly (drop the column), like [`CleanupKind::EmptyColumn`].
+    ConstantColumn,
+    /// Numbers wearing a unit (`1.2k`, `EUR 4,00`, `12 kg`, `45%`), which sort
+    /// alphabetically and refuse to sum. **Opens a dialog**: how to split them
+    /// is the user's call, and nothing here is ever done silently.
+    UnitsOrCurrency {
+        /// `magnitude` / `currency` / `unit` / `percent`, for the wording.
+        flavour: String,
+        /// The dominant unit, empty for a magnitude column.
+        unit: String,
+    },
 }
 
 /// One suggested fix.
@@ -213,6 +225,29 @@ pub fn suggest_cleanups(
             continue;
         }
 
+        // One value the whole way down: the column separates nothing, and a
+        // filter or a group-by over it answers the same thing every time.
+        //
+        // **Nulls do not count as the value.** A column of 900 `active` and
+        // 100 nulls is not constant, it is a column with missing values, and
+        // the suggestion for that one is already below. Requiring every row to
+        // carry the value keeps the two apart.
+        if null_count == 0
+            && cells.len() > 1
+            && let Some(first) = non_null.first()
+            && non_null.iter().all(|c| c == first)
+        {
+            out.push(Suggestion {
+                kind: CleanupKind::ConstantColumn,
+                column: Some(col),
+                affected: cells.len(),
+                severity: Severity::Low,
+                detail: short(&first.to_string()),
+                examples: vec![short(&first.to_string())],
+            });
+            continue;
+        }
+
         // Whitespace. Examples are quoted so the offending spaces are visible;
         // an unquoted `Tokyo ` would look identical to a clean value.
         let mut ws = 0;
@@ -258,6 +293,37 @@ pub fn suggest_cleanups(
                     .examples
                     .iter()
                     .map(|(before, after)| format!("{} -> {}", short(before), short(after)))
+                    .collect(),
+            });
+        }
+
+        // Numbers wearing a unit. Detection only - the split is a question,
+        // not a fix, so this opens a dialog rather than changing anything.
+        // Runs before the numeric-cast check below, since a `12 kg` column is
+        // not castable and would otherwise produce no suggestion at all.
+        let as_text: Vec<Option<&str>> = non_null
+            .iter()
+            .map(|c| match c {
+                CellValue::String(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect();
+        if let Some(d) = crate::data::units::detect_column(&as_text) {
+            out.push(Suggestion {
+                kind: CleanupKind::UnitsOrCurrency {
+                    flavour: d.flavour.id().to_string(),
+                    unit: d.unit.clone(),
+                },
+                column: Some(col),
+                affected: d.matched,
+                severity: Severity::Medium,
+                detail: d.matched.to_string(),
+                examples: as_text
+                    .iter()
+                    .flatten()
+                    .filter(|v| crate::data::units::parse_value(v).is_some())
+                    .take(3)
+                    .map(|v| short(v))
                     .collect(),
             });
         }

@@ -150,6 +150,30 @@ fn every_file_action_runs_and_prints_its_header() {
             vec!["--compare-schemas", &a, &b],
             "status\tcolumn\ttype_a\ttype_b",
         ),
+        (
+            vec![
+                "--compare-distributions",
+                &a,
+                "--dist-column",
+                "amount",
+                "--dist-column-b",
+                "amount",
+            ],
+            "field\tvalue",
+        ),
+        (
+            // A self-reference that holds: every id matches itself, so this
+            // stays in the exit-0 set. The failing direction is its own test.
+            vec![
+                "--check-references",
+                &a,
+                "--parent-column",
+                "id",
+                "--child-column",
+                "id",
+            ],
+            "child\tkey_value\trows",
+        ),
         (vec!["--diff", &a, &b], "status\tid\tcity\tamount"),
         (
             vec!["--diff", &a, &b, "--diff-mode", "ordered"],
@@ -1327,4 +1351,46 @@ fn stream_warns_when_the_action_cannot_use_it() {
         "an ignored flag must say so; stderr was:\n{}",
         run.stderr
     );
+}
+
+/// Every shell `--completions` advertises produces a script and exits 0.
+///
+/// The scripts come from clap's derive, so this does not test clap; it tests
+/// that the flag is still wired to a handler and that each shell clap knows
+/// about actually renders. The per-shell marker keeps it honest: an empty
+/// stdout with a zero exit would otherwise pass.
+#[test]
+fn completions_render_for_every_shell() {
+    let fx = Fx::new();
+    let cases = [
+        ("bash", "_octa()"),
+        ("zsh", "#compdef octa"),
+        ("fish", "complete -c octa"),
+        ("powershell", "Register-ArgumentCompleter"),
+        ("elvish", "edit:completion:arg-completer"),
+    ];
+    for (shell, marker) in cases {
+        let run = fx.run(&["--completions", shell]);
+        run.ok(&format!("--completions {shell}"));
+        assert!(
+            run.stdout.contains(marker),
+            "--completions {shell} did not look like a {shell} script:\n{}",
+            run.stdout
+        );
+        // The script has to know about the flags, or it completes nothing.
+        assert!(
+            run.stdout.contains("--schema"),
+            "--completions {shell} did not mention --schema"
+        );
+    }
+}
+
+/// An unknown shell is a parse error naming the ones that exist, not a
+/// silently empty script.
+#[test]
+fn completions_reject_an_unknown_shell() {
+    let fx = Fx::new();
+    let run = fx.run(&["--completions", "tcsh"]);
+    assert_eq!(run.code, Some(2), "stderr:\n{}", run.stderr);
+    assert!(run.stderr.contains("zsh"), "stderr:\n{}", run.stderr);
 }

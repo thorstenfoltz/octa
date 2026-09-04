@@ -1,6 +1,6 @@
 # Supported Formats
 
-Octa reads ~25 file formats out of the box. Most are also writable.
+Octa reads ~35 file formats out of the box. Most are also writable.
 Unknown extensions fall back to the plain-text reader so you can
 always open *something*.
 
@@ -10,8 +10,8 @@ always open *something*.
 |-------------------------------|----------------------------------------------------|:----:|:-----:|
 | **Parquet**                   | `.parquet`                                         |  ✅   |   ✅   |
 | **CSV / TSV**                 | `.csv`, `.tsv`                                     |  ✅   |   ✅   |
-| **JSON**                      | `.json`                                            |  ✅   |   ✅   |
-| **JSON Lines**                | `.jsonl`, `.ndjson`                                |  ✅   |   ✅   |
+| **JSON**                      | `.json`                                            |  ✅   |  ✅ †  |
+| **JSON Lines**                | `.jsonl`, `.ndjson`                                |  ✅   |  ✅ †  |
 | **Excel**                     | `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.xlm`          |  ✅   |  ✅ *  |
 | **ODS**                       | `.ods`                                             |  ✅   |   ✅   |
 | **Arrow IPC / Feather**       | `.arrow`, `.feather`                               |  ✅   |   ✅   |
@@ -28,11 +28,13 @@ always open *something*.
 | **Stata**                     | `.dta`                                             |  ✅   |   ✅   |
 | **R Datasets**                | `.rds`, `.rdata`, `.rda`                           |  ✅   |   ❌   |
 | **DBF / dBase**               | `.dbf`                                             |  ✅   |   ✅   |
-| **XML**                       | `.xml`                                             |  ✅   |   ✅   |
-| **TOML**                      | `.toml`                                            |  ✅   |   ✅   |
-| **YAML**                      | `.yaml`, `.yml`                                    |  ✅   |   ✅   |
+| **XML**                       | `.xml`                                             |  ✅   |  ✅ †  |
+| **TOML**                      | `.toml`                                            |  ✅   |  ✅ †  |
+| **YAML**                      | `.yaml`, `.yml`                                    |  ✅   |  ✅ †  |
 | **Jupyter notebook**          | `.ipynb`                                           |  ✅   |   ✅   |
 | **Markdown**                  | `.md`, `.markdown`, `.mdown`, `.mkd`               |  ✅   |   ✅   |
+| **HTML**                      | `.html`, `.htm`                                    |  ✅   |   ❌   |
+| **SQL dump**                  | `.sql` (opt-in, see below)                         |  ✅   |   ❌   |
 | **EPUB**                      | `.epub`                                            |  ✅   |   ❌   |
 | **GeoJSON**                   | `.geojson`                                         |  ✅   |   ❌   |
 | **Shapefile**                 | `.shp` (+ sibling `.dbf`, `.shx`)                  |  ✅   |   ❌   |
@@ -54,7 +56,49 @@ Octa.
 See [Saving](../usage/saving.md#database-files-sqlite-duckdb-geopackage)
 for details.
 
+† **Nested documents flatten.** See
+[Round-trip fidelity](#round-trip-fidelity) below.
+
 ## Caveats and limitations by format
+
+### Round-trip fidelity
+
+Reading and writing a format does not by itself mean opening a file and
+saving it gives you the file you started with.
+
+Octa's working model is a flat table of typed cells. Whatever a format
+carries beyond that is kept only where the reader and writer were built
+as a matching pair. Where they were, it is deliberate and documented:
+
+- **Excel** keeps cell formatting and formulas, both as opt-in write
+  options. See [Write options](../usage/saving.md#write-options).
+- **Jupyter notebooks** keep cell outputs when you save an edited
+  notebook.
+- **Markdown, source code and plain text** open as one row per line and
+  are written back line for line, so editing prose or code in Octa is
+  lossless.
+- **SQLite, DuckDB and GeoPackage** are edited in place with a diff, so
+  everything you did not touch (other tables, indexes, views) stays as it
+  was.
+
+Where they were not, the loss is structural rather than a defect:
+
+- **JSON, JSON Lines, XML, TOML and YAML** are nested document formats,
+  and a table is not nested. Reading flattens nested objects into dotted
+  column names (`address.city`); writing emits a flat array of records,
+  or for XML a generic `<data><row>` document. Open a deeply nested
+  configuration file, save it, and you get a table of it, not the
+  original document. Use Octa to *inspect* those files, and a text editor
+  to edit their structure.
+- **Excel** always writes `.xlsx` structure, whatever the extension you
+  read (see the footnote above).
+- **SPSS** variable and value labels are read past, not carried: a `.sav`
+  written by Octa has the data and the column names, not the study
+  metadata the original carried.
+
+The rule of thumb: if the thing you care about is the rows and columns,
+Octa round-trips it. If the thing you care about is how the file was
+arranged around them, open it, look, and save it somewhere else.
 
 ### Streaming readers (large files OK)
 
@@ -143,6 +187,83 @@ value; a `.bson` file may hold several documents back-to-back (the
 shape `mongodump` writes), each becoming a row. Dates, ObjectIds
 and other BSON-specific values render in MongoDB's relaxed extended
 JSON form.
+
+### HTML
+
+Read-only. **Every `<table>` on the page becomes a table**, the way every
+sheet of a workbook does: they open in their own tabs, subject to the same
+auto-open cap and multi-select picker. A table with a `<caption>` is named
+after it; the rest are `Table 1`, `Table 2`, and so on.
+
+The parser is the same one browsers use, so the tag soup of a real page
+parses like a page rather than failing like a strict XML document. Three
+things worth knowing:
+
+- **`rowspan` and `colspan` are expanded into repeated cells.** A cell
+  spanning three columns becomes that value three times, because a grid
+  with holes cannot be sorted or filtered.
+- **A leading row of `<th>` becomes the header.** Without one the columns
+  are numbered.
+- **Nested tables are listed too**, and their text also stays in the cell
+  that holds them. A table whose cells hold nothing but another table is a
+  layout wrapper and is skipped, so an old-fashioned page does not turn
+  into a single enormous cell.
+
+Values arrive as text and are then promoted by the usual load passes, so a
+column of numbers is a number column and
+[dates are inferred](../reference/date-inference.md) as they are anywhere
+else.
+
+There is no separate download step: **File > Open URL** fetches the page
+and hands it straight to this reader, so a Wikipedia article opens as its
+tables. To see the markup itself instead, use **View > Reopen as > Text**.
+
+### SQL dump
+
+Read-only, and **off by default**. A `.sql` file opens as text, which is what
+it usually is. To read one as its tables instead, pick the reader by name:
+
+- **File > Open as > SQL dump** for a file that is not open yet, or
+- **View > Reopen as > SQL dump** for the one you are already looking at.
+
+Opening a `.sql` that turns out to hold `CREATE TABLE` and `INSERT INTO`
+statements says so in the status bar and points at the second of those, so the
+reader is one click away rather than something you have to already know about.
+
+`mysqldump`, `pg_dump` and `sqlite3 .dump` output all work. Rather than parse
+SQL, Octa scrubs the dialect-only spellings off each statement and replays the
+file into a scratch database in memory, then reads that the way it reads a
+`.sqlite` file. So a dump with six tables offers the same table picker any
+database file does, and the table you pick opens in the current tab if it is
+empty and in a new one otherwise, leaving the text you were reading open.
+
+What that handles, because real dumps are full of it: MySQL's conditional
+`/*!40101 ... */` comments, `AUTO_INCREMENT`, per-column `COLLATE`,
+`CHARACTER SET` and `COMMENT`, `enum(...)` columns, the `KEY` and `UNIQUE KEY`
+index clauses, `ENGINE=InnoDB DEFAULT CHARSET=...` table options,
+`DEFAULT current_timestamp()`, and backslash escapes inside strings. On the
+Postgres side: schema qualifiers (`public.orders` becomes `orders`),
+`timestamp with time zone`, the `\restrict` line newer `pg_dump` versions
+start with, and **`COPY ... FROM stdin` blocks**, which are how a default
+`pg_dump` writes its rows.
+
+**A statement that will not replay is skipped, not fatal.** Every dump is full
+of statements no other engine can run (`SET`, `LOCK TABLES`,
+`ALTER TABLE ... OWNER TO`), and refusing the file over them would help nobody.
+Only failures of statements that carry schema or data are counted, and when
+there are any, a dismissible banner says how many and quotes the first, so a
+half-imported table is never silent.
+
+Two limits worth knowing:
+
+- **512 MB.** The file is replayed into memory, so a bigger dump is refused
+  with a sentence rather than by filling the machine. Load a large dump into a
+  real database and connect to that instead.
+- **Read-only.** Octa is showing you a snapshot of the dump, not editing it.
+  Save As is how you keep a table.
+
+Asking for a reader by name is a menu, so this is the desktop app only: the
+command line and the MCP server read a `.sql` as the text it is.
 
 ### EPUB
 

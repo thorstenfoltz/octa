@@ -38,6 +38,9 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 }
                 octa::ui::settings::SecretPurge::Db(conn_id) => {
                     octa::ui::settings::db_secrets::delete_db_secret(&conn_id, &mut app.settings);
+                    // A deleted connection leaves nothing behind, its jump-host
+                    // credential included.
+                    octa::ui::settings::db_secrets::delete_ssh_secret(&conn_id, &mut app.settings);
                 }
             }
         }

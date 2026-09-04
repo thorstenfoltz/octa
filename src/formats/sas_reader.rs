@@ -1,11 +1,7 @@
 use crate::data::{CellValue, ColumnInfo, DataTable};
 use crate::formats::FormatReader;
 use anyhow::{Context, Result};
-use sas7bdat::{
-    OffsetDateTime, SasReader,
-    cell::CellValue as SasCell,
-    dataset::{Variable, VariableKind},
-};
+use sas7bdat::{CellValue as SasCell, ColumnMeta, Dataset, LogicalType};
 use std::path::Path;
 
 pub struct SasFormatReader;
@@ -22,25 +18,27 @@ impl FormatReader for SasFormatReader {
     }
 
     fn read_file(&self, path: &Path) -> Result<DataTable> {
-        let mut reader = SasReader::open(path)
+        let dataset = Dataset::open(path)
+            .map_err(sas_err)
             .with_context(|| format!("opening SAS file {}", path.display()))?;
 
-        let columns: Vec<ColumnInfo> = reader
-            .metadata()
-            .variables
+        let columns: Vec<ColumnInfo> = dataset
+            .columns()
             .iter()
-            .map(|v| ColumnInfo {
-                name: variable_name(v),
-                data_type: variable_type(v).to_string(),
+            .map(|c| ColumnInfo {
+                name: column_name(c),
+                data_type: logical_type_name(c.logical_type).to_string(),
             })
             .collect();
 
         let mut rows: Vec<Vec<CellValue>> = Vec::new();
-        for row in reader.rows()? {
-            let row = row?;
-            let cells: Vec<CellValue> = row.iter().map(sas_cell_to_octa).collect();
-            rows.push(cells);
-        }
+        dataset
+            .visit_rows(|row| {
+                rows.push(row.iter().map(sas_cell_to_octa).collect());
+                Ok(std::ops::ControlFlow::Continue(()))
+            })
+            .map_err(sas_err)
+            .with_context(|| format!("reading rows from SAS file {}", path.display()))?;
 
         Ok(DataTable {
             columns,
@@ -55,62 +53,66 @@ impl FormatReader for SasFormatReader {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             db_meta: None,
+            formulas: std::collections::HashMap::new(),
         })
     }
 }
 
-fn variable_name(v: &Variable) -> String {
-    let trimmed = v.name.trim_end();
+/// `sas7bdat::Error` implements `Display` but not `std::error::Error`, so it
+/// cannot cross an `anyhow` boundary on its own. Flatten it to a message here;
+/// the caller adds the `.context()` naming the file.
+fn sas_err(e: sas7bdat::Error) -> anyhow::Error {
+    anyhow::anyhow!("{e}")
+}
+
+fn column_name(c: &ColumnMeta) -> String {
+    let trimmed = c.name.trim_end();
     if trimmed.is_empty() {
-        format!("col_{}", v.index + 1)
+        format!("col_{}", c.index + 1)
     } else {
         trimmed.to_string()
     }
 }
 
-fn variable_type(v: &Variable) -> &'static str {
-    match v.kind {
-        VariableKind::Character => "Utf8",
-        VariableKind::Numeric => {
-            // SAS numerics are 8-byte doubles; we keep them as Float64 unless
-            // a date/datetime format is declared.
-            if let Some(fmt) = &v.format {
-                let name = fmt.name.to_ascii_uppercase();
-                if name.starts_with("DATETIME") || name.starts_with("E8601DT") {
-                    return "DateTime";
-                }
-                if name.starts_with("DATE")
-                    || name.starts_with("YYMMDD")
-                    || name.starts_with("MMDDYY")
-                    || name.starts_with("DDMMYY")
-                    || name.starts_with("E8601DA")
-                {
-                    return "Date";
-                }
-            }
-            "Float64"
-        }
+/// The reader used to classify date columns itself by matching SAS format-name
+/// prefixes (DATETIME/YYMMDD/MMDDYY/...). `LogicalType` now carries that
+/// decision, made from the format *and* the column's internal flags, so the
+/// hand-rolled prefix list is gone along with the formats it silently missed.
+fn logical_type_name(t: LogicalType) -> &'static str {
+    match t {
+        LogicalType::Integer => "Int64",
+        LogicalType::Float => "Float64",
+        LogicalType::String => "Utf8",
+        LogicalType::Date => "Date",
+        LogicalType::DateTime => "DateTime",
+        // Rendered as an HH:MM:SS string below, so report it as text rather
+        // than as the Float64 a TIME column used to fall through to.
+        LogicalType::Time => "Utf8",
+        LogicalType::Bytes => "Binary",
     }
 }
 
 fn sas_cell_to_octa(value: &SasCell<'_>) -> CellValue {
     match value {
-        SasCell::Float(f) => CellValue::Float(*f),
+        SasCell::Null => CellValue::Null,
         SasCell::Int32(i) => CellValue::Int(i64::from(*i)),
         SasCell::Int64(i) => CellValue::Int(*i),
-        SasCell::NumericString(s) => CellValue::String(s.as_ref().to_string()),
-        SasCell::Str(s) => {
-            let trimmed = s.trim_end();
-            CellValue::String(trimmed.to_string())
-        }
-        SasCell::Bytes(b) => CellValue::Binary(b.as_ref().to_vec()),
+        SasCell::Float64(f) => CellValue::Float(*f),
+        SasCell::Str(s) => CellValue::String(s.trim_end().to_string()),
+        SasCell::Bytes(b) => CellValue::Binary(b.to_vec()),
+        // `unix_days` / `unix_seconds` do the 1960 -> 1970 epoch shift for us
+        // (SasDate::DAYS_SAS_TO_UNIX = 3653, SasDateTime::SECONDS_SAS_TO_UNIX
+        // = 315_619_200), so chrono only has to format an ordinary timestamp.
+        SasCell::Date(d) => CellValue::Date(format_unix_secs(
+            i64::from(d.unix_days()) * 86_400,
+            "%Y-%m-%d",
+        )),
         SasCell::DateTime(dt) => {
-            CellValue::DateTime(format_offset_date_time(*dt, "%Y-%m-%d %H:%M:%S"))
+            CellValue::DateTime(format_unix_secs(dt.unix_seconds(), "%Y-%m-%d %H:%M:%S"))
         }
-        SasCell::Date(d) => CellValue::Date(format_offset_date_time(*d, "%Y-%m-%d")),
-        SasCell::Time(dur) => {
+        SasCell::Time(t) => {
             // Render as HH:MM:SS since midnight; spill negative or >24h into a string.
-            let total_secs = dur.whole_seconds();
+            let total_secs = i64::from(t.seconds_since_midnight);
             if (0..86_400).contains(&total_secs) {
                 let h = total_secs / 3600;
                 let m = (total_secs % 3600) / 60;
@@ -120,15 +122,12 @@ fn sas_cell_to_octa(value: &SasCell<'_>) -> CellValue {
                 CellValue::String(format!("{total_secs}s"))
             }
         }
-        SasCell::Missing(_) => CellValue::Null,
     }
 }
 
-fn format_offset_date_time(dt: OffsetDateTime, fmt: &str) -> String {
-    // chrono is the project's standard formatter; convert via Unix timestamp.
-    let secs = dt.unix_timestamp();
-    let nsecs = dt.nanosecond();
-    chrono::DateTime::from_timestamp(secs, nsecs)
+fn format_unix_secs(secs: i64, fmt: &str) -> String {
+    // chrono is the project's standard formatter.
+    chrono::DateTime::from_timestamp(secs, 0)
         .map(|cd| cd.format(fmt).to_string())
-        .unwrap_or_else(|| dt.to_string())
+        .unwrap_or_else(|| secs.to_string())
 }

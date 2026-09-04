@@ -279,20 +279,131 @@ fn write_text_outside_export_dir_is_refused_when_sandboxed() {
 
 #[test]
 fn tool_defs_for_filters_the_write_tools() {
-    let restricted = tool_defs_for(false);
-    for name in WRITE_TOOL_NAMES {
+    let none = BTreeSet::new();
+    let restricted = tool_defs_for(false, &none);
+    for name in write_tool_names() {
         assert!(
-            !restricted.iter().any(|d| d.name == *name),
+            !restricted.iter().any(|d| d.name == name),
             "{name} must be hidden without writes"
         );
     }
     // Every write tool actually names a registered tool (no typo drift).
-    let all = tool_defs_for(true);
-    for name in WRITE_TOOL_NAMES {
-        assert!(all.iter().any(|d| d.name == *name), "{name} unknown");
+    let all = tool_defs_for(true, &none);
+    for name in write_tool_names() {
+        assert!(all.iter().any(|d| d.name == name), "{name} unknown");
     }
     assert_eq!(all.len(), tool_defs().len());
-    assert_eq!(all.len(), restricted.len() + WRITE_TOOL_NAMES.len());
+    assert_eq!(all.len(), restricted.len() + write_tool_names().len());
+
+    // A tool the user switched off is gone from the pool as well.
+    let off = BTreeSet::from(["run_sql".to_string()]);
+    let trimmed = tool_defs_for(true, &off);
+    assert_eq!(trimmed.len(), all.len() - 1);
+    assert!(!trimmed.iter().any(|d| d.name == "run_sql"));
+}
+
+/// Every registered tool is in the catalogue and vice versa: the settings
+/// list, the `enable_tools` menu and the token sums all read from it, so a
+/// tool missing from it would silently become unreachable.
+#[test]
+fn every_tool_is_catalogued() {
+    use crate::app::chat::tool_groups::CATALOG;
+    let defs = tool_defs();
+    let registered: BTreeSet<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+    let catalogued: BTreeSet<&str> = CATALOG.iter().map(|e| e.name).collect();
+    assert_eq!(
+        registered, catalogued,
+        "define_chat_tools! and tool_groups::CATALOG disagree"
+    );
+    assert_eq!(
+        CATALOG.len(),
+        catalogued.len(),
+        "a tool is listed twice in the catalogue"
+    );
+    for entry in CATALOG {
+        assert!(
+            entry.when.len() > 10 && entry.when.ends_with('.'),
+            "{} needs a one-line 'when to enable'",
+            entry.name
+        );
+    }
+}
+
+/// The first request carries the core group and the menu, and nothing else.
+#[test]
+fn the_first_request_carries_core_plus_the_menu() {
+    use crate::app::chat::tool_groups::{CATALOG, ToolGroup};
+    let none = BTreeSet::new();
+    let initial = initial_tool_defs(true, &none);
+    let core: BTreeSet<&str> = CATALOG
+        .iter()
+        .filter(|e| e.group == ToolGroup::Core)
+        .map(|e| e.name)
+        .collect();
+    let sent: BTreeSet<&str> = initial
+        .iter()
+        .map(|d| d.name.as_str())
+        .filter(|n| *n != ENABLE_TOOLS)
+        .collect();
+    assert_eq!(sent, core);
+    assert!(initial.iter().any(|d| d.name == ENABLE_TOOLS));
+    // The menu names every other tool, so the model knows they exist.
+    let menu = &initial
+        .iter()
+        .find(|d| d.name == ENABLE_TOOLS)
+        .expect("menu")
+        .description;
+    for entry in CATALOG {
+        if entry.group == ToolGroup::Core {
+            continue;
+        }
+        assert!(
+            menu.contains(entry.name),
+            "{} missing from the menu",
+            entry.name
+        );
+    }
+}
+
+/// Fetching a group returns its definitions, refuses to duplicate them, and
+/// says so when the name is not a group.
+#[test]
+fn enable_groups_loads_a_group_once() {
+    let none = BTreeSet::new();
+    let mut live = initial_tool_defs(true, &none);
+    let (added, msg) = enable_groups(&json!({ "groups": ["combine"] }), true, &none, &live);
+    assert!(added.iter().any(|d| d.name == "fuzzy_join"), "{msg}");
+    assert!(msg.contains("fuzzy_join"));
+    live.extend(added);
+
+    // Asking again adds nothing: the turn already has them.
+    let (again, _) = enable_groups(&json!({ "groups": ["combine"] }), true, &none, &live);
+    assert!(again.is_empty());
+
+    // A guessed name is answered with the real ones.
+    let (nothing, err) = enable_groups(&json!({ "groups": ["joins"] }), true, &none, &live);
+    assert!(nothing.is_empty());
+    assert!(err.contains("no such group"), "{err}");
+    assert!(err.contains("combine"), "{err}");
+
+    // Without writes, the write group carries nothing.
+    let (empty, _) = enable_groups(&json!({ "groups": ["write"] }), false, &none, &[]);
+    assert!(empty.is_empty());
+}
+
+/// With every non-core tool switched off there is nothing to fetch, so the
+/// menu is not sent at all rather than advertising an empty list.
+#[test]
+fn no_menu_when_nothing_is_left_to_load() {
+    use crate::app::chat::tool_groups::{CATALOG, ToolGroup};
+    let off: BTreeSet<String> = CATALOG
+        .iter()
+        .filter(|e| e.group != ToolGroup::Core)
+        .map(|e| e.name.to_string())
+        .collect();
+    let initial = initial_tool_defs(true, &off);
+    assert!(!initial.iter().any(|d| d.name == ENABLE_TOOLS));
+    assert!(enable_tools_def(true, &off).is_none());
 }
 
 #[test]
@@ -347,4 +458,34 @@ fn write_back_to_open_tab_is_rejected() {
     )
     .unwrap_err();
     assert!(err.contains("not supported"));
+}
+
+/// What the first request actually costs, and a ceiling on it.
+///
+/// The whole point of the split is that a short question stops paying for 62
+/// tool schemas. If someone moves a big tool into the core group this fails
+/// rather than quietly putting the cost back. Run with `--nocapture` to see
+/// the numbers.
+#[test]
+fn the_core_payload_stays_small() {
+    use crate::app::chat::tool_groups::approx_tokens;
+    let none = BTreeSet::new();
+    let full: usize = tool_defs_for(true, &none).iter().map(approx_tokens).sum();
+    let initial: usize = initial_tool_defs(true, &none)
+        .iter()
+        .map(approx_tokens)
+        .sum();
+    let read_only: usize = initial_tool_defs(false, &none)
+        .iter()
+        .map(approx_tokens)
+        .sum();
+    println!("tool payload: every tool ~{full}, first request ~{initial} (read-only ~{read_only})");
+    assert!(
+        initial < 10_000,
+        "the core group plus the menu grew to ~{initial} tokens"
+    );
+    assert!(
+        initial * 2 < full,
+        "the split has to be worth having: ~{initial} of ~{full}"
+    );
 }

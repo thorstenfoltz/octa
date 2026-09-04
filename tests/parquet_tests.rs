@@ -194,6 +194,7 @@ fn test_parquet_round_trip() {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     };
 
     let f = tempfile::NamedTempFile::with_suffix(".parquet").unwrap();
@@ -301,6 +302,7 @@ fn one_col_table(type_name: &str, value: CellValue) -> DataTable {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }
 
@@ -441,6 +443,7 @@ fn test_arrow_ipc_round_trip_narrow_types() {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     };
     let f = tempfile::NamedTempFile::with_suffix(".arrow").unwrap();
     ArrowIpcReader.write_file(f.path(), &table).unwrap();

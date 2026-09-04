@@ -108,12 +108,12 @@ octa --remove-connection warehouse
 environment variable and the value is read from there, so it stays out of `ps`
 output, shell history and any process listing.
 
-| Field         | Value                                                                                                                                           |
-|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------|
-| `kind=`       | Cloud: `s3`, `azure`, `gcs`. Database: `postgres`, `mysql`, `mssql`, `redshift`, `clickhouse`, `exasol`, `snowflake`, `databricks`, `bigquery`. |
-| `name=`       | What you will refer to it as. Required.                                                                                                         |
-| Cloud keys    | `bucket`, `region`, `endpoint`, `prefix`, `account`, `profile`, `account_level`, `anonymous`, `allow_writes`, `force_path_style`, `allow_http`  |
-| Database keys | `host`, `port`, `database`, `user`, `allow_writes`                                                                                              |
+| Field         | Value                                                                                                                                                                                                                      |
+|---------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `kind=`       | Cloud: `s3`, `azure`, `gcs`. Database: `postgres`, `mysql`, `mssql`, `oracle`, `redshift`, `clickhouse`, `exasol`, `trino`, `athena`, `snowflake`, `databricks`, `bigquery`.                                               |
+| `name=`       | What you will refer to it as. Required.                                                                                                                                                                                    |
+| Cloud keys    | `bucket`, `region`, `endpoint`, `prefix`, `account`, `profile`, `account_level`, `anonymous`, `allow_writes`, `force_path_style`, `allow_http`                                                                             |
+| Database keys | `host`, `port`, `database`, `user`, `allow_writes`. On Oracle, `database=` is the service name; on Trino the default catalog; on Athena the Glue database; on Databricks the SQL warehouse id; on BigQuery the project id. |
 
 What the secret variable should hold:
 

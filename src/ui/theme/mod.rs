@@ -162,7 +162,12 @@ pub struct FontSettings<'a> {
     pub custom_path: Option<&'a str>,
 }
 
-/// Color palette for the application
+/// Color palette for the application.
+///
+/// Every field is a `Color32`, so this is `Copy`: the toolbar passes it around
+/// inside `ToolbarCtx` and destructures it per menu, which a non-`Copy` palette
+/// would turn into a borrow puzzle for no reason.
+#[derive(Clone, Copy)]
 pub struct ThemeColors {
     // Backgrounds
     pub bg_primary: Color32,

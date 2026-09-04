@@ -92,6 +92,7 @@ fn dbf_writer_rejects_binary_columns() {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     };
 
     let registry = FormatRegistry::new();
@@ -104,4 +105,54 @@ fn dbf_writer_rejects_binary_columns() {
         msg.contains("Binary"),
         "expected Binary rejection error, got: {msg}"
     );
+}
+
+/// A date column has to survive the write.
+///
+/// The header field and the value written into it are decided in two different
+/// places, and they disagreed: the header matched the literal type name
+/// `"Date"` while the value came from the `CellValue` variant. Octa's own date
+/// inference spells the column `Date32`, so any table whose dates were
+/// inferred on load declared a Character field, wrote a Date into it, and was
+/// refused by `dbase` with "The types are not compatible".
+#[test]
+fn dbf_writes_a_date_column_whatever_the_type_name_is_spelled() {
+    use octa::data::{ColumnInfo, DataTable};
+
+    for spelling in ["Date", "Date32", "Date64"] {
+        let mut table = DataTable::empty();
+        table.columns = vec![
+            ColumnInfo {
+                name: "id".to_string(),
+                data_type: "Int32".to_string(),
+            },
+            ColumnInfo {
+                name: "released".to_string(),
+                data_type: spelling.to_string(),
+            },
+        ];
+        table.rows = vec![
+            vec![CellValue::Int(1), CellValue::Date("2024-01-15".to_string())],
+            vec![CellValue::Int(2), CellValue::Null],
+        ];
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dates.dbf");
+        let registry = FormatRegistry::new();
+        let reader = registry.reader_by_name("DBF").expect("DBF reader");
+        reader
+            .write_file(&path, &table)
+            .unwrap_or_else(|e| panic!("writing a '{spelling}' column: {e:#}"));
+
+        let back = reader.read_file(&path).unwrap();
+        assert_eq!(
+            back.columns[1].data_type, "Date",
+            "'{spelling}' must land in a real DBF date field"
+        );
+        assert_eq!(
+            back.get(0, 1),
+            Some(&CellValue::Date("2024-01-15".to_string()))
+        );
+        assert_eq!(back.get(1, 1), Some(&CellValue::Null));
+    }
 }

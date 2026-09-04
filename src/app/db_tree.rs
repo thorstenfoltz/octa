@@ -149,12 +149,14 @@ fn draw_connection(
         // Root path is "": for a catalog engine it lists catalogs, else schemas.
         draw_level(
             ui,
-            listings,
-            expanded,
-            conn,
-            None,
+            TreeCtx {
+                listings,
+                expanded,
+                conn,
+                catalog: None,
+                indent: INDENT_PER_LEVEL,
+            },
             "",
-            INDENT_PER_LEVEL,
             action,
         );
     }
@@ -163,17 +165,28 @@ fn draw_connection(
 /// Render the children of the node at `path` (path == "" is the connection
 /// root). `catalog` carries the catalog once we are below a catalog node, so
 /// table opens qualify with the full three-part name.
-#[allow(clippy::too_many_arguments)]
-fn draw_level(
-    ui: &mut egui::Ui,
-    listings: &HashMap<ConnSchema, DbListState>,
-    expanded: &HashSet<ConnSchema>,
-    conn: &DbConnection,
-    catalog: Option<&str>,
-    path: &str,
+/// What every level of the tree needs, minus the node it is drawing.
+///
+/// `indent` rides along because a child level is the parent's context with one
+/// field changed (`TreeCtx { indent: cx.indent + INDENT_PER_LEVEL, ..cx }`),
+/// which reads better than threading it as a separate positional `f32`.
+#[derive(Clone, Copy)]
+struct TreeCtx<'a> {
+    listings: &'a HashMap<ConnSchema, DbListState>,
+    expanded: &'a HashSet<ConnSchema>,
+    conn: &'a DbConnection,
+    catalog: Option<&'a str>,
     indent: f32,
-    action: &mut DbTreeAction,
-) {
+}
+
+fn draw_level(ui: &mut egui::Ui, cx: TreeCtx<'_>, path: &str, action: &mut DbTreeAction) {
+    let TreeCtx {
+        listings,
+        expanded,
+        conn,
+        indent,
+        ..
+    } = cx;
     // The child key for `name` under the current path.
     let child_key = |name: &str| -> String {
         let mut parts = split_path(path);
@@ -199,12 +212,12 @@ fn draw_level(
                 if is_open {
                     draw_level(
                         ui,
-                        listings,
-                        expanded,
-                        conn,
-                        Some(cat),
+                        TreeCtx {
+                            catalog: Some(cat),
+                            indent: indent + INDENT_PER_LEVEL,
+                            ..cx
+                        },
                         &child,
-                        indent + INDENT_PER_LEVEL,
                         action,
                     );
                 }
@@ -228,12 +241,12 @@ fn draw_level(
                 if is_open {
                     draw_tables(
                         ui,
-                        listings,
-                        conn,
-                        catalog,
+                        TreeCtx {
+                            indent: indent + INDENT_PER_LEVEL,
+                            ..cx
+                        },
                         schema,
                         &child,
-                        indent + INDENT_PER_LEVEL,
                         action,
                     );
                 }
@@ -245,17 +258,23 @@ fn draw_level(
 
 /// Render one expanded schema's table list. `catalog`/`schema` build the open
 /// and copy actions; `path` is the schema node's key.
-#[allow(clippy::too_many_arguments)]
 fn draw_tables(
     ui: &mut egui::Ui,
-    listings: &HashMap<ConnSchema, DbListState>,
-    conn: &DbConnection,
-    catalog: Option<&str>,
+    cx: TreeCtx<'_>,
+    // `schema` and `path` are both `&str` and were adjacent in the old
+    // positional list: swapping them compiled and listed the wrong node's
+    // tables. Two arguments rather than eight makes that visible.
     schema: &str,
     path: &str,
-    indent: f32,
     action: &mut DbTreeAction,
 ) {
+    let TreeCtx {
+        listings,
+        conn,
+        catalog,
+        indent,
+        ..
+    } = cx;
     match listings.get(&(conn.id.clone(), path.to_string())) {
         None | Some(DbListState::Loading) => loading_row(ui, indent),
         Some(DbListState::Error(msg)) => error_row(ui, indent, msg),
@@ -332,9 +351,12 @@ fn engine_short(engine: DbEngine) -> &'static str {
         DbEngine::Postgres => "Postgres",
         DbEngine::MySql => "MySQL",
         DbEngine::Mssql => "MSSQL",
+        DbEngine::Oracle => "Oracle",
         DbEngine::Redshift => "Redshift",
         DbEngine::ClickHouse => "ClickHouse",
         DbEngine::Exasol => "Exasol",
+        DbEngine::Trino => "Trino",
+        DbEngine::Athena => "Athena",
         DbEngine::Snowflake => "Snowflake",
         DbEngine::Databricks => "Databricks",
         DbEngine::BigQuery => "BigQuery",

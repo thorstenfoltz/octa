@@ -54,6 +54,10 @@ pub struct DbCopyReport {
 #[derive(Debug, Clone)]
 pub struct DbCopyEnd {
     pub conn: DbConnection,
+    /// Keyring credential for this end's SSH tunnel, when it has one. Lives
+    /// here rather than as another positional argument: `copy_table` already
+    /// takes two secrets and a third pair would be easy to cross over.
+    pub ssh_secret: Option<String>,
     /// Catalog for a three-level engine (Snowflake/Databricks/BigQuery), else
     /// None. Only meaningful for the source on the universal lane.
     pub catalog: Option<String>,
@@ -95,6 +99,7 @@ pub fn copy_table(
     target: &DbCopyEnd,
     target_secret: Option<&str>,
     mode: DbWriteMode,
+    progress: &dyn Fn(usize),
 ) -> anyhow::Result<DbCopyReport> {
     ensure_write_allowed(&target.conn, None)?;
     if source.conn.id == target.conn.id
@@ -104,8 +109,13 @@ pub fn copy_table(
         bail!("source and target are the same table");
     }
     match choose_lane(source.conn.engine, target.conn.engine) {
+        // The fast lane is a single SQL statement inside DuckDB, so there is
+        // nothing to report between "started" and "done": `progress` is only
+        // called by the universal lane, which moves the rows itself.
         CopyLane::Fast => copy_fast(source, source_secret, target, target_secret, mode),
-        CopyLane::Universal => copy_universal(source, source_secret, target, target_secret, mode),
+        CopyLane::Universal => {
+            copy_universal(source, source_secret, target, target_secret, mode, progress)
+        }
     }
 }
 
@@ -134,13 +144,16 @@ fn copy_fast(
                 format!("installing the DuckDB {ext} extension (network on first use)")
             })?;
     }
-    duck.execute(&duckdb_attach_sql(&source.conn, &src_pass, "src", true), [])
+    // The fast lane never calls `db::connect`, so it opens its own tunnels; the
+    // ATTACH string then names the loopback forward via `dial_target`.
+    let src_conn = crate::db::ssh_tunnel::with_tunnel(&source.conn, source.ssh_secret.as_deref())
+        .with_context(|| format!("opening the SSH tunnel for '{}'", source.conn.name))?;
+    let tgt_conn = crate::db::ssh_tunnel::with_tunnel(&target.conn, target.ssh_secret.as_deref())
+        .with_context(|| format!("opening the SSH tunnel for '{}'", target.conn.name))?;
+    duck.execute(&duckdb_attach_sql(&src_conn, &src_pass, "src", true), [])
         .with_context(|| format!("attaching source '{}'", source.conn.name))?;
-    duck.execute(
-        &duckdb_attach_sql(&target.conn, &tgt_pass, "tgt", false),
-        [],
-    )
-    .with_context(|| format!("attaching target '{}'", target.conn.name))?;
+    duck.execute(&duckdb_attach_sql(&tgt_conn, &tgt_pass, "tgt", false), [])
+        .with_context(|| format!("attaching target '{}'", target.conn.name))?;
 
     let src_ref = qualified("src", &source.schema, &source.table);
     let tgt_ref = qualified("tgt", &target.schema, &target.table);
@@ -170,10 +183,11 @@ pub(crate) fn copy_universal(
     target: &DbCopyEnd,
     target_secret: Option<&str>,
     mode: DbWriteMode,
+    progress: &dyn Fn(usize),
 ) -> anyhow::Result<DbCopyReport> {
-    let mut src = super::connect(&source.conn, source_secret)
+    let mut src = super::connect(&source.conn, source_secret, source.ssh_secret.as_deref())
         .with_context(|| format!("connecting source '{}'", source.conn.name))?;
-    let mut tgt = super::connect(&target.conn, target_secret)
+    let mut tgt = super::connect(&target.conn, target_secret, target.ssh_secret.as_deref())
         .with_context(|| format!("connecting target '{}'", target.conn.name))?;
     let e = source.conn.engine;
     let q = |s: &str| e.quote_ident(s);
@@ -189,6 +203,7 @@ pub(crate) fn copy_universal(
         &target.schema,
         &target.table,
         mode,
+        progress,
     )?;
     Ok(DbCopyReport {
         rows_copied: rows,
@@ -199,6 +214,10 @@ pub(crate) fn copy_universal(
 /// Pull `select_sql` from `source` in batches and write each to `target`. The
 /// first batch uses `mode` (Create/Replace/Append); every later batch forces
 /// Append so a multi-batch copy builds one table. Returns rows written.
+///
+/// `progress` is called with the running row count after each batch. There is
+/// no total to report against: knowing it would cost a `COUNT(*)`, a second
+/// full scan of the source before the copy even starts.
 pub(crate) fn copy_batches(
     source: &mut dyn DbConnector,
     target: &mut dyn DbConnector,
@@ -206,6 +225,7 @@ pub(crate) fn copy_batches(
     tgt_schema: &str,
     tgt_table: &str,
     mode: DbWriteMode,
+    progress: &dyn Fn(usize),
 ) -> anyhow::Result<usize> {
     let mut written = 0usize;
     let mut first = true;
@@ -217,6 +237,7 @@ pub(crate) fn copy_batches(
         };
         let report = target.write_table(None, tgt_schema, tgt_table, m, &batch)?;
         written += report.rows_written;
+        progress(written);
         Ok(())
     })?;
     Ok(written)
@@ -240,11 +261,17 @@ mod tests {
             allow_writes,
             oauth_client_id: None,
             oauth_tenant: None,
+            athena_workgroup: None,
+            athena_output_location: None,
+            ssh: None,
+            query_timeout_secs: super::super::DEFAULT_QUERY_TIMEOUT_SECS,
+            tunnel_port: None,
         }
     }
 
     fn end(engine: DbEngine, allow_writes: bool) -> DbCopyEnd {
         DbCopyEnd {
+            ssh_secret: None,
             conn: conn(engine, allow_writes),
             catalog: None,
             schema: "public".into(),
@@ -412,7 +439,7 @@ mod tests {
     fn run_universal_with_fakes(batches: usize, mode: DbWriteMode) -> Vec<DbWriteMode> {
         let mut src = FakeSource { batches };
         let mut tgt = FakeTarget { modes: Vec::new() };
-        copy_batches(&mut src, &mut tgt, "SELECT 1", "s", "t", mode).unwrap();
+        copy_batches(&mut src, &mut tgt, "SELECT 1", "s", "t", mode, &|_| {}).unwrap();
         tgt.modes
     }
 
@@ -440,6 +467,7 @@ mod tests {
             &end(DbEngine::Postgres, false),
             None,
             DbWriteMode::Create,
+            &|_| {},
         )
         .unwrap_err()
         .to_string();
@@ -452,7 +480,7 @@ mod tests {
         src.conn.id = "same".into();
         let mut tgt = src.clone();
         tgt.conn.allow_writes = true;
-        let err = copy_table(&src, None, &tgt, None, DbWriteMode::Append)
+        let err = copy_table(&src, None, &tgt, None, DbWriteMode::Append, &|_| {})
             .unwrap_err()
             .to_string();
         assert!(err.contains("same table"), "{err}");

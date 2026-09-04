@@ -1,5 +1,6 @@
-//! Live database connections: Postgres, MySQL/MariaDB, SQL Server, Redshift,
-//! ClickHouse, Exasol, Snowflake, Databricks, BigQuery.
+//! Live database connections: Postgres, MySQL/MariaDB, SQL Server, Oracle,
+//! Redshift, ClickHouse, Exasol, Trino, Athena, Snowflake, Databricks,
+//! BigQuery.
 //!
 //! One file per engine behind the [`DbConnector`] trait (the
 //! `src/formats/mod.rs` drop-in model), so a new engine is one more file, not
@@ -25,6 +26,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::DataTable;
 
+pub mod athena;
 pub mod auth;
 pub mod bigquery;
 pub mod clickhouse;
@@ -34,10 +36,14 @@ pub mod exasol;
 pub mod fetch_table;
 pub mod mssql;
 pub mod mysql;
+pub mod oracle;
 pub mod postgres;
 pub mod relationships;
 pub(crate) mod rest;
+pub mod sigv4;
 pub mod snowflake;
+pub mod ssh_tunnel;
+pub mod trino;
 pub mod write_back;
 
 /// Supported database engines.
@@ -47,9 +53,12 @@ pub enum DbEngine {
     Postgres,
     MySql,
     Mssql,
+    Oracle,
     Redshift,
     ClickHouse,
     Exasol,
+    Trino,
+    Athena,
     Snowflake,
     Databricks,
     BigQuery,
@@ -60,9 +69,12 @@ impl DbEngine {
         DbEngine::Postgres,
         DbEngine::MySql,
         DbEngine::Mssql,
+        DbEngine::Oracle,
         DbEngine::Redshift,
         DbEngine::ClickHouse,
         DbEngine::Exasol,
+        DbEngine::Trino,
+        DbEngine::Athena,
         DbEngine::Snowflake,
         DbEngine::Databricks,
         DbEngine::BigQuery,
@@ -74,9 +86,12 @@ impl DbEngine {
             DbEngine::Postgres => "PostgreSQL",
             DbEngine::MySql => "MySQL / MariaDB",
             DbEngine::Mssql => "SQL Server",
+            DbEngine::Oracle => "Oracle",
             DbEngine::Redshift => "Amazon Redshift",
             DbEngine::ClickHouse => "ClickHouse",
             DbEngine::Exasol => "Exasol",
+            DbEngine::Trino => "Trino",
+            DbEngine::Athena => "Amazon Athena",
             DbEngine::Snowflake => "Snowflake",
             DbEngine::Databricks => "Databricks",
             DbEngine::BigQuery => "Google BigQuery",
@@ -89,10 +104,16 @@ impl DbEngine {
             DbEngine::Postgres => 5432,
             DbEngine::MySql => 3306,
             DbEngine::Mssql => 1433,
+            DbEngine::Oracle => 1521,
             DbEngine::Redshift => 5439,
             DbEngine::ClickHouse => 8123,
             DbEngine::Exasol => 8563,
-            DbEngine::Snowflake | DbEngine::Databricks | DbEngine::BigQuery => 443,
+            // Trino's own default is 8080, but that is the plaintext port a
+            // laptop coordinator listens on; a served cluster is TLS.
+            DbEngine::Trino => 8443,
+            DbEngine::Athena | DbEngine::Snowflake | DbEngine::Databricks | DbEngine::BigQuery => {
+                443
+            }
         }
     }
 
@@ -104,7 +125,7 @@ impl DbEngine {
                 format!("`{}`", ident.replace('`', "``"))
             }
             DbEngine::Mssql => format!("[{}]", ident.replace(']', "]]")),
-            // Postgres, Redshift, Exasol, Snowflake
+            // Postgres, Redshift, Oracle, Exasol, Trino, Snowflake
             _ => format!("\"{}\"", ident.replace('"', "\"\"")),
         }
     }
@@ -123,6 +144,7 @@ impl DbEngine {
             DbEngine::Postgres
                 | DbEngine::MySql
                 | DbEngine::Mssql
+                | DbEngine::Oracle
                 | DbEngine::Redshift
                 | DbEngine::Exasol
         )
@@ -144,8 +166,17 @@ impl DbEngine {
         match self {
             DbEngine::Postgres | DbEngine::MySql => &[Password, AwsIam, AzureAd, GcpIam],
             DbEngine::Mssql => &[Password, AzureAd],
+            // Oracle wallets and Kerberos are out of scope, so password is the
+            // whole list rather than the first entry of one.
+            DbEngine::Oracle => &[Password],
             DbEngine::Redshift => &[Password, AwsIam],
             DbEngine::ClickHouse | DbEngine::Exasol => &[Password],
+            // Basic auth over TLS, or the bearer a Trino cluster's OIDC
+            // provider issues (browser SSO is the common enterprise setup).
+            DbEngine::Trino => &[Password, OAuthBrowser, Token],
+            // Athena signs every request; the credentials come from the same
+            // chain as the other AWS surfaces, so there is no password to give.
+            DbEngine::Athena => &[AwsIam],
             DbEngine::Snowflake => &[KeyPairJwt, Password, OAuthBrowser, OAuthClientCredentials],
             DbEngine::Databricks => &[Token, AzureAd, OAuthClientCredentials, OAuthBrowser],
             DbEngine::BigQuery => &[GcpAdc, GcpServiceAccount],
@@ -159,7 +190,27 @@ impl DbEngine {
     pub fn has_catalogs(self) -> bool {
         matches!(
             self,
-            DbEngine::Snowflake | DbEngine::Databricks | DbEngine::BigQuery
+            DbEngine::Trino | DbEngine::Snowflake | DbEngine::Databricks | DbEngine::BigQuery
+        )
+    }
+
+    /// Whether the engine reaches its results by asking "are you done yet?"
+    /// over HTTP, which is what makes a give-up point Octa's to choose.
+    ///
+    /// These five submit a statement and then poll (or, for Trino, follow a
+    /// chain of `nextUri` links) until the server says it has finished. The
+    /// wire protocols block on a socket inside their driver instead, so their
+    /// timeout belongs to the driver and the server, not to
+    /// `query_timeout_secs`, and the Settings field is hidden for them rather
+    /// than shown doing nothing.
+    pub fn polls_for_results(self) -> bool {
+        matches!(
+            self,
+            DbEngine::Trino
+                | DbEngine::Athena
+                | DbEngine::Snowflake
+                | DbEngine::Databricks
+                | DbEngine::BigQuery
         )
     }
 
@@ -169,7 +220,10 @@ impl DbEngine {
     /// them, though Redshift, Snowflake and BigQuery accept a declaration
     /// without enforcing it.
     pub fn has_foreign_keys(self) -> bool {
-        !matches!(self, DbEngine::ClickHouse)
+        !matches!(
+            self,
+            DbEngine::ClickHouse | DbEngine::Trino | DbEngine::Athena
+        )
     }
 
     /// Whether a declared foreign key is also a fact about the rows.
@@ -181,7 +235,11 @@ impl DbEngine {
     pub fn enforces_foreign_keys(self) -> bool {
         matches!(
             self,
-            DbEngine::Postgres | DbEngine::MySql | DbEngine::Mssql | DbEngine::Exasol
+            DbEngine::Postgres
+                | DbEngine::MySql
+                | DbEngine::Mssql
+                | DbEngine::Oracle
+                | DbEngine::Exasol
         )
     }
 }
@@ -191,9 +249,10 @@ mod engine_tests {
     use super::*;
 
     #[test]
-    fn all_lists_nine_engines() {
-        assert_eq!(DbEngine::ALL.len(), 9);
+    fn all_lists_twelve_engines() {
+        assert_eq!(DbEngine::ALL.len(), 12);
         assert!(DbEngine::ALL.contains(&DbEngine::Snowflake));
+        assert!(DbEngine::ALL.contains(&DbEngine::Oracle));
     }
 
     /// An engine cannot enforce a constraint it does not have, and the
@@ -232,6 +291,7 @@ mod engine_tests {
     #[test]
     fn has_catalogs_only_warehouses() {
         for e in [
+            DbEngine::Trino,
             DbEngine::Snowflake,
             DbEngine::Databricks,
             DbEngine::BigQuery,
@@ -242,9 +302,11 @@ mod engine_tests {
             DbEngine::Postgres,
             DbEngine::MySql,
             DbEngine::Mssql,
+            DbEngine::Oracle,
             DbEngine::Redshift,
             DbEngine::ClickHouse,
             DbEngine::Exasol,
+            DbEngine::Athena,
         ] {
             assert!(!e.has_catalogs(), "{e:?} should not have catalogs");
         }
@@ -317,6 +379,68 @@ mod batch_tests {
         assert!(
             paged_sql(DbEngine::Mssql, "SELECT * FROM t", 100, 0)
                 .contains("OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY")
+        );
+        // Oracle takes the same OFFSET/FETCH but neither the `AS` nor the
+        // leading underscore: an unquoted identifier must start with a letter
+        // (ORA-00911), which cost a real page of every copied Oracle table.
+        // Trino rejects LIMIT before OFFSET, which is the order everyone else
+        // takes, so the clause order is the thing to pin here.
+        assert!(
+            paged_sql(DbEngine::Trino, "SELECT * FROM t", 100, 200)
+                .ends_with("OFFSET 200 LIMIT 100")
+        );
+        let oracle = paged_sql(DbEngine::Oracle, "SELECT * FROM t", 100, 0);
+        assert!(oracle.contains(") octa_page OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY"));
+        assert!(!oracle.contains("_octa_page"));
+    }
+
+    /// Oracle has neither `DROP TABLE IF EXISTS` (before 23c) nor a multi-row
+    /// `VALUES` list, and both are on the shared write path, so both need
+    /// their own spelling or every Replace and every insert batch fails.
+    #[test]
+    fn oracle_write_path_avoids_the_syntax_it_lacks() {
+        let drop = drop_if_exists_sql(DbEngine::Oracle, "\"S\".\"T\"");
+        assert!(drop.starts_with("BEGIN EXECUTE IMMEDIATE 'DROP TABLE"));
+        assert!(drop.contains("-942"));
+        assert_eq!(
+            drop_if_exists_sql(DbEngine::Postgres, "s.t"),
+            "DROP TABLE IF EXISTS s.t"
+        );
+
+        let rows = ["(1, 'a')".to_string(), "(2, 'b')".to_string()];
+        assert_eq!(
+            insert_rows_sql(DbEngine::Oracle, "T", "A, B", &rows),
+            "INSERT ALL INTO T (A, B) VALUES (1, 'a') INTO T (A, B) VALUES (2, 'b') \
+             SELECT * FROM dual"
+        );
+        assert_eq!(
+            insert_rows_sql(DbEngine::Postgres, "t", "a, b", &rows),
+            "INSERT INTO t (a, b) VALUES (1, 'a'), (2, 'b')"
+        );
+    }
+
+    /// A quoted string reaching an Oracle DATE goes through NLS_DATE_FORMAT,
+    /// which is `DD-MON-RR` out of the box and rejects every value Octa
+    /// renders, so the literals carry their type.
+    #[test]
+    fn oracle_dates_and_booleans_are_literals_oracle_accepts() {
+        use crate::data::CellValue;
+        assert_eq!(
+            sql_literal(DbEngine::Oracle, &CellValue::Date("2024-01-31".into())),
+            "DATE '2024-01-31'"
+        );
+        assert_eq!(
+            sql_literal(
+                DbEngine::Oracle,
+                &CellValue::DateTime("2024-01-31 10:00:00".into())
+            ),
+            "TIMESTAMP '2024-01-31 10:00:00'"
+        );
+        // No BOOLEAN before 23c: NUMBER(1) is what the DDL creates.
+        assert_eq!(sql_literal(DbEngine::Oracle, &CellValue::Bool(true)), "1");
+        assert_eq!(
+            sql_literal(DbEngine::Postgres, &CellValue::Date("2024-01-31".into())),
+            "'2024-01-31'"
         );
     }
 
@@ -505,6 +629,16 @@ impl DbAuth {
     }
 }
 
+/// Default [`DbConnection::query_timeout_secs`]. Sixty seconds is what the
+/// HTTP engines already allowed before the field existed (a 30s server-side
+/// wait plus 60 polls half a second apart), so an existing `settings.toml`
+/// that predates it behaves exactly as it did.
+pub const DEFAULT_QUERY_TIMEOUT_SECS: u32 = 60;
+
+fn default_query_timeout_secs() -> u32 {
+    DEFAULT_QUERY_TIMEOUT_SECS
+}
+
 /// A saved database connection (secret excluded; that lives in the keyring).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DbConnection {
@@ -531,9 +665,56 @@ pub struct DbConnection {
     /// only; ignored for GCP). None with Azure = use "organizations".
     #[serde(default)]
     pub oauth_tenant: Option<String>,
+    /// Athena workgroup (`primary` when unset). Athena refuses a query that
+    /// names none, so this is a field rather than a constant.
+    #[serde(default)]
+    pub athena_workgroup: Option<String>,
+    /// S3 URI Athena writes query results to (`s3://bucket/prefix/`). Not
+    /// needed when the workgroup enforces its own output location, which is
+    /// why it is optional rather than required.
+    #[serde(default)]
+    pub athena_output_location: Option<String>,
+    /// How many seconds to keep waiting for a statement that is making no
+    /// progress, before giving up. Default 60.
+    ///
+    /// Only the HTTP engines read it ([`DbEngine::polls_for_results`]): they
+    /// submit a statement and then ask the server, over and over, whether it
+    /// has finished, so the give-up point is Octa's to choose. The wire
+    /// protocols hand that decision to their driver and their server.
+    #[serde(default = "default_query_timeout_secs")]
+    pub query_timeout_secs: u32,
+    /// Reach the database through this jump host. None = connect directly,
+    /// which is the default and costs nothing.
+    #[serde(default)]
+    pub ssh: Option<ssh_tunnel::SshTunnel>,
+    /// Loopback port of the live tunnel, filled in by [`connect`] for the
+    /// duration of one connect. Never persisted: it belongs to a running
+    /// tunnel, so a port written to `settings.toml` would be stale by the next
+    /// launch.
+    #[serde(skip)]
+    pub tunnel_port: Option<u16>,
 }
 
 impl DbConnection {
+    /// Where to actually open the socket: the tunnel's loopback port when one
+    /// is up, otherwise the connection's own host and port.
+    ///
+    /// `host` and `port` deliberately keep naming the *database* even while
+    /// tunnelled, so TLS verification, Entra token audiences and error text are
+    /// all unaffected by how the bytes get there. Only the address dialled
+    /// changes.
+    pub fn dial_target(&self) -> (String, u16) {
+        match self.tunnel_port {
+            Some(p) => ("127.0.0.1".to_string(), p),
+            None => (self.host.clone(), self.port),
+        }
+    }
+
+    /// Whether this connect is going through a jump host.
+    pub fn is_tunnelled(&self) -> bool {
+        self.tunnel_port.is_some()
+    }
+
     /// Mint a unique frozen id for a new connection.
     pub fn fresh_id() -> String {
         format!(
@@ -568,11 +749,24 @@ pub struct DbWriteReport {
 /// the universal copy lane to stream a table in bounded batches. Most engines
 /// take standard `LIMIT n OFFSET m`; SQL Server needs the `OFFSET ... FETCH`
 /// form (which requires an `ORDER BY`, so a stable no-op sort is supplied).
-pub(crate) fn paged_sql(engine: DbEngine, base_sql: &str, limit: usize, offset: usize) -> String {
+pub fn paged_sql(engine: DbEngine, base_sql: &str, limit: usize, offset: usize) -> String {
     match engine {
         DbEngine::Mssql => format!(
             "SELECT * FROM ({base_sql}) AS _octa_page \
              ORDER BY (SELECT NULL) OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+        ),
+        // Trino, and Athena which is Trino underneath, put OFFSET *before*
+        // LIMIT and reject the other order outright.
+        DbEngine::Trino | DbEngine::Athena => {
+            format!("SELECT * FROM ({base_sql}) AS _octa_page OFFSET {offset} LIMIT {limit}")
+        }
+        // Oracle takes the same OFFSET/FETCH form (12c+) but rejects `AS`
+        // before a table alias, and rejects the leading underscore in the
+        // alias every other engine takes (ORA-00911: an unquoted identifier
+        // must start with a letter).
+        DbEngine::Oracle => format!(
+            "SELECT * FROM ({base_sql}) octa_page \
+             OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
         ),
         _ => format!("SELECT * FROM ({base_sql}) AS _octa_page LIMIT {limit} OFFSET {offset}"),
     }
@@ -669,7 +863,18 @@ pub trait DbConnector: Send {
 
 /// Open a connection. `secret` is the resolved password/token (None for auth
 /// modes that mint their own token; the connector calls [`auth`] as needed).
-pub fn connect(conn: &DbConnection, secret: Option<&str>) -> anyhow::Result<Box<dyn DbConnector>> {
+pub fn connect(
+    conn: &DbConnection,
+    secret: Option<&str>,
+    ssh_secret: Option<&str>,
+) -> anyhow::Result<Box<dyn DbConnector>> {
+    // Open the jump-host forward first, if this connection has one, and hand
+    // the engines a copy that knows the loopback port. They dial
+    // `conn.dial_target()` and are otherwise unaware a tunnel exists; `host`
+    // and `port` still name the database, which is what keeps TLS verification
+    // and token audiences correct.
+    let tunnelled = ssh_tunnel::with_tunnel(conn, ssh_secret)?;
+    let conn = &tunnelled;
     match conn.engine {
         DbEngine::Postgres => Ok(Box::new(postgres::PostgresConnector::connect_with_dialect(
             conn,
@@ -683,10 +888,13 @@ pub fn connect(conn: &DbConnection, secret: Option<&str>) -> anyhow::Result<Box<
         )?)),
         DbEngine::MySql => Ok(Box::new(mysql::MySqlConnector::connect(conn, secret)?)),
         DbEngine::Mssql => Ok(Box::new(mssql::MssqlConnector::connect(conn, secret)?)),
+        DbEngine::Oracle => Ok(Box::new(oracle::OracleConnector::connect(conn, secret)?)),
         DbEngine::ClickHouse => Ok(Box::new(clickhouse::ClickHouseConnector::connect(
             conn, secret,
         )?)),
         DbEngine::Exasol => Ok(Box::new(exasol::ExasolConnector::connect(conn, secret)?)),
+        DbEngine::Trino => Ok(Box::new(trino::TrinoConnector::connect(conn, secret)?)),
+        DbEngine::Athena => Ok(Box::new(athena::AthenaConnector::connect(conn, secret)?)),
         DbEngine::Snowflake => Ok(Box::new(snowflake::SnowflakeConnector::connect(
             conn, secret,
         )?)),
@@ -725,12 +933,13 @@ pub(crate) fn kill_sql(engine: DbEngine, session_id: &str) -> Option<String> {
 pub(crate) fn kill_via_new_connection(
     conn: DbConnection,
     secret: Option<String>,
+    ssh_secret: Option<String>,
     session_id: String,
 ) {
     let Some(sql) = kill_sql(conn.engine, &session_id) else {
         return;
     };
-    if let Ok(mut killer) = connect(&conn, secret.as_deref()) {
+    if let Ok(mut killer) = connect(&conn, secret.as_deref(), ssh_secret.as_deref()) {
         let _ = killer.execute(&sql);
     }
 }
@@ -745,10 +954,13 @@ pub(crate) fn live_dialect_for(
     match engine {
         DbEngine::MySql => LiveSqlDialect::Mysql,
         DbEngine::Mssql => LiveSqlDialect::Mssql,
+        DbEngine::Oracle => LiveSqlDialect::Oracle,
         DbEngine::Snowflake => LiveSqlDialect::Snowflake,
         DbEngine::Databricks => LiveSqlDialect::Databricks,
         DbEngine::ClickHouse => LiveSqlDialect::ClickHouse,
         DbEngine::Exasol => LiveSqlDialect::Exasol,
+        // Athena is Trino under the covers, and its DDL is Trino's.
+        DbEngine::Trino | DbEngine::Athena => LiveSqlDialect::Trino,
         DbEngine::BigQuery => LiveSqlDialect::BigQuery,
         // Redshift genuinely speaks the Postgres dialect, so this arm is
         // correct rather than provisional.
@@ -810,8 +1022,25 @@ pub fn select_sample_sql(
     let name = qualified_name(engine, catalog, schema, table);
     match engine {
         DbEngine::Mssql => format!("SELECT TOP {n} * FROM {name}"),
+        DbEngine::Oracle => format!("SELECT * FROM {name} FETCH FIRST {n} ROWS ONLY"),
         _ => format!("SELECT * FROM {name} LIMIT {n}"),
     }
+}
+
+/// The whole table, unlimited. This is the base query [`paged_sql`] wraps when
+/// the GUI fetches the next page of an open database tab; the row cap has to
+/// live in the paging clause, not in the body, or every page would be sliced
+/// from the same first N rows.
+pub fn select_all_sql(
+    engine: DbEngine,
+    catalog: Option<&str>,
+    schema: &str,
+    table: &str,
+) -> String {
+    format!(
+        "SELECT * FROM {}",
+        qualified_name(engine, catalog, schema, table)
+    )
 }
 
 /// SQL returning the primary-key column names of `schema.table` in ordinal
@@ -846,8 +1075,30 @@ pub struct RowKeyCandidate {
 pub fn row_key_sql(engine: DbEngine, catalog: Option<&str>, schema: &str, table: &str) -> String {
     // Two-level engines only reach this; catalog engines skip the lookup
     // (they expose no discoverable key). Kept in the signature for uniformity.
-    let _ = (engine, catalog);
+    let _ = catalog;
     let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
+    // Oracle has no information_schema. Its ALL_* catalog views answer the
+    // same question, aliased to the same four columns in the same order, so
+    // `choose_row_key` reads either shape without knowing which server spoke.
+    // `nullable` is Oracle's Y/N, translated to the YES/NO the caller tests.
+    if engine == DbEngine::Oracle {
+        return format!(
+            "SELECT CASE c.constraint_type WHEN 'P' THEN 'PRIMARY KEY' ELSE 'UNIQUE' END \
+               AS constraint_type, c.constraint_name, cc.column_name, \
+               CASE col.nullable WHEN 'Y' THEN 'YES' ELSE 'NO' END AS is_nullable \
+             FROM all_constraints c \
+             JOIN all_cons_columns cc \
+               ON cc.owner = c.owner AND cc.constraint_name = c.constraint_name \
+             JOIN all_tab_columns col \
+               ON col.owner = c.owner AND col.table_name = c.table_name \
+              AND col.column_name = cc.column_name \
+             WHERE c.constraint_type IN ('P', 'U') \
+               AND c.owner = {} AND c.table_name = {} \
+             ORDER BY c.constraint_type, c.constraint_name, cc.position",
+            lit(schema),
+            lit(table)
+        );
+    }
     format!(
         "SELECT tc.constraint_type, tc.constraint_name, kcu.column_name, c.is_nullable \
          FROM information_schema.table_constraints tc \
@@ -927,6 +1178,7 @@ pub fn table_metadata_sql(
         DbEngine::Snowflake => format!("DESCRIBE TABLE {name}"),
         DbEngine::ClickHouse => format!("DESCRIBE TABLE {name}"),
         DbEngine::Exasol => format!("DESCRIBE {name}"),
+        DbEngine::Trino | DbEngine::Athena => format!("DESCRIBE {name}"),
         // BigQuery has no DESCRIBE: read the dataset's INFORMATION_SCHEMA.
         DbEngine::BigQuery => {
             let prefix = match catalog {
@@ -945,6 +1197,16 @@ pub fn table_metadata_sql(
                 lit(table)
             )
         }
+        // Oracle has no information_schema and no DESCRIBE outside SQL*Plus;
+        // ALL_TAB_COLUMNS is the same list. `data_default` is left out on
+        // purpose: it is a LONG, which costs a second round trip per row.
+        DbEngine::Oracle => format!(
+            "SELECT column_id, column_name, data_type, nullable, data_length, \
+             data_precision, data_scale FROM all_tab_columns \
+             WHERE owner = {} AND table_name = {} ORDER BY column_id",
+            lit(schema),
+            lit(table)
+        ),
         // Postgres / Redshift / MySQL / MariaDB / SQL Server: one shared
         // information_schema.columns query (all expose these views).
         DbEngine::Postgres | DbEngine::Redshift | DbEngine::MySql | DbEngine::Mssql => format!(
@@ -976,9 +1238,18 @@ pub(crate) fn sql_literal(engine: DbEngine, cell: &crate::data::CellValue) -> St
             }
         }
         CellValue::Bool(b) => match engine {
-            DbEngine::Mssql => if *b { "1" } else { "0" }.to_string(),
+            // SQL Server's BIT and Oracle's NUMBER(1), which is how every
+            // schema older than 23c spells a boolean.
+            DbEngine::Mssql | DbEngine::Oracle => if *b { "1" } else { "0" }.to_string(),
             _ => if *b { "TRUE" } else { "FALSE" }.to_string(),
         },
+        // Oracle reads a bare quoted string into a DATE through NLS_DATE_FORMAT,
+        // which defaults to `DD-MON-RR` and would reject every value Octa
+        // renders. The ANSI literal prefixes say which format this is.
+        CellValue::Date(s) if engine == DbEngine::Oracle => format!("DATE {}", quote(s)),
+        CellValue::DateTime(s) if engine == DbEngine::Oracle => {
+            format!("TIMESTAMP {}", quote(s))
+        }
         CellValue::String(s)
         | CellValue::Date(s)
         | CellValue::DateTime(s)
@@ -1019,7 +1290,7 @@ pub(crate) fn write_table_generic(
         let mut created = false;
         if matches!(mode, DbWriteMode::Replace) {
             connector
-                .execute(&format!("DROP TABLE IF EXISTS {target}"))
+                .execute(&drop_if_exists_sql(engine, &target))
                 .context("dropping the existing table")?;
         }
         if matches!(mode, DbWriteMode::Create | DbWriteMode::Replace) {
@@ -1043,10 +1314,7 @@ pub(crate) fn write_table_generic(
                 })
                 .collect();
             connector
-                .execute(&format!(
-                    "INSERT INTO {target} ({col_list}) VALUES {}",
-                    values.join(", ")
-                ))
+                .execute(&insert_rows_sql(engine, &target, &col_list, &values))
                 .context("inserting rows")?;
         }
         Ok(created)
@@ -1063,6 +1331,52 @@ pub(crate) fn write_table_generic(
             let _ = connector.execute("ROLLBACK");
             Err(e)
         }
+    }
+}
+
+/// Drop `target` if it is there, in the engine's own dialect.
+///
+/// Oracle is the odd one out: it had no `DROP TABLE IF EXISTS` before 23c, and
+/// the PL/SQL wrapper below is the standard idiom for it. It re-raises
+/// anything that is not ORA-00942 ("table or view does not exist"), so a
+/// permission error still stops the write instead of being swallowed.
+pub(crate) fn drop_if_exists_sql(engine: DbEngine, target: &str) -> String {
+    match engine {
+        DbEngine::Oracle => {
+            let inner = target.replace('\'', "''");
+            format!(
+                "BEGIN EXECUTE IMMEDIATE 'DROP TABLE {inner}'; \
+                 EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;"
+            )
+        }
+        _ => format!("DROP TABLE IF EXISTS {target}"),
+    }
+}
+
+/// One statement inserting every already-rendered `(v1, v2)` tuple in
+/// `values`.
+///
+/// Oracle has no multi-row `VALUES` list; `INSERT ALL ... SELECT * FROM dual`
+/// is how it spells the same thing, and it matters because the alternative is
+/// one round trip per row.
+pub(crate) fn insert_rows_sql(
+    engine: DbEngine,
+    target: &str,
+    col_list: &str,
+    values: &[String],
+) -> String {
+    match engine {
+        DbEngine::Oracle => {
+            let all: Vec<String> = values
+                .iter()
+                .map(|v| format!("INTO {target} ({col_list}) VALUES {v}"))
+                .collect();
+            format!("INSERT ALL {} SELECT * FROM dual", all.join(" "))
+        }
+        _ => format!(
+            "INSERT INTO {target} ({col_list}) VALUES {}",
+            values.join(", ")
+        ),
     }
 }
 
@@ -1145,6 +1459,11 @@ mod tests {
             allow_writes,
             oauth_client_id: None,
             oauth_tenant: None,
+            athena_workgroup: None,
+            athena_output_location: None,
+            ssh: None,
+            query_timeout_secs: super::DEFAULT_QUERY_TIMEOUT_SECS,
+            tunnel_port: None,
         }
     }
 
@@ -1232,6 +1551,27 @@ mod tests {
             select_sample_sql(DbEngine::Mssql, None, "dbo", "t", 5),
             "SELECT TOP 5 * FROM [dbo].[t]"
         );
+    }
+
+    /// The paged base query must carry no LIMIT of its own, or page two would
+    /// be sliced out of page one's rows instead of following it.
+    #[test]
+    fn select_all_sql_is_the_unlimited_base_for_paging() {
+        assert_eq!(
+            select_all_sql(DbEngine::Postgres, None, "public", "orders"),
+            "SELECT * FROM \"public\".\"orders\""
+        );
+        let paged = paged_sql(
+            DbEngine::Postgres,
+            &select_all_sql(DbEngine::Postgres, None, "public", "orders"),
+            100,
+            200,
+        );
+        assert_eq!(
+            paged,
+            "SELECT * FROM (SELECT * FROM \"public\".\"orders\") AS _octa_page LIMIT 100 OFFSET 200"
+        );
+        assert!(!select_all_sql(DbEngine::Mssql, None, "dbo", "t").contains("TOP"));
     }
 
     #[test]

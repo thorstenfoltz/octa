@@ -1,0 +1,9 @@
+id  product          category  price  in_stock  released    rating
+1   Café Latte       drinks    3.50   true      2024-01-15  4.5
+2   Blaubeer-Muffin  food      2.75   true      2024-02-01  4.2
+3   Espresso         drinks    2.10   false     2023-11-30  4.8
+4   Croissant        food      2.40   true      2024-03-12  3.9
+5   Matcha Latte     drinks    4.25   true      2024-05-02  4.1
+6   Bagel            food      1.95   false     2022-07-19  3.4
+7   Flat White       drinks    3.80   true      2024-06-08  4.6
+8   Käsekuchen       food      4.90   true      2024-04-21  4.7

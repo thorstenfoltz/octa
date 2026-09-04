@@ -36,6 +36,7 @@ fn sample_table() -> DataTable {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }
 
@@ -165,6 +166,7 @@ fn string_table(col: &str, values: &[&str]) -> DataTable {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }
 
@@ -276,6 +278,7 @@ fn null_count_includes_empty_strings() {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     };
 
     let enabled = SummaryStat::default_enabled();

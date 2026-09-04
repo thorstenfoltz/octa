@@ -39,9 +39,13 @@ impl ExasolConnector {
         });
 
         let password = super::auth::resolve_password(conn, stored)?;
+        // Behind a jump host this is the loopback forward; Exasol always uses
+        // TLS, so the certificate is then checked against the tunnel endpoint.
+        // Documented with the ClickHouse caveat.
+        let (dial_host, dial_port) = conn.dial_target();
         let opts = ExaConnectOptions::builder()
-            .host(conn.host.clone())
-            .port(conn.port)
+            .host(dial_host)
+            .port(dial_port)
             .username(conn.username.clone())
             .password(password)
             .schema(conn.database.clone())
@@ -159,7 +163,9 @@ impl DbConnector for ExasolConnector {
         let session_id = self.session_id.clone()?;
         let (conn, secret) = self.reconnect.clone();
         Some(Box::new(move || {
-            super::kill_via_new_connection(conn.clone(), secret.clone(), session_id.clone());
+            // No SSH credential needed: `conn` is the copy `db::connect` built,
+            // so it already carries the open tunnel's port and reuses it.
+            super::kill_via_new_connection(conn.clone(), secret.clone(), None, session_id.clone());
         }))
     }
 }

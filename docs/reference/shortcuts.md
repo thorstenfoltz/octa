@@ -31,6 +31,8 @@ until you click **Apply**, so **Cancel** still discards the whole lot.
 | Reopen last closed tab        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> | Walks back through the last 10 closed tabs.                                                                                                          |
 | Quit application              | <kbd>Ctrl</kbd>+<kbd>Q</kbd>                  | Prompts when any tab has unsaved changes.                                                                                                            |
 | Open table folder             | *(unbound)*                                   | Open a Delta / Iceberg / dataset directory as one table. See [Supported Formats](../getting-started/supported-formats.md).                           |
+| Export to PDF...              | *(unbound)*                                   | Render the table to a paginated PDF. See [PDF Export](../usage/pdf-export.md).                                                                       |
+| Open Directory...             | *(unbound)*                                   | Show a folder in the sidebar tree and open files straight from it.                                                                                   |
 
 ## Tabs
 
@@ -135,6 +137,12 @@ same precedence Ctrl+M uses from the keyboard.
 | Toggle chat assistant panel | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> | Same as **Analyse → Assistant**. See [Chat Assistant](../usage/chatbot.md).                                            |
 | Auto-fit all columns        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> | Same algorithm as double-clicking a column-header seam, applied to every column.                                       |
 | Compare selected tabs       | <kbd>F9</kbd>                                 | Requires exactly one tab to be Ctrl-clicked in the multi-selection set.                                                |
+| Split view                  | *(unbound)*                                   | Two stacked panes over one table; fire again to close.                                                                 |
+| Split side by side          | *(unbound)*                                   | The same split, left and right instead of top and bottom.                                                              |
+| Toggle cloud panel          | *(unbound)*                                   | Show or hide the cloud sidebar. See [Cloud Storage](../usage/cloud-storage.md).                                        |
+| Toggle databases panel      | *(unbound)*                                   | Show or hide the databases sidebar. See [Databases](../usage/database-connections.md).                                 |
+| Add split pane              | *(unbound)*                                   | One more band, up to 6. Needs a split already showing.                                                                 |
+| Remove split pane           | *(unbound)*                                   | One band fewer, down to two. Silent at either limit.                                                                   |
 
 ## SQL panel
 
@@ -181,6 +189,17 @@ same precedence Ctrl+M uses from the keyboard.
 | Fuzzy join...                      | *(unbound)*                                   | See [Fuzzy Join](../usage/fuzzy-join.md).                                                                      |
 | Data drift...                      | *(unbound)*                                   | How one dataset changed between two versions. See [Data Drift](../usage/data-drift.md).                        |
 | Relationship map...                | *(unbound)*                                   | Which tables link to which, and on which columns. See [Relationship Map](../usage/relationship-map.md).        |
+| Correlation...                     | *(unbound)*                                   | Pairwise correlation over the numeric columns. See [Correlation](../usage/correlation.md).                     |
+| Compare distributions...           | *(unbound)*                                   | See [Compare Distributions](../usage/compare-distributions.md).                                                |
+| Referential integrity...           | *(unbound)*                                   | Values in one column with no match in another. See [Referential Integrity](../usage/referential-integrity.md). |
+| Transpose...                       | *(unbound)*                                   | Swap rows and columns into a new tab.                                                                          |
+| Compare rows...                    | *(unbound)*                                   | Put the selected or marked rows side by side, field by field.                                                  |
+| Random sample...                   | *(unbound)*                                   | Open a new tab holding a chosen number of random rows.                                                         |
+| Tidy up...                         | *(unbound)*                                   | Whitespace, casing and empty rows or columns in one pass. Refused in read-only mode.                           |
+| Date/Time calculation...           | *(unbound)*                                   | Differences between dates, and date arithmetic into a new column.                                              |
+| Compare with git version...        | *(unbound)*                                   | Diff the open file against a revision from its git history.                                                    |
+| Explain this file                  | *(unbound)*                                   | Ask the assistant what the open table is. Needs a chat profile.                                                |
+| Report AI content...               | *(unbound)*                                   | Report inappropriate assistant output.                                                                         |
 
 All of these are rebindable in **Settings → Shortcuts**, which refuses to let two
 actions share the same combination.

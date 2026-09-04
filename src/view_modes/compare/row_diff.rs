@@ -207,7 +207,7 @@ pub fn render(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMode) {
             ui.close();
         }
     });
-    if area_resp.hovered() && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::C)) {
+    if area_resp.hovered() && octa::ui::text_selection::copy_pressed(ui.ctx()) {
         ui.ctx().copy_text(copy_text);
     }
 }

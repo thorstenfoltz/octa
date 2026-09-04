@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use eframe::egui;
 
 use octa::db::{self, DbConnection};
-use octa::ui::settings::db_secrets::get_db_secret;
+use octa::ui::settings::db_secrets::{get_db_secret, get_ssh_secret};
 
 use super::state::{DbOrigin, OctaApp};
 
@@ -187,7 +187,8 @@ impl OctaApp {
                 key: key.clone(),
             };
             let secret = get_db_secret(&conn.id, &settings);
-            let result = cache.with_conn(&conn, secret.as_deref(), |c| {
+            let ssh_secret = get_ssh_secret(&conn.id, &settings);
+            let result = cache.with_conn(&conn, secret.as_deref(), ssh_secret.as_deref(), |c| {
                 let parts = split_path(&schema);
                 let state = if conn.engine.has_catalogs() {
                     match parts.as_slice() {
@@ -213,9 +214,66 @@ impl OctaApp {
         });
     }
 
-    /// Load a table's first rows on a worker and queue it for opening as a
-    /// read-only tab. The row cap is the streaming initial-load cap, same as
-    /// opening a large file.
+    /// Claim the database-load slot for a read that is about to start, and
+    /// hand the worker the three things it needs: a flag to raise on the way
+    /// out, the slot to publish its cancel closure into, and the flag Cancel
+    /// sets. Replacing an in-flight job is deliberate - the status bar has one
+    /// spinner, so it names the most recent read.
+    pub(crate) fn begin_db_load(
+        &mut self,
+        hint: String,
+    ) -> (
+        std::sync::Arc<std::sync::atomic::AtomicBool>,
+        super::sql_panel::SharedCancel,
+        std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) {
+        let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancel: super::sql_panel::SharedCancel =
+            std::sync::Arc::new(std::sync::Mutex::new(None));
+        let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.db_load_job = Some(super::state::DbLoadJob {
+            hint,
+            finished: finished.clone(),
+            cancel: cancel.clone(),
+            cancelled: cancelled.clone(),
+        });
+        (finished, cancel, cancelled)
+    }
+
+    /// Stop the database read in flight. Best effort on the server (the
+    /// vendor cancel may arrive after the statement finished), but the local
+    /// wait always ends, which is what the user actually asked for.
+    pub(crate) fn cancel_db_load(&mut self) {
+        let Some(job) = &self.db_load_job else {
+            return;
+        };
+        job.cancelled
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Ok(c) = job.cancel.lock()
+            && let Some(f) = c.as_ref()
+        {
+            f();
+        }
+    }
+
+    /// Retire the load slot once its worker has exited. Called once per frame
+    /// from the update loop.
+    pub(crate) fn drain_db_load_job(&mut self) {
+        if self
+            .db_load_job
+            .as_ref()
+            .is_some_and(|j| j.finished.load(std::sync::atomic::Ordering::Relaxed))
+        {
+            self.db_load_job = None;
+        }
+    }
+
+    /// Load a table's first page on a worker and queue it for opening as a
+    /// tab. The page is `db_page_rows`, not the streaming initial-load cap:
+    /// that cap sizes a local file read, and the same number over a database
+    /// connection is megabytes of JSON (Databricks refuses a result over
+    /// 25 MiB outright). Further pages arrive from `central_panel`'s
+    /// scroll-to-load-more path, the same way a large file's do.
     pub(crate) fn open_db_table(
         &mut self,
         ctx: &egui::Context,
@@ -236,20 +294,35 @@ impl OctaApp {
             std::time::Instant::now(),
         ));
         let cache = self.db_conn_cache.clone();
+        let (finished, cancel_slot, cancelled) =
+            self.begin_db_load(format!("{} {label}", octa::i18n::t("db.loading")));
         std::thread::spawn(move || {
+            let _finished = crate::app::flag_guard::FlagOnDrop::new(finished, true);
             let result = (|| -> anyhow::Result<(
                 octa::data::DataTable,
                 Option<octa::db::write_back::RowIdentity>,
             )> {
                 let secret = get_db_secret(&conn.id, &settings);
+                let ssh_secret = get_ssh_secret(&conn.id, &settings);
+                let page_rows = settings.db_page_size();
                 let sql = db::select_sample_sql(
                     conn.engine,
                     catalog.as_deref(),
                     &schema,
                     &table_name,
-                    octa::formats::initial_load_rows(),
+                    page_rows,
                 );
-                let (mut table, identity) = cache.with_conn(&conn, secret.as_deref(), |c| {
+                let (mut table, identity) = cache.with_conn(&conn, secret.as_deref(), ssh_secret.as_deref(), |c| {
+                    // `with_conn` retries a cached connector once to heal a
+                    // dead socket. After a Cancel that retry would silently
+                    // re-run the statement the user just stopped, so refuse
+                    // the second attempt outright.
+                    if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                        anyhow::bail!("{}", octa::i18n::t("db.load_cancelled"));
+                    }
+                    if let Ok(mut slot) = cancel_slot.lock() {
+                        *slot = c.cancel_handle();
+                    }
                     let table = c.query(&sql)?;
                     // Catalog engines expose no discoverable PK: skip the lookup
                     // so the tab opens read-only and no unqualified
@@ -297,6 +370,14 @@ impl OctaApp {
                     };
                     Ok((table, identity))
                 })?;
+                // A page that came back exactly full may have more behind
+                // it. `total_rows` is read only as a "more may exist" flag
+                // (the status bar prints the loaded count with a `+`), so an
+                // exact server-side count is neither needed nor worth a
+                // second query.
+                if table.rows.len() >= page_rows {
+                    table.total_rows = Some(table.rows.len());
+                }
                 // A writable tab needs row identity for the diff-based
                 // write-back: tag every loaded row and snapshot it as the
                 // baseline (same shape as the SQLite/DuckDB file readers).
@@ -369,8 +450,11 @@ impl OctaApp {
         let cache = self.db_conn_cache.clone();
         std::thread::spawn(move || {
             let secret = get_db_secret(&conn.id, &settings);
+            let ssh_secret = get_ssh_secret(&conn.id, &settings);
             let sql = db::table_metadata_sql(conn.engine, catalog.as_deref(), &schema, &table_name);
-            let result = cache.with_conn(&conn, secret.as_deref(), |c| c.query(&sql));
+            let result = cache.with_conn(&conn, secret.as_deref(), ssh_secret.as_deref(), |c| {
+                c.query(&sql)
+            });
             let item = match result {
                 Ok(table) => DbOpenResult::MetadataReady {
                     table: Box::new(table),
@@ -424,11 +508,18 @@ impl OctaApp {
                         table: table_name,
                         identity,
                     };
-                    // Dismissible note explaining the tab's editability:
-                    // writable by a key -> none; writable only by matching
-                    // whole rows -> say so, because that has a ceiling the
-                    // user has to know about; connection read-only or no way
-                    // to address a row -> why it stays locked.
+                    // Note explaining the tab's editability: writable by a
+                    // key -> none; writable only by matching whole rows ->
+                    // say so, because that has a ceiling the user has to know
+                    // about; connection read-only or no way to address a row
+                    // -> why it stays locked.
+                    //
+                    // A status message, not the tab's banner. It reports what
+                    // just happened when a tab opened, which is what every
+                    // other such report in the app is, so it gets that look,
+                    // that dismiss button, that hover pause and the one
+                    // lifetime in Settings > Appearance rather than a second
+                    // style that sits there until clicked.
                     let writable = self.db_origin_writable(&origin);
                     let full_row = matches!(
                         origin.identity,
@@ -439,7 +530,7 @@ impl OctaApp {
                         .db_connections
                         .iter()
                         .any(|c| c.id == origin.conn_id && c.allow_writes);
-                    new_tab.parse_error_banner = if writable && full_row {
+                    let note = if writable && full_row {
                         Some(octa::i18n::t("db.tab_full_row_note"))
                     } else if writable {
                         None
@@ -448,7 +539,24 @@ impl OctaApp {
                     } else {
                         Some(octa::i18n::t("db.tab_readonly_note"))
                     };
+                    if let Some(note) = note {
+                        self.status_message = Some((note, std::time::Instant::now()));
+                    }
                     new_tab.db_origin = Some(origin);
+                    // Arm the scroll-to-load-more path, the same four fields
+                    // the file open sets (`file_io::mod`). `total_rows` is
+                    // what the worker set above, so a table that fitted in one
+                    // page leaves this off.
+                    if new_tab.table.total_rows.is_some() {
+                        new_tab.bg_can_load_more = true;
+                        new_tab.bg_row_buffer = None;
+                        new_tab
+                            .bg_loading_done
+                            .store(true, std::sync::atomic::Ordering::Relaxed);
+                        new_tab
+                            .bg_file_exhausted
+                            .store(false, std::sync::atomic::Ordering::Relaxed);
+                    }
                     self.open_db_result_tab(new_tab);
                 }
                 DbOpenResult::MetadataReady { table, label } => {

@@ -9,6 +9,11 @@ ADDITIONAL_EXCLUDED_DIRECTORIES:
   # duckdb's vendored mbedtls as leaked private keys. MegaLinter v10 forwards
   # this list to those linters.
   - target
+  # Sample data files, one per supported format. They are deliberately plain
+  # and deliberately odd in places (a fixed-width file, a hand-written SQL
+  # dump, a table serialised by Octa's own writers), so linting them would
+  # report style opinions about data rather than about the project.
+  - samples
 APPLY_FIXES: none # all, none, or list of linter keys
 BASH_SHELLCHECK_ARGUMENTS: -e "SC2162"
 # partner.microsoft.com serves a cert chain lychee's container CA store rejects
@@ -55,7 +60,7 @@ FILEIO_REPORTER: false
 # subsystem they describe. They carry the same dense prose (very long lines,
 # typographic punctuation) that the markdown and prose linters object to, and
 # they are notes to a tool, not product documentation.
-FILTER_REGEX_EXCLUDE: "(CLAUDE\\.md|\\.claude/|WIP_CHANGES\\.md|docs/assets/screenshots/INDEX\\.md|licenses/)"
+FILTER_REGEX_EXCLUDE: "(CLAUDE\\.md|\\.claude/|WIP_CHANGES\\.md|docs/assets/screenshots/INDEX\\.md|licenses/|^samples/)"
 FLAVOR_SUGGESTIONS: false
 FORMATTERS_DISABLE_ERRORS: false
 IGNORE_GITIGNORED_FILES: true
@@ -73,7 +78,7 @@ PRINT_ALPACA: false
 REPOSITORY_CHECKOV_ARGUMENTS: --skip-path assets/Dockerfile.sublime-syntax
 REPOSITORY_LS_LINT_RULES_PATH: .linters
 # The workflows deliberately pin GitHub Actions to major version tags (e.g.
-# actions/checkout@v5, docker/build-push-action@v7), not full commit SHAs -- see
+# actions/checkout@v7, docker/build-push-action@v7), not full commit SHAs -- see
 # CLAUDE.md. Exclude semgrep's mutable-action-tag rule rather than reverse that
 # documented policy across ci/docs/release.yml.
 REPOSITORY_TRIVY_CONFIG_FILE: trivy.yml
@@ -95,5 +100,17 @@ SHOW_SKIPPED_LINTERS: true
 # repeated value in a CLI output block, and the hyperbole check fires on every
 # mkdocs `!!! warning` admonition marker.
 SPELL_PROSELINT_RULES_PATH: .linters
+# `.linters/.secretlintrc.json` re-declares MegaLinter's own preset
+# (secretlint-rule-preset-recommend) so nothing is lost, and adds one exact-value
+# allow: `wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY` is the secret key AWS
+# publishes in its SigV4 signing test suite, and `src/db/sigv4.rs` uses that
+# suite to check the Athena signer against a vector botocore produced. JSON
+# carries no comments, hence the reason living here. The allow is the literal
+# string, so a real key still fails.
+#
+# `.proselintrc.json` also disables `psychology.p_equals_zero`, which asks for
+# "more decimal places" on every p-value the distribution-comparison pages
+# print (`p = 0.003`, `p = 0.05`). Those are the tool's actual output, so there
+# is nothing to reword.
 YAML_V8R_FILTER_REGEX_EXCLUDE: "(^\\.mega-linter\\.yml$)"
 VALIDATE_ALL_CODEBASE: false

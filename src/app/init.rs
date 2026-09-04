@@ -144,6 +144,7 @@ impl OctaApp {
             nav_input: String::new(),
             nav_focus_requested: false,
             show_reload_confirm: false,
+            pending_overwrite_confirm: None,
             pending_table_picker: None,
             pending_sheet_picker: None,
             pending_compressed_origin: None,
@@ -198,11 +199,15 @@ impl OctaApp {
             multi_sort_dialog: None,
             git_compare_dialog: None,
             correlation_dialog: None,
+            dist_compare_dialog: None,
+            referential_dialog: None,
+            units_dialog: None,
             transform_dialog: None,
             conditional_column_dialog: None,
             rename_columns_state: None,
             random_sample_dialog: None,
             tidy_up_dialog: None,
+            pdf_export_dialog: None,
             bookmark_draft: None,
             tab_rename_draft: None,
             anonymize_dialog: None,
@@ -230,6 +235,7 @@ impl OctaApp {
             db_browser: super::db_browser::DbBrowserState::default(),
             db_conn_cache: super::db_conn_cache::DbConnCache::default(),
             sql_server_job: None,
+            db_load_job: None,
         }
     }
 

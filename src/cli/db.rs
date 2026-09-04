@@ -54,7 +54,8 @@ fn find_connection(name: &str) -> Result<(DbConnection, AppSettings)> {
 
 fn connect(conn: &DbConnection, settings: &AppSettings) -> Result<Box<dyn db::DbConnector>> {
     let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, settings);
-    db::connect(conn, secret.as_deref())
+    let ssh_secret = octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, settings);
+    db::connect(conn, secret.as_deref(), ssh_secret.as_deref())
 }
 
 /// `--db-query SQL --db NAME`: run one statement server-side. SELECTs print
@@ -192,9 +193,16 @@ pub fn run_copy(
 
     let src_secret = octa::ui::settings::db_secrets::get_db_secret(&src_conn.id, &settings);
     let tgt_secret = octa::ui::settings::db_secrets::get_db_secret(&tgt_conn.id, &settings);
+    let src_ssh_secret = octa::ui::settings::db_secrets::get_ssh_secret(&src_conn.id, &settings);
+    let tgt_ssh_secret = octa::ui::settings::db_secrets::get_ssh_secret(&tgt_conn.id, &settings);
 
+    // A server-to-server copy can run for minutes with nothing on screen. The
+    // universal lane reports rows as it writes them; the fast lane is one SQL
+    // statement and reports nothing, which is why the count is not a total.
+    let bar = std::cell::RefCell::new(super::progress::Progress::start(None));
     let report = db::copy::copy_table(
         &db::copy::DbCopyEnd {
+            ssh_secret: src_ssh_secret,
             conn: src_conn,
             catalog,
             schema: src_schema.clone(),
@@ -202,6 +210,7 @@ pub fn run_copy(
         },
         src_secret.as_deref(),
         &db::copy::DbCopyEnd {
+            ssh_secret: tgt_ssh_secret,
             conn: tgt_conn,
             catalog: target_catalog,
             schema: tgt_schema.clone(),
@@ -209,7 +218,10 @@ pub fn run_copy(
         },
         tgt_secret.as_deref(),
         mode,
-    )?;
+        &|rows| bar.borrow_mut().rows(rows, "rows copied"),
+    );
+    bar.borrow_mut().finish();
+    let report = report?;
     eprintln!(
         "copied {} row(s) from {src_schema}.{src_table} to {tgt_schema}.{tgt_table}{}",
         report.rows_copied,

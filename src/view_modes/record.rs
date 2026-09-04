@@ -165,6 +165,11 @@ fn render_fields(
                     .get(row, col)
                     .map(|v| v.to_string())
                     .unwrap_or_default();
+                // A spreadsheet formula behind this field, when it still has
+                // one. The Record view exists to show one row in full, so this
+                // is on the line rather than behind a hover as it is in the
+                // grid.
+                let formula = tab.table.formula(row, col).map(str::to_string);
 
                 ui.horizontal(|ui| {
                     ui.add_sized(
@@ -206,6 +211,12 @@ fn render_fields(
                                 .add(egui::Label::new(job).truncate().sense(egui::Sense::click()));
                             if !readonly && resp.clicked() {
                                 begin = Some((col, text.clone()));
+                            }
+                            if let Some(f) = &formula {
+                                ui.add(
+                                    egui::Label::new(egui::RichText::new(f).monospace().weak())
+                                        .truncate(),
+                                );
                             }
                         }
                     }

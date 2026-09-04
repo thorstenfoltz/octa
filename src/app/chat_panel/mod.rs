@@ -108,10 +108,6 @@ pub(crate) struct ChatPanelState {
     pub prompts_window_size: octa::ui::settings::DialogSize,
     /// Message count at the last autosave, to debounce per-turn saves.
     pub last_saved_len: usize,
-    /// Screen rect of the docked panel last frame, so the table's clipboard
-    /// shortcut can yield to in-chat text selection when the pointer is over
-    /// the panel.
-    pub panel_rect: Option<egui::Rect>,
     /// Local-Ollama discovery state (model list, running flag).
     pub ollama: OllamaUi,
 }
@@ -134,7 +130,6 @@ impl ChatPanelState {
             prompts_window_open: false,
             prompts_window_size: octa::ui::settings::DialogSize::default(),
             last_saved_len: 0,
-            panel_rect: None,
             ollama: OllamaUi::default(),
         }
     }
@@ -174,45 +169,28 @@ impl OctaApp {
         }
         self.autosave_chat_session();
         let position = self.settings.chat_panel_position;
-        let rect = match position {
-            ChatPanelPosition::Right => {
-                egui::Panel::right("octa_chat_panel")
-                    .resizable(true)
-                    .default_size(580.0)
-                    .min_size(380.0)
-                    .show(parent_ui, |ui| self.render_chat_body(ui))
-                    .response
-                    .rect
-            }
-            ChatPanelPosition::Left => {
-                egui::Panel::left("octa_chat_panel")
-                    .resizable(true)
-                    .default_size(580.0)
-                    .min_size(380.0)
-                    .show(parent_ui, |ui| self.render_chat_body(ui))
-                    .response
-                    .rect
-            }
-            ChatPanelPosition::Bottom => {
-                egui::Panel::bottom("octa_chat_panel")
-                    .resizable(true)
-                    .default_size(320.0)
-                    .min_size(160.0)
-                    .show(parent_ui, |ui| self.render_chat_body(ui))
-                    .response
-                    .rect
-            }
-            ChatPanelPosition::Top => {
-                egui::Panel::top("octa_chat_panel")
-                    .resizable(true)
-                    .default_size(320.0)
-                    .min_size(160.0)
-                    .show(parent_ui, |ui| self.render_chat_body(ui))
-                    .response
-                    .rect
-            }
+        // Docked left or right the panel divides the width, top or bottom the
+        // height, and either way it must leave the table something to live in
+        // once the window is small. `panel_fit::clamp` hands back the same
+        // numbers on a normal window.
+        let side = matches!(position, ChatPanelPosition::Left | ChatPanelPosition::Right);
+        let (available, want_default, want_min) = if side {
+            (parent_ui.available_width(), 580.0, 380.0)
+        } else {
+            (parent_ui.available_height(), 320.0, 160.0)
         };
-        self.chat.panel_rect = Some(rect);
+        let (default_size, min_size) =
+            octa::ui::panel_fit::clamp(available, want_default, want_min);
+        match position {
+            ChatPanelPosition::Right => egui::Panel::right("octa_chat_panel"),
+            ChatPanelPosition::Left => egui::Panel::left("octa_chat_panel"),
+            ChatPanelPosition::Bottom => egui::Panel::bottom("octa_chat_panel"),
+            ChatPanelPosition::Top => egui::Panel::top("octa_chat_panel"),
+        }
+        .resizable(true)
+        .default_size(default_size)
+        .min_size(min_size)
+        .show(parent_ui, |ui| self.render_chat_body(ui));
     }
 
     fn render_chat_body(&mut self, ui: &mut egui::Ui) {
@@ -230,8 +208,14 @@ impl OctaApp {
     }
 
     fn render_chat_header(&mut self, ui: &mut egui::Ui) {
+        let meter = self.usage_meter();
         ui.horizontal(|ui| {
             ui.heading(t("chat.title"));
+            // Tokens are counted by the provider, not estimated. Only the
+            // money is an estimate, which is what the tooltip says.
+            if let Some(meter) = &meter {
+                ui.weak(meter).on_hover_text(t("chat.usage_hint"));
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("x").on_hover_text(t("chat.close")).clicked() {
                     self.close_chat_panel();
@@ -243,9 +227,15 @@ impl OctaApp {
                 {
                     self.show_ai_report_dialog = true;
                 }
-                if ui.button(t("chat.settings")).clicked() {
+                if ui
+                    .button(t("chat.settings"))
+                    .on_hover_text(t("chat.settings_hint"))
+                    .clicked()
+                {
                     // Chat settings now live in the main Settings dialog; open
-                    // it with the Chat section expanded.
+                    // it with the Chat section expanded. The one way in: the
+                    // profile row used to carry a second button that opened the
+                    // very same section under a narrower name.
                     self.settings_dialog.open(&self.settings);
                     self.settings_dialog.focus_chat_section = true;
                 }
@@ -313,15 +303,6 @@ impl OctaApp {
                 self.settings.chat_active_profile = id;
                 self.settings.save();
                 profile_changed = true;
-            }
-
-            if ui
-                .small_button(t("chat.manage_profiles"))
-                .on_hover_text(t("chat.manage_profiles_hint"))
-                .clicked()
-            {
-                self.settings_dialog.open(&self.settings);
-                self.settings_dialog.focus_chat_section = true;
             }
         });
 
@@ -506,6 +487,7 @@ impl OctaApp {
 
         ui.add_space(4.0);
         let mut send_now = false;
+        let mut explain_now = false;
         let mut input_resp: Option<egui::Response> = None;
         ui.horizontal(|ui| {
             if running {
@@ -517,6 +499,19 @@ impl OctaApp {
                 .clicked()
             {
                 send_now = true;
+            }
+
+            // "Explain this file": sends a fixed prompt about the active tab.
+            // Beside Send rather than in the header because it composes and
+            // sends a message, which is what this row is for.
+            let can_explain = ready && !running && self.tabs[self.active_tab].table.col_count() > 0;
+            if ui
+                .add_enabled(can_explain, egui::Button::new(t("chat.explain")))
+                .on_hover_text(t("chat.explain_hint"))
+                .on_disabled_hover_text(t("chat.explain_hint"))
+                .clicked()
+            {
+                explain_now = true;
             }
 
             // Prompts library: opens a manager window (save / insert / delete).
@@ -616,6 +611,10 @@ impl OctaApp {
         if send_now && !self.chat.input.trim().is_empty() {
             let ctx = ui.ctx().clone();
             self.send_chat_message(&ctx);
+        }
+        if explain_now {
+            let ctx = ui.ctx().clone();
+            self.explain_active_file(&ctx);
         }
     }
 }

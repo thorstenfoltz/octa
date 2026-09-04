@@ -455,6 +455,56 @@ pub enum ShortcutAction {
     /// Run the SQL editor's query on the active tab's live database server
     /// (only meaningful on a tab opened from the Databases tree).
     RunSqlOnServer,
+    /// Open the Correlation dialog. Also **Analyse -> Correlation...**.
+    OpenCorrelation,
+    /// Open the Compare-distributions dialog. Also
+    /// **Analyse -> Compare distributions...**.
+    OpenDistCompare,
+    /// Open the Referential-integrity dialog. Also
+    /// **Analyse -> Referential integrity...**.
+    OpenReferential,
+    /// Open a Transpose tab. Also **Analyse -> Transpose...**.
+    OpenTranspose,
+    /// Open a Compare-rows tab for the selected or marked rows. Also
+    /// **Analyse -> Compare rows...**.
+    OpenRowCompare,
+    /// Open the Random-sample dialog. Also **Analyse -> Random sample...**.
+    OpenRandomSample,
+    /// Open the Tidy-up dialog. Also **Data -> Tidy up...**. No-op in
+    /// read-only mode, like the menu entry.
+    OpenTidyUp,
+    /// Open the Date/Time calculation dialog. Also
+    /// **Data -> Date/Time calculation...**.
+    OpenTimeCalc,
+    /// Open the PDF export dialog. Also **File -> Export to PDF...**.
+    ExportPdf,
+    /// Open a folder in the directory tree. Also
+    /// **File -> Open Directory...**.
+    OpenDirectory,
+    /// Open the git-version compare dialog. Also
+    /// **View -> Compare with git version...**.
+    OpenGitCompare,
+    /// Ask the assistant to explain the active file. Also
+    /// **Analyse -> Explain this file**.
+    ExplainFile,
+    /// Open the "Report AI content" dialog. Also
+    /// **Help -> Report AI content...**.
+    OpenAiReport,
+    /// Toggle the cloud-storage sidebar. Also **File -> Cloud connections**.
+    ToggleCloudBrowser,
+    /// Toggle the databases sidebar. Also **File -> Databases**.
+    ToggleDbBrowser,
+    /// Split the table view into two stacked panes of the same table, or
+    /// close the split. Also **View -> Split view**.
+    ToggleSplitView,
+    /// Split the table view into two side-by-side panes, or close the split.
+    /// Also **View -> Split side by side**.
+    ToggleSplitSideBySide,
+    /// Cut one more band out of an existing split, up to
+    /// `table_view::MAX_SPLIT_PANES`. Also **View -> Add pane**.
+    AddSplitPane,
+    /// Take one band away, down to two. Also **View -> Remove pane**.
+    RemoveSplitPane,
 }
 
 impl ShortcutAction {
@@ -535,6 +585,25 @@ impl ShortcutAction {
             Self::OpenImpute => "Fill missing values...",
             Self::OpenCleanupPanel => "Clean-up suggestions",
             Self::OpenTimeseries => "Time series...",
+            Self::OpenCorrelation => "Correlation...",
+            Self::OpenDistCompare => "Compare distributions...",
+            Self::OpenReferential => "Referential integrity...",
+            Self::OpenTranspose => "Transpose...",
+            Self::OpenRowCompare => "Compare rows...",
+            Self::OpenRandomSample => "Random sample...",
+            Self::OpenTidyUp => "Tidy up...",
+            Self::OpenTimeCalc => "Date/Time calculation...",
+            Self::ExportPdf => "Export to PDF...",
+            Self::OpenDirectory => "Open Directory...",
+            Self::OpenGitCompare => "Compare with git version...",
+            Self::ExplainFile => "Explain this file",
+            Self::OpenAiReport => "Report AI content...",
+            Self::ToggleCloudBrowser => "Toggle cloud panel",
+            Self::ToggleDbBrowser => "Toggle databases panel",
+            Self::ToggleSplitView => "Split view",
+            Self::ToggleSplitSideBySide => "Split side by side",
+            Self::AddSplitPane => "Add split pane",
+            Self::RemoveSplitPane => "Remove split pane",
             Self::OpenBatchConvert => "Batch convert...",
             Self::OpenSchemaDrift => "Schema drift...",
             Self::OpenReport => "Report...",
@@ -687,6 +756,29 @@ impl ShortcutAction {
             // egui clipboard events on the table.
             Self::OpenCleanupPanel => KeyCombo::UNBOUND,
             Self::OpenTimeseries => KeyCombo::UNBOUND,
+            // Everything the menus can reach is bindable, so a user can put
+            // the entries they actually use on keys of their own. There is no
+            // free default chord left to hand out, so these arrive unbound
+            // and Settings -> Shortcuts is where they get one.
+            Self::OpenCorrelation
+            | Self::OpenDistCompare
+            | Self::OpenReferential
+            | Self::OpenTranspose
+            | Self::OpenRowCompare
+            | Self::OpenRandomSample
+            | Self::OpenTidyUp
+            | Self::OpenTimeCalc
+            | Self::ExportPdf
+            | Self::OpenDirectory
+            | Self::OpenGitCompare
+            | Self::ExplainFile
+            | Self::OpenAiReport
+            | Self::ToggleCloudBrowser
+            | Self::ToggleDbBrowser
+            | Self::ToggleSplitView
+            | Self::ToggleSplitSideBySide
+            | Self::AddSplitPane
+            | Self::RemoveSplitPane => KeyCombo::UNBOUND,
             Self::OpenBatchConvert => KeyCombo::UNBOUND,
             Self::OpenSchemaDrift => KeyCombo::UNBOUND,
             Self::OpenReport => KeyCombo::UNBOUND,
@@ -782,7 +874,9 @@ impl ShortcutAction {
             | Self::CloseTab
             | Self::ReopenLastClosedTab
             | Self::OpenTableFolder
-            | Self::QuitApp => G::File,
+            | Self::QuitApp
+            | Self::ExportPdf
+            | Self::OpenDirectory => G::File,
             Self::NextTab | Self::PrevTab | Self::RenameActiveTab => G::Tabs,
             Self::FocusSearch
             | Self::ToggleAskFilter
@@ -822,7 +916,13 @@ impl ShortcutAction {
             | Self::ToggleSqlPanel
             | Self::ToggleChatPanel
             | Self::FitAllColumns
-            | Self::CompareSelectedTabs => G::View,
+            | Self::CompareSelectedTabs
+            | Self::ToggleCloudBrowser
+            | Self::ToggleDbBrowser
+            | Self::ToggleSplitView
+            | Self::ToggleSplitSideBySide
+            | Self::AddSplitPane
+            | Self::RemoveSplitPane => G::View,
             Self::ExportSqlResult | Self::RunSqlOnServer => G::SqlPanel,
             Self::ListCloudInventory => G::Search,
             Self::OpenNumberFormat | Self::CopyAsMarkdown => G::Editing,
@@ -858,7 +958,18 @@ impl ShortcutAction {
             | Self::OpenOutliers
             | Self::OpenPii
             | Self::OpenQualityReport
-            | Self::OpenRenameColumns => G::Dialogs,
+            | Self::OpenRenameColumns
+            | Self::OpenCorrelation
+            | Self::OpenDistCompare
+            | Self::OpenReferential
+            | Self::OpenTranspose
+            | Self::OpenRowCompare
+            | Self::OpenRandomSample
+            | Self::OpenTidyUp
+            | Self::OpenTimeCalc
+            | Self::OpenGitCompare
+            | Self::ExplainFile
+            | Self::OpenAiReport => G::Dialogs,
         }
     }
 }

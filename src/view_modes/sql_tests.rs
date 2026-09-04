@@ -41,3 +41,13 @@ fn empty_prefix_yields_no_suggestions() {
     let out = collect_suggestions("", &cols, 8);
     assert!(out.is_empty());
 }
+
+/// Milliseconds up to a second, then seconds. Both are SI symbols, so the
+/// line stays readable in every locale without a key.
+#[test]
+fn durations_switch_unit_at_one_second() {
+    assert_eq!(format_duration(0), "0 ms");
+    assert_eq!(format_duration(999), "999 ms");
+    assert_eq!(format_duration(1000), "1.0 s");
+    assert_eq!(format_duration(90_500), "90.5 s");
+}

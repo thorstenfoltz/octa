@@ -45,6 +45,7 @@ fn sample_table() -> DataTable {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }
 
@@ -164,6 +165,7 @@ fn test_query_against_empty_table() {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     };
     let result = run_query(&table, "SELECT COUNT(*) FROM data")
         .unwrap()
@@ -189,6 +191,7 @@ fn test_quoted_column_names_with_spaces() {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     };
     let result = run_query(&table, r#"SELECT "first name" FROM data"#)
         .unwrap()
@@ -241,6 +244,7 @@ fn test_large_table_query_completes_quickly() {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     };
     let start = std::time::Instant::now();
     let result = run_query(&table, "SELECT COUNT(*) AS n FROM data")
@@ -276,6 +280,7 @@ fn test_null_values_passthrough() {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     };
     let result = run_query(&table, "SELECT COUNT(v) AS n FROM data")
         .unwrap()

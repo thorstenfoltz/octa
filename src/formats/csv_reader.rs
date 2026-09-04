@@ -361,6 +361,7 @@ fn build_table_from_reader<R: std::io::Read>(
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     })
 }
 
@@ -497,17 +498,42 @@ fn describe_delim(d: u8) -> String {
 /// Load a chunk of CSV/TSV rows in the background.
 /// Skips `skip_rows` data records, then reads up to `max_rows` records.
 /// Pushes rows into `buffer` in batches. Sets `done` to true when finished.
-#[allow(clippy::too_many_arguments)]
+/// Which slice of the file a chunk load should read.
+///
+/// Three bare `usize`s in a row is the shape where a call site can transpose
+/// two and still compile: `skip_rows` and `max_rows` swapped would silently
+/// read the wrong window of the file, and `num_cols` in the wrong slot would
+/// reshape every row. Naming them at the call site is the point.
+pub struct ChunkSpec {
+    pub skip_rows: usize,
+    pub max_rows: usize,
+    pub num_cols: usize,
+}
+
+/// Where a background chunk load reports to. Always created and moved
+/// together, so it travels as one argument.
+pub struct ChunkSink {
+    pub buffer: std::sync::Arc<std::sync::Mutex<Vec<Vec<CellValue>>>>,
+    pub done: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub exhausted: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
 pub fn load_csv_rows_chunk(
     path: &Path,
     delimiter: u8,
-    skip_rows: usize,
-    max_rows: usize,
-    num_cols: usize,
-    buffer: std::sync::Arc<std::sync::Mutex<Vec<Vec<CellValue>>>>,
-    done: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    exhausted: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    spec: ChunkSpec,
+    sink: ChunkSink,
 ) -> Result<()> {
+    let ChunkSpec {
+        skip_rows,
+        max_rows,
+        num_cols,
+    } = spec;
+    let ChunkSink {
+        buffer,
+        done,
+        exhausted,
+    } = sink;
     let mut rdr = csv::ReaderBuilder::new()
         .delimiter(delimiter)
         .has_headers(true)

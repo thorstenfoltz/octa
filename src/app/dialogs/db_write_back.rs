@@ -210,9 +210,11 @@ impl OctaApp {
             let outcome = (|| -> anyhow::Result<DbWriteBackReport> {
                 octa::db::ensure_write_allowed(&conn, None)?;
                 let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
+                let ssh_secret =
+                    octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &settings);
                 // Safe to retry on a stale cached connection: apply_write_back
                 // is one rolled-back-on-error transaction.
-                cache.with_conn(&conn, secret.as_deref(), |c| {
+                cache.with_conn(&conn, secret.as_deref(), ssh_secret.as_deref(), |c| {
                     apply_write_back(
                         c,
                         conn.engine,

@@ -155,6 +155,7 @@ pub(super) fn execute_query(conn: &Connection, query: &str) -> Result<DataTable>
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     })
 }
 
@@ -313,6 +314,7 @@ pub(super) fn octopuses_easter_egg(query: &str) -> Option<DataTable> {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     })
 }
 
@@ -386,6 +388,7 @@ pub(super) fn stars_easter_egg(query: &str) -> Option<DataTable> {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     })
 }
 
@@ -549,5 +552,6 @@ pub(super) fn h2o_easter_egg(query: &str) -> Option<DataTable> {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     })
 }

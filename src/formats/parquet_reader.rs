@@ -220,6 +220,7 @@ fn read_via_arrow(path: &Path) -> Result<DataTable> {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     })
 }
 
@@ -346,6 +347,7 @@ fn read_via_duckdb(path: &Path) -> Result<DataTable> {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     })
 }
 

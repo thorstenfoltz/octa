@@ -105,6 +105,15 @@ pub struct XlsxOptions {
     /// Off by default: every save path that existed before this field must
     /// keep writing exactly what it wrote before.
     pub include_formatting: bool,
+    /// Write the formulas an `.xlsx` was read with back into the saved
+    /// workbook, instead of the values Octa is showing.
+    ///
+    /// Off by default, and the default is the honest one: a preserved formula
+    /// **recalculates when Excel opens the file**, so the saved workbook can
+    /// show a different number than Octa did. `DataTable::formula` already
+    /// withholds a formula from an edited cell and from a restructured table,
+    /// so this only ever covers cells Octa did not touch.
+    pub preserve_formulas: bool,
 }
 
 /// The presentation of one tab, handed to a writer that can express it.
@@ -201,6 +210,11 @@ mod tests {
             "carrying styling must be opt-in, so an existing save path keeps writing plain data"
         );
         assert!(o.style.is_none(), "no tab styling attached by default");
+        assert!(
+            !o.xlsx.preserve_formulas,
+            "keeping formulas must be opt-in too: a preserved one recalculates \
+             in Excel and can then differ from the value Octa showed"
+        );
     }
 
     #[test]

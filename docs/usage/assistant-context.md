@@ -251,6 +251,27 @@ run**. You read it and press Run yourself. Anything that is not one
 `SELECT` statement is rejected outright, and a rejected reply applies
 nothing rather than half a query.
 
+On a database tab set to **run on the server**, Ask SQL is additionally
+given the tables one foreign key away from yours: their names, their
+column names, and the key pair each join uses. The lookup covers the
+table's own schema, so a related table sitting in another schema is
+still named and still joinable on its key, but arrives without its
+column list. These come from the
+database's own catalogue, the same declared keys the
+[relationship map](relationship-map.md) reads, so it costs two catalogue
+queries and reads **no rows** from any table. The model is told to join
+only on a listed pair, never to invent a join condition, and that a join
+multiplies rows, so it should not sum a column of your table through
+one.
+
+Three cases get nothing extra, and all three fall back to the
+single-table prompt that shipped before: a local DuckDB query, where the
+neighbouring tables are not in the workspace to be joined; a database
+that declares no foreign keys, which is common on Redshift, Snowflake,
+Databricks and BigQuery; and a catalogue your account may not read. The
+list is capped at eight tables and forty columns each, so a wide
+warehouse schema cannot quietly inflate every question you ask.
+
 That split is the point. The Ask boxes are fast and shallow. The
 assistant is the one that can go and measure first.
 

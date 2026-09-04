@@ -11,6 +11,7 @@ use crate::app::chat::session::ChatSessionState;
 use crate::app::chat::{agent, build_system_prompt, persist, tools};
 use crate::app::state::OctaApp;
 use crate::ui::settings::{ChatProviderKind, chat_profiles};
+use octa::ui::status_bar::format_number;
 
 use super::profile_api_key;
 
@@ -164,6 +165,59 @@ impl OctaApp {
 
     /// Build the tool context, system prompt, provider config, push the user
     /// message, and spawn the worker turn.
+    /// The header's usage meter: tokens this session, input and output.
+    /// `None` before the first turn reports any usage, so an empty chat
+    /// carries no chrome.
+    pub(crate) fn usage_meter(&mut self) -> Option<String> {
+        let (input_tokens, output_tokens) = {
+            let s = self.chat.session.lock().unwrap();
+            (s.input_tokens, s.output_tokens)
+        };
+        if input_tokens == 0 && output_tokens == 0 {
+            return None;
+        }
+        Some(
+            t("chat.usage")
+                .replace("{in}", &format_number(input_tokens as usize))
+                .replace("{out}", &format_number(output_tokens as usize)),
+        )
+    }
+
+    /// Ask the assistant to explain the active tab, as an ordinary chat turn.
+    ///
+    /// A fixed prompt in front of the context the panel already assembles: the
+    /// system prompt lists the open tabs and the tools read them, so this adds
+    /// no new plumbing, and the answer is a normal message the user can export
+    /// or follow up on. Deliberately NOT the one-shot, tool-less path that
+    /// "Ask" and "Ask SQL" use - explaining a file means looking at it.
+    ///
+    /// The input box is restored afterwards, so a half-written question is not
+    /// eaten by pressing the button beside it.
+    pub(crate) fn explain_active_file(&mut self, ctx: &egui::Context) {
+        let tab = &self.tabs[self.active_tab];
+        if tab.table.col_count() == 0 {
+            return;
+        }
+        let label = tab
+            .table
+            .source_path
+            .as_ref()
+            .and_then(|p| {
+                std::path::Path::new(p)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| tab.title_display());
+        let prompt = t("chat.explain_prompt").replace("{file}", &label);
+
+        self.chat.visible = true;
+        let draft = std::mem::replace(&mut self.chat.input, prompt);
+        self.send_chat_message(ctx);
+        // `send_chat_message` takes the input on success and leaves it alone
+        // when it bails (no key), so either way the user's draft belongs back.
+        self.chat.input = draft;
+    }
+
     pub(crate) fn send_chat_message(&mut self, ctx: &egui::Context) {
         // Everything about the request comes from the active profile: provider,
         // model, temperature and thinking. Only the caps stay global.
@@ -189,8 +243,14 @@ impl OctaApp {
         // (the global Write protection switch no longer applies here).
         let allow_writes = profile.allow_writes;
         let tool_ctx = self.build_tool_context(allow_writes);
-        let system = build_system_prompt(&tool_ctx.open_tab_summaries(), allow_writes);
-        let tool_defs = tools::tool_defs_for(allow_writes);
+        // Only the core group plus the `enable_tools` menu go out now; the
+        // model pulls in a group when it needs one (see `chat::tool_groups`).
+        let disabled: std::collections::BTreeSet<String> =
+            self.settings.chat_disabled_tools.iter().cloned().collect();
+        let tool_defs = tools::initial_tool_defs(allow_writes, &disabled);
+        let has_tool_menu = tool_defs.iter().any(|d| d.name == tools::ENABLE_TOOLS);
+        let system =
+            build_system_prompt(&tool_ctx.open_tab_summaries(), allow_writes, has_tool_menu);
 
         let fallback_base_url = match provider_kind {
             ChatProviderKind::Ollama => self.settings.chat_ollama_url.clone(),
@@ -242,6 +302,8 @@ impl OctaApp {
                 cfg,
                 system,
                 tools: tool_defs,
+                allow_writes,
+                disabled_tools: disabled,
                 tool_ctx,
                 max_iterations,
                 cancel,

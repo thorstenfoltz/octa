@@ -1,5 +1,7 @@
+pub mod dialog_chrome;
 pub mod directory_tree;
 pub mod message;
+pub mod panel_fit;
 pub mod search_highlight;
 pub mod settings;
 pub mod shortcuts;
@@ -7,5 +9,6 @@ pub mod status_bar;
 pub mod syntax;
 pub mod table_picker;
 pub mod table_view;
+pub mod text_selection;
 pub mod theme;
 pub mod toolbar;

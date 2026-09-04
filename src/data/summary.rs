@@ -597,6 +597,7 @@ pub fn build_summary_table(snap: &DataTable, enabled: &[SummaryStat]) -> anyhow:
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     })
 }
 

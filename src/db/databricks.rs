@@ -8,6 +8,16 @@
 //! Statement API targets a warehouse, for which the connection model has no
 //! dedicated field).
 //!
+//! **Two dispositions.** `INLINE` returns the rows in the statement response
+//! but caps the whole result at 25 MiB, which any real table exceeds; that cap
+//! is a hard `BAD_REQUEST`, not a truncation. Row-returning queries therefore
+//! ask for `EXTERNAL_LINKS`, where the response carries presigned chunk URLs
+//! instead and [`DatabricksConnector::read_external_rows`] downloads them. The
+//! `SHOW ...` listings keep `INLINE`: they are tiny, the sidebar runs them
+//! constantly, and external links would cost an extra round trip each. Both
+//! dispositions deliver the same `JSON_ARRAY` shape, so one decoder
+//! ([`append_dbx_rows`]) serves both.
+//!
 //! Live-only: the parser ([`parse_dbx_result`]) is unit-tested; the HTTP flow
 //! is covered by the env-gated live test.
 
@@ -16,14 +26,22 @@ use serde_json::Value;
 
 use crate::data::{CellValue, ColumnInfo, DataTable};
 
-use super::rest::{InFlight, RestClient, databricks_cancel_path, poll};
+use super::rest::{InFlight, POLL_DELAY, RestClient, databricks_cancel_path, poll, poll_tries};
 use super::{CancelFlag, DbAuth, DbConnection, DbConnector, DbEngine, DbWriteMode, DbWriteReport};
+
+/// How long the submit request itself blocks before Databricks answers with
+/// a still-running statement. The API caps this at 50s and rejects 0; 30s
+/// keeps a fast query to a single round trip.
+const DBX_WAIT: &str = "30s";
+const DBX_WAIT_SECS: u32 = 30;
 
 pub struct DatabricksConnector {
     client: RestClient,
     bearer: String,
     warehouse_id: String,
     conn_label: String,
+    /// Seconds to keep asking the warehouse whether the statement is done.
+    timeout_secs: u32,
     cancel: CancelFlag,
     in_flight: InFlight,
 }
@@ -49,21 +67,23 @@ impl DatabricksConnector {
             bearer,
             warehouse_id,
             conn_label: conn.name.clone(),
+            timeout_secs: conn.query_timeout_secs,
             cancel: CancelFlag::new(),
             in_flight: InFlight::default(),
         })
     }
 
     /// Submit a statement and return the SUCCEEDED response JSON, polling while
-    /// the warehouse runs it.
-    fn submit(&self, sql: &str) -> Result<Value> {
+    /// the warehouse runs it. `disposition` is `"INLINE"` or
+    /// `"EXTERNAL_LINKS"` (see the module docs for which goes where).
+    fn submit(&self, sql: &str, disposition: &str) -> Result<Value> {
         self.in_flight.clear();
         let body = serde_json::json!({
             "statement": sql,
             "warehouse_id": self.warehouse_id,
-            "wait_timeout": "30s",
+            "wait_timeout": DBX_WAIT,
             "on_wait_timeout": "CONTINUE",
-            "disposition": "INLINE",
+            "disposition": disposition,
             "format": "JSON_ARRAY",
         });
         let first = self
@@ -85,8 +105,10 @@ impl DatabricksConnector {
             |v| dbx_state(v) == "SUCCEEDED",
             |v| matches!(dbx_state(v), "FAILED" | "CANCELED" | "CLOSED"),
             move || cancel.is_cancelled(),
-            60,
-            std::time::Duration::from_millis(500),
+            // The POST already held the request open for DBX_WAIT, so only
+            // what is left of the connection's budget is polled for.
+            poll_tries(self.timeout_secs, DBX_WAIT_SECS),
+            POLL_DELAY,
         );
         // Clear on every exit path (success and error alike), so a stale
         // statement id is never cancelled later.
@@ -97,7 +119,7 @@ impl DatabricksConnector {
     /// Run a `SHOW ...` and pull the values of the first column matching one of
     /// `candidates` (case-insensitive), else the last column.
     fn show_column(&self, sql: &str, candidates: &[&str]) -> Result<Vec<String>> {
-        let t = parse_dbx_result(&self.submit(sql)?)?;
+        let t = parse_dbx_result(&self.submit(sql, "INLINE")?)?;
         if t.columns.is_empty() {
             return Ok(Vec::new());
         }
@@ -111,6 +133,67 @@ impl DatabricksConnector {
             .filter_map(|r| r.get(col))
             .map(cell_text)
             .collect())
+    }
+
+    /// Download an `EXTERNAL_LINKS` result's chunks onto `out`, stopping at
+    /// `cap` rows.
+    ///
+    /// Each `external_link` is a **presigned** cloud-storage URL: it carries
+    /// its own credentials, and Databricks rejects a request that also sets an
+    /// `Authorization` header. `get_with` is the one client method that sends
+    /// no bearer, which is why it is used here. `next_chunk_internal_link` is
+    /// the opposite case - a workspace API path that does need the bearer.
+    fn read_external_rows(
+        &self,
+        first: &Value,
+        columns: &[ColumnInfo],
+        cap: usize,
+        out: &mut Vec<Vec<CellValue>>,
+    ) -> Result<()> {
+        // The walk is bounded, not `while there is a next link`: a server
+        // that pointed back at a chunk already fetched would otherwise spin
+        // this worker thread forever, and it has no cancel of its own between
+        // statements. `total_chunk_count` is the real answer; the fallback is
+        // far past any result the row cap allows, so it can never cut a
+        // well-formed response short.
+        let max_batches = first
+            .pointer("/manifest/total_chunk_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(100_000)
+            .max(1) as usize;
+        let mut links = dbx_external_links(first);
+        for _ in 0..max_batches {
+            if links.is_empty() {
+                return Ok(());
+            }
+            for link in &links {
+                if out.len() >= cap {
+                    return Ok(());
+                }
+                if self.cancel.is_cancelled() {
+                    bail!("statement cancelled");
+                }
+                let body = self.client.get_with(&link.url, &[]).with_context(|| {
+                    format!(
+                        "downloading result chunk {} on '{}'",
+                        link.index, self.conn_label
+                    )
+                })?;
+                append_dbx_rows(&body, columns, out);
+            }
+            // The last link of a batch is the one that names what follows it.
+            let Some(path) = links.last().and_then(|l| l.next_path.clone()) else {
+                return Ok(());
+            };
+            if out.len() >= cap {
+                return Ok(());
+            }
+            let v = self.client.get_json(&path, &self.bearer).with_context(|| {
+                format!("fetching the next result chunk on '{}'", self.conn_label)
+            })?;
+            links = dbx_external_links(&v);
+        }
+        Ok(())
     }
 }
 
@@ -142,8 +225,13 @@ impl DbConnector for DatabricksConnector {
 
     fn query(&mut self, sql: &str) -> Result<DataTable> {
         self.cancel.reset();
-        let mut t = parse_dbx_result(&self.submit(sql)?)?;
         let cap = crate::formats::initial_load_rows();
+        let v = self.submit(sql, "EXTERNAL_LINKS")?;
+        // `parse_dbx_result` takes the columns off the manifest and finds no
+        // inline `data_array`; the rows arrive from the chunk links instead.
+        let mut t = parse_dbx_result(&v)?;
+        let columns = t.columns.clone();
+        self.read_external_rows(&v, &columns, cap, &mut t.rows)?;
         if t.rows.len() > cap {
             t.rows.truncate(cap);
         }
@@ -159,7 +247,8 @@ impl DbConnector for DatabricksConnector {
         if head.starts_with("BEGIN") || head.starts_with("COMMIT") || head.starts_with("ROLLBACK") {
             return Ok(0);
         }
-        self.submit(sql)?;
+        // No rows come back from DDL/DML, so the cheap disposition is right.
+        self.submit(sql, "INLINE")?;
         Ok(0)
     }
 
@@ -272,6 +361,10 @@ fn dbx_type_to_arrow(ty: &str) -> &'static str {
 
 /// Parse a Databricks Statement result (`manifest.schema.columns` +
 /// `result.data_array`) into a [`DataTable`]. Cells arrive as JSON strings.
+///
+/// An `EXTERNAL_LINKS` response has no `data_array`, so this yields the
+/// columns and no rows; [`DatabricksConnector::read_external_rows`] fills them
+/// in from the chunk downloads.
 pub(crate) fn parse_dbx_result(v: &Value) -> Result<DataTable> {
     let cols = v["manifest"]["schema"]["columns"]
         .as_array()
@@ -284,24 +377,64 @@ pub(crate) fn parse_dbx_result(v: &Value) -> Result<DataTable> {
         })
         .collect();
     let mut table = DataTable::empty();
-    table.rows = v["result"]["data_array"]
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .map(|row| {
-                    columns
-                        .iter()
-                        .enumerate()
-                        .map(|(i, col)| {
-                            dbx_cell(row.get(i).unwrap_or(&Value::Null), &col.data_type)
-                        })
-                        .collect()
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    append_dbx_rows(&v["result"]["data_array"], &columns, &mut table.rows);
     table.columns = columns;
     Ok(table)
+}
+
+/// Decode one `JSON_ARRAY` block (an array of row arrays) onto `out`. Inline
+/// results carry it at `result.data_array`; an external chunk download *is*
+/// one, as the whole response body. Anything else decodes to no rows.
+fn append_dbx_rows(v: &Value, columns: &[ColumnInfo], out: &mut Vec<Vec<CellValue>>) {
+    let Some(rows) = v.as_array() else {
+        return;
+    };
+    out.reserve(rows.len());
+    for row in rows {
+        out.push(
+            columns
+                .iter()
+                .enumerate()
+                .map(|(i, col)| dbx_cell(row.get(i).unwrap_or(&Value::Null), &col.data_type))
+                .collect(),
+        );
+    }
+}
+
+/// One chunk of an `EXTERNAL_LINKS` result.
+#[derive(Debug, PartialEq, Eq)]
+struct DbxLink {
+    /// Chunk index, for error messages only.
+    index: i64,
+    /// The presigned download URL. Must be fetched WITHOUT a bearer token.
+    url: String,
+    /// Workspace API path yielding the link after this one, when there is one.
+    next_path: Option<String>,
+}
+
+/// Pull the chunk links out of a Databricks response. The statement response
+/// nests them under `result`; the response to a `next_chunk_internal_link`
+/// GET carries them at the top level, so both spellings are accepted.
+fn dbx_external_links(v: &Value) -> Vec<DbxLink> {
+    let arr = v
+        .pointer("/result/external_links")
+        .or_else(|| v.get("external_links"))
+        .and_then(Value::as_array);
+    let Some(arr) = arr else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|l| {
+            Some(DbxLink {
+                index: l["chunk_index"].as_i64().unwrap_or(0),
+                url: l["external_link"].as_str()?.to_string(),
+                next_path: l["next_chunk_internal_link"]
+                    .as_str()
+                    .map(str::to_string)
+                    .filter(|p| !p.is_empty()),
+            })
+        })
+        .collect()
 }
 
 /// Convert one Databricks cell (JSON string or null) by its Arrow type.
@@ -358,6 +491,85 @@ mod tests {
         assert_eq!(t.columns[0].data_type, "Int64");
         assert_eq!(t.row_count(), 2);
         assert_eq!(t.rows[0][0], CellValue::Int(1));
+    }
+
+    #[test]
+    fn external_links_are_read_from_either_shape() {
+        // The statement response nests them under `result`.
+        let stmt = serde_json::json!({
+            "result": { "external_links": [
+                {"chunk_index": 0, "external_link": "https://s3/chunk0",
+                 "next_chunk_internal_link": "/api/2.0/sql/statements/x/result/chunks/1"} ] }
+        });
+        let links = dbx_external_links(&stmt);
+        assert_eq!(
+            links,
+            vec![DbxLink {
+                index: 0,
+                url: "https://s3/chunk0".to_string(),
+                next_path: Some("/api/2.0/sql/statements/x/result/chunks/1".to_string()),
+            }]
+        );
+        // The chunk-fetch response carries them at the top level, and the last
+        // chunk names no successor.
+        let chunk = serde_json::json!({
+            "external_links": [
+                {"chunk_index": 1, "external_link": "https://s3/chunk1"} ]
+        });
+        let links = dbx_external_links(&chunk);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].index, 1);
+        assert_eq!(links[0].next_path, None);
+    }
+
+    #[test]
+    fn a_result_without_links_walks_nowhere() {
+        assert!(dbx_external_links(&serde_json::json!({"result": {}})).is_empty());
+        assert!(dbx_external_links(&serde_json::json!({})).is_empty());
+    }
+
+    /// The EXTERNAL_LINKS statement response carries the manifest but no
+    /// `data_array`, so the parse must still yield the columns.
+    #[test]
+    fn external_disposition_parses_columns_without_inline_rows() {
+        let v = serde_json::json!({
+            "manifest": { "schema": { "columns": [
+                {"name":"id","type_name":"INT"} ] } },
+            "result": { "external_links": [
+                {"chunk_index": 0, "external_link": "https://s3/c0"} ] }
+        });
+        let t = parse_dbx_result(&v).unwrap();
+        assert_eq!(t.columns.len(), 1);
+        assert_eq!(t.row_count(), 0);
+    }
+
+    /// A downloaded chunk body is the same JSON_ARRAY shape as inline data,
+    /// and decodes through the same column types.
+    #[test]
+    fn a_chunk_body_decodes_like_inline_data() {
+        let columns = vec![
+            ColumnInfo {
+                name: "id".to_string(),
+                data_type: "Int64".to_string(),
+            },
+            ColumnInfo {
+                name: "name".to_string(),
+                data_type: "Utf8".to_string(),
+            },
+        ];
+        let mut rows = Vec::new();
+        append_dbx_rows(
+            &serde_json::json!([["1", "alice"], ["2", null]]),
+            &columns,
+            &mut rows,
+        );
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0][0], CellValue::Int(1));
+        assert_eq!(rows[0][1], CellValue::String("alice".to_string()));
+        assert_eq!(rows[1][1], CellValue::Null);
+        // A second chunk appends rather than replaces.
+        append_dbx_rows(&serde_json::json!([["3", "carol"]]), &columns, &mut rows);
+        assert_eq!(rows.len(), 3);
     }
 
     #[test]

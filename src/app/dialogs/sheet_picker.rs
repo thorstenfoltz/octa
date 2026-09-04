@@ -143,7 +143,7 @@ pub(crate) fn render_sheet_picker_dialog(app: &mut OctaApp, ctx: &egui::Context)
                 .map(|(name, _)| name.clone())
                 .collect();
             for name in chosen {
-                app.load_table(path.clone(), name);
+                app.load_table(path.clone(), name, None);
             }
         }
     } else if close {

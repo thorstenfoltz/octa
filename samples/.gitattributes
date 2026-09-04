@@ -1,0 +1,33 @@
+# The binary sample files go through Git LFS, the way the fonts and screenshots
+# already do. The text ones (csv, json, md, sql, toml, ...) deliberately do not:
+# their whole value is that a diff of them is readable.
+#
+# Scoped to this directory on purpose. `tests/fixtures` holds the same kinds of
+# file as ordinary git objects and is left alone.
+*.parquet  filter=lfs diff=lfs merge=lfs -text
+*.xlsx     filter=lfs diff=lfs merge=lfs -text
+*.ods      filter=lfs diff=lfs merge=lfs -text
+*.avro     filter=lfs diff=lfs merge=lfs -text
+*.arrow    filter=lfs diff=lfs merge=lfs -text
+*.orc      filter=lfs diff=lfs merge=lfs -text
+*.h5       filter=lfs diff=lfs merge=lfs -text
+*.nc       filter=lfs diff=lfs merge=lfs -text
+*.sav      filter=lfs diff=lfs merge=lfs -text
+*.dta      filter=lfs diff=lfs merge=lfs -text
+*.dbf      filter=lfs diff=lfs merge=lfs -text
+*.rds      filter=lfs diff=lfs merge=lfs -text
+*.npy      filter=lfs diff=lfs merge=lfs -text
+*.npz      filter=lfs diff=lfs merge=lfs -text
+*.msgpack  filter=lfs diff=lfs merge=lfs -text
+*.bson     filter=lfs diff=lfs merge=lfs -text
+*.sqlite   filter=lfs diff=lfs merge=lfs -text
+*.duckdb   filter=lfs diff=lfs merge=lfs -text
+*.gpkg     filter=lfs diff=lfs merge=lfs -text
+*.epub     filter=lfs diff=lfs merge=lfs -text
+*.shp      filter=lfs diff=lfs merge=lfs -text
+*.shx      filter=lfs diff=lfs merge=lfs -text
+*.zip      filter=lfs diff=lfs merge=lfs -text
+*.tar      filter=lfs diff=lfs merge=lfs -text
+*.tgz      filter=lfs diff=lfs merge=lfs -text
+*.gz       filter=lfs diff=lfs merge=lfs -text
+*.zst      filter=lfs diff=lfs merge=lfs -text

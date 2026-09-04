@@ -229,6 +229,7 @@ fn build_table(entries: Vec<ArchiveEntry>, source_path: &Path, kind: ArchiveKind
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }
 

@@ -1,0 +1,9 @@
+id	product	category	price	in_stock	released	rating	note
+1	Café Latte	drinks	3.5	true	2024-01-15	4.5	
+2	Blaubeer-Muffin	food	2.75	true	2024-02-01	4.2	Baked daily
+3	Espresso	drinks	2.1	false	2023-11-30	4.8	Out of beans
+4	Croissant	food	2.4	true	2024-03-12	3.9	
+5	Matcha Latte	drinks	4.25	true	2024-05-02	4.1	Seasonal
+6	Bagel	food	1.95	false	2022-07-19	3.4	Discontinued
+7	Flat White	drinks	3.8	true	2024-06-08	4.6	
+8	Käsekuchen	food	4.9	true	2024-04-21	4.7	One slice left, hurry

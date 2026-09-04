@@ -41,6 +41,7 @@ pub fn split_qualified(spec: &str) -> (Option<String>, String, String) {
 pub fn fetch_table(
     conn: &DbConnection,
     secret: Option<&str>,
+    ssh_secret: Option<&str>,
     catalog: Option<&str>,
     schema: &str,
     table: &str,
@@ -50,7 +51,10 @@ pub fn fetch_table(
     } else {
         schema
     };
-    let mut connector = connect(conn, secret)?;
+    let mut connector = connect(conn, secret, ssh_secret)?;
+    // The streaming cap, deliberately, not the GUI's `db_page_rows`: the
+    // sidebar loads a page because the user can scroll for the next one, and
+    // CLI and MCP cannot. A headless read gets the whole cap in one go.
     let sql = select_sample_sql(
         conn.engine,
         catalog,

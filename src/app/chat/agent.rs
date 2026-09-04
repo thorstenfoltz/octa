@@ -2,6 +2,7 @@
 //! cloned `egui::Context`, the `Arc<Mutex<ChatSessionState>>`, and a moved
 //! `ToolContext` of table snapshots - it never borrows `OctaApp` / `TabState`.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
@@ -13,6 +14,7 @@ use crate::mcp::tools::ToolContext;
 
 use super::providers::{ChatProvider, ProviderConfig};
 use super::session::{ChatSessionState, StreamingTurn, TurnPhase};
+use super::tool_groups::ToolGroup;
 use super::types::{ChatEvent, ContentBlock, Message, Role, StopReason, ToolDef};
 
 /// Cap on the size of a single tool result fed back to the model, so one big
@@ -24,7 +26,15 @@ pub struct TurnRequest {
     pub provider: Box<dyn ChatProvider>,
     pub cfg: ProviderConfig,
     pub system: String,
+    /// What goes out with the first request: the core group plus the
+    /// `enable_tools` menu. The loop grows this list when the model fetches a
+    /// group (see `chat::tool_groups`).
     pub tools: Vec<ToolDef>,
+    /// Whether this profile may use the write tools, and which tools the user
+    /// switched off. Both are needed here because a mid-turn fetch has to
+    /// apply the same filtering the first request did.
+    pub allow_writes: bool,
+    pub disabled_tools: BTreeSet<String>,
     pub tool_ctx: ToolContext,
     pub max_iterations: usize,
     /// Per-turn cancel flag (also stored on the session as `cancel`). Owning it
@@ -66,7 +76,9 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
         provider,
         cfg,
         system,
-        tools,
+        mut tools,
+        allow_writes,
+        disabled_tools,
         tool_ctx,
         max_iterations,
         cancel,
@@ -74,7 +86,16 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
         audit_session,
     } = req;
 
-    for _iteration in 0..max_iterations.max(1) {
+    // Fetching a group of tools is not work, so it must not spend the user's
+    // tool-iteration budget - with the default of 3, one fetch would eat a
+    // third of it. It is still bounded: after this many fetch-only rounds a
+    // model that keeps asking instead of answering starts paying like any
+    // other round.
+    let max_fetch_rounds = ToolGroup::ALL.len();
+    let mut fetch_rounds = 0usize;
+    let mut rounds = 0usize;
+
+    while rounds < max_iterations.max(1) {
         if cancel.load(Ordering::Relaxed) {
             answer_cancelled_tool_calls(state);
             return;
@@ -191,6 +212,10 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
         ctx.request_repaint();
 
         let mut result_blocks: Vec<ContentBlock> = Vec::new();
+        // A round that only fetched tools is free (see `max_fetch_rounds`). A
+        // fetch that loaded nothing counts as work, so a model looping on the
+        // same group cannot spin forever.
+        let mut did_real_work = false;
         for (id, name, input) in tool_calls {
             if cancel.load(Ordering::Relaxed) {
                 answer_cancelled_tool_calls(state);
@@ -198,9 +223,42 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
             }
             let args_bytes = input.to_string().len();
             let started = std::time::Instant::now();
-            let (content, is_error) = match super::tools::dispatch(&tool_ctx, &name, input) {
-                Ok(v) => (truncate_for_model(&v.to_string()), false),
-                Err(e) => (e, true),
+            // `enable_tools` is answered here rather than in `tools::dispatch`,
+            // because the whole point of it is to change the tool list this
+            // turn is running with, which dispatch cannot reach.
+            let (content, is_error) = if name == super::tools::ENABLE_TOOLS {
+                let (added, msg) =
+                    super::tools::enable_groups(&input, allow_writes, &disabled_tools, &tools);
+                did_real_work |= added.is_empty();
+                tools.extend(added);
+                (msg, false)
+            } else if !tools.iter().any(|d| d.name == name) {
+                // Either the user switched this tool off, or the model called
+                // it from memory without fetching its group. Say which, rather
+                // than running a tool that is not on the table.
+                did_real_work = true;
+                let hint = if disabled_tools.contains(&name) {
+                    format!(
+                        "the tool `{name}` is switched off for this install \
+                         (Settings > Chat / Assistant > Tools). Tell the user that, \
+                         and use another tool if one fits."
+                    )
+                } else {
+                    match ToolGroup::of(&name) {
+                        Some(group) => format!(
+                            "the tool `{name}` is not loaded: call `enable_tools` with group \"{}\" first",
+                            group.id()
+                        ),
+                        None => format!("unknown tool: {name}"),
+                    }
+                };
+                (hint, true)
+            } else {
+                did_real_work = true;
+                match super::tools::dispatch(&tool_ctx, &name, input) {
+                    Ok(v) => (truncate_for_model(&v.to_string()), false),
+                    Err(e) => (e, true),
+                }
             };
             // Audit log (opt-in): one JSON line per tool call.
             if let Some(ref sid) = audit_session {
@@ -230,6 +288,12 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
             .unwrap()
             .messages
             .push(Message::tool_results(result_blocks));
+
+        if did_real_work || fetch_rounds >= max_fetch_rounds {
+            rounds += 1;
+        } else {
+            fetch_rounds += 1;
+        }
         // Loop: send the tool results back for the model's next step.
     }
 }

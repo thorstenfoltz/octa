@@ -1,0 +1,26 @@
+# TOML opens in the Raw view by default; the tree view shows the same data
+# as a table. Written by hand because a TOML document has a shape a flat
+# table does not: nested tables, arrays and typed scalars.
+
+title = "Corner Cafe"
+opened = 2019-04-01
+seats = 34
+wifi = true
+
+[owner]
+name = "R. Beans"
+email = "hello@example.com"
+
+[hours]
+weekday = ["07:00", "18:00"]
+weekend = ["09:00", "16:00"]
+
+[[staff]]
+name = "Ada"
+role = "barista"
+hours_per_week = 32.5
+
+[[staff]]
+name = "Sean"
+role = "baker"
+hours_per_week = 20.0

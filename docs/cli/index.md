@@ -23,6 +23,7 @@ octa --describe data.parquet
 octa --validate-schema data.parquet --expect-schema expected.json
 octa --unique-columns users.csv --max-combo 2
 octa --mcp                      # MCP server on stdio
+octa --completions zsh          # shell completion script on stdout
 ```
 
 The action flags are **mutually exclusive**, so pick one per
@@ -63,54 +64,57 @@ one first with `chmod 750 Octa-*-x86_64.AppImage`. See
 
 ## Available actions
 
-| Flag                                                 | Description                                   | Reference                                   |
-|------------------------------------------------------|-----------------------------------------------|---------------------------------------------|
-| `--schema FILE`                                      | Print column name + type as a table           | [→ `--schema`](schema.md)                   |
-| `--head FILE [-n N]`                                 | Print the first N rows (default 20)           | [→ `--head`](head.md)                       |
-| `--tail FILE [-n N]`                                 | Print the last N rows (default 20)            | [→ `--tail`](tail.md)                       |
-| `--sample FILE [-n N] [--seed S]`                    | Print a reproducible random N-row sample      | [→ `--sample`](sample.md)                   |
-| `--convert IN OUT`                                   | Convert between formats                       | [→ `--convert`](convert.md)                 |
-| `--sql FILE -q '<query>'`                            | Run a SQL query against a file                | [→ `--sql`](sql.md)                         |
-| `--export-schema FILE [-t T]`                        | Render the schema as DDL / model / struct     | [→ `--export-schema`](export-schema.md)     |
-| `--compare-schemas A B`                              | Diff the schemas of two files                 | [→ `--compare-schemas`](compare-schemas.md) |
-| `--diff A B`                                         | Row-level diff: rows unique to each file      | [→ `--diff`](diff.md)                       |
-| `--describe FILE`                                    | One-shot snapshot: format + schema + sample   | [→ `--describe`](describe.md)               |
-| `--validate-schema FILE --expect-schema SCHEMA`      | Validate against JSON Schema (exit 1 = drift) | [→ `--validate-schema`](validate-schema.md) |
-| `--unique-columns FILE`                              | Find PK candidates (singles + combos)         | [→ `--unique-columns`](unique-columns.md)   |
-| `--anonymize SPEC FILE`                              | Mask / scramble columns per a JSON spec       | [→ `--anonymize`](anonymize.md)             |
-| `--dedupe FILE`                                      | Remove duplicate rows                         | [→ `--dedupe`](dedupe.md)                   |
-| `--impute COL=STRATEGY FILE`                         | Fill missing cells in a column                | [→ `--impute`](impute.md)                   |
-| `--outliers FILE`                                    | Flag numeric outlier cells                    | [→ `--outliers`](outliers.md)               |
-| `--detect-pii FILE`                                  | Find likely personal-data columns             | [→ `--detect-pii`](pii.md)                  |
-| `--union FILE --union-file FILE`                     | Stack files into one table                    | [→ `--union`](union.md)                     |
-| `--join FILE --join-file FILE --join-on COLS`        | Join files on key columns                     | [→ `--join`](join.md)                       |
-| `--partition-by COL --out-dir DIR FILE`              | One file per distinct column value            | [→ `--partition-by`](partition.md)          |
-| `--batch-convert --to EXT --out-dir DIR FILE...`     | Convert many files into one format            | [→ `--batch-convert`](batch-convert.md)     |
-| `--resample COL --value-cols COLS FILE`              | Group rows into time buckets and aggregate    | [→ `--resample`](timeseries.md)             |
-| `--rolling COL --order-by COL --window N FILE`       | Rolling aggregate over the previous N rows    | [→ `--rolling`](timeseries.md)              |
-| `--schema-drift DIR`                                 | Which files in a folder disagree on columns   | [→ `--schema-drift`](schema-drift.md)       |
-| `--drift-report A B`                                 | How two versions of one dataset differ        | [→ `--drift-report`](drift-report.md)       |
-| `--check FILE --rules RULES.toml`                    | Check values against a rules file             | [→ `--check`](check.md)                     |
-| `--relationships DIR`                                | Rank how the tables in a folder connect       | [→ `--relationships`](relationships.md)     |
-| `--harmonise-schema DIR --out-dir DIR`               | Rewrite a folder to one common schema         | [→ guide](../usage/harmonise-schemas.md)    |
-| `--report OUT.html FILE`                             | Write a self-contained profiling report       | [→ `--report`](report.md)                   |
-| `--fuzzy-join FILE --fuzzy-join-file FILE`           | Join on similarity rather than equality       | [→ `--fuzzy-join`](fuzzy-join.md)           |
-| `--to-workbook OUT.xlsx FILE...`                     | Write several files as one workbook           | [→ guide](../usage/saving.md)               |
-| `--sync-sql FILE --sync-table T --sync-on COLS`      | Generate the SQL that would sync a table      | [→ guide](../usage/database-connections.md) |
-| `--mcp`                                              | Start the MCP server                          | [→ MCP guide](../mcp/index.md)              |
-| `--cloud-ls URL`                                     | List a bucket or prefix                       | [→ cloud storage](cloud.md)                 |
-| `--cloud-get URL --out PATH`                         | Download one cloud object                     | [→ cloud storage](cloud.md)                 |
-| `--cloud-put PATH --to URL`                          | Upload a local file                           | [→ cloud storage](cloud.md)                 |
-| `--cloud-copy URL --to URL`                          | Copy an object or prefix, across clouds too   | [→ cloud storage](cloud.md)                 |
-| `--cloud-move URL --to URL`                          | Copy then delete the source                   | [→ cloud storage](cloud.md)                 |
-| `--cloud-delete URL`                                 | Delete an object or prefix                    | [→ cloud storage](cloud.md)                 |
-| `--db-tables --db CONN`                              | List a live connection's schemas and tables   | [→ guide](../usage/database-connections.md) |
-| `--db-query SQL --db CONN`                           | Run SQL on a live database server             | [→ guide](../usage/database-connections.md) |
-| `--db-write-table SCHEMA.TABLE --db CONN FILE`       | Write a file into a live database table       | [→ guide](../usage/database-connections.md) |
-| `--db-copy SCHEMA.TABLE --db CONN --db-copy-to CONN` | Copy a table server to server                 | [→ guide](../usage/database-connections.md) |
-| `--list-connections`                                 | List saved cloud and database connections     | [→ man page](man-page.md)                   |
-| `--add-connection SPEC`                              | Add or replace a saved connection             | [→ man page](man-page.md)                   |
-| `--remove-connection NAME`                           | Delete a saved connection and its secret      | [→ man page](man-page.md)                   |
+| Flag                                                 | Description                                   | Reference                                               |
+|------------------------------------------------------|-----------------------------------------------|---------------------------------------------------------|
+| `--schema FILE`                                      | Print column name + type as a table           | [→ `--schema`](schema.md)                               |
+| `--head FILE [-n N]`                                 | Print the first N rows (default 20)           | [→ `--head`](head.md)                                   |
+| `--tail FILE [-n N]`                                 | Print the last N rows (default 20)            | [→ `--tail`](tail.md)                                   |
+| `--sample FILE [-n N] [--seed S]`                    | Print a reproducible random N-row sample      | [→ `--sample`](sample.md)                               |
+| `--convert IN OUT`                                   | Convert between formats                       | [→ `--convert`](convert.md)                             |
+| `--sql FILE -q '<query>'`                            | Run a SQL query against a file                | [→ `--sql`](sql.md)                                     |
+| `--export-schema FILE [-t T]`                        | Render the schema as DDL / model / struct     | [→ `--export-schema`](export-schema.md)                 |
+| `--compare-schemas A B`                              | Diff the schemas of two files                 | [→ `--compare-schemas`](compare-schemas.md)             |
+| `--compare-distributions FILE --dist-column COL`     | Do two columns look like one population?      | [→ `--compare-distributions`](compare-distributions.md) |
+| `--check-references PARENT --parent-column COL`      | Orphan child rows (exit 1 = orphans found)    | [→ `--check-references`](check-references.md)           |
+| `--diff A B`                                         | Row-level diff: rows unique to each file      | [→ `--diff`](diff.md)                                   |
+| `--describe FILE`                                    | One-shot snapshot: format + schema + sample   | [→ `--describe`](describe.md)                           |
+| `--validate-schema FILE --expect-schema SCHEMA`      | Validate against JSON Schema (exit 1 = drift) | [→ `--validate-schema`](validate-schema.md)             |
+| `--unique-columns FILE`                              | Find PK candidates (singles + combos)         | [→ `--unique-columns`](unique-columns.md)               |
+| `--anonymize SPEC FILE`                              | Mask / scramble columns per a JSON spec       | [→ `--anonymize`](anonymize.md)                         |
+| `--dedupe FILE`                                      | Remove duplicate rows                         | [→ `--dedupe`](dedupe.md)                               |
+| `--impute COL=STRATEGY FILE`                         | Fill missing cells in a column                | [→ `--impute`](impute.md)                               |
+| `--outliers FILE`                                    | Flag numeric outlier cells                    | [→ `--outliers`](outliers.md)                           |
+| `--detect-pii FILE`                                  | Find likely personal-data columns             | [→ `--detect-pii`](pii.md)                              |
+| `--union FILE --union-file FILE`                     | Stack files into one table                    | [→ `--union`](union.md)                                 |
+| `--join FILE --join-file FILE --join-on COLS`        | Join files on key columns                     | [→ `--join`](join.md)                                   |
+| `--partition-by COL --out-dir DIR FILE`              | One file per distinct column value            | [→ `--partition-by`](partition.md)                      |
+| `--batch-convert --to EXT --out-dir DIR FILE...`     | Convert many files into one format            | [→ `--batch-convert`](batch-convert.md)                 |
+| `--resample COL --value-cols COLS FILE`              | Group rows into time buckets and aggregate    | [→ `--resample`](timeseries.md)                         |
+| `--rolling COL --order-by COL --window N FILE`       | Rolling aggregate over the previous N rows    | [→ `--rolling`](timeseries.md)                          |
+| `--schema-drift DIR`                                 | Which files in a folder disagree on columns   | [→ `--schema-drift`](schema-drift.md)                   |
+| `--drift-report A B`                                 | How two versions of one dataset differ        | [→ `--drift-report`](drift-report.md)                   |
+| `--check FILE --rules RULES.toml`                    | Check values against a rules file             | [→ `--check`](check.md)                                 |
+| `--relationships DIR`                                | Rank how the tables in a folder connect       | [→ `--relationships`](relationships.md)                 |
+| `--harmonise-schema DIR --out-dir DIR`               | Rewrite a folder to one common schema         | [→ guide](../usage/harmonise-schemas.md)                |
+| `--report OUT.html FILE`                             | Write a self-contained profiling report       | [→ `--report`](report.md)                               |
+| `--fuzzy-join FILE --fuzzy-join-file FILE`           | Join on similarity rather than equality       | [→ `--fuzzy-join`](fuzzy-join.md)                       |
+| `--to-workbook OUT.xlsx FILE...`                     | Write several files as one workbook           | [→ guide](../usage/saving.md)                           |
+| `--sync-sql FILE --sync-table T --sync-on COLS`      | Generate the SQL that would sync a table      | [→ guide](../usage/database-connections.md)             |
+| `--mcp`                                              | Start the MCP server                          | [→ MCP guide](../mcp/index.md)                          |
+| `--cloud-ls URL`                                     | List a bucket or prefix                       | [→ cloud storage](cloud.md)                             |
+| `--cloud-get URL --out PATH`                         | Download one cloud object                     | [→ cloud storage](cloud.md)                             |
+| `--cloud-put PATH --to URL`                          | Upload a local file                           | [→ cloud storage](cloud.md)                             |
+| `--cloud-copy URL --to URL`                          | Copy an object or prefix, across clouds too   | [→ cloud storage](cloud.md)                             |
+| `--cloud-move URL --to URL`                          | Copy then delete the source                   | [→ cloud storage](cloud.md)                             |
+| `--cloud-delete URL`                                 | Delete an object or prefix                    | [→ cloud storage](cloud.md)                             |
+| `--db-tables --db CONN`                              | List a live connection's schemas and tables   | [→ guide](../usage/database-connections.md)             |
+| `--db-query SQL --db CONN`                           | Run SQL on a live database server             | [→ guide](../usage/database-connections.md)             |
+| `--db-write-table SCHEMA.TABLE --db CONN FILE`       | Write a file into a live database table       | [→ guide](../usage/database-connections.md)             |
+| `--db-copy SCHEMA.TABLE --db CONN --db-copy-to CONN` | Copy a table server to server                 | [→ guide](../usage/database-connections.md)             |
+| `--list-connections`                                 | List saved cloud and database connections     | [→ man page](man-page.md)                               |
+| `--add-connection SPEC`                              | Add or replace a saved connection             | [→ man page](man-page.md)                               |
+| `--remove-connection NAME`                           | Delete a saved connection and its secret      | [→ man page](man-page.md)                               |
+| `--completions SHELL`                                | Print a shell completion script to stdout     | [→ completions](completions.md)                         |
 
 `--export-schema` also has the short alias `-e`.
 
@@ -233,6 +237,27 @@ man ./octa.1                            # preview without installing
 - [MCP server guide](../mcp/index.md) for `--mcp`.
 - [Workflows & recipes](../tips/workflows.md) for chained-CLI
   examples (CSV → Parquet pipelines, JSON-line filtering, etc.).
+
+## Progress on long runs
+
+The actions that work through many items report progress on **stderr**, on one
+line that rewrites itself:
+
+```text
+[137/500] products-2024-05.csv  ETA 1:12
+```
+
+`--batch-convert`, `--harmonise-schema` and `--partition-by` count items and
+show an ETA once the first one is done. `--db-copy` has no total to count
+against (knowing it would mean a `COUNT(*)` scan before the copy starts), so it
+reports the running row count instead, and only on the universal lane: a
+Postgres-to-Postgres copy runs as a single statement inside DuckDB, which
+either finishes or does not.
+
+The line is **written only when stderr is a terminal**. Redirect stderr, or run
+in CI, and you get exactly the summary lines you always got, with no carriage
+returns in the log. Nothing about stdout changes either way, so a pipeline
+still receives clean data.
 
 ## Using octa in a pipeline
 

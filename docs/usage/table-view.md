@@ -222,6 +222,50 @@ gets too narrow to keep the whole frozen band and still scroll, Octa
 temporarily pins fewer columns and restores the full band when there is
 room again.
 
+## Split view
+
+**View → Split view** cuts the table into two bands, one above the other,
+so you can keep row 12 in sight while you read row 900,000.
+
+**View → Split side by side** does the same the other way round: two bands
+next to each other, so you can read the first column beside the last one.
+Freezing columns solves part of the same problem by pinning the leading
+columns; this frees both bands to sit anywhere in the table.
+
+The two entries are checkboxes and are mutually exclusive: clicking the one
+that is not showing switches orientation in a single click, and clicking the
+active one turns the split off.
+
+**Every band scrolls on its own, both up and down and left and right.** Two
+bands showing the same cells would be no use, so nothing is locked together:
+band 1 can sit on the first columns of row 12 while band 2 reads the last
+columns of row 900,000. Each band has its own scrollbars, and dragging one
+moves that band alone. Drag a divider to resize the bands either side of it;
+no band can be squeezed below about 80 pixels.
+
+**Hold Alt and the wheel moves every band at once**, which is the way to walk
+several bands down the table in step, and the way to compare the same rows
+across bands after lining them up. Alt+Shift+wheel does it sideways. Each band
+still stops at its own end rather than being dragged past it. Alt is the free
+modifier here: Ctrl+wheel zooms and Shift+wheel scrolls sideways, both of them
+egui conventions Octa leaves alone.
+
+**View → Add pane** cuts one more band out of the split, up to **6**, and
+**Remove pane** takes one away down to two. Both are greyed out until the
+view is split, and at their limits. Changing the count re-spaces the dividers
+evenly, since positions dragged for four bands mean nothing for five. The
+orientation entries keep the count, so four stacked bands become four
+side-by-side ones in one click.
+
+Every band is the same table: same columns, widths, frozen band, filters,
+sort, marks and edits, and the selection spans all of them, so a range from
+row 12 down to row 900,000 is one selection.
+
+The keyboard and the mouse wheel act on the band the pointer was last over,
+so one arrow press moves one selection and one wheel notch scrolls one band.
+The split is per tab and session-only, like column widths, and applies to
+the table view only.
+
 ## Hide and show columns
 
 Right-click any column header and pick **Hide column** to drop it

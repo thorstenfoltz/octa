@@ -154,3 +154,397 @@ fn virtual_thumb_survives_a_tiny_file() {
     assert!(t.travel >= 0.0);
     assert!(t.max_row >= 1.0, "never divide by zero");
 }
+
+#[test]
+fn split_sizes_keep_every_band_usable() {
+    use super::split::split_sizes;
+
+    // Half and half, minus the divider.
+    assert_eq!(split_sizes(606.0, 2, &[]), vec![300.0, 300.0]);
+
+    // A divider dragged to the very top still leaves a usable band there.
+    assert_eq!(split_sizes(606.0, 2, &[0.0]), vec![80.0, 520.0]);
+    // And to the very bottom.
+    assert_eq!(split_sizes(606.0, 2, &[1.0]), vec![520.0, 80.0]);
+
+    // A panel too short for two bands splits evenly rather than reporting a
+    // negative height (400x300 window, deep zoom, both side panels open).
+    assert_eq!(split_sizes(106.0, 2, &[0.9]), vec![50.0, 50.0]);
+
+    // Six even bands, dividers included.
+    let six = split_sizes(1000.0, 6, &[]);
+    assert_eq!(six.len(), 6);
+    assert!(
+        six.iter().all(|s| (s - 970.0 / 6.0).abs() < 0.001),
+        "{six:?}"
+    );
+    assert!((six.iter().sum::<f32>() - 970.0).abs() < 0.01, "{six:?}");
+
+    // One divider shoved past its neighbours cannot squeeze the bands behind
+    // it, nor the ones still ahead of it.
+    let squeezed = split_sizes(1000.0, 4, &[0.0, 0.0, 0.0]);
+    assert!(
+        squeezed.iter().all(|s| *s >= 80.0),
+        "no band collapses: {squeezed:?}"
+    );
+    assert!(
+        (squeezed.iter().sum::<f32>() - 982.0).abs() < 0.01,
+        "{squeezed:?}"
+    );
+
+    // Six bands in a short panel: even shares, never negative.
+    let tight = split_sizes(300.0, 6, &[]);
+    assert!(tight.iter().all(|s| *s > 0.0), "{tight:?}");
+    assert_eq!(tight.len(), 6);
+}
+
+/// The count moves inside 2..=MAX and nowhere else, and turning the split off
+/// and on again keeps the count the user chose.
+#[test]
+fn the_pane_count_stays_inside_its_range() {
+    let mut state = TableViewState::default();
+    assert!(!state.is_split());
+    assert_eq!(state.split_panes(), 1);
+    // Nothing to add to while the view is whole.
+    assert!(!state.add_split_pane());
+
+    state.set_split(true, false);
+    assert!(state.is_split());
+    assert_eq!(state.split_panes(), 2);
+    // Two is the floor: below it the split is simply off, which is a
+    // different action.
+    assert!(!state.remove_split_pane());
+
+    while state.add_split_pane() {}
+    assert_eq!(state.split_panes(), super::MAX_SPLIT_PANES);
+    assert!(!state.add_split_pane(), "the cap holds");
+
+    // Flipping orientation keeps the bands: four stacked becomes four beside.
+    state.set_split(true, true);
+    assert_eq!(state.split_panes(), super::MAX_SPLIT_PANES);
+    assert!(state.split_side_by_side);
+
+    state.set_split(false, true);
+    assert!(!state.is_split());
+}
+
+/// The regression this replaces: two bands that shared an axis showed the same
+/// cells along it, so half the split was wasted. Every pane owns both offsets.
+#[test]
+fn every_pane_keeps_its_own_two_offsets() {
+    let mut state = TableViewState::default();
+    state.set_split(true, false);
+    state.add_split_pane();
+    assert_eq!(
+        state.pane_scroll.len(),
+        2,
+        "one slot per pane after the first"
+    );
+
+    // Pane 0 reads the plain fields; the others are swapped in around their
+    // own draw call, which is what `split::draw_table_split` does.
+    state.scroll_x = 11.0;
+    state.scroll_y = 22.0;
+    state.pane_scroll[0] = (33.0, 44.0);
+    state.pane_scroll[1] = (55.0, 66.0);
+
+    for pane in 1..3 {
+        super::split::swap_pane_scroll(&mut state, pane);
+        let seen = (state.scroll_x, state.scroll_y);
+        super::split::swap_pane_scroll(&mut state, pane);
+        assert_eq!(
+            seen,
+            (11.0 + pane as f32 * 22.0, 22.0 + pane as f32 * 22.0),
+            "pane {pane} draws with its own offsets, both axes"
+        );
+    }
+    assert_eq!(
+        (state.scroll_x, state.scroll_y),
+        (11.0, 22.0),
+        "and hands them back"
+    );
+    assert_eq!(state.pane_scroll, vec![(33.0, 44.0), (55.0, 66.0)]);
+}
+
+/// Dropping a pane must not leave a stale offset behind for a band that is no
+/// longer drawn, nor a divider position the new count cannot use.
+#[test]
+fn changing_the_count_resizes_the_per_pane_state() {
+    let mut state = TableViewState::default();
+    state.set_split(true, false);
+    state.add_split_pane();
+    state.add_split_pane();
+    assert_eq!(state.split_panes(), 4);
+    assert_eq!(state.pane_scroll.len(), 3);
+
+    state.remove_split_pane();
+    assert_eq!(state.split_panes(), 3);
+    assert_eq!(state.pane_scroll.len(), 2);
+    assert!(
+        state.split_fractions.is_empty(),
+        "a changed count re-spaces the dividers evenly"
+    );
+}
+
+/// A table tall and wide enough that every pane has somewhere to scroll.
+fn scrollable_table() -> DataTable {
+    let mut t = DataTable::empty();
+    t.columns = (0..12)
+        .map(|c| crate::data::ColumnInfo {
+            name: format!("col{c}"),
+            data_type: "Utf8".into(),
+        })
+        .collect();
+    t.rows = (0..400)
+        .map(|r| {
+            (0..12)
+                .map(|c| crate::data::CellValue::String(format!("r{r}c{c}")))
+                .collect()
+        })
+        .collect();
+    t
+}
+
+/// One headless frame of the split view with the given events. Returns the
+/// per-pane vertical offsets afterwards, pane 0 first.
+fn split_frame(
+    ctx: &egui::Context,
+    table: &mut DataTable,
+    state: &mut TableViewState,
+    events: Vec<egui::Event>,
+) -> Vec<f32> {
+    let filtered: Vec<usize> = (0..table.rows.len()).collect();
+    let shortcuts = crate::ui::shortcuts::Shortcuts::default();
+    let empty_cols: HashSet<usize> = HashSet::new();
+    let empty_cells: HashSet<(usize, usize)> = HashSet::new();
+    let formats = std::collections::HashMap::new();
+    let input = egui::RawInput {
+        events,
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(900.0, 900.0),
+        )),
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        let cx = TableCtx {
+            theme_mode: ThemeMode::Dark,
+            filtered_rows: &filtered,
+            os_clipboard_has_content: false,
+            show_row_numbers: true,
+            show_sequential_numbers: false,
+            alternating_row_colors: false,
+            negative_numbers_red: false,
+            highlight_edits: false,
+            font_size: 13.0,
+            cell_line_breaks: false,
+            clickable_links: false,
+            binary_display_mode: crate::data::BinaryDisplayMode::default(),
+            welcome_logo_texture: None,
+            shortcuts: &shortcuts,
+            readonly: false,
+            filtered_columns: &empty_cols,
+            hidden_columns: &empty_cols,
+            thousands_separators: false,
+            separator_style: crate::data::num_format::SeparatorStyle::default(),
+            column_number_formats: &formats,
+            search_matches: &empty_cells,
+            current_match: None,
+            conditional_format_rules: &[],
+            validation_violations: &empty_cells,
+            outlier_cells: &empty_cells,
+            handles_input: true,
+            scroll_all: false,
+        };
+        super::split::draw_table_split(ui, table, state, cx);
+    });
+    out.textures_delta.clear();
+    std::iter::once(state.scroll_y)
+        .chain(state.pane_scroll.iter().map(|(_, y)| *y))
+        .collect()
+}
+
+/// One wheel notch downwards, optionally with Alt held.
+///
+/// Two events, because that is what a real backend sends: egui tracks the held
+/// modifiers across frames from `ModifiersChanged` (a wheel event's own
+/// `modifiers` field does not update them), and the split view reads the held
+/// ones so the smoothed tail of a scroll stays in step with its start.
+fn wheel(alt: bool) -> Vec<egui::Event> {
+    let modifiers = egui::Modifiers {
+        alt,
+        ..Default::default()
+    };
+    vec![
+        egui::Event::ModifiersChanged(modifiers),
+        egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -120.0),
+            phase: egui::TouchPhase::Move,
+            modifiers,
+        },
+    ]
+}
+
+/// The wheel belongs to the band the pointer is over, and to that band alone.
+#[test]
+fn the_wheel_scrolls_only_the_band_under_the_pointer() {
+    let ctx = egui::Context::default();
+    let mut table = scrollable_table();
+    let mut state = TableViewState::default();
+    state.set_split(true, false);
+    state.add_split_pane();
+
+    // Lay the panes out once, then park the pointer in the middle band. With
+    // 900 pixels and three bands, band 1 spans roughly y=300..600.
+    split_frame(&ctx, &mut table, &mut state, vec![]);
+    split_frame(
+        &ctx,
+        &mut table,
+        &mut state,
+        vec![egui::Event::PointerMoved(egui::pos2(400.0, 450.0))],
+    );
+    let before = split_frame(&ctx, &mut table, &mut state, vec![]);
+    let after = split_frame(&ctx, &mut table, &mut state, wheel(false));
+
+    assert!(
+        after[1] > before[1],
+        "the band under the pointer scrolls: {before:?} -> {after:?}"
+    );
+    assert_eq!(after[0], before[0], "the band above stays put: {after:?}");
+    assert_eq!(after[2], before[2], "the band below stays put: {after:?}");
+}
+
+/// Alt is the "move them together" modifier: every band takes the same notch.
+#[test]
+fn alt_and_the_wheel_scroll_every_band() {
+    let ctx = egui::Context::default();
+    let mut table = scrollable_table();
+    let mut state = TableViewState::default();
+    state.set_split(true, false);
+    state.add_split_pane();
+
+    split_frame(&ctx, &mut table, &mut state, vec![]);
+    split_frame(
+        &ctx,
+        &mut table,
+        &mut state,
+        vec![egui::Event::PointerMoved(egui::pos2(400.0, 450.0))],
+    );
+    let before = split_frame(&ctx, &mut table, &mut state, vec![]);
+    let after = split_frame(&ctx, &mut table, &mut state, wheel(true));
+
+    for pane in 0..3 {
+        assert!(
+            after[pane] > before[pane],
+            "band {pane} moves with Alt held: {before:?} -> {after:?}"
+        );
+    }
+}
+
+/// The reported bug: every pane's scrollbar was one widget, because egui gives
+/// each `allocate_ui` child the same id. Grabbing any thumb dragged every band
+/// at once and only the last one drawn could be aimed. Each pane is now salted
+/// by index, so a thumb belongs to its own band.
+#[test]
+fn dragging_one_bands_scrollbar_leaves_the_others_alone() {
+    let ctx = egui::Context::default();
+    let mut table = scrollable_table();
+    let mut state = TableViewState::default();
+    state.set_split(true, false);
+    state.add_split_pane();
+
+    // 900 pixels, three bands, two 6-pixel dividers: band 1 starts at 302.
+    // Its scrollbar sits at the right edge, thumb at the top while unscrolled.
+    let thumb = egui::pos2(894.0, 320.0);
+    let press = |pos: egui::Pos2, pressed: bool| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+
+    split_frame(&ctx, &mut table, &mut state, vec![]);
+    let before = split_frame(
+        &ctx,
+        &mut table,
+        &mut state,
+        vec![egui::Event::PointerMoved(thumb), press(thumb, true)],
+    );
+    let dragged = egui::pos2(894.0, 400.0);
+    let after = split_frame(
+        &ctx,
+        &mut table,
+        &mut state,
+        vec![egui::Event::PointerMoved(dragged)],
+    );
+    split_frame(&ctx, &mut table, &mut state, vec![press(dragged, false)]);
+
+    assert!(
+        after[1] > before[1],
+        "the grabbed band scrolls: {before:?} -> {after:?}"
+    );
+    assert_eq!(after[0], before[0], "the band above stays put: {after:?}");
+    assert_eq!(after[2], before[2], "the band below stays put: {after:?}");
+}
+
+/// A cell legend explains one value in one column. Both halves of the lookup
+/// matter: a column with no legend explains nothing, and a value that happens
+/// to match a *different* column's legend must not pick it up. The quality
+/// report has a `column_name` column, so a table whose column is literally
+/// named `gaps` is not a contrived case.
+#[test]
+fn a_cell_legend_only_answers_for_its_own_column() {
+    let state = TableViewState {
+        cell_tooltips: vec![
+            std::collections::HashMap::new(),
+            [(
+                "gaps".to_string(),
+                "Time that should have rows.".to_string(),
+            )]
+            .into_iter()
+            .collect(),
+        ],
+        ..Default::default()
+    };
+
+    let mut table = DataTable::empty();
+    table.columns = vec![
+        crate::data::ColumnInfo {
+            name: "column_name".into(),
+            data_type: "Utf8".into(),
+        },
+        crate::data::ColumnInfo {
+            name: "calendar_verdict".into(),
+            data_type: "Utf8".into(),
+        },
+    ];
+    table.rows = vec![vec![
+        crate::data::CellValue::String("gaps".into()),
+        crate::data::CellValue::String("gaps".into()),
+    ]];
+
+    // Same text, two columns: only the one carrying the legend answers.
+    assert_eq!(rows::cell_tooltip(&state, &table, 0, 0), None);
+    assert_eq!(
+        rows::cell_tooltip(&state, &table, 0, 1).as_deref(),
+        Some("Time that should have rows.")
+    );
+}
+
+/// An ordinary table carries no legend at all, and the lookup has to stay out
+/// of the way rather than panic on the missing column entry.
+#[test]
+fn a_table_without_a_legend_has_no_cell_tooltips() {
+    let state = TableViewState::default();
+    let mut table = DataTable::empty();
+    table.columns = vec![crate::data::ColumnInfo {
+        name: "city".into(),
+        data_type: "Utf8".into(),
+    }];
+    table.rows = vec![vec![crate::data::CellValue::String("gaps".into())]];
+
+    assert_eq!(rows::cell_tooltip(&state, &table, 0, 0), None);
+    // Out of range on both axes, which is what a stale index looks like.
+    assert_eq!(rows::cell_tooltip(&state, &table, 9, 9), None);
+}

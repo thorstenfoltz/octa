@@ -508,5 +508,6 @@ fn clone_table(src: &DataTable) -> DataTable {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }

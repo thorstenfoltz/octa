@@ -30,9 +30,10 @@ pub struct MySqlConnector {
 impl MySqlConnector {
     pub fn connect(conn: &DbConnection, stored: Option<&str>) -> Result<Self> {
         let password = auth::resolve_password(conn, stored)?;
+        let (dial_host, dial_port) = conn.dial_target();
         let mut builder = mysql_async::OptsBuilder::default()
-            .ip_or_hostname(conn.host.clone())
-            .tcp_port(conn.port)
+            .ip_or_hostname(dial_host)
+            .tcp_port(dial_port)
             .db_name(Some(conn.database.clone()))
             .user(Some(conn.username.clone()))
             .pass(Some(password));
@@ -40,9 +41,16 @@ impl MySqlConnector {
             // Token auth (RDS IAM / Azure AD / Cloud SQL IAM) is only
             // accepted over TLS, and the token is sent via the cleartext
             // plugin (safe inside TLS).
-            builder = builder
-                .ssl_opts(mysql_async::SslOpts::default())
-                .enable_cleartext_plugin(true);
+            let mut ssl = mysql_async::SslOpts::default();
+            // Through a jump host the socket goes to loopback, so without this
+            // rustls would check the certificate against 127.0.0.1 and refuse.
+            // The `danger_` name is about overriding the name in general; here
+            // it *restores* the right one, because the certificate legitimately
+            // belongs to the server at the far end of the tunnel.
+            if conn.is_tunnelled() {
+                ssl = ssl.with_danger_tls_hostname_override(Some(conn.host.clone()));
+            }
+            builder = builder.ssl_opts(ssl).enable_cleartext_plugin(true);
         }
         let mut client = runtime()
             .block_on(mysql_async::Conn::new(builder))
@@ -236,7 +244,9 @@ impl DbConnector for MySqlConnector {
         let session_id = self.session_id.clone()?;
         let (conn, secret) = self.reconnect.clone();
         Some(Box::new(move || {
-            super::kill_via_new_connection(conn.clone(), secret.clone(), session_id.clone());
+            // No SSH credential needed: `conn` is the copy `db::connect` built,
+            // so it already carries the open tunnel's port and reuses it.
+            super::kill_via_new_connection(conn.clone(), secret.clone(), None, session_id.clone());
         }))
     }
 }

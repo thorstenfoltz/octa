@@ -477,6 +477,38 @@ output still goes to a local path.
     (`write_table`, `edit_table`, `convert`) so the server exposes a
     read-only surface.
 
+`--mcp-tools LIST`
+:   Only valid with `--mcp`. Advertise ONLY these tools, comma-separated.
+    Takes group names (`core`, `quality`, `compare`, `combine`, `reshape`,
+    `databases`, `cloud`, `write`) and individual tool names, mixed freely:
+    `--mcp-tools core,databases` or `--mcp-tools read_table,run_sql`.
+    Without it every tool is advertised. A tool left out is also not
+    callable, and an unrecognised name stops the server rather than
+    starting one with the wrong surface. This is the lever for an agent's
+    context size: the client reads the tool list once and carries it in
+    every request to its model, and all of Octa's tools together are
+    roughly 33,000 tokens. See
+    [Advertising fewer tools](../mcp/setup.md#advertising-fewer-tools).
+
+`--mcp-without LIST`
+:   Only valid with `--mcp`. Advertise everything except these, in the same
+    spelling as `--mcp-tools`. Applied after it, so the two combine:
+    `--mcp-tools core,write --mcp-without convert`.
+
+`--batch-convert`, `--harmonise-schema`, `--partition-by` and `--db-copy`
+report progress on stderr while they run, on a single line that rewrites
+itself (`[137/500] file.csv  ETA 1:12`). The line appears only when
+stderr is a terminal, so redirected output and CI logs are unchanged.
+
+`--completions SHELL`
+:   Print a shell completion script for *SHELL* to standard output and
+    exit. One of `bash`, `zsh`, `fish`, `powershell`, `elvish`. The
+    script is generated from Octa's own argument list, so it completes
+    every flag this page documents. Wire it into the running shell with
+    `eval "$(octa --completions zsh)"`, or let `install.sh` write the
+    files under the install prefix. See
+    [`--completions`](completions.md).
+
 `--cloud-ls URL`
 :   List a cloud bucket or prefix (`s3://`, `az://`, `gs://`). One
     folder level by default; add `--recursive` to flatten everything
@@ -517,10 +549,13 @@ output still goes to a local path.
     (`kind=s3|azure|gcs`): bucket, region, endpoint, prefix, account,
     profile, account_level, anonymous, allow_writes, force_path_style,
     allow_http. Database
-    (`kind=postgres|mysql|mssql|redshift|clickhouse|exasol|snowflake|databricks|bigquery`):
-    host, port, database, user, allow_writes. Only password
+    (`kind=postgres|mysql|mssql|oracle|redshift|clickhouse|exasol|trino|athena|snowflake|databricks|bigquery`):
+    host, port, database, user, allow_writes, query_timeout. Only
+    password
     authentication can be expressed here; other methods need the
-    Settings dialog.
+    Settings dialog. `query_timeout` is whole seconds (default 60) and
+    is read only by the engines that poll over HTTP for their results
+    (Trino, Athena, Snowflake, Databricks, BigQuery).
 
 `--remove-connection NAME`
 :   Remove a saved connection by name or id, and delete its stored

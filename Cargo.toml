@@ -2,7 +2,7 @@
 name = "octa"
 version = "0.0.0-dev"
 edition = "2024"
-rust-version = "1.92"
+rust-version = "1.95"
 authors = ["Thorsten Foltz <thorsten.foltz@live.com>"]
 description = "A modular multi-format data viewer and editor"
 license = "MIT"
@@ -43,16 +43,26 @@ codegen-units = 1
 # decorations, needed whenever `use_custom_title_bar` is off). Declaring winit
 # directly restores both via Cargo's per-package feature unification; winit is
 # already in the tree, so this adds no crates.
-eframe = { version = "0.35", default-features = false, features = [
+eframe = { version = "0.36", default-features = false, features = [
     "accesskit",
     "default_fonts",
+    # NOT optional despite the name. eframe 0.35 had no `links` feature: it
+    # declared egui-winit with defaults, and egui-winit's own default set
+    # includes `links`, so `webbrowser` came in for free even under
+    # `default-features = false` here. eframe 0.36 split it out as
+    # `links = ["egui-winit/links"]`, so omitting it silently drops webbrowser
+    # and `ctx.open_url()` becomes a no-op - that is every clickable cell link
+    # (ui/table_view/rows.rs) and every markdown link (view_modes/markdown.rs).
+    # Nothing in the test suite catches it; the lockfile diff showed it as
+    # `Removing webbrowser`.
+    "links",
     "glow",
     "wayland",
     "x11",
 ] }
 winit = { version = "0.30.13", features = ["default"] }
-egui = { version = "0.35", features = ["serde"] }
-egui_extras = { version = "0.35", features = ["default"] }
+egui = { version = "0.36", features = ["serde"] }
+egui_extras = { version = "0.36", features = ["default"] }
 parquet = { version = "58", features = ["default"] }
 arrow = { version = "58", features = ["default"] }
 rfd = "0.17"
@@ -70,9 +80,16 @@ csv = "1"
 encoding_rs = "0.8"
 chardetng = "1"
 calamine = "0.36"
-rust_xlsxwriter = "0.96"
+rust_xlsxwriter = "0.99"
 apache-avro = "0.21"
 quick-xml = "0.41"
+# HTML table reader (`src/formats/html_reader.rs`). Both are already in the
+# lockfile via `htmd` (the chat panel's HTML-to-Markdown converter), so this
+# promotes them to direct dependencies and adds no crates. A browser-grade
+# parser matters here: real pages are tag soup, and a regex or an XML parser
+# would refuse most of them.
+html5ever = "0.38"
+markup5ever_rcdom = "0.38"
 toml = "1"
 serde_yaml_ng = "0.10"
 # Pinned to 0.45 to match what egui_extras and svg2pdf already pull. Our direct
@@ -80,7 +97,8 @@ serde_yaml_ng = "0.10"
 # renderers (resvg + usvg + tiny-skia + tiny-skia-path + svgtypes + roxmltree +
 # imagesize, twice). The API we use (usvg::Options/Tree, tiny_skia::Pixmap,
 # resvg::render) is identical in both. Bump back to 0.47+ once egui_extras and
-# svg2pdf move -- egui_extras 0.35 still requires resvg ^0.45.1.
+# svg2pdf move -- egui_extras 0.36.1 still requires resvg ^0.45.1 (rechecked
+# 2026-08-24, so the 0.36 bump did NOT unblock this).
 resvg = "0.45"
 ureq = { version = "3", features = ["json"] }
 flate2 = "1"
@@ -107,6 +125,11 @@ sqlx-exasol = { version = "0.9", default-features = false, features = [
     "runtime-tokio",
     "tls-rustls",
 ] }
+# Oracle. Pure Rust TNS implementation, so Octa stays a single binary: every
+# other Oracle crate wraps OCI/ODPI-C and would make the Instant Client a
+# prerequisite of installing Octa. The crate is young, so `src/db/oracle.rs`
+# surfaces the driver's own error text rather than flattening it.
+oracle-rs = "0.1.7"
 # Snowflake key-pair auth: sign the login JWT (RS256) and compute the public-key
 # SHA256 fingerprint. `rsa` re-exports the pkcs8/spki traits; both were already
 # in the tree transitively. jsonwebtoken is deliberately NOT used - it cannot
@@ -114,6 +137,17 @@ sqlx-exasol = { version = "0.9", default-features = false, features = [
 rsa = { version = "0.9", features = ["sha2"] }
 base64 = "0.22"
 tokio-util = { version = "0.7", features = ["compat"] }
+
+# SSH client for the per-connection tunnel (`src/db/ssh_tunnel.rs`). Pure Rust,
+# so it needs no libssh2/OpenSSL and no `ssh` binary on PATH: a self-contained
+# binary is the whole point of Octa's packaging, and the alternative considered
+# (shelling out to `ssh -L`) cannot do password auth without a terminal, which a
+# GUI has not got.
+#
+# `default-features = false` matters: russh's defaults pull `aws-lc-rs`, and
+# Octa is ring-everywhere (see the rustls note above). `ring` + `rsa` cover the
+# key types an ordinary bastion offers.
+russh = { version = "0.63", default-features = false, features = ["ring", "rsa"] }
 rustls = { version = "0.23", default-features = false, features = [
     "ring",
     "std",
@@ -129,7 +163,7 @@ hdf5-reader = "0.9"
 rusqlite = { version = "0.40", features = ["bundled"] }
 duckdb = { version = "1", features = ["bundled"] }
 rand = "0.10"
-sas7bdat = { version = "0.2", default-features = false, features = ["time"] }
+sas7bdat = { version = "0.8", default-features = false, features = ["simd"] }
 ambers = "0.4"
 # `ambers` (SPSS reader) still depends on arrow ^57 — keep arrow57 as an alias
 # alongside the main arrow 58 until ambers ships an arrow 58–compatible release.
@@ -140,6 +174,11 @@ half = { version = "2", default-features = false }
 # SHA-256 verification of downloaded release archives against the published
 # SHA256SUMS file (already in the tree transitively).
 sha2 = "0.10"
+# AWS SigV4 request signing for the Athena connector (`src/db/sigv4.rs`).
+# Already in the lockfile (rustls pulls it), so this only promotes it to a
+# direct dependency; the alternative, shelling out to the `aws` CLI, would
+# spawn a process for each of Athena's three calls per query.
+hmac = "0.12"
 dta = "0.6"
 dbase = "0.8"
 rds2rust = "0.2"
@@ -160,12 +199,18 @@ blake3 = "1"
 # `derive` keeps the boilerplate down; the binary still launches the GUI when
 # no subcommand is given.
 clap = { version = "4", features = ["derive"] }
+# Shell completion scripts (`octa --completions zsh`), generated from the same
+# derive clap already parses with, so a new flag is covered the moment it is
+# added. Default features only: the `unstable-dynamic` runtime completer would
+# pull `clap_lex` machinery we have no use for.
+# MIT/Apache-2.0.
+clap_complete = "4"
 # Model Context Protocol server (octa --mcp). Default features cover the
 # tool/macros/server pieces we need; `transport-io` adds the stdio transport.
-rmcp = { version = "2", features = ["server", "transport-io", "macros"] }
+rmcp = { version = "3", features = ["server", "transport-io", "macros"] }
 # Schema generator used by rmcp's `#[tool]` macro for the input-parameter
-# JSON Schema. Must match the version rmcp re-exports — rmcp 1.7 uses
-# schemars 1.x, and a 0.x dep here lands the derive macros on the wrong
+# JSON Schema. Must match the version rmcp re-exports: rmcp 3 requires
+# schemars ^1.0, and a 0.x dep here lands the derive macros on the wrong
 # trait so the `Parameters<T>` bound fails.
 schemars = "1"
 # Async runtime for the MCP server only — the GUI process stays sync. We
@@ -196,21 +241,29 @@ geo-types = "0.7"
 # Slippy-map widget for egui — used by the GeoJSON Map view. MIT license.
 # Walkers spawns its own dedicated thread with a private tokio runtime for
 # tile downloads, so the eframe app thread stays sync.
-walkers = "0.56"
+walkers = "0.58"
 # WKT serialisation for the GeoJSON reader's `__geometry: Utf8` column.
 # MIT/Apache-2.0.
 wkt = "0.14"
 # Immediate-mode plotting widgets for the Chart tab (`ViewMode::Chart`).
-# `egui_plot 0.35` is the first release that targets egui 0.34 — upstream
-# bumped the egui dep without bumping the major, so 0.34 of egui_plot still
-# links against egui 0.33 and is unusable here. MIT/Apache-2.0.
-egui_plot = "0.36"
+# egui_plot runs one major ahead of the egui it targets: 0.37 is the release
+# that links against egui 0.36. Bumping egui without bumping this in lockstep
+# leaves egui_plot compiled against the previous egui and unusable here.
+# MIT/Apache-2.0.
+egui_plot = "0.37"
 # Chart export → PDF. Disable default features (image / filters pull in
 # duplicate crates we already have via resvg) but keep `text` so the
 # usvg side exposes `fontdb_mut()` — without it the PDF text elements
 # silently drop and the rendered chart is mostly blank.
 # MIT/Apache-2.0.
 svg2pdf = { version = "0.13", default-features = false, features = ["text"] }
+# Multi-page PDF assembly for the table export. Already in the tree as
+# svg2pdf's own dependency (svg2pdf 0.13 -> pdf-writer 0.12), so this adds no
+# crate: it promotes it to a direct dep because `svg2pdf::to_chunk` hands back
+# a `pdf_writer::Chunk` that we page up ourselves. Keep the version in lockstep
+# with what svg2pdf pulls, or the two `Chunk` types stop being the same type.
+# MIT/Apache-2.0.
+pdf-writer = "0.12"
 # NumPy .npy/.npz reader. Parses the .npy binary payload with runtime dtype
 # dispatch; we read .npz archives with the existing `zip` crate rather than
 # enabling npyz's `npz` feature (which would pull a second zip + bzip2 + crypto).

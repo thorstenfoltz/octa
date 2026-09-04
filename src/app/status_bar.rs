@@ -36,11 +36,20 @@ impl OctaApp {
         let update_busy = matches!(*self.update_state.lock().unwrap(), UpdateState::Updating);
         let file_loading = self.pending_load.is_some();
         let db_writing = self.db_write_back_job.is_some();
+        // The only busy job that offers a Cancel, because it is the only one
+        // that can be stopped: a warehouse read can take minutes, and the
+        // connector hands out a thread-safe cancel closure for it. The button
+        // waits for that closure rather than appearing with the spinner, so
+        // it is never shown while connecting, nor at all on Oracle, which has
+        // no cancel to give.
+        let db_load_hint = self.db_load_job.as_ref().map(|j| j.hint.clone());
+        let db_load_cancellable = self.db_load_job.as_ref().is_some_and(|j| j.can_cancel());
         let asking = self.ask_filter_job.is_some() || self.ask_sql_job.is_some();
         // Union: cloud listing/download and the local read phase all report
         // through one progress object, so the spinner spans them.
         let union_hint = self.union_progress.as_ref().map(|p| p.hint());
-        let busy = bg_loading
+        let busy = db_load_hint.is_some()
+            || bg_loading
             || update_busy
             || update_checking
             || file_loading
@@ -50,7 +59,9 @@ impl OctaApp {
         let db_writing_hint = octa::i18n::t("db.writing_back");
         let asking_hint = octa::i18n::t("search.ask_running");
         let checking_hint = octa::i18n::t("dialog.ud_checking");
-        let busy_hint = if let Some(hint) = union_hint.as_deref() {
+        let busy_hint = if let Some(hint) = db_load_hint.as_deref() {
+            Some(hint)
+        } else if let Some(hint) = union_hint.as_deref() {
             Some(hint)
         } else if asking {
             Some(asking_hint.as_str())
@@ -87,24 +98,31 @@ impl OctaApp {
             .show(parent_ui, |ui| {
                 ui::status_bar::draw_status_bar(
                     ui,
-                    &self.tabs[self.active_tab].table,
-                    &self.tabs[self.active_tab].table_state,
-                    self.theme_mode,
-                    filtered_count,
-                    search_active,
+                    ui::status_bar::StatusBarCtx {
+                        table: &self.tabs[self.active_tab].table,
+                        state: &self.tabs[self.active_tab].table_state,
+                        theme_mode: self.theme_mode,
+                        filtered_count,
+                        search_active,
+                        nav_focus_requested: std::mem::take(&mut self.nav_focus_requested),
+                        zoom_percent: self.zoom_percent,
+                        readonly,
+                        busy,
+                        busy_hint,
+                        busy_cancellable: db_load_cancellable,
+                        column_filter_count,
+                        first_filtered_col,
+                        selected_rows: &selected_rows,
+                        selected_cells: &selected_cells,
+                    },
                     &mut self.nav_input,
-                    std::mem::take(&mut self.nav_focus_requested),
-                    self.zoom_percent,
-                    readonly,
-                    busy,
-                    busy_hint,
-                    column_filter_count,
-                    first_filtered_col,
-                    &selected_rows,
-                    &selected_cells,
                 )
             })
             .inner;
+
+        if status_action.cancel_busy {
+            self.cancel_db_load();
+        }
 
         if let Some(preselect) = status_action.open_column_filter {
             self.open_column_filter_dialog(Some(preselect));

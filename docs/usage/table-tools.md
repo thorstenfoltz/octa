@@ -13,6 +13,36 @@ Transpose is limited to tables of at most 1000 rows, because each row becomes a
 column and a very wide result would be unusable. Above that limit the status bar
 tells you instead of running.
 
+## Compare rows
+
+**Analyse > Compare rows...** puts the rows you picked side by side so
+you can see where two records, or ten, actually disagree.
+
+Picking them takes either gesture:
+
+- **Select** the rows (click a row number, then Ctrl+click or Shift+click the
+  others). This is usually the quickest way in.
+- **Mark** them (right-click a row number > **Mark**, or Ctrl+M), which
+  survives scrolling away and clicking elsewhere.
+
+The selection wins whenever it holds two or more rows, so a set of marks you
+built up on purpose is not quietly replaced by a stray click; with fewer than
+two rows selected, the marks are used. The entry stays greyed out until either
+gesture has picked at least two rows, because one row differs from nothing.
+
+The result opens in its own tab, one output row per column of the original:
+
+| column | differs | row 12 | row 4711 |
+|--------|---------|--------|----------|
+| city   | no      | Aachen | Aachen   |
+| amount | yes     | 12.50  | 13.10    |
+
+Run your eye down **differs** to find the fields that are not the same in every
+picked row. Every field answers, yes or no, so a blank cell never has to be read
+as "not checked". Values are compared exactly as they are displayed, so a
+flagged field always looks different on screen too. Marked cells and marked
+columns are ignored: only whole-row marks pick a row for the comparison.
+
 ## Random sample
 
 **Analyse > Random sample...** opens a small dialog where you type a row count

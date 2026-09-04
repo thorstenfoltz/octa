@@ -9,8 +9,8 @@
 //! literals, a per-engine dispatch, and a pure assembler. Nothing here touches
 //! the UI, so the GUI dialog and the MCP tool run the same code.
 //!
-//! **A declaration is not a measurement.** Postgres, MySQL, SQL Server and
-//! Exasol enforce their foreign keys, so an edge from those engines is a fact
+//! **A declaration is not a measurement.** Postgres, MySQL, SQL Server,
+//! Oracle and Exasol enforce their foreign keys, so an edge from those engines is a fact
 //! about the rows too. Redshift, Snowflake, Databricks and BigQuery accept a
 //! declaration and enforce nothing, so there an edge says only what somebody
 //! intended. [`crate::data::rel_map::score_edges`] is how the map checks.
@@ -40,10 +40,10 @@ pub struct ForeignKey {
 }
 
 impl ForeignKey {
-    fn child(&self) -> String {
+    pub fn child(&self) -> String {
         format!("{}.{}", self.child_schema, self.child_table)
     }
-    fn parent(&self) -> String {
+    pub fn parent(&self) -> String {
         format!("{}.{}", self.parent_schema, self.parent_table)
     }
 }
@@ -190,6 +190,26 @@ pub fn foreign_key_sql(
              WHERE SCHEMA_NAME(ct.schema_id) IN ({list}) \
              ORDER BY fk.name, fkc.constraint_column_id"
         )],
+        // Oracle keeps constraints in the ALL_* catalog views. The child side
+        // is the 'R' (referential) constraint; the parent side is whatever
+        // primary or unique constraint it names, joined column by column on
+        // `position` so a composite key pairs in declaration order.
+        DbEngine::Oracle => vec![format!(
+            "SELECT c.owner AS CHILD_SCHEMA, c.table_name AS CHILD_TABLE, \
+             cc.column_name AS CHILD_COLUMN, p.owner AS PARENT_SCHEMA, \
+             p.table_name AS PARENT_TABLE, pc.column_name AS PARENT_COLUMN, \
+             c.constraint_name AS CONSTRAINT_NAME \
+             FROM all_constraints c \
+             JOIN all_cons_columns cc \
+               ON cc.owner = c.owner AND cc.constraint_name = c.constraint_name \
+             JOIN all_constraints p \
+               ON p.owner = c.r_owner AND p.constraint_name = c.r_constraint_name \
+             JOIN all_cons_columns pc \
+               ON pc.owner = p.owner AND pc.constraint_name = p.constraint_name \
+              AND pc.position = cc.position \
+             WHERE c.constraint_type = 'R' AND c.owner IN ({list}) \
+             ORDER BY c.owner, c.table_name, c.constraint_name, cc.position"
+        )],
         // Exasol keeps constraints in its own SYS views, not information_schema.
         DbEngine::Exasol => vec![format!(
             "SELECT CONSTRAINT_SCHEMA AS CHILD_SCHEMA, CONSTRAINT_TABLE AS CHILD_TABLE, \
@@ -267,7 +287,9 @@ pub fn foreign_key_sql(
                 )
             })
             .collect(),
-        DbEngine::ClickHouse => unreachable!("guarded by has_foreign_keys above"),
+        DbEngine::ClickHouse | DbEngine::Trino | DbEngine::Athena => {
+            unreachable!("guarded by has_foreign_keys above")
+        }
     })
 }
 
@@ -287,6 +309,11 @@ pub fn schema_columns_sql(
     }
     let list = lit_list(schemas);
     match engine {
+        DbEngine::Oracle => vec![format!(
+            "SELECT owner AS TABLE_SCHEMA, table_name AS TABLE_NAME, \
+             column_name AS COLUMN_NAME FROM all_tab_columns \
+             WHERE owner IN ({list}) ORDER BY owner, table_name, column_id"
+        )],
         DbEngine::Exasol => vec![format!(
             "SELECT COLUMN_SCHEMA AS TABLE_SCHEMA, COLUMN_TABLE AS TABLE_NAME, \
              COLUMN_NAME AS COLUMN_NAME FROM SYS.EXA_ALL_COLUMNS \

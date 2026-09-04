@@ -1,0 +1,82 @@
+[
+  {
+    "id": 1,
+    "product": "Café Latte",
+    "category": "drinks",
+    "price": 3.5,
+    "in_stock": true,
+    "released": "2024-01-15",
+    "rating": 4.5,
+    "note": null
+  },
+  {
+    "id": 2,
+    "product": "Blaubeer-Muffin",
+    "category": "food",
+    "price": 2.75,
+    "in_stock": true,
+    "released": "2024-02-01",
+    "rating": 4.2,
+    "note": "Baked daily"
+  },
+  {
+    "id": 3,
+    "product": "Espresso",
+    "category": "drinks",
+    "price": 2.1,
+    "in_stock": false,
+    "released": "2023-11-30",
+    "rating": 4.8,
+    "note": "Out of beans"
+  },
+  {
+    "id": 4,
+    "product": "Croissant",
+    "category": "food",
+    "price": 2.4,
+    "in_stock": true,
+    "released": "2024-03-12",
+    "rating": 3.9,
+    "note": null
+  },
+  {
+    "id": 5,
+    "product": "Matcha Latte",
+    "category": "drinks",
+    "price": 4.25,
+    "in_stock": true,
+    "released": "2024-05-02",
+    "rating": 4.1,
+    "note": "Seasonal"
+  },
+  {
+    "id": 6,
+    "product": "Bagel",
+    "category": "food",
+    "price": 1.95,
+    "in_stock": false,
+    "released": "2022-07-19",
+    "rating": 3.4,
+    "note": "Discontinued"
+  },
+  {
+    "id": 7,
+    "product": "Flat White",
+    "category": "drinks",
+    "price": 3.8,
+    "in_stock": true,
+    "released": "2024-06-08",
+    "rating": 4.6,
+    "note": null
+  },
+  {
+    "id": 8,
+    "product": "Käsekuchen",
+    "category": "food",
+    "price": 4.9,
+    "in_stock": true,
+    "released": "2024-04-21",
+    "rating": 4.7,
+    "note": "One slice left, hurry"
+  }
+]

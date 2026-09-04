@@ -123,6 +123,7 @@ impl OctaApp {
         };
         tab.table = first;
         tab.table.source_path = Some(scan_path.to_string_lossy().to_string());
+        tab.file_stamp = crate::app::file_io::file_stamp(&scan_path);
         tab.custom_tab_label = Some(label);
         tab.parse_error_banner = Some(t("largefile.banner"));
         tab.large_page_key = Some(LargePageKey {

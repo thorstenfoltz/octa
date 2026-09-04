@@ -111,13 +111,19 @@ impl OctaApp {
             st.result_msg = Some((false, t("dialog.dbc_need_target")));
             return;
         };
+        let source_ssh_secret =
+            octa::ui::settings::db_secrets::get_ssh_secret(&src_conn.id, &self.settings);
+        let target_ssh_secret =
+            octa::ui::settings::db_secrets::get_ssh_secret(&tgt_conn.id, &self.settings);
         let source = DbCopyEnd {
+            ssh_secret: source_ssh_secret,
             conn: src_conn,
             catalog: st.src_catalog.clone(),
             schema: st.src_schema.clone(),
             table: st.src_table.clone(),
         };
         let target = DbCopyEnd {
+            ssh_secret: target_ssh_secret,
             conn: tgt_conn,
             // Targets are addressed by the dialog's schema/table; catalog
             // engines are never fast-lane targets and write to their default
@@ -147,6 +153,9 @@ impl OctaApp {
                 &target,
                 tgt_secret.as_deref(),
                 mode,
+                // The dialog shows a spinner while the worker runs; a live row
+                // count would need its own shared slot and a repaint per batch.
+                &|_| {},
             )
             .map_err(|e| format!("{e:#}"));
             if let Ok(mut g) = slot.lock() {

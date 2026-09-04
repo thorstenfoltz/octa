@@ -63,6 +63,7 @@ impl FormatReader for OrcReader {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             db_meta: None,
+            formulas: std::collections::HashMap::new(),
         })
     }
 
@@ -277,20 +278,34 @@ fn build_orc_schema(table: &DataTable) -> arrow::datatypes::SchemaRef {
         .columns
         .iter()
         .map(|col| {
+            // **Only the types `orc-rust`'s writer can encode may appear
+            // here.** Its `create_encoder` covers signed ints, floats, bool,
+            // Utf8 and Binary and `unimplemented!()`s the rest, so naming a
+            // type it does not know panics the process rather than failing the
+            // write - which is exactly what a `Date32` column used to do.
+            // Unsigned ints widen into the signed type that holds them;
+            // everything else falls back to text, which is what this function
+            // already did for `Timestamp`.
+            // **Two things have to agree here, and only these seven types
+            // satisfy both.** `orc-rust`'s `create_encoder` covers signed
+            // ints, floats, bool, Utf8 and Binary and `unimplemented!()`s the
+            // rest, so naming anything else *panics the process* - which is
+            // what a date column used to do to `octa --convert`. And
+            // `build_record_batch` below builds arrays for Boolean, Int32,
+            // Int64, Float32, Float64, Binary and Utf8 only, so naming an
+            // `Int8` or `Int16` produced a Utf8 array against an Int8 schema
+            // and `RecordBatch::try_new` refused it.
+            //
+            // Narrow ints widen; everything else becomes text, which is what
+            // this function already did for `Timestamp` and which keeps every
+            // value exact where a narrowing cast would not.
             let dt = match col.data_type.as_str() {
                 "Boolean" => DataType::Boolean,
-                "Int8" => DataType::Int8,
-                "Int16" => DataType::Int16,
-                "Int32" => DataType::Int32,
-                "Int64" => DataType::Int64,
-                "UInt8" => DataType::UInt8,
-                "UInt16" => DataType::UInt16,
-                "UInt32" => DataType::UInt32,
-                "UInt64" => DataType::UInt64,
+                "Int8" | "Int16" | "Int32" | "UInt8" | "UInt16" => DataType::Int32,
+                "Int64" | "UInt32" => DataType::Int64,
                 "Float32" => DataType::Float32,
                 "Float64" => DataType::Float64,
                 "Binary" => DataType::Binary,
-                "Date32" => DataType::Date32,
                 _ => DataType::Utf8,
             };
             Field::new(&col.name, dt, true)

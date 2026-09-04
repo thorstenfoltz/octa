@@ -210,9 +210,12 @@ impl OctaApp {
                     } => {
                         let secret =
                             octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
+                        let ssh_secret =
+                            octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &settings);
                         octa::db::fetch_table::fetch_table(
                             &conn,
                             secret.as_deref(),
+                            ssh_secret.as_deref(),
                             catalog.as_deref(),
                             &schema,
                             &table,

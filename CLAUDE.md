@@ -44,6 +44,9 @@ One line per directory; the per-file detail lives in the rule files below.
 - `src/diagnostics/` - debug log, panic hook, redacted report.
 - `locales/` - 32 i18n catalogues; `src/i18n.rs` reads them.
 - `docs/` - the mkdocs site; `tests/` - integration tests.
+- `samples/` - one openable file per supported format, for eyeballing a reader
+  change. Binaries are in Git LFS; `samples/README.md` says what each file is
+  and how it was made. Adding a format means adding a sample.
 
 ## Conventions
 
