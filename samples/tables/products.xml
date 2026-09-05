@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<data>
+  <row>
+    <id>1</id>
+    <product>Café Latte</product>
+    <category>drinks</category>
+    <price>3.5</price>
+    <in_stock>true</in_stock>
+    <released>2024-01-15</released>
+    <rating>4.5</rating>
+  </row>
+  <row>
+    <id>2</id>
+    <product>Blaubeer-Muffin</product>
+    <category>food</category>
+    <price>2.75</price>
+    <in_stock>true</in_stock>
+    <released>2024-02-01</released>
+    <rating>4.2</rating>
+    <note>Baked daily</note>
+  </row>
+  <row>
+    <id>3</id>
+    <product>Espresso</product>
+    <category>drinks</category>
+    <price>2.1</price>
+    <in_stock>false</in_stock>
+    <released>2023-11-30</released>
+    <rating>4.8</rating>
+    <note>Out of beans</note>
+  </row>
+  <row>
+    <id>4</id>
+    <product>Croissant</product>
+    <category>food</category>
+    <price>2.4</price>
+    <in_stock>true</in_stock>
+    <released>2024-03-12</released>
+    <rating>3.9</rating>
+  </row>
+  <row>
+    <id>5</id>
+    <product>Matcha Latte</product>
+    <category>drinks</category>
+    <price>4.25</price>
+    <in_stock>true</in_stock>
+    <released>2024-05-02</released>
+    <rating>4.1</rating>
+    <note>Seasonal</note>
+  </row>
+  <row>
+    <id>6</id>
+    <product>Bagel</product>
+    <category>food</category>
+    <price>1.95</price>
+    <in_stock>false</in_stock>
+    <released>2022-07-19</released>
+    <rating>3.4</rating>
+    <note>Discontinued</note>
+  </row>
+  <row>
+    <id>7</id>
+    <product>Flat White</product>
+    <category>drinks</category>
+    <price>3.8</price>
+    <in_stock>true</in_stock>
+    <released>2024-06-08</released>
+    <rating>4.6</rating>
+  </row>
+  <row>
+    <id>8</id>
+    <product>Käsekuchen</product>
+    <category>food</category>
+    <price>4.9</price>
+    <in_stock>true</in_stock>
+    <released>2024-04-21</released>
+    <rating>4.7</rating>
+    <note>One slice left, hurry</note>
+  </row>
+</data>

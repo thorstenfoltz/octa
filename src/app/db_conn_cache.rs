@@ -17,8 +17,9 @@ use octa::db::{DbConnection, DbConnector};
 
 pub(crate) type SharedConnector = Arc<Mutex<Box<dyn DbConnector>>>;
 
-type ConnectFn =
-    dyn Fn(&DbConnection, Option<&str>) -> anyhow::Result<Box<dyn DbConnector>> + Send + Sync;
+type ConnectFn = dyn Fn(&DbConnection, Option<&str>, Option<&str>) -> anyhow::Result<Box<dyn DbConnector>>
+    + Send
+    + Sync;
 
 #[derive(Clone)]
 pub(crate) struct DbConnCache {
@@ -44,6 +45,7 @@ impl DbConnCache {
         &self,
         conn: &DbConnection,
         secret: Option<&str>,
+        ssh_secret: Option<&str>,
     ) -> anyhow::Result<(SharedConnector, bool)> {
         if let Some(c) = self
             .inner
@@ -53,7 +55,8 @@ impl DbConnCache {
         {
             return Ok((c, true));
         }
-        let fresh: SharedConnector = Arc::new(Mutex::new((self.connect_fn)(conn, secret)?));
+        let fresh: SharedConnector =
+            Arc::new(Mutex::new((self.connect_fn)(conn, secret, ssh_secret)?));
         if let Ok(mut m) = self.inner.lock() {
             m.insert(conn.id.clone(), fresh.clone());
         }
@@ -71,14 +74,15 @@ impl DbConnCache {
         &self,
         conn: &DbConnection,
         secret: Option<&str>,
+        ssh_secret: Option<&str>,
         mut f: impl FnMut(&mut dyn DbConnector) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
-        let (shared, was_cached) = self.get_or_connect(conn, secret)?;
+        let (shared, was_cached) = self.get_or_connect(conn, secret, ssh_secret)?;
         let res = f(lock_connector(&shared).as_mut());
         match res {
             Err(_) if was_cached => {
                 self.invalidate(&conn.id);
-                let (shared, _) = self.get_or_connect(conn, secret)?;
+                let (shared, _) = self.get_or_connect(conn, secret, ssh_secret)?;
                 f(lock_connector(&shared).as_mut())
             }
             other => other,
@@ -172,6 +176,11 @@ mod tests {
             allow_writes: false,
             oauth_client_id: None,
             oauth_tenant: None,
+            athena_workgroup: None,
+            athena_output_location: None,
+            ssh: None,
+            query_timeout_secs: octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
+            tunnel_port: None,
         }
     }
 
@@ -183,7 +192,7 @@ mod tests {
         let fails = Arc::new(AtomicUsize::new(fail_first));
         let cache = DbConnCache {
             inner: Arc::default(),
-            connect_fn: Arc::new(move |_conn, _secret| {
+            connect_fn: Arc::new(move |_conn, _secret, _ssh| {
                 counter.fetch_add(1, Ordering::SeqCst);
                 Ok(Box::new(FakeConnector {
                     fail_first: fails.clone(),
@@ -198,10 +207,10 @@ mod tests {
         let (cache, connects) = fake_cache(0);
         let conn = test_conn();
         cache
-            .with_conn(&conn, None, |c| c.query("SELECT 1"))
+            .with_conn(&conn, None, None, |c| c.query("SELECT 1"))
             .unwrap();
         cache
-            .with_conn(&conn, None, |c| c.query("SELECT 1"))
+            .with_conn(&conn, None, None, |c| c.query("SELECT 1"))
             .unwrap();
         assert_eq!(connects.load(Ordering::SeqCst), 1);
     }
@@ -212,7 +221,11 @@ mod tests {
         // so the error surfaces without a reconnect.
         let (cache, connects) = fake_cache(1);
         let conn = test_conn();
-        assert!(cache.with_conn(&conn, None, |c| c.query("x")).is_err());
+        assert!(
+            cache
+                .with_conn(&conn, None, None, |c| c.query("x"))
+                .is_err()
+        );
         assert_eq!(connects.load(Ordering::SeqCst), 1);
     }
 
@@ -224,7 +237,7 @@ mod tests {
         let (counter, shared_fails) = (connects.clone(), fails.clone());
         let cache = DbConnCache {
             inner: Arc::default(),
-            connect_fn: Arc::new(move |_c, _s| {
+            connect_fn: Arc::new(move |_c, _s, _ssh| {
                 counter.fetch_add(1, Ordering::SeqCst);
                 Ok(Box::new(FakeConnector {
                     fail_first: shared_fails.clone(),
@@ -238,12 +251,16 @@ mod tests {
     fn stale_cached_connector_heals() {
         let (cache, connects, fails) = armable_cache();
         let conn = test_conn();
-        cache.with_conn(&conn, None, |c| c.query("x")).unwrap();
+        cache
+            .with_conn(&conn, None, None, |c| c.query("x"))
+            .unwrap();
         assert_eq!(connects.load(Ordering::SeqCst), 1);
         // The cached connection "dies": its next query fails once, so
         // with_conn must reconnect exactly once and retry successfully.
         fails.store(1, Ordering::SeqCst);
-        cache.with_conn(&conn, None, |c| c.query("x")).unwrap();
+        cache
+            .with_conn(&conn, None, None, |c| c.query("x"))
+            .unwrap();
         assert_eq!(connects.load(Ordering::SeqCst), 2, "one reconnect");
     }
 
@@ -251,12 +268,18 @@ mod tests {
     fn invalidate_and_clear_drop_entries() {
         let (cache, connects) = fake_cache(0);
         let conn = test_conn();
-        cache.with_conn(&conn, None, |c| c.query("x")).unwrap();
+        cache
+            .with_conn(&conn, None, None, |c| c.query("x"))
+            .unwrap();
         cache.invalidate(&conn.id);
-        cache.with_conn(&conn, None, |c| c.query("x")).unwrap();
+        cache
+            .with_conn(&conn, None, None, |c| c.query("x"))
+            .unwrap();
         assert_eq!(connects.load(Ordering::SeqCst), 2);
         cache.clear();
-        cache.with_conn(&conn, None, |c| c.query("x")).unwrap();
+        cache
+            .with_conn(&conn, None, None, |c| c.query("x"))
+            .unwrap();
         assert_eq!(connects.load(Ordering::SeqCst), 3);
     }
 }

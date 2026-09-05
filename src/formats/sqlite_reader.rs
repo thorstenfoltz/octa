@@ -163,69 +163,85 @@ impl FormatReader for SqliteReader {
     fn read_table(&self, path: &Path, table: &str) -> Result<DataTable> {
         let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
             .with_context(|| format!("opening SQLite at {}", path.display()))?;
-
-        let columns = read_table_columns(&conn, table)?;
-        if columns.is_empty() {
-            bail!("Table '{table}' has no columns");
-        }
-
-        let select_cols = columns
-            .iter()
-            .map(|c| quote_ident(&c.name))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!(
-            "SELECT rowid, {select_cols} FROM {} ORDER BY rowid",
-            quote_ident(table)
-        );
-        let mut stmt = conn.prepare(&sql)?;
-        let col_count = columns.len();
-
-        let mut rows: Vec<Vec<CellValue>> = Vec::new();
-        let mut row_tags: Vec<Option<i64>> = Vec::new();
-        let mut original: HashMap<i64, Vec<CellValue>> = HashMap::new();
-
-        let mut q = stmt.query([])?;
-        while let Some(r) = q.next()? {
-            let tag: i64 = r.get(0)?;
-            let mut row: Vec<CellValue> = Vec::with_capacity(col_count);
-            for i in 0..col_count {
-                let v = sqlite_value_to_cell(r.get_ref(i + 1)?);
-                row.push(v);
-            }
-            original.insert(tag, row.clone());
-            rows.push(row);
-            row_tags.push(Some(tag));
-        }
-
-        let original_columns: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
-
-        Ok(DataTable {
-            columns,
-            rows,
-            edits: HashMap::new(),
-            source_path: Some(path.to_string_lossy().to_string()),
-            format_name: Some("SQLite".to_string()),
-            structural_changes: false,
-            total_rows: None,
-            row_offset: 0,
-            marks: HashMap::new(),
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            db_meta: Some(DbRowMeta {
-                table_name: table.to_string(),
-                schema: None,
-                row_tags,
-                original,
-                original_columns,
-            }),
-        })
+        let mut t = read_table_conn(&conn, table)?;
+        t.source_path = Some(path.to_string_lossy().to_string());
+        Ok(t)
     }
+}
+
+/// One table out of an already-open connection. Split out of `read_table` so
+/// `sql_dump_reader` can read the scratch database it replays a dump into
+/// through exactly this path rather than a second copy of it. `source_path`
+/// is left empty: the caller knows which file it is speaking for.
+pub(crate) fn read_table_conn(conn: &Connection, table: &str) -> Result<DataTable> {
+    let columns = read_table_columns(conn, table)?;
+    if columns.is_empty() {
+        bail!("Table '{table}' has no columns");
+    }
+
+    let select_cols = columns
+        .iter()
+        .map(|c| quote_ident(&c.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT rowid, {select_cols} FROM {} ORDER BY rowid",
+        quote_ident(table)
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let col_count = columns.len();
+
+    let mut rows: Vec<Vec<CellValue>> = Vec::new();
+    let mut row_tags: Vec<Option<i64>> = Vec::new();
+    let mut original: HashMap<i64, Vec<CellValue>> = HashMap::new();
+
+    let mut q = stmt.query([])?;
+    while let Some(r) = q.next()? {
+        let tag: i64 = r.get(0)?;
+        let mut row: Vec<CellValue> = Vec::with_capacity(col_count);
+        for i in 0..col_count {
+            let v = sqlite_value_to_cell(r.get_ref(i + 1)?);
+            row.push(v);
+        }
+        original.insert(tag, row.clone());
+        rows.push(row);
+        row_tags.push(Some(tag));
+    }
+
+    let original_columns: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+
+    Ok(DataTable {
+        columns,
+        rows,
+        edits: HashMap::new(),
+        source_path: None,
+        format_name: Some("SQLite".to_string()),
+        structural_changes: false,
+        total_rows: None,
+        row_offset: 0,
+        marks: HashMap::new(),
+        undo_stack: Vec::new(),
+        redo_stack: Vec::new(),
+        db_meta: Some(DbRowMeta {
+            table_name: table.to_string(),
+            schema: None,
+            row_tags,
+            original,
+            original_columns,
+        }),
+        formulas: std::collections::HashMap::new(),
+    })
 }
 
 fn list_user_tables(path: &Path) -> Result<Vec<TableInfo>> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .with_context(|| format!("opening SQLite at {}", path.display()))?;
+    list_user_tables_conn(&conn)
+}
+
+/// The user tables of an already-open connection. Same split, same reason, as
+/// [`read_table_conn`].
+pub(crate) fn list_user_tables_conn(conn: &Connection) -> Result<Vec<TableInfo>> {
     let mut stmt = conn.prepare(
         "SELECT name FROM sqlite_master \
          WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
@@ -235,7 +251,7 @@ fn list_user_tables(path: &Path) -> Result<Vec<TableInfo>> {
         .collect::<Result<_, _>>()?;
     let mut out = Vec::with_capacity(names.len());
     for name in names {
-        let columns = read_table_columns(&conn, &name).unwrap_or_default();
+        let columns = read_table_columns(conn, &name).unwrap_or_default();
         let row_count: Option<usize> = conn
             .query_row(
                 &format!("SELECT COUNT(*) FROM {}", quote_ident(&name)),

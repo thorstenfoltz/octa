@@ -12,6 +12,7 @@ pub mod fwf_reader;
 pub mod geojson_reader;
 pub mod gpkg_reader;
 pub mod hdf5_reader;
+pub mod html_reader;
 pub mod json_reader;
 pub mod jupyter_reader;
 pub mod lakehouse_reader;
@@ -28,6 +29,7 @@ pub mod sas_reader;
 pub mod shapefile_reader;
 pub mod sniff;
 pub mod spss_reader;
+pub mod sql_dump_reader;
 pub mod sqlite_reader;
 pub mod stata_reader;
 pub mod text_reader;
@@ -390,6 +392,7 @@ impl FormatRegistry {
         registry.register(Box::new(orc_reader::OrcReader));
         registry.register(Box::new(hdf5_reader::Hdf5Reader));
         registry.register(Box::new(markdown_reader::MarkdownReader));
+        registry.register(Box::new(html_reader::HtmlReader));
         registry.register(Box::new(epub_reader::EpubReader));
         registry.register(Box::new(geojson_reader::GeoJsonReader));
         registry.register(Box::new(archive_reader::ArchiveReader));
@@ -407,6 +410,9 @@ impl FormatRegistry {
         registry.register(Box::new(msgpack_reader::MsgpackReader));
         registry.register(Box::new(bson_reader::BsonReader));
         registry.register(Box::new(shapefile_reader::ShapefileReader));
+        // Reached by name only (`extensions()` is empty): a `.sql` file
+        // still opens as text unless the user asks for the dump reader.
+        registry.register(Box::new(sql_dump_reader::SqlDumpReader));
         registry.register(Box::new(text_reader::TextReader));
         registry
     }
@@ -464,9 +470,13 @@ impl FormatRegistry {
 
     /// Get format filter labels and their extensions for file dialogs.
     /// Labels use dotted extensions (e.g. ".csv, .tsv") instead of format names.
+    /// Readers with no extensions are reached by name only (the SQL dump
+    /// reader), so they contribute no filter: an empty label would show up in
+    /// the file dialog as a nameless entry that matches nothing.
     pub fn format_descriptions(&self) -> Vec<(String, Vec<String>)> {
         self.readers
             .iter()
+            .filter(|r| !r.extensions().is_empty())
             .map(|r| {
                 let exts: Vec<String> = r.extensions().iter().map(|e| e.to_string()).collect();
                 let label = exts

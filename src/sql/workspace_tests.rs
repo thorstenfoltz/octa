@@ -36,6 +36,7 @@ fn simple_table(name_col: &str, name_val: &str, score: f64) -> DataTable {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }
 
@@ -116,6 +117,11 @@ fn duckdb_attach_sql_builds_each_dialect() {
         allow_writes: false,
         oauth_client_id: None,
         oauth_tenant: None,
+        athena_workgroup: None,
+        athena_output_location: None,
+        ssh: None,
+        query_timeout_secs: crate::db::DEFAULT_QUERY_TIMEOUT_SECS,
+        tunnel_port: None,
     };
     assert_eq!(
         duckdb_attach_sql(&conn, "pw", "prod", true),
@@ -151,6 +157,11 @@ fn duckdb_attach_sql_escapes_awkward_values() {
         allow_writes: false,
         oauth_client_id: None,
         oauth_tenant: None,
+        athena_workgroup: None,
+        athena_output_location: None,
+        ssh: None,
+        query_timeout_secs: crate::db::DEFAULT_QUERY_TIMEOUT_SECS,
+        tunnel_port: None,
     };
     let sql = duckdb_attach_sql(&conn, "p'w \\x", "a", true);
     // libpq quoting inside ('' doubled for the outer SQL literal): the space

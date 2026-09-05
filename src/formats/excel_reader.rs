@@ -102,7 +102,11 @@ impl FormatReader for ExcelReader {
         } else {
             None
         };
-        write_excel_styled(path, table, style)
+        write_workbook_with(
+            path,
+            &[("Sheet1".to_string(), table, style)],
+            opts.xlsx.preserve_formulas,
+        )
     }
 }
 
@@ -126,6 +130,11 @@ fn read_sheet(
     let range = workbook
         .worksheet_range(sheet)
         .map_err(|e| anyhow::anyhow!("Failed to read sheet: {}", e))?;
+    // The formulas behind the values live in a parallel range. Read it
+    // best-effort: a sheet with no formulas is the normal case, and the older
+    // `.xls` path does not always carry one. A workbook must not fail to open
+    // because its formulas could not be read.
+    let formula_range = workbook.worksheet_formula(sheet).ok();
 
     let mut rows_iter = range.rows();
 
@@ -166,6 +175,8 @@ fn read_sheet(
         cells.resize(col_count, CellValue::Null);
         rows.push(cells);
     }
+
+    let formulas = collect_formulas(formula_range.as_ref(), &range, rows.len(), col_count);
 
     // Refine column types based on data
     let mut final_columns = columns;
@@ -215,7 +226,50 @@ fn read_sheet(
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas,
     })
+}
+
+/// Map the sheet's formula range onto `(row, col)` keys in the table's own
+/// coordinates.
+///
+/// Three offsets have to line up. The value range and the formula range each
+/// start at their own top-left cell of the sheet, and the table's first data
+/// row is one below the value range's first row, because that one is the
+/// header. Walking `used_cells` rather than every cell keeps this proportional
+/// to the number of formulas, not to the size of the sheet.
+fn collect_formulas(
+    formula_range: Option<&calamine::Range<String>>,
+    value_range: &calamine::Range<Data>,
+    row_count: usize,
+    col_count: usize,
+) -> std::collections::HashMap<(usize, usize), String> {
+    let mut out = std::collections::HashMap::new();
+    let (Some(fr), Some((value_row0, value_col0))) = (formula_range, value_range.start()) else {
+        return out;
+    };
+    let Some((formula_row0, formula_col0)) = fr.start() else {
+        return out;
+    };
+    for (r, c, text) in fr.used_cells() {
+        if text.is_empty() {
+            continue;
+        }
+        let sheet_row = formula_row0 as usize + r;
+        let sheet_col = formula_col0 as usize + c;
+        let (Some(row), Some(col)) = (
+            sheet_row.checked_sub(value_row0 as usize + 1),
+            sheet_col.checked_sub(value_col0 as usize),
+        ) else {
+            continue;
+        };
+        if row < row_count && col < col_count {
+            // Stored without one; shown and written back with one, the way a
+            // spreadsheet spells it.
+            out.insert((row, col), format!("={text}"));
+        }
+    }
+    out
 }
 
 /// Resolve the background colour of one cell, in the same precedence the grid
@@ -271,6 +325,21 @@ pub fn write_workbook(
     path: &Path,
     sheets: &[(String, &DataTable, Option<&TableStyle>)],
 ) -> Result<()> {
+    write_workbook_with(path, sheets, false)
+}
+
+/// As [`write_workbook`], with the choice of writing formulas instead of the
+/// values they produced.
+///
+/// A separate entry rather than a parameter on the one above: only the save
+/// path that has `WriteOptions` in its hand can answer the question, and every
+/// other caller (the CLI's workbook action, the MCP tool, the Workbook dialog)
+/// wants today's behaviour, which is values.
+pub fn write_workbook_with(
+    path: &Path,
+    sheets: &[(String, &DataTable, Option<&TableStyle>)],
+    preserve_formulas: bool,
+) -> Result<()> {
     if sheets.is_empty() {
         anyhow::bail!("a workbook needs at least one sheet");
     }
@@ -280,7 +349,7 @@ pub fn write_workbook(
         let sheet_name = crate::formats::xlsx_style::sanitize_sheet_name(name, &mut taken);
         let worksheet = workbook.add_worksheet();
         worksheet.set_name(&sheet_name)?;
-        write_sheet(worksheet, table, *style)?;
+        write_sheet(worksheet, table, *style, preserve_formulas)?;
     }
     workbook.save(path)?;
     Ok(())
@@ -295,6 +364,7 @@ fn write_sheet(
     worksheet: &mut Worksheet,
     table: &DataTable,
     style: Option<&TableStyle>,
+    preserve_formulas: bool,
 ) -> Result<()> {
     // The first rule that cannot live natively in Excel decides a partition,
     // not just its own fate. In Excel a live conditional-format rule always
@@ -362,7 +432,36 @@ fn write_sheet(
                 )
             };
 
-            write_cell(worksheet, xlsx_row, col_idx as u16, cell, format.as_ref())?;
+            // A formula, when the user asked for one and the cell still has
+            // one to give. `DataTable::formula` is the gate: an edited cell and
+            // a restructured table both answer `None`, so what lands here is
+            // only ever a formula that still means what it says.
+            match table
+                .formula(row_idx, col_idx)
+                .filter(|_| preserve_formulas)
+            {
+                Some(f) => {
+                    // Carry the value Octa is showing as the formula's cached
+                    // result. Without it the file says `0` until something
+                    // recalculates it, and a tool that reads the workbook
+                    // without evaluating formulas would see that zero.
+                    let formula = rust_xlsxwriter::Formula::new(f).set_result(cell.to_string());
+                    match format.as_ref() {
+                        Some(fmt) => {
+                            worksheet.write_formula_with_format(
+                                xlsx_row,
+                                col_idx as u16,
+                                formula,
+                                fmt,
+                            )?;
+                        }
+                        None => {
+                            worksheet.write_formula(xlsx_row, col_idx as u16, formula)?;
+                        }
+                    }
+                }
+                None => write_cell(worksheet, xlsx_row, col_idx as u16, cell, format.as_ref())?,
+            }
         }
     }
 

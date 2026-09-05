@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use crate::data::{CellValue, ColumnInfo, DataTable};
 
-use super::rest::{InFlight, RestClient, poll, snowflake_cancel_path};
+use super::rest::{InFlight, POLL_DELAY, RestClient, poll, poll_tries, snowflake_cancel_path};
 use super::{CancelFlag, DbAuth, DbConnection, DbConnector, DbEngine, DbWriteMode, DbWriteReport};
 
 pub struct SnowflakeConnector {
@@ -20,6 +20,11 @@ pub struct SnowflakeConnector {
     bearer: String,
     database: String,
     conn_label: String,
+    /// Seconds to keep asking Snowflake whether the statement is done. Also
+    /// the statement timeout sent to the server, so the two agree: a server
+    /// still running a statement Octa gave up on is a query nobody is
+    /// watching and a warehouse nobody meant to keep warm.
+    timeout_secs: u32,
     cancel: CancelFlag,
     in_flight: InFlight,
 }
@@ -47,6 +52,7 @@ impl SnowflakeConnector {
             bearer,
             database: conn.database.clone(),
             conn_label: conn.name.clone(),
+            timeout_secs: conn.query_timeout_secs,
             cancel: CancelFlag::new(),
             in_flight: InFlight::default(),
         })
@@ -58,7 +64,7 @@ impl SnowflakeConnector {
         self.in_flight.clear();
         let body = serde_json::json!({
             "statement": sql,
-            "timeout": 120,
+            "timeout": self.timeout_secs,
             "database": self.database,
         });
         let first = self
@@ -85,8 +91,10 @@ impl SnowflakeConnector {
                     && is_error_code(v)
             },
             move || cancel.is_cancelled(),
-            60,
-            std::time::Duration::from_millis(500),
+            // The POST returns 202 straight away, so the whole budget is
+            // available for polling.
+            poll_tries(self.timeout_secs, 0),
+            POLL_DELAY,
         );
         // Clear on every exit path (success and error alike), so a stale
         // handle is never cancelled later.
@@ -110,6 +118,52 @@ impl SnowflakeConnector {
             .map(cell_text)
             .collect())
     }
+
+    /// Append partitions 1..n of a result set, stopping at `cap` rows.
+    ///
+    /// The SQL API returns **partition 0 only** and lists the rest in
+    /// `resultSetMetaData.partitionInfo`; each further one is a GET on the
+    /// same statement with `?partition=N`. Without this walk a large table
+    /// opened with however many rows happened to fit in the first partition
+    /// and said nothing about the rest, which is worse than an error.
+    fn read_partitions(&self, first: &Value, table: &mut DataTable, cap: usize) -> Result<()> {
+        let count = sf_partition_count(first);
+        if count < 2 {
+            return Ok(());
+        }
+        let Some(handle) = first["statementHandle"].as_str() else {
+            return Ok(());
+        };
+        let columns = table.columns.clone();
+        for n in 1..count {
+            if table.rows.len() >= cap {
+                return Ok(());
+            }
+            if self.cancel.is_cancelled() {
+                bail!("statement cancelled");
+            }
+            let v = self
+                .client
+                .get_json(&sf_partition_path(handle, n), &self.bearer)
+                .with_context(|| {
+                    format!("fetching result partition {n} on '{}'", self.conn_label)
+                })?;
+            append_sf_rows(&v["data"], &columns, &mut table.rows);
+        }
+        Ok(())
+    }
+}
+
+/// How many partitions a result set has (1 when the API says nothing).
+fn sf_partition_count(v: &Value) -> usize {
+    v["resultSetMetaData"]["partitionInfo"]
+        .as_array()
+        .map_or(1, Vec::len)
+}
+
+/// The GET path for one further partition of a finished statement.
+fn sf_partition_path(handle: &str, partition: usize) -> String {
+    format!("api/v2/statements/{handle}?partition={partition}")
 }
 
 impl DbConnector for SnowflakeConnector {
@@ -145,10 +199,10 @@ impl DbConnector for SnowflakeConnector {
 
     fn query(&mut self, sql: &str) -> Result<DataTable> {
         self.cancel.reset();
-        let mut t = parse_sf_result(&self.submit(sql)?)?;
-        // The first partition may exceed the load cap; slice it (fetch_batches
-        // walks every partition uncapped).
         let cap = crate::formats::initial_load_rows();
+        let v = self.submit(sql)?;
+        let mut t = parse_sf_result(&v)?;
+        self.read_partitions(&v, &mut t, cap)?;
         if t.rows.len() > cap {
             t.rows.truncate(cap);
         }
@@ -305,22 +359,28 @@ pub(crate) fn parse_sf_result(v: &Value) -> Result<DataTable> {
         })
         .collect();
     let mut table = DataTable::empty();
-    table.rows = v["data"]
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .map(|row| {
-                    columns
-                        .iter()
-                        .enumerate()
-                        .map(|(i, col)| sf_cell(row.get(i).unwrap_or(&Value::Null), &col.data_type))
-                        .collect()
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    append_sf_rows(&v["data"], &columns, &mut table.rows);
     table.columns = columns;
     Ok(table)
+}
+
+/// Decode one partition's `data` block (an array of row arrays) onto `out`.
+/// Partition 0 arrives inside the statement response, the rest as their own
+/// GETs, and both are this same shape.
+fn append_sf_rows(v: &Value, columns: &[ColumnInfo], out: &mut Vec<Vec<CellValue>>) {
+    let Some(rows) = v.as_array() else {
+        return;
+    };
+    out.reserve(rows.len());
+    for row in rows {
+        out.push(
+            columns
+                .iter()
+                .enumerate()
+                .map(|(i, col)| sf_cell(row.get(i).unwrap_or(&Value::Null), &col.data_type))
+                .collect(),
+        );
+    }
 }
 
 /// Convert one Snowflake cell (a JSON string or null) by its Arrow type.
@@ -378,6 +438,48 @@ mod tests {
         assert_eq!(t.row_count(), 2);
         assert_eq!(t.rows[0][0], CellValue::Int(1));
         assert_eq!(t.rows[1][1], CellValue::String("bob".into()));
+    }
+
+    /// A one-partition result must not send a second request, and a
+    /// multi-partition one must be recognised as such: this count is the only
+    /// thing standing between a large table and silently losing every row
+    /// past partition 0.
+    #[test]
+    fn partition_count_drives_the_walk() {
+        let single = serde_json::json!({
+            "resultSetMetaData": { "partitionInfo": [ {"rowCount": 100} ] }
+        });
+        assert_eq!(sf_partition_count(&single), 1);
+        let many = serde_json::json!({
+            "resultSetMetaData": { "partitionInfo": [
+                {"rowCount": 100}, {"rowCount": 100}, {"rowCount": 7} ] }
+        });
+        assert_eq!(sf_partition_count(&many), 3);
+        // An API that says nothing means the one partition already in hand.
+        assert_eq!(sf_partition_count(&serde_json::json!({})), 1);
+    }
+
+    #[test]
+    fn partition_path_addresses_the_same_statement() {
+        assert_eq!(
+            sf_partition_path("01b2-c3d4", 2),
+            "api/v2/statements/01b2-c3d4?partition=2"
+        );
+    }
+
+    /// A further partition's `data` appends to the rows already read, through
+    /// the column types taken from partition 0's metadata.
+    #[test]
+    fn a_partition_body_appends_to_the_rows_in_hand() {
+        let columns = vec![ColumnInfo {
+            name: "ID".to_string(),
+            data_type: "Int64".to_string(),
+        }];
+        let mut rows = vec![vec![CellValue::Int(1)]];
+        append_sf_rows(&serde_json::json!([["2"], [null]]), &columns, &mut rows);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[1][0], CellValue::Int(2));
+        assert_eq!(rows[2][0], CellValue::Null);
     }
 
     #[test]

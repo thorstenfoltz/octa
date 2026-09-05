@@ -82,6 +82,7 @@ pub fn run(
     let mut stem_counts: HashMap<String, usize> = HashMap::new();
     let mut written: Vec<(PathBuf, usize)> = Vec::with_capacity(groups.len());
 
+    let mut bar = super::progress::Progress::start(Some(groups.len()));
     for (idx, (value, group_table)) in groups.iter().enumerate() {
         let rel = octa::data::partition::partition_path(layout, &col_name, value, &ext, idx + 1);
         let rel = octa::data::partition::dedupe_flat_name(layout, rel, &ext, &mut stem_counts);
@@ -92,8 +93,10 @@ pub fn run(
             std::fs::create_dir_all(parent)?;
         }
         out_reader.write_file(&out_path, group_table)?;
+        bar.item(idx + 1, &super::progress::short_name(&out_path));
         written.push((out_path, group_table.row_count()));
     }
+    bar.finish();
 
     // Per-file summary to stdout (parseable: path TAB rows).
     for (p, rows) in &written {

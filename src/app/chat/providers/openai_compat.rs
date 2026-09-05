@@ -39,13 +39,15 @@ impl ChatProvider for OpenAiCompat {
         // anyway so hosted compatible gateways (OpenRouter, Groq) authenticate.
         let headers = [("authorization", format!("Bearer {}", cfg.api_key))];
         run_openai(
-            &endpoint,
-            &headers,
-            cfg,
-            system,
-            messages,
-            tools,
-            "max_tokens",
+            super::openai::OpenAiRequest {
+                endpoint: &endpoint,
+                headers: &headers,
+                cfg,
+                system,
+                messages,
+                tools,
+                token_field: "max_tokens",
+            },
             cancel,
             sink,
         )

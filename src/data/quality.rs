@@ -20,6 +20,28 @@ const PII_SAMPLE_ROWS: usize = 200;
 pub struct QualityReport {
     pub table: DataTable,
     pub overall_score: f64,
+    /// Findings that do not fit the main table's one-row-per-column shape.
+    ///
+    /// A per-column finding is an extra column on `table`; anything else - a
+    /// pattern across several columns, a list of gaps in a series - has its own
+    /// rows and its own headings, so it gets its own table. The GUI opens one
+    /// tab per non-empty section beside the main one.
+    pub sections: Vec<QualitySection>,
+}
+
+/// One non-per-column finding: a heading and the rows that make it.
+#[derive(Debug, Clone)]
+pub struct QualitySection {
+    /// i18n key for the heading, e.g. `quality.section_missingness`.
+    pub title_key: String,
+    /// i18n key for the one-sentence answer to "what am I looking at?", shown
+    /// under the heading. A section tab is opened without being asked for, so
+    /// it has to introduce itself.
+    pub intro_key: String,
+    /// i18n key per column of `table`, in column order, for the header
+    /// tooltips. Same mechanism the main report uses.
+    pub hint_keys: Vec<String>,
+    pub table: DataTable,
 }
 
 /// Machine-friendly snake_case column ids for the report, in output order.
@@ -34,6 +56,8 @@ pub fn quality_column_ids() -> &'static [&'static str] {
         "pii_flag",
         "pii_kind",
         "type_consistency",
+        "benford_verdict",
+        "calendar_verdict",
         "score",
     ]
 }
@@ -50,7 +74,32 @@ pub fn quality_column_hint_keys() -> &'static [&'static str] {
         "quality.hint_pii_flag",
         "quality.hint_pii_kind",
         "quality.hint_type_consistency",
+        "quality.hint_benford_verdict",
+        "quality.hint_calendar_verdict",
         "quality.hint_score",
+    ]
+}
+
+/// i18n hint keys for the *values* a report column can hold, in the same order
+/// as [`quality_column_ids`]. The GUI hangs these on the cells as hover text.
+///
+/// Only the two verdict columns have any: their cells are a closed set of
+/// labels standing for a judgement, and a label short enough for a cell cannot
+/// also say what it means or what to do about it. Every other column holds a
+/// name, a count or a percentage, which explains itself.
+pub fn quality_column_value_hint_keys() -> &'static [&'static [(&'static str, &'static str)]] {
+    &[
+        &[], // column_name
+        &[], // data_type
+        &[], // null_percentage
+        &[], // distinct_ratio
+        &[], // outlier_count
+        &[], // pii_flag
+        &[], // pii_kind
+        &[], // type_consistency
+        crate::data::benford::VALUE_HINTS,
+        crate::data::calendar_coverage::VALUE_HINTS,
+        &[], // score
     ]
 }
 
@@ -209,6 +258,17 @@ pub fn build_quality_report(table: &DataTable) -> anyhow::Result<QualityReport> 
             ok as f64 / non_null_count as f64
         };
 
+        // Benford's law over the leading digits. Most columns answer
+        // `na_<reason>` rather than a verdict, which is the point: a bounded
+        // range or a row number *should* break the law, and a verdict on one
+        // would teach the reader to ignore the column.
+        let benford = crate::data::benford::analyse(&non_null, &info.data_type);
+
+        // Calendar coverage over a time column. Like Benford's, most columns
+        // answer `na_<reason>`; unlike it, the gaps themselves are too long for
+        // a cell, so they go to a section.
+        let calendar = crate::data::calendar_coverage::analyse(&non_null, &info.data_type);
+
         // score (0-100): weighted completeness + uniqueness + type consistency,
         // minus an outlier penalty capped at 10.
         const W_NULL: f64 = 0.4;
@@ -233,6 +293,8 @@ pub fn build_quality_report(table: &DataTable) -> anyhow::Result<QualityReport> 
             CellValue::String(pii_flag),
             CellValue::String(pii_kind),
             num_cell(type_consistency),
+            CellValue::String(benford.id().to_string()),
+            CellValue::String(calendar.id().to_string()),
             num_cell(score),
         ]);
     }
@@ -276,11 +338,51 @@ pub fn build_quality_report(table: &DataTable) -> anyhow::Result<QualityReport> 
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     };
+
+    // Findings that are not one-per-column get their own table. A section is
+    // only built when it has something to say, so a clean file opens exactly
+    // the one tab it always did.
+    let mut sections = Vec::new();
+    if let Some(t) = crate::data::missingness::section_table(table) {
+        sections.push(QualitySection {
+            title_key: "quality.section_missingness".to_string(),
+            intro_key: "quality.section_missingness_intro".to_string(),
+            hint_keys: [
+                "quality.hint_miss_columns",
+                "quality.hint_miss_column_count",
+                "quality.hint_miss_rows",
+                "quality.hint_miss_share_percent",
+            ]
+            .iter()
+            .map(|k| (*k).to_string())
+            .collect(),
+            table: t,
+        });
+    }
+    if let Some(t) = crate::data::calendar_coverage::section_table(table) {
+        sections.push(QualitySection {
+            title_key: "quality.section_calendar".to_string(),
+            intro_key: "quality.section_calendar_intro".to_string(),
+            hint_keys: [
+                "quality.hint_gap_column",
+                "quality.hint_gap_after",
+                "quality.hint_gap_before",
+                "quality.hint_gap_missing_steps",
+                "quality.hint_gap_kind",
+            ]
+            .iter()
+            .map(|k| (*k).to_string())
+            .collect(),
+            table: t,
+        });
+    }
 
     Ok(QualityReport {
         table: out,
         overall_score,
+        sections,
     })
 }
 

@@ -54,6 +54,18 @@ Table lands on the row you navigated to in Record. This works in both
 directions, so it is practical to find a row in the grid, flip to Record
 to read it in full, edit a field, and flip back.
 
+## Excel formulas
+
+A field whose value came from a spreadsheet formula shows that formula
+beside it, in a lighter monospace. It is there for the same reason the
+Record view is: the grid shows you what a cell says, and this shows you
+why. The grid has it too, on hover.
+
+The formula disappears once you edit the field, or once you move, add or
+delete rows or columns, because it would then point at the wrong cells.
+See [saving](../saving.md#excel-write-options) for writing formulas back
+into an `.xlsx`.
+
 ## See also
 
 - [Table view](../table-view.md), the default view for tabular files.

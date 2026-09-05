@@ -16,18 +16,27 @@ use serde_json::Value;
 
 use crate::data::{CellValue, ColumnInfo, DataTable};
 
-use super::rest::{InFlight, RestClient, bigquery_cancel_path, poll};
+use super::rest::{InFlight, POLL_DELAY, RestClient, bigquery_cancel_path, poll, poll_tries};
 use super::{CancelFlag, DbAuth, DbConnection, DbConnector, DbEngine, DbWriteMode, DbWriteReport};
 
 // cloud-platform (not the narrower .../auth/bigquery) so the service-account
 // token can also call cloudresourcemanager projects.list for list_catalogs.
 const BQ_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 
+/// Ceiling on `getQueryResults` page follows, so a misbehaving server cannot
+/// spin the loader thread. See [`BigQueryConnector::read_pages`].
+const MAX_RESULT_PAGES: usize = 100_000;
+
+/// How long `jobs.query` blocks before answering with an incomplete job.
+const BQ_WAIT_SECS: u32 = 30;
+
 pub struct BigQueryConnector {
     client: RestClient,
     bearer: String,
     project: String,
     conn_label: String,
+    /// Seconds to keep asking BigQuery whether the job is done.
+    timeout_secs: u32,
     cancel: CancelFlag,
     in_flight: InFlight,
 }
@@ -45,6 +54,7 @@ impl BigQueryConnector {
             bearer,
             project,
             conn_label: conn.name.clone(),
+            timeout_secs: conn.query_timeout_secs,
             cancel: CancelFlag::new(),
             in_flight: InFlight::default(),
         })
@@ -58,7 +68,7 @@ impl BigQueryConnector {
             "query": sql,
             "useLegacySql": false,
             "maxResults": max_results,
-            "timeoutMs": 30000,
+            "timeoutMs": BQ_WAIT_SECS * 1000,
         });
         let first = self
             .client
@@ -76,8 +86,9 @@ impl BigQueryConnector {
             .context("BigQuery did not return a job id")?
             .to_string();
         self.in_flight.set(&job_id);
+        let wait_ms = BQ_WAIT_SECS * 1000;
         let path = format!(
-            "bigquery/v2/projects/{}/queries/{job_id}?maxResults={max_results}&timeoutMs=30000",
+            "bigquery/v2/projects/{}/queries/{job_id}?maxResults={max_results}&timeoutMs={wait_ms}",
             self.project
         );
         let cancel = self.cancel.clone();
@@ -86,13 +97,51 @@ impl BigQueryConnector {
             |v| v["jobComplete"].as_bool().unwrap_or(false),
             |_| false, // a real error surfaces as a non-2xx from get_json
             move || cancel.is_cancelled(),
-            60,
-            std::time::Duration::from_millis(500),
+            // `timeoutMs` already spent BQ_WAIT_SECS of the budget waiting.
+            poll_tries(self.timeout_secs, BQ_WAIT_SECS),
+            POLL_DELAY,
         );
         // Clear on every exit path (success and error alike), so a stale job
         // id is never cancelled later.
         self.in_flight.clear();
         result
+    }
+
+    /// Append the result pages after the first, stopping at `cap` rows.
+    ///
+    /// BigQuery caps one response at roughly 10 MB whatever `maxResults` asks
+    /// for, and hands back a `pageToken` for the rest. Without following it a
+    /// large table arrived short with nothing said about the missing rows.
+    fn read_pages(&self, first: &Value, table: &mut DataTable, cap: usize) -> Result<()> {
+        let Some(job_id) = first.pointer("/jobReference/jobId").and_then(Value::as_str) else {
+            return Ok(());
+        };
+        let columns = table.columns.clone();
+        // Bounded rather than `while there is a token`: a server that handed
+        // back a token it already used, or empty pages with fresh tokens,
+        // would otherwise spin this worker forever. The bound is far past any
+        // result the row cap allows, so it never cuts a real page walk short.
+        let mut token = bq_page_token(first);
+        for _ in 0..MAX_RESULT_PAGES {
+            let Some(t) = token else {
+                return Ok(());
+            };
+            if table.rows.len() >= cap {
+                return Ok(());
+            }
+            if self.cancel.is_cancelled() {
+                bail!("query cancelled");
+            }
+            let v = self
+                .client
+                .get_json(&bq_page_path(&self.project, job_id, cap, &t), &self.bearer)
+                .with_context(|| {
+                    format!("fetching the next result page on '{}'", self.conn_label)
+                })?;
+            append_bq_rows(&v["rows"], &columns, &mut table.rows);
+            token = bq_page_token(&v);
+        }
+        Ok(())
     }
 
     /// GET a listing endpoint and pull a nested id string from each element of
@@ -159,7 +208,12 @@ impl DbConnector for BigQueryConnector {
         self.cancel.reset();
         let cap = crate::formats::initial_load_rows();
         let v = self.run_query(sql, cap)?;
-        parse_bq_result(&v)
+        let mut t = parse_bq_result(&v)?;
+        self.read_pages(&v, &mut t, cap)?;
+        if t.rows.len() > cap {
+            t.rows.truncate(cap);
+        }
+        Ok(t)
     }
 
     fn execute(&mut self, sql: &str) -> Result<u64> {
@@ -261,29 +315,69 @@ pub(crate) fn parse_bq_result(v: &Value) -> Result<DataTable> {
         })
         .collect();
     let mut table = DataTable::empty();
-    table.rows = v["rows"]
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .map(|row| {
-                    let cells = row["f"].as_array();
-                    columns
-                        .iter()
-                        .enumerate()
-                        .map(|(i, col)| {
-                            let cell = cells
-                                .and_then(|c| c.get(i))
-                                .map(|o| &o["v"])
-                                .unwrap_or(&Value::Null);
-                            bq_cell(cell, &col.data_type)
-                        })
-                        .collect()
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    append_bq_rows(&v["rows"], &columns, &mut table.rows);
     table.columns = columns;
     Ok(table)
+}
+
+/// Decode one page's `rows` block onto `out`. The first page arrives inside
+/// the query response, the rest as their own `getQueryResults` GETs, and both
+/// are this same `{"f":[{"v":...}]}` shape.
+fn append_bq_rows(v: &Value, columns: &[ColumnInfo], out: &mut Vec<Vec<CellValue>>) {
+    let Some(rows) = v.as_array() else {
+        return;
+    };
+    out.reserve(rows.len());
+    for row in rows {
+        let cells = row["f"].as_array();
+        out.push(
+            columns
+                .iter()
+                .enumerate()
+                .map(|(i, col)| {
+                    let cell = cells
+                        .and_then(|c| c.get(i))
+                        .map(|o| &o["v"])
+                        .unwrap_or(&Value::Null);
+                    bq_cell(cell, &col.data_type)
+                })
+                .collect(),
+        );
+    }
+}
+
+/// The `pageToken` for the page after this one, if there is one.
+fn bq_page_token(v: &Value) -> Option<String> {
+    v["pageToken"]
+        .as_str()
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+}
+
+/// The `getQueryResults` path for one further page of a finished job.
+fn bq_page_path(project: &str, job_id: &str, max_results: usize, token: &str) -> String {
+    format!(
+        "bigquery/v2/projects/{project}/queries/{job_id}\
+         ?maxResults={max_results}&pageToken={}",
+        query_escape(token)
+    )
+}
+
+/// Percent-encode a query-string value. A page token is opaque, so everything
+/// outside the unreserved set is escaped rather than trusted: a `+` in a
+/// token would otherwise be read back as a space and the paging would stall
+/// or repeat, which is exactly the failure this walk exists to prevent.
+fn query_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 /// Convert one BigQuery `v` cell by its Arrow type. Nested RECORD/REPEATED
@@ -315,6 +409,43 @@ fn bq_cell(v: &Value, arrow_type: &str) -> CellValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The token is what tells the walk there is more; an absent or empty one
+    /// is the end of the result, not a page to fetch.
+    #[test]
+    fn page_token_marks_the_end_of_a_result() {
+        assert_eq!(
+            bq_page_token(&serde_json::json!({"pageToken": "abc"})),
+            Some("abc".to_string())
+        );
+        assert_eq!(bq_page_token(&serde_json::json!({"pageToken": ""})), None);
+        assert_eq!(bq_page_token(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn page_path_carries_an_escaped_token() {
+        assert_eq!(
+            bq_page_path("proj", "job_1", 100, "a+b/c=="),
+            "bigquery/v2/projects/proj/queries/job_1?maxResults=100&pageToken=a%2Bb%2Fc%3D%3D"
+        );
+    }
+
+    #[test]
+    fn a_page_body_appends_to_the_rows_in_hand() {
+        let columns = vec![ColumnInfo {
+            name: "id".to_string(),
+            data_type: "Int64".to_string(),
+        }];
+        let mut rows = vec![vec![CellValue::Int(1)]];
+        append_bq_rows(
+            &serde_json::json!([{"f":[{"v":"2"}]}, {"f":[{"v":null}]}]),
+            &columns,
+            &mut rows,
+        );
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[1][0], CellValue::Int(2));
+        assert_eq!(rows[2][0], CellValue::Null);
+    }
 
     #[test]
     fn parse_bigquery_query_response() {

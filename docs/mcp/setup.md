@@ -37,14 +37,11 @@ local MCP server. This page walks through all three.
 
 Add `--mcp-read-only` to expose a **read-only tool surface**: every
 file-writing tool is omitted from the server, so an agent wired to Octa
-can inspect and query data but cannot modify files. The dropped tools are:
-
-- `write_table`
-- `edit_table`
-- `convert`
-- `transform_columns`
-- `anonymize`
-- `partition_table`
+can inspect and query data but cannot modify files. The dropped tools are
+`write_table`, `write_workbook`, `edit_table`, `convert`, `batch_convert`,
+`transform_columns`, `anonymize`, `partition_table`, `create_report`,
+`harmonise_schemas`, `write_db_table`, `copy_db_table`, `copy_object`,
+`move_object` and `delete_object`.
 
 Every other tool stays available, including the read-only analytics
 (`pivot`, `correlation`, `grep_files`) and `list_objects`. For cloud
@@ -64,6 +61,90 @@ octa --mcp ready [read-only: write tools disabled] (...)
 
 Use it in any client config by appending the flag to `args`, e.g.
 `"args": ["--mcp", "--mcp-read-only"]`.
+
+## Advertising fewer tools
+
+Octa exposes around 60 tools, and their descriptions and schemas are
+roughly 33,000 tokens. An MCP client reads that list once and then
+carries it in **every** request it makes to its model, so a server you
+only use for reading Parquet files is still charging you for
+`fuzzy_join` and `detect_pii` on every message.
+
+`--mcp-tools` advertises only what you name. It takes group names and
+individual tool names, comma-separated:
+
+```bash
+octa --mcp --mcp-tools core                 # reading, schemas, search, SQL
+octa --mcp --mcp-tools core,databases       # ... plus the live-database tools
+octa --mcp --mcp-tools read_table,run_sql   # exactly two tools
+```
+
+`--mcp-without` is the other direction, and the two combine:
+
+```bash
+octa --mcp --mcp-without cloud,write        # everything except those groups
+octa --mcp --mcp-tools core --mcp-without run_sql
+```
+
+The groups are:
+
+| Group       | ~Tokens | Tools                                                                                                                                                                                          |
+|-------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `core`      | ~6,000  | `read_table`, `tail`, `sample`, `schema`, `list_tables`, `count_rows`, `run_sql`, `search`, `profile`, `value_frequency`, `describe_file`, `grep_files`                                        |
+| `quality`   | ~5,000  | `find_duplicates`, `fuzzy_duplicates`, `unique_columns`, `detect_outliers`, `detect_pii`, `check_rules`, `validate_against_schema`, `check_references`, `correlation`, `compare_distributions` |
+| `compare`   | ~2,900  | `compare_schemas`, `diff_tables`, `data_drift`, `schema_drift`, `export_schema`                                                                                                                |
+| `combine`   | ~4,000  | `union_tables`, `join_tables`, `fuzzy_join`, `suggest_join_keys`, `diagnose_join`, `harmonise_schemas`                                                                                         |
+| `reshape`   | ~6,000  | `pivot`, `resample_timeseries`, `rolling_window`, `drop_duplicates`, `fill_missing`, `transform_columns`, `anonymize`, `partition_table`                                                       |
+| `databases` | ~3,000  | `list_db_connections`, `list_db_tables`, `db_relationships`, `query_db`, `sync_sql`, `write_db_table`, `copy_db_table`                                                                         |
+| `cloud`     | ~1,300  | `list_objects`, `copy_object`, `move_object`, `delete_object`                                                                                                                                  |
+| `write`     | ~5,100  | `write_table`, `write_workbook`, `edit_table`, `convert`, `batch_convert`, `create_report`                                                                                                     |
+
+The token figures are measured from the tools' own descriptions and schemas, so
+they shift a little between releases. Every tool, what it does and which group
+it is in is listed in the [tool reference](tools/index.md).
+
+A tool that is not advertised is also not callable: an agent that knows
+the name from somewhere else gets an error, not a result.
+
+A name Octa does not recognise **stops the server** rather than starting
+one with a surface you did not intend:
+
+```console
+$ octa --mcp --mcp-tools kwality
+error: unknown tool or group `kwality`. Groups: core, quality, compare, ...
+```
+
+The startup banner says how many tools were hidden:
+
+```
+octa --mcp ready [46 tools hidden] (...)
+```
+
+In a client config this is just more `args`:
+
+```json
+"args": ["--mcp", "--mcp-tools", "core,compare", "--mcp-read-only"]
+```
+
+### Why a flag and not a setting
+
+An MCP server is started by its client, from that client's own config file, and
+two clients pointed at the same Octa install often want different surfaces: a
+coding agent that should only read Parquet, a data agent that needs the database
+tools. A flag lives in exactly that per-client config. A global setting would
+apply to every client at once, which is the wrong shape for the problem.
+
+It is also read once, at startup, because that is when a client asks for the
+tool list. Changing the flags means restarting the server, which the client does
+for you when you edit its config.
+
+!!! note "This is separate from the in-app assistant"
+    Octa's own [chat assistant](../usage/chatbot.md#choosing-which-tools-the-assistant-may-use)
+    has its own per-tool switches in Settings, and it loads tool groups on
+    demand during a conversation. That is possible because Octa builds those
+    requests itself. Over MCP the **client** holds the tool list and decides
+    what to send its model, so the flags above are the equivalent lever, and
+    they are read once at startup.
 
 ## Claude Desktop
 

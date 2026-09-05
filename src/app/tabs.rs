@@ -177,6 +177,8 @@ impl TabState {
             sql_ac_visible: true,
             sql_workspace: None,
             sql_last_query: String::new(),
+            sql_last_duration_ms: None,
+            file_stamp: None,
             sql_history: Vec::new(),
             sql_diff_marks: Vec::new(),
             sql_diff_highlight_until: None,
@@ -216,6 +218,7 @@ impl TabState {
             is_chart_tab: false,
             chart_tab_label: None,
             custom_tab_label: None,
+            tab_hint: None,
             user_tab_name: None,
             column_filters: std::collections::HashMap::new(),
             column_key_names: Vec::new(),
@@ -688,6 +691,52 @@ impl OctaApp {
         self.active_tab = self.tabs.len() - 1;
     }
 
+    /// Compare the selected (or marked) rows of the active table field by
+    /// field, in a detached tab. Same pattern as `open_transpose_tab`, which it
+    /// reuses via `row_compare::compare_rows`.
+    ///
+    /// No row cap: the menu entry needs two rows and both selecting and marking
+    /// are per-row gestures, so the count is whatever the user set by hand.
+    pub(crate) fn open_row_compare_tab(&mut self) {
+        let Some(source) = self.tabs.get(self.active_tab) else {
+            return;
+        };
+        if source.table.col_count() == 0 {
+            return;
+        }
+        let rows = octa::data::row_compare::rows_to_compare(
+            &source.table,
+            &source.table_state.selected_rows,
+        );
+        if rows.len() < 2 {
+            return;
+        }
+        let mut snap = source.table.clone();
+        snap.apply_edits();
+        let source_label = source
+            .table
+            .source_path
+            .as_ref()
+            .and_then(|p| {
+                std::path::Path::new(p)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| source.title_display());
+
+        let table = octa::data::row_compare::compare_rows(&snap, &rows);
+        let default_search_mode = self.settings.default_search_mode;
+        let mut new_tab = super::state::TabState::new(default_search_mode);
+        new_tab.table = table;
+        new_tab.custom_tab_label = Some(format!(
+            "{} - {source_label}",
+            octa::i18n::t("row_compare.tab_label")
+        ));
+        new_tab.tab_hint = Some(octa::i18n::t("row_compare.tab_hint"));
+        self.tabs.push(new_tab);
+        self.active_tab = self.tabs.len() - 1;
+    }
+
     /// Open a detached tab holding `n` randomly chosen rows from the active
     /// table (all rows if `n` exceeds the row count). Same pattern as
     /// `open_describe_tab`.
@@ -836,6 +885,20 @@ impl OctaApp {
             .map(|k| octa::i18n::t(k))
             .collect();
 
+        // Cell tooltips: the two verdict columns hold a short label standing
+        // for a judgement, so hovering one says what that judgement means and
+        // what to do about it. Every other column is empty here.
+        let cell_tooltips: Vec<std::collections::HashMap<String, String>> =
+            octa::data::quality::quality_column_value_hint_keys()
+                .iter()
+                .map(|legend| {
+                    legend
+                        .iter()
+                        .map(|(value, key)| ((*value).to_string(), octa::i18n::t(key)))
+                        .collect()
+                })
+                .collect();
+
         let overall = report.overall_score.round() as i64;
         let default_search_mode = self.settings.default_search_mode;
         let mut new_tab = super::state::TabState::new(default_search_mode);
@@ -843,14 +906,57 @@ impl OctaApp {
         new_tab.table.source_path = None;
         new_tab.table.format_name = None;
         new_tab.table_state.header_tooltips = header_tooltips;
+        new_tab.table_state.cell_tooltips = cell_tooltips;
+        // The score in the tab label, not only in a status message that fades:
+        // it is the headline of the whole report, and hovering the `score`
+        // column header explains how it is arrived at.
         new_tab.custom_tab_label = Some(format!(
-            "{} - {source_label}",
+            "{} {overall}/100 - {source_label}",
             octa::i18n::t("quality.tab_label")
         ));
+        new_tab.tab_hint = Some(octa::i18n::t("quality.overall_explained"));
         self.tabs.push(new_tab);
-        self.active_tab = self.tabs.len() - 1;
+        let main_tab = self.tabs.len() - 1;
+
+        // Findings that are not one row per column get a tab of their own,
+        // next to the main report. Focus stays on the main tab: the sections
+        // are extra detail, not the headline, and landing on the last one
+        // would hide the score the user asked for.
+        let section_count = report.sections.len();
+        for section in report.sections {
+            let mut tab = super::state::TabState::new(default_search_mode);
+            tab.table = section.table;
+            tab.table.source_path = None;
+            tab.table.format_name = None;
+            tab.table_state.header_tooltips =
+                section.hint_keys.iter().map(|k| octa::i18n::t(k)).collect();
+            tab.tab_hint = Some(octa::i18n::t(&section.intro_key));
+            tab.custom_tab_label = Some(format!(
+                "{} - {source_label}",
+                octa::i18n::t(&section.title_key)
+            ));
+            self.tabs.push(tab);
+        }
+        self.active_tab = main_tab;
+
+        let score = format!(
+            "{}: {}/100. {}",
+            octa::i18n::t("quality.overall"),
+            overall,
+            octa::i18n::t("quality.overall_explained")
+        );
         self.status_message = Some((
-            format!("{}: {}/100", octa::i18n::t("quality.overall"), overall),
+            if section_count == 0 {
+                score
+            } else {
+                // `score` already ends in a full stop: the explanation is a
+                // sentence, not a bare number, so no second one is added.
+                format!(
+                    "{score} {}",
+                    octa::i18n::t("quality.sections_added")
+                        .replace("{n}", &section_count.to_string())
+                )
+            },
             std::time::Instant::now(),
         ));
     }
@@ -905,6 +1011,111 @@ impl OctaApp {
         ));
         self.tabs.push(new_tab);
         self.active_tab = self.tabs.len() - 1;
+    }
+
+    /// Compare two columns' distributions and open the answer as a detached
+    /// tab, the same shape as the correlation matrix above.
+    pub(crate) fn open_dist_compare_tab(
+        &mut self,
+        tab_a: usize,
+        col_a: usize,
+        tab_b: usize,
+        col_b: usize,
+    ) {
+        let (Some(a), Some(b)) = (self.tabs.get(tab_a), self.tabs.get(tab_b)) else {
+            return;
+        };
+        // Snapshots with edits applied, so the comparison sees what the grid
+        // shows rather than what the file held.
+        let (mut sa, mut sb) = (a.table.clone(), b.table.clone());
+        sa.apply_edits();
+        sb.apply_edits();
+        let label_a = sa
+            .columns
+            .get(col_a)
+            .map(|c| c.name.clone())
+            .unwrap_or_default();
+        let label_b = sb
+            .columns
+            .get(col_b)
+            .map(|c| c.name.clone())
+            .unwrap_or_default();
+
+        let outcome = octa::data::distribution_compare::compare_columns(&sa, col_a, &sb, col_b);
+        let table = octa::data::distribution_compare::result_table(&label_a, &label_b, &outcome);
+
+        let default_search_mode = self.settings.default_search_mode;
+        let mut new_tab = super::state::TabState::new(default_search_mode);
+        new_tab.table = table;
+        new_tab.table.source_path = None;
+        new_tab.table.format_name = None;
+        new_tab.custom_tab_label = Some(format!(
+            "{} - {label_a} / {label_b}",
+            octa::i18n::t("distcmp.tab_label")
+        ));
+        new_tab.tab_hint = Some(octa::i18n::t("distcmp.tab_hint"));
+        self.tabs.push(new_tab);
+        self.active_tab = self.tabs.len() - 1;
+
+        // The headline is the answer; the status bar says it so it is visible
+        // before the reader has parsed the table.
+        if let octa::data::distribution_compare::Outcome::Compared(c) = &outcome {
+            self.status_message = Some((c.headline.sentence(), std::time::Instant::now()));
+        }
+    }
+
+    /// Check a foreign key and open the orphans as a detached tab.
+    ///
+    /// A clean check opens no tab: there is nothing to look at, and the status
+    /// bar saying so is the whole answer.
+    pub(crate) fn open_referential_tab(
+        &mut self,
+        parent_tab: usize,
+        parent_col: usize,
+        child_tab: usize,
+        child_col: usize,
+    ) {
+        let (Some(p), Some(c)) = (self.tabs.get(parent_tab), self.tabs.get(child_tab)) else {
+            return;
+        };
+        let (mut sp, mut sc) = (p.table.clone(), c.table.clone());
+        sp.apply_edits();
+        sc.apply_edits();
+        let child_label = sc
+            .columns
+            .get(child_col)
+            .map(|col| col.name.clone())
+            .unwrap_or_default();
+        let parent_label = sp
+            .columns
+            .get(parent_col)
+            .map(|col| col.name.clone())
+            .unwrap_or_default();
+
+        let report = octa::data::referential::check(&sp, parent_col, &sc, child_col);
+        let sentence = report.sentence();
+        if report.is_clean() {
+            self.status_message = Some((sentence, std::time::Instant::now()));
+            return;
+        }
+
+        let table = octa::data::referential::report_table(&child_label, &report);
+        let default_search_mode = self.settings.default_search_mode;
+        let mut new_tab = super::state::TabState::new(default_search_mode);
+        new_tab.table = table;
+        new_tab.table.source_path = None;
+        new_tab.table.format_name = None;
+        new_tab.custom_tab_label = Some(format!(
+            "{} - {child_label} -> {parent_label}",
+            octa::i18n::t("refint.tab_label")
+        ));
+        new_tab.tab_hint = Some(octa::i18n::t("refint.tab_hint"));
+        // The counts do not fit a column, so they ride the tab's notice banner
+        // the way the dataset and SQL-dump notices do.
+        new_tab.parse_error_banner = Some(sentence.clone());
+        self.tabs.push(new_tab);
+        self.active_tab = self.tabs.len() - 1;
+        self.status_message = Some((sentence, std::time::Instant::now()));
     }
 
     pub(crate) fn close_tab(&mut self, idx: usize) {
@@ -1068,6 +1279,7 @@ impl OctaApp {
                             let mut tab_to_toggle_pin: Option<usize> = None;
                             // Set when the user picks "Rename tab..." from the menu.
                             let mut tab_to_rename: Option<usize> = None;
+                            let mut tab_to_export_pdf: Option<usize> = None;
 
                             for (idx, tab) in self.tabs.iter().enumerate() {
                                 let is_active = idx == self.active_tab;
@@ -1084,14 +1296,16 @@ impl OctaApp {
                                 };
                                 let pinned = tab.pinned;
                                 let has_source = tab.table.source_path.is_some();
+                                let has_data = tab.table.col_count() > 0;
                                 // Hover shows the full path when file-backed, else the
                                 // full (untruncated) tab title, so a shortened title is
                                 // always recoverable on hover.
-                                let hover_path = tab
-                                    .table
-                                    .source_path
-                                    .clone()
-                                    .unwrap_or_else(|| full_label.clone());
+                                let hover_path = tab.tab_hint.clone().unwrap_or_else(|| {
+                                    tab.table
+                                        .source_path
+                                        .clone()
+                                        .unwrap_or_else(|| full_label.clone())
+                                });
 
                                 // Distinct visual states: active uses the accent at
                                 // 30% alpha; Ctrl-click-selected (but not active) uses
@@ -1172,6 +1386,29 @@ impl OctaApp {
                                                 .clicked()
                                             {
                                                 tab_to_rename = Some(idx);
+                                                ui.close();
+                                            }
+                                            // Every result tab (Summary, the
+                                            // Quality report, a compare) is a
+                                            // table, so the PDF export belongs
+                                            // on all of them, not just the
+                                            // file-backed ones.
+                                            if ui
+                                                .add_enabled(
+                                                    has_data,
+                                                    egui::Button::new(octa::i18n::t(
+                                                        "context_menu.export_pdf",
+                                                    )),
+                                                )
+                                                .on_hover_text(octa::i18n::t(
+                                                    "file_menu.export_pdf_hint",
+                                                ))
+                                                .on_disabled_hover_text(octa::i18n::t(
+                                                    "file_menu.export_pdf_hint",
+                                                ))
+                                                .clicked()
+                                            {
+                                                tab_to_export_pdf = Some(idx);
                                                 ui.close();
                                             }
                                         });
@@ -1275,6 +1512,13 @@ impl OctaApp {
                             }
                             if let Some(idx) = tab_to_rename {
                                 self.begin_rename_tab(idx);
+                            }
+                            if let Some(idx) = tab_to_export_pdf {
+                                // The dialog prints the active tab, so make it
+                                // the one that was right-clicked.
+                                self.active_tab = idx;
+                                self.pdf_export_dialog =
+                                    Some(crate::app::state::PdfExportState::default());
                             }
                         });
                     });

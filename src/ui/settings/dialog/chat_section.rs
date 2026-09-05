@@ -13,8 +13,9 @@ use egui;
 use crate::ui::settings::chat_profiles::ChatModelProfile;
 use crate::ui::settings::{
     ChatPanelPosition, ChatProviderKind, ChatTestRequest, SecretPurge, SettingsDialog, chat_models,
-    chat_troubleshoot, secrets,
+    chat_tools, chat_troubleshoot, secrets,
 };
+use crate::ui::status_bar::format_number;
 
 /// Parse the temperature buffer. Comma-tolerant, like the other numeric
 /// settings buffers. **Blank means `None`**: no `temperature` field is sent at
@@ -682,6 +683,124 @@ impl SettingsDialog {
                 });
                 ui.end_row();
             });
+
+        self.chat_tools_body(ui);
+    }
+
+    /// The per-tool switches, grouped exactly as the model sees them.
+    ///
+    /// Every tool carries what it costs per request, because that is the whole
+    /// reason this list exists: the core group is sent with every message, and
+    /// the rest is only sent once the model asks for its group. Switching a
+    /// tool off removes it from all three - the payload, the menu the model
+    /// reads, and dispatch.
+    ///
+    /// Tool names, group names and the one-line descriptions stay in English:
+    /// they are the exact words the model is given, and a list that said
+    /// something else would be misleading rather than helpful.
+    fn chat_tools_body(&mut self, ui: &mut egui::Ui) {
+        let tools = chat_tools::all();
+        if tools.is_empty() {
+            return;
+        }
+        ui.add_space(8.0);
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.strong(crate::i18n::t("chat.tools"))
+                .on_hover_text(crate::i18n::t("settings_hint.chat_tools"));
+            if ui
+                .button(crate::i18n::t("chat.tools_enable_all"))
+                .on_hover_text(crate::i18n::t("settings_hint.chat_tools_enable_all"))
+                .clicked()
+            {
+                self.draft.chat_disabled_tools.clear();
+            }
+        });
+
+        let (always, on_demand) = chat_tools::token_split(&self.draft.chat_disabled_tools);
+        ui.label(
+            crate::i18n::t("chat.tools_budget")
+                .replace("{always}", &format_number(always))
+                .replace("{ondemand}", &format_number(on_demand))
+                .replace("{total}", &format_number(always + on_demand)),
+        )
+        .on_hover_text(crate::i18n::t("settings_hint.chat_tools_budget"));
+
+        let mut index = 0usize;
+        while index < tools.len() {
+            let start = index;
+            let this_group = tools[start].group;
+            while index < tools.len() && tools[index].group == this_group {
+                index += 1;
+            }
+            let members = &tools[start..index];
+            let on = members
+                .iter()
+                .filter(|t| !self.draft.chat_disabled_tools.iter().any(|d| d == t.name))
+                .count();
+            let cost: usize = members
+                .iter()
+                .filter(|t| !self.draft.chat_disabled_tools.iter().any(|d| d == t.name))
+                .map(|t| t.tokens)
+                .sum();
+            let sent = if members[0].always_sent {
+                crate::i18n::t("chat.tools_always_sent")
+            } else {
+                crate::i18n::t("chat.tools_on_request")
+            };
+            let header = format!(
+                "{this_group} - {sent} - {on}/{} - ~{}",
+                members.len(),
+                format_number(cost)
+            );
+            egui::CollapsingHeader::new(header)
+                .id_salt(("settings_chat_tool_group", this_group))
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(members[0].group_summary)
+                            .small()
+                            .color(ui.visuals().weak_text_color()),
+                    );
+                    for tool in members {
+                        let mut enabled = !self
+                            .draft
+                            .chat_disabled_tools
+                            .iter()
+                            .any(|d| d == tool.name);
+                        let hover = format!(
+                            "{}\n\n{} {}",
+                            tool.description,
+                            crate::i18n::t("chat.tools_when"),
+                            tool.when
+                        );
+                        ui.horizontal(|ui| {
+                            if ui
+                                .checkbox(&mut enabled, tool.name)
+                                .on_hover_text(&hover)
+                                .changed()
+                            {
+                                if enabled {
+                                    self.draft.chat_disabled_tools.retain(|d| d != tool.name);
+                                } else if !self
+                                    .draft
+                                    .chat_disabled_tools
+                                    .iter()
+                                    .any(|d| d == tool.name)
+                                {
+                                    self.draft.chat_disabled_tools.push(tool.name.to_string());
+                                }
+                            }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.weak(format!("~{}", format_number(tool.tokens)))
+                                        .on_hover_text(&hover);
+                                },
+                            );
+                        });
+                    }
+                });
+        }
     }
 
     /// API-key management: the active provider's key controls plus the

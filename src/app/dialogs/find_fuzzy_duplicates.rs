@@ -511,5 +511,6 @@ fn build_cluster_report(src: &DataTable, res: &FuzzyResult, col_names: &[String]
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }

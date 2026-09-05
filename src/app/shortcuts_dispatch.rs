@@ -23,6 +23,22 @@ impl OctaApp {
         let shortcuts = self.settings.shortcuts.clone();
         let action_fired = |a: SA| ctx.input(|i| shortcuts.triggered(a, i));
 
+        // A remapped Copy / Cut binding becomes the event egui itself listens
+        // for, before any panel renders. The winit layer only turns the
+        // *platform* chord (Ctrl+C / Cmd+C) into `Event::Copy`, so without
+        // this a user who rebinds Copy loses the ability to copy marked text
+        // from a chat bubble, a dialog or any other label. Skipped when the
+        // event is already there, so the default binding never fires twice.
+        for (action, event) in [(SA::Copy, egui::Event::Copy), (SA::Cut, egui::Event::Cut)] {
+            if action_fired(action) {
+                ctx.input_mut(|i| {
+                    if !i.events.contains(&event) {
+                        i.events.push(event.clone());
+                    }
+                });
+            }
+        }
+
         if action_fired(SA::NewFile) {
             self.new_file();
         }
@@ -653,6 +669,91 @@ impl OctaApp {
                 if tab.sql_panel_open && tab.db_origin.is_some() && tab.sql_run_on_server {
                     self.run_server_query(ctx);
                 }
+            }
+
+            // Menu entries that had no bindable action until now. Each arm
+            // does exactly what `toolbar_handler` does for the same entry,
+            // guards included, so a key and a click cannot drift apart.
+            let has_columns = self.tabs[self.active_tab].table.col_count() > 0;
+            if action_fired(SA::OpenCorrelation) && has_columns {
+                self.correlation_dialog = Some(super::state::CorrelationState {
+                    method: octa::data::correlation::CorrMethod::Pearson,
+                    size: octa::ui::settings::DialogSize::default(),
+                });
+            }
+            if action_fired(SA::OpenDistCompare) && has_columns {
+                self.dist_compare_dialog = Some(super::state::DistCompareState {
+                    tab_a: self.active_tab,
+                    col_a: None,
+                    tab_b: self.active_tab,
+                    col_b: None,
+                    size: octa::ui::settings::DialogSize::default(),
+                });
+            }
+            if action_fired(SA::OpenReferential) && has_columns {
+                self.referential_dialog = Some(super::state::ReferentialState {
+                    parent_tab: self.active_tab,
+                    parent_col: None,
+                    child_tab: self.active_tab,
+                    child_col: None,
+                    size: octa::ui::settings::DialogSize::default(),
+                });
+            }
+            if action_fired(SA::OpenTranspose) {
+                self.open_transpose_tab();
+            }
+            if action_fired(SA::OpenRowCompare) {
+                self.open_row_compare_tab();
+            }
+            if action_fired(SA::OpenRandomSample) && has_columns {
+                self.random_sample_dialog = Some(super::state::RandomSampleState::default());
+            }
+            // Tidy up rewrites cells, so it obeys the read-only chokepoint.
+            if action_fired(SA::OpenTidyUp) && has_columns && !self.is_readonly() {
+                self.tidy_up_dialog = Some(super::state::TidyUpState::default());
+            }
+            if action_fired(SA::OpenTimeCalc) {
+                self.open_time_calc_dialog();
+            }
+            if action_fired(SA::ExportPdf) && has_columns {
+                self.pdf_export_dialog = Some(super::state::PdfExportState::default());
+            }
+            if action_fired(SA::OpenDirectory)
+                && let Some(path) = rfd::FileDialog::new().pick_folder()
+            {
+                self.directory_tree = Some(octa::ui::directory_tree::DirectoryTreeState::new(path));
+            }
+            if action_fired(SA::OpenGitCompare) {
+                self.open_git_compare_dialog();
+            }
+            if action_fired(SA::ExplainFile) {
+                self.explain_active_file(ctx);
+            }
+            if action_fired(SA::OpenAiReport) {
+                self.show_ai_report_dialog = true;
+            }
+            if action_fired(SA::ToggleCloudBrowser) {
+                self.toggle_cloud_browser();
+            }
+            if action_fired(SA::ToggleDbBrowser) {
+                self.toggle_db_browser();
+            }
+            // Same toggle semantics as the View menu: firing it while that
+            // split is already showing closes it, and firing the other
+            // orientation switches to it rather than closing.
+            if action_fired(SA::ToggleSplitView) {
+                let state = &mut self.tabs[self.active_tab].table_state;
+                state.set_split(!(state.is_split() && !state.split_side_by_side), false);
+            }
+            if action_fired(SA::ToggleSplitSideBySide) {
+                let state = &mut self.tabs[self.active_tab].table_state;
+                state.set_split(!(state.is_split() && state.split_side_by_side), true);
+            }
+            if action_fired(SA::AddSplitPane) {
+                self.change_split_panes(true);
+            }
+            if action_fired(SA::RemoveSplitPane) {
+                self.change_split_panes(false);
             }
         }
 

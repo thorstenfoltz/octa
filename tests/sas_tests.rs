@@ -1,6 +1,10 @@
-//! Tests for the SAS reader. The `sas7bdat` 0.2 crate is read-only, so we
-//! cannot generate a fixture programmatically — these tests cover the
-//! registry plumbing and error path.
+//! Tests for the SAS reader. The `sas7bdat` crate is read-only, so we cannot
+//! generate a fixture programmatically; these tests cover the registry
+//! plumbing and error path only.
+//!
+//! Nothing here reads an actual .sas7bdat, so this file did NOT catch the
+//! 0.2 -> 0.8 rewrite of `sas_reader.rs`. That was verified by hand against a
+//! real file, diffing schema and rows before and after.
 
 use octa::formats::FormatRegistry;
 

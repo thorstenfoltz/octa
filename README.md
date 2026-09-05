@@ -38,21 +38,23 @@ tab or write it straight to a file or a database.
 
 Parquet, CSV/TSV, JSON and JSON Lines, Excel, ODS, Arrow, Avro, ORC, SQLite,
 DuckDB, GeoPackage, SAS, SPSS, Stata, R, HDF5, NetCDF, NumPy, MessagePack, BSON,
-DBF, XML, TOML, YAML, Jupyter notebooks, Markdown, EPUB, GeoJSON, Shapefile,
-Delta Lake, Apache Iceberg, fixed-width text, zip/tar archives, and source code.
+DBF, XML, TOML, YAML, Jupyter notebooks, Markdown, HTML, EPUB, GeoJSON,
+Shapefile, Delta Lake, Apache Iceberg, fixed-width text, zip/tar archives, SQL
+dumps, and source code.
 Most of those can be written back, and Save As converts between them.
 
 See [supported formats](https://thorstenfoltz.github.io/octa/getting-started/supported-formats/)
-for the full list and what each one can do.
+for the full list and what each one can do, or open [`samples/`](samples/) for
+one small example of every one of them.
 
 ## Beyond local files
 
 - **Cloud object storage.** Browse and open objects straight from Amazon S3 (and
   S3-compatible providers), Azure Blob Storage, and Google Cloud Storage. Saving
   back is opt-in.
-- **Live databases.** Connect to nine SQL engines and cloud warehouses:
-  PostgreSQL, MySQL/MariaDB, SQL Server, Amazon Redshift, ClickHouse, Exasol,
-  Snowflake, Databricks, and Google BigQuery. Browse tables, query them in their
+- **Live databases.** Connect to twelve SQL engines and cloud warehouses:
+  PostgreSQL, MySQL/MariaDB, SQL Server, Oracle, Amazon Redshift, ClickHouse,
+  Exasol, Trino, Amazon Athena, Snowflake, Databricks, and Google BigQuery. Browse tables, query them in their
   own dialect, join them against local files, and (when you opt in) write edits
   back.
 - **MCP server.** `octa --mcp` speaks the
@@ -64,7 +66,8 @@ for the full list and what each one can do.
   fully offline with [Ollama](https://ollama.com/).
 - **Command line.** The same binary is a CLI: `octa --schema`, `--head`,
   `--convert`, `--sql`, `--export-schema`, and more. `octa --help` lists them
-  all.
+  all. Shell completions come with it:
+  `eval "$(octa --completions zsh)"`, or let `install.sh` write the files.
 
 ## Installation
 

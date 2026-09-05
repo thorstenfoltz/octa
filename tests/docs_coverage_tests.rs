@@ -90,8 +90,11 @@ fn every_cli_action_flag_is_in_the_cli_index() {
 
 #[test]
 fn the_cli_action_scan_finds_the_real_flags() {
-    // Guards the two scanners below: a refactor that changes how `src/cli/mod.rs`
-    // is written must not turn the tests above into silent no-ops.
+    // Guards the two scanners below: a refactor that changes how the clap
+    // surface is written must not turn the tests above into silent no-ops.
+    // It has already earned its keep once: the `Cli` struct moved from
+    // `src/cli/mod.rs` to `src/cli/args.rs` and this test failed loudly
+    // instead of the two scanners quietly finding nothing.
     let flags = cli_action_flags();
     assert!(flags.len() > 40, "only found {} action flags", flags.len());
     for expected in ["--schema", "--head", "--convert", "--sql", "--mcp"] {
@@ -109,9 +112,10 @@ fn the_cli_action_scan_finds_the_real_flags() {
 ///
 /// `src/cli` is private to the binary, so the source is read as text rather
 /// than imported. Doc comments are skipped: the module header mentions
-/// `group = "action"` while explaining how to add one.
+/// `group = "action"` while explaining how to add one. Reads `args.rs`, which
+/// is where the `Cli` struct lives.
 fn cli_action_flags() -> Vec<String> {
-    let src = read("src/cli/mod.rs");
+    let src = read("src/cli/args.rs");
     let lines: Vec<&str> = src.lines().collect();
     let mut flags = Vec::new();
     for (i, line) in lines.iter().enumerate() {
@@ -131,7 +135,7 @@ fn cli_action_flags() -> Vec<String> {
 
 /// `--target` values, from the `SchemaTargetArg` variants clap kebab-cases.
 fn schema_target_arg_values() -> Vec<String> {
-    let src = read("src/cli/mod.rs");
+    let src = read("src/cli/args.rs");
     let body = src
         .split_once("enum SchemaTargetArg {")
         .expect("SchemaTargetArg enum")

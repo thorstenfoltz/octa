@@ -72,7 +72,7 @@ fn main() -> ExitCode {
             // it needs a tokio runtime - the GUI path never builds one and
             // we don't want to pay the cost there.
             if matches!(action, cli::Action::Mcp) {
-                return run_mcp(cli.mcp_read_only);
+                return run_mcp(cli.mcp_read_only, &cli.mcp_tools, &cli.mcp_without);
             }
             // Resolve `--rows N|all` into an optional cap. Invalid input
             // fails fast before the action runs.
@@ -142,7 +142,12 @@ fn main() -> ExitCode {
 
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size(settings.window_size.dimensions())
-        .with_min_inner_size([800.0, 600.0])
+        // Deliberately small. 800x600 used to be the floor and made the window
+        // impossible to shrink far enough to park beside another one. The chrome
+        // adapts down to this size: the toolbar and tab bar scroll horizontally,
+        // side panels clamp to a share of the window (`ui::panel_fit`), and
+        // dialogs are clamped to the viewport by `ui::size_dialog_window`.
+        .with_min_inner_size([400.0, 300.0])
         .with_title(&title)
         .with_icon(Arc::new(icon));
     if settings.start_maximized {
@@ -164,6 +169,10 @@ fn main() -> ExitCode {
         "octa",
         options,
         Box::new(move |cc| {
+            // The Settings dialog lists the assistant's tools and what each
+            // costs per request; the definitions live in this binary, so hand
+            // them over before any UI runs.
+            app::chat::tool_groups::publish_to_settings();
             ui::theme::apply_theme(
                 &cc.egui_ctx,
                 default_theme,
@@ -200,7 +209,17 @@ fn main() -> ExitCode {
 /// they launch `octa --mcp`. Builds a single-thread tokio runtime so we don't
 /// drag the multi-thread scheduler in for what is fundamentally a one-client
 /// stdio loop. Logs to stderr - JSON-RPC traffic owns stdout.
-fn run_mcp(read_only: bool) -> ExitCode {
+fn run_mcp(read_only: bool, only: &[String], without: &[String]) -> ExitCode {
+    // Resolve the tool filter before anything else: a typo in a group name
+    // must stop the server, not start one advertising a surface the user did
+    // not intend.
+    let hidden = match mcp::tool_groups::hidden_tools(only, without) {
+        Ok(hidden) => hidden,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
     let settings = AppSettings::load();
     let row_limit = settings.mcp_default_row_limit;
     let cell_cap = settings.mcp_default_cell_bytes;
@@ -244,6 +263,7 @@ fn run_mcp(read_only: bool) -> ExitCode {
         allow_schema_changes,
         backup_before_modify,
         settings.large_file_min_bytes,
+        &hidden,
     )) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

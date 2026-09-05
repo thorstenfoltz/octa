@@ -24,6 +24,7 @@ fn table_with_column(col_type: &str, cells: Vec<CellValue>) -> DataTable {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }
 

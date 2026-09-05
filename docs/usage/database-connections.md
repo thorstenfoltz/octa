@@ -1,6 +1,6 @@
 # Database Connections
 
-Connect Octa to nine live database engines: browse schemas and tables in
+Connect Octa to twelve live database engines: browse schemas and tables in
 the sidebar, open a table read-only, query the server in its own SQL
 dialect, join server tables against local files, copy tables between
 servers, and (only when you opt in) write data back.
@@ -10,9 +10,12 @@ Supported engines:
 - **PostgreSQL**
 - **MySQL / MariaDB**
 - **Microsoft SQL Server**
+- **Oracle Database** (12.1 and later)
 - **Amazon Redshift** (speaks the PostgreSQL wire protocol)
 - **ClickHouse** (HTTP interface)
 - **Exasol**
+- **Trino** (HTTP statement API)
+- **Amazon Athena** (JSON API, requests signed with SigV4)
 - **Snowflake** (SQL API)
 - **Databricks** (SQL warehouse Statement Execution API)
 - **Google BigQuery** (REST `jobs.query`)
@@ -33,13 +36,22 @@ authentication picker.
 
 Connections live under **Settings > Databases**. Each one stores:
 
-- **Engine** - one of the nine above. The authentication picker below
+- **Engine** - one of the twelve above. The authentication picker below
   only offers the methods that engine supports.
 - **Host / Port / Database / Username** - the port pre-fills the
-  engine's default (5432 PostgreSQL, 3306 MySQL, 1433 SQL Server, 5439
-  Redshift, 8123 ClickHouse, 8563 Exasol, 443 for Snowflake /
-  Databricks / BigQuery). For the warehouse engines the **Database**
-  field does double duty:
+  engine's default (5432 PostgreSQL, 3306 MySQL, 1433 SQL Server, 1521
+  Oracle, 5439 Redshift, 8123 ClickHouse, 8563 Exasol, 8443 Trino, 443
+  for Athena / Snowflake / Databricks / BigQuery). For Oracle, Trino and
+  the warehouse engines the **Database** field does double duty:
+  - **Oracle**: put the **service name** there (`FREEPDB1`,
+      `ORCLPDB1`), not a database name. A listener that only accepts an
+      old-style SID is not reachable.
+  - **Trino**: the **default catalog** (`hive`, `iceberg`, `tpch`), used
+      when nothing else names one. The sidebar browses every catalog
+      regardless.
+  - **Athena**: the **Glue database**. Athena also needs a workgroup and,
+      unless the workgroup sets one, an S3 result location; both have
+      their own fields in the form.
   - **Snowflake**: the account identifier is taken from the **Host**
       (the label before the first dot).
   - **Databricks**: put the **SQL warehouse id** in the Database
@@ -56,6 +68,9 @@ Connections live under **Settings > Databases**. Each one stores:
 |---------------------------|----------------------------------------------------------------------------------------------------|
 | PostgreSQL, MySQL/MariaDB | Password, AWS IAM (RDS), Microsoft Entra (Azure AD), Google Cloud SQL IAM                          |
 | SQL Server                | Password, Microsoft Entra (Azure AD)                                                               |
+| Oracle                    | Password                                                                                           |
+| Trino                     | Password (basic over TLS), OAuth (browser SSO), Personal access token                              |
+| Amazon Athena             | AWS IAM (every request is signed)                                                                  |
 | Amazon Redshift           | Password, AWS IAM                                                                                  |
 | ClickHouse, Exasol        | Password                                                                                           |
 | Snowflake                 | Key-pair (JWT), Password, OAuth (browser SSO), OAuth (client credentials)                          |
@@ -121,48 +136,51 @@ authenticate and what has to be installed. (**Databricks** also offers a
 browser sign-in as its own **OAuth (browser SSO)** auth mode, described
 below; it has no vendor-CLI path.)
 
-**1. Vendor CLI (the default).** Octa shells out to `az` / `gcloud` to
-mint a token. You sign in once inside the CLI (`az login`,
-`gcloud auth login`), and the CLI keeps a long-lived session on disk and
-silently refreshes it. Octa just asks it for a fresh token on each
-connect.
+**1. Vendor CLI (the default, and nothing to fill in).** Press **Sign in
+with browser** and Octa runs the vendor's own sign-in for you: `az login`,
+`gcloud auth login` or `aws sso login`. That command opens your browser,
+you sign in there, and from then on Octa asks the CLI for a fresh token on
+every connect. The CLI keeps a long-lived session on disk and refreshes it
+silently, so you rarely authenticate again.
 
-- Pros: no setup in Octa; the CLI refreshes for you, so you rarely
-  re-authenticate; this is the recommended path for a workstation you
-  control.
-- Cons: the CLI must be installed and signed in. On machines where you
-  cannot install it (or in locked-down environments) this is a
-  dead end.
+There is deliberately **no OAuth client ID to supply** on this path. The
+vendor CLI is itself a registered OAuth application, which is why nothing
+has to be registered by you. This is the same route DBeaver's *Default
+credentials* option takes.
 
-**2. Browser sign-in (the fallback).** Octa opens your system browser,
-you sign in there, and it captures the credential directly, with no CLI
-at all. For Azure AD and Google you register a small OAuth client once in
-your own cloud console and paste its ID into the connection; for AWS IAM
-Identity Center and Databricks no registration is needed (Identity Center
-is your organisation's own portal, and Databricks uses a built-in
-client).
+- Pros: no setup at all; the CLI refreshes for you; the recommended path
+  on a workstation you control.
+- Cons: the CLI must be installed. If it is not, Octa says so and shows
+  the install command for your operating system, along with the
+  alternative below.
 
-- Pros: needs no CLI; works anywhere a browser does; the same mechanism
-  covers identity-provider logins that no CLI handles.
-- Cons: a one-time app registration; and in this first version the
-  browser session lasts about an hour with no background refresh, so you
-  sign in again when it expires. For long unattended sessions, prefer the
-  CLI.
+**2. Browser sign-in with your own OAuth app (for locked-down machines).**
+If you cannot install the vendor CLI, or your organisation blocks it, open
+**Advanced** on the connection and paste the client ID of an OAuth app you
+register once in your own cloud console. Octa then opens your system
+browser itself and captures the credential directly, with no CLI involved.
 
-You can set up both: if a browser token is present and still valid Octa
-uses it, otherwise it falls back to the CLI.
+- Pros: needs no CLI; works anywhere a browser does.
+- Cons: a one-time app registration; and in this version the browser
+  session lasts about an hour with no background refresh, so you sign in
+  again when it expires.
 
-#### Setting up browser sign-in
+Both can be set up at once. If a connection has a client ID, Octa uses its
+own browser flow; otherwise it runs the vendor CLI's sign-in. Either way a
+valid cached token is used first.
 
-Setup is a one-time registration per provider:
+#### Setting up your own OAuth app
+
+Only needed for path 2, and only once per provider:
 
 - **Google**: in the Google Cloud console, create an OAuth client of type
   **Desktop app**. Put its client ID in **OAuth client ID** and its
-  client secret in **OAuth client secret (Google)** on the connection.
+  client secret in **OAuth client secret (Google)**, both under
+  **Advanced** on the connection.
 - **Azure**: in Microsoft Entra ID, register an application as a **public
   client** with the redirect URI `http://localhost` and public-client
   flows enabled. Put its client ID in **OAuth client ID** and your
-  directory (tenant) ID in **Azure tenant**.
+  directory (tenant) ID in **Azure tenant**, both under **Advanced**.
 - **AWS IAM Identity Center**: no registration. On an **AWS IAM (RDS)**
   connection, fill the **Identity Center start URL** (for example
   `https://acme.awsapps.com/start`), **AWS account ID** and **IAM role
@@ -175,11 +193,74 @@ Setup is a one-time registration per provider:
   workspace with the built-in `databricks-cli` public client. Set an
   **OAuth client ID** only if you registered a custom app.
 
-Once browser sign-in is configured, a **Sign in with browser** button
-appears. It opens your browser, catches the redirect on a local port, and
-caches the resulting token for this session. Every connection then uses
-that token, and the connection is marked **Signed in via browser** in the
-connection list.
+#### What the button does
+
+**Sign in with browser** is always available on Azure AD, GCP IAM and AWS
+IAM connections. Next to it Octa shows whether you are signed in and
+roughly how long the token has left, with a **Sign out** button that
+forgets it. The connection list marks a signed-in connection **Signed in
+via browser**.
+
+If the vendor CLI is missing, the button says which one, gives the install
+command for your operating system (winget on Windows, Homebrew on macOS, a
+link on Linux), and points at **Advanced** as the way that needs no CLI at
+all. The message is selectable so you can copy the command straight out of
+it.
+
+## Reaching a database through a jump host
+
+Most managed databases inside a company only answer from inside the network,
+and the way in is a bastion you can reach over SSH. Without this the answer was
+"open a tunnel in a terminal first"; now a connection can carry its own.
+
+Open **SSH tunnel** on the connection and tick **Reach this database through a
+jump host**. Fill in the bastion's host, your account on it, and how you sign
+in:
+
+- **SSH agent** (the default): uses the keys your agent already holds, so there
+  is nothing to fill in and no passphrase to type. Needs an agent running:
+  `ssh-agent` on Linux and macOS, Pageant or the OpenSSH agent on Windows.
+- **Private key file**: the path to your key, for example
+  `~/.ssh/id_ed25519`. Give the private key, not the `.pub` one. If it is
+  encrypted, its passphrase goes in the field below and is kept in your system
+  keyring, in an entry separate from the database password.
+- **Password**: your account password on the bastion, also kept in the keyring.
+  Many hardened bastions refuse passwords outright and want a key.
+
+Octa opens the SSH connection when you first use the database connection, binds
+a port on `127.0.0.1` and forwards it to the real server. One tunnel is shared
+by every tab, query and write on that connection, and it stays up until Octa
+closes. **Test connection** exercises the tunnel too, so a bad bastion reports
+as an SSH error rather than a confusing database one.
+
+Nothing else changes: `--db-*` on the command line and the database MCP tools
+read the same saved connection, so they tunnel as well without any extra flags.
+
+!!! note "The connection still names the real database"
+    Only the socket goes to `127.0.0.1`. The **Host** field keeps naming the
+    database itself, so TLS certificates, Microsoft Entra token audiences and
+    error messages are all unchanged by tunnelling. PostgreSQL, Redshift, MySQL
+    and SQL Server verify their certificates against the real hostname exactly
+    as they would without a tunnel.
+
+    ClickHouse over HTTPS and Exasol are the exceptions: their clients cannot be
+    told to dial one address and validate another, so through a tunnel they
+    check the certificate against the tunnel endpoint. ClickHouse over plain
+    HTTP, which is the usual internal case, is unaffected.
+
+### Host keys
+
+Octa checks the bastion's key against your `~/.ssh/known_hosts`, the same file
+`ssh` uses.
+
+- A **known and matching** key connects.
+- An **unknown** host is refused, and the message says so. Connect to it once
+  with `ssh` to record its key, or tick **Accept a new host key** to have Octa
+  accept and remember it the first time, which is what `ssh`'s
+  `StrictHostKeyChecking=accept-new` does.
+- A **changed** key is always refused, whatever that tick box says. Either the
+  server was rebuilt or something is impersonating it, and Octa will not guess
+  which. Check, then remove the stale line from `known_hosts` yourself.
 
 ## Connection examples
 
@@ -276,6 +357,115 @@ Sign in first with `aws sso login`.
 | Username          | `sys`                |
 | Authentication    | Password             |
 
+### Oracle
+
+| Field                   | Value                |
+|-------------------------|----------------------|
+| Engine                  | Oracle               |
+| Host                    | `oracle.example.com` |
+| Port                    | `1521`               |
+| Database (service name) | `FREEPDB1`           |
+| Username                | `octa`               |
+| Authentication          | Password             |
+
+Octa speaks Oracle's TNS protocol directly, in pure Rust, so **no Oracle
+Instant Client is needed** - nothing to install beside Octa itself.
+Oracle 12.1 and later.
+
+The **Database** field is the **service name** (`FREEPDB1`, `ORCLPDB1`),
+not a database in the PostgreSQL sense. A listener that only answers to an
+old-style SID cannot be reached.
+
+#### Authentication and transport
+
+Password only, and the connection is **plain TNS, not TLS**: Oracle
+wallets, TCPS and Kerberos are not supported yet. In practice that means
+**Autonomous Database on OCI is out of reach** (it always requires TLS,
+usually with the wallet it hands you), and so is any on-prem listener
+configured for TCPS only. A directly reachable on-prem or containerised
+Oracle works, and one behind a bastion works through [a jump
+host](#reaching-a-database-through-a-jump-host), which also encrypts the
+hop.
+
+#### Names are upper case
+
+Oracle folds an unquoted name to **upper case** in its catalogue, so a
+schema created as `sales` is listed as `SALES`, and that is the spelling
+to type in the sidebar and in SQL. The reverse applies to what Octa
+writes: a table it creates keeps the exact case of the source columns
+(`id`, not `ID`), because the DDL quotes every identifier, so those
+columns have to be addressed quoted afterwards - `SELECT "id" FROM ...`.
+
+The schema list shows only schemas that are **not** Oracle-maintained, so
+the three dozen that ship with the database stay out of the way even for
+a DBA account. Each schema lists its tables **and its views**.
+
+#### How Oracle types are read
+
+| Oracle type                                       | Read as                 | Note                                                               |
+|---------------------------------------------------|-------------------------|--------------------------------------------------------------------|
+| `NUMBER(p, 0)`                                    | Whole number            | Beyond about 19 digits it degrades to a decimal                    |
+| `NUMBER(p, s)`, `FLOAT`                           | Decimal                 |                                                                    |
+| `NUMBER` with no precision                        | Whole number or decimal | A literal or computed column: the first 200 rows decide            |
+| `DATE`                                            | Timestamp               | An Oracle `DATE` always carries a time of day                      |
+| `TIMESTAMP`, `TIMESTAMP WITH TIME ZONE`           | Timestamp               | The zone offset is kept in the text                                |
+| `VARCHAR2`, `CHAR`, `CLOB`                        | Text                    | See the LOB note below                                             |
+| `RAW`, `BLOB`                                     | Binary                  | See the LOB note below                                             |
+| `JSON` (21c+)                                     | Nested value            |                                                                    |
+| `BINARY_FLOAT`, `BINARY_DOUBLE`                   | Not readable            | See the limitations below                                          |
+| `VECTOR` (23ai), `REF CURSOR`, object collections | Diagnostic text         | There is no flat rendering for these; the cell shows what it holds |
+
+**LOBs.** A `CLOB` or `BLOB` under 1 MB is fetched and shown in full, at
+the cost of one round trip per cell. A larger one is not fetched: the cell
+reads `[CLOB of 5242880 characters, too large to read]` so it is clear
+that something is there and why you are not seeing it.
+
+#### Writing to Oracle
+
+Write-back and **Copy table** create Oracle types from the source
+columns: text becomes `VARCHAR2(4000)`, whole numbers `NUMBER(19,0)`,
+decimals `NUMBER`, booleans `NUMBER(1)` (Oracle had no `BOOLEAN` before
+23c), dates and timestamps `DATE` and `TIMESTAMP`. Decimals deliberately
+do **not** become `BINARY_DOUBLE`, the closer match, because Octa could
+not then read back the column it had just written. Two further
+consequences worth knowing:
+
+- **Text is capped at 4000 bytes.** A longer value is refused by the
+  server (`ORA-12899`) rather than silently truncated. A column that wide
+  needs a `CLOB` created by hand, and Oracle will not take a string
+  literal longer than 4000 bytes into one either.
+- **Binary columns are written as hex text**, into a `VARCHAR2`, because
+  that is the form the generated `INSERT` carries. Reading such a column
+  back gives you the hex, not the original bytes.
+
+A statement you run yourself in the SQL panel is **committed when it
+succeeds**, as on every other engine Octa supports. Oracle's own clients
+leave a transaction open until you say `COMMIT`, so if you are used to
+typing `ROLLBACK` after a mistaken `UPDATE`, note that there is nothing
+left to roll back.
+
+#### Oracle limitations
+
+The Oracle driver is young, and two of its gaps are visible from Octa.
+Both are the driver's, not the server's:
+
+- **A rejected statement ends the connection.** Oracle itself keeps the
+  session alive after an error, but the driver loses it, and reports its
+  own generic text instead of the `ORA-` code and message. Octa
+  reconnects on the next action, so a typo in the SQL panel costs a round
+  trip; what it cannot do is tell you what the server objected to. Check
+  the statement in SQL*Plus or SQL Developer when the reason matters.
+- **`BINARY_FLOAT` and `BINARY_DOUBLE` are not decoded.** Those cells say
+  so rather than show wrong numbers. `SELECT CAST(the_column AS NUMBER)`
+  reads them correctly, because Oracle's own `NUMBER` path works.
+
+A running statement also **cannot be cancelled** on Oracle: see
+[Cancelling a running query](#cancelling-a-running-query).
+
+Everything else is exercised against a real Oracle 23ai server on every
+run of the test suite that has one: browsing, reading, paging, foreign
+keys, primary-key discovery and the full write-back round trip.
+
 ### Snowflake
 
 | Field          | Value                                              |
@@ -330,8 +520,21 @@ credentials can access.
 
 **File > Databases** toggles a sidebar tree of your connections.
 Expand a connection to list its schemas, expand a schema to list its
-tables, and click a table to open its first rows in a tab (the
-initial-load row cap applies, like opening a large file).
+tables, and click a table to open its first rows in a tab.
+
+A table opens **one page at a time**: Octa reads
+[**Settings > Performance > Live database page size**](../reference/settings.md#performance)
+rows (100,000 by default), and fetches the next page in the background
+as you scroll towards the bottom, exactly as a large Parquet file does.
+The status bar shows the count it has so far with a `+`, and says
+"Loaded all N rows" once the table runs out. Lower the page size if
+opening a table feels slow.
+
+This is a separate setting from the initial-load row cap, which sizes a
+local file read. The same number of rows over a database connection is
+megabytes of JSON crossing the network, and Databricks refuses any
+single result larger than 25 MiB. The CLI and the MCP server cannot
+scroll, so they ignore the page size and use the initial-load cap.
 
 **Right-click a table** for **Copy to another connection...** and
 **Show metadata...**. "Show metadata" opens a read-only tab with the
@@ -347,8 +550,9 @@ level loads when you expand it. Browsing every BigQuery project needs
 the `resourcemanager.projects.list` permission; the connection's token
 uses the cloud-platform scope, which covers it. The other engines stay
 two-level: MySQL/MariaDB, ClickHouse and Exasol are genuinely
-two-level, and a PostgreSQL / Redshift / SQL Server connection browses
-the one database it is connected to.
+two-level, and a PostgreSQL / Redshift / SQL Server / Oracle connection
+browses the one database it is connected to (for Oracle, the schemas of
+the service it connected to, minus the ones Oracle ships).
 
 Octa keeps one live connection per saved connection and reuses it
 across sidebar listings, table opens, and server queries (a dead
@@ -360,7 +564,9 @@ A database tab is **read-only** unless its connection has **Allow
 writes** on *and* Octa can discover a row key for the table (a primary
 key, or a NOT NULL unique constraint) - see
 [Editing and write-back](#editing-and-write-back). Read-only tabs show
-the usual `[Read-only]` pill and a dismissible note explaining why.
+the usual `[Read-only]` pill, which stays for as long as the tab is
+open, and a status message explaining why, which fades after the time
+set in **Settings > Appearance** like every other message.
 **ClickHouse** and **BigQuery** tables have no discoverable primary key,
 so their tabs always open read-only; query and copy them, and write with
 **Run on** the server or **Write result to DB...**.
@@ -400,11 +606,12 @@ Things to know:
   `WHERE col = NULL` matches nothing, so the save would quietly touch no
   rows.
 - **No key at all? Rows are matched on all their values.** On Postgres,
-  MySQL, SQL Server, Redshift and Exasol, a table with neither a primary
+  MySQL, SQL Server, Oracle, Redshift and Exasol, a table with neither a primary
   key nor a usable unique constraint is still editable: the save builds
   `WHERE col1 = old1 AND col2 = old2 AND ...` from the whole baseline
-  row, with `IS NULL` where the original value was NULL. A banner on the
-  tab says this is what is happening.
+  row, with `IS NULL` where the original value was NULL. A message says
+  this is what is happening when the tab opens, and fades like any other
+  status message.
 
     What makes that safe is that **every such statement is checked to
     have touched exactly one row**, inside the transaction. Two rows
@@ -477,7 +684,7 @@ connection...** to copy it into a different server (for example MySQL
 to Snowflake). Pick the target connection, schema, and table name, and
 a mode: **Create new** (error if the table exists), **Append**, or
 **Replace** (drop and recreate). Copy works **between any two of the
-nine engines**, in either direction; the dialog annotates which lane a
+twelve engines**, in either direction; the dialog annotates which lane a
 given pair uses.
 
 There are two lanes, chosen automatically:
@@ -491,7 +698,7 @@ There are two lanes, chosen automatically:
   INSERTs. The DuckDB `postgres` / `mysql` extensions install over the
   network on first use (then cached).
 - **Universal lane** - any other pair (a warehouse, ClickHouse, Exasol,
-  SQL Server on either side). Octa pulls the source in batches and
+  Oracle, SQL Server on either side). Octa pulls the source in batches and
   writes each batch to the target. It is slower because the data passes
   through Octa, but it works for every engine combination.
 
@@ -531,8 +738,8 @@ database read-only, so its tables join against local files:
   **Attached connections** box next to the Inspector lists each alias
   with a one-click example query, and clicking any attached table in
   the workspace tree offers Copy / Insert / Run for its qualified name.
-- The other engines (SQL Server, Snowflake, Databricks, BigQuery,
-  ClickHouse, Exasol) have no native DuckDB extension, so their tables
+- The other engines (SQL Server, Oracle, Snowflake, Databricks,
+  BigQuery, ClickHouse, Exasol) have no native DuckDB extension, so their tables
   are **imported** individually as `alias__schema__table` workspace
   tables. The import is **row-capped** at the initial-load limit and
   servers with very many tables are refused - query those with
@@ -586,6 +793,17 @@ until you switch on **Allow writes** for that specific connection in
 Settings. A "writes ON" badge in the sidebar marks opted-in
 connections.
 
+The switch is **per connection, and that is the only switch there is**. Mark
+production read-only and leave staging writable; there is no global database
+write toggle to turn off for convenience, and every surface routes through the
+same check.
+
+!!! note "Write protection in Settings does not cover databases"
+    The **Write protection** setting under Settings -> Assistant governs
+    *file* saves and the MCP server's default, not database connections. A
+    connection with **Allow writes** on stays writable whether that setting is
+    on or off, and a connection without it stays read-only either way.
+
 ## CLI
 
 ```bash
@@ -638,8 +856,8 @@ lanes do.
 
 ## Cancelling a running query
 
-The SQL panel's Cancel button stops a running statement on every
-engine:
+The SQL panel's Cancel button stops a running statement on every engine
+but Oracle:
 
 | Engine                          | How it cancels                                          |
 |---------------------------------|---------------------------------------------------------|
@@ -649,12 +867,52 @@ engine:
 | MySQL/MariaDB                   | `KILL QUERY` from a second connection                   |
 | Exasol                          | `KILL STATEMENT IN SESSION` from a second connection    |
 | SQL Server                      | `KILL` from a second connection                         |
+| Oracle                          | Not supported: the statement runs to completion         |
 
-Two limits are worth knowing. SQL Server's `KILL` ends the whole
-session rather than the single statement and needs the
-`ALTER ANY CONNECTION` permission, so Octa reconnects afterwards. And
-cancellation covers the SQL panel: opening a large table from the
-sidebar and copying a table both run to completion.
+Oracle is the exception: killing a session there needs `ALTER SYSTEM`,
+a DBA privilege an ordinary connection has no business holding, so the
+Cancel button is not offered.
+
+The same Cancel is offered for a **sidebar table read**: while a table
+is opening, or while it is fetching the next page as you scroll, the
+status bar shows a spinner, what it is doing, and a Cancel button. It
+uses the engine's own cancel from the table above, so the warehouse
+stops working (and billing) too. The button appears once the statement
+is actually running rather than with the spinner, and not at all on
+Oracle, so it is never there without something behind it. A cancelled
+read leaves the tab as it is, with the rows already in it; reopen the
+table from the sidebar to try again.
+
+SQL Server's `KILL` ends the whole session rather than the single
+statement and needs the `ALTER ANY CONNECTION` permission, so Octa
+reconnects afterwards. Copying a table between servers still runs to
+completion.
+
+### Query timeout
+
+**Settings > Databases**, per connection: how many seconds Octa waits
+on a query that is making no progress before giving up. Default 60.
+
+The field appears only for **Trino, Athena, Snowflake, Databricks and
+BigQuery**, and that is not an oversight. Those five submit a statement
+over HTTP and then ask the server, over and over, whether it has
+finished, so where to stop asking is Octa's decision to make. The wire
+protocols block on a socket inside their driver instead, and hand that
+decision to the driver and the server.
+
+It belongs to the connection rather than to one global number because
+the right answer differs per server: a warehouse that cold-starts needs
+minutes where a Trino cluster answers in seconds. Athena used to allow
+a fixed five minutes; if you query Athena over large scans, raise its
+connection to match. The server may hold the very first request open
+for up to 30 seconds on top of the timeout, which is time Octa spends
+waiting rather than polling.
+
+Timing out is never silent: the message names the number of seconds and
+points at this setting.
+
+The CLI can set it too, as `query_timeout=` in an
+`--add-connection` spec.
 
 ## MCP / Assistant
 

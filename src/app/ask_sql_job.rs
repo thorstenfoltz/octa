@@ -72,6 +72,33 @@ impl OctaApp {
             _ => ("data".to_string(), "DuckDB".to_string()),
         };
 
+        // Whether the neighbours can be asked about at all. Only a
+        // server-mode query can join them: the local DuckDB workspace holds
+        // this tab's table alone, so naming a sibling there would produce SQL
+        // that cannot run. An unqualified table (no schema) is skipped too,
+        // because `relationships::scan` addresses everything as
+        // `schema.table` and nothing would match. So is an engine with no
+        // foreign keys at all: `scan` reads the columns first and only then
+        // discovers it has no keys to read, which would be a wasted catalog
+        // sweep on every question asked against ClickHouse, Trino or Athena.
+        let rel_scan = match (&tab.db_origin, tab.sql_run_on_server) {
+            (Some(origin), true) if !origin.schema.is_empty() => self
+                .settings
+                .db_connections
+                .iter()
+                .find(|c| c.id == origin.conn_id && c.engine.has_foreign_keys())
+                .cloned()
+                .map(|conn| {
+                    (
+                        conn,
+                        origin.catalog.clone(),
+                        origin.schema.clone(),
+                        format!("{}.{}", origin.schema, origin.table),
+                    )
+                }),
+            _ => None,
+        };
+
         let profile_id = self.settings.chat_active_profile.clone();
         let Some(profile) = self
             .settings
@@ -118,11 +145,46 @@ impl OctaApp {
             result: Arc::clone(&slot),
         });
         let ctx = ctx.clone();
+        let cache = self.db_conn_cache.clone();
+        let settings = self.settings.clone();
         std::thread::spawn(move || {
+            // Two catalog queries, no table data, on the connection the tab
+            // already uses. It runs here rather than on the UI thread because
+            // it is a round trip, and it is allowed to fail: a catalog the
+            // user cannot read is no reason to refuse the question, so the
+            // fallback is the prompt as it was before neighbours existed.
+            let related = rel_scan
+                .and_then(|(conn, catalog, schema, label)| {
+                    let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
+                    let ssh_secret =
+                        octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &settings);
+                    let scanned =
+                        cache.with_conn(&conn, secret.as_deref(), ssh_secret.as_deref(), |c| {
+                            octa::db::relationships::scan(
+                                c,
+                                catalog.as_deref(),
+                                std::slice::from_ref(&schema),
+                            )
+                        });
+                    match scanned {
+                        Ok((cols, fks)) => Some(ask_sql::related_tables_block(&label, &cols, &fks)),
+                        Err(e) => {
+                            tracing::warn!("ask sql: reading the foreign keys failed: {e:#}");
+                            None
+                        }
+                    }
+                })
+                .unwrap_or_default();
             let provider = providers::make_provider(provider_kind);
             let cancel = AtomicBool::new(false);
-            let system =
-                ask_sql::build_prompt(&table_name, &dialect, &columns, row_count, &question);
+            let system = ask_sql::build_prompt(
+                &table_name,
+                &dialect,
+                &columns,
+                row_count,
+                &related,
+                &question,
+            );
             let outcome = ask_sql::ask(provider.as_ref(), &cfg, &system, &question, &cancel);
             if let Ok(mut g) = slot.lock() {
                 *g = Some(outcome);

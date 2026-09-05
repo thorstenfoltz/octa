@@ -174,5 +174,6 @@ fn build_overview_table(d: &FileDescription) -> DataTable {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }

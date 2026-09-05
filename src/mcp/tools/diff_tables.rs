@@ -113,10 +113,12 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
                     anyhow::anyhow!("no saved database connection named '{}'", side.connection)
                 })?;
             let secret = ctx.db_secret(conn);
+            let ssh_secret = ctx.db_ssh_secret(conn);
             let (catalog, schema, table) = octa::db::fetch_table::split_qualified(&side.table);
             octa::db::fetch_table::fetch_table(
                 conn,
                 secret.as_deref(),
+                ssh_secret.as_deref(),
                 catalog.as_deref(),
                 &schema,
                 &table,

@@ -16,6 +16,32 @@ by format family; this page covers what to expect for each.
 The status bar shows a `*` next to the tab name when a tab has
 unsaved changes.
 
+## When the file changed underneath you
+
+Octa remembers each open file's modification time and size, and checks
+them again before **Save** writes over that file.
+
+If something else has rewritten the file since you opened it, a nightly
+job, an export, a colleague on a shared drive, Octa stops and asks
+rather than replacing their version with a snapshot taken before it
+existed:
+
+- **Save anyway** writes your version over the file, which is the right
+  answer when you know your copy is the one that matters.
+- **Reload** throws away your unsaved edits and reads the file from disk
+  again, the same as Ctrl+R.
+- **Cancel** touches nothing. The tab keeps your edits, so you can copy
+  what you need out of it, or **Save As** to a second file and compare
+  the two.
+
+Only **Save** is guarded. **Save As** writes wherever you point it,
+because you just chose that path in the file dialog and the dialog asked
+about overwriting itself. A file that has been *deleted* is not a
+conflict either: saving recreates it.
+
+[Auto-save](auto-save.md) never raises this prompt. It skips a tab whose
+file changed and leaves the question for your next manual save.
+
 ## Rounding on save
 
 [Per-column number formats](table-view.md#number-display-separators-and-rounding)
@@ -41,7 +67,7 @@ Colour marks, [conditional formatting](conditional-formatting.md) colours,
 display-only everywhere else, but `.xlsx` can hold all four. Carrying them
 across is **off by default**, since most saves are meant as plain data.
 
-Turn it on under **Settings → Files → Write options → Include formatting in
+Turn it on under **Settings → Files → Write options → Excel → Include formatting in
 Excel files**. Independently of that switch, saving a tab that actually
 carries any of the four to `.xlsx` asks once:
 
@@ -93,6 +119,10 @@ do not name `--compression` or `--row-group-size` explicitly. [Batch
 Convert](batch-convert.md) shows the same controls in its own **Write
 options** expander, where they apply to that run only.
 
+Inside **Write options** the controls are grouped into one expander per
+format, **Parquet**, **CSV / TSV** and **Excel**, since no control applies
+to more than one of them. Open the group for the format you are writing.
+
 Parquet is compressed with **zstd** unless you choose otherwise.
 Uncompressed Parquet is only about 1.6x smaller than the same data as
 CSV, where zstd reaches roughly 5x, and it costs about 1% more write time
@@ -119,8 +149,32 @@ reports the codec of any file you open, so you can check what you got.
 
 ### Excel write options
 
-One switch, **Include formatting in Excel files**, covered in full under
-[Formatting in Excel files](#formatting-in-excel-files) above. Off by default.
+Two switches, both off by default.
+
+**Include formatting in Excel files** is covered in full under
+[Formatting in Excel files](#formatting-in-excel-files) above.
+
+**Keep Excel formulas when saving** writes the formulas an `.xlsx` was read
+with back into the saved file, instead of the values Octa is showing. It is off
+by default for a reason worth knowing: **Excel recalculates a formula when it
+opens the file**, so the number in the saved workbook can end up different from
+the one you were looking at. Octa writes the value it has as the formula's
+cached result, so a tool that reads the file without evaluating formulas still
+sees the right number.
+
+Two things retract a formula whatever this switch says, because keeping them
+would put a wrong answer in the file:
+
+- **A cell you edited.** Your value is what you meant; a formula that would
+  recompute over it is no longer true.
+- **A table whose rows or columns you moved, added or deleted.** A formula says
+  `=B2*C2`, and inserting a row changes what `B2` points at. Octa cannot
+  rewrite the references, so it drops every formula rather than keep ones that
+  now mean something else.
+
+Reading a formula needs no setting at all: hover a computed cell to see it, or
+open the [Record view](view-modes/record.md), which lists it beside the
+field.
 
 Apart from the Parquet codec, which is `zstd`, the defaults reproduce
 exactly what Octa wrote before these options existed. Formats other than

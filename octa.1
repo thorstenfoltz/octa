@@ -1,0 +1,1778 @@
+'\" t
+.\"     Title: octa
+.\"    Author: [see the "AUTHOR(S)" section]
+.\" Generator: Asciidoctor 2.0.26
+.\"      Date: 2026-09-01
+.\"    Manual: OCTA
+.\"    Source: OCTA
+.\"  Language: English
+.\"
+.TH "OCTA" "1" "2026-09-01" "OCTA" "OCTA"
+.ie \n(.g .ds Aq \(aq
+.el       .ds Aq '
+.ss \n[.ss] 0
+.nh
+.ad l
+.de URL
+\fI\\$2\fP <\\$1>\\$3
+..
+.als MTO URL
+.if \n[.g] \{\
+.  mso www.tmac
+.  am URL
+.    ad l
+.  .
+.  am MTO
+.    ad l
+.  .
+.  LINKSTYLE blue R < >
+.\}
+.SH "NAME"
+octa \- multi\-format tabular data viewer, editor, CLI tool, and MCP server
+.SH "SYNOPSIS"
+.sp
+\fBocta\fP [\fIFILE\fP.\|.\|.]
+.sp
+\fBocta\fP \fB\-\-schema\fP \fIFILE\fP [\fB\-f\fP \fIFORMAT\fP] [\fB\-\-rows\fP \fIN\fP|all]
+.sp
+\fBocta\fP \fB\-\-head\fP \fIFILE\fP [\fB\-n\fP \fIN\fP] [\fB\-f\fP \fIFORMAT\fP] [\fB\-\-rows\fP \fIN\fP|all]
+.sp
+\fBocta\fP \fB\-\-tail\fP \fIFILE\fP [\fB\-n\fP \fIN\fP] [\fB\-f\fP \fIFORMAT\fP] [\fB\-\-rows\fP \fIN\fP|all]
+.sp
+\fBocta\fP \fB\-\-sample\fP \fIFILE\fP [\fB\-n\fP \fIN\fP] [\fB\-\-seed\fP \fIN\fP] [\fB\-f\fP \fIFORMAT\fP] [\fB\-\-rows\fP \fIN\fP|all]
+.sp
+\fBocta\fP \fB\-\-convert\fP \fIIN\fP \fIOUT\fP [\fB\-\-rows\fP \fIN\fP|all]
+.sp
+\fBocta\fP \fB\-\-sql\fP \fIFILE\fP \fB\-q\fP \fIQUERY\fP [\fB\-f\fP \fIFORMAT\fP] [\fB\-\-rows\fP \fIN\fP|all] [\fB\-\-sql\-table\fP \fINAME\fP=\fIPATH\fP .\|.\|.] [\fB\-\-sql\-attach\fP \fIALIAS\fP=\fIPATH\fP .\|.\|.] [\fB\-\-sql\-write\-to\fP \fIPATH\fP \fB\-\-sql\-write\-table\fP \fITABLE\fP [\fB\-\-sql\-write\-schema\fP \fISCHEMA\fP] [\fB\-\-sql\-write\-mode\fP \fIMODE\fP]]
+.sp
+\fBocta\fP \fB\-\-export\-schema\fP \fIFILE\fP [\fB\-t\fP \fITARGET\fP]
+.sp
+\fBocta\fP \fB\-\-compare\-schemas\fP \fIFILE_A\fP \fIFILE_B\fP [\fB\-\-table\-a\fP \fINAME\fP] [\fB\-\-table\-b\fP \fINAME\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-diff\fP \fIFILE_A\fP \fIFILE_B\fP [\fB\-\-diff\-mode\fP \fIMODE\fP] [\fB\-\-diff\-on\fP \fICOLS\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-describe\fP \fIFILE\fP [\fB\-\-table\fP \fINAME\fP] [\fB\-\-sample\-rows\fP \fIN\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-validate\-schema\fP \fIFILE\fP \fB\-\-expect\-schema\fP \fISCHEMA_FILE\fP [\fB\-\-table\fP \fINAME\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-schema\-drift\fP \fIDIR\fP [\fB\-\-recursive\fP] [\fB\-\-ignore\-case\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-relationships\fP \fIDIR\fP [\fB\-\-recursive\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-check\fP \fIFILE\fP \fB\-\-rules\fP \fIRULES.toml\fP [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-drift\-report\fP \fIFILE_A\fP \fIFILE_B\fP [\fB\-\-fail\-on\fP \fISPEC\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-harmonise\-schema\fP \fIDIR\fP \fB\-\-out\-dir\fP \fIDIR\fP [\fB\-\-target\-file\fP \fIFILE\fP]
+[\fB\-\-recursive\fP] [\fB\-\-ignore\-case\fP] [\fB\-\-overwrite\fP]
+.sp
+\fBocta\fP \fB\-\-report\fP \fIOUT.html\fP \fIFILE\fP [\fB\-\-report\-sample\fP \fIN\fP] [\fB\-\-report\-sections\fP \fILIST\fP]
+.sp
+\fBocta\fP \fB\-\-unique\-columns\fP \fIFILE\fP [\fB\-\-table\fP \fINAME\fP] [\fB\-\-max\-combo\fP \fIN\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-anonymize\fP \fISPEC\fP \fIFILE\fP [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-dedupe\fP \fIFILE\fP [\fB\-\-dedupe\-on\fP \fICOLS\fP] [\fB\-\-dedupe\-keep\fP \fIWHICH\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-impute\fP \fICOL\fP=\fISTRATEGY\fP \fIFILE\fP [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-outliers\fP \fIFILE\fP [\fB\-\-outlier\-method\fP \fIM\fP] [\fB\-\-outlier\-cols\fP \fICOLS\fP] [\fB\-\-outlier\-k\fP \fIK\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-detect\-pii\fP \fIFILE\fP [\fB\-\-pii\-sample\fP \fIN\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-union\fP \fIFILE\fP \fB\-\-union\-file\fP \fIFILE\fP [\fB\-\-union\-drop\fP \fICOL\fP] [\fB\-\-union\-cast\fP \fICOL\fP=\fITYPE\fP] [\fB\-\-union\-ignore\-case\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-join\fP \fIFILE\fP \fB\-\-join\-file\fP \fIFILE\fP \fB\-\-join\-on\fP \fICOLS\fP [\fB\-\-join\-type\fP \fITYPE\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-fuzzy\-join\fP \fIFILE\fP \fB\-\-fuzzy\-join\-file\fP \fIFILE\fP \fB\-\-fuzzy\-on\fP \fILEFT\fP=\fIRIGHT\fP [\fB\-\-fuzzy\-method\fP \fINAME\fP] [\fB\-\-fuzzy\-threshold\fP \fIN\fP] [\fB\-\-fuzzy\-block\fP \fILEFT\fP=\fIRIGHT\fP] [\fB\-\-fuzzy\-join\-type\fP \fITYPE\fP] [\fB\-\-fuzzy\-max\-rows\fP \fIN\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-partition\-by\fP \fICOL\fP \fB\-\-out\-dir\fP \fIDIR\fP \fIFILE\fP [\fB\-\-partition\-format\fP \fIEXT\fP]
+.sp
+\fBocta\fP \fB\-\-db\-tables\fP \fB\-\-db\fP \fICONNECTION\fP [\fB\-\-db\-catalog\fP \fINAME\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-db\-query\fP \fISQL\fP \fB\-\-db\fP \fICONNECTION\fP [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-sync\-sql\fP \fIFILE\fP \fB\-\-db\fP \fICONNECTION\fP \fB\-\-sync\-table\fP \fISCHEMA.TABLE\fP \fB\-\-sync\-on\fP \fICOLS\fP
+.sp
+\fBocta\fP \fB\-\-to\-workbook\fP \fIOUT.xlsx\fP \fIFILE\fP.\|.\|.
+.sp
+\fBocta\fP \fB\-\-convert\fP \fIIN\fP \fB\-\fP \fB\-\-to\fP \fIEXT\fP
+.sp
+\fBocta\fP \fB\-\-db\-write\-table\fP \fISCHEMA\fP.\fITABLE\fP \fB\-\-db\fP \fICONNECTION\fP \fIFILE\fP [\fB\-\-db\-write\-mode\fP \fIMODE\fP] [\fB\-\-db\-catalog\fP \fINAME\fP]
+.sp
+\fBocta\fP \fB\-\-db\-copy\fP \fISCHEMA\fP.\fITABLE\fP \fB\-\-db\fP \fICONNECTION\fP \fB\-\-db\-copy\-to\fP \fICONNECTION\fP [\fB\-\-db\-copy\-target\fP \fISCHEMA\fP.\fITABLE\fP] [\fB\-\-db\-write\-mode\fP \fIMODE\fP]
+.sp
+\fBocta\fP \fB\-\-mcp\fP
+.SH "DESCRIPTION"
+.sp
+\fBocta\fP is a desktop application for viewing and editing tabular data
+files. It opens Parquet, CSV, JSON, SQLite, DuckDB, Excel, and roughly
+twenty more formats in a spreadsheet\-like view with sorting, filtering,
+full\-text search, inline editing, SQL queries, and file comparison.
+.sp
+When invoked with no flags, it launches the graphical interface,
+optionally opening the supplied \fIFILE\fP(s) in tabs. When invoked with
+one of the action flags (\fB\-\-schema\fP, \fB\-\-head\fP, \fB\-\-tail\fP, \fB\-\-sample\fP,
+\fB\-\-convert\fP, \fB\-\-sql\fP, \fB\-\-export\-schema\fP, \fB\-\-compare\-schemas\fP, \fB\-\-diff\fP,
+\fB\-\-describe\fP, \fB\-\-validate\-schema\fP, \fB\-\-schema\-drift\fP, \fB\-\-harmonise\-schema\fP,
+\fB\-\-drift\-report\fP, \fB\-\-check\fP, \fB\-\-relationships\fP,
+\fB\-\-report\fP, \fB\-\-fuzzy\-join\fP,
+\fB\-\-unique\-columns\fP,
+\fB\-\-anonymize\fP,
+\fB\-\-dedupe\fP, \fB\-\-impute\fP, \fB\-\-outliers\fP, \fB\-\-detect\-pii\fP, \fB\-\-union\fP,
+\fB\-\-join\fP, \fB\-\-partition\-by\fP, \fB\-\-batch\-convert\fP, \fB\-\-resample\fP,
+\fB\-\-rolling\fP, \fB\-\-mcp\fP), it performs that action and exits.
+.sp
+Action flags are mutually exclusive. Trailing \fIFILE\fP arguments are
+ignored (with a warning) when an action flag is set.
+.sp
+A \fIFILE\fP argument may also be a cloud object URL (\f(CRs3://bucket/key\fP,
+\f(CRaz://container/blob\fP, \f(CRgs://bucket/key\fP). The object is downloaded to a
+temporary file and read as usual. Credentials come from a saved cloud
+connection covering the URL, otherwise from the ambient chain (\f(CRAWS_*\fP
+environment variables, a cached SSO session, \f(CRaz login\fP, Google application
+default credentials). Cloud objects are read\-only here: output still goes to
+a local path.
+.SH "ACTION FLAGS"
+.sp
+\fB\-\-schema\fP \fIFILE\fP
+.RS 4
+Print the column schema of \fIFILE\fP as a two\-column table (column
+name, data type). Cheap for streaming formats, since only the header
+is read.
+.RE
+.sp
+\fB\-\-head\fP \fIFILE\fP
+.RS 4
+Print the first \fIN\fP rows of \fIFILE\fP to standard output. \fIN\fP defaults
+to 20 and is set with \fB\-n\fP / \fB\-\-lines\fP. For streaming formats, the
+reader stops early so this is fast on large files.
+.RE
+.sp
+\fB\-\-tail\fP \fIFILE\fP
+.RS 4
+Print the last \fIN\fP rows of \fIFILE\fP. \fIN\fP defaults to 20 and is set with
+\fB\-n\fP / \fB\-\-lines\fP. Streaming formats load with the standard row cap, so
+the tail reflects the end of the loaded window; raise \fB\-\-rows\fP to tail
+the true end of a very large file.
+.RE
+.sp
+\fB\-\-sample\fP \fIFILE\fP
+.RS 4
+Print a random \fIN\fP\-row sample of \fIFILE\fP (without replacement,
+original row order preserved). \fIN\fP defaults to 20 (\fB\-n\fP / \fB\-\-lines\fP).
+The sample is reproducible for a given \fB\-\-seed\fP (default \fB0\fP).
+.RE
+.sp
+\fB\-\-convert\fP \fIIN\fP \fIOUT\fP
+.RS 4
+Convert \fIIN\fP to \fIOUT\fP. Both formats are inferred from each path\(cqs
+extension and routed through the shared format registry. Read\-only
+output formats (SAS, R datasets, HDF5, NetCDF, EPUB, GeoJSON) are
+rejected with a clear error.
+.RE
+.sp
+\fB\-\-sql\fP \fIFILE\fP
+.RS 4
+Run a SQL query against \fIFILE\fP. The query is supplied via
+\fB\-q\fP / \fB\-\-query\fP. \fIFILE\fP is exposed to DuckDB as a temporary table
+called \fBdata\fP. Extra tables can be registered with \fB\-\-sql\-table\fP
+\fINAME\fP=\fIPATH\fP and whole DuckDB / SQLite databases attached with
+\fB\-\-sql\-attach\fP \fIALIAS\fP=\fIPATH\fP, so a single invocation can JOIN
+across formats. The SELECT result can be persisted to a DuckDB or
+SQLite file via \fB\-\-sql\-write\-to\fP. Mutations (INSERT / UPDATE /
+DELETE) on \fBdata\fP itself do \fBnot\fP persist back to \fIFILE\fP, since the
+in\-memory DuckDB connection is discarded at exit. Use \fB\-\-convert\fP
+on the post\-mutation output if you need to persist.
+.RE
+.sp
+\fB\-\-export\-schema\fP \fIFILE\fP
+.RS 4
+Render \fIFILE\fP\*(Aqs column schema as SQL DDL, a Pydantic model, a
+TypeScript interface, a JSON Schema document, or a Rust struct, and
+print it to standard output. The target is chosen with \fB\-t\fP /
+\fB\-\-target\fP (default \fBpostgres\fP). Only the column list is read and no
+rows are serialised.
+.RE
+.sp
+\fB\-\-compare\-schemas\fP \fIFILE_A\fP \fIFILE_B\fP
+.RS 4
+Diff the column schemas of two files. Prints a four\-column table
+(\fBstatus\fP / \fBcolumn\fP / \fBtype_a\fP / \fBtype_b\fP). \fBstatus\fP is one of
+\fBcommon\fP, \fBonly_in_a\fP, \fBonly_in_b\fP, \fBtype_mismatch\fP. Matching is by
+exact, case\-sensitive column name. For multi\-table sources, the
+table to read from each side is selected via \fB\-\-table\-a\fP /
+\fB\-\-table\-b\fP.
+.RE
+.sp
+\fB\-\-diff\fP \fIFILE_A\fP \fIFILE_B\fP
+.RS 4
+Compare two files. \fB\-\-diff\-mode\fP selects the strategy; the output is a
+table tagged by a leading \fBstatus\fP column, and a summary line
+(per\-mode counts) is written to standard error. Complements
+\fB\-\-compare\-schemas\fP, which diffs only the column metadata.
+.RE
+.sp
+\fB\-\-diff\-mode\fP \fIMODE\fP
+.RS 4
+Comparison strategy for \fB\-\-diff\fP (default \fBset\fP):
+\fBset\fP compares rows by whole\-row content (every column, positionally)
+and prints rows unique to each side (\fBonly_in_a\fP / \fBonly_in_b\fP); the
+files should share the same column order.
+\fBordered\fP lines up row \fIi\fP of A with row \fIi\fP of B, prints matched rows
+that differ as \fBchanged\fP (with a \fBchanged_columns\fP column) plus any
+trailing \fBonly_in_a\fP / \fBonly_in_b\fP rows.
+\fBjoin\fP matches rows on the \fB\-\-diff\-on\fP key column(s) and prints
+added (\fBonly_in_b\fP), removed (\fBonly_in_a\fP), and \fBchanged\fP rows.
+.RE
+.sp
+\fB\-\-diff\-on\fP \fICOLS\fP
+.RS 4
+Key column(s) for \fB\-\-diff\-mode join\fP, comma\-separated (matched by
+name). Required when the mode is \fBjoin\fP; ignored otherwise.
+.RE
+.sp
+\fB\-\-diff\-db\fP \fICONN\fP
+.RS 4
+Compare against a live database table instead of a second file.
+\fICONN\fP names a saved database connection. With this set, \fB\-\-diff\fP
+takes a single positional file: that file is side A and the table is
+side B, so \fBonly_in_a\fP means "in the file, not the table". Requires
+\fB\-\-diff\-db\-table\fP. The table is read under the usual row cap.
+.RE
+.sp
+\fB\-\-diff\-db\-table\fP \fITABLE\fP
+.RS 4
+Table to compare against on the \fB\-\-diff\-db\fP connection, as
+\fISCHEMA.TABLE\fP or \fICATALOG.SCHEMA.TABLE\fP (the three\-part form is for
+Snowflake, Databricks and BigQuery). An unqualified name uses the
+connection\(cqs own database.
+.RE
+.sp
+\fB\-\-describe\fP \fIFILE\fP
+.RS 4
+Print a one\-shot orientation snapshot of \fIFILE\fP: format, file
+size, row count, column schema, and a small sample of rows. Use
+\fB\-\-sample\-rows\fP to change the preview size (default \fB5\fP, max
+\fB100\fP). The \fB\-\-table\fP flag picks a specific table on multi\-table
+sources.
+.RE
+.sp
+\fB\-\-validate\-schema\fP \fIFILE\fP
+.RS 4
+Check \fIFILE\fP\*(Aqs column schema against the JSON Schema given by
+\fB\-\-expect\-schema\fP. Exit code is \fB0\fP on a clean match, \fB1\fP
+otherwise, which is CI\-pipeable. Schemas produced by \fB\-\-export\-schema \-t
+json\-schema\fP round\-trip through this command.
+.RE
+.sp
+\fB\-\-schema\-drift\fP \fIDIR\fP
+.RS 4
+Scan \fIDIR\fP and report which files disagree about their columns.
+Files are grouped by schema, largest group first, so the answer to
+a folder of 500 parts is "497 look like this, 3 look like that".
+The report table goes to stdout; the per\-variant file lists, any
+unreadable files and the drifting column names go to stderr, so a
+pipe stays parseable. Exit code is \fB0\fP when every file agrees and
+\fB1\fP otherwise, which is CI\-pipeable. Add \fB\-\-recursive\fP to walk
+subdirectories (depth 8) and \fB\-\-ignore\-case\fP to treat column names
+differing only in case as the same column.
+.RE
+.sp
+\fB\-\-relationships\fP \fIDIR\fP
+.RS 4
+Rank the likely relationships between the tables in \fIDIR\fP and print
+them best first: which column of which table lines up with which
+column of which other table. Names take no part in the ranking; the
+score comes from how much the values overlap, weighted by how
+distinct each side is, so a status column cannot outrank a real key.
+Each row also carries \fBorphans\fP, the number of distinct values on
+the left with no partner on the right, which is what separates two
+candidates that overlap identically. Reads values, so it is capped
+at 30 files and at 10,000 rows per table. Unreadable files are noted
+on stderr. Always exits \fB0\fP: this is a report, not a gate. Add
+\fB\-\-recursive\fP to walk subdirectories.
+.RE
+.sp
+\fB\-\-check\fP \fIFILE\fP
+.RS 4
+Check \fIFILE\fP\*(Aqs values against the rules in \fB\-\-rules\fP (required) and
+report which rules failed. The rules file is TOML, one \f(CR\fP
+table per check, naming its column and one of the kinds \fBnot_null\fP,
+\fBunique\fP, \fBrange\fP (with \fBmin\fP and \fBmax\fP), \fBregex\fP (with \fBpattern\fP)
+or \fBmax_length\fP (with \fBmax_length\fP). A rule without a \f(CRcolumn\fP
+applies to every column. The report goes to stdout with one row per
+failing rule, its failure count and up to three offending values;
+the summary line goes to stderr. Exit code is \fB1\fP on any violation
+\fBand\fP on any rule that could not run, because a rules file whose
+columns have since been renamed would otherwise report a clean run
+over checks it silently skipped. The same rules file is written and
+read by the \fBData \(-> Data validation.\|.\|.\fP dialog.
+.RE
+.sp
+\fB\-\-stream\fP
+.RS 4
+Let DuckDB scan the file where it lies instead of loading its rows.
+Applies to \fB\-\-sql\fP over a Parquet, CSV or JSON file, where it lets an
+aggregate cover every row of a file far larger than memory: the
+primary file is registered as a view named \f(CRdata\fP rather than as a
+loaded table, so \fB\-\-rows\fP no longer bounds what the query sees. Every
+other action needs the rows themselves and says so on stderr rather
+than ignoring the flag. A format DuckDB cannot scan also falls back
+to a normal read with a note.
+.RE
+.sp
+\fB\-\-rules\fP \fIFILE\fP
+.RS 4
+The TOML rules file for \fB\-\-check\fP. Example:
+.sp
+.if n .RS 4
+.nf
+.fam C
+[[rule]]
+column = "order_id"
+kind = "unique"
+
+[[rule]]
+column = "amount"
+kind = "range"
+min = 0
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+\fB\-\-drift\-report\fP \fIFILE_A\fP \fIFILE_B\fP
+.RS 4
+Compare two versions of the same dataset and report how it moved.
+Columns are matched by name: one present on a single side is
+reported as added or removed, and every shared column gets its null
+rate, distinct count and, when numeric, its minimum, maximum and
+mean compared. Columns with few enough distinct values also list the
+category values that appeared and vanished. Every figure comes from
+the same Summary pass the \fBAnalyse \(-> Summary\fP tab uses, so the two
+can never disagree. The report goes to stdout; the row counts,
+added and removed column names and the pass/fail summary go to
+stderr, so a pipe stays parseable. Exit code is \fB0\fP unless
+\fB\-\-fail\-on\fP was given and a gate was breached.
+.RE
+.sp
+\fB\-\-fail\-on\fP \fISPEC\fP
+.RS 4
+Turn \fB\-\-drift\-report\fP into a CI gate. \fISPEC\fP is a comma\-separated
+list of \fImetric\fP:_change_ pairs, for example
+\f(CRnull_rate:0.05,rows:0.1\fP, where \fIchange\fP is the largest relative
+move that still passes. A metric that never appears in the report is
+simply never applied. A baseline of zero that moved at all counts as
+an unbounded change, so a null rate going from \fB0\fP to \fB0.5\fP breaches
+any gate. Metric names are \fBrows\fP, \fBnull_rate\fP, \fBdistinct_count\fP,
+\fBmin\fP, \fBmax\fP and \fBmean\fP.
+.RE
+.sp
+\fB\-\-harmonise\-schema\fP \fIDIR\fP
+.RS 4
+Rewrite every file in \fIDIR\fP to one common set of columns, writing
+harmonised copies into \fB\-\-out\-dir\fP (required). The originals are
+never modified. The target schema is the shape most files already
+have, or the schema of \fB\-\-target\-file\fP when given. A column missing
+from a file is added as nulls; a column not in the target is dropped
+and named in the report. A file whose values cannot be cast to a
+target type is \fBrefused\fP rather than written with nulls in place of
+those values, because a harmonised folder of silently emptied cells
+looks clean and is not. Two inputs that would write the same output
+name are both refused rather than one being renamed. The report goes
+to stdout; refusals and dropped columns go to stderr. Exit code is
+\fB0\fP when nothing was refused and \fB1\fP otherwise. Add \fB\-\-recursive\fP,
+\fB\-\-ignore\-case\fP, and \fB\-\-overwrite\fP to replace existing files in the
+output folder.
+.RE
+.sp
+\fB\-\-report\fP \fIOUT.html\fP \fIFILE\fP
+.RS 4
+Write an HTML profiling report for \fIFILE\fP to \fIOUT.html\fP: per\-column
+statistics, distribution charts, the most common values and a
+correlation matrix. The document is self\-contained (inline CSS,
+inline SVG, no JavaScript) and fetches nothing, so it can be mailed
+or published as\-is. \fB\-\-report\-sections\fP \fILIST\fP picks a
+comma\-separated subset of \fBstats\fP, \fBdistributions\fP, \fBtop_values\fP and
+\fBcorrelation\fP (default: all four); an unknown name is an error rather
+than a silent omission. \fB\-\-report\-sample\fP \fIN\fP profiles a random
+sample of \fIN\fP rows instead of every row, and the report states that
+it sampled.
+.RE
+.sp
+\fB\-\-unique\-columns\fP \fIFILE\fP
+.RS 4
+Find columns (and optional small combinations) whose values are
+unique across \fIFILE\fP. Useful for primary\-key reconnaissance on
+undocumented data. Use \fB\-\-max\-combo\fP \fIN\fP (clamped to \fB[1, 3]\fP) to
+also test column pairs / triples.
+.RE
+.sp
+\fB\-\-anonymize\fP \fISPEC\fP \fIFILE\fP
+.RS 4
+Mask / scramble sensitive columns of \fIFILE\fP per the JSON \fISPEC\fP file
+and print the sanitised table to stdout. The input file is never
+modified. The spec lists per\-column rules (\fBhash\fP / \fBpartial_mask\fP /
+\fBredact\fP / \fBfake\fP) plus an optional shared \fBsalt\fP; columns are named.
+The same value plus the same salt always maps the same way, so
+duplicates stay linked and a re\-run re\-joins to an earlier export.
+.RE
+.sp
+\fB\-\-dedupe\fP \fIFILE\fP
+.RS 4
+Remove duplicate rows from \fIFILE\fP and print the result to stdout.
+Without \fB\-\-dedupe\-on\fP the whole row is the key; with it only the named
+columns form the key. \fB\-\-dedupe\-keep\fP (\fBfirst\fP default / \fBlast\fP) picks
+the surviving occurrence.
+.RE
+.sp
+\fB\-\-impute\fP \fICOL\fP=\fISTRATEGY\fP
+.RS 4
+Fill missing/empty cells of a column of the positional \fIFILE\fP.
+Repeatable. Strategies: \fBmean\fP, \fBmedian\fP, \fBmode\fP, \fBffill\fP, \fBbfill\fP,
+\fBconst:VALUE\fP.
+.RE
+.sp
+\fB\-\-outliers\fP \fIFILE\fP
+.RS 4
+Flag numeric outlier cells in \fIFILE\fP and print their coordinates.
+\fB\-\-outlier\-method\fP (\fBiqr\fP default / \fBzscore\fP), \fB\-\-outlier\-cols\fP
+\fICOLS\fP, and \fB\-\-outlier\-k\fP \fIK\fP tune the scan.
+.RE
+.sp
+\fB\-\-detect\-pii\fP \fIFILE\fP
+.RS 4
+Scan \fIFILE\fP for likely PII columns (email, phone, IBAN, credit card,
+SSN) and print the findings. \fB\-\-pii\-sample\fP \fIN\fP sets the per\-column
+sample size (default \fB500\fP).
+.RE
+.sp
+\fB\-\-union\fP \fIFILE\fP
+.RS 4
+Stack the positional \fIFILE\fP plus every \fB\-\-union\-file\fP \fIFILE\fP into one
+table (at least two files). \fB\-\-union\-drop\fP \fICOL\fP omits columns and
+\fB\-\-union\-cast\fP \fICOL\fP=\fITYPE\fP overrides a column\(cqs target Arrow type.
+\fB\-\-union\-ignore\-case\fP treats column names differing only in case as
+one column; off by default, and the first spelling encountered names
+the output column.
+.RE
+.sp
+\fB\-\-fuzzy\-join\fP \fIFILE\fP
+.RS 4
+Join the positional \fIFILE\fP to each \fB\-\-fuzzy\-join\-file\fP on how \fBsimilar\fP
+the values are rather than on exact equality, for tables that name the
+same thing differently (\f(CRMueller GmbH\fP against \f(CRMueller Gmbh.\fP).
+\fB\-\-fuzzy\-on\fP \fILEFT\fP=\fIRIGHT\fP names the columns to compare and may be
+repeated, in which case the scores are averaged. \fB\-\-fuzzy\-method\fP is
+\fBedit_ratio\fP (default), \fBjaro_winkler\fP or \fBtoken_set\fP;
+\fB\-\-fuzzy\-threshold\fP is the minimum average score in \fB0.0..=1.0\fP
+(default \fB0.85\fP); \fB\-\-fuzzy\-block\fP \fILEFT\fP=\fIRIGHT\fP compares only rows
+that agree exactly on those columns, which is what makes a large join
+feasible; \fB\-\-fuzzy\-join\-type\fP is \fBinner\fP, \fBleft\fP (default), \fBright\fP or
+\fBfull\fP; \fB\-\-fuzzy\-max\-rows\fP caps the rows considered per side (default
+\fB20000\fP).
+.sp
+Each left row keeps its single best partner. The output gains
+\fBmatch_score_N\fP and \fBambiguous_N\fP per step; \fBambiguous\fP means the
+runner\-up scored nearly as well, so that match is the one to check. The
+per\-step report goes to stderr.
+.RE
+.sp
+\fB\-\-join\fP \fIFILE\fP
+.RS 4
+Join the positional \fIFILE\fP(s) plus every \fB\-\-join\-file\fP \fIFILE\fP on the
+\fB\-\-join\-on\fP \fICOLS\fP key(s). \fB\-\-join\-type\fP is \fBleft\fP (default), \fBinner\fP,
+\fBright\fP, or \fBfull\fP.
+.RE
+.sp
+\fB\-\-partition\-by\fP \fICOL\fP
+.RS 4
+Split the positional \fIFILE\fP into one file per distinct value of \fICOL\fP,
+written into \fB\-\-out\-dir\fP \fIDIR\fP (required). \fB\-\-partition\-format\fP \fIEXT\fP
+sets the output extension (defaults to the source\(cqs).
+.RE
+.sp
+\fB\-\-batch\-convert\fP
+.RS 4
+Convert every positional \fIFILE\fP into \fB\-\-out\-dir\fP \fIDIR\fP (required) as
+\fB\-\-to\fP \fIEXT\fP (required). Output names are \f(CR<stem>.<ext>\fP; two inputs
+sharing a stem get \f(CR_2\fP, \f(CR_3\fP suffixes in input order, so a run cannot
+overwrite its own earlier output. Existing outputs are skipped unless
+\fB\-\-overwrite\fP is given. One failed file does not stop the run.
+.sp
+Output is a headerless \f(CRinput<TAB>output<TAB>status\fP listing on stdout,
+with per\-file errors and a summary on stderr. The exit code is \fB1\fP when
+any file failed.
+.RE
+.sp
+\fB\-\-resample\fP \fICOL\fP
+.RS 4
+Group the positional \fIFILE\fP into time buckets: one row per \fB\-\-interval\fP
+of \fICOL\fP. \fB\-\-interval\fP is \fBminute\fP, \fBhour\fP, \fBday\fP (default), \fBweek\fP,
+\fBmonth\fP, \fBquarter\fP or \fByear\fP; \fB\-\-value\-cols\fP \fICOLS\fP (required) names the
+columns to aggregate; \fB\-\-agg\fP is \fBsum\fP (default), \fBmean\fP, \fBmin\fP, \fBmax\fP,
+\fBcount\fP, \fBfirst\fP or \fBlast\fP; \fB\-\-group\-by\fP \fICOLS\fP adds extra grouping
+columns, giving one series per combination.
+.sp
+The time column is cast with \f(CRTRY_CAST\fP, so a row that will not parse
+buckets as NULL instead of failing the whole run.
+.RE
+.sp
+\fB\-\-rolling\fP \fICOL\fP
+.RS 4
+Add a rolling aggregate of \fICOL\fP over the previous \fB\-\-window\fP \fIN\fP rows
+(including the current row) to the positional \fIFILE\fP. \fB\-\-order\-by\fP \fICOL\fP
+is required \- a rolling aggregate over unordered rows is meaningless.
+\fB\-\-agg\fP is \fBmean\fP (default), \fBsum\fP, \fBmin\fP, \fBmax\fP, \fBcount\fP, \fBfirst\fP or
+\fBlast\fP; \fB\-\-partition\-by\-cols\fP \fICOLS\fP restarts the frame per group
+(spelled that way because \fB\-\-partition\-by\fP is the split\-into\-files
+action).
+.RE
+.sp
+\fB\-\-db\-tables\fP
+.RS 4
+List every schema and table of the saved database connection named by
+\fB\-\-db\fP \fICONNECTION\fP (Settings \(-> Databases) as a two\-column table. On
+Snowflake, Databricks and BigQuery, which have a catalog level above
+the schema, the catalogs themselves are listed unless \fB\-\-db\-catalog\fP
+names one.
+.RE
+.sp
+\fB\-\-db\-query\fP \fISQL\fP
+.RS 4
+Run one SQL statement on the saved connection named by \fB\-\-db\fP,
+server\-side and in the engine\(cqs native dialect. SELECT results print in \fB\-f\fP \fIFORMAT\fP;
+mutations report rows affected and are refused unless the
+connection\(cqs "Allow writes" switch is on. Results stop at the
+initial\-load row cap; use \fB\-\-rows\fP to raise or lift it.
+.RE
+.sp
+\fB\-\-sync\-sql\fP \fIFILE\fP
+.RS 4
+Print the SQL that would make a live database table match \fIFILE\fP, and
+write nothing. Reads the table named by \fB\-\-sync\-table\fP through the
+connection named by \fB\-\-db\fP, matches rows on \fB\-\-sync\-on\fP, and prints one
+transaction to stdout: DELETEs for rows only on the server, full\-row
+UPDATEs for rows whose values differ, INSERTs for rows only in the file.
+Counts go to stderr, so the script itself pipes cleanly to a file or to
+\fBpsql\fP. For teams whose database changes must be reviewed as a script
+rather than applied by a tool.
+.sp
+Numbers are compared as numbers, so a file\(cqs \f(CR120.50\fP and a \f(CRnumeric(12,2)\fP
+column\(cqs \f(CR120.50\fP are not a change. Columns present only in the file are
+reported on stderr and skipped: this never emits \fBALTER TABLE\fP. Only the
+rows loaded under the initial\-load cap are compared; use \fB\-\-rows\fP to raise it.
+.RE
+.sp
+\fB\-\-to\-workbook\fP \fIOUT.xlsx\fP
+.RS 4
+Write the positional _FILE_s into one Excel workbook, one worksheet per
+file. Sheet names come from the file stems and are corrected to Excel\(cqs
+rules automatically: at most 31 characters, no forbidden punctuation, and
+duplicates numbered \f(CR_2\fP, \f(CR_3\fP. Needs at least two inputs; for a single
+file use \fB\-\-convert\fP. Prints a headerless \f(CRinput<TAB>sheet<TAB>rows\fP
+listing. Every input is read before anything is written, so an unreadable
+file fails the run instead of leaving a half\-written workbook.
+.RE
+.sp
+\fB\-\-sync\-table\fP \fISCHEMA.TABLE\fP
+.RS 4
+Target table for \fB\-\-sync\-sql\fP. A three\-part \fICATALOG.SCHEMA.TABLE\fP is
+accepted for the engines that have catalogs.
+.RE
+.sp
+\fB\-\-sync\-on\fP \fICOLS\fP
+.RS 4
+Comma\-separated key columns matching file rows to table rows. Required
+with \fB\-\-sync\-sql\fP: without a key there is no way to tell an updated row
+from a delete plus an insert.
+.RE
+.sp
+\fB\-\-db\-write\-table\fP \fISCHEMA\fP.\fITABLE\fP
+.RS 4
+Write the positional \fIFILE\fP into the given server table on the \fB\-\-db\fP
+connection. \fB\-\-db\-write\-mode\fP is \fBcreate\fP (default; error if the
+table exists), \fBappend\fP, or \fBreplace\fP. Refused unless the connection
+allows writes.
+.RE
+.sp
+\fB\-\-db\-catalog\fP \fINAME\fP
+.RS 4
+Catalog (the top namespace level) for a three\-level engine, used by
+\fB\-\-db\-tables\fP and \fB\-\-db\-write\-table\fP. Only Snowflake, Databricks and
+BigQuery have one; passing it to any other engine is an error. With
+\fB\-\-db\-tables\fP and no catalog, the catalogs themselves are listed.
+.RE
+.sp
+\fB\-\-db\-copy\fP \fISCHEMA\fP.\fITABLE\fP
+.RS 4
+Copy a table from the \fB\-\-db\fP connection to another saved connection,
+server to server. Requires \fB\-\-db\-copy\-to\fP. \fB\-\-db\-write\-mode\fP selects
+\fBcreate\fP (default), \fBappend\fP or \fBreplace\fP. Refused unless the target
+connection allows writes.
+.RE
+.sp
+\fB\-\-db\-copy\-to\fP \fICONNECTION\fP
+.RS 4
+Target connection for \fB\-\-db\-copy\fP, a saved connection name or id.
+.RE
+.sp
+\fB\-\-db\-copy\-target\fP \fISCHEMA\fP.\fITABLE\fP
+.RS 4
+Target table for \fB\-\-db\-copy\fP. Defaults to the source schema and table.
+.RE
+.sp
+\fB\-\-db\-copy\-target\-catalog\fP \fINAME\fP
+.RS 4
+Target catalog for \fB\-\-db\-copy\fP on a three\-level engine.
+.RE
+.sp
+\fB\-\-db\fP \fICONNECTION\fP
+.RS 4
+Saved connection name (case\-insensitive) or id for the \fB\-\-db\-\fP* actions.
+Connections are managed in Settings \(-> Databases; passwords stay in
+the system keyring.
+.RE
+.sp
+\fB\-\-mcp\fP
+.RS 4
+Start a Model Context Protocol (MCP) server on standard input /
+output. The tools exposed are: \fBread_table\fP, \fBtail\fP, \fBsample\fP,
+\fBschema\fP, \fBlist_tables\fP, \fBcount_rows\fP, \fBrun_sql\fP, \fBconvert\fP,
+\fBexport_schema\fP, \fBprofile\fP, \fBfind_duplicates\fP, \fBfuzzy_duplicates\fP,
+\fBvalue_frequency\fP, \fBsearch\fP, \fBcompare_schemas\fP, \fBdiff_tables\fP,
+\fBdescribe_file\fP, \fBvalidate_against_schema\fP, \fBunique_columns\fP,
+\fBpivot\fP, \fBcorrelation\fP, \fBgrep_files\fP, \fBwrite_table\fP, \fBedit_table\fP,
+\fBtransform_columns\fP, \fBanonymize\fP, \fBdetect_pii\fP, \fBdetect_outliers\fP,
+\fBfill_missing\fP, \fBdrop_duplicates\fP, \fBunion_tables\fP, \fBjoin_tables\fP,
+\fBpartition_table\fP, \fBlist_db_connections\fP, \fBlist_db_tables\fP, \fBquery_db\fP,
+\fBwrite_db_table\fP, \fBcopy_db_table\fP. The file\-writing tools (\fBconvert\fP, \fBwrite_table\fP,
+\fBedit_table\fP, \fBtransform_columns\fP, \fBanonymize\fP, \fBpartition_table\fP, \fBwrite_db_table\fP,
+\fBcopy_db_table\fP)
+are dropped when \fB\-\-mcp\-read\-only\fP is given. Defaults for the row
+limit and per\-cell byte cap come from the user\(cqs Octa settings
+(Settings → MCP).
+.RE
+.sp
+\fB\-\-mcp\-read\-only\fP
+.RS 4
+Only valid with \fB\-\-mcp\fP. Omits the file\-writing tools (\fBwrite_table\fP,
+\fBedit_table\fP, \fBconvert\fP) so the server exposes a read\-only surface.
+.RE
+.sp
+\fB\-\-completions\fP \fISHELL\fP
+.RS 4
+Print a shell completion script for \fISHELL\fP to standard output and exit.
+One of \fBbash\fP, \fBzsh\fP, \fBfish\fP, \fBpowershell\fP, \fBelvish\fP. The script is
+generated from Octa\(cqs own argument list, so it completes every flag this
+page documents. Wire it into the running shell with
+\f(CReval "$(octa \-\-completions zsh)"\fP, or let \fBinstall.sh\fP write the files
+under the install prefix.
+.RE
+.sp
+\fB\-\-cloud\-ls\fP \fIURL\fP
+.RS 4
+List a cloud bucket or prefix (\fBs3://\fP, \fBaz://\fP, \fBgs://\fP). One folder
+level by default; add \fB\-\-recursive\fP to flatten everything under the
+prefix. Credentials come from a saved connection covering the URL, else
+the ambient chain.
+.RE
+.sp
+\fB\-\-cloud\-get\fP \fIURL\fP
+.RS 4
+Download one cloud object to the file given by \fB\-\-out\fP.
+.RE
+.sp
+\fB\-\-cloud\-put\fP \fIFILE\fP
+.RS 4
+Upload a local file to the cloud URL given by \fB\-\-to\fP.
+.RE
+.sp
+\fB\-\-cloud\-copy\fP \fIURL\fP
+.RS 4
+Copy a cloud object, or a whole prefix (source ending in \f(CR/\fP), to the URL
+given by \fB\-\-to\fP. Within one bucket the backend copies server\-side; across
+buckets, accounts or providers the object is streamed in blocks, so object
+size does not drive memory. At most 10,000 objects per run.
+.RE
+.sp
+\fB\-\-cloud\-move\fP \fIURL\fP
+.RS 4
+Like \fB\-\-cloud\-copy\fP, then delete the source. Object stores have no rename.
+The delete runs only after every copy succeeded.
+.RE
+.sp
+\fB\-\-cloud\-delete\fP \fIURL\fP
+.RS 4
+Delete a cloud object, or a whole prefix with \fB\-\-recursive\fP. Cannot be
+undone unless the bucket has versioning enabled.
+.RE
+.sp
+\fB\-\-list\-connections\fP
+.RS 4
+Print the saved cloud and database connections (names and targets only,
+never secrets).
+.RE
+.sp
+\fB\-\-add\-connection\fP \fISPEC\fP
+.RS 4
+Add or update a saved connection from a \fBkey=value,key=value\fP spec.
+\fBkind=\fP and \fBname=\fP are required. A connection with the same name is
+replaced wholesale, keeping its id and stored secret, so re\-running a
+provisioning script is idempotent; omitted keys revert to defaults.
+Unknown keys are an error.
+Cloud (\fBkind=s3|azure|gcs\fP): bucket, region, endpoint, prefix, account,
+profile, account_level, anonymous, allow_writes, force_path_style,
+allow_http.
+Database (\fBkind=postgres|mysql|mssql|oracle|redshift|clickhouse|exasol|
+trino|athena|snowflake|databricks|bigquery\fP): host, port, database, user, allow_writes.
+Only password authentication can be expressed here; other methods need the
+Settings dialog.
+.RE
+.sp
+\fB\-\-remove\-connection\fP \fINAME\fP
+.RS 4
+Remove a saved connection by name or id, and delete its stored secret.
+.RE
+.sp
+\fB\-\-secret\-env\fP \fIVAR\fP
+.RS 4
+Name of an environment variable holding the secret for \fB\-\-add\-connection\fP,
+so it never appears in argv. Database: the password. S3:
+\fIACCESS_KEY_ID:SECRET_ACCESS_KEY[:TOKEN]\fP. Azure: the account key or a SAS
+token. GCS uses application\-default credentials and takes no secret.
+.RE
+.SH "OPTIONS"
+.sp
+\fB\-n\fP \fIN\fP, \fB\-\-lines\fP \fIN\fP
+.RS 4
+Row count for \fB\-\-head\fP, \fB\-\-tail\fP, and \fB\-\-sample\fP. Default \fB20\fP.
+.RE
+.sp
+\fB\-\-seed\fP \fIN\fP
+.RS 4
+Seed for \fB\-\-sample\fP, for reproducible output. Default \fB0\fP.
+.RE
+.sp
+\fB\-q\fP \fIQUERY\fP, \fB\-\-query\fP \fIQUERY\fP
+.RS 4
+SQL query string for \fB\-\-sql\fP. Always reference the file\(cqs data as
+the table \fBdata\fP.
+.RE
+.sp
+\fB\-\-sql\-table\fP \fINAME\fP=\fIPATH\fP
+.RS 4
+For \fB\-\-sql\fP only. Register an extra file as a workspace table
+named \fINAME\fP. Any supported format. Repeatable.
+.RE
+.sp
+\fB\-\-sql\-attach\fP \fIALIAS\fP=\fIPATH\fP
+.RS 4
+For \fB\-\-sql\fP only. ATTACH a DuckDB or SQLite database under
+\fIALIAS\fP. Repeatable. After attachment every inner table is
+queryable as \fBalias.schema.tbl\fP (DuckDB) or \fBalias.tbl\fP (SQLite
+when the DuckDB sqlite extension is bundled, otherwise per\-table
+fallback registration under \fBalias__table\fP).
+.RE
+.sp
+\fB\-\-sql\-write\-to\fP \fIPATH\fP
+.RS 4
+For \fB\-\-sql\fP only. Persist the SELECT result to \fIPATH\fP instead of
+printing it. The extension picks DuckDB (\fB.duckdb\fP, \fB.ddb\fP) or
+SQLite (everything else). Created if missing. Requires
+\fB\-\-sql\-write\-table\fP.
+.RE
+.sp
+\fB\-\-sql\-write\-table\fP \fITABLE\fP
+.RS 4
+Target table name for \fB\-\-sql\-write\-to\fP.
+.RE
+.sp
+\fB\-\-sql\-write\-schema\fP \fISCHEMA\fP
+.RS 4
+Target schema for \fB\-\-sql\-write\-to\fP. DuckDB only; defaults to
+\fBmain\fP. SQLite has no schemas; pass \fBmain\fP or leave unset.
+.RE
+.sp
+\fB\-\-sql\-write\-mode\fP \fIMODE\fP
+.RS 4
+\fBcreate\fP (default; errors if the table already exists),
+\fBreplace\fP (drop + recreate), or \fBappend\fP (INSERT into the
+existing table; column count and order must match).
+.RE
+.sp
+\fB\-t\fP \fITARGET\fP, \fB\-\-target\fP \fITARGET\fP
+.RS 4
+Output target for \fB\-\-export\-schema\fP. \fITARGET\fP is one of \fBpostgres\fP
+(default), \fBmysql\fP, \fBsqlite\fP, \fBdatabricks\fP, \fBsnowflake\fP, \fBpydantic\fP,
+\fBtypescript\fP, \fBjson\-schema\fP, or \fBrust\fP.
+.RE
+.sp
+\fB\-\-table\-a\fP \fINAME\fP, \fB\-\-table\-b\fP \fINAME\fP
+.RS 4
+For \fB\-\-compare\-schemas\fP only: the table to read from each side when
+the source is multi\-table (SQLite, DuckDB, GeoPackage).
+.RE
+.sp
+\fB\-\-table\fP \fINAME\fP
+.RS 4
+For \fB\-\-describe\fP, \fB\-\-validate\-schema\fP, \fB\-\-unique\-columns\fP: the
+table to read from \fIFILE\fP when the source is multi\-table.
+.RE
+.sp
+\fB\-\-expect\-schema\fP \fISCHEMA_FILE\fP
+.RS 4
+Path to the expected JSON Schema for \fB\-\-validate\-schema\fP.
+Required by that action.
+.RE
+.sp
+\fB\-\-sample\-rows\fP \fIN\fP
+.RS 4
+Number of preview rows for \fB\-\-describe\fP (default \fB5\fP, clamped
+to \fB100\fP).
+.RE
+.sp
+\fB\-\-deep\fP
+.RS 4
+With \fB\-\-describe\fP, also report how the file is physically written:
+row groups, compression codec, encodings and per\-column statistics,
+followed by one row per column per row group. Plain\-language hints
+about a poor layout (very small row groups, missing statistics, no
+compression) go to standard error, so a piped run stays parseable.
+Parquet reports full detail; other formats report their size and
+state that they expose no inspectable structure. Place it after the
+file: \fB\-\-describe FILE \-\-deep\fP.
+.RE
+.sp
+\fB\-\-max\-combo\fP \fIN\fP
+.RS 4
+Max combo size for \fB\-\-unique\-columns\fP (default \fB1\fP, clamped to
+\fB[1, 3]\fP).
+.RE
+.sp
+\fB\-\-rows\fP \fIN\fP|\fBall\fP
+.RS 4
+Override the initial\-load row cap for this invocation. Streaming
+formats (Parquet, CSV, TSV) honour a process\-wide cap (default
+\fB5,000,000\fP rows). Pass a number (commas/underscores allowed) to
+raise it or \fBall\fP to disable the cap entirely. Applies to
+\fB\-\-schema\fP, \fB\-\-head\fP, \fB\-\-convert\fP, and \fB\-\-sql\fP.
+.RE
+.sp
+\fB\-\-dedupe\-on\fP \fICOLS\fP
+.RS 4
+Comma\-separated key columns for \fB\-\-dedupe\fP. Absent = whole\-row key.
+.RE
+.sp
+\fB\-\-dedupe\-keep\fP \fIWHICH\fP
+.RS 4
+Which duplicate to keep for \fB\-\-dedupe\fP: \fBfirst\fP (default) or \fBlast\fP.
+.RE
+.sp
+\fB\-\-outlier\-method\fP \fIM\fP
+.RS 4
+Method for \fB\-\-outliers\fP: \fBiqr\fP (default) or \fBzscore\fP.
+.RE
+.sp
+\fB\-\-outlier\-cols\fP \fICOLS\fP
+.RS 4
+Comma\-separated columns to scan with \fB\-\-outliers\fP (default: all).
+.RE
+.sp
+\fB\-\-outlier\-k\fP \fIK\fP
+.RS 4
+Threshold multiplier for \fB\-\-outliers\fP (default \fB1.5\fP IQR, \fB3.0\fP z\-score).
+.RE
+.sp
+\fB\-\-pii\-sample\fP \fIN\fP
+.RS 4
+Rows sampled per column for \fB\-\-detect\-pii\fP (default \fB500\fP).
+.RE
+.sp
+\fB\-\-union\-file\fP \fIFILE\fP
+.RS 4
+Additional source for \fB\-\-union\fP (repeatable). The positional file plus
+these form the input list (minimum two).
+.RE
+.sp
+\fB\-\-union\-drop\fP \fICOL\fP
+.RS 4
+Column to omit from the \fB\-\-union\fP output (repeatable).
+.RE
+.sp
+\fB\-\-union\-cast\fP \fICOL\fP=\fITYPE\fP
+.RS 4
+Override a column\(cqs target Arrow type in the \fB\-\-union\fP output (repeatable).
+.RE
+.sp
+\fB\-\-join\-file\fP \fIFILE\fP
+.RS 4
+Additional source for \fB\-\-join\fP (repeatable).
+.RE
+.sp
+\fB\-\-join\-on\fP \fICOLS\fP
+.RS 4
+Key column(s) for \fB\-\-join\fP; comma\-separated or repeated. Required.
+.RE
+.sp
+\fB\-\-join\-type\fP \fITYPE\fP
+.RS 4
+Join strategy for \fB\-\-join\fP: \fBleft\fP (default), \fBinner\fP, \fBright\fP, \fBfull\fP.
+.RE
+.sp
+\fB\-\-compression\fP \fICODEC\fP
+.RS 4
+Compression codec for the written file: \fBuncompressed\fP, \fBsnappy\fP,
+\fBzstd\fP, \fBgzip\fP or \fBlz4\fP. Applies to \fB\-\-convert\fP and
+\fB\-\-batch\-convert\fP; Parquet targets only, ignored by other formats.
+An unknown name is rejected before any file is written. Omitted, the
+codec saved in \fBSettings > Files > Write options\fP is used, or \fBzstd\fP
+when nothing is saved.
+.RE
+.sp
+\fB\-\-row\-group\-size\fP \fIN\fP
+.RS 4
+Rows per Parquet row group for \fB\-\-convert\fP and \fB\-\-batch\-convert\fP.
+Larger groups scan faster; smaller groups let readers skip more
+precisely. Omitted means the writer\(cqs own default.
+.RE
+.sp
+\fB\-\-out\-dir\fP \fIDIR\fP
+.RS 4
+Output directory for \fB\-\-partition\-by\fP (required; created if absent).
+.RE
+.sp
+\fB\-\-partition\-layout\fP \fILAYOUT\fP
+.RS 4
+How the pieces are named. \f(CRflat\fP (default) writes \f(CR<value>.<ext>\fP side by
+side; \f(CRfolder\fP writes \f(CR<value>/part\-0001.<ext>\fP; \f(CRhive\fP writes
+\f(CR<column>=<value>/data.<ext>\fP; \f(CRhive\-parts\fP writes
+\f(CR<column>=<value>/part\-0001.<ext>\fP. All four hold the same rows and all four
+reopen as one table, since the partition column is written into every file.
+Only \f(CRflat\fP loses information in the name: it sanitises and lowercases the
+value into a file stem, so values differing only in case or punctuation
+collide and gain \f(CR_2\fP, \f(CR_3\fP. The folder layouts keep the value as it is,
+replacing only characters that cannot appear in a path. \f(CRhive\fP is what
+Spark, Athena, DuckDB and pandas expect from a partitioned dataset.
+.RE
+.sp
+\fB\-\-partition\-format\fP \fIEXT\fP
+.RS 4
+Output extension for \fB\-\-partition\-by\fP (default: the source\(cqs extension).
+.RE
+.sp
+\fB\-f\fP \fIFORMAT\fP, \fB\-\-format\fP \fIFORMAT\fP
+.RS 4
+Output format for actions that print a table (\fB\-\-schema\fP,
+\fB\-\-head\fP, \fB\-\-sql\fP, \fB\-\-compare\-schemas\fP, \fB\-\-describe\fP,
+\fB\-\-validate\-schema\fP, \fB\-\-unique\-columns\fP). It has no effect for
+\fB\-\-convert\fP (whose output format comes from the output path\(cqs
+extension), \fB\-\-export\-schema\fP (which emits source code chosen by
+\fB\-t\fP), or \fB\-\-mcp\fP. \fIFORMAT\fP is one of:
+.sp
+\fBtsv\fP (default)
+.RS 4
+Tab\-separated values, one row per line, header row first.
+.RE
+.sp
+\fBjson\fP
+.RS 4
+Pretty\-printed JSON array of \f(CR{column: value}\fP objects. Numeric
+and boolean cells keep their native JSON types.
+.RE
+.sp
+\fBcsv\fP
+.RS 4
+RFC 4180 CSV. Fields with comma, quote, or newline are properly
+quoted; embedded quotes are doubled.
+.RE
+.RE
+.sp
+\fB\-h\fP, \fB\-\-help\fP
+.RS 4
+Print the flag list and exit. \fB\-h\fP and \fB\-\-help\fP produce the same
+output.
+.RE
+.sp
+\fB\-\-help\-all\fP
+.RS 4
+Print the flag list plus worked examples for every action, and exit.
+The examples are behind their own flag because printing them by
+default buried the flag list under something the size of this manual
+page.
+.RE
+.sp
+\fB\-\-version\fP
+.RS 4
+Print the Octa version and exit.
+.RE
+.SH "OUTPUT STREAMS"
+.sp
+Tabular data is written to \fBstandard output\fP. Status messages,
+warnings, and errors are written to \fBstandard error\fP. This means
+\fBocta \-\-sql FILE \-q QUERY \-f json | jq .\|.\|.\fP is safe even when an
+error occurs, since the data stream stays clean.
+.sp
+Exit code is \fB0\fP on success and \fB1\fP on any error (invalid arguments,
+file\-not\-found, parse failure, write rejection, etc.).
+\fB\-\-validate\-schema\fP also exits \fB1\fP on a successful read where the
+schemas differ, and \fB\-\-schema\-drift\fP exits \fB1\fP on a successful scan
+where the files disagree. \fB\-\-harmonise\-schema\fP exits \fB1\fP when any file
+was refused, \fB\-\-batch\-convert\fP when any input failed,
+\fB\-\-drift\-report\fP when a \fB\-\-fail\-on\fP gate was breached, and \fB\-\-check\fP
+on any failing or unrunnable rule, so CI pipelines can gate on all six
+directly.
+.SH "EXAMPLES"
+.sp
+Open multiple files in the GUI
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa file1.csv file2.parquet file3.json
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Print the schema of a Parquet file
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-schema sales.parquet
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Print the first 5 rows of a CSV as JSON
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-head data.csv \-n 5 \-f json
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Print the last rows / a reproducible random sample
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-tail data.csv \-n 5
+octa \-\-sample data.parquet \-n 20 \-\-seed 1
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Convert formats
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-convert in.csv out.parquet
+octa \-\-convert workbook.xlsx tidy.sqlite
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Group\-by aggregation
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-sql sales.parquet \-q \*(AqSELECT region, SUM(amount) FROM data GROUP BY region\*(Aq
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Read every row of a huge file
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-sql huge.parquet \-q \*(AqSELECT count(*) FROM data\*(Aq \-\-rows all
+octa \-\-head huge.parquet \-n 100 \-\-rows 10,000,000
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Pipe a SQL result through \fBjq\fP
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-sql users.parquet \-q \*(AqSELECT email FROM data WHERE active\*(Aq \-f json | jq \-r \*(Aq.[].email\*(Aq
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+JOIN across formats
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-sql sales.parquet \(rs
+     \-\-sql\-table customers=customers.csv \(rs
+     \-q \*(AqSELECT c.name, SUM(d.amount) FROM data d
+         JOIN customers c ON d.cid = c.cid GROUP BY c.name\*(Aq
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+ATTACH a DuckDB warehouse and JOIN against it
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-sql sales.parquet \(rs
+     \-\-sql\-attach wh=warehouse.duckdb \(rs
+     \-q \*(AqSELECT count(*) FROM data d
+         JOIN wh.main.products p ON d.cid = p.cid\*(Aq
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Write a SQL result back to a DuckDB schema
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-sql sales.parquet \-q \*(AqSELECT region, SUM(amount) AS total
+                             FROM data GROUP BY region\*(Aq \(rs
+     \-\-sql\-write\-to analytics.duckdb \(rs
+     \-\-sql\-write\-schema reports \-\-sql\-write\-table q4_summary
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Export a schema as Snowflake DDL
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-export\-schema sales.parquet \-t snowflake
+octa \-e users.parquet \-t pydantic > users_model.py
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Diff two schemas
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-compare\-schemas v1.parquet v2.parquet
+octa \-\-compare\-schemas a.sqlite b.sqlite \-\-table\-a users \-\-table\-b users \-f json
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Diff two files\*(Aq rows
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-diff v1.csv v2.csv
+octa \-\-diff v1.csv v2.csv \-\-diff\-mode ordered
+octa \-\-diff v1.csv v2.csv \-\-diff\-mode join \-\-diff\-on id
+octa \-\-diff a.parquet b.parquet \-f json
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+One\-shot file snapshot
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-describe data.parquet \-\-sample\-rows 3
+octa \-\-describe users.sqlite \-\-table customers \-f json
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Validate a file against a JSON Schema in CI
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-export\-schema sales.parquet \-t json\-schema > sales.schema.json
+octa \-\-validate\-schema sales.parquet \-\-expect\-schema sales.schema.json
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Find primary\-key candidates
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-unique\-columns users.csv
+octa \-\-unique\-columns orders.parquet \-\-max\-combo 2 \-f json
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Browse a live database connection
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-db\-tables \-\-db warehouse
+octa \-\-db\-tables \-\-db warehouse \-\-db\-catalog sales_prod
+octa \-\-db\-query "SELECT * FROM public.users LIMIT 10" \-\-db prod
+
+# Review the change before it touches the server
+octa \-\-sync\-sql users.csv \-\-db prod \-\-sync\-table public.users \-\-sync\-on id > change.sql
+
+# One workbook from several tables
+octa \-\-to\-workbook report.xlsx sales.csv returns.parquet stock.json
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Copy a table between two servers, replacing the target
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-db prod \-\-db\-copy analytics.orders \(rs
+     \-\-db\-copy\-to warehouse \-\-db\-write\-mode replace
+.fam
+.fi
+.if n .RE
+.RE
+.sp
+Start the MCP server
+.RS 4
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-mcp
+.fam
+.fi
+.if n .RE
+.RE
+.SS "Pipelines"
+.sp
+\f(CR\-\fP stands for standard input as a \fIFILE\fP, and for standard output as the
+\f(CR\-\-convert\fP target, so octa fits in the middle of a shell pipeline.
+.sp
+.if n .RS 4
+.nf
+.fam C
+# Read a table from a pipe: the format is sniffed from the bytes
+curl \-s https://example.org/sales.csv | octa \-\-schema \-
+
+# Query it without ever writing a file
+cat sales.csv | octa \-\-sql \- \-q "SELECT city, SUM(amount) FROM data GROUP BY city"
+
+# Convert on the way through; \-\-to says what to write, since a pipe has no name
+cat sales.csv | octa \-\-convert \- \- \-\-to json | jq \*(Aq.[0]\*(Aq
+.fam
+.fi
+.if n .RE
+.sp
+Reports and counts go to stderr, so what reaches the next command in the
+pipeline is exactly the data. Piped input is buffered to a temporary file
+first: every reader needs to seek (a Parquet footer is at the end of the
+file), so a pipe cannot be streamed straight through.
+.SS "Reading from a URL"
+.sp
+Anywhere a \fIFILE\fP is accepted, a URL works too.
+.sp
+.if n .RS 4
+.nf
+.fam C
+# A plain web address: downloaded to a temp file, no configuration needed
+octa \-\-schema https://example.org/exports/sales.csv
+octa \-\-sql "SELECT * FROM data LIMIT 5" https://example.org/exports/sales.csv
+
+# Cloud object storage resolves through the saved connections instead
+octa \-\-schema s3://bucket/sales.parquet
+.fam
+.fi
+.if n .RE
+.sp
+The format comes from the URL\(cqs path, ignoring any query string, so a signed
+link ending \f(CRsales.csv?token=.\|.\|.\fP still reads as CSV; a URL with no extension
+falls back to content sniffing. Both forms are read\-only, and a non\-2xx
+response is an error naming the status code rather than a file, so a 404 HTML
+page is never parsed as a one\-column table.
+.sp
+Tool\-supplied URLs are restricted. When the address comes from an agent (the
+MCP server or the in\-app assistant) rather than from you, Octa resolves the
+host first and refuses anything that is not globally routable: loopback,
+private ranges, link\-local (which includes the cloud metadata endpoint at
+169.254.169.254), and unique\-local IPv6. Redirects are not followed on that
+path either, since a redirect is how a check on the first hop gets bypassed.
+Addresses you type yourself, on the command line or in File > Open URL, are
+not restricted: reading from \f(CRlocalhost:8000\fP is a normal thing to ask for.
+.SS "Cloud object storage"
+.sp
+.if n .RS 4
+.nf
+.fam C
+octa \-\-cloud\-ls s3://bucket/prefix/
+octa \-\-cloud\-ls s3://bucket/ \-\-recursive
+
+octa \-\-cloud\-get s3://bucket/data.parquet \-\-out ./data.parquet
+octa \-\-cloud\-put ./data.parquet \-\-to s3://bucket/data.parquet
+
+octa \-\-cloud\-copy s3://a/data/ \-\-to gs://b/backup/
+octa \-\-cloud\-move s3://a/old.csv \-\-to s3://a/archive/old.csv
+octa \-\-cloud\-delete s3://a/old.csv
+octa \-\-cloud\-delete s3://a/scratch/ \-\-recursive
+
+octa \-\-list\-connections
+.fam
+.fi
+.if n .RE
+.SS "Managing connections headlessly"
+.sp
+.if n .RS 4
+.nf
+.fam C
+export S3_KEY=\*(AqAKIAEXAMPLE:wJalrXUtnFEMI\*(Aq
+octa \-\-add\-connection \*(Aqkind=s3,name=prod,bucket=my\-bucket,region=eu\-central\-1,allow_writes=true\*(Aq \(rs
+     \-\-secret\-env S3_KEY
+
+octa \-\-add\-connection \*(Aqkind=postgres,name=warehouse,host=db.internal,database=analytics,user=reader\*(Aq \(rs
+     \-\-secret\-env PGPASSWORD
+
+octa \-\-remove\-connection warehouse
+.fam
+.fi
+.if n .RE
+.SH "ENVIRONMENT"
+.sp
+\fBOCTA_CONFIG_DIR\fP
+.RS 4
+Directory holding \fBsettings.toml\fP, used verbatim on every platform and
+taking precedence over \fBXDG_CONFIG_HOME\fP / \fBHOME\fP / \fBAPPDATA\fP. Required in
+containers, which usually set none of those; without it Octa reports that
+it has no config directory rather than silently running without settings.
+.RE
+.sp
+\fBOCTA_DEBUG\fP
+.RS 4
+Set to 1 to force debug mode on for one run without changing the saved
+setting: verbose logging, plus one log line per mouse press and release
+recording its position, whether it counted as a click, and which layer of
+the interface it reached. Intended for diagnosing the GUI itself, when the
+Settings dialog is the thing misbehaving and its checkbox cannot be reached.
+A build from source additionally outlines every clickable area on screen;
+release binaries cannot, since the toolkit compiles that drawing out.
+.RE
+.sp
+\fBOCTA_NO_KEYRING\fP
+.RS 4
+Set to 1 to skip the OS keyring entirely, so secrets are read from and
+written to \fBsettings.toml\fP (chmod 0600). Secrets already fall back to the
+file when the keyring errors; this avoids the lookup on systems where it
+can never work, such as a container with no D\-Bus.
+.RE
+.sp
+\fBAWS_ACCESS_KEY_ID\fP, \fBAWS_SECRET_ACCESS_KEY\fP, \fBAZURE_STORAGE_ACCOUNT\fP, \fBGOOGLE_APPLICATION_CREDENTIALS\fP
+.RS 4
+Ambient cloud credentials, used when no saved connection covers a URL.
+.RE
+.SH "FILES"
+.sp
+\f(CR\fI$XDG_CONFIG_HOME/octa/settings.toml\fP\fP
+.RS 4
+Linux. User settings. Created on first launch with defaults.
+.RE
+.sp
+\f(CR\fI$HOME/Library/Application Support/Octa/settings.toml\fP\fP
+.RS 4
+macOS. Same purpose.
+.RE
+.sp
+\f(CR\fI%APPDATA%\(rsOcta\(rssettings.toml\fP\fP
+.RS 4
+Windows. Same purpose.
+.RE
+.SH "MCP SERVER"
+.sp
+When invoked with \fB\-\-mcp\fP, Octa speaks the Model Context Protocol
+over JSON\-RPC on stdin/stdout. The tools are:
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBread_table(path, limit?, unlimited?, table?)\fP: schema + rows JSON.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBtail(path, n?, unlimited?, table?)\fP: last N rows.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBsample(path, n?, seed?, unlimited?, table?)\fP: reproducible random
+N\-row sample.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBschema(path, table?)\fP: column schema only.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBlist_tables(path)\fP: for multi\-table sources (SQLite / DuckDB /
+GeoPackage).
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBcount_rows(path, unlimited?, table?)\fP.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBrun_sql(path, query, limit?, unlimited?, table?)\fP: DuckDB against
+the file as table \fBdata\fP.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBconvert(input, output, unlimited?, table?)\fP: same surface as
+\fB\-\-convert\fP.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBexport_schema(path, target, table?)\fP: same surface as
+\fB\-\-export\-schema\fP.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBprofile(path, unlimited?, table?)\fP: per\-column statistics via
+SUMMARIZE.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBfind_duplicates(path, key_columns, table?, limit?, unlimited?)\fP:
+duplicate rows by key columns.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBfuzzy_duplicates(path, key_columns, method?, threshold?, .\|.\|.)\fP:
+cluster near\-duplicate rows (typos, spacing, word order).
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBvalue_frequency(path, column, table?, top_n?, bin?, unlimited?)\fP:
+per\-column value counts.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBsearch(path, query, mode?, table?, limit?, unlimited?)\fP: match
+cells across all columns.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBcompare_schemas(path_a, path_b, table_a?, table_b?)\fP: diff two
+files\*(Aq schemas.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBdiff_tables(path_a, path_b, mode?, on?, .\|.\|.)\fP: row\-level diff of two
+files (set / ordered / join).
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBdescribe_file(path, table?, sample_rows?, unlimited?)\fP: one\-shot
+orientation snapshot.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBvalidate_against_schema(path, table?, schema_path?, schema_inline?)\fP:
+check a file against a JSON Schema.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBunique_columns(path, table?, max_combo_size?, unlimited?)\fP: find
+PK candidates.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBpivot(path, mode?, on?, value?, agg?, .\|.\|.)\fP: reshape long <\(-> wide
+(PIVOT / UNPIVOT).
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBcorrelation(path, method?, unlimited?, table?)\fP: pairwise numeric
+correlation matrix.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBgrep_files(dir, query, mode?, .\|.\|.)\fP: grep a value across files in a
+directory.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBwrite_table(path, columns, rows?, mode?, unlimited?)\fP: write inline
+rows to a new file (create / overwrite / append).
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBedit_table(path, table?, set?, insert_rows?, delete_rows?, unlimited?)\fP:
+edit an existing file in place (DB sources diff\-saved).
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBtransform_columns(path, drop?, rename?, cast?, output_path?)\fP: rename
+/ cast / drop columns and write back.
+.RE
+.sp
+.RS 4
+.ie n \{\
+\h'-04'\(bu\h'+03'\c
+.\}
+.el \{\
+.  sp -1
+.  IP \(bu 2.3
+.\}
+\fBanonymize(path, rules, salt?, output_path?)\fP: mask / scramble columns
+and write the result.
+.RE
+.sp
+The file\-writing tools (\fBconvert\fP, \fBwrite_table\fP, \fBedit_table\fP,
+\fBtransform_columns\fP, \fBanonymize\fP) are dropped under \fB\-\-mcp\-read\-only\fP.
+.sp
+The defaults (response row cap of 1000 rows, per\-cell byte cap of 64 KiB,
+and file\-loader cap of 5,000,000 rows) are configurable under Octa\(cqs
+Settings → MCP and Settings → Performance. They are read once at
+server startup; changes require a restart. Per\-call, pass \fBlimit: 0\fP
+to lift the response cap and \fBunlimited: true\fP to lift the file\-loader
+cap so the tool sees every row on disk. Parquet files with very many
+row groups fall back to a DuckDB\-backed reader automatically.
+.SH "SEE ALSO"
+.sp
+\fBman\fP(1), \fBjq\fP(1), \fBduckdb\fP(1), \fBparquet\-tools\fP(1)
+.sp
+Project homepage: \c
+.URL "https://github.com/thorstenfoltz/octa" "" ""
+.sp
+Online documentation: \c
+.URL "https://thorstenfoltz.github.io/octa/" "" ""
+.SH "BUGS / FEEDBACK"
+.sp
+Report bugs at \c
+.URL "https://github.com/thorstenfoltz/octa/issues" "" "."
+.SH "AUTHOR"
+.sp
+Thorsten Foltz and contributors.
+.SH "COPYRIGHT"
+.sp
+Copyright (c) 2026 Thorsten Foltz. Licensed under the MIT
+license.

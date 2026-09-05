@@ -18,8 +18,9 @@ pub(crate) fn render_table_picker(app: &mut OctaApp, ctx: &egui::Context) {
             app.pending_table_picker = None;
         }
         ui::table_picker::TablePickerAction::Open(path, table_name) => {
+            let reader_name = state.format_name.clone();
             app.pending_table_picker = None;
-            app.load_table(path, table_name);
+            app.load_table(path, table_name, Some(&reader_name));
         }
     }
 }

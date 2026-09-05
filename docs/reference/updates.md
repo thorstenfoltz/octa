@@ -64,7 +64,9 @@ so an upgrade announces itself there like anywhere else.
 
 The in-app updater downloads the release archive for your platform, verifies it
 against the release's `SHA256SUMS`, and replaces the binary in place. A mismatch
-aborts the update rather than installing anything.
+aborts the update rather than installing anything, and so does a `SHA256SUMS`
+file that cannot be fetched: the update never proceeds unverified. If that
+happens, download the release manually from the releases page.
 
 On Linux, if Octa lives somewhere your user cannot write (`/usr/local/bin`, for
 example), it stages the new binary first and then asks for a password through

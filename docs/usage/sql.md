@@ -97,9 +97,23 @@ there is simply no `data` table until you open a file.
 
 The SQL toolbar has two ways to reuse queries:
 
-- **History** is a dropdown listing the recent queries run in this tab,
-  most recent first. Pick one to load it back into the editor. History is
-  **per tab and session-only** (it is not saved to disk).
+- **History** is a dropdown listing the queries you have actually run, most
+  recent first, each with how long it took and how many rows it returned. Pick
+  one to load it back into the editor, or use **Clear history** at the bottom to
+  forget the lot.
+
+    History is **scoped and kept between sessions**: a database tab records
+    against its connection, a file-backed workspace against its file, so the
+    queries you ran on production do not turn up while you are poking at a CSV.
+    It lives in `sql_history.json` in the
+    [config directory](../reference/settings.md).
+
+    **Settings -> Databases -> Query history** controls it: *Keep the queries I
+    run* is on by default and keeps the last **20** per connection (0 keeps them
+    all). Turning it off stops recording **and deletes what was kept**, because
+    a query can carry values out of your data and a switch that leaves the old
+    file behind would be a poor kind of off. Re-running a query moves it back to
+    the top rather than adding a second copy.
 - **Snippets** opens a **manager window** for a persistent, named library
   of queries. **Save current query as snippet...** stores the editor
   content under a name and an optional description; each saved snippet has
@@ -154,8 +168,13 @@ replace.
 ## Result rendering
 
 Results render in a table below the editor, with a **row counter**
-directly above the grid. The counter is display-only: it is never a
-column of the result and never lands in an export. The result table is a
+directly above the grid, followed by how long the query took in
+brackets (`1234 result rows (84 ms)`, switching to seconds past one
+second). The timing covers the query itself, and for a query run on a
+live connection it covers the round trip to the server. A query that
+fails is timed too, so a slow statement that ends in an error still
+tells you where the minute went. The counter is display-only: it is
+never a column of the result and never lands in an export. The result table is a
 separate `egui_extras::TableBuilder` from the main
 [Table view](table-view.md) (no edit overlay, no row selection
 beyond click-to-select-text).

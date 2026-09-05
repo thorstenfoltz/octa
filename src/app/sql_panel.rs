@@ -61,6 +61,9 @@ pub(crate) struct SqlServerJob {
     pub(crate) tab_idx: usize,
     pub(crate) conn_id: String,
     pub(crate) query: String,
+    /// When the query was sent, so the history can record what it cost. The
+    /// wall-clock round trip is the number a user cares about here.
+    pub(crate) started: std::time::Instant,
     pub(crate) result: std::sync::Arc<std::sync::Mutex<Option<ServerQueryDone>>>,
     /// Cancel handle delivered by the worker once the connection is up.
     pub(crate) cancel: SharedCancel,
@@ -159,44 +162,33 @@ impl OctaApp {
                 },
             )
         };
+        // Docked left or right the panel divides the width, top or bottom the
+        // height, and either way it must leave the table something to live in
+        // once the window is small. `panel_fit::clamp` hands back the same
+        // numbers on a normal window.
+        let side = matches!(
+            position,
+            ui::settings::SqlPanelPosition::Left | ui::settings::SqlPanelPosition::Right
+        );
+        let (available, want_default, want_min) = if side {
+            (parent_ui.available_width(), 440.0, 280.0)
+        } else {
+            (parent_ui.available_height(), 280.0, 140.0)
+        };
+        let (default_size, min_size) = ui::panel_fit::clamp(available, want_default, want_min);
+        let mut body = |ui: &mut egui::Ui| {
+            sql_action = render(ui, tab, autocomplete, row_limit);
+        };
         match position {
-            ui::settings::SqlPanelPosition::Bottom => {
-                egui::Panel::bottom("sql_panel")
-                    .resizable(true)
-                    .default_size(280.0)
-                    .min_size(140.0)
-                    .show(parent_ui, |ui| {
-                        sql_action = render(ui, tab, autocomplete, row_limit);
-                    });
-            }
-            ui::settings::SqlPanelPosition::Top => {
-                egui::Panel::top("sql_panel")
-                    .resizable(true)
-                    .default_size(280.0)
-                    .min_size(140.0)
-                    .show(parent_ui, |ui| {
-                        sql_action = render(ui, tab, autocomplete, row_limit);
-                    });
-            }
-            ui::settings::SqlPanelPosition::Left => {
-                egui::Panel::left("sql_panel")
-                    .resizable(true)
-                    .default_size(440.0)
-                    .min_size(280.0)
-                    .show(parent_ui, |ui| {
-                        sql_action = render(ui, tab, autocomplete, row_limit);
-                    });
-            }
-            ui::settings::SqlPanelPosition::Right => {
-                egui::Panel::right("sql_panel")
-                    .resizable(true)
-                    .default_size(440.0)
-                    .min_size(280.0)
-                    .show(parent_ui, |ui| {
-                        sql_action = render(ui, tab, autocomplete, row_limit);
-                    });
-            }
+            ui::settings::SqlPanelPosition::Bottom => egui::Panel::bottom("sql_panel"),
+            ui::settings::SqlPanelPosition::Top => egui::Panel::top("sql_panel"),
+            ui::settings::SqlPanelPosition::Left => egui::Panel::left("sql_panel"),
+            ui::settings::SqlPanelPosition::Right => egui::Panel::right("sql_panel"),
         }
+        .resizable(true)
+        .default_size(default_size)
+        .min_size(min_size)
+        .show(parent_ui, &mut body);
         if sql_action.clear {
             let tab = &mut self.tabs[self.active_tab];
             tab.sql_result = None;
@@ -293,6 +285,12 @@ impl OctaApp {
         if let Some(name) = sql_action.delete_snippet {
             self.sql_snippets.retain(|s| s.name != name);
             super::sql_snippets::save(&self.sql_snippets);
+        }
+        if sql_action.clear_history {
+            let tab = &mut self.tabs[self.active_tab];
+            let scope = sql_history_scope(tab);
+            tab.sql_history.clear();
+            octa::sql::history::clear(&scope);
         }
         if sql_action.open_snippets_window {
             self.sql_snippets_window_open = !self.sql_snippets_window_open;
@@ -417,6 +415,7 @@ impl OctaApp {
         let result = std::sync::Arc::new(std::sync::Mutex::new(None));
         let cancel = std::sync::Arc::new(std::sync::Mutex::new(None));
         self.sql_server_job = Some(SqlServerJob {
+            started: std::time::Instant::now(),
             tab_idx,
             conn_id: conn.id.clone(),
             query: query.clone(),
@@ -429,6 +428,8 @@ impl OctaApp {
         std::thread::spawn(move || {
             let done = (|| -> Result<ServerQueryDone, String> {
                 let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
+                let ssh_secret =
+                    octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &settings);
                 if octa::sql::is_mutation(&query) {
                     octa::db::ensure_write_allowed(&conn, Some(&query))
                         .map_err(|e| format!("{e:#}"))?;
@@ -438,7 +439,7 @@ impl OctaApp {
                 // statement that was just cancelled. Single attempt; drop the
                 // cached connector on failure so the next run reconnects.
                 let (shared, _) = cache
-                    .get_or_connect(&conn, secret.as_deref())
+                    .get_or_connect(&conn, secret.as_deref(), ssh_secret.as_deref())
                     .map_err(|e| format!("{e:#}"))?;
                 let res = {
                     let mut c = super::db_conn_cache::lock_connector(&shared);
@@ -491,6 +492,10 @@ impl OctaApp {
             return;
         };
         let job = self.sql_server_job.take().expect("job checked above");
+        // Read before the tab borrow: `record_sql_history` runs while the tab
+        // is held mutably.
+        let history_on = self.settings.sql_history_enabled;
+        let history_limit = self.settings.sql_history_limit;
         // Only apply if the originating tab still shows the same connection
         // (tabs may have been closed/reordered while the query ran).
         let Some(tab) = self.tabs.get_mut(job.tab_idx).filter(|t| {
@@ -504,15 +509,31 @@ impl OctaApp {
             ));
             return;
         };
+        tab.sql_last_duration_ms = Some(job.started.elapsed().as_millis() as u64);
         match done {
             ServerQueryDone::Rows(t) => {
+                let rows = t.row_count();
                 tab.sql_result = Some(*t);
                 tab.sql_error = None;
-                record_sql_history(tab, &job.query);
+                record_sql_history(
+                    tab,
+                    &job.query,
+                    job.started,
+                    rows,
+                    history_on,
+                    history_limit,
+                );
                 tab.sql_last_query = job.query;
             }
             ServerQueryDone::Affected(n) => {
-                record_sql_history(tab, &job.query);
+                record_sql_history(
+                    tab,
+                    &job.query,
+                    job.started,
+                    n as usize,
+                    history_on,
+                    history_limit,
+                );
                 tab.sql_result = None;
                 tab.sql_error = None;
                 self.status_message = Some((
@@ -542,6 +563,7 @@ impl OctaApp {
             return;
         };
         let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &self.settings);
+        let ssh_secret = octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &self.settings);
         let tab = &mut self.tabs[self.active_tab];
         ensure_workspace(tab);
         let base = octa::sql::sanitize_sql_name(&conn.name);
@@ -553,7 +575,7 @@ impl OctaApp {
             .collect();
         let alias = octa::sql::dedupe_sql_name(&base, |s| existing_aliases.contains(s));
         let ws = tab.sql_workspace.as_mut().expect("ensured");
-        match ws.attach_db(&conn, secret.as_deref(), &alias) {
+        match ws.attach_db(&conn, secret.as_deref(), ssh_secret.as_deref(), &alias) {
             Ok(att) => {
                 tab.sql_workspace_open = true;
                 let label = if att.native { "" } else { " (fallback)" };
@@ -575,6 +597,8 @@ impl OctaApp {
         let diff_enabled = self.settings.sql_row_diff_highlight_enabled;
         let diff_secs = self.settings.sql_row_diff_highlight_secs;
         let readonly = self.is_readonly();
+        let history_on = self.settings.sql_history_enabled;
+        let history_limit = self.settings.sql_history_limit;
         let tab = &mut self.tabs[self.active_tab];
         let query = tab.sql_query.clone();
         // Refresh `data` from the live edited table on every run so the
@@ -582,6 +606,7 @@ impl OctaApp {
         let mut snapshot = tab.table.clone();
         snapshot.apply_edits();
         ensure_workspace(tab);
+        let started;
         let outcome = {
             let ws = tab.sql_workspace.as_mut().expect("workspace just ensured");
             // An empty tab registers no `data` (zero columns); attached
@@ -592,14 +617,19 @@ impl OctaApp {
                 tab.sql_error = Some(e.to_string());
                 return;
             }
+            started = std::time::Instant::now();
             ws.execute(&query)
         };
+        // Before the match, so a failed query is timed too: the interesting
+        // case is the one that ran for a minute and then errored.
+        tab.sql_last_duration_ms = Some(started.elapsed().as_millis() as u64);
         match outcome {
             Ok(qo) => match qo.kind {
                 octa::sql::QueryKind::Select => {
+                    let rows = qo.table.row_count();
                     tab.sql_result = Some(qo.table);
                     tab.sql_error = None;
-                    record_sql_history(tab, &query);
+                    record_sql_history(tab, &query, started, rows, history_on, history_limit);
                     tab.sql_last_query = query;
                 }
                 octa::sql::QueryKind::Mutation => {
@@ -638,7 +668,14 @@ impl OctaApp {
                             original_columns: meta.original_columns.clone(),
                         });
                     }
-                    record_sql_history(tab, &query);
+                    record_sql_history(
+                        tab,
+                        &query,
+                        started,
+                        qo.affected.unwrap_or(0),
+                        history_on,
+                        history_limit,
+                    );
                     // Briefly highlight the cells/rows the mutation changed.
                     apply_sql_diff_highlight(tab, &snapshot, &mut mutated, diff_enabled, diff_secs);
                     tab.table = mutated;
@@ -929,17 +966,43 @@ fn workspace_snapshot(tab: &TabState) -> (Vec<WorkspaceRow>, Vec<WorkspaceAttach
 /// Construct the per-tab SQL workspace on first use, registering the tab's
 /// current table as `data`. Errors leave `tab.sql_workspace` as None and
 /// surface through `tab.sql_error`.
-/// Record an executed query in the tab's session history (most-recent first,
-/// de-duplicated, capped). Skips blank queries.
-fn record_sql_history(tab: &mut TabState, query: &str) {
-    const SQL_HISTORY_CAP: usize = 30;
-    let q = query.trim();
-    if q.is_empty() {
-        return;
+/// Which stored history a tab's queries belong to: the connection for a
+/// database tab, the file for a file-backed workspace, and one shared scratch
+/// list for a tab that has neither.
+pub(crate) fn sql_history_scope(tab: &TabState) -> String {
+    if let Some(origin) = tab.db_origin.as_ref() {
+        return octa::sql::history::db_scope(&origin.conn_id);
     }
-    tab.sql_history.retain(|h| h != q);
-    tab.sql_history.insert(0, q.to_string());
-    tab.sql_history.truncate(SQL_HISTORY_CAP);
+    match tab.table.source_path.as_deref() {
+        Some(path) => octa::sql::history::file_scope(path),
+        None => "scratch".to_string(),
+    }
+}
+
+/// Record an executed query, in the tab's list and in the persisted history.
+/// Skips blank queries; a no-op when the user has history switched off.
+///
+/// `enabled` and `limit` are read from settings by the caller, because every
+/// call site already holds the tab mutably.
+fn record_sql_history(
+    tab: &mut TabState,
+    query: &str,
+    started: std::time::Instant,
+    rows: usize,
+    enabled: bool,
+    limit: usize,
+) {
+    let entry = octa::sql::history::SqlHistoryEntry {
+        query: query.trim().to_string(),
+        at_unix: octa::sql::history::now_unix(),
+        duration_ms: started.elapsed().as_millis() as u64,
+        rows,
+    };
+    let scope = sql_history_scope(tab);
+    // The tab's copy is what the History menu draws; the store is what survives
+    // closing it. Same fold, so the two never diverge.
+    octa::sql::history::fold(&mut tab.sql_history, entry.clone(), limit);
+    octa::sql::history::record(&scope, entry, enabled, limit);
 }
 
 /// Mark the cells/rows that a SQL mutation changed (positional diff of the
@@ -989,6 +1052,12 @@ fn apply_sql_diff_highlight(
 fn ensure_workspace(tab: &mut TabState) {
     if tab.sql_workspace.is_some() {
         return;
+    }
+    // First use of this tab's workspace: pull in whatever was recorded against
+    // its connection or file previously, so the History menu is useful from the
+    // moment the panel opens rather than only after this session's first run.
+    if tab.sql_history.is_empty() {
+        tab.sql_history = octa::sql::history::load(&sql_history_scope(tab));
     }
     match octa::sql::SqlWorkspace::new() {
         Ok(mut ws) => {

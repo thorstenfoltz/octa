@@ -106,9 +106,12 @@ fn db_engine(name: &str) -> Option<DbEngine> {
         "postgres" | "postgresql" | "pg" => Some(DbEngine::Postgres),
         "mysql" | "mariadb" => Some(DbEngine::MySql),
         "mssql" | "sqlserver" => Some(DbEngine::Mssql),
+        "oracle" => Some(DbEngine::Oracle),
         "redshift" => Some(DbEngine::Redshift),
         "clickhouse" => Some(DbEngine::ClickHouse),
         "exasol" => Some(DbEngine::Exasol),
+        "trino" => Some(DbEngine::Trino),
+        "athena" => Some(DbEngine::Athena),
         "snowflake" => Some(DbEngine::Snowflake),
         "databricks" => Some(DbEngine::Databricks),
         "bigquery" | "bq" => Some(DbEngine::BigQuery),
@@ -140,6 +143,7 @@ const DB_KEYS: &[&str] = &[
     "database",
     "user",
     "allow_writes",
+    "query_timeout",
 ];
 
 /// Turn the value of `--secret-env`'s variable into a [`CloudSecret`].
@@ -223,7 +227,8 @@ pub fn add(spec: String, secret_env: Option<String>) -> Result<()> {
     } else {
         bail!(
             "unknown kind `{kind}`. Cloud: s3, azure, gcs. Database: postgres, mysql, mssql, \
-             redshift, clickhouse, exasol, snowflake, databricks, bigquery."
+             oracle, redshift, clickhouse, exasol, trino, athena, snowflake, \
+             databricks, bigquery."
         );
     };
 
@@ -326,22 +331,36 @@ fn add_db(
         .map(|i| settings.db_connections[i].id.clone())
         .unwrap_or_else(DbConnection::fresh_id);
 
-    let conn = DbConnection {
-        id: id.clone(),
-        name: name.to_string(),
-        engine,
-        host: required(spec, "host")?,
-        port,
-        database: opt(spec, "database").unwrap_or_default(),
-        username: opt(spec, "user").unwrap_or_default(),
-        // Password is the only auth a spec can express: every other method
-        // (AWS IAM, Azure AD, key-pair JWT, browser sign-in) needs fields and
-        // interactive steps that do not belong in a one-line flag.
-        auth: DbAuth::Password,
-        allow_writes: flag(spec, "allow_writes", false)?,
-        oauth_client_id: None,
-        oauth_tenant: None,
-    };
+    let conn =
+        DbConnection {
+            id: id.clone(),
+            name: name.to_string(),
+            engine,
+            host: required(spec, "host")?,
+            port,
+            database: opt(spec, "database").unwrap_or_default(),
+            username: opt(spec, "user").unwrap_or_default(),
+            // Password is the only auth a spec can express: every other method
+            // (AWS IAM, Azure AD, key-pair JWT, browser sign-in) needs fields and
+            // interactive steps that do not belong in a one-line flag.
+            auth: DbAuth::Password,
+            allow_writes: flag(spec, "allow_writes", false)?,
+            oauth_client_id: None,
+            oauth_tenant: None,
+            // Same reasoning as `auth`: a jump host needs a host, a user, a key
+            // path and possibly a passphrase in the keyring. Configure it in
+            // Settings -> Databases; the CLI then uses it like any other surface.
+            athena_workgroup: None,
+            athena_output_location: None,
+            query_timeout_secs: match opt(spec, "query_timeout") {
+                Some(v) => v.parse::<u32>().ok().filter(|n| *n >= 1).with_context(|| {
+                    format!("`query_timeout={v}` is not a whole number of seconds")
+                })?,
+                None => octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
+            },
+            ssh: None,
+            tunnel_port: None,
+        };
     let verb = if existing.is_some() {
         "updated"
     } else {

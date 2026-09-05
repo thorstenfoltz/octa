@@ -44,6 +44,23 @@ impl ChatProvider for Anthropic {
                 Err(_) => return Ok(false),
             };
             match v.get("type").and_then(Value::as_str).unwrap_or("") {
+                // The only place Anthropic reports the prompt size. Cached
+                // tokens are counted too: `input_tokens` excludes whatever the
+                // cache served, and the meter means "tokens this turn sent",
+                // not "tokens we were charged full price for".
+                "message_start" => {
+                    let u = &v["message"]["usage"];
+                    let field = |k: &str| u[k].as_u64().unwrap_or(0);
+                    let total = field("input_tokens")
+                        + field("cache_creation_input_tokens")
+                        + field("cache_read_input_tokens");
+                    if total > 0 {
+                        sink(ChatEvent::Usage {
+                            input_tokens: total as u32,
+                            output_tokens: 0,
+                        });
+                    }
+                }
                 "content_block_start" => {
                     let idx = v["index"].as_i64().unwrap_or(0);
                     let cb = &v["content_block"];
@@ -211,8 +228,35 @@ fn build_body(
         }
     }
 
+    // Prompt caching. Anthropic hashes the request prefix in a fixed order -
+    // tools, then system, then messages - and a `cache_control` marker says
+    // "cache everything up to here". One marker on the system block therefore
+    // covers the whole tool payload as well, which is the part that repeats
+    // unchanged on every request of every turn and dwarfs everything else.
+    //
+    // A second marker on the last message caches the conversation so far, so a
+    // long chat stops re-reading its own history at full price. Two markers is
+    // well inside Anthropic's limit of four.
+    //
+    // Nothing here changes what the model sees, and an entry expiring (five
+    // minutes idle) costs a normal uncached request, so there is no failure
+    // mode to handle.
+    let mut wire_messages = wire_messages;
     if !system.is_empty() {
-        body.insert("system".into(), json!(system));
+        body.insert(
+            "system".into(),
+            json!([{
+                "type": "text",
+                "text": system,
+                "cache_control": { "type": "ephemeral" },
+            }]),
+        );
+    }
+    if let Some(last) = wire_messages.last_mut()
+        && let Some(block) = last["content"].as_array_mut().and_then(|b| b.last_mut())
+        && let Some(obj) = block.as_object_mut()
+    {
+        obj.insert("cache_control".into(), json!({ "type": "ephemeral" }));
     }
     body.insert("messages".into(), json!(wire_messages));
     if !wire_tools.is_empty() {
@@ -378,5 +422,63 @@ mod tests {
             assert!(body.get("thinking").is_none());
             assert!(body.get("output_config").is_none());
         }
+    }
+
+    /// The cache marker sits on the system block, which in Anthropic's fixed
+    /// prefix order (tools, system, messages) also covers the tool payload -
+    /// the part that repeats unchanged on every request and dwarfs the rest.
+    #[test]
+    fn the_system_block_carries_the_cache_marker() {
+        let tools = [ToolDef {
+            name: "read_table".into(),
+            description: "read it".into(),
+            input_schema: json!({ "type": "object", "properties": {} }),
+        }];
+        let body = build_body(&cfg_with_reasoning(None, None), "sys", &[], &tools).unwrap();
+        assert_eq!(body["system"][0]["text"], json!("sys"));
+        assert_eq!(
+            body["system"][0]["cache_control"]["type"],
+            json!("ephemeral")
+        );
+        // The tools ride in front of it, uncached in their own right.
+        assert_eq!(body["tools"][0]["name"], json!("read_table"));
+        assert!(body["tools"][0].get("cache_control").is_none());
+    }
+
+    /// The second marker rides the last message, so a long conversation stops
+    /// re-reading its own history at full price. Only the last one gets it.
+    #[test]
+    fn the_last_message_carries_the_rolling_marker() {
+        let msgs = [
+            Message {
+                role: Role::User,
+                blocks: vec![ContentBlock::Text {
+                    text: "first".into(),
+                }],
+            },
+            Message {
+                role: Role::User,
+                blocks: vec![ContentBlock::Text {
+                    text: "second".into(),
+                }],
+            },
+        ];
+        let body = build_body(&cfg_with_reasoning(None, None), "sys", &msgs, &[]).unwrap();
+        assert!(
+            body["messages"][0]["content"][0]
+                .get("cache_control")
+                .is_none()
+        );
+        assert_eq!(
+            body["messages"][1]["content"][0]["cache_control"]["type"],
+            json!("ephemeral")
+        );
+    }
+
+    /// No system prompt means no system field at all, marker or not.
+    #[test]
+    fn an_empty_system_prompt_sends_no_system_field() {
+        let body = build_body(&cfg_with_reasoning(None, None), "", &[], &[]).unwrap();
+        assert!(body.get("system").is_none());
     }
 }

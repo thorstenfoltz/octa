@@ -54,6 +54,7 @@
     "nonwords.misc": true,
     "oxymorons.misc": true,
     "psychology.misc": true,
+    "psychology.p_equals_zero": false,
     "redundancy.misc": true,
     "redundancy.ras_syndrome": true,
     "skunked_terms.misc": true,

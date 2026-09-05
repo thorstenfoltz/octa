@@ -20,6 +20,7 @@ use octa::formats::FormatRegistry;
 
 use super::OutputFormat;
 use super::output::write_table;
+use super::progress::{Progress, short_name};
 
 /// The flags for one run, bundled so the entry point stays under clippy's
 /// argument-count threshold, matching `cli::fuzzy_join::Args`.
@@ -94,13 +95,24 @@ pub fn run(
         overwrite,
     };
     let plan = plan_harmonise(&files, &target, &opts);
+    let bar = std::cell::RefCell::new(Progress::start(Some(plan.actions.len())));
     let report = run_harmonise(
         &plan,
         &opts,
-        &|_, _| {},
+        // `run_harmonise` reports `done + 1` while walking `plan.actions` in
+        // order, so index `done` names the file it just finished.
+        &|done, _| {
+            let name = plan
+                .actions
+                .get(done - 1)
+                .map(|a| short_name(&a.input))
+                .unwrap_or_default();
+            bar.borrow_mut().item(done, &name);
+        },
         &std::sync::atomic::AtomicBool::new(false),
         write_opts,
     );
+    bar.borrow_mut().finish();
 
     write_table(&report_table(&report), format)?;
 

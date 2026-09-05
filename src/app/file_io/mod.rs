@@ -37,6 +37,22 @@ fn format_is_text_fallback_eligible(format_name: &str) -> bool {
     )
 }
 
+/// Whether a text file that just opened is really a database dump, so the load
+/// can point at **View -> Reopen as -> SQL dump**.
+///
+/// Deliberately shallow: only the first few kilobytes, and only the two
+/// statements every dump starts with. A `.sql` holding queries rather than data
+/// has neither and stays quiet.
+fn looks_like_sql_dump(raw: Option<&str>) -> bool {
+    let Some(text) = raw else { return false };
+    let head: String = text
+        .chars()
+        .take(8192)
+        .collect::<String>()
+        .to_ascii_uppercase();
+    head.contains("INSERT INTO") && head.contains("CREATE TABLE")
+}
+
 /// Files at or above this size read on a background thread so the window stays
 /// responsive and a spinner can show. Smaller files read inline (instant, no
 /// spinner flash).
@@ -104,6 +120,20 @@ pub(crate) fn shift_formula_row(formula: &str, target_row: usize) -> String {
         }
     }
     result
+}
+
+/// A file's modification time and size, the pair used to notice that
+/// something else rewrote it while a tab had it open.
+///
+/// Not a content hash: hashing a multi-gigabyte Parquet file on every Save
+/// would cost more than the save. `(mtime, len)` misses only a rewrite that
+/// lands in the same clock tick AND keeps the byte count identical, which is
+/// not the case this guards against (a pipeline rerun, an export, a
+/// colleague's edit all move one or both). `None` when the file cannot be
+/// stat-ed, which includes not existing.
+pub(crate) fn file_stamp(path: &std::path::Path) -> Option<(std::time::SystemTime, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.modified().ok()?, meta.len()))
 }
 
 pub(crate) fn detect_delimiter_from_file(path: &std::path::Path) -> u8 {
@@ -623,8 +653,17 @@ impl OctaApp {
     }
 
     /// Load a specific named table from a DB-style multi-table source.
-    pub(crate) fn load_table(&mut self, path: std::path::PathBuf, table_name: String) {
-        let reader = match self.registry.reader_for_path(&path) {
+    pub(crate) fn load_table(
+        &mut self,
+        path: std::path::PathBuf,
+        table_name: String,
+        reader_name: Option<&str>,
+    ) {
+        // `reader_name` is the picker's own `format_name`. It matters for a
+        // reader the path alone would never resolve to: a SQL dump lives in a
+        // `.sql`, which by extension is plain text.
+        let by_name = reader_name.and_then(|n| self.registry.reader_by_name(n));
+        let reader = match by_name.or_else(|| self.registry.reader_for_path(&path)) {
             Some(r) => r,
             None => return,
         };
@@ -645,6 +684,9 @@ impl OctaApp {
     /// Wire a freshly-loaded `DataTable` into a tab and run all the post-load
     /// setup (raw-content load, view-mode pick, recent-files update, etc.).
     pub(crate) fn apply_loaded_table(&mut self, path: std::path::PathBuf, table: DataTable) {
+        // Kept for the very end of this function: `path` itself is moved into
+        // the tab on the way through.
+        let loaded_path = path.clone();
         let current_empty = self.tabs[self.active_tab].table.col_count() == 0
             && !self.tabs[self.active_tab].is_modified();
         if !current_empty {
@@ -730,6 +772,19 @@ impl OctaApp {
             tab.raw_color_enabled = true;
             tab.raw_file_size = Some(file_size);
             tab.raw_perf_prompt_resolved = false;
+
+            // A database dump opens as text on purpose, but text is not what
+            // the person who double-clicked it wanted to see, and nothing else
+            // mentions that the dump reader exists. Say so once, here, rather
+            // than making `.sql` guess.
+            if tab.table.format_name.as_deref() == Some("Text")
+                && looks_like_sql_dump(tab.raw_content.as_deref())
+            {
+                self.status_message = Some((
+                    octa::i18n::t("sqldump.opened_as_text"),
+                    std::time::Instant::now(),
+                ));
+            }
 
             // Reset any EPUB side-state - populated below for actual EPUB
             // files, cleared here so a non-EPUB tab can't inherit it on
@@ -868,6 +923,20 @@ impl OctaApp {
         // column is already typed and out of reach; the parser's grouping
         // guard rejects dotted dates anyway, so the two passes cannot fight.
         self.run_number_inference_pass(self.active_tab);
+
+        // A dump is replayed statement by statement, and a statement that
+        // would not run leaves rows or a whole table missing. Said once, here,
+        // so every route into a dump (picker, Open as, Reopen as) reports it.
+        if self.tabs[self.active_tab].table.format_name.as_deref() == Some("SQL dump")
+            && let Some(text) =
+                octa::formats::sql_dump_reader::report_for(&loaded_path).and_then(|r| r.banner())
+        {
+            self.tabs[self.active_tab].parse_error_banner = Some(text);
+        }
+
+        // What the tab believes is on disk. Every route that opens a file
+        // lands here, reload included, so this is the one place it is taken.
+        self.tabs[self.active_tab].file_stamp = file_stamp(&loaded_path);
     }
 
     /// Open an empty (0-byte) file as a placeholder tab. Skips the format
@@ -884,6 +953,7 @@ impl OctaApp {
         let tab = &mut self.tabs[self.active_tab];
         let mut blank = DataTable::empty();
         blank.source_path = Some(path.to_string_lossy().to_string());
+        tab.file_stamp = file_stamp(&path);
         tab.table = blank;
         tab.table_state = TableViewState::default();
         tab.empty_file_placeholder = true;
@@ -900,5 +970,49 @@ impl OctaApp {
             ),
             std::time::Instant::now(),
         ));
+    }
+}
+
+#[cfg(test)]
+mod sql_dump_hint_tests {
+    use super::looks_like_sql_dump;
+
+    #[test]
+    fn a_dump_is_recognised_and_a_query_file_is_not() {
+        let dump = "BEGIN TRANSACTION;\ncreate table \"t\" (a TEXT);\ninsert into t VALUES('x');\n";
+        assert!(looks_like_sql_dump(Some(dump)), "case is ignored");
+        // A .sql holding queries has no rows to load, so it stays quiet.
+        assert!(!looks_like_sql_dump(Some("SELECT * FROM t WHERE a = 1;")));
+        // So does a schema-only dump: there is nothing to show but the schema.
+        assert!(!looks_like_sql_dump(Some("CREATE TABLE t (a TEXT);")));
+        // A file too big to hold in the raw view reports nothing at all.
+        assert!(!looks_like_sql_dump(None));
+    }
+}
+
+#[cfg(test)]
+mod file_stamp_tests {
+    use super::file_stamp;
+
+    /// The stamp has to be stable for an untouched file and move for a
+    /// rewritten one, or the Save guard either nags on every save or never
+    /// fires at all.
+    #[test]
+    fn a_stamp_is_stable_until_the_file_is_rewritten() {
+        let f = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(f.path(), b"one,two\n1,2\n").unwrap();
+        let first = file_stamp(f.path()).expect("stamped");
+        assert_eq!(file_stamp(f.path()), Some(first), "nothing touched it");
+
+        std::fs::write(f.path(), b"one,two\n1,2\n3,4\n").unwrap();
+        assert_ne!(file_stamp(f.path()), Some(first), "rewritten behind us");
+    }
+
+    /// A file that is gone stamps as `None`, which the Save guard reads as
+    /// "nothing to lose, recreate it" rather than as a conflict.
+    #[test]
+    fn a_missing_file_has_no_stamp() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(file_stamp(&dir.path().join("not-here.csv")), None);
     }
 }

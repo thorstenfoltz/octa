@@ -10,7 +10,7 @@
 use std::path::Path;
 
 use crate::data::{CellValue, ColumnInfo, DataTable};
-use crate::formats::{FormatRegistry, initial_load_rows};
+use crate::formats::initial_load_rows;
 
 /// Maximum value the caller can request via `sample_rows`. Higher
 /// values are silently clamped. Keeps an MCP / CLI caller from
@@ -65,14 +65,16 @@ pub fn describe_file(
     table: Option<&str>,
     sample_rows: Option<usize>,
 ) -> anyhow::Result<FileDescription> {
-    let registry = FormatRegistry::new();
-    let reader = registry
-        .reader_for_path(path)
-        .ok_or_else(|| anyhow::anyhow!("no reader available for {}", path.display()))?;
-    let dt: DataTable = match table {
-        Some(name) => reader.read_table(path, name)?,
-        None => reader.read_file(path)?,
-    };
+    // Through `read_table_auto`, not the registry directly: that is the one
+    // entry point that decompresses a `.csv.gz` / `.jsonl.zst` first. Reaching
+    // for `reader_for_path` here meant `--describe` (and the MCP tool beside
+    // it) reported a compressed file as four lines of binary text while
+    // `--head` on the same path read it correctly.
+    let dt: DataTable = crate::formats::read_table_auto(
+        path,
+        table,
+        crate::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES,
+    )?;
 
     let cap = initial_load_rows();
     let row_count = dt.row_count();

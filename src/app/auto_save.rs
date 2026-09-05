@@ -110,6 +110,13 @@ impl OctaApp {
         if tab.table_state.editing_cell.is_some() {
             return false;
         }
+        // Something else rewrote the file: the manual save would raise the
+        // overwrite prompt, and a timer has no business popping a modal the
+        // user did not ask for. Skipping leaves the tab modified, so the
+        // question is put when they next save by hand.
+        if self.source_changed_on_disk(idx) {
+            return false;
+        }
         true
     }
 }

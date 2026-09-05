@@ -1,6 +1,11 @@
 # cargo-deny configuration. Run via:
 #
-#     cargo deny check licenses
+#     cargo deny --all-features check licenses advisories
+#
+# Two gates. The license check protects Octa's MIT license; the advisory check
+# fails the build on a RUSTSEC advisory. Before the advisory gate existed, the
+# three unpatched rustls-webpki advisories that forced the tiberius fork (see
+# `[patch.crates-io]` in Cargo.toml) were found by hand, which is not a process.
 #
 # The license check is the gate for Octa's MIT license. Adding a crate whose
 # license is not in `allow` will fail CI. Copyleft licenses (AGPL, GPL, LGPL,
@@ -37,7 +42,40 @@ allow = [
 # composite that the SPDX matcher splits awkwardly. None today.
 exceptions = []
 
+[advisories]
+# `version` is no longer read by cargo-deny; every vulnerability, unsound and
+# notice advisory errors unconditionally. Ignore a specific one by adding it to
+# `ignore` below WITH a reason naming the crate and the removal condition, the
+# way the tiberius patch block in Cargo.toml is documented.
+ignore = [
+  # RUSTSEC-2023-0071 (Marvin Attack): `rsa` 0.9 leaks private-key information
+  # through a non-constant-time implementation. There is no patched release -
+  # the advisory itself says "no safe upgrade is available", 0.10 is still a
+  # release candidate, and `sqlx-exasol-impl` pins 0.9 transitively, so bumping
+  # octa's direct dep would add a duplicate rather than clear the advisory.
+  #
+  # Not exploitable in octa's usage. Marvin is a chosen-ciphertext timing oracle
+  # against private-key operations an attacker can reach over a network. octa
+  # uses `rsa` in exactly one place, `src/db/auth.rs`: parsing the user's own
+  # Snowflake PEM, signing an auth JWT with it, and fingerprinting the public
+  # key. All local, on a key the user supplies, with no attacker-submitted
+  # ciphertext and no timing channel to observe.
+  #
+  # REMOVE THIS when `rsa` ships the constant-time implementation tracked at
+  # https://github.com/RustCrypto/RSA/issues/626 and `sqlx-exasol` picks it up.
+  # Recheck with: cargo deny --all-features check advisories
+  { id = "RUSTSEC-2023-0071", reason = "no patched `rsa` release exists; octa only signs its own Snowflake JWT locally, which is not a network-observable timing oracle" },
+]
+# Default is "all", which fails on any unmaintained crate anywhere in the tree
+# including ones we cannot influence. "workspace" limits it to crates octa
+# depends on directly, which are the ones we can actually act on.
+unmaintained = "workspace"
+
 [bans]
+# Deliberately allowed. The tree carries ~90 duplicated crates and almost none
+# are ours to fix: arrow 57 via `ambers`, strum 0.27 via `apache-avro`/`duckdb`,
+# base64 0.21 via `ssri`, zip 6 via `libduckdb-sys`. Turning this on would be
+# pure noise. Duplicates we CAN remove get removed by bumping the direct dep.
 multiple-versions = "allow"
 
 [sources]

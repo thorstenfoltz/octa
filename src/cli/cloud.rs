@@ -39,6 +39,7 @@ fn table(columns: Vec<(&str, &str)>, rows: Vec<Vec<CellValue>>) -> DataTable {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }
 

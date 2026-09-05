@@ -120,6 +120,14 @@ fn read_db_side(conn_name: &str, spec: &str) -> anyhow::Result<octa::data::DataT
         .find(|c| c.name == conn_name)
         .ok_or_else(|| anyhow::anyhow!("no saved database connection named '{conn_name}'"))?;
     let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
+    let ssh_secret = octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &settings);
     let (catalog, schema, table) = octa::db::fetch_table::split_qualified(spec);
-    octa::db::fetch_table::fetch_table(conn, secret.as_deref(), catalog.as_deref(), &schema, &table)
+    octa::db::fetch_table::fetch_table(
+        conn,
+        secret.as_deref(),
+        ssh_secret.as_deref(),
+        catalog.as_deref(),
+        &schema,
+        &table,
+    )
 }

@@ -85,7 +85,8 @@ const HIGHLIGHT_WHITELIST: &[&str] = &[
     "js", "jsx", "mjs", "cjs", "ts", "tsx", // JVM family
     "java", "kt", "kts", "scala", "groovy", // Scripting
     "rb", "php", "pl", "lua", "swift", // Data-science neighbours
-    "r", "jl", // Web markup we *do* highlight (no dedicated viewer)
+    "r", "jl",  // SQL: text by default, and the dump reader is opt-in
+    "sql", // Web markup we *do* highlight (no dedicated viewer)
     "html", "htm", "css", "scss", "sass", // Misc
     "tex", "dart", "ex", "exs", // Terraform / HCL - custom syntax bundled in assets/
     "tf", "tfvars", "hcl",

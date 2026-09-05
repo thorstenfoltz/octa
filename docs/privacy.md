@@ -54,8 +54,8 @@ There are a few optional outbound network calls, all of which you control:
   (operating-system keychain where available, otherwise Octa's settings file)
   and are sent only to that provider.
 - **Database connections.** If you add a connection to a database server
-  (PostgreSQL, MySQL, SQL Server, Redshift, ClickHouse, Exasol, Snowflake,
-  Databricks or BigQuery), Octa connects to the server you specify to list
+  (PostgreSQL, MySQL, SQL Server, Oracle, Redshift, ClickHouse, Exasol,
+  Trino, Athena, Snowflake, Databricks or BigQuery), Octa connects to the server you specify to list
   tables and run the queries you write. Passwords and tokens are stored locally
   as above. Where you choose browser or CLI sign-in, authentication goes to
   that vendor's identity service.

@@ -18,7 +18,7 @@ pub const DESCRIPTION: &str = "Read the foreign keys a live database declares, s
 its tables connect without reading a single row. Takes a saved `connection` (see \
 `list_db_connections`), optional `catalog` for Snowflake/Databricks/BigQuery, and `schemas` \
 (default: every schema). Returns `relationships`, each naming the child and parent table and \
-column plus the `constraint` name. Postgres, MySQL, SQL Server and Exasol enforce their foreign \
+column plus the `constraint` name. Postgres, MySQL, SQL Server, Oracle and Exasol enforce their foreign \
 keys, so an edge from those is also true of the rows; Redshift, Snowflake, Databricks and \
 BigQuery accept a declaration and enforce nothing. Pass `measure: true` to read a sample of rows \
 and add `overlap`, `score` and orphan counts both ways round per edge, which is how you find a \
@@ -133,7 +133,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         "connection": conn.name,
         "engine": conn.engine.label(),
         // A declaration and a measurement are different claims, and four of
-        // the nine engines never enforce one.
+        // the ten engines never enforce one.
         "enforced": conn.engine.enforces_foreign_keys(),
         "schemas": schemas,
         "tables": map.nodes.iter().map(|n| &n.name).collect::<Vec<_>>(),

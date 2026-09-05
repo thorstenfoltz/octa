@@ -237,7 +237,7 @@ fn draw_result_table(ui: &mut egui::Ui, table: &DataTable, colors: &ui::theme::T
             ui.close();
         }
     });
-    if area_resp.hovered() && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::C)) {
+    if area_resp.hovered() && octa::ui::text_selection::copy_pressed(ui.ctx()) {
         ui.ctx().copy_text(copy_text);
     }
 }

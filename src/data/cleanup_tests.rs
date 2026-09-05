@@ -272,3 +272,73 @@ fn tidy_snake_case_headers_are_left_alone() {
         "snake_case headers are already tidy"
     );
 }
+
+#[test]
+fn flags_a_column_with_one_value_all_the_way_down() {
+    let t = table(
+        &[("region", "Utf8"), ("amount", "Int64")],
+        vec![
+            vec![CellValue::String("EU".into()), CellValue::Int(1)],
+            vec![CellValue::String("EU".into()), CellValue::Int(2)],
+            vec![CellValue::String("EU".into()), CellValue::Int(3)],
+        ],
+    );
+    let found = scan(&t);
+    let constant: Vec<&Suggestion> = found
+        .iter()
+        .filter(|s| matches!(s.kind, CleanupKind::ConstantColumn))
+        .collect();
+    assert_eq!(constant.len(), 1, "{found:?}");
+    assert_eq!(constant[0].column, Some(0));
+    assert_eq!(constant[0].affected, 3);
+    assert_eq!(constant[0].detail, "EU");
+}
+
+/// The distinction that keeps the two suggestions apart: a column of one value
+/// *and some nulls* is a column with missing values, not a constant one, and
+/// dropping it would throw away the fact that some rows had nothing.
+#[test]
+fn a_column_of_one_value_and_nulls_is_not_constant() {
+    let mut rows = vec![vec![CellValue::String("EU".into())]; 9];
+    rows.push(vec![CellValue::Null]);
+    let t = table(&[("region", "Utf8")], rows);
+    assert!(
+        !scan(&t)
+            .iter()
+            .any(|s| matches!(s.kind, CleanupKind::ConstantColumn)),
+        "nulls mean the column is incomplete, not constant"
+    );
+}
+
+/// A one-row table has every column "constant" by accident, which is not a
+/// finding anyone can act on.
+#[test]
+fn a_single_row_is_not_a_constant_column() {
+    let t = table(
+        &[("region", "Utf8")],
+        vec![vec![CellValue::String("EU".into())]],
+    );
+    assert!(
+        !scan(&t)
+            .iter()
+            .any(|s| matches!(s.kind, CleanupKind::ConstantColumn))
+    );
+}
+
+/// An empty column is empty, not constant: `EmptyColumn` already covers it and
+/// two suggestions for one column would be noise.
+#[test]
+fn an_empty_column_is_not_also_reported_as_constant() {
+    let t = table(&[("note", "Utf8")], vec![vec![CellValue::Null]; 5]);
+    let found = scan(&t);
+    assert!(
+        found
+            .iter()
+            .any(|s| matches!(s.kind, CleanupKind::EmptyColumn))
+    );
+    assert!(
+        !found
+            .iter()
+            .any(|s| matches!(s.kind, CleanupKind::ConstantColumn))
+    );
+}

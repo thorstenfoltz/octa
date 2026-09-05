@@ -56,7 +56,11 @@ impl ClickHouseConnector {
         } else {
             "http"
         };
-        let base_url = format!("{scheme}://{}:{}/", conn.host, conn.port);
+        // Behind a jump host this is the loopback forward. Over plain HTTP
+        // that is all there is to it; over HTTPS the certificate is then
+        // checked against the tunnel endpoint, which is documented.
+        let (dial_host, dial_port) = conn.dial_target();
+        let base_url = format!("{scheme}://{dial_host}:{dial_port}/");
         Ok(Self {
             agent: ureq::Agent::config_builder()
                 .http_status_as_error(false)
@@ -115,10 +119,10 @@ fn post_statement(
         .send(sql)
         .context("posting to ClickHouse")?;
     let status = resp.status();
-    let body = resp
-        .body_mut()
-        .read_to_string()
-        .context("reading ClickHouse response")?;
+    // ClickHouse returns the whole result set in this one response, so the
+    // 10 MB `read_to_string` default would reject any table worth opening.
+    // Same ceiling the other HTTP engines read under.
+    let body = super::rest::read_body_capped(&mut resp).context("reading ClickHouse response")?;
     if !status.is_success() {
         bail!("ClickHouse HTTP {}: {}", status.as_u16(), body.trim());
     }

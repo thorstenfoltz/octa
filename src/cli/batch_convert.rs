@@ -15,6 +15,8 @@ use std::sync::atomic::AtomicBool;
 
 use octa::data::batch_convert::{BatchStatus, plan_batch, run_batch};
 
+use super::progress::{Progress, short_name};
+
 pub fn run(
     inputs: Vec<PathBuf>,
     out_dir: PathBuf,
@@ -30,7 +32,21 @@ pub fn run(
     })?;
 
     let plan = plan_batch(&inputs, &out_dir, &target_ext, overwrite);
-    let report = run_batch(plan, &|_, _| {}, &AtomicBool::new(false), &opts);
+    // The progress callback reports a count, not a name, so keep the plan's
+    // file names beside it: `run_batch` walks the plan in order and reports
+    // `done + 1`, so index `done` is the item it just finished.
+    let names: Vec<String> = plan.iter().map(|i| short_name(&i.input)).collect();
+    let bar = std::cell::RefCell::new(Progress::start(Some(plan.len())));
+    let report = run_batch(
+        plan,
+        &|done, _| {
+            let name = names.get(done - 1).map(String::as_str).unwrap_or("");
+            bar.borrow_mut().item(done, name);
+        },
+        &AtomicBool::new(false),
+        &opts,
+    );
+    bar.borrow_mut().finish();
 
     for item in &report.items {
         let status = match &item.status {

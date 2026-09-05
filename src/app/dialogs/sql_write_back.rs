@@ -456,7 +456,16 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
                 | octa::db::DbEngine::Exasol
                 | octa::db::DbEngine::BigQuery => conn.database.clone(),
                 octa::db::DbEngine::Mssql => "dbo".to_string(),
+                // Oracle's default schema is the connecting user's own, and
+                // the catalog stores it folded to upper case.
+                octa::db::DbEngine::Oracle => conn.username.to_uppercase(),
                 octa::db::DbEngine::ClickHouse => "default".to_string(),
+                // Trino names no schema by default; its connectors differ, and
+                // the write-back dialog asks for one anyway.
+                octa::db::DbEngine::Trino => "default".to_string(),
+                // Athena's schema is a Glue database, and the connection names
+                // the one it opened.
+                octa::db::DbEngine::Athena => conn.database.clone(),
                 octa::db::DbEngine::Snowflake => "PUBLIC".to_string(),
                 octa::db::DbEngine::Databricks => "default".to_string(),
             }
@@ -470,11 +479,14 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
         };
         let outcome = octa::db::ensure_write_allowed(&conn, None).and_then(|_| {
             let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &app.settings);
+            let ssh_secret =
+                octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &app.settings);
             // Reused connector; safe to retry on a stale cached connection
             // because write_table runs in one rolled-back-on-error transaction.
-            app.db_conn_cache.with_conn(&conn, secret.as_deref(), |c| {
-                c.write_table(None, &schema, state.table.trim(), mode, &result)
-            })
+            app.db_conn_cache
+                .with_conn(&conn, secret.as_deref(), ssh_secret.as_deref(), |c| {
+                    c.write_table(None, &schema, state.table.trim(), mode, &result)
+                })
         });
         match outcome {
             Ok(report) => {

@@ -255,6 +255,7 @@ fn xml_elements_to_table(elements: &[XmlElement], path: &Path) -> Result<DataTab
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     })
 }
 

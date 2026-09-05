@@ -4,7 +4,9 @@
 
 pub mod anonymize;
 pub mod batch_convert;
+pub mod check_references;
 pub mod check_rules;
+pub mod compare_distributions;
 pub mod compare_schemas;
 pub mod convert;
 pub mod copy_db_table;
@@ -261,12 +263,23 @@ impl ToolContext {
         }
     }
 
+    /// The stored SSH-tunnel credential for a connection, resolved exactly
+    /// like [`Self::db_secret`]. Empty for a connection with no jump host.
+    pub fn db_ssh_secret(&self, conn: &octa::db::DbConnection) -> Option<String> {
+        use octa::ui::settings::db_secrets::get_ssh_secret;
+        match &self.cloud_settings {
+            Some(s) => get_ssh_secret(&conn.id, s),
+            None => get_ssh_secret(&conn.id, &octa::ui::settings::AppSettings::load()),
+        }
+    }
+
     pub fn db_connect(
         &self,
         conn: &octa::db::DbConnection,
     ) -> anyhow::Result<Box<dyn octa::db::DbConnector>> {
         let secret = self.db_secret(conn);
-        octa::db::connect(conn, secret.as_deref())
+        let ssh_secret = self.db_ssh_secret(conn);
+        octa::db::connect(conn, secret.as_deref(), ssh_secret.as_deref())
     }
 
     /// Resolve a [`Source`] into a concrete [`DataTable`]. File sources read

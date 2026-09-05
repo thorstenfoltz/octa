@@ -32,7 +32,7 @@ jobs:
       # it checkout fetches only the LFS pointer stubs: the binary compiles but
       # ships tofu fonts, and the Windows magick step errors "improper image
       # header".
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           lfs: true
 
@@ -100,7 +100,7 @@ jobs:
           tar czf "${DIR}.tar.gz" "$DIR/"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: linux-release
           path: octa-${{ env.VERSION }}-linux-x86_64.tar.gz
@@ -184,7 +184,7 @@ jobs:
           fi
 
       - name: Upload AppImage artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: linux-appimage
           path: Octa-${{ env.VERSION }}-x86_64.AppImage
@@ -201,7 +201,7 @@ jobs:
     steps:
       # lfs: true: see build-linux. The Generate ICO step below feeds
       # assets/octa.png (an LFS object) to magick.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           lfs: true
 
@@ -245,7 +245,7 @@ jobs:
           Compress-Archive -Path "$dir\*" -DestinationPath "octa-$env:VERSION-windows-x86_64.zip"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: windows-release
           path: octa-${{ env.VERSION }}-windows-x86_64.zip
@@ -254,7 +254,7 @@ jobs:
     runs-on: macos-latest
     steps:
       # lfs: true: see build-linux. sips/iconutil below consume assets/octa.png.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           lfs: true
 
@@ -344,7 +344,7 @@ jobs:
           tar czf "${DIR}.tar.gz" "$DIR/"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: macos-release
           path: octa-${{ env.VERSION }}-macos-aarch64.tar.gz
@@ -357,9 +357,13 @@ jobs:
     if: ${{ !inputs.build_only }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v7
+      # v8 errors on an artifact hash mismatch by default rather than warning.
+      # That is what we want here: the step below turns these artifacts into the
+      # SHA256SUMS the in-app updater verifies against, so a corrupted download
+      # must fail the release rather than get signed off on.
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           # Only the release artifacts from the build-* jobs this job needs
@@ -405,7 +409,7 @@ jobs:
       name: aur
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Download tarballs and compute sha256
         id: sha
@@ -549,7 +553,7 @@ jobs:
       # lfs: true: the Dockerfile's `COPY assets ./assets` + in-image cargo
       # build embeds the LFS-tracked fonts via include_bytes!; pointer stubs
       # would build a binary with tofu fonts.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           lfs: true
 

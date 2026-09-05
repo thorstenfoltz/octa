@@ -292,6 +292,7 @@ fn build_duplicates_table(src: &DataTable, rows: &[usize], key_summary: &str) ->
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     };
     for &row_idx in rows {
         if let Some(row) = src.rows.get(row_idx) {

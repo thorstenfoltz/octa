@@ -82,6 +82,11 @@ impl FormatReader for TextReader {
             // Data-science neighbours
             "r",
             "jl",
+            // SQL. Claimed here on purpose: a `.sql` is text until you ask
+            // for the SQL dump reader by name, and without a claim it would
+            // be hidden by the sidebar's extension filter and left
+            // uncoloured, so you could not reach the file to ask.
+            "sql",
             // Misc
             "tex",
             "dart",

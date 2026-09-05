@@ -189,10 +189,12 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
     flatten(
         value_ref,
         "",
-        None,
-        false,
-        0,
-        true,
+        NodePos {
+            key: None,
+            is_index: false,
+            depth: 0,
+            is_last: true,
+        },
         &tab.json_tree_expanded,
         &mut rows,
     );
@@ -558,11 +560,7 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
         }
     });
 
-    if tab.json_edit_path.is_none()
-        && ui.input(|i| {
-            i.modifiers.command && (i.key_pressed(egui::Key::C) || i.key_pressed(egui::Key::X))
-        })
-    {
+    if tab.json_edit_path.is_none() && octa::ui::text_selection::copy_pressed(ui.ctx()) {
         let s = tab.raw_content.clone().unwrap_or_else(|| {
             kind.value(tab)
                 .and_then(|v| kind.serialize_pretty(v))
@@ -715,17 +713,34 @@ fn json_value_color(value: &serde_json::Value, colors: &ui::theme::ThemeColors) 
 /// DFS pre-order walk of the JSON value, emitting one [`JsonRow`] per visible
 /// line. Honors the `expanded` set - collapsed subtrees produce a single row
 /// summary and skip their descendants.
-#[allow(clippy::too_many_arguments)]
-fn flatten<'a>(
-    value: &'a serde_json::Value,
-    path: &str,
-    key: Option<&str>,
+/// Where a node sits in the tree, as one named argument.
+///
+/// `is_index` and `is_last` used to be two bare `bool`s a couple of positions
+/// apart in `flatten`'s argument list. Swapping them still compiled: array
+/// indices would render as object keys and the last-child connectors would land
+/// on the wrong rows, silently and with nothing failing. Naming them at the
+/// call site is the whole point of this struct.
+#[derive(Clone, Copy)]
+struct NodePos<'a> {
+    key: Option<&'a str>,
     is_index: bool,
     depth: usize,
     is_last: bool,
+}
+
+fn flatten<'a>(
+    value: &'a serde_json::Value,
+    path: &str,
+    pos: NodePos<'_>,
     expanded: &std::collections::HashSet<String>,
     out: &mut Vec<JsonRow<'a>>,
 ) {
+    let NodePos {
+        key,
+        is_index,
+        depth,
+        is_last,
+    } = pos;
     match value {
         serde_json::Value::Object(map) => {
             let is_expanded = expanded.contains(path);
@@ -752,10 +767,12 @@ fn flatten<'a>(
                     flatten(
                         v,
                         &child_path,
-                        Some(k),
-                        false,
-                        depth + 1,
-                        i + 1 == n,
+                        NodePos {
+                            key: Some(k),
+                            is_index: false,
+                            depth: depth + 1,
+                            is_last: i + 1 == n,
+                        },
                         expanded,
                         out,
                     );
@@ -796,10 +813,12 @@ fn flatten<'a>(
                     flatten(
                         v,
                         &child_path,
-                        Some(&key_owned),
-                        true,
-                        depth + 1,
-                        i + 1 == n,
+                        NodePos {
+                            key: Some(&key_owned),
+                            is_index: true,
+                            depth: depth + 1,
+                            is_last: i + 1 == n,
+                        },
                         expanded,
                         out,
                     );

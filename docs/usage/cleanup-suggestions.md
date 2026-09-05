@@ -55,9 +55,11 @@ found.
 | Whole-row duplicates                                           | High     | Applied directly          |
 | A column that looks like [personal data](anonymize-columns.md) | High     | Opens Anonymise           |
 | A text column whose values are all numbers                     | Medium   | Applied directly          |
+| Numbers wearing a unit: `1.2k`, `EUR 4,00`, `12 kg`, `45%`     | Medium   | Opens Split numbers       |
 | A column that is 5% or more empty                              | Medium   | Opens Fill missing values |
 | A column that is completely empty                              | Medium   | Applied directly          |
 | Numeric [outliers](detect-outliers.md) (IQR, k = 1.5)          | Low      | Opens Detect outliers     |
+| A column whose every row holds the same value                  | Low      | Applied directly          |
 | Column titles that are not tidy identifiers                    | Low      | Applied directly          |
 
 Results are ranked: highest severity first, then by how many rows or
@@ -86,20 +88,66 @@ the corruption, so the engine refuses rather than guesses.
 Only the common Windows-1252 and Latin-1 cases are covered. Text that was
 corrupted twice, or corrupted lossily, is reported but not repaired.
 
+### Columns that hold one value
+
+A column where every row says `EU` separates nothing: a filter over it answers
+the same thing every time, and a group-by returns one group. Octa suggests
+dropping it.
+
+**Nulls do not count as the value.** A column of 900 `active` and 100 empties
+is a column with missing values, not a constant one, and dropping it would
+throw away the fact that some rows had nothing. Those get the missing-values
+suggestion instead. A single-row table is not reported either, since every
+column of one row is constant by accident.
+
+### Numbers wearing a unit
+
+`1.2k`, `EUR 4,00`, `12 kg`, `45%` are text to every reader, so they sort
+alphabetically, refuse to sum, and quietly poison any average taken over them.
+Octa reports a column when at least 80% of its values split this way, and at
+least three of them do.
+
+Clicking the suggestion opens **Split numbers from units**, which changes
+nothing until you press Apply and offers three answers, defaulting to the one
+that changes nothing:
+
+- **Leave as text.**
+- **Add a number column** beside the original.
+- **Add a number column and a unit column.**
+
+The original column is never touched, so the value as it was written stays in
+the file. Both new columns arrive in one undo step, so a single Ctrl+Z takes
+the split back.
+
+Three details worth knowing:
+
+- **A magnitude suffix is folded into the number.** `1.2k` becomes `1200`, and
+  the unit column is empty, because `1.2k` is a number rather than a number of
+  anything.
+- **A percentage keeps its number.** `45%` becomes `45`, not `0.45`. Turning
+  one into the other is a change of meaning, and nothing here changes meanings.
+- **The decimal convention is decided over the whole column, not per value.**
+  `$1,200` on its own is genuinely undecidable: twelve hundred dollars in Ohio,
+  one euro twenty in Bavaria. A column of them usually settles it, and getting
+  it wrong would be wrong by a factor of a thousand. If the column mixes units,
+  the dialog says so, because that is exactly the column nobody should sum.
+
 ## Seeing the evidence
 
 Most suggestions carry a **Show** button listing up to three of the real
 offending values, so you can check what the suggestion actually means
 before changing anything:
 
-| Suggestion                | Example shows                             |
-|---------------------------|-------------------------------------------|
-| Leading / trailing spaces | The values, quoted: `"Tokyo "`, `" Bonn"` |
-| Numbers stored as text    | The first few values: `1024`, `2048`      |
-| Duplicate rows            | The repeated rows, as `a \| b \| c`       |
-| Outliers                  | The outlying values themselves            |
-| Personal data             | The first few values in the column        |
-| Untidy titles             | The rename: `Order ID -> order_id`        |
+| Suggestion                 | Example shows                             |
+|----------------------------|-------------------------------------------|
+| Leading / trailing spaces  | The values, quoted: `"Tokyo "`, `" Bonn"` |
+| Numbers stored as text     | The first few values: `1024`, `2048`      |
+| Duplicate rows             | The repeated rows, as `a \| b \| c`       |
+| Outliers                   | The outlying values themselves            |
+| Personal data              | The first few values in the column        |
+| Untidy titles              | The rename: `Order ID -> order_id`        |
+| Numbers with a unit        | The first few values: `12 kg`, `3 kg`     |
+| One value all the way down | The value itself: `EU`                    |
 
 Whitespace examples are quoted because a trailing space is otherwise
 invisible on screen, which is the whole reason that problem is easy to

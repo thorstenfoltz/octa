@@ -57,15 +57,32 @@ impl OctaApp {
     fn read_into_active_tab_as(&mut self, path: std::path::PathBuf, reader_name: &str) {
         // Read before touching the tab, so a failed parse leaves the current
         // content untouched. The registry borrow ends with this `match`.
-        let read = match self.registry.reader_by_name(reader_name) {
-            Some(reader) => reader.read_file(&path),
-            None => {
-                self.status_message = Some((
-                    octa::i18n::t("open_as.no_reader"),
-                    std::time::Instant::now(),
-                ));
+        let Some(reader) = self.registry.reader_by_name(reader_name) else {
+            self.status_message = Some((
+                octa::i18n::t("open_as.no_reader"),
+                std::time::Instant::now(),
+            ));
+            return;
+        };
+        // A chosen reader can be a multi-table one - a SQL dump is the reason
+        // this branch exists - and `read_file` would silently hand back only
+        // its first table. Route those through the same picker every other
+        // multi-table source uses; the picked table lands in this tab when it
+        // is blank and in a new one otherwise, which is the rule everywhere
+        // else and leaves the file you were reading still open.
+        let read = match reader.list_tables(&path) {
+            Ok(Some(tables)) if tables.len() > 1 => {
+                self.pending_table_picker = Some(octa::ui::table_picker::TablePickerState {
+                    path,
+                    format_name: reader.name().to_string(),
+                    tables,
+                    selected: 0,
+                    visible_rows: self.settings.table_picker_visible_rows,
+                });
                 return;
             }
+            Ok(Some(tables)) if tables.len() == 1 => reader.read_table(&path, &tables[0].name),
+            _ => reader.read_file(&path),
         };
 
         match read {

@@ -55,6 +55,7 @@ pub fn transpose_table(table: &DataTable) -> DataTable {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }
 
@@ -87,6 +88,7 @@ mod tests {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             db_meta: None,
+            formulas: std::collections::HashMap::new(),
         }
     }
 

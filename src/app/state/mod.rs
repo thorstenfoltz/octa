@@ -195,9 +195,19 @@ pub(crate) struct TabState {
     /// Last successfully executed SELECT, kept verbatim so the write-back
     /// dialog has a source query to compose `CREATE TABLE AS ...` from.
     pub(crate) sql_last_query: String,
-    /// Recent executed queries for this tab (most-recent first), session-only.
-    /// Surfaced in the SQL panel's History dropdown. Capped in `run_workspace_query`.
-    pub(crate) sql_history: Vec<String>,
+    /// The source file's modification time and size when this tab last read
+    /// or wrote it. Compared before an in-place Save so another program's
+    /// changes are not silently overwritten. `None` for a tab with no file
+    /// (a query result, an unsaved new table) and for a file that vanished.
+    pub(crate) file_stamp: Option<(std::time::SystemTime, u64)>,
+    /// How long the last query in this tab took. Shown beside the result row
+    /// count, because "is this slow?" is the first question a big query
+    /// raises and the answer otherwise needs a stopwatch.
+    pub(crate) sql_last_duration_ms: Option<u64>,
+    /// Queries run in this tab's workspace, most recent first. Loaded from the
+    /// persisted per-connection history on first use and written back on every
+    /// run, so it survives closing the tab.
+    pub(crate) sql_history: Vec<octa::sql::history::SqlHistoryEntry>,
     /// Cells/rows temporarily marked to show what the last SQL mutation
     /// changed; cleared once `sql_diff_highlight_until` passes.
     pub(crate) sql_diff_marks: Vec<data::MarkKey>,
@@ -338,6 +348,12 @@ pub(crate) struct TabState {
     /// "Summary - sales.parquet"). When set it overrides the
     /// source-path-based title; `None` keeps the normal behaviour.
     pub(crate) custom_tab_label: Option<String>,
+    /// One sentence answering "what am I looking at?", shown when the pointer
+    /// rests on the tab. Set by the analysis tabs Octa opens on the user's
+    /// behalf - a report tab arrives without the user having chosen its
+    /// columns, so it has to introduce itself somewhere. `None` on file tabs,
+    /// where the hover already shows the path.
+    pub(crate) tab_hint: Option<String>,
     /// Which table inside a multi-table file this tab holds (an Excel sheet,
     /// a table picked out of a SQLite/DuckDB file). Appended to the file name
     /// in the tab strip - three sheets of one workbook otherwise open as three
@@ -626,6 +642,9 @@ pub(crate) struct OctaApp {
     pub(crate) nav_focus_requested: bool,
     /// Confirm before reloading the file from disk and losing unsaved edits.
     pub(crate) show_reload_confirm: bool,
+    /// Tab whose Save found the file changed on disk since it was opened,
+    /// waiting on the overwrite / reload / cancel prompt.
+    pub(crate) pending_overwrite_confirm: Option<usize>,
     /// Pending modal table picker (DB sources containing multiple tables).
     pub(crate) pending_table_picker: Option<ui::table_picker::TablePickerState>,
     /// Pending multi-select sheet picker, shown when an Excel workbook has
@@ -786,6 +805,12 @@ pub(crate) struct OctaApp {
     /// Active correlation-matrix dialog, or `None` when closed. Computes a
     /// correlation matrix into a detached tab (see `src/app/dialogs/correlation.rs`).
     pub(crate) correlation_dialog: Option<CorrelationState>,
+    /// Active Compare-distributions dialog, or `None` when closed.
+    pub(crate) dist_compare_dialog: Option<DistCompareState>,
+    /// Active Referential-integrity dialog, or `None` when closed.
+    pub(crate) referential_dialog: Option<ReferentialState>,
+    /// Active unit / currency split dialog, or `None` when closed.
+    pub(crate) units_dialog: Option<UnitsState>,
     /// Active Transform-column dialog state, or `None` when closed. Reshapes
     /// the active tab in place (see `src/app/dialogs/transform.rs`).
     pub(crate) transform_dialog: Option<TransformState>,
@@ -803,6 +828,10 @@ pub(crate) struct OctaApp {
     /// Active "Tidy up" dialog state, or `None` when closed
     /// (`src/app/dialogs/tidy_up.rs`).
     pub(crate) tidy_up_dialog: Option<TidyUpState>,
+    /// Active "Export to PDF" dialog state, or `None` when closed
+    /// (`src/app/dialogs/pdf_export.rs`). Exports whatever the active tab is
+    /// showing: the grid, the Summary tab, the Quality report, any result tab.
+    pub(crate) pdf_export_dialog: Option<PdfExportState>,
     /// Pending "name this bookmark" dialog, or `None` when closed. On save,
     /// pushes a session bookmark onto the active tab.
     pub(crate) bookmark_draft: Option<BookmarkDraft>,
@@ -904,6 +933,40 @@ pub(crate) struct OctaApp {
     pub(crate) db_conn_cache: super::db_conn_cache::DbConnCache,
     /// In-flight "Run on server" SQL query, if any (one at a time).
     pub(crate) sql_server_job: Option<super::sql_panel::SqlServerJob>,
+    /// The database read currently in flight, if any: opening a table from
+    /// the sidebar, or fetching the next page of one already open. Exists so
+    /// the status bar can show a spinner and a Cancel for it; both were
+    /// silent before, and a warehouse table can take minutes.
+    pub(crate) db_load_job: Option<DbLoadJob>,
+}
+
+/// A database read in flight, and the means to stop it.
+pub(crate) struct DbLoadJob {
+    /// What the status bar says next to the spinner.
+    pub(crate) hint: String,
+    /// Raised by the worker as it exits, whatever the outcome. The update
+    /// loop retires the slot on seeing it. A worker owns only its own flag,
+    /// so a second read that replaced the slot cannot be retired by the
+    /// first one finishing late.
+    pub(crate) finished: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// The connector's thread-safe cancel closure, delivered by the worker
+    /// once it holds the connection. `None` until then, and for Oracle
+    /// always: killing a session there needs `ALTER SYSTEM`, so that
+    /// connector offers no handle. Whether this is filled is exactly what
+    /// decides if the status bar shows a Cancel, so the button is never
+    /// present without something behind it.
+    pub(crate) cancel: super::sql_panel::SharedCancel,
+    /// Set by Cancel. The worker reads it so `with_conn`'s heal-a-dead-socket
+    /// retry cannot quietly re-run a statement the user just stopped.
+    pub(crate) cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl DbLoadJob {
+    /// Whether there is a cancel to offer yet. False while the worker is
+    /// still connecting, and always false on an engine with no cancel.
+    pub(crate) fn can_cancel(&self) -> bool {
+        self.cancel.lock().is_ok_and(|c| c.is_some())
+    }
 }
 
 /// Snapshot of a read-only-toggle event used by the notice modal. Captures

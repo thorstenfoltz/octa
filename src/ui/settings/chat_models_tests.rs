@@ -69,3 +69,20 @@ fn merge_is_idempotent() {
     );
     assert_eq!(format!("{cfg:?}"), snapshot);
 }
+
+/// A `models.toml` from a release that still wrote a `[prices]` table parses
+/// after prices were removed: the unknown key is ignored, not an error.
+#[test]
+fn an_old_file_with_prices_still_loads() {
+    let text = r#"
+[providers.anthropic]
+default = "claude-sonnet-4-5"
+models = ["claude-sonnet-4-5"]
+
+[providers.anthropic.prices."claude-sonnet-4-5"]
+input_per_mtok = 3.0
+output_per_mtok = 15.0
+"#;
+    let cfg: ChatModelsConfig = toml::from_str(text).expect("parse");
+    assert_eq!(cfg.providers["anthropic"].models, ["claude-sonnet-4-5"]);
+}

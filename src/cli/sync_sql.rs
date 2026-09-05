@@ -45,10 +45,12 @@ pub fn run(path: PathBuf, db: String, table_spec: String, on: String) -> Result<
 
     let (conn, settings) = super::db::find_connection_pub(&db)?;
     let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
+    let ssh_secret = octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &settings);
     let (catalog, schema, table) = octa::db::fetch_table::split_qualified(&table_spec);
     let live = octa::db::fetch_table::fetch_table(
         &conn,
         secret.as_deref(),
+        ssh_secret.as_deref(),
         catalog.as_deref(),
         &schema,
         &table,

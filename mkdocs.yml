@@ -139,6 +139,8 @@ nav:
       - Time Series: usage/time-series.md
       - Pivot / Unpivot: usage/pivot.md
       - Correlation: usage/correlation.md
+      - Compare Distributions: usage/compare-distributions.md
+      - Referential Integrity: usage/referential-integrity.md
       - Schema Export: usage/schema-export.md
       - Archive Viewer: usage/archive-viewer.md
       - Chart: usage/chart.md
@@ -146,6 +148,7 @@ nav:
       - Chat Assistant: usage/chatbot.md
       - How the Assistant Understands Your Data: usage/assistant-context.md
       - Saving: usage/saving.md
+      - Export to PDF: usage/pdf-export.md
       - Large Files: usage/large-files.md
       - Tabs & Folder Sidebar: usage/tabs-and-sidebar.md
       - Cloud Storage: usage/cloud-storage.md
@@ -172,6 +175,8 @@ nav:
       - "--sql": cli/sql.md
       - "--export-schema": cli/export-schema.md
       - "--compare-schemas": cli/compare-schemas.md
+      - "--compare-distributions": cli/compare-distributions.md
+      - "--check-references": cli/check-references.md
       - "--diff": cli/diff.md
       - "--describe": cli/describe.md
       - "--validate-schema": cli/validate-schema.md
@@ -192,6 +197,7 @@ nav:
       - "--partition-by": cli/partition.md
       - "--batch-convert": cli/batch-convert.md
       - "--resample / --rolling": cli/timeseries.md
+      - "--completions": cli/completions.md
       - Docker / Podman: cli/docker.md
       - Cloud storage: cli/cloud.md
       - Man Page: cli/man-page.md
@@ -230,6 +236,8 @@ nav:
           - resample_timeseries: mcp/tools/resample_timeseries.md
           - rolling_window: mcp/tools/rolling_window.md
           - correlation: mcp/tools/correlation.md
+          - compare_distributions: mcp/tools/compare_distributions.md
+          - check_references: mcp/tools/check_references.md
           - grep_files: mcp/tools/grep_files.md
           - list_objects: mcp/tools/list_objects.md
           - copy_object: mcp/tools/copy_object.md

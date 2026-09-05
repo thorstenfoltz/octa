@@ -413,8 +413,8 @@ impl SqlWorkspace {
     /// Attach a saved live-database connection read-only. PostgreSQL, Redshift
     /// and MySQL go through the DuckDB `postgres` / `mysql` extensions (which
     /// install over the network on first use, like the lakehouse readers);
-    /// SQL Server and the warehouse engines (ClickHouse, Exasol, Snowflake,
-    /// Databricks, BigQuery) have no extension, so their tables are imported as
+    /// SQL Server, Oracle and the warehouse engines (ClickHouse, Exasol,
+    /// Snowflake, Databricks, BigQuery) have no extension, so their tables are imported as
     /// workspace tables under `alias__schema__table` (mirrors the SQLite
     /// fallback). `secret` is the stored password; IAM/AD auth modes mint their
     /// own token inside `db::connect` / `duckdb_attach_sql`'s password.
@@ -422,11 +422,16 @@ impl SqlWorkspace {
         &mut self,
         db_conn: &crate::db::DbConnection,
         secret: Option<&str>,
+        ssh_secret: Option<&str>,
         alias: &str,
     ) -> Result<Attachment> {
         if self.attachments.contains_key(alias) {
             bail!("alias '{alias}' is already attached");
         }
+        // Behind a jump host the ATTACH string and the imported connection both
+        // have to name the loopback forward, so open it before either branch.
+        let tunnelled = crate::db::ssh_tunnel::with_tunnel(db_conn, ssh_secret)?;
+        let db_conn = &tunnelled;
         let display = PathBuf::from(format!(
             "{}:{}/{}",
             db_conn.host, db_conn.port, db_conn.database
@@ -455,7 +460,9 @@ impl SqlWorkspace {
             }
             // SQL Server and the warehouse engines have no DuckDB extension, so
             // their tables are imported as workspace tables.
-            AttachStrategy::Import => self.attach_import(db_conn, secret, alias, display),
+            AttachStrategy::Import => {
+                self.attach_import(db_conn, secret, ssh_secret, alias, display)
+            }
         }
     }
 
@@ -468,11 +475,12 @@ impl SqlWorkspace {
         &mut self,
         db_conn: &crate::db::DbConnection,
         secret: Option<&str>,
+        ssh_secret: Option<&str>,
         alias: &str,
         display: PathBuf,
     ) -> Result<Attachment> {
         const MAX_TABLES: usize = 60;
-        let mut c = crate::db::connect(db_conn, secret)?;
+        let mut c = crate::db::connect(db_conn, secret, ssh_secret)?;
         let mut pairs: Vec<(String, String)> = Vec::new();
         for schema in c.list_schemas(None)? {
             for t in c.list_tables(None, &schema)? {
@@ -810,6 +818,7 @@ impl SqlWorkspace {
                     undo_stack: Vec::new(),
                     redo_stack: Vec::new(),
                     db_meta: None,
+                    formulas: std::collections::HashMap::new(),
                 });
             return Ok(QueryOutcome {
                 kind: QueryKind::Mutation,
@@ -1147,10 +1156,14 @@ pub fn duckdb_attach_sql(
         crate::db::DbEngine::MySql => ("mysql", "database"),
         _ => ("postgres", "dbname"),
     };
+    // Through a jump host this is the loopback forward, not the database's own
+    // address. The postgres/mysql extensions do their own TLS, so a tunnelled
+    // ATTACH validates against the tunnel endpoint; see the SSH tunnel docs.
+    let (dial_host, dial_port) = db_conn.dial_target();
     let inner = format!(
         "host={} port={} {db_key}={} user={} password={}",
-        val(&db_conn.host),
-        db_conn.port,
+        val(&dial_host),
+        dial_port,
         val(&db_conn.database),
         val(&db_conn.username),
         val(password)

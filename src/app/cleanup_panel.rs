@@ -124,10 +124,14 @@ impl OctaApp {
         if !self.cleanup_panel.scanned && !self.cleanup_panel.running.load(Ordering::Relaxed) {
             self.start_cleanup_scan(&ctx);
         }
+        // Leave the table something to live in once the window is small;
+        // `panel_fit::clamp` is a no-op on a normal window.
+        let (default_size, min_size) =
+            octa::ui::panel_fit::clamp(parent_ui.available_height(), 220.0, 140.0);
         egui::Panel::bottom("cleanup_panel")
             .resizable(true)
-            .default_size(220.0)
-            .min_size(140.0)
+            .default_size(default_size)
+            .min_size(min_size)
             .show(parent_ui, |ui| {
                 self.draw_cleanup_header(ui);
                 ui.separator();
@@ -300,7 +304,7 @@ impl OctaApp {
         }
         let changed = !matches!(
             s.kind,
-            K::MissingValues | K::Outliers | K::PersonalData { .. }
+            K::MissingValues | K::Outliers | K::PersonalData { .. } | K::UnitsOrCurrency { .. }
         );
         match s.kind {
             K::TrimWhitespace => {
@@ -314,7 +318,7 @@ impl OctaApp {
                     self.cleanup_apply_mojibake(col);
                 }
             }
-            K::EmptyColumn => {
+            K::EmptyColumn | K::ConstantColumn => {
                 if let Some(col) = s.column {
                     self.cleanup_apply_drop_column(col);
                 }
@@ -330,6 +334,13 @@ impl OctaApp {
                     self,
                     super::state::DedupeState::new_all_cols(cols),
                 );
+            }
+            // A unit split is a question, not a fix: which columns to add is
+            // the user's call, so this opens its dialog with a live preview.
+            K::UnitsOrCurrency { .. } => {
+                if let Some(col) = s.column {
+                    self.open_units_dialog(col);
+                }
             }
             // These three need a decision the panel cannot make for the user,
             // so they open the matching dialog with the column pre-filled.
@@ -479,6 +490,8 @@ fn describe_action(s: &Suggestion, column_label: &str) -> String {
         K::EmptyColumn => "cleanup.action_empty",
         K::UntidyHeaders => "cleanup.action_headers",
         K::Mojibake => "cleanup.action_mojibake",
+        K::UnitsOrCurrency { .. } => "cleanup.action_units",
+        K::ConstantColumn => "cleanup.action_constant",
     };
     t(key)
         .replace("{n}", &s.affected.to_string())
@@ -498,6 +511,18 @@ fn describe(s: &Suggestion) -> String {
         K::EmptyColumn => "cleanup.kind_empty",
         K::UntidyHeaders => "cleanup.kind_headers",
         K::Mojibake => "cleanup.kind_mojibake",
+        K::ConstantColumn => "cleanup.kind_constant",
+        K::UnitsOrCurrency { flavour, unit } => {
+            // The unit is data, not a translatable word, so it is substituted
+            // into the sentence rather than being part of it.
+            let key = match flavour.as_str() {
+                "magnitude" => "cleanup.kind_units_magnitude",
+                "currency" => "cleanup.kind_units_currency",
+                "percent" => "cleanup.kind_units_percent",
+                _ => "cleanup.kind_units",
+            };
+            return t(key).replace("{n}", &s.detail).replace("{unit}", unit);
+        }
     };
     t(key).replace("{n}", &s.detail)
 }

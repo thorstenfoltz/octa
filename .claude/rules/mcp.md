@@ -24,3 +24,35 @@ Adding a tool: drop `src/mcp/tools/foo.rs` with a `Params` struct + `pub async f
 `diff_tables` mirrors `--diff`: `mode: Option<String>` (`set` default / `ordered` / `join`) + `on: Option<Vec<String>>` (join keys). `set` keeps the original `only_in_a`/`only_in_b` + `shared_keys`; `ordered`/`join` add `changed_a`/`changed_b` (the differing rows, parallel order), a `changed` array (`{row_a, row_b, changed_columns}` per pair), and `changed_count`/`unchanged_count`. Dispatches to `octa::data::compare`.
 
 `write_table` / `edit_table` are the data-write tools (distinct from `convert` and `run_sql write_to`). Both reuse the registry `write_file` + inverse-of-`table_to_json` helpers in `tools/mod.rs`: `cell_from_json(value, arrow_type)`, `build_data_table(columns, rows)`. `write_table` takes inline `columns` (name + optional Arrow `type`, default `Utf8`) + array-of-arrays `rows`, writes any *file* format by extension; `mode` is `create`/`overwrite`/`append` (append needs matching column names). DB files rejected (their `write_file` needs `db_meta`). `edit_table` edits an existing file in place: `set` (cells; `col` is index or name), `insert_rows` (`at` defaults to append), `delete_rows` (highest-index-first), then `apply_edits()` + `write_file()` (so SQLite/DuckDB keep diff-based saves). No column changes.
+
+## Advertising a subset (`--mcp-tools` / `--mcp-without`)
+
+`mcp::tool_groups` is the shared catalogue (also used by the GUI assistant's
+progressive tool loading, see `.claude/rules/chat.md`): every tool's
+`ToolGroup`, an English one-liner for the settings tooltip, and `is_write`.
+It lives here, not under `src/app/chat/`, because chat already depends on
+`mcp::tools` and the reverse would be a cycle.
+
+- `hidden_tools(only, without)` turns the two flag lists into the names to
+  drop. Each item is a group id or a tool name; an unrecognised word is an
+  `Err` naming it plus every valid group, and `run_mcp` exits on it **before**
+  starting a server, since a server quietly advertising the wrong surface is
+  the one outcome worth refusing.
+- `OctaMcpServer::new(..., hidden)` calls `tool_router.remove_route` for each,
+  after the read-only pass, so the two stack and read-only always wins.
+- `write_tool_names()` (from `is_write`) is now the **single** write list:
+  `--mcp-read-only` and the chat profile's **Allow writes** both read it, so
+  the two surfaces cannot drift. It used to be a hand-kept list in each.
+- An unadvertised tool is also uncallable: `remove_route` takes it out of
+  dispatch, not just `tools/list`.
+
+There is deliberately **no** MCP equivalent of the chat's `enable_tools`
+fetching: the client reads `tools/list` once and decides what reaches its
+model, so a static filter is the lever that actually works there. Do not add a
+settings key for this either - the flags live in the client's own server config
+(`claude_desktop_config.json`, `.mcp.json`), which is where a per-client
+surface belongs.
+
+Tests: `mcp::tool_groups::tests` (selector parsing), `mcp::read_only_tests`
+(router shape), and `tests/mcp_smoke_tests.rs` over the wire - the advertised
+list, a refused call to a filtered-out tool, and the startup refusal on a typo.

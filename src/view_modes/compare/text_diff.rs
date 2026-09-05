@@ -200,12 +200,14 @@ pub fn render(
             ui.horizontal_top(|ui| {
                 render_pane(
                     ui,
-                    "left",
+                    Pane {
+                        tag: "left",
+                        gutter_text: &left_gutter,
+                        content_text: &left_content,
+                        kinds: &left_kinds,
+                        changed_bg: add_bg,
+                    },
                     pane_w,
-                    &left_gutter,
-                    &left_content,
-                    &left_kinds,
-                    add_bg,
                     &mono,
                     &colors,
                     &full_copies,
@@ -213,12 +215,14 @@ pub fn render(
                 ui.add_space(8.0);
                 render_pane(
                     ui,
-                    "right",
+                    Pane {
+                        tag: "right",
+                        gutter_text: &right_gutter,
+                        content_text: &right_content,
+                        kinds: &right_kinds,
+                        changed_bg: del_bg,
+                    },
                     pane_w,
-                    &right_gutter,
-                    &right_content,
-                    &right_kinds,
-                    del_bg,
                     &mono,
                     &colors,
                     &full_copies,
@@ -243,19 +247,35 @@ const GUTTER_W: f32 = 54.0;
 /// user mark words/lines with the mouse and copy them (Ctrl+C, native) or via
 /// the right-click "Copy selection" (served from a per-pane stash, since a
 /// right-click collapses the live selection).
-#[allow(clippy::too_many_arguments)]
+/// One side of the diff: everything that differs between the left and right
+/// panes.
+///
+/// `tag`, `gutter_text` and `content_text` were three adjacent `&str` in the
+/// old positional list. Swapping the last two compiled and rendered the line
+/// numbers as the file body; naming them removes that.
+struct Pane<'a> {
+    tag: &'a str,
+    gutter_text: &'a str,
+    content_text: &'a str,
+    kinds: &'a [RowKind],
+    changed_bg: Color32,
+}
+
 fn render_pane(
     ui: &mut egui::Ui,
-    tag: &str,
+    pane: Pane<'_>,
     pane_w: f32,
-    gutter_text: &str,
-    content_text: &str,
-    kinds: &[RowKind],
-    changed_bg: Color32,
     mono: &egui::FontId,
     colors: &ui::theme::ThemeColors,
     copies: &FullCopies,
 ) {
+    let Pane {
+        tag,
+        gutter_text,
+        content_text,
+        kinds,
+        changed_bg,
+    } = pane;
     ui.scope(|ui| {
         ui.set_width(pane_w);
         ui.horizontal_top(|ui| {

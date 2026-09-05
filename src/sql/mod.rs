@@ -21,6 +21,7 @@
 //! path: everything goes through [`SqlWorkspace`].
 
 mod engine;
+pub mod history;
 mod workspace;
 
 use anyhow::Result;

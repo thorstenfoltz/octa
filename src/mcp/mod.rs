@@ -26,6 +26,7 @@
 //! via the tool's `limit` parameter and respond with `truncated` /
 //! `cell_truncated` flags so the model can re-query for more.
 
+pub mod tool_groups;
 pub mod tools;
 
 use rmcp::handler::server::router::tool::ToolRouter;
@@ -87,6 +88,10 @@ impl OctaMcpServer {
 
 #[tool_router]
 impl OctaMcpServer {
+    /// `hidden` names tools to drop on top of `read_only`, from `--mcp-tools`
+    /// / `--mcp-without`. A name this build does not have is ignored:
+    /// `remove_route` on an absent route is a no-op, and the flags are
+    /// validated against the catalogue before we get here.
     pub fn new(
         default_row_limit: Option<usize>,
         cell_byte_cap: usize,
@@ -94,30 +99,20 @@ impl OctaMcpServer {
         allow_schema_changes: bool,
         backup_before_modify: bool,
         large_file_min_bytes: usize,
+        hidden: &[&str],
     ) -> Self {
         let mut tool_router = Self::tool_router();
         if read_only {
             // Read-only mode: drop every tool that mutates a file so the
             // server can be wired into agent frameworks with no write surface.
-            for name in [
-                "write_table",
-                "edit_table",
-                "convert",
-                "transform_columns",
-                "anonymize",
-                "partition_table",
-                "write_db_table",
-                "copy_db_table",
-                "write_workbook",
-                "copy_object",
-                "batch_convert",
-                "move_object",
-                "delete_object",
-                "create_report",
-                "harmonise_schemas",
-            ] {
+            // The list is the catalogue's, shared with the GUI assistant's
+            // write switch, so the two surfaces cannot drift apart.
+            for name in tool_groups::write_tool_names() {
                 tool_router.remove_route(name);
             }
+        }
+        for name in hidden {
+            tool_router.remove_route(name);
         }
         Self {
             default_row_limit,
@@ -301,7 +296,7 @@ FROM schema.table). Read-only."
 tables connect without reading a single row. Takes a saved `connection` (see \
 `list_db_connections`), optional `catalog` for Snowflake/Databricks/BigQuery, and `schemas` \
 (default: every schema). Returns `relationships`, each naming the child and parent table and \
-column plus the `constraint` name. Postgres, MySQL, SQL Server and Exasol enforce their foreign \
+column plus the `constraint` name. Postgres, MySQL, SQL Server, Oracle and Exasol enforce their foreign \
 keys, so an edge from those is also true of the rows; Redshift, Snowflake, Databricks and \
 BigQuery accept a declaration and enforce nothing. Pass `measure: true` to read a sample of rows \
 and add `overlap`, `score` and orphan counts both ways round per edge, which is how you find a \
@@ -854,6 +849,37 @@ are used. Returns `{columns, matrix}` where `matrix[i][j]` correlates `columns[i
     }
 
     #[tool(
+        description = "Compare the distributions of two columns and say whether they look like \
+the same population. Numeric columns use a two-sample Kolmogorov-Smirnov test (the whole shape, \
+not just the mean); anything else is compared as categories with a chi-square test of \
+homogeneity. Point `path_b` / `open_tab_b` at a second source, or omit them to compare two \
+columns of the same table. Returns a plain-language `headline` plus `verdict` (`same` or \
+`different` at p = 0.05), the test, its statistic and p-value. Reports `{skipped: na_<reason>}` \
+when the test does not apply."
+    )]
+    async fn compare_distributions(
+        &self,
+        Parameters(p): Parameters<tools::compare_distributions::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::compare_distributions::handle(self, p).await
+    }
+
+    #[tool(
+        description = "List the child rows whose foreign key has no matching parent. Point \
+`path` / `open_tab` at the PARENT and `child_path` / `child_open_tab` at the child, or omit the \
+child source for a self-reference. Keys are compared as trimmed text, so `1` matches `1` across a \
+CSV/database boundary. A null or empty key is NOT an orphan (it means \"no parent\") and is \
+counted separately. Returns `{clean, parent_values, checked_rows, null_keys, orphan_rows, \
+orphan_values, orphans: [{value, rows}], sentence}`."
+    )]
+    async fn check_references(
+        &self,
+        Parameters(p): Parameters<tools::check_references::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::check_references::handle(self, p).await
+    }
+
+    #[tool(
         description = "Search every tabular file in a directory (one level deep) for a value, \
 like grep across files. `query` + `mode` (`plain` default / `wildcard` / `regex`), with optional \
 `case_sensitive` and `whole_word`. Skips files larger than `max_file_size_mb` (default 50) and \
@@ -1018,6 +1044,18 @@ impl ServerHandler for OctaMcpServer {
         } else {
             format!("{} bytes", self.cell_byte_cap)
         };
+        // Named from the live router, not a hand-kept list: under
+        // `--mcp-read-only` or `--mcp-tools` the surface is smaller, and
+        // instructions that promised a tool the client cannot call would be
+        // worse than no list at all.
+        let mut names: Vec<String> = self
+            .tool_router
+            .list_all()
+            .iter()
+            .map(|t| t.name.to_string())
+            .collect();
+        names.sort_unstable();
+        let tool_list = names.join(", ");
         let instructions = format!(
             "Octa MCP server - inspect tabular data files (Parquet, CSV, JSON, SQLite, DuckDB, \
              Excel, ORC, Arrow, Avro, SAS, SPSS, Stata, RDS, HDF5, NetCDF, DBF, GeoPackage, and \
@@ -1030,16 +1068,7 @@ impl ServerHandler for OctaMcpServer {
              - `unlimited: true` - also lifts the streaming file-loader cap so the tool sees \
              every row on disk. Use both together to truly return every row.\n\
              Flags `truncated` / `cell_truncated` tell you when re-querying is worthwhile.\n\n\
-             Available tools: read_table, tail, sample, schema, list_tables, list_objects, \
-             copy_object, move_object, delete_object, list_db_connections, list_db_tables, db_relationships, query_db, \
-             sync_sql, write_workbook, write_db_table, copy_db_table, count_rows, run_sql, convert, \
-             export_schema, profile, find_duplicates, fuzzy_duplicates, value_frequency, search, \
-             compare_schemas, diff_tables, validate_against_schema, describe_file, unique_columns, \
-             check_rules, data_drift, schema_drift, create_report, fuzzy_join, suggest_join_keys, \
-             diagnose_join, harmonise_schemas, write_table, edit_table, pivot, resample_timeseries, \
-             batch_convert, rolling_window, correlation, grep_files, transform_columns, anonymize, \
-             union_tables, join_tables, drop_duplicates, fill_missing, detect_outliers, detect_pii, \
-             partition_table."
+             Available tools: {tool_list}."
         );
         // NOT `Implementation::from_build_env()`: its `env!` macros expand
         // inside the rmcp crate, so it reports the server as `rmcp` at
@@ -1061,6 +1090,7 @@ pub async fn run(
     allow_schema_changes: bool,
     backup_before_modify: bool,
     large_file_min_bytes: usize,
+    hidden: &[&str],
 ) -> anyhow::Result<()> {
     let row_str = default_row_limit.map_or_else(|| "unlimited".to_string(), |n| n.to_string());
     let cell_str = if cell_byte_cap == 0 {
@@ -1074,11 +1104,17 @@ pub async fn run(
     } else {
         format!("{file_cap}")
     };
-    let mode_str = if read_only {
-        " [read-only: write tools disabled]"
+    let mut mode_str = if read_only {
+        " [read-only: write tools disabled]".to_string()
     } else {
-        ""
+        String::new()
     };
+    // Say how many tools are actually on offer. A client reads the list once
+    // and carries it in every request to its model, so a filter that silently
+    // did nothing (or hid too much) is worth noticing at startup.
+    if !hidden.is_empty() {
+        mode_str.push_str(&format!(" [{} tools hidden]", hidden.len()));
+    }
     eprintln!(
         "octa --mcp ready{mode_str} (default response row limit: {row_str}, cell cap: {cell_str}, \
          file-loader cap: {file_cap_str}; override per-call via `limit` / `unlimited`)"
@@ -1090,6 +1126,7 @@ pub async fn run(
         allow_schema_changes,
         backup_before_modify,
         large_file_min_bytes,
+        hidden,
     );
     let service = server.serve(stdio()).await?;
     service.waiting().await?;

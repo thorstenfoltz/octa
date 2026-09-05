@@ -37,18 +37,37 @@ impl ChatProvider for OpenAi {
 /// `token_field` is the request key carrying the response-token cap:
 /// `max_completion_tokens` for OpenAI proper, `max_tokens` for the broadly
 /// compatible local servers (Ollama, LM Studio, OpenRouter, ...).
-#[allow(clippy::too_many_arguments)]
+/// One chat completion request: where it goes and what it carries.
+///
+/// `endpoint`, `system` and `token_field` are three `&str` spread through what
+/// used to be a nine-argument positional list, which is the shape where a call
+/// site can put the right value in the wrong slot and still compile.
+pub(crate) struct OpenAiRequest<'a> {
+    pub endpoint: &'a str,
+    pub headers: &'a [(&'a str, String)],
+    pub cfg: &'a ProviderConfig,
+    pub system: &'a str,
+    pub messages: &'a [Message],
+    pub tools: &'a [ToolDef],
+    /// `max_completion_tokens` for OpenAI proper, `max_tokens` for the broadly
+    /// compatible local servers (Ollama, LM Studio, OpenRouter, ...).
+    pub token_field: &'a str,
+}
+
 pub(crate) fn run_openai(
-    endpoint: &str,
-    headers: &[(&str, String)],
-    cfg: &ProviderConfig,
-    system: &str,
-    messages: &[Message],
-    tools: &[ToolDef],
-    token_field: &str,
+    req: OpenAiRequest<'_>,
     cancel: &AtomicBool,
     sink: &mut dyn FnMut(ChatEvent),
 ) -> Result<(), String> {
+    let OpenAiRequest {
+        endpoint,
+        headers,
+        cfg,
+        system,
+        messages,
+        tools,
+        token_field,
+    } = req;
     let body = build_body(cfg, system, messages, tools, token_field);
 
     // index -> (id, name, accumulated-args). Ordered so the final emit is

@@ -1,4 +1,6 @@
 pub mod batch_convert;
+pub mod benford;
+pub mod calendar_coverage;
 pub mod chart;
 pub mod chart_export;
 pub mod cleanup;
@@ -10,6 +12,7 @@ pub mod date_infer;
 pub mod dedupe;
 pub mod describe;
 pub mod diff;
+pub mod distribution_compare;
 pub mod drift;
 pub mod duplicates;
 pub mod encoding;
@@ -27,21 +30,25 @@ pub mod join_keys;
 pub mod json_util;
 pub mod links;
 pub mod mark_filter;
+pub mod missingness;
 pub mod mojibake;
 pub mod multi_search;
 pub mod num_format;
 pub mod num_parse;
 pub mod outliers;
 pub mod partition;
+pub mod pdf_export;
 pub mod pii;
 pub mod pivot;
 pub mod predicate_filter;
 pub mod problem_nav;
 pub mod quality;
+pub mod referential;
 pub mod rel_map;
 pub mod rel_map_export;
 pub mod rename_map;
 pub mod report;
+pub mod row_compare;
 pub mod sample;
 pub mod schema_drift;
 pub mod schema_export;
@@ -55,6 +62,7 @@ pub mod transpose;
 pub mod trim;
 pub mod union;
 pub mod unique_columns;
+pub mod units;
 pub mod validate_schema;
 pub mod validation;
 pub mod value_frequency;
@@ -141,6 +149,14 @@ pub struct DataTable {
     /// Per-row identity for tables loaded from a database.
     /// Kept aligned with `rows` by structural row operations.
     pub db_meta: Option<DbRowMeta>,
+    /// Spreadsheet formulas behind the values, `(row, col) -> "=B2*C2"`.
+    ///
+    /// Sparse on purpose: a sheet with three formulas costs three entries, not
+    /// a second grid the size of the first. Only the Excel reader fills it.
+    /// Read it through [`DataTable::formula`], never directly - the accessor is
+    /// where the two rules live that keep a stale formula off the screen and
+    /// out of a saved file.
+    pub formulas: HashMap<(usize, usize), String>,
 }
 
 impl DataTable {
@@ -158,7 +174,26 @@ impl DataTable {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             db_meta: None,
+            formulas: std::collections::HashMap::new(),
         }
+    }
+
+    /// The formula behind a cell, if it still stands for what is shown.
+    ///
+    /// Two things retract one, and both would otherwise put a lie on the
+    /// screen and into a saved workbook:
+    ///
+    /// - **The cell was edited.** The typed value is what the user means; a
+    ///   formula that would recompute over it is no longer the truth.
+    /// - **The table was restructured.** A formula says `=B2*C2`, and inserting
+    ///   a row moves what `B2` refers to. Octa cannot rewrite the references,
+    ///   so it drops every formula rather than keep ones that now point
+    ///   somewhere else.
+    pub fn formula(&self, row: usize, col: usize) -> Option<&str> {
+        if self.structural_changes || self.edits.contains_key(&(row, col)) {
+            return None;
+        }
+        self.formulas.get(&(row, col)).map(String::as_str)
     }
 
     pub fn row_count(&self) -> usize {
@@ -650,10 +685,17 @@ impl DataTable {
 
     /// Apply all edits to the underlying data (merges edits into rows).
     /// Call this before saving to produce a clean DataTable.
+    ///
+    /// A merged cell also **loses its spreadsheet formula**, permanently. The
+    /// typed value has replaced the computed one, so a formula that would
+    /// recompute over it is no longer true - and the save path applies edits
+    /// before it calls the writer, so leaving the formula here would resurrect
+    /// it at exactly the moment it matters.
     pub fn apply_edits(&mut self) {
         for (&(r, c), v) in &self.edits {
             if r < self.rows.len() && c < self.columns.len() {
                 self.rows[r][c] = v.clone();
+                self.formulas.remove(&(r, c));
             }
         }
         self.edits.clear();
@@ -696,6 +738,7 @@ impl DataTable {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             db_meta: None,
+            formulas: std::collections::HashMap::new(),
         }
     }
 
@@ -870,6 +913,12 @@ impl DataTable {
 
     /// Evict the first `count` rows from the table, incrementing row_offset.
     /// Remaps edits: subtracts `count` from row indices, discards edits in evicted range.
+    ///
+    /// `db_meta` is pruned by the same count. Both halves of that matter:
+    /// `build_write_back_plan` derives its DELETEs from baseline tags that are
+    /// no longer in `row_tags`, so dropping the tags without also dropping
+    /// their `original` entries would ask the server to delete every evicted
+    /// row on the next Save.
     pub fn evict_front_rows(&mut self, count: usize) {
         let count = count.min(self.rows.len());
         if count == 0 {
@@ -877,6 +926,12 @@ impl DataTable {
         }
         self.rows.drain(..count);
         self.row_offset += count;
+        if let Some(meta) = self.db_meta.as_mut() {
+            let evicted = count.min(meta.row_tags.len());
+            for tag in meta.row_tags.drain(..evicted).flatten() {
+                meta.original.remove(&tag);
+            }
+        }
         let mut new_edits = HashMap::new();
         for (&(r, c), v) in &self.edits {
             if r >= count {

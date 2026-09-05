@@ -3,7 +3,138 @@
 //! change. `draw_toolbar` fills a `ToolbarAction` and the app shell reads it
 //! (the Interaction-struct pattern; no callbacks).
 
-use crate::data::{MarkColor, MarkKey, ViewMode};
+use std::collections::HashSet;
+
+use crate::data::{DataTable, MarkColor, MarkKey, SearchMode, SearchResultMode, ViewMode};
+use crate::ui::theme::ThemeColors;
+
+/// Everything the eight top-level menus read, in one place.
+///
+/// `draw_toolbar` used to be a single ~2,000-line function taking 53
+/// parameters behind an `#[allow(clippy::too_many_arguments)]`. Splitting it
+/// one-file-per-menu would have needed that `#[allow]` on every one of the
+/// eight, since the widest block (View) touches fourteen of them, and
+/// CLAUDE.md forbids silencing the lint. Bundling instead follows the pattern
+/// [`AskControls`] already set in the same signature.
+///
+/// Deliberately `Copy` (every field is a scalar or a shared reference) so each
+/// menu can destructure it into locals with the original names. That keeps the
+/// moved menu bodies byte-identical: no `cx.` prefix threaded through hundreds
+/// of lines, and no chance of a rename touching an i18n key such as
+/// `"menu.table"`.
+///
+/// Read-only by construction. Menus report what the user chose by writing to
+/// [`ToolbarAction`]; nothing here is a `&mut`.
+///
+/// Note what is *not* here: the session bookmark list. **Data -> Add bookmark**
+/// only sets `action.add_bookmark`, which needs no data; the one place that
+/// iterates the list is the Bookmarks dropdown on the search bar, which
+/// `draw_toolbar` still renders itself. So the list stays a `draw_toolbar`
+/// parameter rather than becoming a field no menu reads.
+#[derive(Clone, Copy)]
+pub struct ToolbarCtx<'a> {
+    pub colors: ThemeColors,
+    /// A table is open (`col_count() > 0`). Menus whose entries all need one
+    /// show a short note instead of their contents.
+    pub has_data: bool,
+    pub has_edits: bool,
+    /// This tab has a file on disk: gates Reopen as and git compare, which
+    /// genuinely need a file to re-read.
+    pub has_source_path: bool,
+    /// Save can write this tab without asking for a path. Also true for a
+    /// live-database tab, whose Save is the write-back dialog. Distinct from
+    /// `has_source_path`, and conflating the two hid Save on every db tab.
+    pub can_save_in_place: bool,
+    pub is_db_tab: bool,
+    pub selected_cell: Option<(usize, usize)>,
+    pub selected_rows: &'a HashSet<usize>,
+    pub selected_cols: &'a HashSet<usize>,
+    pub selected_cells: &'a HashSet<(usize, usize)>,
+    pub row_count: usize,
+    pub col_count: usize,
+    pub current_view_mode: ViewMode,
+    pub has_raw_content: bool,
+    pub has_markdown: bool,
+    pub has_notebook: bool,
+    pub has_epub: bool,
+    pub has_map: bool,
+    pub has_record: bool,
+    pub has_json: bool,
+    pub has_yaml: bool,
+    /// Whether at least one chat model profile is configured, so the entries
+    /// that talk to the assistant can grey themselves out with a reason.
+    pub chat_profile_available: bool,
+    pub readonly_mode: bool,
+    /// Whether the active tab's table is split into two scrolling panes.
+    pub split_view: bool,
+    /// Which way that split runs: `true` = side by side, `false` = stacked.
+    /// Only meaningful while `split_view` is on.
+    pub split_side_by_side: bool,
+    /// How many bands the split is showing, 1 when there is no split. Decides
+    /// whether Add pane / Remove pane are enabled.
+    pub split_panes: usize,
+    /// Whether "Filter to marked" is active for this tab, so the Edit menu can
+    /// show the clear variant.
+    pub mark_filter_active: bool,
+    pub zoom_percent: u32,
+    pub recent_files: &'a [String],
+    pub directory_tree_open: bool,
+    pub first_row_is_header: bool,
+    pub has_hidden_columns: bool,
+    pub can_undo: bool,
+    pub can_redo: bool,
+    pub can_reopen_tab: bool,
+    pub table: &'a DataTable,
+    /// Small logo texture for the left of the bar. `None` until the first
+    /// frame that builds it.
+    pub logo_texture: Option<&'a egui::TextureHandle>,
+    /// Render close / maximise / minimise at the right edge, and make the
+    /// toolbar background the window's drag handle. Paired with
+    /// `AppSettings.use_custom_title_bar`, which also strips the system
+    /// decorations in `main.rs`.
+    pub show_window_controls: bool,
+}
+
+/// The search bar's state: the one part of the toolbar that edits what it is
+/// given, which is why it is a separate bundle from [`ToolbarCtx`] rather than
+/// more fields on it.
+///
+/// Not `Copy`, and not shared with the menus: it holds `&mut` borrows of the
+/// active tab's search fields, so `draw_toolbar` destructures it once and
+/// renders the bar itself.
+pub struct SearchControls<'a> {
+    pub text: &'a mut String,
+    pub mode: &'a mut SearchMode,
+    /// Case-sensitive (`Aa`) and whole-word toggles, and the column scope
+    /// (`None` = whole table, `Some(col)` = one column). Edited in place.
+    pub case_sensitive: &'a mut bool,
+    pub whole_word: &'a mut bool,
+    pub scope_col: &'a mut Option<usize>,
+    /// Column names for the scope dropdown, in table order.
+    pub column_names: &'a [String],
+    pub ask: AskControls<'a>,
+    /// Recent queries, most recent first, for the history dropdown.
+    pub history: &'a [String],
+    /// Session search behaviour (Filter vs Highlight). The table respects it;
+    /// text and tree views always highlight.
+    pub result_mode: &'a mut SearchResultMode,
+    /// Matches are highlighted rather than filtered for this tab's view: true
+    /// when `result_mode == Highlight` OR the view is a text/tree view. Drives
+    /// whether the count and next/prev controls appear.
+    pub highlight_active: bool,
+    /// Match count and current 1-based position, computed by the view on the
+    /// previous frame.
+    pub match_count: usize,
+    pub match_current: usize,
+    pub focus_requested: bool,
+    pub show_replace_bar: bool,
+    pub replace_text: &'a mut String,
+    /// Session bookmarks as `(name, row, col)`: a library-safe shape, since the
+    /// `Bookmark` type lives in the binary-side `app` module. Lives here rather
+    /// than on `ToolbarCtx` because only the bar's Bookmarks dropdown iterates
+    /// the list; **Data -> Add bookmark** just sets a flag.
+    pub bookmarks: &'a [(String, usize, Option<usize>)],
+}
 
 /// Which slice of the active table to feed into the "Parse in new tab"
 /// modal. Set by the Edit menu submenu or the table's right-click context
@@ -142,6 +273,8 @@ pub struct ToolbarAction {
     pub open_schema_drift: bool,
     pub open_harmonise: bool,
     pub open_report: bool,
+    /// Open the "Export to PDF" dialog for the active tab's view.
+    pub export_pdf: bool,
     pub open_fuzzy_join: bool,
     /// Open the Pivot / Unpivot dialog for the active table.
     /// Fired by **Analyse -> Pivot / Unpivot...**.
@@ -189,6 +322,9 @@ pub struct ToolbarAction {
     /// Open a transposed (rows <-> columns) copy of the active table in a new
     /// tab. Fired by **Analyse -> Transpose**.
     pub open_transpose: bool,
+    /// Compare the rows the user selected (or marked), field by field, in a
+    /// new tab.
+    pub open_row_compare: bool,
     /// Open the Random-sample dialog for the active table.
     /// Fired by **Analyse -> Random sample...**.
     pub open_random_sample: bool,
@@ -244,6 +380,14 @@ pub struct ToolbarAction {
     pub logo_clicked: bool,
     /// Toggle session-only read-only mode (also bound to F8 by default).
     pub toggle_readonly: bool,
+    /// Toggle the stacked split view of the active tab's table.
+    pub toggle_split_view: bool,
+    /// Toggle the side-by-side split view of the active tab's table.
+    pub toggle_split_side_by_side: bool,
+    /// Cut one more band out of the split, up to `MAX_SPLIT_PANES`.
+    pub add_split_pane: bool,
+    /// Take one band away, down to two.
+    pub remove_split_pane: bool,
     /// Open the "Parse in new tab" modal pre-seeded with this scope.
     /// `None` means the menu wasn't clicked this frame.
     pub parse_in_new_tab: Option<ParseScope>,
@@ -266,6 +410,8 @@ pub struct ToolbarAction {
     /// Open the Correlation-matrix dialog for the active table.
     /// Fired by **Analyse -> Correlation...**.
     pub open_correlation: bool,
+    pub open_dist_compare: bool,
+    pub open_referential: bool,
     /// Open the **Edit -> Find duplicates...** modal for the active tab.
     /// The dialog itself lives in `app::dialogs::find_duplicates`; the
     /// toolbar just signals "user wants it open".
@@ -286,6 +432,8 @@ pub struct ToolbarAction {
     /// Toggle the in-GUI chat assistant panel. Fired by the toolbar Assistant
     /// button, **View -> Assistant panel**, and the `ToggleChatPanel` shortcut.
     pub toggle_chat_panel: bool,
+    /// Ask the assistant to explain the active tab, in the chat panel.
+    pub explain_file: bool,
 }
 
 /// The search bar's "Ask" controls, bundled so `draw_toolbar` takes one

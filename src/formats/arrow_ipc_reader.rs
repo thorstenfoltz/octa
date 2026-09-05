@@ -77,6 +77,7 @@ impl FormatReader for ArrowIpcReader {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             db_meta: None,
+            formulas: std::collections::HashMap::new(),
         })
     }
 

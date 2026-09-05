@@ -73,6 +73,127 @@ pub fn auth_command(conn: &DbConnection) -> Option<(String, Vec<String>)> {
     }
 }
 
+/// The vendor CLI's *interactive login* command: the one that opens a browser
+/// and leaves the CLI signed in, so the token command in [`auth_command`]
+/// starts working. `None` for auth modes that have no vendor CLI.
+///
+/// This is what makes "pick browser sign-in and it just opens the browser"
+/// possible without anyone typing a client id: the vendor's own CLI is the
+/// registered OAuth application, so Octa never needs one of its own. It is the
+/// same route DBeaver's "Default credentials" takes.
+pub fn cli_login_command(conn: &DbConnection) -> Option<(&'static str, Vec<String>)> {
+    match &conn.auth {
+        DbAuth::AzureAd => Some(("az", vec!["login".to_string()])),
+        DbAuth::GcpIam => Some(("gcloud", vec!["auth".to_string(), "login".to_string()])),
+        DbAuth::AwsIam { .. } => Some(("aws", vec!["sso".to_string(), "login".to_string()])),
+        _ => None,
+    }
+}
+
+/// How long a token minted straight after a CLI login is treated as good for.
+///
+/// Deliberately conservative. Azure and Google both issue roughly one-hour
+/// access tokens but neither is promised, and `az account get-access-token
+/// --query accessToken` hands back the token without its expiry. Under-guessing
+/// costs one extra CLI call; over-guessing would hand a dead token to a
+/// connection attempt.
+const CLI_TOKEN_VALIDITY_SECS: u64 = 45 * 60;
+
+/// How to install the vendor CLI on *this* machine. Deliberately not
+/// translated: these are shell commands and vendor URLs, and a translated
+/// package name would not work when pasted.
+pub fn cli_install_command(bin: &str) -> &'static str {
+    match (bin, std::env::consts::OS) {
+        ("az", "windows") => "winget install -e --id Microsoft.AzureCLI",
+        ("az", "macos") => "brew install azure-cli",
+        ("az", _) => "https://learn.microsoft.com/cli/azure/install-azure-cli-linux",
+        ("gcloud", "windows") => "winget install -e --id Google.CloudSDK",
+        ("gcloud", "macos") => "brew install --cask google-cloud-sdk",
+        ("gcloud", _) => "https://cloud.google.com/sdk/docs/install",
+        ("aws", "windows") => "winget install -e --id Amazon.AWSCLI",
+        ("aws", "macos") => "brew install awscli",
+        ("aws", _) => {
+            "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
+        }
+        _ => "",
+    }
+}
+
+/// The message shown when the vendor CLI is not installed: what is missing,
+/// how to install it on this OS, and the way out that needs no CLI at all.
+pub fn cli_missing_message(bin: &str) -> String {
+    crate::i18n::t("db.cli_missing")
+        .replace("{cli}", bin)
+        .replace("{install}", cli_install_command(bin))
+}
+
+/// Run the vendor CLI's interactive login. The CLI opens the browser itself
+/// and this call does not return until the user has finished there, so it must
+/// run off the UI thread.
+///
+/// Output is captured rather than inherited: a GUI launched from a desktop
+/// entry has no terminal for the CLI to print to, so capturing it is the only
+/// way its message can reach the user - and it does, through the error text,
+/// which the settings dialog renders selectable.
+pub fn cli_login(conn: &DbConnection) -> Result<()> {
+    let Some((bin, args)) = cli_login_command(conn) else {
+        bail!(
+            "connection '{}' has no vendor CLI to sign in with",
+            conn.name
+        )
+    };
+    match Command::new(bin).args(&args).output() {
+        // The CLI is not installed. This is the one failure with a concrete
+        // remedy, so it gets the OS-specific instructions rather than a raw
+        // "No such file or directory".
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => bail!("{}", cli_missing_message(bin)),
+        Err(e) => Err(e).with_context(|| format!("running `{bin} {}`", args.join(" "))),
+        Ok(out) if !out.status.success() => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let detail = if stderr.trim().is_empty() {
+                stdout.trim().to_string()
+            } else {
+                stderr.trim().to_string()
+            };
+            bail!("`{bin} {}` did not finish: {detail}", args.join(" "))
+        }
+        Ok(_) => Ok(()),
+    }
+}
+
+/// Sign in for this connection through the vendor CLI, then mint and cache a
+/// token so the rest of Octa sees the connection as signed in.
+///
+/// Blocks on the browser round-trip; call from a worker thread.
+pub fn cli_browser_signin(conn: &DbConnection) -> Result<()> {
+    cli_login(conn)?;
+    let token = resolve_password(conn, None)
+        .context("signing in worked, but minting a database token afterwards did not")?;
+    cache_browser_token(
+        &conn.id,
+        CachedToken {
+            access_token: token,
+            expires_at_unix: unix_now().saturating_add(CLI_TOKEN_VALIDITY_SECS),
+        },
+    );
+    Ok(())
+}
+
+/// Forget the cached browser token for a connection (the Sign out button).
+pub fn forget_browser_token(conn_id: &str) {
+    if let Ok(mut c) = browser_token_cache().lock() {
+        c.remove(conn_id);
+    }
+}
+
+/// Whole minutes a cached browser token has left, or `None` when there is no
+/// usable token. Drives the "expires in n min" line beside the Sign in button.
+pub fn browser_token_minutes_left(conn_id: &str) -> Option<u64> {
+    let t = cached_browser_token(conn_id)?;
+    Some(t.expires_at_unix.saturating_sub(unix_now()) / 60)
+}
+
 /// The Microsoft Entra (Azure AD) token audience for an engine's `az account
 /// get-access-token --resource`. SQL Server and Azure Databricks each have
 /// their own; everything else defaults to the shared "OSS RDBMS" resource of
@@ -361,10 +482,16 @@ pub fn resolve_password(conn: &DbConnection, stored: Option<&str>) -> Result<Str
 
 fn run_token_command(conn: &DbConnection, login_hint: &str) -> Result<String> {
     let (bin, args) = auth_command(conn).expect("token auth modes have a command");
-    let output = Command::new(&bin)
-        .args(&args)
-        .output()
-        .with_context(|| format!("running `{bin}` (is the CLI installed and on PATH?)"))?;
+    let output = match Command::new(&bin).args(&args).output() {
+        // "No such file or directory" tells the user nothing they can act on.
+        // A missing CLI is the one failure here with a concrete remedy, so it
+        // gets the install command for this OS and the no-CLI alternative.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            bail!("{}", cli_missing_message(&bin))
+        }
+        Err(e) => return Err(e).with_context(|| format!("running `{bin}`")),
+        Ok(out) => out,
+    };
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         bail!(
@@ -432,22 +559,28 @@ fn has_browser_client(conn: &DbConnection) -> bool {
 /// Decide what to do once the CLI credential path has failed or is missing:
 /// prompt for the browser (GUI + client id configured) or error with a hint.
 fn after_cli_failure(conn: &DbConnection, has_gui_fallback: bool) -> Result<PasswordResolution> {
-    if has_browser_client(conn) {
-        if has_gui_fallback {
-            Ok(PasswordResolution::NeedsBrowserSignin)
-        } else {
-            bail!(
-                "could not obtain a token for '{}': no browser available (headless); \
-                 run the vendor CLI login and retry",
-                conn.name
-            )
-        }
-    } else {
-        bail!(
-            "could not obtain a token for '{}': run the vendor CLI login (az/gcloud), \
-             or set an OAuth client id in this connection's settings",
+    // Two ways to reach a browser: a client id of our own (the native flow), or
+    // the vendor CLI's login, which is the registered OAuth app itself. Having
+    // either is enough to offer the user a Sign in button; whether the CLI is
+    // actually installed is answered by that button, which reports the install
+    // command for this OS rather than guessing here.
+    let login = cli_login_command(conn);
+    if has_gui_fallback && (has_browser_client(conn) || login.is_some()) {
+        return Ok(PasswordResolution::NeedsBrowserSignin);
+    }
+    // Headless (CLI / MCP): no browser to open, so name the exact command to
+    // run in a terminal instead.
+    match login {
+        Some((bin, args)) => bail!(
+            "could not obtain a token for '{}': run `{bin} {}` and retry",
+            conn.name,
+            args.join(" ")
+        ),
+        None => bail!(
+            "could not obtain a token for '{}': set an OAuth client id in this \
+             connection's settings",
             conn.name
-        )
+        ),
     }
 }
 
@@ -704,14 +837,14 @@ pub fn oauth_client_credentials_token(
 /// IAM Identity Center settings resolved from an `AwsIam` connection. `None`
 /// unless a start URL, account id and role are all present (region falls back
 /// to the connection's DB region).
-struct AwsSsoConfig<'a> {
+pub(crate) struct AwsSsoConfig<'a> {
     start_url: &'a str,
     region: &'a str,
     account_id: &'a str,
     role: &'a str,
 }
 
-fn aws_sso_config(conn: &DbConnection) -> Option<AwsSsoConfig<'_>> {
+pub(crate) fn aws_sso_config(conn: &DbConnection) -> Option<AwsSsoConfig<'_>> {
     let DbAuth::AwsIam {
         region,
         sso_start_url,
@@ -854,15 +987,18 @@ pub fn aws_sso_signin(conn: &DbConnection, open_browser: impl Fn(&str)) -> Resul
 }
 
 /// Temporary AWS credentials for an assumed role.
-struct AwsCreds {
-    access_key_id: String,
-    secret_access_key: String,
-    session_token: String,
+pub(crate) struct AwsCreds {
+    pub(crate) access_key_id: String,
+    pub(crate) secret_access_key: String,
+    pub(crate) session_token: String,
 }
 
 /// Exchange the SSO access token for role credentials via the Identity Center
 /// portal. Blocks on the network; call off the UI thread.
-fn aws_role_credentials(conn: &DbConnection, sso_access_token: &str) -> Result<AwsCreds> {
+pub(crate) fn aws_role_credentials(
+    conn: &DbConnection,
+    sso_access_token: &str,
+) -> Result<AwsCreds> {
     let sso = aws_sso_config(conn)
         .context("AWS IAM Identity Center is not configured for this connection")?;
     let agent = sso_agent();
@@ -950,6 +1086,11 @@ mod tests {
             allow_writes: false,
             oauth_client_id: None,
             oauth_tenant: None,
+            athena_workgroup: None,
+            athena_output_location: None,
+            ssh: None,
+            query_timeout_secs: super::super::DEFAULT_QUERY_TIMEOUT_SECS,
+            tunnel_port: None,
         }
     }
 
@@ -1020,10 +1161,56 @@ mod tests {
     }
 
     #[test]
-    fn cli_failure_without_client_id_errors_with_hint() {
+    fn cli_failure_without_client_id_still_offers_the_browser() {
+        // The point of the whole change: no client id is needed to be offered a
+        // sign-in, because the vendor CLI's own login does the browser trip.
         let c = conn(DbAuth::AzureAd);
-        let err = after_cli_failure(&c, true).unwrap_err().to_string();
-        assert!(err.contains("OAuth client id"));
+        let r = after_cli_failure(&c, true).unwrap();
+        assert!(matches!(r, PasswordResolution::NeedsBrowserSignin));
+    }
+
+    #[test]
+    fn cli_failure_headless_names_the_command_to_run() {
+        // No GUI to open a browser from (CLI / MCP), so the error has to be
+        // something the reader can paste into a terminal.
+        let c = conn(DbAuth::AzureAd);
+        let err = after_cli_failure(&c, false).unwrap_err().to_string();
+        assert!(err.contains("az login"), "{err}");
+
+        let g = conn(DbAuth::GcpIam);
+        let err = after_cli_failure(&g, false).unwrap_err().to_string();
+        assert!(err.contains("gcloud auth login"), "{err}");
+    }
+
+    #[test]
+    fn login_commands_are_the_interactive_ones() {
+        // `auth_command` mints a token and fails when signed out; these are the
+        // ones that put the user in front of a browser. Mixing them up would
+        // leave sign-in silently doing nothing.
+        assert_eq!(
+            cli_login_command(&conn(DbAuth::AzureAd)).map(|(b, a)| (b, a.join(" "))),
+            Some(("az", "login".to_string()))
+        );
+        assert_eq!(
+            cli_login_command(&conn(DbAuth::GcpIam)).map(|(b, a)| (b, a.join(" "))),
+            Some(("gcloud", "auth login".to_string()))
+        );
+        assert!(cli_login_command(&conn(DbAuth::Password)).is_none());
+    }
+
+    #[test]
+    fn a_missing_cli_says_how_to_install_it_and_how_to_avoid_it() {
+        // The message a user actually hits when they have no az installed. It
+        // has to name the tool, an install command for this OS, and the way out
+        // that needs no tool at all.
+        let msg = cli_missing_message("az");
+        assert!(msg.contains("az"), "{msg}");
+        assert!(msg.contains(cli_install_command("az")), "{msg}");
+        assert!(!cli_install_command("az").is_empty());
+        // Every vendor CLI we shell out to has install guidance on every OS.
+        for bin in ["az", "gcloud", "aws"] {
+            assert!(!cli_install_command(bin).is_empty(), "{bin}");
+        }
     }
 
     #[test]

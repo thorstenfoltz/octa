@@ -1,5 +1,6 @@
 mod header;
 mod rows;
+mod split;
 mod state;
 
 use std::collections::HashSet;
@@ -10,6 +11,8 @@ use super::shortcuts::{ShortcutAction, Shortcuts};
 use super::status_bar::format_number;
 use super::theme::{ThemeColors, ThemeMode};
 use crate::data::{BinaryDisplayMode, DataTable, MarkColor, MarkKey};
+
+pub use split::draw_table_split;
 
 /// State for the table view (selection, editing).
 #[derive(Default)]
@@ -95,6 +98,130 @@ pub struct TableViewState {
     /// tooltip. Used by the Summary tab to explain each statistic; empty
     /// everywhere else, so it has no effect on ordinary tables.
     pub header_tooltips: Vec<String>,
+    /// Optional per-value hover descriptions shown on the *cells* of a column.
+    /// Indexed by column, then keyed by the cell's exact text.
+    ///
+    /// For a column whose cells are a closed set of labels standing for a
+    /// judgement: the quality report's `benford_verdict` and
+    /// `calendar_verdict`, where a label short enough for a cell cannot also
+    /// say what it means. The header tooltip describes the column; this
+    /// describes the answer in front of you.
+    ///
+    /// Text cells only, which is what these columns hold. A number formats for
+    /// display (separators, rounding), so keying a lookup on what is painted
+    /// would depend on settings; nothing needs that, so nothing does it.
+    /// Empty everywhere else, so ordinary tables are unaffected.
+    pub cell_tooltips: Vec<std::collections::HashMap<String, String>>,
+    /// How many panes the table view is cut into: 0 or 1 mean no split, up to
+    /// [`MAX_SPLIT_PANES`] (View -> Split view / Split side by side, then Add
+    /// pane). Everything except the scroll offsets is shared, because every
+    /// pane reads this one state: columns, filters, sort, marks, edits and the
+    /// selection. Session-only, per tab, like `frozen_cols`.
+    split_panes: usize,
+    /// Which way the dividers run: `false` = bands stacked one above the
+    /// other, `true` = bands side by side.
+    pub split_side_by_side: bool,
+    /// Divider positions as fractions of the split axis, ascending, one per
+    /// divider (`panes - 1`). Empty means evenly spaced, which is where a
+    /// fresh split starts and where a changed pane count returns to.
+    split_fractions: Vec<f32>,
+    /// Scroll offsets of every pane but the first, `(x, y)`, indexed by
+    /// `pane - 1`. `draw_table` only ever knows about `scroll_x` / `scroll_y`,
+    /// so `split::draw_table_split` swaps a pane's pair in around its call and
+    /// back out afterwards. The first pane keeps using `scroll_x` / `scroll_y`
+    /// directly, which is what lets everything outside this module (paging,
+    /// scroll-into-view) go on reading one offset and mean the pane the user
+    /// is working in.
+    ///
+    /// **Both** axes are per pane. Sharing the cross axis lines rows or
+    /// columns up neatly and makes the second pane show the same cells as the
+    /// first, which is the one thing a split is for avoiding.
+    pane_scroll: Vec<(f32, f32)>,
+    /// Which pane the keyboard and the mouse wheel act on: the one the
+    /// pointer was last over. Sticky, so moving the pointer onto a menu does
+    /// not hand the arrow keys back to the first pane.
+    active_pane: usize,
+}
+
+/// The most panes one table view can be cut into. Six 80-pixel bands need a
+/// 500-pixel-tall panel before the minimum-size clamp starts squeezing them,
+/// which a maximised window has and a small one does not; the clamp keeps
+/// every band usable either way.
+pub const MAX_SPLIT_PANES: usize = 6;
+
+impl TableViewState {
+    /// Whether the table view is currently split at all.
+    pub fn is_split(&self) -> bool {
+        self.split_panes > 1
+    }
+
+    /// How many panes are showing. 1 when there is no split.
+    pub fn split_panes(&self) -> usize {
+        self.split_panes.max(1)
+    }
+
+    /// Turn the split on or off in one orientation.
+    ///
+    /// The one way to set it, because a pane's offsets mean different things
+    /// in each orientation: carried across unchanged, a pane scrolled to row
+    /// 900,000 would reopen scrolled 20,000 pixels past the last column.
+    /// Switching orientation therefore parks every pane where the first one
+    /// is, which is also where a fresh split starts. The pane *count* is kept,
+    /// so flipping four stacked bands to side by side gives four side-by-side
+    /// bands rather than two.
+    pub fn set_split(&mut self, on: bool, side_by_side: bool) {
+        if !on || side_by_side != self.split_side_by_side {
+            self.reset_pane_scroll();
+        }
+        self.split_panes = if on { self.split_panes.max(2) } else { 1 };
+        self.split_side_by_side = side_by_side;
+        self.sync_pane_vecs();
+    }
+
+    /// Add one pane, up to [`MAX_SPLIT_PANES`]. Returns false when the view is
+    /// not split or is already at the cap, so the caller can say why nothing
+    /// happened.
+    pub fn add_split_pane(&mut self) -> bool {
+        if !self.is_split() || self.split_panes >= MAX_SPLIT_PANES {
+            return false;
+        }
+        self.split_panes += 1;
+        // The dividers were placed for the old count, so a fifth band would
+        // otherwise appear as a sliver at the end. Even spacing is the only
+        // arrangement that means anything for a count nobody has dragged yet.
+        self.split_fractions.clear();
+        self.sync_pane_vecs();
+        true
+    }
+
+    /// Drop one pane, down to two. Returns false when there is nothing to
+    /// drop; turning the split off entirely is `set_split(false, ..)`.
+    pub fn remove_split_pane(&mut self) -> bool {
+        if self.split_panes <= 2 {
+            return false;
+        }
+        self.split_panes -= 1;
+        self.split_fractions.clear();
+        self.sync_pane_vecs();
+        true
+    }
+
+    /// Park every extra pane where the first one is.
+    fn reset_pane_scroll(&mut self) {
+        self.pane_scroll.fill((0.0, 0.0));
+    }
+
+    /// Keep the per-pane vectors the length the pane count implies, and the
+    /// active pane inside it. Called from every path that changes the count,
+    /// so the draw loop can index without checking.
+    fn sync_pane_vecs(&mut self) {
+        let extra = self.split_panes().saturating_sub(1);
+        self.pane_scroll.resize(extra, (0.0, 0.0));
+        if !self.split_fractions.is_empty() {
+            self.split_fractions.resize(extra, 1.0);
+        }
+        self.active_pane = self.active_pane.min(extra);
+    }
 }
 
 const DEFAULT_ROW_HEIGHT: f32 = 26.0;
@@ -305,6 +432,115 @@ pub(crate) struct NumFmtCtx<'a> {
     pub formats: &'a std::collections::HashMap<usize, crate::data::num_format::NumberFormat>,
 }
 
+/// Everything `draw_table` needs beyond the table and its view state.
+///
+/// The old signature took these as 25 positional parameters, ten of them bare
+/// `bool`s in a row, behind an `#[allow(clippy::too_many_arguments)]`. At that
+/// width a call site can hand `highlight_edits` to `clickable_links` and still
+/// compile, producing a wrong grid with a green build. Same reasoning as
+/// [`NumFmtCtx`] above, applied to the whole entry point.
+#[derive(Clone, Copy)]
+pub struct TableCtx<'a> {
+    pub theme_mode: ThemeMode,
+    pub filtered_rows: &'a [usize],
+    pub os_clipboard_has_content: bool,
+    pub show_row_numbers: bool,
+    /// When true (filter active + setting on), draw a second row-number column
+    /// counting the visible rows from 1, beside the original row numbers.
+    pub show_sequential_numbers: bool,
+    pub alternating_row_colors: bool,
+    pub negative_numbers_red: bool,
+    pub highlight_edits: bool,
+    pub font_size: f32,
+    pub cell_line_breaks: bool,
+    /// Style cells that hold a web URL as a hyperlink and open on Ctrl+click.
+    pub clickable_links: bool,
+    pub binary_display_mode: BinaryDisplayMode,
+    pub welcome_logo_texture: Option<&'a egui::TextureHandle>,
+    pub shortcuts: &'a Shortcuts,
+    pub readonly: bool,
+    /// Column indices that currently have an active per-column filter. Used
+    /// only to paint the header dot marker; the actual row filtering is
+    /// already applied in `filtered_rows`.
+    pub filtered_columns: &'a HashSet<usize>,
+    /// Column indices the user has hidden via right-click -> "Hide column".
+    /// Hidden columns render with width 0 and skip paint entirely. Data
+    /// stays in the table (Save / Save As writes them).
+    pub hidden_columns: &'a HashSet<usize>,
+    /// Whether numeric cells render with thousand separators.
+    pub thousands_separators: bool,
+    pub separator_style: crate::data::num_format::SeparatorStyle,
+    pub column_number_formats:
+        &'a std::collections::HashMap<usize, crate::data::num_format::NumberFormat>,
+    pub search_matches: &'a HashSet<(usize, usize)>,
+    pub current_match: Option<(usize, usize)>,
+    pub conditional_format_rules: &'a [crate::data::conditional_format::CondRule],
+    pub validation_violations: &'a HashSet<(usize, usize)>,
+    pub outlier_cells: &'a HashSet<(usize, usize)>,
+    /// Whether this call owns the keyboard, the mouse wheel and paste events.
+    /// Always `true` for a whole-panel table; in split view only the pane the
+    /// pointer was last over gets it, so one arrow press moves one selection
+    /// and one wheel notch scrolls one band. See `split::draw_table_split`.
+    pub handles_input: bool,
+    /// Take the wheel even without [`Self::handles_input`]: the split view
+    /// sets this on every pane while Alt is held, which is how one notch
+    /// scrolls all the bands together. Each pane still clamps against its own
+    /// content, so the shortest band stops at its own end rather than being
+    /// dragged past it. Always `false` for a whole-panel table, which has
+    /// nothing to keep in step.
+    pub scroll_all: bool,
+}
+
+/// What the header and each data row need that does not change between them:
+/// palette, geometry, cell styling and the overlay sets.
+///
+/// Built once inside [`draw_table`] and handed to `header::draw_header_direct`
+/// and `rows::draw_data_row_direct`, which between them used to take 17 and 33
+/// positional parameters sharing 21 of them.
+#[derive(Clone, Copy)]
+pub(super) struct PaintCtx<'a> {
+    pub colors: ThemeColors,
+    pub left_x: f32,
+    pub top_y: f32,
+    pub panel_rect: egui::Rect,
+    pub font_size: f32,
+    pub filtered_rows: &'a [usize],
+    pub binary_display_mode: BinaryDisplayMode,
+    pub filtered_columns: &'a HashSet<usize>,
+    pub hidden_columns: &'a HashSet<usize>,
+    pub num_fmt: NumFmtCtx<'a>,
+    pub frozen_cols: usize,
+    pub frozen_width: f32,
+    pub show_row_numbers: bool,
+    pub alternating_row_colors: bool,
+    pub negative_numbers_red: bool,
+    pub highlight_edits: bool,
+    pub cell_line_breaks: bool,
+    pub clickable_links: bool,
+    pub readonly: bool,
+    pub is_rainbow_theme: bool,
+    pub search_matches: &'a HashSet<(usize, usize)>,
+    pub current_match: Option<(usize, usize)>,
+    pub conditional_format_rules: &'a [crate::data::conditional_format::CondRule],
+    pub validation_violations: &'a HashSet<(usize, usize)>,
+    pub outlier_cells: &'a HashSet<(usize, usize)>,
+}
+
+/// Which row is being painted and where it lands.
+///
+/// `actual` and `display` are both `usize` and sat next to each other in the
+/// old argument list. Swapped, every row would paint its neighbour's data at
+/// its own position: no crash, no failing test, just a wrong grid.
+#[derive(Clone, Copy)]
+pub(super) struct RowSlot {
+    /// Index into the underlying table.
+    pub actual: usize,
+    /// Index into the filtered/visible set.
+    pub display: usize,
+    pub y: f32,
+    pub height: f32,
+}
+
 fn compute_optimal_col_width(
     ui: &Ui,
     table: &DataTable,
@@ -505,58 +741,43 @@ pub(crate) fn virtual_thumb(
 }
 
 /// Draw the data table with true row virtualization.
-#[allow(clippy::too_many_arguments)]
 pub fn draw_table(
     ui: &mut Ui,
     table: &mut DataTable,
     state: &mut TableViewState,
-    theme_mode: ThemeMode,
-    filtered_rows: &[usize],
-    os_clipboard_has_content: bool,
-    show_row_numbers: bool,
-    // When true (filter active + setting on), draw a second row-number column
-    // counting the visible rows from 1, beside the original row numbers.
-    show_sequential_numbers: bool,
-    alternating_row_colors: bool,
-    negative_numbers_red: bool,
-    highlight_edits: bool,
-    font_size: f32,
-    cell_line_breaks: bool,
-    // Style cells that hold a web URL as a hyperlink and open on Ctrl+click.
-    clickable_links: bool,
-    binary_display_mode: BinaryDisplayMode,
-    welcome_logo_texture: Option<&egui::TextureHandle>,
-    shortcuts: &Shortcuts,
-    readonly: bool,
-    // Column indices that currently have an active per-column filter. Used
-    // only to paint the header dot marker; the actual row filtering is
-    // already applied in `filtered_rows`.
-    filtered_columns: &HashSet<usize>,
-    // Column indices the user has hidden via right-click -> "Hide column".
-    // Hidden columns render with width 0 and skip paint entirely. Data
-    // stays in the table (Save / Save As writes them).
-    hidden_columns: &HashSet<usize>,
-    // Whether numeric cells render with thousand separators.
-    thousands_separators: bool,
-    // English vs European grouping/decimal marks for numeric cells.
-    separator_style: crate::data::num_format::SeparatorStyle,
-    // Per-column display number formats (decimals + rounding). Display-only.
-    column_number_formats: &std::collections::HashMap<usize, crate::data::num_format::NumberFormat>,
-    // Cells to highlight in highlight-search mode (data-row, col). Empty in
-    // filter mode, so zero overhead there.
-    search_matches: &HashSet<(usize, usize)>,
-    // The single match the user has navigated to, painted more prominently.
-    current_match: Option<(usize, usize)>,
-    // Conditional-formatting rules colouring cells whose value matches a
-    // predicate. Empty in the common case, so zero overhead there.
-    conditional_format_rules: &[crate::data::conditional_format::CondRule],
-    // Cells failing a data-validation rule, painted red. Empty in the common
-    // case (precomputed in `recompute_filter`).
-    validation_violations: &HashSet<(usize, usize)>,
-    // Cells flagged as numeric outliers, painted orange. Empty unless the
-    // Detect-outliers dialog has been applied on this tab.
-    outlier_cells: &HashSet<(usize, usize)>,
+    cx: TableCtx<'_>,
 ) -> TableInteraction {
+    // Destructured into locals with the original names so the body below is
+    // untouched by the signature change.
+    let TableCtx {
+        theme_mode,
+        filtered_rows,
+        os_clipboard_has_content,
+        show_row_numbers,
+        show_sequential_numbers,
+        alternating_row_colors,
+        negative_numbers_red,
+        highlight_edits,
+        font_size,
+        cell_line_breaks,
+        clickable_links,
+        binary_display_mode,
+        welcome_logo_texture,
+        shortcuts,
+        readonly,
+        scroll_all,
+        filtered_columns,
+        hidden_columns,
+        thousands_separators,
+        separator_style,
+        column_number_formats,
+        search_matches,
+        current_match,
+        conditional_format_rules,
+        validation_violations,
+        outlier_cells,
+        handles_input,
+    } = cx;
     let colors = ThemeColors::for_mode(theme_mode);
     let row_height = (font_size * 2.0).max(DEFAULT_ROW_HEIGHT);
     state.ensure_widths(table);
@@ -714,7 +935,7 @@ pub fn draw_table(
     // block below, which is skipped while a text field has focus: the request
     // comes from a page fetch, not from a keystroke, and must not be swallowed
     // because the search box happens to be focused.
-    if let Some(display_idx) = state.pending_scroll_row.take() {
+    if handles_input && let Some(display_idx) = state.pending_scroll_row.take() {
         scroll_row_into_view(
             state,
             display_idx.min(row_count.saturating_sub(1)),
@@ -724,14 +945,19 @@ pub fn draw_table(
         );
     }
 
-    // Handle scroll input and keyboard shortcuts
-    ui.input(|input| {
-        let scroll_delta = input.smooth_scroll_delta;
-        state.scroll_y = (state.scroll_y - scroll_delta.y)
-            .clamp(0.0, (total_content_height - view_height).max(0.0));
-        state.scroll_x = (state.scroll_x - scroll_delta.x)
-            .clamp(0.0, (total_col_width + vscroll_width - view_width).max(0.0));
-    });
+    // Handle scroll input and keyboard shortcuts. `scroll_all` is the Alt-held
+    // split case: every band takes the same notch, so the condition is an
+    // either/or rather than two blocks that would apply it twice to the pane
+    // that is also the active one.
+    if handles_input || scroll_all {
+        ui.input(|input| {
+            let scroll_delta = input.smooth_scroll_delta;
+            state.scroll_y = (state.scroll_y - scroll_delta.y)
+                .clamp(0.0, (total_content_height - view_height).max(0.0));
+            state.scroll_x = (state.scroll_x - scroll_delta.x)
+                .clamp(0.0, (total_col_width + vscroll_width - view_width).max(0.0));
+        });
+    }
 
     // Arrow key navigation: move selected cell and auto-scroll into view.
     //
@@ -749,7 +975,7 @@ pub fn draw_table(
         .memory(|m| m.focused())
         .and_then(|id| egui::TextEdit::load_state(ui.ctx(), id).map(|_| ()))
         .is_some();
-    if state.editing_cell.is_none() && !any_text_edit_focused {
+    if handles_input && state.editing_cell.is_none() && !any_text_edit_focused {
         let max_scroll_y = (total_content_height - view_height).max(0.0);
         let max_scroll_x = (total_col_width + vscroll_width - view_width).max(0.0);
         let data_area_height =
@@ -1049,15 +1275,19 @@ pub fn draw_table(
     // Ctrl+Z / Ctrl+Y are dispatched by `handle_shortcuts` via
     // `ShortcutAction::Undo`/`Redo`, which honors user-rebound combos.
     // Also detect paste from egui's Paste event (carries clipboard text directly)
-    let paste_from_event: Option<String> = ui.input(|i| {
-        i.events.iter().find_map(|e| {
-            if let egui::Event::Paste(text) = e {
-                Some(text.clone())
-            } else {
-                None
-            }
+    let paste_from_event: Option<String> = if handles_input {
+        ui.input(|i| {
+            i.events.iter().find_map(|e| {
+                if let egui::Event::Paste(text) = e {
+                    Some(text.clone())
+                } else {
+                    None
+                }
+            })
         })
-    });
+    } else {
+        None
+    };
     if let Some(text) = paste_from_event
         && state.editing_cell.is_none()
     {
@@ -1072,25 +1302,37 @@ pub fn draw_table(
 
     // --- Draw header ---
     let header_y = panel_rect.top();
-    header::draw_header_direct(
-        ui,
-        &painter,
-        table,
-        state,
-        &colors,
-        panel_rect.left(),
-        header_y,
+    // One context for the header and every data row: the things that do not
+    // change between them. Built here so both painters read identical values.
+    let paint_cx = PaintCtx {
+        colors,
+        left_x: panel_rect.left(),
+        top_y: header_y,
         panel_rect,
-        &mut interaction,
         font_size,
         filtered_rows,
         binary_display_mode,
         filtered_columns,
         hidden_columns,
-        num_fmt_ctx,
+        num_fmt: num_fmt_ctx,
         frozen_cols,
         frozen_width,
-    );
+        show_row_numbers,
+        alternating_row_colors,
+        negative_numbers_red,
+        highlight_edits,
+        cell_line_breaks,
+        clickable_links,
+        readonly,
+        is_rainbow_theme: theme_mode.is_rainbow(),
+        search_matches,
+        current_match,
+        conditional_format_rules,
+        validation_violations,
+        outlier_cells,
+    };
+
+    header::draw_header_direct(ui, &painter, table, state, &mut interaction, &paint_cx);
 
     // Header bottom border
     let header_bottom = header_y + HEADER_HEIGHT;
@@ -1127,6 +1369,12 @@ pub fn draw_table(
 
     let mut current_y = data_area_top + first_visible_offset - state.scroll_y;
 
+    // clippy::needless_range_loop is wrong here and this is the one suppression
+    // left in the tree. The index addresses three different slices at two
+    // offsets - `filtered_rows[display_idx]` plus `state.row_y_offsets` at both
+    // `display_idx` and `display_idx + 1` - so the iterator form clippy suggests
+    // cannot express it without zipping the offsets against a shifted copy of
+    // themselves, which is longer and harder to read than the index.
     #[allow(clippy::needless_range_loop)]
     for display_idx in first_visible..last_visible {
         let actual_row = filtered_rows[display_idx];
@@ -1143,35 +1391,14 @@ pub fn draw_table(
                 &data_painter,
                 table,
                 state,
-                &colors,
-                actual_row,
-                display_idx,
-                panel_rect.left(),
-                current_y,
-                panel_rect,
                 &mut interaction,
-                show_row_numbers,
-                alternating_row_colors,
-                negative_numbers_red,
-                highlight_edits,
-                font_size,
-                cell_line_breaks,
-                clickable_links,
-                binary_display_mode,
-                actual_row_height,
-                readonly,
-                hidden_columns,
-                theme_mode.is_rainbow(),
-                thousands_separators,
-                separator_style,
-                column_number_formats,
-                frozen_cols,
-                frozen_width,
-                search_matches,
-                current_match,
-                conditional_format_rules,
-                validation_violations,
-                outlier_cells,
+                &paint_cx,
+                RowSlot {
+                    actual: actual_row,
+                    display: display_idx,
+                    y: current_y,
+                    height: actual_row_height,
+                },
             );
         }
 

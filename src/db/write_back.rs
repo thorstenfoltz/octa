@@ -302,10 +302,11 @@ fn insert_sql(
 fn alter_add_sql(engine: DbEngine, schema: &str, table: &str, col: &ColumnInfo) -> String {
     use crate::data::schema_export::sql::column_type_sql;
     let dialect = super::live_dialect_for(engine);
-    // SQL Server takes `ADD <col>`, the others `ADD COLUMN <col>` (MySQL and
-    // Postgres both also accept the bare ADD, but COLUMN reads clearer).
+    // SQL Server and Oracle take `ADD <col>` (Oracle rejects the COLUMN
+    // keyword outright), the others `ADD COLUMN <col>` (MySQL and Postgres
+    // both also accept the bare ADD, but COLUMN reads clearer).
     let add = match engine {
-        DbEngine::Mssql => "ADD",
+        DbEngine::Mssql | DbEngine::Oracle => "ADD",
         _ => "ADD COLUMN",
     };
     format!(
@@ -609,6 +610,42 @@ mod tests {
 
     fn pk() -> RowIdentity {
         RowIdentity::Key(vec!["id".into()])
+    }
+
+    /// Streaming a DB tab past the memory ceiling evicts front rows. If
+    /// `evict_front_rows` dropped only the tags, every evicted row would look
+    /// like a row the user deleted and the next Save would DELETE it on the
+    /// server. This is that guard: eviction must leave the plan empty.
+    #[test]
+    fn evicting_front_rows_does_not_turn_them_into_deletes() {
+        let mut t = base_table();
+        t.evict_front_rows(2);
+        let meta = t.db_meta.as_ref().expect("meta survives eviction");
+        assert_eq!(meta.row_tags.len(), t.rows.len());
+        assert_eq!(meta.row_tags, vec![Some(2)]);
+        assert_eq!(meta.original.len(), 1, "evicted baselines are dropped too");
+
+        let plan = build_write_back_plan(&t, &pk()).unwrap();
+        assert!(
+            plan.deletes.is_empty(),
+            "evicted rows must not be deleted on the server, got {:?}",
+            plan.deletes
+        );
+        assert!(plan.updates.is_empty());
+        assert!(plan.inserts.is_empty());
+    }
+
+    /// An edit to a row that survived the eviction still addresses the right
+    /// server row: the baseline for the remaining tag is untouched.
+    #[test]
+    fn an_edit_after_eviction_still_addresses_its_own_row() {
+        let mut t = base_table();
+        t.evict_front_rows(2);
+        t.set(0, 1, CellValue::String("c2".into()));
+        let plan = build_write_back_plan(&t, &pk()).unwrap();
+        assert!(plan.deletes.is_empty());
+        assert_eq!(plan.updates.len(), 1);
+        assert_eq!(plan.updates[0].0, vec![CellValue::Int(3)]);
     }
 
     /// A connector that records the SQL it was given and reports a fixed

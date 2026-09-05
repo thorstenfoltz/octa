@@ -1,0 +1,10 @@
+Plain text opens in the Raw view.
+
+Octa claims a long list of source and config extensions for this reader, so a
+.py, .rs, .go or .tf file opens here too and gets syntax colouring. A file
+with no extension at all is sniffed by its content first, and Dockerfile and
+Containerfile are matched by name.
+
+Tabs	are	preserved.
+So is trailing whitespace, and a very long line that keeps going past the
+width of any sensible window so you can see how the raw view wraps it.

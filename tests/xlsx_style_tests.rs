@@ -70,6 +70,7 @@ fn styling_does_not_change_the_data() {
     let opts = WriteOptions {
         xlsx: XlsxOptions {
             include_formatting: true,
+            preserve_formulas: false,
         },
         style: Some(styled()),
         ..WriteOptions::default()
@@ -135,6 +136,7 @@ fn styled_workbook_gains_style_records() {
     let opts = WriteOptions {
         xlsx: XlsxOptions {
             include_formatting: true,
+            preserve_formulas: false,
         },
         style: Some(styled()),
         ..WriteOptions::default()
@@ -170,6 +172,7 @@ fn manual_marks_are_written() {
     let opts = WriteOptions {
         xlsx: XlsxOptions {
             include_formatting: true,
+            preserve_formulas: false,
         },
         style: Some(TableStyle::default()),
         ..WriteOptions::default()
@@ -209,6 +212,7 @@ fn baked_rule_paints_cells_and_stays_out_of_live_conditional_formatting() {
     let opts = WriteOptions {
         xlsx: XlsxOptions {
             include_formatting: true,
+            preserve_formulas: false,
         },
         style: Some(TableStyle {
             conditional: vec![CondRule {
@@ -248,6 +252,7 @@ fn a_rule_after_the_first_baked_rule_is_baked_too() {
     let opts = WriteOptions {
         xlsx: XlsxOptions {
             include_formatting: true,
+            preserve_formulas: false,
         },
         style: Some(TableStyle {
             conditional: vec![
@@ -297,6 +302,7 @@ fn no_baked_rules_still_export_live_conditional_formatting() {
     let opts = WriteOptions {
         xlsx: XlsxOptions {
             include_formatting: true,
+            preserve_formulas: false,
         },
         style: Some(styled()), // a plain Gt rule, not case sensitive: stays live
         ..WriteOptions::default()
@@ -379,6 +385,7 @@ fn explicit_mark_beats_a_matching_conditional_rule() {
     let opts = WriteOptions {
         xlsx: XlsxOptions {
             include_formatting: true,
+            preserve_formulas: false,
         },
         style: Some(TableStyle {
             conditional: vec![CondRule {
@@ -411,6 +418,7 @@ fn styles_xml(t: &DataTable) -> String {
     let opts = WriteOptions {
         xlsx: XlsxOptions {
             include_formatting: true,
+            preserve_formulas: false,
         },
         style: Some(TableStyle::default()),
         ..WriteOptions::default()

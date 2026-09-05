@@ -20,7 +20,7 @@ jobs:
       licenses: ${{ steps.filter.outputs.licenses }}
       db: ${{ steps.filter.outputs.db }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -45,7 +45,7 @@ jobs:
     if: needs.changes.outputs.licenses == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -54,15 +54,18 @@ jobs:
         with:
           tool: cargo-deny
 
-      - name: Check licenses
-        run: cargo deny --all-features check licenses
+      - name: Check licenses and security advisories
+        # `--log-level info` prints every advisory the `ignore` list in
+        # deny.toml suppresses, with its reason. Without it cargo-deny reports
+        # only "advisories ok" and a deferred advisory becomes invisible.
+        run: cargo deny --log-level info --all-features check licenses advisories
 
   test:
     needs: [changes, megalinter]
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # ubuntu-latest ships ~20 GB of preinstalled toolchains (dotnet/android/
       # ghc) this build never touches, leaving only ~21 GB on /. `cargo test`
@@ -133,7 +136,7 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # Same reclaim as the `test` job: the lib pulls in bundled DuckDB
       # (C++) and two Arrow versions, which overruns the default ~21 GB.
@@ -183,7 +186,7 @@ jobs:
   megalinter:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

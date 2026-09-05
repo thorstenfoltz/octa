@@ -1,0 +1,12 @@
+PRAGMA foreign_keys=OFF;
+BEGIN TRANSACTION;
+CREATE TABLE IF NOT EXISTS "products" ("id" TEXT, "product" TEXT, "category" TEXT, "price" TEXT, "in_stock" TEXT, "released" TEXT, "rating" TEXT, "note" TEXT);
+INSERT INTO products VALUES('1','Café Latte','drinks','3.5','1','2024-01-15','4.5',NULL);
+INSERT INTO products VALUES('2','Blaubeer-Muffin','food','2.75','1','2024-02-01','4.2','Baked daily');
+INSERT INTO products VALUES('3','Espresso','drinks','2.1','0','2023-11-30','4.8','Out of beans');
+INSERT INTO products VALUES('4','Croissant','food','2.4','1','2024-03-12','3.9',NULL);
+INSERT INTO products VALUES('5','Matcha Latte','drinks','4.25','1','2024-05-02','4.1','Seasonal');
+INSERT INTO products VALUES('6','Bagel','food','1.95','0','2022-07-19','3.4','Discontinued');
+INSERT INTO products VALUES('7','Flat White','drinks','3.8','1','2024-06-08','4.6',NULL);
+INSERT INTO products VALUES('8','Käsekuchen','food','4.9','1','2024-04-21','4.7','One slice left, hurry');
+COMMIT;

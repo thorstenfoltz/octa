@@ -115,6 +115,7 @@ pub fn json_to_table(value: Value, path: &Path, format_name: &str) -> Result<Dat
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             db_meta: None,
+            formulas: std::collections::HashMap::new(),
         });
     }
 
@@ -208,6 +209,7 @@ pub fn json_to_table(value: Value, path: &Path, format_name: &str) -> Result<Dat
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     })
 }
 

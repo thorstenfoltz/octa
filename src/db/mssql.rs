@@ -57,7 +57,16 @@ impl MssqlConnector {
         }
         let mut client = runtime()
             .block_on(async {
-                let tcp = tokio::net::TcpStream::connect(config.get_addr()).await?;
+                // `config.get_addr()` would be the database's own address;
+                // behind a jump host the socket goes to the loopback forward
+                // instead, while `config.host` stays the name tiberius
+                // validates the certificate against.
+                let (dial_host, dial_port) = conn.dial_target();
+                let tcp = if conn.is_tunnelled() {
+                    tokio::net::TcpStream::connect((dial_host.as_str(), dial_port)).await?
+                } else {
+                    tokio::net::TcpStream::connect(config.get_addr()).await?
+                };
                 tcp.set_nodelay(true)?;
                 tiberius::Client::connect(config, tcp.compat_write())
                     .await
@@ -301,7 +310,9 @@ impl DbConnector for MssqlConnector {
         let killed = self.killed.clone();
         Some(Box::new(move || {
             killed.cancel();
-            super::kill_via_new_connection(conn.clone(), secret.clone(), session_id.clone());
+            // No SSH credential needed: `conn` is the copy `db::connect` built,
+            // so it already carries the open tunnel's port and reuses it.
+            super::kill_via_new_connection(conn.clone(), secret.clone(), None, session_id.clone());
         }))
     }
 }

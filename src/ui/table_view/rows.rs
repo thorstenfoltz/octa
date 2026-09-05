@@ -3,53 +3,63 @@
 //! Split out of [`super`] (the 2,300-line table_view.rs) for navigability;
 //! no behaviour change.
 
-use std::collections::HashSet;
-
 use egui::{Align2, Color32, CursorIcon, RichText, Sense, Ui, Vec2};
 
-use crate::data::{BinaryDisplayMode, CellValue, DataTable, MarkKey, is_numeric_data_type};
+use crate::data::{CellValue, DataTable, MarkKey, is_numeric_data_type};
 use crate::ui::status_bar::format_number;
-use crate::ui::theme::ThemeColors;
 use crate::ui::toolbar;
 
 use super::{DEFAULT_COL_WIDTH, HEADER_HEIGHT, TableInteraction, TableViewState, mark_submenu};
 
-#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_data_row_direct(
     ui: &mut Ui,
     painter: &egui::Painter,
     table: &mut DataTable,
     state: &mut TableViewState,
-    colors: &ThemeColors,
-    actual_row: usize,
-    display_idx: usize,
-    left_x: f32,
-    row_y: f32,
-    panel_rect: egui::Rect,
     interaction: &mut TableInteraction,
-    show_row_numbers: bool,
-    alternating_row_colors: bool,
-    negative_numbers_red: bool,
-    highlight_edits: bool,
-    font_size: f32,
-    cell_line_breaks: bool,
-    clickable_links: bool,
-    binary_display_mode: BinaryDisplayMode,
-    row_height: f32,
-    readonly: bool,
-    hidden_columns: &HashSet<usize>,
-    is_rainbow_theme: bool,
-    thousands_separators: bool,
-    separator_style: crate::data::num_format::SeparatorStyle,
-    column_number_formats: &std::collections::HashMap<usize, crate::data::num_format::NumberFormat>,
-    frozen_cols: usize,
-    frozen_width: f32,
-    search_matches: &HashSet<(usize, usize)>,
-    current_match: Option<(usize, usize)>,
-    conditional_format_rules: &[crate::data::conditional_format::CondRule],
-    validation_violations: &HashSet<(usize, usize)>,
-    outlier_cells: &HashSet<(usize, usize)>,
+    cx: &super::PaintCtx<'_>,
+    slot: super::RowSlot,
 ) {
+    // Destructured so the body keeps the names it already used. `row_height`
+    // and the two row indices vary per row, so they arrive in `slot`; the rest
+    // is constant for the whole table and arrives in `cx`.
+    let super::PaintCtx {
+        colors,
+        left_x,
+        panel_rect,
+        font_size,
+        binary_display_mode,
+        hidden_columns,
+        num_fmt,
+        frozen_cols,
+        frozen_width,
+        show_row_numbers,
+        alternating_row_colors,
+        negative_numbers_red,
+        highlight_edits,
+        cell_line_breaks,
+        clickable_links,
+        readonly,
+        is_rainbow_theme,
+        search_matches,
+        current_match,
+        conditional_format_rules,
+        validation_violations,
+        outlier_cells,
+        ..
+    } = *cx;
+    let colors = &colors;
+    let super::NumFmtCtx {
+        thousands: thousands_separators,
+        style: separator_style,
+        formats: column_number_formats,
+    } = num_fmt;
+    let super::RowSlot {
+        actual: actual_row,
+        display: display_idx,
+        y: row_y,
+        height: row_height,
+    } = slot;
     let is_multi_selected_row = state.selected_rows.contains(&actual_row);
     // Highlight-search backgrounds derived from the theme (translucent so the
     // cell text / row tint stay legible). Only consulted when there are matches.
@@ -442,6 +452,24 @@ pub(super) fn draw_data_row_direct(
                     ui.id().with(("cell", actual_row, col_idx)),
                     Sense::click(),
                 );
+                // The formula behind the value, for a cell that still has one.
+                // On hover rather than in the grid: the value is what you are
+                // reading, the formula is only why it says that.
+                let response = match table.formula(actual_row, col_idx) {
+                    Some(f) => {
+                        let f = f.to_string();
+                        response.on_hover_text(f)
+                    }
+                    None => response,
+                };
+                // What this particular value means, for a column whose cells
+                // are labels rather than data (the quality report's two
+                // verdicts). The header says what the column measures; this
+                // says what the answer in front of you is telling you.
+                let response = match cell_tooltip(state, table, actual_row, col_idx) {
+                    Some(tip) => response.on_hover_text(tip),
+                    None => response,
+                };
 
                 if response.clicked() {
                     let modifiers = ui.input(|i| i.modifiers);
@@ -870,5 +898,25 @@ pub(super) fn draw_data_row_direct(
                 ui.close();
             }
         });
+    }
+}
+
+/// The hover text for one cell, if its column has a legend and the cell's text
+/// is in it.
+///
+/// Two lookups guard it, so a `gaps` in some unrelated string column cannot
+/// pick up the calendar verdict's explanation: the column has to carry a
+/// legend at all, and the cell's exact text has to be one of that legend's
+/// values.
+pub(super) fn cell_tooltip(
+    state: &TableViewState,
+    table: &DataTable,
+    row: usize,
+    col: usize,
+) -> Option<String> {
+    let legend = state.cell_tooltips.get(col).filter(|m| !m.is_empty())?;
+    match table.get(row, col)? {
+        CellValue::String(s) => legend.get(s.as_str()).cloned(),
+        _ => None,
     }
 }

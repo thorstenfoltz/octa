@@ -44,6 +44,7 @@ fn sample_table() -> DataTable {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     }
 }
 
@@ -608,6 +609,7 @@ fn test_multi_column_sort_primary_and_tiebreak() {
         undo_stack: Vec::new(),
         redo_stack: Vec::new(),
         db_meta: None,
+        formulas: std::collections::HashMap::new(),
     };
     t.sort_rows_by_columns(&[(0, true), (1, true)]);
     assert_eq!(t.get(0, 0), Some(&CellValue::String("A".into())));

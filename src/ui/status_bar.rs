@@ -45,6 +45,8 @@ pub struct StatusBarAction {
     /// User clicked the column-filter chip - open the Column Filter dialog
     /// preselected on the first filtered column.
     pub open_column_filter: Option<usize>,
+    /// User clicked Cancel beside the busy spinner.
+    pub cancel_busy: bool,
 }
 
 /// Per-selection rollups shown as a status-bar pill when more than one
@@ -119,267 +121,348 @@ fn format_float(n: f64) -> String {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Everything the status bar reads, in one place.
+///
+/// `readonly` and `busy` sat next to each other in the old sixteen-argument
+/// positional list, both bare `bool`s: swapped, the read-only pill appeared
+/// while a job ran and vanished when the tab really was read-only, with a
+/// green build. `filtered_count` and `column_filter_count` are the same story
+/// one type over.
+#[derive(Clone, Copy)]
+pub struct StatusBarCtx<'a> {
+    pub table: &'a DataTable,
+    pub state: &'a TableViewState,
+    pub theme_mode: ThemeMode,
+    pub filtered_count: usize,
+    pub search_active: bool,
+    pub nav_focus_requested: bool,
+    pub zoom_percent: u32,
+    pub readonly: bool,
+    pub busy: bool,
+    pub busy_hint: Option<&'a str>,
+    /// Whether the busy job can be stopped. Only then is a Cancel offered:
+    /// a button that does nothing for an update install or a file read would
+    /// be worse than none.
+    pub busy_cancellable: bool,
+    pub column_filter_count: usize,
+    pub first_filtered_col: Option<usize>,
+    pub selected_rows: &'a std::collections::HashSet<usize>,
+    pub selected_cells: &'a std::collections::HashSet<(usize, usize)>,
+}
+
 pub fn draw_status_bar(
     ui: &mut Ui,
-    table: &DataTable,
-    state: &TableViewState,
-    theme_mode: ThemeMode,
-    filtered_count: usize,
-    search_active: bool,
+    cx: StatusBarCtx<'_>,
+    // The one input the bar edits, so it stays a `&mut` parameter rather than
+    // a field on the read-only context.
     nav_input: &mut String,
-    nav_focus_requested: bool,
-    zoom_percent: u32,
-    readonly: bool,
-    busy: bool,
-    busy_hint: Option<&str>,
-    column_filter_count: usize,
-    first_filtered_col: Option<usize>,
-    selected_rows: &std::collections::HashSet<usize>,
-    selected_cells: &std::collections::HashSet<(usize, usize)>,
 ) -> StatusBarAction {
+    let StatusBarCtx {
+        table,
+        state,
+        theme_mode,
+        filtered_count,
+        search_active,
+        nav_focus_requested,
+        zoom_percent,
+        readonly,
+        busy,
+        busy_hint,
+        busy_cancellable,
+        column_filter_count,
+        first_filtered_col,
+        selected_rows,
+        selected_cells,
+    } = cx;
     let mut action = StatusBarAction::default();
     let colors = ThemeColors::for_mode(theme_mode);
 
+    // The bar carries more than a narrow window can show: file, format, counts,
+    // the filter chip, the selected cell, the selection rollup and the "Go to"
+    // box. Down at the 400px window floor that run is roughly twice the width
+    // available, and a plain horizontal layout simply stops painting - which
+    // silently takes away the two things here you can actually click, the
+    // filter chip and the navigation box.
+    //
+    // So the informational run scrolls (wheel only; a 28px strip has no room
+    // for a scrollbar), exactly as the toolbar and the tab bar already do, and
+    // the zoom / modified indicators are pinned outside it on the right where
+    // they neither scroll away nor get pushed off the end. Nothing is dropped:
+    // on a roomy window this is indistinguishable from before.
+    let show_right = table.col_count() > 0 && (zoom_percent != 100 || table.is_modified());
+    // Room for "100% | (12 edits) Modified" at 11px. Over-reserving costs a
+    // little scrolling, under-reserving would let the two runs collide.
+    let reserved = if show_right { 170.0 } else { 0.0 };
+    let scroll_width = (ui.available_width() - reserved).max(80.0);
     ui.horizontal(|ui| {
-        ui.add_space(8.0);
+        // A plain vertical wheel only reaches a horizontal-only scroll area
+        // when this is set; egui defaults it to false, which would force the
+        // user to hold Shift. Same override the toolbar and tab bar need.
+        ui.style_mut().always_scroll_the_only_direction = true;
+        egui::ScrollArea::horizontal()
+            .id_salt("status_bar_scroll")
+            .max_width(scroll_width)
+            .auto_shrink([false, false])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
 
-        // Busy indicator: small spinner + optional one-word reason. Shown
-        // only while a long-running operation is in flight (background
-        // row load, update check, update install). Idle frames stay
-        // completely silent so startup feels fast.
-        if busy {
-            ui.add(egui::Spinner::new().size(12.0));
-            if let Some(hint) = busy_hint {
-                ui.label(RichText::new(hint).size(11.0).color(colors.text_secondary));
-            }
-            ui.separator();
-        }
+                    // Busy indicator: small spinner + optional one-word reason. Shown
+                    // only while a long-running operation is in flight (background
+                    // row load, update check, update install). Idle frames stay
+                    // completely silent so startup feels fast.
+                    if busy {
+                        ui.add(egui::Spinner::new().size(12.0));
+                        if let Some(hint) = busy_hint {
+                            ui.label(RichText::new(hint).size(11.0).color(colors.text_secondary));
+                        }
+                        if busy_cancellable
+                            && ui
+                                .small_button(crate::i18n::t("common.cancel"))
+                                .on_hover_text(crate::i18n::t("status_bar.cancel_hint"))
+                                .clicked()
+                        {
+                            action.cancel_busy = true;
+                        }
+                        ui.separator();
+                    }
 
-        if readonly {
-            // Plain text instead of a lock emoji - many bundled fonts lack
-            // U+1F512 and render it as a tofu / replacement glyph.
-            ui.label(
-                RichText::new(crate::i18n::t("status_bar.readonly"))
-                    .size(11.0)
-                    .color(Color32::from_rgb(0xc0, 0x6a, 0x10))
-                    .strong(),
-            );
-            ui.separator();
-        }
+                    if readonly {
+                        // Plain text instead of a lock emoji - many bundled fonts lack
+                        // U+1F512 and render it as a tofu / replacement glyph.
+                        ui.label(
+                            RichText::new(crate::i18n::t("status_bar.readonly"))
+                                .size(11.0)
+                                .color(Color32::from_rgb(0xc0, 0x6a, 0x10))
+                                .strong(),
+                        );
+                        ui.separator();
+                    }
 
-        if table.col_count() > 0 {
-            // File info
-            if let Some(ref path) = table.source_path {
-                let filename = std::path::Path::new(path)
-                    .file_name()
-                    .map(|f| f.to_string_lossy().to_string())
-                    .unwrap_or_else(|| path.clone());
-                ui.label(
-                    RichText::new(format!(
-                        "{} {}",
-                        crate::i18n::t("status_bar.file"),
-                        filename
-                    ))
-                    .size(11.0)
-                    .color(colors.text_secondary),
-                );
-                ui.separator();
-            }
+                    if table.col_count() > 0 {
+                        // File info
+                        if let Some(ref path) = table.source_path {
+                            let filename = std::path::Path::new(path)
+                                .file_name()
+                                .map(|f| f.to_string_lossy().to_string())
+                                .unwrap_or_else(|| path.clone());
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} {}",
+                                    crate::i18n::t("status_bar.file"),
+                                    filename
+                                ))
+                                .size(11.0)
+                                .color(colors.text_secondary),
+                            );
+                            ui.separator();
+                        }
 
-            if let Some(ref fmt) = table.format_name {
-                ui.label(RichText::new(fmt.as_str()).size(11.0).color(colors.accent));
-                ui.separator();
-            }
+                        if let Some(ref fmt) = table.format_name {
+                            ui.label(RichText::new(fmt.as_str()).size(11.0).color(colors.accent));
+                            ui.separator();
+                        }
 
-            // Row/col count
-            let rows_word = crate::i18n::t("status_bar.rows");
-            let row_text = if table.total_rows.is_some() {
-                let loaded = table.row_offset + table.row_count();
-                if search_active {
-                    format!(
-                        "{} / {}+ {} {}",
-                        format_number(filtered_count),
-                        format_number(loaded),
-                        rows_word,
-                        crate::i18n::t("status_bar.partial")
-                    )
-                } else {
-                    format!(
-                        "{}+ {} {}",
-                        format_number(loaded),
-                        rows_word,
-                        crate::i18n::t("status_bar.scroll_more")
-                    )
-                }
-            } else if search_active {
-                format!(
-                    "{} / {} {}",
-                    format_number(filtered_count),
-                    format_number(table.row_count()),
-                    rows_word
-                )
-            } else {
-                format!("{} {}", format_number(table.row_count()), rows_word)
-            };
-            ui.label(
-                RichText::new(row_text)
-                    .size(11.0)
-                    .color(colors.text_secondary),
-            );
-            ui.separator();
-            ui.label(
-                RichText::new(format!(
-                    "{} {}",
-                    format_number(table.col_count()),
-                    crate::i18n::t("status_bar.columns")
-                ))
-                .size(11.0)
-                .color(colors.text_secondary),
-            );
-
-            // Active column-filter chip. Clickable shortcut into the dialog,
-            // preselected on the first filtered column.
-            if column_filter_count > 0 {
-                ui.separator();
-                let chip = ui
-                    .add(
-                        egui::Label::new(
+                        // Row/col count
+                        let rows_word = crate::i18n::t("status_bar.rows");
+                        let row_text = if table.total_rows.is_some() {
+                            let loaded = table.row_offset + table.row_count();
+                            if search_active {
+                                format!(
+                                    "{} / {}+ {} {}",
+                                    format_number(filtered_count),
+                                    format_number(loaded),
+                                    rows_word,
+                                    crate::i18n::t("status_bar.partial")
+                                )
+                            } else {
+                                format!(
+                                    "{}+ {} {}",
+                                    format_number(loaded),
+                                    rows_word,
+                                    crate::i18n::t("status_bar.scroll_more")
+                                )
+                            }
+                        } else if search_active {
+                            format!(
+                                "{} / {} {}",
+                                format_number(filtered_count),
+                                format_number(table.row_count()),
+                                rows_word
+                            )
+                        } else {
+                            format!("{} {}", format_number(table.row_count()), rows_word)
+                        };
+                        ui.label(
+                            RichText::new(row_text)
+                                .size(11.0)
+                                .color(colors.text_secondary),
+                        );
+                        ui.separator();
+                        ui.label(
                             RichText::new(format!(
-                                "{} {} {}",
-                                crate::i18n::t("status_bar.filter"),
-                                column_filter_count,
+                                "{} {}",
+                                format_number(table.col_count()),
                                 crate::i18n::t("status_bar.columns")
                             ))
                             .size(11.0)
-                            .color(colors.accent)
-                            .strong(),
-                        )
-                        .sense(egui::Sense::click()),
-                    )
-                    .on_hover_text(crate::i18n::t("status_bar.filter_hint"));
-                if chip.clicked() {
-                    action.open_column_filter = first_filtered_col;
-                }
-            }
+                            .color(colors.text_secondary),
+                        );
 
-            // Selected cell info + navigation input
-            if let Some((row, col)) = state.selected_cell {
-                ui.separator();
-                let col_name = table
-                    .columns
-                    .get(col)
-                    .map(|c| c.name.as_str())
-                    .unwrap_or("?");
-                ui.label(
-                    RichText::new(format!(
-                        "{} R{}:C{} ({})",
-                        crate::i18n::t("status_bar.cell"),
-                        row + 1 + table.row_offset,
-                        col + 1,
-                        col_name
-                    ))
-                    .size(11.0)
-                    .color(colors.text_secondary),
-                );
+                        // Active column-filter chip. Clickable shortcut into the dialog,
+                        // preselected on the first filtered column.
+                        if column_filter_count > 0 {
+                            ui.separator();
+                            let chip = ui
+                                .add(
+                                    egui::Label::new(
+                                        RichText::new(format!(
+                                            "{} {} {}",
+                                            crate::i18n::t("status_bar.filter"),
+                                            column_filter_count,
+                                            crate::i18n::t("status_bar.columns")
+                                        ))
+                                        .size(11.0)
+                                        .color(colors.accent)
+                                        .strong(),
+                                    )
+                                    .sense(egui::Sense::click()),
+                                )
+                                .on_hover_text(crate::i18n::t("status_bar.filter_hint"));
+                            if chip.clicked() {
+                                action.open_column_filter = first_filtered_col;
+                            }
+                        }
 
-                if let Some(val) = table.get(row, col) {
-                    ui.separator();
-                    ui.label(
-                        RichText::new(format!(
-                            "{} {}",
-                            crate::i18n::t("status_bar.type"),
-                            val.type_name()
-                        ))
-                        .size(11.0)
-                        .color(colors.text_muted),
-                    );
-                }
-            }
+                        // Selected cell info + navigation input
+                        if let Some((row, col)) = state.selected_cell {
+                            ui.separator();
+                            let col_name = table
+                                .columns
+                                .get(col)
+                                .map(|c| c.name.as_str())
+                                .unwrap_or("?");
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} R{}:C{} ({})",
+                                    crate::i18n::t("status_bar.cell"),
+                                    row + 1 + table.row_offset,
+                                    col + 1,
+                                    col_name
+                                ))
+                                .size(11.0)
+                                .color(colors.text_secondary),
+                            );
 
-            // Selection rollup pill (Excel-style Sum / Count / Avg / Min / Max).
-            // Shown only when more than one cell is selected; the single-cell
-            // info above already covers the one-cell case. Selection sources
-            // resolve in the same priority order the clipboard uses.
-            let stats_cells: Option<Vec<(usize, usize)>> = if !selected_cells.is_empty() {
-                Some(selected_cells.iter().copied().collect())
-            } else if !selected_rows.is_empty() {
-                let cols = table.col_count();
-                Some(
-                    selected_rows
-                        .iter()
-                        .flat_map(|&r| (0..cols).map(move |c| (r, c)))
-                        .collect(),
-                )
-            } else if !state.selected_cols.is_empty() {
-                let rows = table.row_count();
-                Some(
-                    state
-                        .selected_cols
-                        .iter()
-                        .flat_map(|&c| (0..rows).map(move |r| (r, c)))
-                        .collect(),
-                )
-            } else {
-                None
-            };
-            if let Some(cells) = stats_cells {
-                let stats = compute_selection_stats(table, cells.into_iter());
-                if stats.count > 1 {
-                    ui.separator();
-                    let text = if stats.numeric_count > 0 {
-                        let avg = stats.sum / stats.numeric_count as f64;
-                        format!(
-                            "{}={} {}={} {}={} {}={} {}={}",
-                            crate::i18n::t("status_bar.count"),
-                            format_number(stats.count),
-                            crate::i18n::t("status_bar.sum"),
-                            format_float(stats.sum),
-                            crate::i18n::t("status_bar.avg"),
-                            format_float(avg),
-                            crate::i18n::t("status_bar.min"),
-                            format_float(stats.min),
-                            crate::i18n::t("status_bar.max"),
-                            format_float(stats.max),
-                        )
+                            if let Some(val) = table.get(row, col) {
+                                ui.separator();
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} {}",
+                                        crate::i18n::t("status_bar.type"),
+                                        val.type_name()
+                                    ))
+                                    .size(11.0)
+                                    .color(colors.text_muted),
+                                );
+                            }
+                        }
+
+                        // Selection rollup pill (Excel-style Sum / Count / Avg / Min / Max).
+                        // Shown only when more than one cell is selected; the single-cell
+                        // info above already covers the one-cell case. Selection sources
+                        // resolve in the same priority order the clipboard uses.
+                        let stats_cells: Option<Vec<(usize, usize)>> = if !selected_cells.is_empty()
+                        {
+                            Some(selected_cells.iter().copied().collect())
+                        } else if !selected_rows.is_empty() {
+                            let cols = table.col_count();
+                            Some(
+                                selected_rows
+                                    .iter()
+                                    .flat_map(|&r| (0..cols).map(move |c| (r, c)))
+                                    .collect(),
+                            )
+                        } else if !state.selected_cols.is_empty() {
+                            let rows = table.row_count();
+                            Some(
+                                state
+                                    .selected_cols
+                                    .iter()
+                                    .flat_map(|&c| (0..rows).map(move |r| (r, c)))
+                                    .collect(),
+                            )
+                        } else {
+                            None
+                        };
+                        if let Some(cells) = stats_cells {
+                            let stats = compute_selection_stats(table, cells.into_iter());
+                            if stats.count > 1 {
+                                ui.separator();
+                                let text = if stats.numeric_count > 0 {
+                                    let avg = stats.sum / stats.numeric_count as f64;
+                                    format!(
+                                        "{}={} {}={} {}={} {}={} {}={}",
+                                        crate::i18n::t("status_bar.count"),
+                                        format_number(stats.count),
+                                        crate::i18n::t("status_bar.sum"),
+                                        format_float(stats.sum),
+                                        crate::i18n::t("status_bar.avg"),
+                                        format_float(avg),
+                                        crate::i18n::t("status_bar.min"),
+                                        format_float(stats.min),
+                                        crate::i18n::t("status_bar.max"),
+                                        format_float(stats.max),
+                                    )
+                                } else {
+                                    format!(
+                                        "{}={}",
+                                        crate::i18n::t("status_bar.count"),
+                                        format_number(stats.count)
+                                    )
+                                };
+                                ui.label(
+                                    RichText::new(text).size(11.0).color(colors.accent).strong(),
+                                );
+                            }
+                        }
+
+                        ui.separator();
+                        let nav_response = ui.add(
+                            egui::TextEdit::singleline(nav_input)
+                                .desired_width(180.0)
+                                .hint_text(crate::i18n::t("status_bar.nav_hint"))
+                                .font(egui::FontId::new(11.0, egui::FontFamily::Monospace)),
+                        );
+                        if nav_focus_requested {
+                            nav_response.request_focus();
+                        }
+                        if nav_response.lost_focus()
+                            && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                            && !nav_input.is_empty()
+                        {
+                            if nav_input.trim().eq_ignore_ascii_case("kraken") {
+                                action.kraken_summoned = true;
+                            } else if let Some(target) = parse_nav_input(nav_input, table) {
+                                action.navigate_to = Some(target);
+                            }
+                            nav_input.clear();
+                        }
                     } else {
-                        format!(
-                            "{}={}",
-                            crate::i18n::t("status_bar.count"),
-                            format_number(stats.count)
-                        )
-                    };
-                    ui.label(RichText::new(text).size(11.0).color(colors.accent).strong());
-                }
-            }
-
-            ui.separator();
-            let nav_response = ui.add(
-                egui::TextEdit::singleline(nav_input)
-                    .desired_width(180.0)
-                    .hint_text(crate::i18n::t("status_bar.nav_hint"))
-                    .font(egui::FontId::new(11.0, egui::FontFamily::Monospace)),
-            );
-            if nav_focus_requested {
-                nav_response.request_focus();
-            }
-            if nav_response.lost_focus()
-                && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                && !nav_input.is_empty()
-            {
-                if nav_input.trim().eq_ignore_ascii_case("kraken") {
-                    action.kraken_summoned = true;
-                } else if let Some(target) = parse_nav_input(nav_input, table) {
-                    action.navigate_to = Some(target);
-                }
-                nav_input.clear();
-            }
-
-            // Right-aligned: zoom + edit indicator
+                        ui.label(
+                            RichText::new(crate::i18n::t("status_bar.no_file"))
+                                .size(11.0)
+                                .color(colors.text_muted),
+                        );
+                    }
+                });
+            });
+        if show_right {
+            // Zoom + edit indicator, pinned to the right edge of the bar.
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.add_space(8.0);
 
-                // Zoom indicator
                 if zoom_percent != 100 {
                     ui.label(
                         RichText::new(format!("{}%", zoom_percent))
@@ -389,7 +472,6 @@ pub fn draw_status_bar(
                     ui.separator();
                 }
 
-                // Edit indicator
                 if table.is_modified() {
                     let edit_count = table.edits.len();
                     if edit_count > 0 {
@@ -411,12 +493,6 @@ pub fn draw_status_bar(
                     );
                 }
             });
-        } else {
-            ui.label(
-                RichText::new(crate::i18n::t("status_bar.no_file"))
-                    .size(11.0)
-                    .color(colors.text_muted),
-            );
         }
     });
 

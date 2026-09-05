@@ -107,6 +107,7 @@ impl eframe::App for OctaApp {
         self.drain_cloud_pending_open();
         self.drain_cloud_sign_ins(&ctx);
         self.drain_db_pending_open();
+        self.drain_db_load_job();
         self.drain_sql_server_job();
         self.drain_db_write_back_job();
         self.drain_batch_convert();
