@@ -415,14 +415,31 @@ async fn agent_client() -> Result<
         if let Ok(c) = russh::keys::agent::client::AgentClient::connect_pageant().await {
             return Ok(c.dynamic());
         }
+        // russh has no `connect_env` on Windows: OpenSSH exposes the agent as
+        // a named pipe, not a socket. SSH_AUTH_SOCK carries the pipe path when
+        // it is set at all, otherwise the ssh-agent service's default one.
+        let pipe = std::env::var("SSH_AUTH_SOCK")
+            .unwrap_or_else(|_| r"\\.\pipe\openssh-ssh-agent".to_string());
+        let c = russh::keys::agent::client::AgentClient::connect_named_pipe(&pipe)
+            .await
+            .with_context(|| {
+                format!(
+                    "no SSH agent found (Pageant is not running and nothing answers at {pipe}); \
+                     start one, or pick a private key file on this connection instead"
+                )
+            })?;
+        Ok(c.dynamic())
     }
-    let c = russh::keys::agent::client::AgentClient::connect_env()
-        .await
-        .context(
-            "no SSH agent found (SSH_AUTH_SOCK is unset or the agent is not running); start one, \
-             or pick a private key file on this connection instead",
-        )?;
-    Ok(c.dynamic())
+    #[cfg(not(windows))]
+    {
+        let c = russh::keys::agent::client::AgentClient::connect_env()
+            .await
+            .context(
+                "no SSH agent found (SSH_AUTH_SOCK is unset or the agent is not running); start \
+                 one, or pick a private key file on this connection instead",
+            )?;
+        Ok(c.dynamic())
+    }
 }
 
 #[cfg(test)]
