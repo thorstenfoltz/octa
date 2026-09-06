@@ -11,3 +11,29 @@ Töötlemine toimub kohapeal, sinu arvutis, kui just kasutatav funktsioon ei vaj
 
 Kasutajaliides on saadaval 32 keeles. Octa on vaba tarkvara MIT-litsentsi all.
 """
+
+features = [
+  "Avab umbes kolmkümmend vormingut: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata ja teisi",
+  "DuckDB SQL otse igas avatud failis, ilma importimiseta",
+  "Sordi, filtreeri ja otsi teksti, metamärkide või regulaaravaldistega",
+  "Muuda lahtreid, veerge ja ridu, täieliku tagasivõtmisega, andmebaasi salvestatakse ainult erinevused",
+  "Diagrammid omal kaardil, eksporditavad PNG-, SVG- või PDF-vormingusse",
+  "Võrdle kahte faili rida-realt või kirje kaupa",
+  "Veerustatistika, duplikaadid, erindid ja risttabelid",
+  "Miljonite ridadega Parquet-faile laadib taustal",
+  "Loeb otse Amazon S3-st, Azure Blob Storage'ist ja Google Cloud Storage'ist",
+  "Ühendub PostgreSQLi, MySQLi, SQL Serveri, Snowflake'i, BigQuery ja teistega",
+  "Valikuline tehisaru abiline, oma võtmega või kohaliku mudeliga",
+  "Ka käsurea tööriist ja Model Context Protocoli server",
+  "Kasutajaliides 32 keeles",
+  "Vaba ja avatud lähtekoodiga tarkvara, MIT litsents",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "csv vaatur"
+SearchTerm3 = "andmete vaatamine"
+SearchTerm4 = "sqlite brauser"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "sql päringud"
+SearchTerm7 = "exceli alternatiiv"

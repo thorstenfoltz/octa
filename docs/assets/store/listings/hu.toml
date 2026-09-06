@@ -11,3 +11,29 @@ Az adatok helyben, a saját gépeden dolgozódnak fel, amíg a használt funkci�
 
 A felület 32 nyelven érhető el. Az Octa szabad szoftver, MIT licenc alatt.
 """
+
+features = [
+  "Nagyjából harminc formátumot nyit meg: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata és még több",
+  "DuckDB SQL-lekérdezések bármelyik megnyitott fájlra, importálás nélkül",
+  "Rendezés, szűrés és keresés szöveggel, helyettesítő karakterekkel vagy reguláris kifejezésekkel",
+  "Cellák, oszlopok és sorok szerkesztése, teljes visszavonással, az adatbázisba csak az eltérések kerülnek",
+  "Diagramok saját lapon, PNG, SVG vagy PDF formátumba exportálva",
+  "Két fájl összehasonlítása sorról sorra vagy rekordonként",
+  "Oszlopstatisztika, duplikátumok, kiugró értékek és kimutatások",
+  "A több millió soros Parquet fájlokat a háttérben tölti be",
+  "Közvetlenül olvas az Amazon S3-ból, az Azure Blob Storage-ból és a Google Cloud Storage-ból",
+  "Kapcsolódik PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery és további rendszerekhez",
+  "Választható MI-asszisztens, saját kulccsal vagy helyi modellel",
+  "Parancssori eszközként és Model Context Protocol kiszolgálóként is működik",
+  "Felület 32 nyelven",
+  "Szabad, nyílt forráskódú szoftver, MIT licenc",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "csv megnyitása"
+SearchTerm3 = "adatnézegető"
+SearchTerm4 = "sqlite böngésző"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "sql lekérdezések"
+SearchTerm7 = "excel alternatíva"

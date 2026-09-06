@@ -11,3 +11,29 @@ Obrada se odvija lokalno, na tvom računalu, sve dok funkciji koju koristiš ne 
 
 Sučelje je dostupno na 32 jezika. Octa je slobodan softver pod MIT licencom.
 """
+
+features = [
+  "Otvara tridesetak formata: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata i druge",
+  "SQL upiti u DuckDB-u nad bilo kojom otvorenom datotekom, bez uvoza",
+  "Sortiraj, filtriraj i pretražuj tekstom, zamjenskim znakovima ili regularnim izrazima",
+  "Uređuj ćelije, stupce i retke, uz potpuni poništak, a u bazu se upisuju samo razlike",
+  "Grafikoni u vlastitoj kartici, izvoz u PNG, SVG ili PDF",
+  "Usporedi dvije datoteke redak po redak ili zapis po zapis",
+  "Statistika stupaca, duplikati, netipične vrijednosti i zaokretne tablice",
+  "Parquet datoteke s milijunima redaka učitava u pozadini",
+  "Čita izravno s Amazon S3, Azure Blob Storagea i Google Cloud Storagea",
+  "Povezuje se s PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery i drugima",
+  "Neobavezni AI asistent, s vlastitim ključem ili lokalnim modelom",
+  "Radi i kao alat naredbenog retka i kao Model Context Protocol poslužitelj",
+  "Sučelje na 32 jezika",
+  "Slobodan softver otvorenog koda, MIT licencija",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "csv preglednik"
+SearchTerm3 = "preglednik podataka"
+SearchTerm4 = "sqlite preglednik"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "sql upiti"
+SearchTerm7 = "zamjena za excel"

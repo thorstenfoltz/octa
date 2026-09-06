@@ -11,3 +11,29 @@ Tiedot käsitellään paikallisesti omalla koneellasi, kunhan käyttämäsi toim
 
 Käyttöliittymä on saatavilla 32 kielellä. Octa on vapaa ohjelmisto MIT-lisenssillä.
 """
+
+features = [
+  "Avaa noin kolmekymmentä muotoa: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata ja muita",
+  "DuckDB-SQL suoraan mihin tahansa avattuun tiedostoon, ilman tuontia",
+  "Lajittele, suodata ja hae tekstillä, jokerimerkeillä tai säännöllisillä lausekkeilla",
+  "Muokkaa soluja, sarakkeita ja rivejä, täydellä kumoamisella ja vain erot tietokantaan tallentaen",
+  "Kaaviot omalla välilehdellään, vietävissä PNG-, SVG- tai PDF-muotoon",
+  "Vertaa kahta tiedostoa rivi riviltä tai tietue tietueelta",
+  "Sarakkeiden tilastot, kaksoiskappaleet, poikkeavat arvot ja pivot-taulukot",
+  "Lataa miljoonien rivien Parquet-tiedostoja taustalla",
+  "Lukee suoraan Amazon S3:sta, Azure Blob Storagesta ja Google Cloud Storagesta",
+  "Yhdistää tietokantoihin: PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery ja muut",
+  "Valinnainen tekoälyavustaja, omalla avaimella tai paikallisella mallilla",
+  "Toimii myös komentorivityökaluna ja Model Context Protocol -palvelimena",
+  "Käyttöliittymä 32 kielellä",
+  "Vapaa ja avoimen lähdekoodin ohjelmisto, MIT-lisenssi",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "csv katselin"
+SearchTerm3 = "datan katselu"
+SearchTerm4 = "sqlite selain"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "sql kyselyt"
+SearchTerm7 = "excel vaihtoehto"

@@ -36,19 +36,24 @@ pub(super) fn help_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 action.show_settings = true;
                 ui.close();
             }
-            ui.separator();
-            // Shown on Store (MSIX) builds too. The startup
-            // check can already announce a release there, so
-            // hiding the way to re-check was the odd one out;
-            // the dialog drops the install button and names
-            // the Store instead.
-            if ui
-                .button(crate::i18n::t("help_menu.check_updates"))
-                .on_hover_text(crate::i18n::t("help_menu.check_updates_hint"))
-                .clicked()
-            {
-                action.check_for_updates = true;
-                ui.close();
+            // Hidden on Store (MSIX) builds. The Store installs updates
+            // itself, and Octa cannot replace its own files under
+            // WindowsApps, so the entry never had an install to offer. It
+            // could not even report reliably: the packaged process fails the
+            // GitHub request with a certificate error, so all it produced was
+            // a scary answer to a question the user never had to ask. The
+            // startup check is skipped for the same reason - see
+            // `app::update_loop`.
+            if !crate::platform::is_store_packaged() {
+                ui.separator();
+                if ui
+                    .button(crate::i18n::t("help_menu.check_updates"))
+                    .on_hover_text(crate::i18n::t("help_menu.check_updates_hint"))
+                    .clicked()
+                {
+                    action.check_for_updates = true;
+                    ui.close();
+                }
             }
             ui.separator();
             if ui

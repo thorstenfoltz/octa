@@ -219,6 +219,35 @@ impl SettingsDialog {
                 });
                 ui.end_row();
 
+                // Both of these are OpenAI's alone, so they appear only for
+                // an OpenAI profile rather than sitting greyed out under every
+                // other provider forever.
+                if self.chat_profile_form_kind == ChatProviderKind::OpenAi {
+                    ui.label(t("chat.verbosity"))
+                        .on_hover_text(t("chat.verbosity_hint"));
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.chat_profile_form_verbosity)
+                                .desired_width(200.0)
+                                .hint_text(t("chat.verbosity_ph")),
+                        )
+                        .on_hover_text(t("chat.verbosity_hint"));
+                        ui.label(
+                            egui::RichText::new(t("chat.verbosity_off"))
+                                .weak()
+                                .size(11.0),
+                        )
+                        .on_hover_text(t("chat.verbosity_hint"));
+                    });
+                    ui.end_row();
+
+                    ui.label(t("chat.pro_mode"))
+                        .on_hover_text(t("chat.pro_mode_hint"));
+                    ui.checkbox(&mut self.chat_profile_form_pro_mode, "")
+                        .on_hover_text(t("chat.pro_mode_hint"));
+                    ui.end_row();
+                }
+
                 // Only the endpoint-based providers have a base URL to set.
                 if matches!(
                     self.chat_profile_form_kind,
@@ -429,6 +458,8 @@ impl SettingsDialog {
         // spells "do not send the parameter".
         self.chat_profile_form_temp = p.temperature.map(|t| format!("{t:.2}")).unwrap_or_default();
         self.chat_profile_form_reasoning = p.reasoning.clone();
+        self.chat_profile_form_verbosity = p.verbosity.clone();
+        self.chat_profile_form_pro_mode = p.pro_mode;
         self.chat_profile_form_base_url = p.base_url.clone();
         self.chat_profile_form_use_own_key = p.use_own_key;
         self.chat_profile_form_allow_writes = p.allow_writes;
@@ -449,6 +480,8 @@ impl SettingsDialog {
         self.chat_profile_form_model.clear();
         self.chat_profile_form_temp.clear();
         self.chat_profile_form_reasoning.clear();
+        self.chat_profile_form_verbosity.clear();
+        self.chat_profile_form_pro_mode = false;
         self.chat_profile_form_base_url.clear();
         self.chat_profile_form_use_own_key = false;
         self.chat_profile_form_allow_writes = false;
@@ -481,6 +514,8 @@ impl SettingsDialog {
             model,
             temperature: parse_optional_temperature(&self.chat_profile_form_temp),
             reasoning: self.chat_profile_form_reasoning.trim().to_string(),
+            verbosity: self.chat_profile_form_verbosity.trim().to_string(),
+            pro_mode: self.chat_profile_form_pro_mode,
             base_url: self.chat_profile_form_base_url.trim().to_string(),
             use_own_key: self.chat_profile_form_use_own_key,
             allow_writes: self.chat_profile_form_allow_writes,

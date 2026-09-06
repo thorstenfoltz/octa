@@ -17,6 +17,9 @@ up to date".
 Turn the setting off and Octa never contacts GitHub unless you ask it to
 through **Help > Check for Updates**, which is unchanged.
 
+Neither the setting nor the menu entry exists in a Microsoft Store copy: see
+[Microsoft Store copies](#microsoft-store-copies) below.
+
 ## Show what a new release brings
 
 On by default. After an upgrade, Octa opens a window titled *What's new in Octa
@@ -51,14 +54,23 @@ no token, and nothing about your files or your machine. See the
 
 ## Microsoft Store copies
 
-A copy installed from the Microsoft Store is updated by the Store itself. Octa
-cannot replace its own files inside `WindowsApps`, so the update dialog leaves
-the install button out and names the Store as the thing that will do the
-updating. **Help > Check for Updates** is still there and still works; only the
-install is missing.
+A copy installed from the Microsoft Store is updated by the Store itself, in the
+background, and Octa stays out of it entirely. There is **no update check at
+all** in a Store copy:
+
+- **Help > Check for Updates** is not in the menu.
+- The launch-time check never runs, so no version is ever announced in the
+  status bar.
+- **Settings > Updates > Check for updates at start** is greyed out and says why.
+
+Octa cannot replace its own files inside `WindowsApps`, so an install button
+there could only fail, and the check that led to it was answering a question
+nobody had to ask: Windows already knows about the new version and installs it
+on its own.
 
 The release notes are unaffected: they ship inside the copy the Store installed,
-so an upgrade announces itself there like anywhere else.
+so an upgrade announces itself there like anywhere else. Everything under
+**Show what a new release brings** works exactly as it does elsewhere.
 
 ## Installing an update
 

@@ -49,6 +49,21 @@ pub struct ChatModelProfile {
     /// cannot use surfaces as that provider's error.
     #[serde(default)]
     pub reasoning: String,
+    /// How wordy the answer should be: OpenAI's `text.verbosity`, `low` /
+    /// `medium` / `high`, empty for "do not send it". A separate knob from
+    /// `reasoning` on purpose - that one buys thinking, this one buys prose,
+    /// and the pair "think hard, answer briefly" is a common ask. Free text
+    /// for the same reason `reasoning` is: the levels are the provider's to
+    /// change. OpenAI only; the other providers ignore it.
+    #[serde(default)]
+    pub verbosity: String,
+    /// Ask for OpenAI's Pro reasoning mode (`reasoning.mode: "pro"`): the
+    /// slower, more thorough execution path, billed at the same per-token
+    /// rate but spending more tokens. GPT-5.6 only, so it is off by default
+    /// and a model that does not have it answers 400 rather than silently
+    /// ignoring it.
+    #[serde(default)]
+    pub pro_mode: bool,
     /// Base URL, for OpenAI-compatible and Ollama profiles. Empty otherwise.
     #[serde(default)]
     pub base_url: String,
@@ -130,6 +145,10 @@ pub fn seed_profile_from_legacy(settings: &AppSettings) -> ChatModelProfile {
         model,
         temperature: Some(settings.chat_temperature),
         reasoning: String::new(),
+        // Neither knob existed before profiles did, so a migrated install
+        // starts with both off: same requests as it sent yesterday.
+        verbosity: String::new(),
+        pro_mode: false,
         base_url,
         use_own_key: false,
         // First migration keeps the behaviour the install had under the
@@ -232,6 +251,8 @@ mod tests {
             model: "claude-opus-4-8".into(),
             temperature: Some(0.0),
             reasoning: String::new(),
+            verbosity: String::new(),
+            pro_mode: false,
             base_url: String::new(),
             use_own_key: false,
             allow_writes: false,
@@ -278,6 +299,8 @@ mod tests {
             model: "claude-opus-4-8".into(),
             temperature: Some(0.3),
             reasoning: "8000".into(),
+            verbosity: String::new(),
+            pro_mode: false,
             base_url: String::new(),
             use_own_key: true,
             allow_writes: true,
@@ -318,6 +341,8 @@ mod tests {
             model: "claude-opus-5".into(),
             temperature: None,
             reasoning: String::new(),
+            verbosity: String::new(),
+            pro_mode: false,
             base_url: String::new(),
             use_own_key: false,
             allow_writes: false,
@@ -346,6 +371,10 @@ mod tests {
         )
         .expect("legacy profile parses");
         assert_eq!(legacy.chat_profiles[0].temperature, Some(0.4));
+        // Verbosity and Pro mode postdate this file shape. They must default
+        // to off rather than failing the parse and losing every profile.
+        assert_eq!(legacy.chat_profiles[0].verbosity, "");
+        assert!(!legacy.chat_profiles[0].pro_mode);
     }
 
     #[test]
@@ -393,6 +422,8 @@ mod tests {
             model: "claude-sonnet-5".into(),
             temperature: Some(0.2),
             reasoning: String::new(),
+            verbosity: String::new(),
+            pro_mode: false,
             base_url: String::new(),
             use_own_key: false,
             allow_writes: false,

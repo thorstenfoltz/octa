@@ -184,6 +184,10 @@ pub struct SettingsDialog {
     /// Comma-tolerant text buffer (Settings never shows a drag cursor).
     chat_profile_form_temp: String,
     chat_profile_form_reasoning: String,
+    /// OpenAI's `text.verbosity` for this profile; empty means "do not send".
+    chat_profile_form_verbosity: String,
+    /// OpenAI Pro reasoning mode for this profile.
+    chat_profile_form_pro_mode: bool,
     chat_profile_form_base_url: String,
     chat_profile_form_use_own_key: bool,
     chat_profile_form_allow_writes: bool,

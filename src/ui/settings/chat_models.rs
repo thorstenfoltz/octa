@@ -5,7 +5,7 @@
 //! seeded from the built-in lists compiled into [`ChatProviderKind`]; from then
 //! on the file is the source of truth, except that built-in models added by a
 //! newer release are merged in non-destructively on load (see
-//! [`merge_missing_presets`]). A provider (or an empty list) missing from the
+//! [`merge_and_order_presets`]). A provider (or an empty list) missing from the
 //! file falls back to the built-in seed, so a hand-edit can never leave a
 //! provider with no usable model.
 //!
@@ -68,18 +68,37 @@ fn seed() -> ChatModelsConfig {
     ChatModelsConfig { providers }
 }
 
-/// Union the built-in presets into a parsed config so new built-in models
-/// reach existing installs whose `models.toml` was seeded by an older
-/// release. Missing providers are inserted wholesale from the seed; for
-/// present providers, built-in models absent from the user's list are
-/// appended at the end (user entries and their order are never touched, and
-/// a non-empty user `default` stays authoritative). Returns whether anything
-/// was added.
+/// Bring a parsed config up to date: every provider carries every built-in
+/// model, and the list is ordered newest release first. Returns whether
+/// anything changed (the caller rewrites the file only then).
+///
+/// Each provider's list is rebuilt as **the names Octa does not ship, in the
+/// order the file already had, followed by the built-ins in built-in order**.
+/// That single rule does every job: a built-in missing from the file is
+/// added, built-ins the file already had are moved back into
+/// [`ChatProviderKind::preset_models`] order (newest first), and the user's
+/// own names stay.
+///
+/// Ordering the built-in list alone was not enough, which is the whole reason
+/// this rewrites rather than appends. A `models.toml` grows by accretion:
+/// every release appended its new models to the end, so a file seeded a year
+/// ago listed the oldest model first and this year's flagship last. Only a
+/// fresh install ever saw the intended order.
+///
+/// **Names Octa cannot date go on top**, because the reason to type a model
+/// name Octa does not ship is that it is newer than the list: a model
+/// announced this morning is exactly the one you want first, and burying it
+/// under a two-year-old Haiku would defeat the point of adding it. The cost
+/// is that a built-in dropped by a past release lands up there too and is
+/// genuinely old. Deleting one sticks, unlike deleting a current built-in,
+/// so a file that accumulated them can be tidied by hand once.
+///
+/// A non-empty user `default` stays authoritative.
 ///
 /// Caveat: a built-in model the user deliberately deleted from the file is
 /// re-added by this merge. Deleting built-ins is not a supported way to hide
 /// them; the free-text model field always works regardless of the list.
-fn merge_missing_presets(cfg: &mut ChatModelsConfig) -> bool {
+fn merge_and_order_presets(cfg: &mut ChatModelsConfig) -> bool {
     let mut changed = false;
     for kind in ChatProviderKind::ALL {
         match cfg.providers.get_mut(kind.id()) {
@@ -94,11 +113,19 @@ fn merge_missing_presets(cfg: &mut ChatModelsConfig) -> bool {
                 changed = true;
             }
             Some(entry) => {
-                for preset in kind.preset_models() {
-                    if !entry.models.iter().any(|m| m == preset) {
-                        entry.models.push((*preset).to_string());
-                        changed = true;
+                let builtins = kind.preset_models();
+                // The file's own names first, in the order it had them. The
+                // `any` check also collapses a name duplicated by a hand-edit.
+                let mut ordered: Vec<String> = Vec::new();
+                for model in &entry.models {
+                    if !builtins.iter().any(|p| p == model) && !ordered.iter().any(|o| o == model) {
+                        ordered.push(model.clone());
                     }
+                }
+                ordered.extend(builtins.iter().map(|p| (*p).to_string()));
+                if ordered != entry.models {
+                    entry.models = ordered;
+                    changed = true;
                 }
             }
         }
@@ -125,7 +152,7 @@ fn load_or_create() -> ChatModelsConfig {
     match std::fs::read_to_string(&path) {
         Ok(text) => match toml::from_str::<ChatModelsConfig>(&text) {
             Ok(mut cfg) => {
-                if merge_missing_presets(&mut cfg) {
+                if merge_and_order_presets(&mut cfg) {
                     write_config(&cfg);
                 }
                 cfg

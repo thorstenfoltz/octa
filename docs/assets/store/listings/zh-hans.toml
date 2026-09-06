@@ -11,3 +11,29 @@ Octa 可以直接打开 Parquet、CSV、Excel、SQLite、DuckDB 和 JSON 文件�
 
 界面支持 32 种语言。Octa 是采用 MIT 许可证的自由软件。
 """
+
+features = [
+  "打开约三十种格式：Parquet、CSV、Excel、SQLite、DuckDB、JSON、Arrow、Avro、ORC、SAS、SPSS、Stata 等",
+  "对任意已打开的文件直接运行 DuckDB SQL，无需导入",
+  "用文本、通配符或正则表达式排序、筛选和搜索",
+  "编辑单元格、列和行，撤销一步不落，写回数据库时只提交改动",
+  "图表独占一个标签页，可导出为 PNG、SVG 或 PDF",
+  "逐行或逐条记录比较两个文件",
+  "列统计、重复项检测、离群值检测和数据透视表",
+  "数百万行的 Parquet 文件在后台流式加载",
+  "直接读取 Amazon S3、Azure Blob Storage 和 Google Cloud Storage",
+  "连接 PostgreSQL、MySQL、SQL Server、Snowflake、BigQuery 等",
+  "可选的 AI 助手，用自己的密钥或本地模型",
+  "同时也是命令行工具和 Model Context Protocol 服务器",
+  "界面支持 32 种语言",
+  "自由开源软件，MIT 许可证",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "csv查看器"
+SearchTerm3 = "数据查看器"
+SearchTerm4 = "sqlite浏览器"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "sql查询"
+SearchTerm7 = "excel替代"

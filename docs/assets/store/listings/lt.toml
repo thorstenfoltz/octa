@@ -11,3 +11,29 @@ Duomenys apdorojami vietoje, tavo kompiuteryje, jei tik naudojamai funkcijai ner
 
 Sąsaja pateikiama 32 kalbomis. Octa yra laisva programinė įranga su MIT licencija.
 """
+
+features = [
+  "Atveria apie trisdešimt formatų: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata ir kitus",
+  "DuckDB SQL užklausos bet kuriam atvertam failui, be importavimo",
+  "Rikiuok, filtruok ir ieškok tekstu, pakaitos simboliais ar reguliariaisiais reiškiniais",
+  "Redaguok langelius, stulpelius ir eilutes, su pilnu atšaukimu, o į duomenų bazę įrašomi tik pakeitimai",
+  "Diagramos atskirame skirtuke, eksportuojamos į PNG, SVG ar PDF",
+  "Palygink du failus eilutė po eilutės arba įrašas po įrašo",
+  "Stulpelių statistika, dublikatai, išskirtys ir suvestinės lentelės",
+  "Milijonų eilučių Parquet failus įkelia fone",
+  "Skaito tiesiai iš Amazon S3, Azure Blob Storage ir Google Cloud Storage",
+  "Jungiasi prie PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery ir kitų",
+  "Pasirinktinis DI asistentas, su savo raktu arba vietiniu modeliu",
+  "Taip pat komandinės eilutės įrankis ir Model Context Protocol serveris",
+  "Sąsaja 32 kalbomis",
+  "Laisva ir atvirojo kodo programa, MIT licencija",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "csv peržiūra"
+SearchTerm3 = "duomenų peržiūra"
+SearchTerm4 = "sqlite naršyklė"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "sql užklausos"
+SearchTerm7 = "excel alternatyva"

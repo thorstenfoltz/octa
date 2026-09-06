@@ -11,3 +11,29 @@ Die Verarbeitung deiner Daten erfolgt lokal auf deinem Rechner, soweit die jewei
 
 Die Benutzeroberfläche ist in 32 Sprachen verfügbar. Octa ist freie Software und steht unter der MIT-Lizenz.
 """
+
+features = [
+  "Öffnet rund 30 Formate: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata und mehr",
+  "DuckDB-SQL direkt auf jeder geöffneten Datei, ganz ohne Import",
+  "Sortieren, filtern und suchen mit Text, Platzhaltern oder regulären Ausdrücken",
+  "Zellen, Spalten und Zeilen bearbeiten, alles rückgängig machbar, und in die Datenbank gehen nur die Änderungen",
+  "Diagramme in eigenem Tab, exportierbar als PNG, SVG oder PDF",
+  "Zwei Dateien Zeile für Zeile oder Datensatz für Datensatz vergleichen",
+  "Spaltenstatistik, Dublettensuche, Ausreißer-Erkennung und Pivot-Tabellen",
+  "Parquet-Dateien mit Millionen Zeilen werden im Hintergrund nachgeladen",
+  "Liest direkt aus Amazon S3, Azure Blob Storage und Google Cloud Storage",
+  "Verbindet sich mit PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery und mehr",
+  "Optionaler KI-Assistent, mit eigenem Schlüssel oder lokalem Modell",
+  "Auch Kommandozeilenwerkzeug und Model-Context-Protocol-Server",
+  "Oberfläche in 32 Sprachen",
+  "Freie Software, quelloffen unter MIT-Lizenz",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "csv datei öffnen"
+SearchTerm3 = "datenbetrachter"
+SearchTerm4 = "sqlite browser"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "sql abfragen"
+SearchTerm7 = "excel alternative"

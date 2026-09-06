@@ -445,25 +445,46 @@ pub fn render_sql_view(
         } else if !has_columns {
             octa::i18n::t("sql.ask_no_columns")
         } else {
-            octa::i18n::t("sql.ask_hint")
+            format!(
+                "{}\n\n{}",
+                octa::i18n::t("sql.ask_hint"),
+                octa::i18n::t("sql.ask_keys")
+            )
         };
         ui.add_enabled_ui(ask_enabled, |ui| {
+            // Multiline, one row tall to start: a question longer than the box
+            // used to scroll sideways behind itself, unreadable while typing
+            // it. It now grows downwards as the text wraps, and the row of
+            // buttons beside it grows with it.
             let box_resp = ui
                 .add(
-                    egui::TextEdit::singleline(&mut tab.sql_ask_input)
+                    egui::TextEdit::multiline(&mut tab.sql_ask_input)
+                        .desired_rows(1)
                         .desired_width(220.0)
                         .hint_text(octa::i18n::t("sql.ask_placeholder")),
                 )
                 .on_hover_text(ask_reason.clone())
                 .on_disabled_hover_text(ask_reason.clone());
-            let submitted = box_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            // Enter sends, Shift+Enter breaks the line - the chord the chat
+            // panel already uses. A multiline box keeps focus on Enter, so
+            // the old `lost_focus()` test would never fire again.
+            let submitted = box_resp.has_focus()
+                && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
             let clicked = ui
                 .button(octa::i18n::t("sql.ask"))
                 .on_hover_text(ask_reason.clone())
                 .on_disabled_hover_text(ask_reason)
                 .clicked();
-            if (submitted || clicked) && !tab.sql_ask_input.trim().is_empty() {
-                action.ask = Some(tab.sql_ask_input.clone());
+            if submitted || clicked {
+                // The Enter that sent this reached the box first and left its
+                // newline behind. Take it back out: a question the assistant
+                // could not answer stays in the box, and it should stay
+                // exactly as it was typed rather than a line taller.
+                let question = tab.sql_ask_input.trim().to_string();
+                if !question.is_empty() {
+                    tab.sql_ask_input.clone_from(&question);
+                    action.ask = Some(question);
+                }
             }
         });
 

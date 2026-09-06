@@ -11,3 +11,29 @@ Obdelava poteka lokalno, na tvojem računalniku, dokler funkcija, ki jo uporablj
 
 Vmesnik je na voljo v 32 jezikih. Octa je prosto programje pod licenco MIT.
 """
+
+features = [
+  "Odpre približno trideset zapisov: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata in druge",
+  "Poizvedbe SQL z DuckDB nad katero koli odprto datoteko, brez uvoza",
+  "Razvrščaj, filtriraj in išči z besedilom, nadomestnimi znaki ali regularnimi izrazi",
+  "Urejaj celice, stolpce in vrstice, s polnim razveljavljanjem, v bazo pa gredo samo razlike",
+  "Grafikoni v svojem zavihku, izvozljivi v PNG, SVG ali PDF",
+  "Primerjaj dve datoteki vrstico za vrstico ali zapis za zapisom",
+  "Statistika stolpcev, dvojniki, osamelci in vrtilne tabele",
+  "Datoteke Parquet z milijoni vrstic nalaga v ozadju",
+  "Bere neposredno iz Amazon S3, Azure Blob Storage in Google Cloud Storage",
+  "Poveže se s PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery in drugimi",
+  "Izbirni pomočnik z umetno inteligenco, s svojim ključem ali z lokalnim modelom",
+  "Deluje tudi kot orodje ukazne vrstice in strežnik Model Context Protocol",
+  "Vmesnik v 32 jezikih",
+  "Prosto in odprtokodno programje, licenca MIT",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "pregledovalnik csv"
+SearchTerm3 = "pregled podatkov"
+SearchTerm4 = "brskalnik sqlite"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "poizvedbe sql"
+SearchTerm7 = "alternativa excelu"

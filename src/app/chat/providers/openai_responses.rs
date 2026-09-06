@@ -180,21 +180,44 @@ pub(crate) fn build_responses_body(
         body.insert("max_output_tokens".into(), json!(max));
     }
 
-    let reasoning = parse_reasoning(cfg.reasoning.as_deref());
-    if let Some(r) = reasoning {
+    // `reasoning` carries two independent settings: how hard to think
+    // (`effort`) and which execution path to think on (`mode`). Either alone
+    // is a valid object, so the map is built first and sent only if something
+    // asked for it.
+    let mut reasoning = Map::new();
+    if let Some(r) = parse_reasoning(cfg.reasoning.as_deref()) {
         let Reasoning::Effort(effort) = r else {
             return Err(
-                "OpenAI takes a reasoning effort word (none / low / medium / high / xhigh), \
-                 not a token budget"
+                "OpenAI takes a reasoning effort word (none / minimal / low / medium / \
+                 high / xhigh / max), not a token budget"
                     .to_string(),
             );
         };
         // Passed verbatim so new effort values keep working without a release.
-        body.insert("reasoning".into(), json!({ "effort": effort }));
+        reasoning.insert("effort".into(), json!(effort));
+    }
+    if cfg.pro_mode {
+        reasoning.insert("mode".into(), json!("pro"));
+    }
+    if !reasoning.is_empty() {
+        body.insert("reasoning".into(), Value::Object(reasoning));
         body.insert("include".into(), json!(["reasoning.encrypted_content"]));
-        // Reasoning models reject temperature; omit it entirely.
+        // Reasoning models reject temperature; omit it entirely. Pro mode is
+        // reasoning too, so it silences temperature exactly like effort does.
     } else if let Some(t) = cfg.temperature {
         body.insert("temperature".into(), json!(t));
+    }
+
+    // Verbosity steers the length of the visible answer and is its own
+    // top-level object, not part of `reasoning`: the two are orthogonal, and
+    // "think hard, answer in one line" is a legitimate pairing.
+    if let Some(v) = cfg
+        .verbosity
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        body.insert("text".into(), json!({ "verbosity": v }));
     }
 
     Ok(Value::Object(body))

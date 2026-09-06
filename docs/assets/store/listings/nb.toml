@@ -11,3 +11,29 @@ Dataene behandles lokalt på din egen maskin, så lenge funksjonen du bruker ikk
 
 Grensesnittet finnes på 32 språk. Octa er fri programvare under MIT-lisensen.
 """
+
+features = [
+  "Åpner rundt tretti formater: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata med flere",
+  "DuckDB-SQL rett mot enhver åpen fil, uten import",
+  "Sorter, filtrer og søk med tekst, jokertegn eller regulære uttrykk",
+  "Rediger celler, kolonner og rader, med full angring og bare forskjellene lagret til databasen",
+  "Diagrammer i egen fane, kan eksporteres til PNG, SVG eller PDF",
+  "Sammenlign to filer linje for linje eller rad for rad",
+  "Kolonnestatistikk, duplikater, uteliggere og pivottabeller",
+  "Laster Parquet-filer med millioner av rader i bakgrunnen",
+  "Leser direkte fra Amazon S3, Azure Blob Storage og Google Cloud Storage",
+  "Kobler til PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery med flere",
+  "Valgfri KI-assistent, med din egen nøkkel eller en lokal modell",
+  "Også et kommandolinjeverktøy og en Model Context Protocol-server",
+  "Grensesnitt på 32 språk",
+  "Fri programvare med åpen kildekode, MIT-lisens",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "csv viser"
+SearchTerm3 = "datavisning"
+SearchTerm4 = "sqlite leser"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "sql spørringer"
+SearchTerm7 = "excel alternativ"

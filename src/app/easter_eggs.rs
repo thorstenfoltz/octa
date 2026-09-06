@@ -49,6 +49,13 @@ pub(crate) const WELCOME_LOGO_CLICK_WINDOW: Duration = Duration::from_millis(150
 /// for the snow drift at the bottom to visibly accumulate.
 pub(crate) const SNOWFALL_DURATION_S: f32 = 7.0;
 
+/// How long the passive holiday overlays play per session. They used to run
+/// for the whole of Dec 24-26 / Dec 31 / Jan 1 with no way to stop them, and
+/// each one asks for a repaint every frame it paints, so a window left open
+/// on those days never let the machine idle. Thirty seconds of it at the
+/// start of a session is the greeting; the rest of the day is work.
+pub(crate) const FESTIVE_DURATION: Duration = Duration::from_secs(30);
+
 impl OctaApp {
     /// Walk this frame's keyboard events and advance the Konami matcher.
     /// Triggers a confetti animation on full match. Safe to call every frame.
@@ -360,6 +367,25 @@ pub(crate) fn is_new_year_window() -> bool {
     (today.month() == 12 && today.day() == 31) || (today.month() == 1 && today.day() == 1)
 }
 
+/// Is the holiday greeting still playing this session?
+///
+/// The deadline starts on the first frame an overlay would actually paint,
+/// not at launch: a slow start (a big file named on the command line) must
+/// not eat the greeting, and an Octa left open across midnight into Dec 24
+/// still gets its thirty seconds. Once the deadline passes the caller returns
+/// before painting and before asking for the next frame, so the app goes back
+/// to repainting only on demand. The last decorated frame is not left frozen
+/// on screen: it had already requested the frame that this function ends, and
+/// that frame redraws everything without the overlay.
+///
+/// Deliberately one deadline per holiday: they cannot overlap on the calendar,
+/// but a session running from Dec 26 into Dec 31 would otherwise find the
+/// clock already spent and skip the fireworks.
+pub(crate) fn festive_intro_running(deadline: &mut Option<Instant>) -> bool {
+    let until = *deadline.get_or_insert_with(|| Instant::now() + FESTIVE_DURATION);
+    Instant::now() < until
+}
+
 impl OctaApp {
     /// Register a click on the welcome-screen logo. When three clicks land
     /// within `WELCOME_LOGO_CLICK_WINDOW`, kicks off a `SNOWFALL_DURATION_S`
@@ -419,7 +445,7 @@ impl OctaApp {
     /// snowfall across the whole viewport - subtle, always on top, never
     /// blocks clicks. Independent of the click-triggered snowfall burst.
     pub(crate) fn render_christmas_overlay(&mut self, ctx: &egui::Context) {
-        if !is_christmas_window() {
+        if !is_christmas_window() || !festive_intro_running(&mut self.christmas_until) {
             return;
         }
         let is_dark = self.theme_mode.is_dark();
@@ -443,7 +469,7 @@ impl OctaApp {
     /// sparks, driven by wall-clock time. Painted in a `Foreground` Area so
     /// the bursts float over the table without intercepting clicks.
     pub(crate) fn render_new_year_overlay(&mut self, ctx: &egui::Context) {
-        if !is_new_year_window() {
+        if !is_new_year_window() || !festive_intro_running(&mut self.new_year_until) {
             return;
         }
         let is_dark = self.theme_mode.is_dark();
@@ -842,5 +868,40 @@ fn paint_santa_hat(painter: &egui::Painter, logo_rect: egui::Rect) {
         let c = egui::pos2(cx, cy);
         painter.circle_filled(c, band_r, white);
         painter.circle_stroke(c, band_r, Stroke::new(0.8_f32, white_shade));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_greeting_starts_on_first_use_and_then_expires() {
+        // An unset deadline means "this session has not shown it yet": the
+        // first call starts the clock and paints.
+        let mut deadline = None;
+        assert!(festive_intro_running(&mut deadline));
+        assert!(deadline.is_some(), "the first call must arm the deadline");
+
+        // Still inside the window a moment later: the same deadline is
+        // reused, never pushed forward, or the greeting would never end.
+        let armed = deadline;
+        assert!(festive_intro_running(&mut deadline));
+        assert_eq!(deadline, armed);
+
+        // Past it, the caller returns before painting and before asking for
+        // another frame, which is what lets the app go idle again.
+        let mut spent = Some(Instant::now() - Duration::from_secs(1));
+        assert!(!festive_intro_running(&mut spent));
+    }
+
+    #[test]
+    fn the_two_holidays_keep_separate_deadlines() {
+        // A session running from Dec 26 into Dec 31 must still get the
+        // fireworks: spending the Christmas clock cannot spend this one.
+        let mut christmas = Some(Instant::now() - Duration::from_secs(1));
+        let mut new_year = None;
+        assert!(!festive_intro_running(&mut christmas));
+        assert!(festive_intro_running(&mut new_year));
     }
 }
