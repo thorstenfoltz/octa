@@ -11,3 +11,29 @@ Spracovanie prebieha lokálne na tvojom počítači, pokiaľ použitá funkcia n
 
 Rozhranie je dostupné v 32 jazykoch. Octa je slobodný softvér pod licenciou MIT.
 """
+
+features = [
+  "Otvorí asi tridsať formátov: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata a ďalšie",
+  "SQL dotazy v DuckDB nad ľubovoľným otvoreným súborom, bez importu",
+  "Zoraďuj, filtruj a hľadaj textom, zástupnými znakmi alebo regulárnymi výrazmi",
+  "Uprav bunky, stĺpce aj riadky, s úplným vrátením späť a zápisom len rozdielov do databázy",
+  "Grafy na vlastnej karte, exportovateľné do PNG, SVG alebo PDF",
+  "Porovnaj dva súbory riadok po riadku alebo záznam po zázname",
+  "Štatistiky stĺpcov, duplicity, odľahlé hodnoty a kontingenčné tabuľky",
+  "Súbory Parquet s miliónmi riadkov načítava na pozadí",
+  "Číta priamo z Amazon S3, Azure Blob Storage a Google Cloud Storage",
+  "Pripojí sa k PostgreSQL, MySQL, SQL Serveru, Snowflake, BigQuery a ďalším",
+  "Voliteľný AI asistent, s vlastným kľúčom alebo lokálnym modelom",
+  "Funguje aj ako nástroj príkazového riadka a server Model Context Protocol",
+  "Rozhranie v 32 jazykoch",
+  "Slobodný softvér s otvoreným kódom, licencia MIT",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "prehliadač csv"
+SearchTerm3 = "prehliadač dát"
+SearchTerm4 = "prehliadač sqlite"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "sql dotazy"
+SearchTerm7 = "alternatíva k excelu"

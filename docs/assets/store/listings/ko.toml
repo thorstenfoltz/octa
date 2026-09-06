@@ -11,3 +11,29 @@ Octa는 Parquet, CSV, Excel, SQLite, DuckDB, JSON 파일과 함께 약 30가지 
 
 인터페이스는 32개 언어를 지원합니다. Octa는 MIT 라이선스의 자유 소프트웨어입니다.
 """
+
+features = [
+  "Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata 등 약 30가지 형식을 엽니다",
+  "열어 둔 파일에 DuckDB SQL을 그대로 실행, 가져오기 단계 없음",
+  "텍스트, 와일드카드, 정규식으로 정렬하고 필터링하고 검색",
+  "셀, 열, 행 편집. 실행 취소는 전부 가능하고 데이터베이스에는 바뀐 부분만 기록",
+  "차트는 별도 탭에서, PNG, SVG, PDF로 내보내기",
+  "두 파일을 줄 단위 또는 레코드 단위로 비교",
+  "열 통계, 중복 찾기, 이상치 탐지, 피벗 테이블",
+  "수백만 행짜리 Parquet 파일도 백그라운드에서 읽어 옵니다",
+  "Amazon S3, Azure Blob Storage, Google Cloud Storage에서 바로 읽기",
+  "PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery 등에 연결",
+  "AI 어시스턴트는 선택 사항. 내 키를 쓰거나 로컬 모델로 실행",
+  "명령줄 도구로도, Model Context Protocol 서버로도 동작",
+  "인터페이스 32개 언어 지원",
+  "MIT 라이선스의 자유 오픈소스 소프트웨어",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "csv 뷰어"
+SearchTerm3 = "데이터 뷰어"
+SearchTerm4 = "sqlite 브라우저"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "sql 쿼리"
+SearchTerm7 = "엑셀 대체"

@@ -125,10 +125,14 @@ The SQL toolbar has two ways to reuse queries:
 
 ## Ask
 
-Next to Snippets there is a one-line **Ask** box. Type what you want in
-plain words ("revenue per country, biggest first") and Octa writes the SQL
-into the editor at your cursor. The rest of the editor is left alone, so
-you can ask for one piece of a query you are already writing.
+Next to Snippets there is an **Ask** box. Type what you want in plain words
+("revenue per country, biggest first") and Octa writes the SQL into the editor
+at your cursor. The rest of the editor is left alone, so you can ask for one
+piece of a query you are already writing.
+
+The box starts one line tall and **grows as you type**, so a long question
+stays readable instead of scrolling sideways out of sight. **Enter** sends the
+question and **Shift+Enter** starts a new line.
 
 The query is **never run for you**. Read it, change it if you like, then
 press Run. Only a single SELECT is ever produced: a reply containing a

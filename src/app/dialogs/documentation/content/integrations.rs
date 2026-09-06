@@ -289,8 +289,10 @@ The profile's **Thinking / reasoning** field is free text, handed to the
 provider as-is. **Type a word, not a number**: every current model takes
 an effort level, and the shape of what you type picks the knob Octa sends.
 
-- **OpenAI**: an effort word, `none` / `low` / `medium` / `high` /
-  `xhigh`. A number is refused before the request goes out.
+- **OpenAI**: an effort word, `none` / `minimal` / `low` / `medium` /
+  `high` / `xhigh` / `max`. Which levels a model takes is the model's own
+  business (GPT-6 Astra answers 400 to `none`). A number is refused before
+  the request goes out.
 - **Anthropic**: an effort word, `low` / `medium` / `high` / `xhigh` /
   `max` (`high` is the default). A number is a thinking-token budget of at
   least 1024, and only Claude 4.5 and older, such as Haiku 4.5, still take
@@ -312,6 +314,55 @@ the quickest way to find out. When Anthropic gets a token budget, Octa
 also lifts the token cap above it and pins temperature to 1 if the profile
 sends one at all (an empty field still sends none), as the API demands. An
 effort word needs none of that.
+
+## The model list
+
+The dropdown lists models newest first. Your list is reordered on load, so
+models a newer Octa release knows about move to the top instead of being
+appended under the ones they replace.
+
+A name Octa does not ship sits above all of them, in the order you had it:
+the reason to type a model name yourself is that it is newer than Octa's
+list. Nothing you add is ever removed. A model Octa shipped once and has
+since dropped counts as one of yours as well, so it goes up there too even
+though it is old; delete it from the file and it stays gone, which a current
+model would not.
+
+The list is a hand-editable `models.toml` beside your settings, and adding or
+removing names there works. Ordering it by hand does not: that order is
+rewritten on load.
+
+For Ollama the list comes from your local installation instead, newest pull
+first.
+
+## Answer length and Pro mode (OpenAI)
+
+An OpenAI profile has two extra controls, and no other provider shows them.
+Both are optional and both start off.
+
+**Answer length** decides how much the assistant writes back. You ask how many
+rows have no customer id, you want the number, and sometimes you get three
+paragraphs around it. `low` gives you the answer and little else, `medium` adds
+a sentence of context, `high` works it through for something you will paste
+into a report. Empty lets the model decide. Short answers also cost less and
+arrive sooner, since the assistant is billed for what it writes.
+
+It is a different lever from thinking. Thinking happens before the answer and
+you never see it; answer length is the reply you do see. They are independent,
+so "think hard, then tell me in one line" is a real combination: high effort
+with low answer length.
+
+**Pro mode** puts the model on a slower, more thorough path. The price per
+token is unchanged, it simply spends far more of them, so the question takes
+longer and shows up bigger on the token counter. It earns that on a question
+the ordinary answer got wrong: two exports that will not reconcile, a query
+needing several joins, a file whose structure a first look did not explain. It
+earns nothing on "profile this file".
+
+So do not leave it on. Make a second profile, "GPT-5.6, hard questions", pick
+it from the panel dropdown for the awkward question, and switch back. That is
+what profiles are for. GPT-5.6 models only: anything else answers with an
+error. Like an effort word, it also drops temperature from the request.
 
 ## API keys
 
@@ -1458,7 +1509,8 @@ already have the newest version, Octa stays quiet - a failed check at launch
 is not worth a pop-up.
 
 Turn it off and Octa never contacts GitHub unless you ask it to through
-**Help > Check for Updates**, which still works exactly as before.
+**Help > Check for Updates**, which still works exactly as before. Neither the
+setting nor the menu entry exists in a Microsoft Store copy - see below.
 
 ## Show what a new release brings
 
@@ -1478,11 +1530,13 @@ have upgraded.
 
 ## Microsoft Store copies
 
-A copy installed from the Microsoft Store is updated by the Store itself. Octa
-cannot replace its own files there, so **Help > Check for Updates** tells you
-a version exists and says who does the updating instead of offering a button
-that cannot work. The release notes are unaffected: they ship inside the copy
-you installed.
+A copy installed from the Microsoft Store is updated by the Store itself, in
+the background, so Octa stays out of it: there is no update check at all in a
+Store copy. **Help > Check for Updates** is not in the menu, the launch-time
+check never runs, and the setting above is greyed out. Windows already knows
+about a new version and installs it on its own.
+
+The release notes are unaffected: they ship inside the copy you installed.
 "#;
 
 pub const DIAGNOSTICS: &str = r#"# Debug & Reports

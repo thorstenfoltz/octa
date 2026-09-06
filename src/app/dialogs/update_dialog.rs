@@ -51,9 +51,11 @@ pub(crate) fn render_update_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         VERSION
                     ));
                     ui.add_space(8.0);
-                    // A Store (MSIX) install lives under WindowsApps and cannot
-                    // be replaced from inside the app, so it gets the news
-                    // without a button that could only fail.
+                    // Unreachable on a Store (MSIX) build - neither the Help
+                    // menu nor the startup check offers to look there any
+                    // more. Kept as the last gate all the same: an install
+                    // under WindowsApps cannot be replaced from inside the
+                    // app, so no future caller should ever get the button.
                     let store = octa::platform::is_store_packaged();
                     if store {
                         ui.label(octa::i18n::t("release.store"));

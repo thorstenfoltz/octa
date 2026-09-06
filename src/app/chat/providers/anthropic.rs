@@ -1,6 +1,8 @@
 //! Anthropic Messages API adapter (Claude).
 
-use std::collections::HashMap;
+use std::borrow::Cow;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::RwLock;
 use std::sync::atomic::AtomicBool;
 
 use serde_json::{Map, Value, json};
@@ -10,7 +12,13 @@ use crate::app::chat::types::{ChatEvent, ContentBlock, Message, Role, StopReason
 use super::{ChatProvider, ProviderConfig, Reasoning, parse_reasoning, stream_sse};
 
 const ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
+const MODELS_ENDPOINT: &str = "https://api.anthropic.com/v1/models";
 const API_VERSION: &str = "2023-06-01";
+
+/// What "unlimited" falls back to when the Models API cannot be reached. Low
+/// enough that every Claude model ever released accepts it, since the point of
+/// the fallback is to still produce a *valid* request when the lookup failed.
+const FALLBACK_MAX_TOKENS: usize = 16_384;
 
 pub struct Anthropic;
 
@@ -28,6 +36,8 @@ impl ChatProvider for Anthropic {
         cancel: &AtomicBool,
         sink: &mut dyn FnMut(ChatEvent),
     ) -> Result<(), String> {
+        let cfg = resolve_max_tokens(cfg);
+        let cfg = cfg.as_ref();
         let body = build_body(cfg, system, messages, tools)?;
         let headers = [
             ("x-api-key", cfg.api_key.clone()),
@@ -159,6 +169,75 @@ fn map_stop_reason(s: &str) -> StopReason {
 /// The smallest `budget_tokens` the Messages API accepts.
 const MIN_THINKING_BUDGET: i64 = 1024;
 
+/// Per-model `max_tokens` ceilings, learned from the Models API and kept for
+/// the process lifetime. A model's ceiling does not change under a running
+/// program, so one lookup each is enough.
+static MODEL_CAPS: RwLock<BTreeMap<String, usize>> = RwLock::new(BTreeMap::new());
+
+/// Turn an "unlimited" profile into the largest number this model actually
+/// takes.
+///
+/// Anthropic is the one provider that *requires* `max_tokens`, so "unlimited"
+/// cannot be expressed by omitting the field the way it is everywhere else. It
+/// used to become a flat 16,384, which stopped meaning "unlimited" a long time
+/// ago: the Claude 5 generation writes up to 128k output tokens, so the setting
+/// silently cost the user 87% of the answer, and a long tool-driven reply was
+/// truncated mid-sentence for no reason the UI could explain.
+///
+/// The ceiling is asked of the API rather than kept in a table here, because a
+/// table is wrong the day a model ships: `GET /v1/models/{id}` reports
+/// `max_tokens` per model (128k on Opus 5 and Fable 5.1, 64k on Haiku 4.5,
+/// less on older ones), so a model released after this build still gets its
+/// real ceiling. A failed lookup falls back to the old constant, which every
+/// model accepts, so the worst case is the behaviour we had before.
+fn resolve_max_tokens(cfg: &ProviderConfig) -> Cow<'_, ProviderConfig> {
+    if cfg.max_tokens.is_some() {
+        return Cow::Borrowed(cfg);
+    }
+    let cap = model_max_tokens(&cfg.model, &cfg.api_key).unwrap_or(FALLBACK_MAX_TOKENS);
+    Cow::Owned(ProviderConfig {
+        max_tokens: Some(cap),
+        ..cfg.clone()
+    })
+}
+
+/// This model's `max_tokens` ceiling, from cache or from the Models API. One
+/// small GET, once per model per process, and only for a profile that asked
+/// for unlimited. Every failure (no key, offline, unknown model, a body that
+/// does not parse) is `None`: the caller falls back rather than failing a turn
+/// over a lookup the user did not ask for.
+fn model_max_tokens(model: &str, api_key: &str) -> Option<usize> {
+    if let Ok(cache) = MODEL_CAPS.read()
+        && let Some(cap) = cache.get(model)
+    {
+        return Some(*cap);
+    }
+    let body = ureq::get(format!("{MODELS_ENDPOINT}/{model}"))
+        .header("x-api-key", api_key)
+        .header("anthropic-version", API_VERSION)
+        .call()
+        .ok()?
+        .body_mut()
+        .read_to_string()
+        .ok()?;
+    let cap = parse_model_max_tokens(&body)?;
+    if let Ok(mut cache) = MODEL_CAPS.write() {
+        cache.insert(model.to_string(), cap);
+    }
+    Some(cap)
+}
+
+/// Pull `max_tokens` out of a Models API response. Null, zero and a missing
+/// field all mean "the API did not tell us", which is not the same as zero.
+fn parse_model_max_tokens(body: &str) -> Option<usize> {
+    serde_json::from_str::<Value>(body)
+        .ok()?
+        .get("max_tokens")?
+        .as_u64()
+        .filter(|n| *n > 0)
+        .map(|n| n as usize)
+}
+
 fn build_body(
     cfg: &ProviderConfig,
     system: &str,
@@ -179,9 +258,13 @@ fn build_body(
 
     let mut body = Map::new();
     body.insert("model".into(), json!(cfg.model));
-    // Anthropic requires `max_tokens`; an "unlimited" choice maps to a high
-    // ceiling rather than omitting the field.
-    body.insert("max_tokens".into(), json!(cfg.max_tokens.unwrap_or(16_384)));
+    // Anthropic requires `max_tokens`. An "unlimited" profile was already
+    // turned into this model's real ceiling by `resolve_max_tokens`, so the
+    // fallback here only covers a caller that skipped that step.
+    body.insert(
+        "max_tokens".into(),
+        json!(cfg.max_tokens.unwrap_or(FALLBACK_MAX_TOKENS)),
+    );
     if let Some(t) = cfg.temperature {
         body.insert("temperature".into(), json!(t));
     }
@@ -223,7 +306,7 @@ fn build_body(
                 body.insert("temperature".into(), json!(1.0));
             }
             let needed = budget as usize + 1;
-            let max = cfg.max_tokens.unwrap_or(16_384).max(needed);
+            let max = cfg.max_tokens.unwrap_or(FALLBACK_MAX_TOKENS).max(needed);
             body.insert("max_tokens".into(), json!(max));
         }
     }
@@ -315,7 +398,47 @@ mod tests {
             temperature: Some(0.0),
             max_tokens,
             reasoning: reasoning.map(str::to_string),
+            verbosity: None,
+            pro_mode: false,
         }
+    }
+
+    #[test]
+    fn a_models_api_response_yields_the_models_ceiling() {
+        // The number an "unlimited" profile ends up sending. 128k on the
+        // current generation, and the request would 400 if we sent more.
+        assert_eq!(
+            parse_model_max_tokens(
+                r#"{"id":"claude-opus-5","type":"model","max_tokens":128000,
+                    "max_input_tokens":1000000}"#
+            ),
+            Some(128_000)
+        );
+    }
+
+    #[test]
+    fn an_unusable_models_api_answer_falls_back() {
+        // Null, zero, absent and unparseable all mean "the API did not say",
+        // which must not become a max_tokens of 0 - that request would fail.
+        for body in [
+            r#"{"id":"m","max_tokens":null}"#,
+            r#"{"id":"m","max_tokens":0}"#,
+            r#"{"id":"m"}"#,
+            "not json",
+            r#"{"error":{"type":"not_found_error","message":"model not found"}}"#,
+        ] {
+            assert_eq!(parse_model_max_tokens(body), None, "for {body}");
+        }
+    }
+
+    #[test]
+    fn a_profile_with_its_own_cap_is_left_alone() {
+        // Only "unlimited" consults the Models API; a number the user typed is
+        // theirs, and must never trigger a network call.
+        let cfg = cfg_with_reasoning(None, Some(4096));
+        let resolved = resolve_max_tokens(&cfg);
+        assert!(matches!(resolved, Cow::Borrowed(_)));
+        assert_eq!(resolved.max_tokens, Some(4096));
     }
 
     #[test]

@@ -157,6 +157,8 @@ impl OctaApp {
             welcome_logo_click_count: 0,
             welcome_logo_last_click: None,
             snowfall_until: None,
+            christmas_until: None,
+            new_year_until: None,
             pending_date_pickers: std::collections::VecDeque::new(),
             pending_raw_perf_prompt: None,
             pending_date_warning: None,

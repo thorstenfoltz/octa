@@ -137,12 +137,12 @@ pub(crate) enum InstallError {
 }
 
 impl OctaApp {
-    /// Ask GitHub for the latest release. Runs on Store (MSIX) builds too:
-    /// knowing a new version exists is useful there even though the in-app
-    /// updater cannot replace a packaged install in WindowsApps. What the
-    /// Store build does not get is the install button - that gate lives in
-    /// the dialogs, which is also why this no longer returns early and leaves
-    /// the update dialog spinning on "Checking..." forever.
+    /// Ask GitHub for the latest release. Never called on a Store (MSIX)
+    /// copy: the Store installs its updates itself, and inside the package
+    /// the request fails with a certificate error anyway, so both callers
+    /// (`ui::toolbar::help_menu` and `app::update_loop`) skip it there. The
+    /// gate is deliberately theirs and not this function's - returning early
+    /// here would leave a caller's dialog spinning on "Checking..." forever.
     pub(crate) fn check_for_updates(&self, ctx: &egui::Context) {
         let state = Arc::clone(&self.update_state);
         let ctx = ctx.clone();

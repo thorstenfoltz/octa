@@ -11,3 +11,29 @@ Kullandığın işlev harici bir API gerektirmediği sürece verilerin kendi bil
 
 Arayüz 32 dilde kullanılabilir. Octa, MIT lisanslı özgür yazılımdır.
 """
+
+features = [
+  "Otuz kadar biçimi açar: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata ve daha fazlası",
+  "Açık olan her dosyada DuckDB ile SQL sorguları, içe aktarma olmadan",
+  "Metin, joker karakter ya da düzenli ifadelerle sırala, süz ve ara",
+  "Hücreleri, sütunları ve satırları düzenle; geri alma eksiksiz, veritabanına yalnızca farklar yazılır",
+  "Grafikler kendi sekmesinde, PNG, SVG veya PDF olarak dışa aktarılabilir",
+  "İki dosyayı satır satır ya da kayıt kayıt karşılaştır",
+  "Sütun istatistikleri, yinelenen kayıtlar, aykırı değerler ve özet tablolar",
+  "Milyonlarca satırlık Parquet dosyalarını arka planda yükler",
+  "Amazon S3, Azure Blob Storage ve Google Cloud Storage'dan doğrudan okur",
+  "PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery ve daha fazlasına bağlanır",
+  "İsteğe bağlı yapay zeka asistanı, kendi anahtarınla ya da yerel bir modelle",
+  "Ayrıca bir komut satırı aracı ve Model Context Protocol sunucusu",
+  "Arayüz 32 dilde",
+  "Özgür ve açık kaynaklı yazılım, MIT lisansı",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "csv görüntüleyici"
+SearchTerm3 = "veri görüntüleyici"
+SearchTerm4 = "sqlite tarayıcı"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "sql sorguları"
+SearchTerm7 = "excel alternatifi"

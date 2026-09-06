@@ -207,7 +207,7 @@ impl ChatProviderKind {
             Self::Anthropic => "claude-haiku-4-5-20251001",
             Self::OpenAi => "gpt-5.6-terra",
             Self::OpenAiCompatible => "deepseek/deepseek-v4-flash",
-            Self::Gemini => "gemini-3.6-flash",
+            Self::Gemini => "gemini-3.8-flash",
             Self::Ollama => "llama3.2",
         }
     }
@@ -217,17 +217,40 @@ impl ChatProviderKind {
     /// picker always keeps a free-text field for typing the exact current
     /// model. Ollama is dynamic (its list comes from `/api/tags`) and
     /// OpenAI-compatible depends on the endpoint, so both return an empty list.
+    ///
+    /// **Every list is ordered newest release first**, so the model most
+    /// people want is the first thing the dropdown offers and the list reads
+    /// as a timeline rather than a pile. This order IS the contract: a user's
+    /// `models.toml` is rewritten to match it on load
+    /// (`chat_models::merge_and_order_presets`), so a model added here later
+    /// goes to the top of an existing install's list too, rather than being
+    /// appended under the models it replaces. Put new entries in the right
+    /// place rather than at the end. (Names the user typed, which Octa cannot
+    /// date, sit above this whole block - see that function.)
     pub fn preset_models(self) -> &'static [&'static str] {
         match self {
+            // Release order from Anthropic's deprecation table, where the
+            // retirement date is one year out: Fable 5.1 (Sep 2026), Opus 5
+            // (Jul), Sonnet 5 (Jun 30), Fable 5 (Jun 9), Opus 4.8 (May),
+            // Haiku 4.5 (Oct 2025).
             Self::Anthropic => &[
+                "claude-fable-5-1",
                 "claude-opus-5",
                 "claude-sonnet-5",
                 "claude-fable-5",
-                "claude-haiku-4-5-20251001",
                 "claude-opus-4-8",
+                "claude-haiku-4-5-20251001",
             ],
-            Self::OpenAi => &["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"],
+            Self::OpenAi => &[
+                "gpt-6-astra",
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna",
+                "gpt-5.5",
+            ],
             Self::Gemini => &[
+                "gemini-3.8-flash",
+                "gemini-3.7-flash",
                 "gemini-3.6-flash",
                 "gemini-3.5-flash",
                 "gemini-3.5-flash-lite",
@@ -239,17 +262,24 @@ impl ChatProviderKind {
             // OpenAI-compatible provider at. Every other gateway spells the same
             // model differently, which is exactly why the field below the
             // dropdown stays free text. Ollama is dynamic (`/api/tags`).
+            //
+            // Newest first like every other list here, which for eight
+            // different vendors means by release date rather than by version
+            // number: v4 Flash (Jul 31 2026, GA after an April preview),
+            // K3 (Jul 16), GLM-5.2 (Jun 13), K2.7 Code (Jun 12), M3 (Jun 1),
+            // Qwen3.7 (May 20), Nemotron 3 (Apr 28), v4 Pro (Apr 24),
+            // Gemma 4 (Apr 2), gpt-oss (Aug 2025).
             Self::OpenAiCompatible => &[
-                "deepseek/deepseek-v4-pro",
                 "deepseek/deepseek-v4-flash",
-                "z-ai/glm-5.2",
                 "moonshotai/kimi-k3",
+                "z-ai/glm-5.2",
                 "moonshotai/kimi-k2.7-code",
+                "minimax/minimax-m3",
                 "qwen/qwen3.7-plus",
                 "nvidia/nemotron-3-ultra-550b-a55b",
-                "minimax/minimax-m3",
-                "openai/gpt-oss-120b",
+                "deepseek/deepseek-v4-pro",
                 "google/gemma-4-31b-it",
+                "openai/gpt-oss-120b",
             ],
             Self::Ollama => &[],
         }

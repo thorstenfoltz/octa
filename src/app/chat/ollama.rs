@@ -79,8 +79,16 @@ pub fn is_running(base: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// The models installed locally (via `ollama pull`), newest-API order, from
-/// `GET /api/tags`. Returns an empty list when none are installed.
+/// The models installed locally (via `ollama pull`), from `GET /api/tags`,
+/// **most recently updated first**. Returns an empty list when none are
+/// installed.
+///
+/// Every other model list in the assistant is newest first, and this one is
+/// no exception - but "newest" can only mean what Ollama knows, which is
+/// `modified_at`, the time the local copy was pulled or refreshed. That is
+/// the model you most likely just installed and want to pick, whereas the
+/// order `/api/tags` happens to return is not an order at all. A tag without
+/// a usable timestamp sorts last rather than being dropped.
 pub fn list_models(base: &str) -> Result<Vec<String>, String> {
     let url = format!("{}/api/tags", root(base));
     let mut resp = agent()
@@ -94,15 +102,32 @@ pub fn list_models(base: &str) -> Result<Vec<String>, String> {
         .body_mut()
         .read_json()
         .map_err(|e| format!("invalid /api/tags response: {e}"))?;
-    let models = v["models"]
+    Ok(names_newest_first(&v))
+}
+
+/// Pull the model names out of an `/api/tags` body, most recently updated
+/// first. Split from the request so the ordering can be tested without a
+/// running Ollama.
+fn names_newest_first(v: &Value) -> Vec<String> {
+    let mut models: Vec<(String, String)> = v["models"]
         .as_array()
         .map(|arr| {
             arr.iter()
-                .filter_map(|m| m["name"].as_str().map(str::to_string))
+                .filter_map(|m| {
+                    let name = m["name"].as_str()?.to_string();
+                    // RFC 3339, so a plain string comparison orders it, and a
+                    // missing timestamp becomes the empty string, which sorts
+                    // last under the reversed comparison below.
+                    let modified = m["modified_at"].as_str().unwrap_or_default().to_string();
+                    Some((name, modified))
+                })
                 .collect()
         })
         .unwrap_or_default();
-    Ok(models)
+    // Newest first, then by name so two models pulled in the same second do
+    // not swap places between refreshes.
+    models.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    models.into_iter().map(|(name, _)| name).collect()
 }
 
 /// Start `ollama serve` in the background, returning the spawned [`Child`] so
@@ -167,5 +192,38 @@ pub fn stop_child_group(child: &mut Child) {
     {
         let _ = child.kill();
         let _ = child.wait();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tags_are_listed_newest_first() {
+        let body = serde_json::json!({"models": [
+            {"name": "llama3.2", "modified_at": "2026-01-04T10:00:00Z"},
+            {"name": "qwen3", "modified_at": "2026-08-30T09:00:00Z"},
+            {"name": "mistral", "modified_at": "2026-03-12T22:00:00Z"},
+        ]});
+        assert_eq!(names_newest_first(&body), ["qwen3", "mistral", "llama3.2"]);
+    }
+
+    #[test]
+    fn a_tag_without_a_timestamp_sorts_last_but_is_kept() {
+        // Better a model at the bottom of the list than one the user pulled
+        // and cannot find in the dropdown at all.
+        let body = serde_json::json!({"models": [
+            {"name": "no-date"},
+            {"name": "dated", "modified_at": "2026-08-30T09:00:00Z"},
+        ]});
+        assert_eq!(names_newest_first(&body), ["dated", "no-date"]);
+    }
+
+    #[test]
+    fn an_empty_or_odd_body_is_an_empty_list() {
+        for body in [serde_json::json!({}), serde_json::json!({"models": []})] {
+            assert!(names_newest_first(&body).is_empty());
+        }
     }
 }

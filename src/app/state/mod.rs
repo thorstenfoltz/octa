@@ -897,6 +897,13 @@ pub(crate) struct OctaApp {
     /// Wall-clock deadline up to which the snowfall overlay is animated.
     /// `None` when no snow is falling.
     pub(crate) snowfall_until: Option<std::time::Instant>,
+    /// Wall-clock deadline for the passive Christmas overlay, set on the first
+    /// frame it paints (`None` until then, and for a session that never sees
+    /// Dec 24-26). See `easter_eggs::festive_intro_running`.
+    pub(crate) christmas_until: Option<std::time::Instant>,
+    /// The same deadline for the New Year fireworks. Separate from the
+    /// Christmas one so a session spanning both holidays gets both.
+    pub(crate) new_year_until: Option<std::time::Instant>,
     /// Session-only read-only mode. When `true`, every editing path
     /// (cell edits, structural changes, marks, undo/redo, cut/paste,
     /// raw-text editor, SQL DML) short-circuits. Toggled via the

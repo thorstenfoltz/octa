@@ -41,6 +41,8 @@ fn tool_schema_wraps_under_function() {
         temperature: Some(0.5),
         max_tokens: Some(100),
         reasoning: None,
+        verbosity: None,
+        pro_mode: false,
     };
     let tools = vec![ToolDef {
         name: "schema".into(),
@@ -72,6 +74,8 @@ fn unlimited_tokens_omits_the_field() {
         temperature: Some(0.5),
         max_tokens: None,
         reasoning: None,
+        verbosity: None,
+        pro_mode: false,
     };
     let body = build_body(&cfg, "sys", &[Message::user_text("hi")], &[], "max_tokens");
     assert!(body.get("max_tokens").is_none());
@@ -87,6 +91,8 @@ fn reasoning_sets_the_effort_field() {
         temperature: Some(0.0),
         max_tokens: Some(1000),
         reasoning: Some("high".into()),
+        verbosity: None,
+        pro_mode: false,
     };
     let body = build_body(&cfg, "sys", &[], &[], "max_completion_tokens");
     assert_eq!(body["reasoning_effort"], json!("high"));
@@ -104,6 +110,8 @@ fn blank_reasoning_omits_the_effort_field() {
             temperature: Some(0.0),
             max_tokens: Some(1000),
             reasoning: value,
+            verbosity: None,
+            pro_mode: false,
         };
         let body = build_body(&cfg, "sys", &[], &[], "max_completion_tokens");
         assert!(body.get("reasoning_effort").is_none());

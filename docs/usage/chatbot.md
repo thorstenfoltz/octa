@@ -151,10 +151,15 @@ the value's *shape* decides which knob Octa sends.
 
 | Provider                       | A word means                                                                  | A number means                                                                                                                      |
 |--------------------------------|-------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
-| **OpenAI**                     | `reasoning.effort` — `none` `low` `medium` `high` `xhigh`                     | Nothing OpenAI accepts; Octa says so before sending.                                                                                |
+| **OpenAI**                     | `reasoning.effort` — `none` `minimal` `low` `medium` `high` `xhigh` `max`     | Nothing OpenAI accepts; Octa says so before sending.                                                                                |
 | **Anthropic**                  | `output_config.effort` — `low` `medium` `high` `xhigh` `max` (default `high`) | A thinking-token budget, minimum 1024. Only Claude 4.5 and older, such as Haiku 4.5, still take one; Opus 4.7 and later answer 400. |
 | **Gemini**                     | `thinkingConfig.thinkingLevel` — `minimal` `low` `medium` `high` (Gemini 3+)  | `thinkingConfig.thinkingBudget` for Gemini 2.5: `0` off, `-1` let the model decide.                                                 |
 | **OpenAI-compatible / Ollama** | `reasoning_effort`                                                            | Sent as-is; some gateways accept a number here.                                                                                     |
+
+Which of those levels a given model actually takes is the model's own business:
+GPT-6 Astra answers 400 to `none`, and older models know fewer of them. Octa
+passes the word through untouched, so a level a provider adds tomorrow works
+today, and one it does not know comes back as that provider's own error.
 
 Leave it **empty** for no thinking, which is the default. The tooltip on the
 field says all of this for whichever provider the profile uses, so you do not
@@ -183,13 +188,87 @@ the endpoint where reasoning and tools work together on current models
 (gpt-5.x refuses `reasoning_effort` with tools on the older Chat Completions
 endpoint). OpenAI-compatible providers and Ollama stay on Chat Completions.
 
+### Answer length and Pro mode (OpenAI)
+
+Two more controls appear on an **OpenAI** profile, and only there, because no
+other provider has them. Both are optional and both are off until you set them.
+
+#### Answer length: how much the assistant writes back
+
+You ask "how many rows have no customer id?" and you want `1,284`. What you
+sometimes get is a paragraph about what null values are, a table of the columns
+involved and an offer to clean them up. **Answer length** is the dial for that.
+
+| Set it to | You get                                                               | Good for                                                        |
+|-----------|-----------------------------------------------------------------------|-----------------------------------------------------------------|
+| `low`     | The answer and little else. A number, a list, a name.                 | Quick factual questions, and long sessions where you read fast. |
+| `medium`  | The answer with a sentence or two of context.                         | Everyday work.                                                  |
+| `high`    | The answer worked through: what it looked at, what it found, caveats. | Something you will paste into a report or hand to a colleague.  |
+| empty     | The model decides per question.                                       | Not having an opinion, which is a perfectly good default.       |
+
+Shorter answers also cost less and arrive sooner, because the assistant is
+billed for what it writes. If you use Octa's assistant all day on a big file,
+`low` is the single setting that most reduces the token counter in the panel
+header.
+
+This is **not** the same lever as thinking. Thinking is work the model does
+before it answers, and you never see it. Answer length is the reply you do see.
+They are independent, so "think hard about this, then tell me in one line" is a
+real and useful combination: effort `high` with answer length `low`.
+
+#### Pro mode: for the question that came back wrong
+
+Pro mode puts the model on a slower and more thorough path. It costs the same
+per token, it simply spends a lot more of them, so the same question takes
+longer and shows up bigger on the token counter.
+
+It earns that on questions where the ordinary answer was not good enough:
+
+- Two exports that should reconcile and do not, and you want to know why.
+- A query that needs several joins, a window function, and the fan-out trap
+  avoided.
+- A file whose structure is genuinely strange and a first look did not explain.
+
+It earns nothing on "profile this file" or "how many rows", where you pay more
+and wait longer for the same answer. So the useful pattern is **not** to leave
+it on. Make a second profile, call it something like "GPT-5.6, hard questions",
+switch to it in the panel dropdown for the awkward question, and switch back.
+Profiles exist for exactly this.
+
+Pro mode is a **GPT-5.6** feature. Switch it on for any other model and that
+request comes back as an error rather than quietly doing nothing.
+
+One consequence worth knowing: setting Pro mode drops `temperature` from the
+request, exactly as an effort word does, because it is still a reasoning
+request and reasoning models refuse that parameter.
+
 ### The preset model list
 
-The model dropdown's preset list is **hand-editable**. It lives in a plain
+The model dropdown lists models **newest first**, always. The top entry is the
+most recent model Octa knows about, and the list reads down through the
+older ones. Octa keeps it that way: when a new release knows about newer
+models, your existing list is reordered to put them at the top rather than
+appending them underneath the models they replace.
+
+Any name Octa does not ship sits **above** all of them, keeping the order you
+had it in. The reason to type a model name yourself is that it is newer than
+Octa's list, so that is where it belongs. Nothing you add is ever removed. The
+one oddity: a model that Octa shipped in an older release and has since
+dropped counts as one of yours too, so it goes up there as well even though it
+is old. Delete it from the file and it stays gone, which a current model
+would not.
+
+The preset list is **hand-editable**. It lives in a plain
 `models.toml` next to your `settings.toml` (`~/.config/octa/` on Linux,
 `~/Library/Application Support/Octa/` on macOS, `%APPDATA%\Octa\` on Windows),
 seeded on first run from Octa's built-in lists. Add or remove model names there
-and they show up without waiting for a new Octa release. After editing, click
+and they show up without waiting for a new Octa release. Ordering the file by
+hand is the one thing that will not stick: Octa rewrites the order on load so
+the newest model is always first.
+
+Ollama is the exception to all of this: its list comes from your local
+installation rather than from `models.toml`, and it is sorted by when you last
+pulled each model, newest first. After editing, click
 **Reload models.toml** in the Chat / Assistant settings to pick up the change
 without restarting. A missing or empty entry falls back to the built-in list, so
 a stray edit can never leave a provider with no usable model.
@@ -290,7 +369,11 @@ to every profile:
   runaway loops, not a limit you normally need to touch (default 3). Loading a
   group of tools does not spend a round, since nothing was done with the data.
 - **Max response tokens**: a cap on the length of each reply, with an
-  **Unlimited** checkbox. Unlimited lets the model use its own maximum.
+  **Unlimited** checkbox. Unlimited lets the model use its own maximum: for
+  most providers Octa simply leaves the field out, and for Anthropic, which
+  insists on a number, it asks the API what this model's ceiling is and sends
+  that (128k tokens on the Claude 5 generation, 64k on Haiku 4.5). If that
+  lookup cannot be made, it falls back to 16,384.
 - **Result row limit** (default 200): how many rows a tool result, such as a
   SQL query, puts into the assistant's context. The query still runs over
   every row; this only caps what the model sees so a large result never floods

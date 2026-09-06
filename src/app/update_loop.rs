@@ -75,8 +75,14 @@ impl eframe::App for OctaApp {
 
         // One background request per launch, opt-out in Settings. Kicked off
         // from the first frame rather than `OctaApp::new` because it needs an
-        // `egui::Context` to wake the UI when the answer arrives.
-        if !self.startup_update_started && self.settings.check_updates_on_start {
+        // `egui::Context` to wake the UI when the answer arrives. Never on a
+        // Store (MSIX) copy: the Store updates that one itself, so the answer
+        // could only be noise, and the request fails inside the package
+        // anyway.
+        if !self.startup_update_started
+            && self.settings.check_updates_on_start
+            && !octa::platform::is_store_packaged()
+        {
             self.startup_update_started = true;
             self.check_for_updates(&ctx);
         }

@@ -14,10 +14,17 @@ impl SettingsDialog {
             .num_columns(2)
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
+                // A Store (MSIX) copy never runs the check, so the switch for
+                // it is greyed out and says who does the updating instead.
+                let store = crate::platform::is_store_packaged();
                 ui.label(crate::i18n::t("release.check_on_start"))
                     .on_hover_text(crate::i18n::t("release.check_on_start_hint"));
-                ui.checkbox(&mut self.draft.check_updates_on_start, "")
-                    .on_hover_text(crate::i18n::t("release.check_on_start_hint"));
+                ui.add_enabled(
+                    !store,
+                    egui::Checkbox::new(&mut self.draft.check_updates_on_start, ""),
+                )
+                .on_hover_text(crate::i18n::t("release.check_on_start_hint"))
+                .on_disabled_hover_text(crate::i18n::t("release.store"));
                 ui.end_row();
 
                 ui.label(crate::i18n::t("release.show_notes"))

@@ -619,8 +619,13 @@ impl OctaApp {
             // Christmas-window overlay: paint a Santa hat on top of the
             // welcome-screen logo. Lives in the binary side (alongside the
             // other easter eggs) so the library renderer stays oblivious.
+            // Gated on the same deadline as the snow above, so the whole
+            // decoration goes at once rather than leaving a hat behind. The
+            // snow overlay runs earlier in the frame and has already started
+            // the clock, so this only reads it.
             if let Some(rect) = welcome_logo_rect
                 && super::easter_eggs::is_christmas_window()
+                && super::easter_eggs::festive_intro_running(&mut self.christmas_until)
             {
                 super::easter_eggs::paint_santa_hat_overlay(ctx, rect);
             }

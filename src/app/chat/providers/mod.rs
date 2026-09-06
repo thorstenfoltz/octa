@@ -32,8 +32,9 @@ pub struct ProviderConfig {
     /// generation answers a 400), so every provider must be able to send
     /// nothing at all rather than a default.
     pub temperature: Option<f32>,
-    /// Response-token cap. `None` means "unlimited": providers omit the field
-    /// (Anthropic, which requires it, substitutes a high default instead).
+    /// Response-token cap. `None` means "unlimited": providers omit the field.
+    /// Anthropic requires it, so there it becomes the model's own ceiling,
+    /// looked up from the Models API (see `anthropic::resolve_max_tokens`).
     pub max_tokens: Option<usize>,
     /// Free-text thinking/reasoning value from the profile; `None`/empty omits
     /// it entirely. Each provider maps it to its own knob: OpenAI (and the
@@ -42,6 +43,16 @@ pub struct ProviderConfig {
     /// provider cannot use surfaces as an error rather than being silently
     /// dropped.
     pub reasoning: Option<String>,
+    /// How wordy the visible answer should be (`low` / `medium` / `high`),
+    /// or `None` to omit the field. OpenAI's `text.verbosity`, and separate
+    /// from `reasoning`: effort buys thinking, verbosity buys prose, and a
+    /// model can think hard and answer in one line. Ignored by the providers
+    /// that have no such control.
+    pub verbosity: Option<String>,
+    /// Ask OpenAI for `reasoning.mode: "pro"`, which runs the model's slower,
+    /// more thorough path at the same per-token price. GPT-5.6 only; other
+    /// models answer 400, which is why it is off unless the profile asks.
+    pub pro_mode: bool,
 }
 
 /// A chat backend. `stream_turn` blocks until the turn finishes or `cancel`
@@ -126,6 +137,11 @@ pub fn config_for_profile(
             let r = profile.reasoning.trim();
             (!r.is_empty()).then(|| r.to_string())
         },
+        verbosity: {
+            let v = profile.verbosity.trim();
+            (!v.is_empty()).then(|| v.to_string())
+        },
+        pro_mode: profile.pro_mode,
     }
 }
 

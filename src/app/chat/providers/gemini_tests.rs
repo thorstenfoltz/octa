@@ -96,6 +96,8 @@ fn cfg(reasoning: Option<&str>) -> ProviderConfig {
         temperature: None,
         max_tokens: Some(2048),
         reasoning: reasoning.map(str::to_string),
+        verbosity: None,
+        pro_mode: false,
     }
 }
 

@@ -11,3 +11,29 @@ Dữ liệu được xử lý ngay trên máy của bạn, miễn là tính năn
 
 Giao diện có sẵn trong 32 ngôn ngữ. Octa là phần mềm tự do theo giấy phép MIT.
 """
+
+features = [
+  "Mở khoảng ba mươi định dạng: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata và nhiều nữa",
+  "Chạy truy vấn SQL bằng DuckDB trên mọi tệp đang mở, không cần nhập dữ liệu",
+  "Sắp xếp, lọc và tìm kiếm bằng văn bản, ký tự đại diện hoặc biểu thức chính quy",
+  "Sửa ô, cột và hàng, hoàn tác đầy đủ, và chỉ ghi phần khác biệt xuống cơ sở dữ liệu",
+  "Biểu đồ ở thẻ riêng, xuất ra PNG, SVG hoặc PDF",
+  "So sánh hai tệp theo từng dòng hoặc từng bản ghi",
+  "Thống kê cột, phát hiện trùng lặp, phát hiện ngoại lai và bảng tổng hợp",
+  "Tệp Parquet hàng triệu dòng được tải trong nền",
+  "Đọc trực tiếp từ Amazon S3, Azure Blob Storage và Google Cloud Storage",
+  "Kết nối tới PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery và nhiều hơn nữa",
+  "Trợ lý AI tuỳ chọn, dùng khoá của bạn hoặc mô hình chạy cục bộ",
+  "Cũng là công cụ dòng lệnh và máy chủ Model Context Protocol",
+  "Giao diện 32 ngôn ngữ",
+  "Phần mềm tự do, mã nguồn mở, giấy phép MIT",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "xem file csv"
+SearchTerm3 = "xem dữ liệu"
+SearchTerm4 = "sqlite"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "truy vấn sql"
+SearchTerm7 = "thay thế excel"

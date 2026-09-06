@@ -11,3 +11,29 @@ Data diproses secara lokal di komputermu, selama fitur yang kamu pakai tidak mem
 
 Antarmuka tersedia dalam 32 bahasa. Octa adalah perangkat lunak bebas dengan lisensi MIT.
 """
+
+features = [
+  "Membuka sekitar tiga puluh format: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata dan lainnya",
+  "Kueri SQL DuckDB pada file mana pun yang terbuka, tanpa impor",
+  "Urutkan, saring, dan cari dengan teks, karakter pengganti, atau ekspresi reguler",
+  "Sunting sel, kolom, dan baris, dengan urungkan penuh dan hanya perbedaannya yang ditulis ke basis data",
+  "Grafik di tab sendiri, bisa diekspor ke PNG, SVG, atau PDF",
+  "Bandingkan dua file baris demi baris atau rekaman demi rekaman",
+  "Statistik kolom, duplikat, pencilan, dan tabel pivot",
+  "File Parquet berisi jutaan baris dimuat di latar belakang",
+  "Membaca langsung dari Amazon S3, Azure Blob Storage, dan Google Cloud Storage",
+  "Terhubung ke PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery, dan lainnya",
+  "Asisten AI opsional, pakai kunci sendiri atau model lokal",
+  "Juga alat baris perintah dan server Model Context Protocol",
+  "Antarmuka dalam 32 bahasa",
+  "Perangkat lunak bebas dan sumber terbuka, lisensi MIT",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "pembuka csv"
+SearchTerm3 = "penampil data"
+SearchTerm4 = "sqlite browser"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "kueri sql"
+SearchTerm7 = "alternatif excel"

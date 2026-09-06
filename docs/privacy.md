@@ -39,8 +39,9 @@ There are a few optional outbound network calls, all of which you control:
   for updates**. The request carries Octa's version in the `User-Agent` header
   and nothing else, and it downloads and installs nothing by itself. Turn
   **Settings -> Updates -> Check for updates at start** off to limit it to the
-  menu entry. Copies installed from the Microsoft Store are updated by the
-  Store; the check there only tells you a new version exists. The release notes
+  menu entry. Copies installed from the Microsoft Store never make the request
+  at all: the Store updates them, so neither the menu entry nor the launch-time
+  check exists there. The release notes
   Octa shows you after an upgrade cost no request at all: they are built into
   the binary.
 - **Map tiles.** When you open a geographic file in **Map** view, Octa fetches

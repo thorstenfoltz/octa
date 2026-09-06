@@ -11,3 +11,29 @@ Apstrāde notiek lokāli, tavā datorā, ja vien izmantotajai funkcijai nav vaja
 
 Saskarne ir pieejama 32 valodās. Octa ir brīva programmatūra ar MIT licenci.
 """
+
+features = [
+  "Atver ap trīsdesmit formātu: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata un citus",
+  "DuckDB SQL vaicājumi jebkurā atvērtā failā, bez importēšanas",
+  "Kārto, filtrē un meklē ar tekstu, aizstājējzīmēm vai regulārajām izteiksmēm",
+  "Rediģē šūnas, kolonnas un rindas, ar pilnu atsaukšanu, bet datubāzē saglabā tikai izmaiņas",
+  "Diagrammas atsevišķā cilnē, eksportējamas uz PNG, SVG vai PDF",
+  "Salīdzini divus failus rindu pa rindai vai ierakstu pa ierakstam",
+  "Kolonnu statistika, dublikāti, novirzes un rakurstabulas",
+  "Parquet failus ar miljoniem rindu ielādē fonā",
+  "Lasa tieši no Amazon S3, Azure Blob Storage un Google Cloud Storage",
+  "Pieslēdzas PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery un citiem",
+  "Neobligāts MI asistents, ar savu atslēgu vai vietējo modeli",
+  "Arī komandrindas rīks un Model Context Protocol serveris",
+  "Saskarne 32 valodās",
+  "Brīva un atvērtā pirmkoda programmatūra, MIT licence",
+]
+
+[fields]
+SearchTerm1 = "parquet"
+SearchTerm2 = "csv skatītājs"
+SearchTerm3 = "datu skatītājs"
+SearchTerm4 = "sqlite pārlūks"
+SearchTerm5 = "duckdb"
+SearchTerm6 = "sql vaicājumi"
+SearchTerm7 = "excel alternatīva"

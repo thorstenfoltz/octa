@@ -13,6 +13,8 @@ fn cfg(reasoning: Option<&str>, max_tokens: Option<usize>) -> ProviderConfig {
         temperature: Some(0.4),
         max_tokens,
         reasoning: reasoning.map(str::to_string),
+        verbosity: None,
+        pro_mode: false,
     }
 }
 
@@ -219,4 +221,61 @@ fn failed_and_error_events_surface_the_message() {
         seen.iter()
             .any(|e| matches!(e, ChatEvent::Error(m) if m == "bad stream"))
     );
+}
+
+#[test]
+fn pro_mode_rides_alongside_effort_in_one_reasoning_object() {
+    // Mode and effort are independent controls on the same object: setting
+    // both must not have one overwrite the other.
+    let mut c = cfg(Some("high"), None);
+    c.pro_mode = true;
+    let body = build_responses_body(&c, "sys", &[], &[]).unwrap();
+    assert_eq!(body["reasoning"]["effort"], json!("high"));
+    assert_eq!(body["reasoning"]["mode"], json!("pro"));
+}
+
+#[test]
+fn pro_mode_alone_still_sends_reasoning_and_drops_temperature() {
+    // Pro without an effort word is a valid request, and it is still a
+    // reasoning request: temperature must go, or the API answers 400.
+    let mut c = cfg(None, None);
+    c.pro_mode = true;
+    let body = build_responses_body(&c, "sys", &[], &[]).unwrap();
+    assert_eq!(body["reasoning"]["mode"], json!("pro"));
+    assert!(body["reasoning"].get("effort").is_none());
+    assert!(body.get("temperature").is_none());
+    assert_eq!(body["include"], json!(["reasoning.encrypted_content"]));
+}
+
+#[test]
+fn verbosity_is_its_own_field_and_leaves_temperature_alone() {
+    // `text.verbosity`, not part of `reasoning`. On its own it is not a
+    // reasoning request, so a profile's temperature still goes out.
+    let mut c = cfg(None, None);
+    c.verbosity = Some("low".into());
+    let body = build_responses_body(&c, "sys", &[], &[]).unwrap();
+    assert_eq!(body["text"]["verbosity"], json!("low"));
+    assert!(body.get("reasoning").is_none());
+    assert_eq!(body["temperature"], json!(0.4_f32));
+}
+
+#[test]
+fn a_blank_verbosity_sends_no_text_object() {
+    // The form stores "" for "do not send it"; an empty string on the wire
+    // would be a 400.
+    for blank in [None, Some(""), Some("   ")] {
+        let mut c = cfg(None, None);
+        c.verbosity = blank.map(str::to_string);
+        let body = build_responses_body(&c, "sys", &[], &[]).unwrap();
+        assert!(body.get("text").is_none(), "for {blank:?}");
+    }
+}
+
+#[test]
+fn no_pro_and_no_effort_means_no_reasoning_object() {
+    // The default profile must send the same body it always did.
+    let body = build_responses_body(&cfg(None, None), "sys", &[], &[]).unwrap();
+    assert!(body.get("reasoning").is_none());
+    assert!(body.get("include").is_none());
+    assert_eq!(body["temperature"], json!(0.4_f32));
 }
