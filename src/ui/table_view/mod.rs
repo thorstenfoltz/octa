@@ -79,6 +79,22 @@ pub struct TableViewState {
     /// Width of the sequential (1..N) sub-column inside the row-number gutter,
     /// or 0.0 when it isn't shown. Always <= `row_number_width`.
     pub seq_number_width: f32,
+    /// Heights the user dragged, keyed by **actual** row index (not display
+    /// index, which moves with every filter and sort). Session-only, like
+    /// `col_widths` and `frozen_cols`. Empty is the normal case, and while it
+    /// is empty rows keep the uniform height.
+    ///
+    /// A non-empty map switches the variable-height path on even when word
+    /// wrap is off - that path was built for wrapping and does the same job
+    /// here.
+    pub row_heights: std::collections::HashMap<usize, f32>,
+    /// The row whose bottom seam is being dragged right now, by actual index.
+    pub resizing_row: Option<usize>,
+    /// Height for every row that has no entry in `row_heights`, set by dragging
+    /// the seam under the "#" corner. `None` is the font-derived default. One
+    /// value rather than an entry per row, so setting the height of an 11 M-row
+    /// table stays free and the uniform fast path keeps working.
+    pub uniform_row_height: Option<f32>,
     /// Cached prefix sums of row heights when cell_line_breaks is on.
     /// `[i]` = Y offset of display row i; `[row_count]` = total data height.
     row_y_offsets: Vec<f32>,
@@ -370,15 +386,26 @@ fn row_at_offset(offsets: &[f32], scroll_y: f32) -> usize {
     lo
 }
 
+/// What measuring a row costs beyond the table itself. Bundled so
+/// [`ensure_row_y_offsets`] stays under clippy's argument limit; the four
+/// always travel together and all four come from the same settings block.
+#[derive(Clone, Copy)]
+struct RowHeightOpts {
+    font_size: f32,
+    base_row_height: f32,
+    binary_display_mode: BinaryDisplayMode,
+    /// Cell line breaks. With them off every unadjusted row is exactly
+    /// `base_row_height`, so no measuring pass is needed at all.
+    wrap: bool,
+}
+
 /// Rebuild the prefix-sum of row heights if the cache is stale.
 fn ensure_row_y_offsets(
     ui: &Ui,
     state: &mut TableViewState,
     table: &DataTable,
     filtered_rows: &[usize],
-    font_size: f32,
-    base_row_height: f32,
-    binary_display_mode: BinaryDisplayMode,
+    opts: RowHeightOpts,
 ) {
     if state.row_heights_cached_generation == state.row_heights_generation
         && state.row_y_offsets.len() == filtered_rows.len() + 1
@@ -386,25 +413,73 @@ fn ensure_row_y_offsets(
         return;
     }
     let col_widths = state.col_widths.clone();
+    let overrides = state.row_heights.clone();
     let mut offsets = Vec::with_capacity(filtered_rows.len() + 1);
     offsets.push(0.0);
     let mut cumulative = 0.0f32;
     for &actual_row in filtered_rows {
-        let h = compute_row_height(
-            ui,
-            table,
-            actual_row,
-            &col_widths,
-            font_size,
-            base_row_height,
-            binary_display_mode,
-        );
+        // A height the user dragged wins outright. Otherwise measure only when
+        // wrapping is on: `compute_row_height` lays out every cell of the row,
+        // so running it with wrap off - where every unadjusted row is exactly
+        // `base_row_height` - would be an O(rows x cols) text-layout pass for
+        // an answer already known.
+        let h = match overrides.get(&actual_row) {
+            Some(&h) => h,
+            None if opts.wrap => compute_row_height(
+                ui,
+                table,
+                actual_row,
+                &col_widths,
+                opts.font_size,
+                opts.base_row_height,
+                opts.binary_display_mode,
+            ),
+            None => opts.base_row_height,
+        };
         cumulative += h;
         offsets.push(cumulative);
     }
     state.row_y_offsets = offsets;
     state.row_heights_cached_generation = state.row_heights_generation;
 }
+
+/// Grab band for the row-resize seam, centred on a row's bottom edge. Slightly
+/// taller than the column handle's 6px because it is aimed at vertically.
+pub(super) const ROW_RESIZE_HANDLE_HEIGHT: f32 = 7.0;
+
+/// The interaction behind a row seam (per-row or the `#` corner): drag to
+/// resize, click for the double-click fit, resize cursor while over it.
+///
+/// The drag is adopted from where the button went down. egui picks its drag
+/// target from the pointer's position at the *end* of the frame, so a press
+/// and a fast first move batched into one frame land past the 7px band on
+/// the click-only row number, and no drag starts at all.
+pub(super) fn seam_interact(ui: &Ui, seam: egui::Rect, id: egui::Id) -> egui::Response {
+    let pressed_here = ui.input(|i| {
+        i.pointer.primary_pressed() && i.pointer.press_origin().is_some_and(|p| seam.contains(p))
+    });
+    if pressed_here {
+        ui.ctx().set_dragged_id(id);
+    }
+    let resp = ui.interact(seam, id, Sense::click_and_drag());
+    if resp.hovered() || resp.dragged() || resp.is_pointer_button_down_on() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+    }
+    resp
+}
+
+/// The height a row has when nobody has dragged it: two lines of the current
+/// font, floored. A function because the header's corner seam needs the same
+/// answer as [`draw_table`] to drag away from.
+pub(super) fn base_row_height(font_size: f32) -> f32 {
+    (font_size * 2.0).max(DEFAULT_ROW_HEIGHT)
+}
+
+/// Floor for a hand-set row height. Not `DEFAULT_ROW_HEIGHT`: a user shrinking
+/// rows to fit more on screen is a real thing to want, and the draw loop walks
+/// the prefix sums rather than assuming a uniform height, so shorter rows are
+/// handled correctly.
+pub(super) const MIN_ROW_HEIGHT: f32 = 12.0;
 
 const SORT_ARROW_SIZE: f32 = 14.0;
 const COL_INDEX_HEIGHT: f32 = 12.0; // space for the column index letter at top
@@ -664,6 +739,11 @@ pub struct TableInteraction {
     /// `begin_add_bookmark`, the same path as the toolbar Bookmarks dropdown
     /// and the `Ctrl+Alt+B` shortcut.
     pub ctx_add_bookmark: bool,
+    /// A row seam (or the `#` corner) was double-clicked to fit rows to their
+    /// content while cell line breaks were off. Fitting means wrapping, the
+    /// same way it does for **Edit > Auto-fit All Rows**, so the app turns
+    /// line breaks on.
+    pub fit_rows_wants_wrap: bool,
     /// Signal that more rows should be loaded (scroll near bottom with truncated data).
     pub needs_more_rows: bool,
     /// Set a color mark on one or more keys. The list lets the right-click
@@ -779,7 +859,9 @@ pub fn draw_table(
         handles_input,
     } = cx;
     let colors = ThemeColors::for_mode(theme_mode);
-    let row_height = (font_size * 2.0).max(DEFAULT_ROW_HEIGHT);
+    let row_height = state
+        .uniform_row_height
+        .unwrap_or_else(|| base_row_height(font_size));
     state.ensure_widths(table);
     state.os_clipboard_has_text = os_clipboard_has_content;
 
@@ -895,15 +977,21 @@ pub fn draw_table(
         frozen_width = frozen_band_width(&state.col_widths, hidden_columns, frozen_cols);
     }
 
-    let total_data_height = if cell_line_breaks {
+    // Wrapping makes every row a different height; so does a height the user
+    // dragged. Either one needs the prefix-sum path.
+    let variable_heights = cell_line_breaks || !state.row_heights.is_empty();
+    let total_data_height = if variable_heights {
         ensure_row_y_offsets(
             ui,
             state,
             table,
             filtered_rows,
-            font_size,
-            row_height,
-            binary_display_mode,
+            RowHeightOpts {
+                font_size,
+                base_row_height: row_height,
+                binary_display_mode,
+                wrap: cell_line_breaks,
+            },
         );
         state.row_y_offsets[row_count]
     } else {
@@ -1356,16 +1444,29 @@ pub fn draw_table(
     );
     let data_painter = painter.with_clip_rect(data_clip_rect);
 
-    let (first_visible, first_visible_offset) =
-        if cell_line_breaks && !state.row_y_offsets.is_empty() {
-            let idx = row_at_offset(&state.row_y_offsets, state.scroll_y);
-            (idx, state.row_y_offsets[idx])
-        } else {
-            let idx = (state.scroll_y / row_height).floor() as usize;
-            (idx, idx as f32 * row_height)
-        };
-    let visible_count = (data_area_height / row_height).ceil() as usize + 2;
-    let last_visible = (first_visible + visible_count).min(row_count);
+    let have_offsets = !state.row_y_offsets.is_empty();
+    let (first_visible, first_visible_offset) = if have_offsets {
+        let idx = row_at_offset(&state.row_y_offsets, state.scroll_y);
+        (idx, state.row_y_offsets[idx])
+    } else {
+        let idx = (state.scroll_y / row_height).floor() as usize;
+        (idx, idx as f32 * row_height)
+    };
+    // With variable heights the number of rows that fit is NOT
+    // `area / row_height`: that estimate over-draws harmlessly for rows taller
+    // than the base but drops rows off the bottom for shorter ones. Walk the
+    // prefix sums instead - it costs one comparison per visible row.
+    let last_visible = if have_offsets {
+        let end_y = state.scroll_y + data_area_height;
+        let mut idx = first_visible;
+        while idx < row_count && state.row_y_offsets[idx] <= end_y {
+            idx += 1;
+        }
+        (idx + 1).min(row_count)
+    } else {
+        let visible_count = (data_area_height / row_height).ceil() as usize + 2;
+        (first_visible + visible_count).min(row_count)
+    };
 
     let mut current_y = data_area_top + first_visible_offset - state.scroll_y;
 
@@ -1379,11 +1480,55 @@ pub fn draw_table(
     for display_idx in first_visible..last_visible {
         let actual_row = filtered_rows[display_idx];
 
-        let actual_row_height = if cell_line_breaks && display_idx + 1 < state.row_y_offsets.len() {
+        let actual_row_height = if display_idx + 1 < state.row_y_offsets.len() {
             state.row_y_offsets[display_idx + 1] - state.row_y_offsets[display_idx]
         } else {
             row_height
         };
+
+        // Row-resize seam: a thin strip on the row's bottom edge, inside the
+        // row-number gutter. Mirrors the column seam in `header.rs` - drag to
+        // set a height, double-click to fit the row to its content.
+        if show_row_numbers && state.row_number_width > 0.0 {
+            let seam = egui::Rect::from_min_max(
+                egui::pos2(
+                    panel_rect.left(),
+                    current_y + actual_row_height - ROW_RESIZE_HANDLE_HEIGHT * 0.5,
+                ),
+                egui::pos2(
+                    panel_rect.left() + state.row_number_width,
+                    current_y + actual_row_height + ROW_RESIZE_HANDLE_HEIGHT * 0.5,
+                ),
+            );
+            if seam.intersects(data_clip_rect) && handles_input {
+                let resp = seam_interact(
+                    ui,
+                    seam.intersect(data_clip_rect),
+                    ui.id().with(("row_resize", actual_row)),
+                );
+                if resp.drag_started() {
+                    state.resizing_row = Some(actual_row);
+                }
+                if state.resizing_row == Some(actual_row) && resp.dragged() {
+                    let h = (actual_row_height + resp.drag_delta().y).max(MIN_ROW_HEIGHT);
+                    state.row_heights.insert(actual_row, h);
+                    state.invalidate_row_heights();
+                }
+                if resp.drag_stopped() {
+                    state.resizing_row = None;
+                    state.invalidate_row_heights();
+                }
+                // Double-click fits the row to its content, like the column
+                // seam: drop the hand-set height and let the offsets pass
+                // measure the wrapped cells. Wrap off means nothing to
+                // measure, so ask the app to turn it on.
+                if resp.double_clicked() {
+                    state.row_heights.remove(&actual_row);
+                    state.invalidate_row_heights();
+                    interaction.fit_rows_wants_wrap = !cell_line_breaks;
+                }
+            }
+        }
 
         if current_y + actual_row_height >= data_area_top && current_y <= data_area_bottom {
             rows::draw_data_row_direct(

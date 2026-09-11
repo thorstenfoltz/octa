@@ -1,5 +1,7 @@
 # Relationship Map
 
+<!-- SCREENSHOT: relationship-map.png: The Relationship map dialog after a scan of three tables. Three rounded boxes (orders, customers, products) each listing their column names, two lines connecting column rows, each line carrying a small score chip such as 1.00 and 0.62. Source radio at the top set to "Open tabs" with all three ticked. -->
+
 **Analyse -> Relationship map...** draws how your tables connect: one
 box per table listing its columns, a line between each pair of columns
 that relate, and a plain sentence on every line saying how well they

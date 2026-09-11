@@ -1,29 +1,29 @@
-# id: written natively, not translated from English.
+# id: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet, CSV, Excel, SQLite, dan sekitar tiga puluh format lain dalam tabel cepat. Urutkan, saring, cari, sunting, dan jalankan SQL di komputermu."
+short = "Parquet, CSV, XLSX, SQLite, dan sekitar tiga puluh format data lain langsung tampil sebagai tabel. Urutkan, saring, cari, edit, dan jalankan kueri SQL secara lokal di komputer sendiri."
 
 long = """
-Octa membuka berkas Parquet, CSV, Excel, SQLite, DuckDB, dan JSON, ditambah sekitar tiga puluh format data lain, tanpa langkah impor dan tanpa penyiapan yang merepotkan.
+Octa membuka berkas Parquet, CSV, XLSX, SQLite, DuckDB, dan JSON, serta sekitar tiga puluh format data lain, langsung sebagai tabel. Tidak perlu impor, penyiapan, atau berkas proyek.
 
-Kamu bisa mengurutkan, menyaring, mencari, dan menyunting data, menjalankan kueri SQL DuckDB, membuat grafik, atau membandingkan dua berkas. Lewat obrolan bawaan, kamu juga bisa bertanya tentang datamu dengan bahasa sehari-hari.
+Tabel dapat diurutkan, disaring, dan dicari; sel, kolom, dan baris dapat diedit, dan setiap perubahan dapat dibatalkan. Setiap berkas yang terbuka tersedia di DuckDB sebagai tabel SQL, dan beberapa berkas dapat digabungkan dalam satu kueri. Tersedia pula grafik, statistik per kolom, deteksi duplikat dan pencilan, tabel pivot, serta perbandingan dua berkas. Berkas Parquet dengan jutaan baris dimuat di latar belakang.
 
-Data diproses secara lokal di komputermu, selama fitur yang kamu pakai tidak membutuhkan API eksternal.
+Data di Amazon S3, Azure Blob Storage, dan Google Cloud Storage, atau di PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery, dan basis data lain, dapat dibuka langsung; akses tulis dimatikan secara bawaan. Asisten AI opsional menjawab pertanyaan tentang data dalam bahasa sehari-hari, dengan kunci API sendiri atau model lokal melalui Ollama, dan tetap nonaktif sampai dikonfigurasi.
 
-Antarmuka tersedia dalam 32 bahasa. Octa adalah perangkat lunak bebas dengan lisensi MIT.
+Pemrosesan berlangsung secara lokal di komputer sendiri, kecuali bila fitur yang digunakan memerlukan API eksternal. Antarmuka tersedia dalam 32 bahasa. Octa adalah perangkat lunak bebas berlisensi MIT: https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Membuka sekitar tiga puluh format: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata dan lainnya",
-  "Kueri SQL DuckDB pada file mana pun yang terbuka, tanpa impor",
-  "Urutkan, saring, dan cari dengan teks, karakter pengganti, atau ekspresi reguler",
-  "Sunting sel, kolom, dan baris, dengan urungkan penuh dan hanya perbedaannya yang ditulis ke basis data",
-  "Grafik di tab sendiri, bisa diekspor ke PNG, SVG, atau PDF",
-  "Bandingkan dua file baris demi baris atau rekaman demi rekaman",
-  "Statistik kolom, duplikat, pencilan, dan tabel pivot",
-  "File Parquet berisi jutaan baris dimuat di latar belakang",
-  "Membaca langsung dari Amazon S3, Azure Blob Storage, dan Google Cloud Storage",
-  "Terhubung ke PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery, dan lainnya",
-  "Asisten AI opsional, pakai kunci sendiri atau model lokal",
+  "Sekitar tiga puluh format: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata, dan lainnya",
+  "SQL DuckDB langsung pada berkas apa pun yang terbuka, tanpa impor",
+  "Urutkan, saring, dan cari dengan teks biasa, wildcard, atau ekspresi reguler",
+  "Edit sel, kolom, dan baris, sepenuhnya dapat dibatalkan; hanya perubahan yang ditulis ke basis data",
+  "Grafik di tab tersendiri, ekspor ke PNG, SVG, atau PDF",
+  "Bandingkan dua berkas baris demi baris atau rekaman demi rekaman",
+  "Statistik per kolom, deteksi duplikat dan pencilan, tabel pivot",
+  "Berkas Parquet dengan jutaan baris dimuat di latar belakang",
+  "Akses langsung ke Amazon S3, Azure Blob Storage, dan Google Cloud Storage",
+  "Koneksi ke PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery, dan lainnya",
+  "Asisten AI opsional dengan kunci API sendiri atau model lokal",
   "Juga alat baris perintah dan server Model Context Protocol",
   "Antarmuka dalam 32 bahasa",
   "Perangkat lunak bebas dan sumber terbuka, lisensi MIT",
@@ -31,9 +31,9 @@ features = [
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "pembuka csv"
+SearchTerm2 = "buka csv"
 SearchTerm3 = "penampil data"
-SearchTerm4 = "sqlite browser"
+SearchTerm4 = "sqlite"
 SearchTerm5 = "duckdb"
 SearchTerm6 = "kueri sql"
-SearchTerm7 = "alternatif excel"
+SearchTerm7 = "buka xlsx"

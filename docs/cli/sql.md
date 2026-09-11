@@ -242,6 +242,13 @@ A "rows affected" count is written to **stderr** for mutations:
 2 rows affected
 ```
 
+`CREATE TABLE` / `CREATE VIEW` is the one mutation that prints something
+else: the **created table's rows** (with its declared column types) go to
+stdout and `created <name>` to stderr, so
+`octa --sql in.csv -q 'CREATE TABLE top AS SELECT * FROM data LIMIT 10' -f parquet > top.parquet`
+writes a typed extract in one step. The table is dropped from the connection
+again after it is printed.
+
 ## How files become `data`
 
 Octa's standard reader produces a `DataTable`. The CLI registers

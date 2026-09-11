@@ -35,6 +35,18 @@ pub mod types;
 
 use serde_json::Value;
 
+/// The system prompt for "Just answer" mode: no tools, no tab list, no Octa
+/// instructions at all.
+///
+/// The panel in this mode is a plain chat window that happens to live in Octa,
+/// so the prompt says only enough to set the voice. Everything the data prompt
+/// carries - the tool rules, the sandbox explanation, the open-tab summary -
+/// would be describing capabilities this turn does not have.
+pub fn build_plain_system_prompt() -> String {
+    "You are a helpful assistant inside Octa, a desktop viewer and editor for data files. The user has switched you out of data mode, so you have no tools and cannot see or touch their files this turn; answer from your own knowledge. If they ask you to do something to their data, say that they should switch the panel back to the data mode beside the model picker. Keep answers concise and use Markdown for structure."
+        .to_string()
+}
+
 /// Build the system prompt, embedding a compact description of what tabs the
 /// user currently has open so the model can reach for `open_tab: "@active"`.
 pub fn build_system_prompt(
@@ -131,6 +143,12 @@ editing the profile. You can still show them the exact values or SQL they would 
             s.push_str(&format!(
                 "- {handle} \"{name}\"{marker}: {rows} rows, {cols} columns\n"
             ));
+            // Large-file tabs carry a `note` saying the tab shows a window of a
+            // much bigger file. Without it the model reads the row count above
+            // as the whole story and answers about a page.
+            if let Some(note) = t["note"].as_str() {
+                s.push_str(&format!("  {note}\n"));
+            }
         }
     }
     s

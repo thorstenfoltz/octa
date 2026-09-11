@@ -123,6 +123,9 @@ impl OctaApp {
                 .table_state
                 .fit_all_columns_requested = true;
         }
+        if action.fit_all_rows {
+            self.fit_all_rows();
+        }
         if action.copy_as_markdown {
             self.do_copy_markdown();
         }

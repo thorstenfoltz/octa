@@ -29,6 +29,7 @@ fn sample_ctx() -> ToolContext {
             display_name: "demo".into(),
             source_path: None,
             table,
+            window: None,
         }],
         active_tab: Some(0),
         default_row_limit: Some(1000),
@@ -59,6 +60,7 @@ fn id_tab(handle: &str, name: &str, ids: &[i64]) -> TableSnapshot {
         display_name: name.into(),
         source_path: None,
         table,
+        window: None,
     }
 }
 
@@ -203,6 +205,7 @@ fn text_ctx(lines: &[&str], source_path: Option<&str>) -> ToolContext {
             display_name: "notes.md".into(),
             source_path: source_path.map(|s| s.to_string()),
             table,
+            window: None,
         }],
         active_tab: Some(0),
         default_row_limit: Some(1000),

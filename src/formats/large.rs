@@ -22,7 +22,9 @@ use anyhow::{Context, Result, bail};
 use duckdb::Connection;
 
 use crate::data::{CellValue, ColumnInfo, DataTable};
-use crate::formats::duckdb_reader::{duckdb_type_to_arrow, duckdb_value_to_cell};
+use crate::formats::duckdb_reader::{
+    column_zones, duckdb_session_timezone, duckdb_type_to_arrow, duckdb_value_to_cell_tz,
+};
 
 /// The formats DuckDB can scan straight off disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +76,7 @@ pub fn open(path: &Path) -> Result<LargeTable> {
     let scan = kind.scan_expr(path);
     let conn = Connection::open_in_memory().context("opening an in-memory DuckDB connection")?;
 
+    let session_tz = duckdb_session_timezone(&conn);
     let mut stmt = conn
         .prepare(&format!("DESCRIBE SELECT * FROM {scan}"))
         .with_context(|| format!("describing {}", path.display()))?;
@@ -83,7 +86,7 @@ pub fn open(path: &Path) -> Result<LargeTable> {
             let ty: String = r.get(1)?;
             Ok(ColumnInfo {
                 name,
-                data_type: duckdb_type_to_arrow(&ty),
+                data_type: duckdb_type_to_arrow(&ty, session_tz.as_deref()),
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -148,12 +151,13 @@ impl LargeTable {
 
         let mut stmt = self.conn.prepare(&sql)?;
         let col_count = self.columns.len();
+        let zones = column_zones(&self.columns);
         let mut rows: Vec<Vec<CellValue>> = Vec::new();
         let mut q = stmt.query([])?;
         while let Some(r) = q.next()? {
             let mut row = Vec::with_capacity(col_count);
-            for i in 0..col_count {
-                row.push(duckdb_value_to_cell(r.get_ref(i)?));
+            for (i, tz) in zones.iter().enumerate() {
+                row.push(duckdb_value_to_cell_tz(r.get_ref(i)?, tz.as_deref()));
             }
             rows.push(row);
         }

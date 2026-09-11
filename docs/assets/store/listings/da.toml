@@ -1,39 +1,39 @@
-# da: written natively, not translated from English.
+# da: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet, CSV, Excel, SQLite og omkring tredive andre formater i en hurtig tabel. Sortér, filtrér, søg, redigér og kør SQL på din egen computer."
+short = "Parquet, CSV, XLSX, SQLite og omkring tredive andre dataformater vises straks som tabel. Sortér, filtrér, søg, redigér og forespørg med SQL, lokalt på egen computer."
 
 long = """
-Octa åbner Parquet-, CSV-, Excel-, SQLite-, DuckDB- og JSON-filer plus omkring tredive andre dataformater, uden import og uden besværlig opsætning.
+Octa åbner Parquet-, CSV-, XLSX-, SQLite-, DuckDB- og JSON-filer samt omkring tredive andre dataformater direkte som tabel. Der kræves hverken import, opsætning eller projektfil.
 
-Du kan sortere, filtrere, søge og redigere dine data, køre SQL-forespørgsler med DuckDB, lave diagrammer eller sammenligne to filer. Den indbyggede chat lader dig også spørge til dine data i helt almindeligt sprog.
+Tabellen kan sorteres, filtreres og gennemsøges; celler, kolonner og rækker kan redigeres, og enhver ændring kan fortrydes. Hver åben fil er tilgængelig i DuckDB som SQL-tabel, og flere filer kan kombineres i én forespørgsel. Dertil kommer diagrammer, kolonnestatistik, registrering af dubletter og afvigende værdier, pivottabeller og sammenligning af to filer. Parquet-filer med millioner af rækker indlæses i baggrunden.
 
-Dine data behandles lokalt på din egen computer, så længe den funktion, du bruger, ikke har brug for et eksternt API.
+Data i Amazon S3, Azure Blob Storage og Google Cloud Storage eller i PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery og andre databaser kan åbnes direkte; skriveadgang er slået fra som standard. En valgfri AI-assistent besvarer spørgsmål om dataene i almindeligt sprog, med egen API-nøgle eller en lokal model via Ollama, og forbliver inaktiv, indtil den er sat op.
 
-Brugerfladen findes på 32 sprog. Octa er fri software under MIT-licensen.
+Behandlingen sker lokalt på egen computer, medmindre den anvendte funktion kræver en ekstern API. Brugerfladen findes på 32 sprog. Octa er fri software under MIT-licensen: https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Åbner omkring tredive formater: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata med flere",
+  "Omkring tredive formater: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata med flere",
   "DuckDB-SQL direkte på enhver åben fil, uden import",
-  "Sortér, filtrér og søg med tekst, jokertegn eller regulære udtryk",
-  "Redigér celler, kolonner og rækker, med fuld fortrydelse og kun forskellene gemt i databasen",
-  "Diagrammer i deres egen fane, der kan eksporteres til PNG, SVG eller PDF",
-  "Sammenlign to filer linje for linje eller række for række",
-  "Kolonnestatistik, dubletter, outliers og pivottabeller",
-  "Henter Parquet-filer med millioner af rækker i baggrunden",
-  "Læser direkte fra Amazon S3, Azure Blob Storage og Google Cloud Storage",
-  "Forbinder til PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery med flere",
-  "Valgfri AI-assistent, med din egen nøgle eller en lokal model",
-  "Også et kommandolinjeværktøj og en Model Context Protocol-server",
+  "Sortér, filtrér og søg med almindelig tekst, jokertegn eller regulære udtryk",
+  "Redigér celler, kolonner og rækker med fuld fortrydelse; kun ændringerne skrives til databasen",
+  "Diagrammer i egen fane, eksport til PNG, SVG eller PDF",
+  "Sammenlign to filer linje for linje eller post for post",
+  "Kolonnestatistik, registrering af dubletter og afvigende værdier, pivottabeller",
+  "Parquet-filer med millioner af rækker indlæses i baggrunden",
+  "Direkte adgang til Amazon S3, Azure Blob Storage og Google Cloud Storage",
+  "Forbindelse til PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery med flere",
+  "Valgfri AI-assistent med egen API-nøgle eller lokal model",
+  "Også kommandolinjeværktøj og Model Context Protocol-server",
   "Brugerflade på 32 sprog",
-  "Fri open source-software under MIT-licensen",
+  "Fri og open source-software, MIT-licens",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "csv fremviser"
+SearchTerm2 = "åbn csv"
 SearchTerm3 = "datafremviser"
-SearchTerm4 = "sqlite browser"
+SearchTerm4 = "sqlite"
 SearchTerm5 = "duckdb"
-SearchTerm6 = "sql forespørgsler"
-SearchTerm7 = "excel alternativ"
+SearchTerm6 = "sql forespørgsel"
+SearchTerm7 = "åbn xlsx"

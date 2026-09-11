@@ -171,6 +171,20 @@ pub fn size_dialog_window<'a>(
     }
 }
 
+/// Centre a window the first time it is shown, and only then.
+///
+/// Use this instead of `.anchor(Align2::CENTER_CENTER, ..)`. An anchored egui
+/// window is **immovable**: `Area::anchor` ends by calling `movable(false)`, so
+/// the window ignores every drag and the user cannot push it aside to read what
+/// is underneath it. `.default_pos` places it the same way on the first frame
+/// and then gets out of the way, and egui remembers wherever the user drags it.
+///
+/// `size` is the window's expected size, used only to work out the centred
+/// position; it does not constrain the window.
+pub fn center_on_first_show(ctx: &egui::Context, size: egui::Vec2) -> egui::Pos2 {
+    ctx.viewport_rect().center() - size * 0.5
+}
+
 /// Fit `rect` inside `bounds`: shrink it if it is too big, then slide it back
 /// until it sits within the bounds. Keeps the top-left corner reachable, which
 /// is the corner a dialog is dragged by.

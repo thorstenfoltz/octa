@@ -110,6 +110,11 @@ pub(crate) struct ChatPanelState {
     pub last_saved_len: usize,
     /// Local-Ollama discovery state (model list, running flag).
     pub ollama: OllamaUi,
+    /// "Just answer" mode: send no tools and a plain assistant system prompt,
+    /// so the panel answers a general question instead of driving Octa.
+    /// Session-only (not persisted) - it is a mode for the question being
+    /// asked, not a preference.
+    pub plain_mode: bool,
 }
 
 impl ChatPanelState {
@@ -131,6 +136,7 @@ impl ChatPanelState {
             prompts_window_size: octa::ui::settings::DialogSize::default(),
             last_saved_len: 0,
             ollama: OllamaUi::default(),
+            plain_mode: false,
         }
     }
 }
@@ -304,6 +310,26 @@ impl OctaApp {
                 self.settings.save();
                 profile_changed = true;
             }
+
+            // What the panel is for right now. Two mutually exclusive labels
+            // rather than a checkbox, so both states are named: the same shape
+            // the SQL panel uses for its "run on server | local" pair. Session
+            // only - it is a mode for the question being asked.
+            ui.separator();
+            if ui
+                .selectable_label(!self.chat.plain_mode, t("chat.mode_data"))
+                .on_hover_text(t("chat.mode_data_hint"))
+                .clicked()
+            {
+                self.chat.plain_mode = false;
+            }
+            if ui
+                .selectable_label(self.chat.plain_mode, t("chat.mode_plain"))
+                .on_hover_text(t("chat.mode_plain_hint"))
+                .clicked()
+            {
+                self.chat.plain_mode = true;
+            }
         });
 
         if profile_changed {
@@ -356,6 +382,7 @@ impl OctaApp {
     /// Write a model name back into the active profile (used by the Ollama
     /// model dropdown, which discovers models the profile form cannot).
     fn render_chat_messages(&mut self, ui: &mut egui::Ui) {
+        let markdown = self.settings.chat_render_markdown;
         let session = self.chat.session.clone();
         let guard = session.lock().unwrap();
 
@@ -372,12 +399,12 @@ impl OctaApp {
             .stick_to_bottom(true)
             .show(ui, |ui| {
                 for msg in &guard.messages {
-                    render_message(ui, msg);
+                    render_message(ui, msg, markdown);
                 }
                 // Live partial assistant turn.
                 if let Some(stream) = &guard.streaming {
                     if !stream.text.is_empty() {
-                        bubble(ui, t("chat.assistant"), &stream.text, false);
+                        bubble(ui, t("chat.assistant"), &stream.text, false, markdown);
                     }
                     ui.horizontal(|ui| {
                         ui.add(egui::Spinner::new().size(14.0));

@@ -18,6 +18,10 @@ use octa::i18n::t;
 use octa::ui::status_bar::human_size;
 
 use super::super::state::OctaApp;
+use octa::ui::settings::{
+    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
+    size_dialog_window,
+};
 
 /// The pending question about one file.
 pub(crate) struct LargeFileNotice {
@@ -55,11 +59,46 @@ pub(crate) fn render_large_file_notice(app: &mut OctaApp, ctx: &egui::Context) {
     let mut choice: Option<bool> = None; // Some(true) = large mode
     let mut close = false;
 
-    egui::Window::new(t("largefile.title"))
-        .resizable(false)
-        .collapsible(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
+    let dialog_id = egui::Id::new("octa_large_file_notice_dialog");
+    let size_key = dialog_id.with("octa_dlg_size");
+    let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
+    let minimized = size == DialogSize::Minimized;
+    let mut chrome_close = false;
+
+    let center = center_on_first_show(ctx, egui::vec2(560.0, 420.0));
+    let window = egui::Window::new("octa_large_file_notice")
+        .id(dialog_id)
+        .title_bar(false)
+        .collapsible(false);
+    let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+        w.resizable(true)
+            .default_width(560.0)
+            .default_height(420.0)
+            .min_width(380.0)
+            .min_height(240.0)
+            .default_pos(center)
+    });
+    let inner = window.show(ctx, |ui| {
+        egui::Panel::top("large_file_notice_header")
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(t("largefile.title"))
+                            .strong()
+                            .size(16.0),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if draw_window_controls(ui, &mut size) {
+                            chrome_close = true;
+                        }
+                    });
+                });
+            });
+        if minimized {
+            return;
+        }
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.set_min_width(460.0);
             ui.label(
                 t("largefile.body")
@@ -112,6 +151,23 @@ pub(crate) fn render_large_file_notice(app: &mut OctaApp, ctx: &egui::Context) {
                 });
             });
         });
+    });
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(
+            size_key,
+            if chrome_close {
+                DialogSize::Normal
+            } else {
+                size
+            },
+        )
+    });
+    if chrome_close {
+        close = true;
+    }
 
     if let Some(n) = app.pending_large_file_notice.as_mut() {
         n.suppress_future = suppress_future;
@@ -156,12 +212,46 @@ fn render_convert_progress(app: &mut OctaApp, ctx: &egui::Context) {
         return;
     }
 
-    egui::Window::new(t("largefile.title"))
-        .id(egui::Id::new("octa_large_convert"))
-        .resizable(false)
-        .collapsible(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
+    let dialog_id = egui::Id::new("octa_large_convert_dialog");
+    let size_key = dialog_id.with("octa_dlg_size");
+    let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
+    let minimized = size == DialogSize::Minimized;
+    let mut chrome_close = false;
+
+    let center = center_on_first_show(ctx, egui::vec2(380.0, 180.0));
+    let window = egui::Window::new("octa_large_convert")
+        .id(dialog_id)
+        .title_bar(false)
+        .collapsible(false);
+    let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+        w.resizable(true)
+            .default_width(380.0)
+            .default_height(180.0)
+            .min_width(300.0)
+            .min_height(130.0)
+            .default_pos(center)
+    });
+    let inner = window.show(ctx, |ui| {
+        egui::Panel::top("large_convert_header")
+            .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(t("largefile.title"))
+                            .strong()
+                            .size(16.0),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if draw_window_controls(ui, &mut size) {
+                            chrome_close = true;
+                        }
+                    });
+                });
+            });
+        if minimized {
+            return;
+        }
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.set_min_width(320.0);
             ui.horizontal(|ui| {
                 ui.spinner();
@@ -172,6 +262,23 @@ fn render_convert_progress(app: &mut OctaApp, ctx: &egui::Context) {
                 cancel = true;
             }
         });
+    });
+    if let Some(inner) = inner {
+        remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(
+            size_key,
+            if chrome_close {
+                DialogSize::Normal
+            } else {
+                size
+            },
+        )
+    });
+    if chrome_close {
+        cancel = true;
+    }
 
     if cancel && let Some(job) = app.large_convert_job.as_ref() {
         job.cancel.store(true, Ordering::Relaxed);

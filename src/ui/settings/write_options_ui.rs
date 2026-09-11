@@ -26,7 +26,11 @@ pub fn render_write_options(
 ) {
     use crate::formats::write_options::{PARQUET_CODECS, QuoteStyle};
 
-    egui::CollapsingHeader::new(crate::i18n::t("wo.title"))
+    // The hover lives on the group header, which is the only place the write
+    // options are. A second, control-less "Write options" row used to sit in
+    // the File-Specific section carrying this hint and nothing else, so it
+    // read as a setting that did nothing.
+    let group = egui::CollapsingHeader::new(crate::i18n::t("wo.title"))
         .id_salt("write_options")
         .show(ui, |ui| {
             // One expander per format rather than one flat list of every
@@ -148,6 +152,16 @@ pub fn render_write_options(
                         crate::i18n::t("wo.xlsx_preserve_formulas"),
                     )
                     .on_hover_text(crate::i18n::t("wo.xlsx_preserve_formulas_hint"));
+                    ui.checkbox(
+                        &mut opts.xlsx.document_properties,
+                        crate::i18n::t("wo.xlsx_doc_properties"),
+                    )
+                    .on_hover_text(crate::i18n::t("wo.xlsx_doc_properties_hint"));
+                    ui.checkbox(&mut opts.xlsx.as_table, crate::i18n::t("wo.xlsx_as_table"))
+                        .on_hover_text(crate::i18n::t("wo.xlsx_as_table_hint"));
                 });
         });
+    group
+        .header_response
+        .on_hover_text(crate::i18n::t("settings_hint.write_options"));
 }

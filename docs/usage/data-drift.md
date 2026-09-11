@@ -1,5 +1,7 @@
 # Data Drift
 
+<!-- SCREENSHOT: data-drift-dialog.png: The Data drift dialog. Before / After each with the "Open tab" radio selected and a tab chosen in the dropdown, the Category limit field showing 50, and the Compare button enabled at the bottom. -->
+
 **Analyse -> Data drift...** compares two versions of the same data and
 tells you what moved. Not which rows changed, which is what
 [Compare](view-modes/compare.md) and `--diff` answer, but whether the

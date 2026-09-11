@@ -50,7 +50,6 @@ fn sections(shortcuts: &ui::shortcuts::Shortcuts) -> Vec<(&'static str, String)>
         ("Value Frequency", VALUE_FREQUENCY.to_string()),
         ("Find Duplicates", FIND_DUPLICATES.to_string()),
         ("Find Near-Duplicates", FUZZY_DUPLICATES.to_string()),
-        ("Drop Duplicate Rows", DEDUPE.to_string()),
         ("Fill Missing Values", IMPUTE.to_string()),
         ("Summary", SUMMARY.to_string()),
         ("Data Quality Report", DATA_QUALITY.to_string()),

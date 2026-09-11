@@ -329,10 +329,10 @@ impl OctaApp {
                 }
             }
             K::DuplicateRows => {
-                let cols = self.tabs[self.active_tab].table.col_count();
-                super::dialogs::dedupe::apply_dedupe(
+                super::dialogs::find_duplicates::drop_duplicates(
                     self,
-                    super::state::DedupeState::new_all_cols(cols),
+                    &[],
+                    octa::data::dedupe::KeepWhich::First,
                 );
             }
             // A unit split is a question, not a fix: which columns to add is

@@ -1,39 +1,39 @@
-# ja: written natively, not translated from English.
+# ja: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet、CSV、Excel、SQLite など約30のデータ形式を高速なテーブルで開きます。並べ替え、絞り込み、検索、編集、SQL 実行まで手元のパソコンで。"
+short = "Parquet、CSV、XLSX、SQLite をはじめ約30種類のデータ形式を即座に表として表示。並べ替え、絞り込み、検索、編集、SQL クエリをローカルのパソコン上で実行します。"
 
 long = """
-Octa は Parquet、CSV、Excel、SQLite、DuckDB、JSON のファイルに加えて、約30種類のデータ形式をそのまま開きます。取り込み作業も面倒な初期設定も必要ありません。
+Octa は Parquet、CSV、XLSX、SQLite、DuckDB、JSON の各ファイルと、約30種類のデータ形式をそのまま表として開きます。取り込み、初期設定、プロジェクトファイルは必要ありません。
 
-並べ替え、絞り込み、検索、編集はもちろん、DuckDB の SQL で問い合わせたり、グラフを作ったり、2つのファイルを比べたりできます。組み込みのチャットを使えば、ふだんの言葉でデータについて質問することもできます。
+表は並べ替え、絞り込み、検索が可能で、セル・列・行を編集でき、すべての変更は元に戻せます。開いているファイルは DuckDB の SQL テーブルとして扱え、複数のファイルを 1 つのクエリで結合できます。さらに、グラフ、列ごとの統計、重複行と外れ値の検出、ピボットテーブル、2 つのファイルの比較も備えています。数百万行の Parquet ファイルはバックグラウンドで読み込まれます。
 
-データの処理は手元のパソコンで行われます。外部の API を必要とする機能を使う場合だけが例外です。
+Amazon S3、Azure Blob Storage、Google Cloud Storage 上のデータや、PostgreSQL、MySQL、SQL Server、Snowflake、BigQuery などのデータベースも直接開けます。書き込みは既定で無効です。任意で使える AI アシスタントは、自分の API キーまたは Ollama 経由のローカルモデルで、データに関する質問に自然な言葉で答えます。設定するまでは動作しません。
 
-インターフェースは32言語に対応。Octa は MIT ライセンスのフリーソフトウェアです。
+処理は、使用する機能が外部 API を必要とする場合を除き、ローカルのパソコン上で行われます。インターフェースは 32 言語に対応。Octa は MIT ライセンスの自由ソフトウェアです: https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Parquet、CSV、Excel、SQLite、DuckDB、JSON、Arrow、Avro、ORC、SAS、SPSS、Stata など約30種類の形式に対応",
-  "開いているファイルにそのまま DuckDB の SQL を実行、取り込みは不要",
-  "文字列、ワイルドカード、正規表現で並べ替え、絞り込み、検索",
-  "セル・列・行の編集に対応。取り消しは全操作、データベースには差分だけを書き込み",
-  "グラフは専用タブに表示、PNG・SVG・PDF で書き出し可能",
-  "2つのファイルを行単位またはレコード単位で比較",
-  "列の統計、重複の検出、外れ値の検出、ピボットテーブル",
-  "数百万行の Parquet ファイルもバックグラウンドで読み込み",
-  "Amazon S3、Azure Blob Storage、Google Cloud Storage から直接読み込み",
+  "約30種類の形式: Parquet、CSV、XLSX、SQLite、DuckDB、JSON、Arrow、Avro、ORC、SAS、SPSS、Stata など",
+  "開いているファイルに対して取り込みなしで DuckDB SQL を実行",
+  "プレーンテキスト、ワイルドカード、正規表現による並べ替え、絞り込み、検索",
+  "セル・列・行の編集はすべて元に戻せる。データベースには変更分だけを書き込む",
+  "専用タブのグラフを PNG、SVG、PDF に書き出し",
+  "2 つのファイルを行単位またはレコード単位で比較",
+  "列ごとの統計、重複行と外れ値の検出、ピボットテーブル",
+  "数百万行の Parquet ファイルをバックグラウンドで読み込み",
+  "Amazon S3、Azure Blob Storage、Google Cloud Storage に直接アクセス",
   "PostgreSQL、MySQL、SQL Server、Snowflake、BigQuery などに接続",
-  "AI アシスタントは任意。自分のキーでも、ローカルモデルでも",
-  "コマンドラインツールとしても、Model Context Protocol サーバーとしても動作",
-  "インターフェースは32言語",
-  "MIT ライセンスのオープンソースの自由なソフトウェア",
+  "任意の AI アシスタント。自分の API キーまたはローカルモデルで利用",
+  "コマンドラインツールと Model Context Protocol サーバーも同梱",
+  "32 言語のインターフェース",
+  "MIT ライセンスの自由でオープンソースなソフトウェア",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "csvビューア"
-SearchTerm3 = "データビューア"
-SearchTerm4 = "sqlite閲覧"
+SearchTerm2 = "csv ビューア"
+SearchTerm3 = "データ閲覧"
+SearchTerm4 = "sqlite"
 SearchTerm5 = "duckdb"
-SearchTerm6 = "sqlクエリ"
-SearchTerm7 = "エクセル代替"
+SearchTerm6 = "sql クエリ"
+SearchTerm7 = "xlsx ビューア"

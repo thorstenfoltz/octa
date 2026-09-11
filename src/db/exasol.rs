@@ -77,7 +77,13 @@ impl ExasolConnector {
     fn run_select(&mut self, sql: &str) -> Result<DataTable> {
         let cap = crate::formats::initial_load_rows();
         let inner = sql.trim().trim_end_matches(';');
-        let wrapped = format!("SELECT * FROM ({inner}) AS OCTA_Q LIMIT {cap}");
+        // Unlimited means no wrapper: `usize::MAX` printed as a LIMIT is what
+        // makes an engine refuse the statement (see `db::select_sample_sql`).
+        let wrapped = if cap == usize::MAX {
+            inner.to_string()
+        } else {
+            format!("SELECT * FROM ({inner}) AS OCTA_Q LIMIT {cap}")
+        };
         let rows: Vec<ExaRow> = runtime()
             .block_on(
                 query::<sqlx_exasol::Exasol>(AssertSqlSafe(wrapped)).fetch_all(&mut self.conn),

@@ -123,7 +123,9 @@ pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<()> {
             write_table(&outcome.table, format)?;
         }
         QueryKind::Mutation => {
-            if let Some(n) = outcome.affected {
+            if let Some(name) = outcome.created.as_ref() {
+                eprintln!("created {name}");
+            } else if let Some(n) = outcome.affected {
                 eprintln!("{n} rows affected");
             } else {
                 eprintln!("mutation completed");

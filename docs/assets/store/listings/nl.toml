@@ -1,39 +1,39 @@
-# nl: written natively, not translated from English.
+# nl: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet, CSV, Excel, SQLite en zo'n dertig andere formaten in een snelle tabel. Sorteren, filteren, zoeken, bewerken en SQL uitvoeren op je eigen computer."
+short = "Parquet, CSV, XLSX, SQLite en zo'n dertig andere dataformaten, direct als tabel weergegeven. Sorteren, filteren, zoeken, bewerken en met SQL bevragen, lokaal op de eigen computer."
 
 long = """
-Octa opent Parquet-, CSV-, Excel-, SQLite-, DuckDB- en JSON-bestanden en daarnaast zo'n dertig andere gegevensformaten, zonder importstap en zonder omslachtige installatie.
+Octa opent Parquet-, CSV-, XLSX-, SQLite-, DuckDB- en JSON-bestanden en zo'n dertig andere dataformaten rechtstreeks als tabel. Importeren, instellen of een projectbestand aanmaken is niet nodig.
 
-Je sorteert, filtert, doorzoekt en bewerkt je gegevens, voert SQL-query's uit met DuckDB, maakt grafieken of vergelijkt twee bestanden. Via de ingebouwde chat kun je je gegevens ook in gewone taal bevragen.
+De tabel is te sorteren, te filteren en te doorzoeken; cellen, kolommen en rijen zijn bewerkbaar en elke wijziging kan ongedaan worden gemaakt. Elk geopend bestand staat in DuckDB als SQL-tabel klaar, en meerdere bestanden kunnen in één query worden gecombineerd. Daarnaast zijn er grafieken, kolomstatistieken, detectie van duplicaten en uitschieters, draaitabellen en het vergelijken van twee bestanden. Parquet-bestanden met miljoenen rijen worden op de achtergrond geladen.
 
-De verwerking gebeurt lokaal op je eigen computer, tenzij de functie die je gebruikt een externe API nodig heeft.
+Gegevens in Amazon S3, Azure Blob Storage en Google Cloud Storage, of in PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery en andere databases, zijn rechtstreeks te openen; schrijftoegang staat standaard uit. Een optionele AI-assistent beantwoordt vragen over de gegevens in gewone taal, met een eigen API-sleutel of een lokaal model via Ollama, en blijft inactief zolang hij niet is ingesteld.
 
-De interface is beschikbaar in 32 talen. Octa is vrije software onder de MIT-licentie.
+De verwerking vindt lokaal plaats, op de eigen computer, behalve wanneer de gebruikte functie een externe API nodig heeft. De interface is beschikbaar in 32 talen. Octa is vrije software onder de MIT-licentie: https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Opent zo'n dertig formaten: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata en meer",
-  "DuckDB-SQL op elk geopend bestand, zonder importstap",
-  "Sorteren, filteren en zoeken met tekst, jokertekens of reguliere expressies",
-  "Cellen, kolommen en rijen bewerken, met volledig ongedaan maken en alleen de verschillen naar de database",
-  "Grafieken op een eigen tabblad, te exporteren naar PNG, SVG of PDF",
-  "Vergelijk twee bestanden regel voor regel of record voor record",
-  "Kolomstatistieken, dubbele waarden, uitschieters en draaitabellen",
-  "Laadt Parquet-bestanden van miljoenen rijen op de achtergrond bij",
-  "Leest rechtstreeks uit Amazon S3, Azure Blob Storage en Google Cloud Storage",
-  "Verbindt met PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery en meer",
-  "Optionele AI-assistent, met je eigen sleutel of een lokaal model",
+  "Zo'n dertig formaten: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata en meer",
+  "DuckDB-SQL rechtstreeks op elk geopend bestand, zonder import",
+  "Sorteren, filteren en zoeken met gewone tekst, jokertekens of reguliere expressies",
+  "Cellen, kolommen en rijen bewerken, volledig ongedaan te maken; naar de database gaan alleen de wijzigingen",
+  "Grafieken in een eigen tabblad, te exporteren als PNG, SVG of PDF",
+  "Twee bestanden regel voor regel of record voor record vergelijken",
+  "Kolomstatistieken, detectie van duplicaten en uitschieters, draaitabellen",
+  "Parquet-bestanden met miljoenen rijen worden op de achtergrond geladen",
+  "Rechtstreekse toegang tot Amazon S3, Azure Blob Storage en Google Cloud Storage",
+  "Verbinding met PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery en meer",
+  "Optionele AI-assistent, met eigen API-sleutel of lokaal model",
   "Ook een opdrachtregelprogramma en een Model Context Protocol-server",
   "Interface in 32 talen",
-  "Vrije en opensourcesoftware, MIT-licentie",
+  "Vrije en open source software, MIT-licentie",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
 SearchTerm2 = "csv openen"
-SearchTerm3 = "gegevensviewer"
+SearchTerm3 = "gegevens bekijken"
 SearchTerm4 = "sqlite browser"
 SearchTerm5 = "duckdb"
 SearchTerm6 = "sql query"
-SearchTerm7 = "excel alternatief"
+SearchTerm7 = "xlsx openen"

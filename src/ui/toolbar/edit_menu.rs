@@ -90,6 +90,14 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 ui.close();
             }
             if ui
+                .button(crate::i18n::t("edit_menu.fit_all_rows"))
+                .on_hover_text(crate::i18n::t("edit_menu.fit_all_rows_hint"))
+                .clicked()
+            {
+                action.fit_all_rows = true;
+                ui.close();
+            }
+            if ui
                 .button(crate::i18n::t("edit_menu.copy_markdown"))
                 .on_hover_text(crate::i18n::t("edit_menu.copy_markdown_hint"))
                 .clicked()

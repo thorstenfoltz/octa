@@ -1,7 +1,7 @@
 //! Chat tool-context assembly and the pending-tab-edit drain that applies assistant edits back onto tabs. Split out of chat_panel/mod.rs.
 
 use crate::app::state::OctaApp;
-use crate::mcp::tools::{TableSnapshot, ToolContext};
+use crate::mcp::tools::{SnapshotWindow, TableSnapshot, ToolContext};
 use crate::ui::settings::chat_profiles;
 
 use super::CHAT_CELL_CAP;
@@ -34,11 +34,22 @@ impl OctaApp {
             if is_active {
                 active_index = Some(open_tabs.len());
             }
+            // A large-file tab's table is one page read from disk, not the
+            // file. Say so, or every tool answers from the window.
+            let window = match (&tab.large_page_key, &tab.large) {
+                (Some(key), Some(handle)) => Some(SnapshotWindow {
+                    offset: key.offset,
+                    len: snapshot.row_count(),
+                    total: snapshot.total_rows.unwrap_or_else(|| handle.row_count()),
+                }),
+                _ => None,
+            };
             open_tabs.push(TableSnapshot {
                 handle: format!("#{}", open_tabs.len() + 1),
                 display_name,
                 source_path,
                 table: snapshot,
+                window,
             });
         }
 
@@ -183,6 +194,13 @@ impl OctaApp {
                                 tab.table.delete_column(c);
                             }
                         }
+                    }
+                    crate::mcp::tools::ResolvedOp::SortRows(keys) => {
+                        // The same call the Ask filter's sort makes, so a sort
+                        // asked for in prose and one asked for in chat land in
+                        // the same place. Marks and row tags travel with their
+                        // rows; `edit_open_tab` queues this last.
+                        tab.table.sort_rows_by_columns(keys);
                     }
                 }
             }

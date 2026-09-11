@@ -1,5 +1,7 @@
 # Data Validation
 
+<!-- SCREENSHOT: validation-rules-file.png: The Data validation dialog with three rules listed and the footer row showing "Add rule", "Clear all", "Save rules..." and "Load rules..." beside the live violation count. -->
+
 Data validation flags cells that break a rule you define, painting each
 failing cell **red** so problems stand out at a glance. Open it via
 **Data -> Data validation...**.

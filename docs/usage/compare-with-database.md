@@ -1,5 +1,7 @@
 # Compare with a Database Table or Cloud Object
 
+<!-- SCREENSHOT: db-compare-dialog.png: The Compare with database table dialog: connection combo showing a saved connection, schema `public` and table `orders` filled in, and two key columns ticked in the key-column picker below. -->
+
 **Analyse → Compare with database or cloud...** diffs the table you have
 open against a table on a saved [database
 connection](database-connections.md), or against an object in [cloud

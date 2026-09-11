@@ -30,9 +30,9 @@ use crate::data::DataTable;
 
 pub use engine::{QueryKind, QueryOutcome, is_mutation};
 pub use workspace::{
-    AttachKind, AttachedTable, Attachment, ColumnInspection, RegisteredTable, SqlWorkspace,
-    TableInspection, TableOrigin, WriteMode, WriteReport, WriteTarget, dedupe_sql_name,
-    duckdb_attach_sql, sanitize_sql_name,
+    AttachKind, AttachOutcome, AttachScope, AttachedTable, Attachment, ColumnInspection,
+    RegisteredTable, SqlWorkspace, TableInspection, TableOrigin, WriteMode, WriteReport,
+    WriteTarget, dedupe_sql_name, duckdb_attach_sql, sanitize_sql_name,
 };
 
 /// Execute `query` against `table`, returning a classified outcome.
@@ -48,7 +48,7 @@ pub fn run_query(table: &DataTable, query: &str) -> Result<QueryOutcome> {
     let mut ws = SqlWorkspace::new()?;
     ws.set_active_table(table)?;
     let mut outcome = ws.execute(query)?;
-    if outcome.kind == QueryKind::Mutation {
+    if outcome.kind == QueryKind::Mutation && outcome.created.is_none() {
         if outcome.table.columns.len() == table.columns.len() {
             outcome.table.columns = table.columns.clone();
         }

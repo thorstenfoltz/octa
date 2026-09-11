@@ -7,9 +7,12 @@ Every listing should cover:
 
 1. What it is: a fast native desktop app for viewing, exploring and editing
    tabular data files. No import step, no setup, no project file.
-2. Formats: around thirty. Name Parquet, CSV, Excel, SQLite, DuckDB, JSON;
+2. Formats: around thirty. Name Parquet, CSV, XLSX, SQLite, DuckDB, JSON;
    optionally Arrow, Avro, ORC, and the SAS / SPSS / Stata / R statistics
-   formats. Multi-million-row Parquet streams in the background.
+   formats. Multi-million-row Parquet streams in the background. Call the
+   spreadsheet format XLSX, never Excel: naming another publisher's product
+   gets the submission rejected, and it cost us one review cycle already.
+   This holds for the prose as much as for the keywords.
 3. SQL: every open file is exposed to DuckDB as a table named `data`, so a
    SELECT runs with no import. Several files can be joined in one query and
    results written back out.
@@ -36,8 +39,15 @@ data to whichever model it is configured against, and a cloud or database
 connection talks to that server. The qualified sentence is the honest one and
 the one the Store can hold us to.
 
-Address the reader informally where the language distinguishes (du, tu, ty,
-你), the same as the interface strings in `locales/`.
+Register: neutral and factual, with NO direct address in any language (no
+du / Sie, tu / vous, ty, 你 / 您, and no "your data"). Impersonal or passive
+phrasing instead: "processing takes place locally on the reader's own
+machine". This deliberately differs from `locales/`, which is informal: a
+Store listing is read like a product sheet, not like a dialog box. Serious
+tone: no colloquial openers ("double-click and there is the table"), no
+sentence fragments in the bullets, and names that leave no doubt what they
+mean ("API key", never just "key"). Decided 2026-09-10 after a colloquial
+pass.
 
 Length: `short` under 200 characters (hard limit). `long` is deliberately
 brief, around 500 to 700 characters in a European language, less in Japanese,

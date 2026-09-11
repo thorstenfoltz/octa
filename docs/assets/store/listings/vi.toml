@@ -1,39 +1,39 @@
-# vi: written natively, not translated from English.
+# vi: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet, CSV, Excel, SQLite và khoảng ba mươi định dạng khác trong một bảng nhanh. Sắp xếp, lọc, tìm, sửa và chạy SQL ngay trên máy của bạn."
+short = "Parquet, CSV, XLSX, SQLite và khoảng ba mươi định dạng dữ liệu khác hiển thị ngay dưới dạng bảng. Sắp xếp, lọc, tìm kiếm, chỉnh sửa và truy vấn SQL ngay trên máy tính cục bộ."
 
 long = """
-Octa mở tệp Parquet, CSV, Excel, SQLite, DuckDB và JSON cùng khoảng ba mươi định dạng dữ liệu khác, không cần bước nhập liệu và không phải cài đặt lằng nhằng.
+Octa mở các tệp Parquet, CSV, XLSX, SQLite, DuckDB và JSON cùng khoảng ba mươi định dạng dữ liệu khác trực tiếp dưới dạng bảng. Không cần nhập dữ liệu, thiết lập hay tệp dự án.
 
-Bạn có thể sắp xếp, lọc, tìm kiếm và chỉnh sửa dữ liệu, chạy truy vấn SQL bằng DuckDB, tạo biểu đồ hoặc so sánh hai tệp. Khung trò chuyện tích hợp còn cho phép bạn hỏi về dữ liệu bằng ngôn ngữ thường ngày.
+Bảng có thể được sắp xếp, lọc và tìm kiếm; ô, cột và hàng đều chỉnh sửa được, mọi thay đổi đều có thể hoàn tác. Mỗi tệp đang mở đều sẵn có trong DuckDB dưới dạng bảng SQL, và nhiều tệp có thể được nối trong cùng một truy vấn. Ngoài ra còn có biểu đồ, thống kê theo cột, phát hiện trùng lặp và giá trị ngoại lai, bảng tổng hợp và so sánh hai tệp. Tệp Parquet với hàng triệu dòng được tải ở chế độ nền.
 
-Dữ liệu được xử lý ngay trên máy của bạn, miễn là tính năng bạn dùng không cần đến API bên ngoài.
+Dữ liệu trên Amazon S3, Azure Blob Storage và Google Cloud Storage, hoặc trong PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery và các cơ sở dữ liệu khác, mở được trực tiếp; quyền ghi mặc định bị tắt. Trợ lý AI tùy chọn trả lời các câu hỏi về dữ liệu bằng ngôn ngữ thông thường, với khóa API riêng hoặc mô hình cục bộ qua Ollama, và không hoạt động cho đến khi được cấu hình.
 
-Giao diện có sẵn trong 32 ngôn ngữ. Octa là phần mềm tự do theo giấy phép MIT.
+Việc xử lý diễn ra cục bộ trên máy tính của người dùng, trừ khi tính năng được dùng cần đến API bên ngoài. Giao diện có 32 ngôn ngữ. Octa là phần mềm tự do theo giấy phép MIT: https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Mở khoảng ba mươi định dạng: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata và nhiều nữa",
-  "Chạy truy vấn SQL bằng DuckDB trên mọi tệp đang mở, không cần nhập dữ liệu",
-  "Sắp xếp, lọc và tìm kiếm bằng văn bản, ký tự đại diện hoặc biểu thức chính quy",
-  "Sửa ô, cột và hàng, hoàn tác đầy đủ, và chỉ ghi phần khác biệt xuống cơ sở dữ liệu",
-  "Biểu đồ ở thẻ riêng, xuất ra PNG, SVG hoặc PDF",
+  "Khoảng ba mươi định dạng: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata và hơn nữa",
+  "SQL DuckDB trực tiếp trên bất kỳ tệp nào đang mở, không cần nhập",
+  "Sắp xếp, lọc và tìm kiếm bằng văn bản thường, ký tự đại diện hoặc biểu thức chính quy",
+  "Chỉnh sửa ô, cột và hàng, hoàn tác đầy đủ; chỉ các thay đổi được ghi vào cơ sở dữ liệu",
+  "Biểu đồ trong tab riêng, xuất ra PNG, SVG hoặc PDF",
   "So sánh hai tệp theo từng dòng hoặc từng bản ghi",
-  "Thống kê cột, phát hiện trùng lặp, phát hiện ngoại lai và bảng tổng hợp",
-  "Tệp Parquet hàng triệu dòng được tải trong nền",
-  "Đọc trực tiếp từ Amazon S3, Azure Blob Storage và Google Cloud Storage",
-  "Kết nối tới PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery và nhiều hơn nữa",
-  "Trợ lý AI tuỳ chọn, dùng khoá của bạn hoặc mô hình chạy cục bộ",
-  "Cũng là công cụ dòng lệnh và máy chủ Model Context Protocol",
+  "Thống kê theo cột, phát hiện trùng lặp và giá trị ngoại lai, bảng tổng hợp",
+  "Tệp Parquet với hàng triệu dòng được tải ở chế độ nền",
+  "Truy cập trực tiếp Amazon S3, Azure Blob Storage và Google Cloud Storage",
+  "Kết nối với PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery và các hệ khác",
+  "Trợ lý AI tùy chọn với khóa API riêng hoặc mô hình cục bộ",
+  "Kèm công cụ dòng lệnh và máy chủ Model Context Protocol",
   "Giao diện 32 ngôn ngữ",
   "Phần mềm tự do, mã nguồn mở, giấy phép MIT",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "xem file csv"
+SearchTerm2 = "mở csv"
 SearchTerm3 = "xem dữ liệu"
 SearchTerm4 = "sqlite"
 SearchTerm5 = "duckdb"
 SearchTerm6 = "truy vấn sql"
-SearchTerm7 = "thay thế excel"
+SearchTerm7 = "mở xlsx"

@@ -132,6 +132,36 @@ impl OctaApp {
                 .collect();
         }
 
+        // 4. Duplicate filter: keep only the rows that repeat on the key
+        //    columns, or only those that do not. ANDs with everything above,
+        //    and runs last because it is the only step that has to look at the
+        //    whole table rather than at one row.
+        if let Some(df) = tab.duplicate_filter.clone() {
+            let stamp: super::state::DupStamp = (
+                tab.table.row_count(),
+                tab.table.edits.len(),
+                tab.table.undo_stack.len(),
+            );
+            if tab
+                .duplicate_filter_cache
+                .as_ref()
+                .is_none_or(|(cached, _)| *cached != stamp)
+            {
+                // ponytail: a full key-hash pass over every row whenever the
+                // stamp moves. Incremental maintenance if a very large table
+                // ever makes the pause visible.
+                let set: std::collections::HashSet<usize> =
+                    octa::data::duplicates::find_duplicate_rows(&tab.table, &df.key_cols)
+                        .into_iter()
+                        .collect();
+                tab.duplicate_filter_cache = Some((stamp, set));
+            }
+            if let Some((_, set)) = tab.duplicate_filter_cache.as_ref() {
+                tab.filtered_rows
+                    .retain(|row_idx| set.contains(row_idx) == df.keep_duplicates);
+            }
+        }
+
         // Highlight matches are a table-view concern; text/tree views compute
         // their own match count each frame, so only touch the nav bookkeeping
         // when the table is the active view.

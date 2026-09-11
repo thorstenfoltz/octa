@@ -80,7 +80,10 @@ csv = "1"
 encoding_rs = "0.8"
 chardetng = "1"
 calamine = "0.36"
-rust_xlsxwriter = "0.99"
+# `constant_memory` streams a very large sheet to a temp file instead of
+# holding it in RAM; `write_workbook_with` switches to it past
+# `CONSTANT_MEMORY_ROWS`. tempfile is already in the tree, so this adds no crate.
+rust_xlsxwriter = { version = "0.99", features = ["constant_memory"] }
 apache-avro = "0.21"
 quick-xml = "0.41"
 # HTML table reader (`src/formats/html_reader.rs`). Both are already in the

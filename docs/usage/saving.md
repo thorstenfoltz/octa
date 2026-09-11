@@ -59,6 +59,36 @@ Either way the in-memory table stays at full precision, so the choice
 only affects the bytes on disk. Tabs without a rounding format save
 directly with no prompt.
 
+## What every Excel save carries
+
+Four things go into every `.xlsx` Octa writes, whatever the formatting
+switch below says, because they are what makes a workbook usable rather
+than what makes it pretty:
+
+- **Real dates.** A date or timestamp column is written as an Excel date,
+  not as text, so it sorts, filters and formats as a date in the
+  spreadsheet. A value that cannot be parsed falls back to text rather
+  than failing the save, so one piece of junk in a date column does not
+  cost you the file.
+- **Column widths.** The widths you set on screen come across as they
+  are. A save with no view behind it (the command line, the assistant,
+  batch convert) uses Excel's autofit instead. A sheet over 500,000 rows
+  is streamed to keep memory flat and keeps Excel's default widths.
+- **A bold header row and a filter row.** The header is bold and the
+  data range gets an autofilter, so the drop-down arrows are there when
+  the file opens.
+- **Clickable links.** A cell holding a bare `http://` or `https://`
+  address is written as a hyperlink. Excel allows 65,530 links per sheet;
+  past that the rest stay plain text, because a file over the limit will
+  not open at all.
+
+[Data-validation rules](data-validation.md) come across too, as real
+Excel validation, so the workbook rejects bad input instead of only
+colouring it red in Octa. **In range**, **Not empty** and **Max length**
+have Excel equivalents; **Matches pattern** and **Unique** do not, and
+are skipped rather than approximated by something that would check
+a different thing.
+
 ## Formatting in Excel files
 
 Colour marks, [conditional formatting](conditional-formatting.md) colours,
@@ -149,7 +179,7 @@ reports the codec of any file you open, so you can check what you got.
 
 ### Excel write options
 
-Two switches, both off by default.
+Four switches, all off by default.
 
 **Include formatting in Excel files** is covered in full under
 [Formatting in Excel files](#formatting-in-excel-files) above.
@@ -175,6 +205,17 @@ would put a wrong answer in the file:
 Reading a formula needs no setting at all: hover a computed cell to see it, or
 open the [Record view](view-modes/record.md), which lists it beside the
 field.
+
+**Document properties** stamps the workbook with a title (the file name) and
+Octa as the author. Off by default because it writes the file name into the
+file's own metadata, where it travels with the file to whoever you send it to.
+
+**Write as an Excel table** writes the data as a real Excel table object
+instead of a plain range with a filter row, so the sheet gets a name, a
+structured reference and a table style. Off by default because a table style
+paints its own row banding, and that fights a conditional-format colour
+carried over from Octa; with the switch off the two never collide. The table
+replaces the autofilter rather than sitting on top of it.
 
 Apart from the Parquet codec, which is `zstd`, the defaults reproduce
 exactly what Octa wrote before these options existed. Formats other than

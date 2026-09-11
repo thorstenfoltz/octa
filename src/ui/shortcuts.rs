@@ -227,6 +227,9 @@ fn letter_or_other(k: egui::Key) -> &'static str {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, strum::EnumIter)]
 pub enum ShortcutAction {
     NewFile,
+    /// Open the New-table dialog (blank editable grid in a new tab). Also
+    /// **File -> New Table...**. Ships unbound: no free Ctrl+Shift letter.
+    NewTable,
     OpenFile,
     SaveFile,
     SaveFileAs,
@@ -315,6 +318,9 @@ pub enum ShortcutAction {
     /// by double-clicking the header seam between two columns, applied
     /// across the whole table.
     FitAllColumns,
+    /// Give every row the height its content needs (turns cell line breaks
+    /// on). Also **Edit -> Auto-fit All Rows**. Ships unbound.
+    FitAllRows,
     /// Reopen the most-recently-closed tab. Stack-based - repeated
     /// triggers walk back through close history (capacity 10). No-op
     /// when the close stack is empty.
@@ -331,10 +337,11 @@ pub enum ShortcutAction {
     ColumnValueFrequency,
     /// Open the Find Duplicates dialog for the active tab. The dialog
     /// seeds its key from the currently selected column or cell. Also
-    /// reachable via **Search -> Find duplicates...**.
+    /// reachable via **Data -> Find duplicates...**. Highlight, new tab,
+    /// filter and drop modes all live in that one dialog.
     FindDuplicates,
     /// Open the Find-near-duplicates (fuzzy) dialog. Also
-    /// **Search -> Find near-duplicates...**.
+    /// **Data -> Find near-duplicates...**.
     OpenFuzzyDuplicates,
     /// Open the Schema Export dialog. The dialog itself lets the user
     /// pick which of the seven targets (Postgres / MySQL / SQLite /
@@ -391,8 +398,9 @@ pub enum ShortcutAction {
     /// Copy the current selection as a GitHub Markdown table. Also
     /// **Edit -> Copy as Markdown table**.
     CopyAsMarkdown,
-    /// Open the Drop-duplicate-rows dialog. Also
-    /// **Edit -> Drop duplicate rows...**.
+    /// Open the Find Duplicates dialog preset to drop the repeats: whole-row
+    /// key, keep first. The former Drop-duplicate-rows dialog, kept as a
+    /// shortcut so remapped bindings survive the merge.
     OpenDedupe,
     /// Open the Fill-missing-values (impute) dialog. Also
     /// **Edit -> Fill missing values...**.
@@ -511,6 +519,7 @@ impl ShortcutAction {
     pub fn label(self) -> &'static str {
         match self {
             Self::NewFile => "New file",
+            Self::NewTable => "New table...",
             Self::OpenFile => "Open file",
             Self::SaveFile => "Save file",
             Self::SaveDbSql => "Save database changes as SQL...",
@@ -557,6 +566,7 @@ impl ShortcutAction {
             Self::CycleViewMode => "Cycle view mode",
             Self::ToggleReadOnly => "Toggle read-only mode",
             Self::FitAllColumns => "Auto-fit all columns",
+            Self::FitAllRows => "Auto-fit all rows",
             Self::ReopenLastClosedTab => "Reopen last closed tab",
             Self::CompareSelectedTabs => "Compare selected tabs",
             Self::ColumnValueFrequency => "Show column value frequency",
@@ -637,6 +647,7 @@ impl ShortcutAction {
         use egui::Key;
         match self {
             Self::NewFile => KeyCombo::ctrl(Key::N),
+            Self::NewTable => KeyCombo::UNBOUND,
             Self::OpenFile => KeyCombo::ctrl(Key::O),
             Self::SaveFile => KeyCombo::ctrl(Key::S),
             Self::SaveDbSql => KeyCombo::UNBOUND,
@@ -683,6 +694,7 @@ impl ShortcutAction {
             Self::CycleViewMode => KeyCombo::plain(Key::F4),
             Self::ToggleReadOnly => KeyCombo::plain(Key::F8),
             Self::FitAllColumns => KeyCombo::ctrl_shift(Key::W),
+            Self::FitAllRows => KeyCombo::UNBOUND,
             Self::ReopenLastClosedTab => KeyCombo::ctrl_shift(Key::T),
             Self::CompareSelectedTabs => KeyCombo::plain(Key::F9),
             Self::ColumnValueFrequency => KeyCombo::ctrl_shift(Key::I),
@@ -862,6 +874,7 @@ impl ShortcutAction {
         use ShortcutGroup as G;
         match self {
             Self::NewFile
+            | Self::NewTable
             | Self::OpenFile
             | Self::SaveFile
             | Self::SaveFileAs
@@ -882,8 +895,6 @@ impl ShortcutAction {
             | Self::ToggleAskFilter
             | Self::ToggleFindReplace
             | Self::OpenColumnFilter
-            | Self::FindDuplicates
-            | Self::OpenFuzzyDuplicates
             | Self::MultiSearch
             | Self::OpenChart => G::Search,
             Self::GoToCell
@@ -916,6 +927,7 @@ impl ShortcutAction {
             | Self::ToggleSqlPanel
             | Self::ToggleChatPanel
             | Self::FitAllColumns
+            | Self::FitAllRows
             | Self::CompareSelectedTabs
             | Self::ToggleCloudBrowser
             | Self::ToggleDbBrowser
@@ -937,6 +949,8 @@ impl ShortcutAction {
             | Self::OpenValidation
             | Self::OpenMultiSort
             | Self::OpenSummary
+            | Self::FindDuplicates
+            | Self::OpenFuzzyDuplicates
             | Self::OpenDedupe
             | Self::OpenImpute
             | Self::OpenCleanupPanel

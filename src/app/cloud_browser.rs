@@ -82,7 +82,7 @@ pub(crate) fn root_prefix(conn: &octa::cloud::CloudConnection) -> String {
 /// to the right reader, and the handle is leaked (`tmp.keep()`) so streaming
 /// readers can keep reading from disk after this returns. The OS clears /tmp on
 /// reboot, the same trick the archive viewer uses.
-fn fetch_object_to_temp(
+pub(crate) fn fetch_object_to_temp(
     conn: &octa::cloud::CloudConnection,
     key: &str,
     name: &str,
@@ -172,6 +172,17 @@ pub(crate) enum CloudOpenResult {
     /// selected files..."). `skipped` counts the ones that could not be read.
     UnionReady {
         paths: Vec<PathBuf>,
+        skipped: usize,
+    },
+    /// Objects picked in the SQL workspace's cloud picker, downloaded and
+    /// waiting to be registered as workspace tables. `skipped` counts the ones
+    /// that could not be read.
+    WorkspaceReady {
+        /// `(temp file, workspace table name)` in pick order.
+        files: Vec<(PathBuf, String)>,
+        /// Register the lot as ONE table instead of one table each. The picker
+        /// leaves this off: combining is the user's call, not a default.
+        combine: bool,
         skipped: usize,
     },
     /// A finished recursive inventory listing ("List contents as table...").
@@ -294,6 +305,27 @@ impl OctaApp {
             .iter()
             .find(|c| c.id == conn_id)
             .cloned()
+    }
+
+    /// Populate a cloud node's listing if nobody has yet, leaving the sidebar's
+    /// expansion state alone. The SQL workspace's object picker browses through
+    /// this so it shares the sidebar's cache and its worker.
+    pub(crate) fn ensure_cloud_listing(
+        &mut self,
+        ctx: &egui::Context,
+        conn_id: String,
+        prefix: String,
+    ) {
+        let key = (conn_id.clone(), prefix.clone());
+        let cached = self
+            .cloud_browser
+            .listings
+            .lock()
+            .map(|m| m.contains_key(&key))
+            .unwrap_or(false);
+        if !cached {
+            self.start_cloud_list(ctx, conn_id, prefix);
+        }
     }
 
     /// Expand (and lazily list) or collapse a cloud node.
@@ -880,6 +912,14 @@ impl OctaApp {
                     // Same dialog, same reconciliation plan as the local
                     // directory tree: the files just came from a bucket.
                     self.open_union_for_files(paths);
+                }
+                CloudOpenResult::WorkspaceReady {
+                    files,
+                    combine,
+                    skipped,
+                } => {
+                    self.union_progress = None;
+                    self.workspace_add_cloud_files(files, combine, skipped);
                 }
                 CloudOpenResult::InventoryReady {
                     table,

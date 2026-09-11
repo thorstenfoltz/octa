@@ -1,13 +1,16 @@
 use crate::data::conditional_format::match_color;
 use crate::data::{CellValue, ColumnInfo, DataTable, MarkColor, MarkKey};
-use crate::formats::write_options::{TableStyle, WriteOptions};
-use crate::formats::xlsx_style::{XlsxRule, map_rule, mark_rgb, num_format_code};
+use crate::formats::write_options::{TableStyle, WriteOptions, XlsxOptions};
+use crate::formats::xlsx_style::{
+    XlsxRule, XlsxValidation, map_rule, map_validation, mark_rgb, num_format_code,
+};
 use crate::formats::{FormatReader, TableInfo};
 use anyhow::Result;
 use calamine::{Data, Reader, Sheets, open_workbook_auto};
 use rust_xlsxwriter::{
     Color, ConditionalFormatBlank, ConditionalFormatCell, ConditionalFormatCellRule,
-    ConditionalFormatText, ConditionalFormatTextRule, Format, Workbook, Worksheet,
+    ConditionalFormatText, ConditionalFormatTextRule, DataValidation, DataValidationRule,
+    ExcelDateTime, Format, Workbook, Worksheet,
 };
 use std::path::Path;
 
@@ -97,16 +100,17 @@ impl FormatReader for ExcelReader {
         table: &DataTable,
         opts: &WriteOptions,
     ) -> Result<()> {
-        let style = if opts.xlsx.include_formatting {
-            opts.style.as_ref()
-        } else {
-            None
-        };
-        write_workbook_with(
-            path,
-            &[("Sheet1".to_string(), table, style)],
-            opts.xlsx.preserve_formulas,
-        )
+        // Always hand the writer the view: `TableStyle::formatting` decides
+        // whether the decoration comes with it, while column widths and
+        // validation travel on every save. A caller that set the option but
+        // built the style without the flag (the CLI, an older call site) still
+        // gets what it asked for.
+        let adjusted = opts.style.as_ref().map(|s| TableStyle {
+            formatting: s.formatting || opts.xlsx.include_formatting,
+            ..s.clone()
+        });
+        let style = adjusted.as_ref();
+        write_workbook_with(path, &[("Sheet1".to_string(), table, style)], &opts.xlsx)
     }
 }
 
@@ -283,12 +287,12 @@ fn cell_fill(
     row: usize,
     col: usize,
 ) -> Option<MarkColor> {
-    // `style: None` means the feature is off (or nothing to attach): nothing
-    // from the presentation layer travels, including manual marks. Checking
-    // marks unconditionally here would let them leak into a plain save, which
-    // is exactly the byte-for-byte-unchanged guarantee `write_excel_styled`
+    // No style, or a style whose decoration is switched off: nothing from the
+    // presentation layer travels, including manual marks. Checking marks
+    // unconditionally here would let them leak into a plain save, which is
+    // exactly the byte-for-byte-unchanged guarantee `write_excel_styled`
     // documents.
-    let style = style?;
+    let style = style.filter(|s| s.formatting)?;
     table
         .marks
         .get(&MarkKey::Cell(row, col))
@@ -325,31 +329,50 @@ pub fn write_workbook(
     path: &Path,
     sheets: &[(String, &DataTable, Option<&TableStyle>)],
 ) -> Result<()> {
-    write_workbook_with(path, sheets, false)
+    write_workbook_with(path, sheets, &XlsxOptions::default())
 }
 
-/// As [`write_workbook`], with the choice of writing formulas instead of the
-/// values they produced.
+/// As [`write_workbook`], with the writer knobs the save path has in its hand:
+/// formulas instead of values, document properties, and the Excel table object.
 ///
 /// A separate entry rather than a parameter on the one above: only the save
-/// path that has `WriteOptions` in its hand can answer the question, and every
-/// other caller (the CLI's workbook action, the MCP tool, the Workbook dialog)
-/// wants today's behaviour, which is values.
+/// path that has `WriteOptions` can answer those questions, and every other
+/// caller (the CLI's workbook action, the MCP tool, the Workbook dialog) wants
+/// today's behaviour, which is the defaults.
 pub fn write_workbook_with(
     path: &Path,
     sheets: &[(String, &DataTable, Option<&TableStyle>)],
-    preserve_formulas: bool,
+    opts: &XlsxOptions,
 ) -> Result<()> {
     if sheets.is_empty() {
         anyhow::bail!("a workbook needs at least one sheet");
     }
     let mut workbook = Workbook::new();
+    if opts.document_properties {
+        let title = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Octa export");
+        workbook.set_properties(
+            &rust_xlsxwriter::DocProperties::new()
+                .set_title(title)
+                .set_author("Octa"),
+        );
+    }
     let mut taken: Vec<String> = Vec::new();
     for (name, table, style) in sheets {
         let sheet_name = crate::formats::xlsx_style::sanitize_sheet_name(name, &mut taken);
-        let worksheet = workbook.add_worksheet();
+        // A very large sheet is streamed to a temp file rather than held in
+        // memory. Nothing the user can see changes; the writer already emits
+        // rows in order and never revisits one, which is all the mode asks.
+        let streamed = table.row_count() >= CONSTANT_MEMORY_ROWS;
+        let worksheet = if streamed {
+            workbook.add_worksheet_with_constant_memory()
+        } else {
+            workbook.add_worksheet()
+        };
         worksheet.set_name(&sheet_name)?;
-        write_sheet(worksheet, table, *style, preserve_formulas)?;
+        write_sheet(worksheet, table, *style, opts, streamed)?;
     }
     workbook.save(path)?;
     Ok(())
@@ -360,12 +383,19 @@ fn write_excel_styled(path: &Path, table: &DataTable, style: Option<&TableStyle>
 }
 
 /// Write one table into an already-created worksheet.
+/// Row count past which a sheet is written in `rust_xlsxwriter`'s constant
+/// memory mode. Excel's own ceiling is 1,048,576 rows, so this covers the top
+/// half of what a workbook can hold at all.
+const CONSTANT_MEMORY_ROWS: usize = 500_000;
+
 fn write_sheet(
     worksheet: &mut Worksheet,
     table: &DataTable,
     style: Option<&TableStyle>,
-    preserve_formulas: bool,
+    opts: &XlsxOptions,
+    streamed: bool,
 ) -> Result<()> {
+    let preserve_formulas = opts.preserve_formulas;
     // The first rule that cannot live natively in Excel decides a partition,
     // not just its own fate. In Excel a live conditional-format rule always
     // overrides a cell's direct fill, with no notion of Octa's list ordering
@@ -381,12 +411,12 @@ fn write_sheet(
     //   let it override an earlier baked rule that should have won.
     // The common case, no rule needs baking at all, leaves `bake_from` `None`
     // and every rule below exports as a live Excel rule.
-    let bake_from: Option<usize> = style.and_then(|s| {
+    let bake_from: Option<usize> = style.filter(|s| s.formatting).and_then(|s| {
         s.conditional
             .iter()
             .position(|r| map_rule(r) == XlsxRule::Bake)
     });
-    let baked: Vec<usize> = match (style, bake_from) {
+    let baked: Vec<usize> = match (style.filter(|s| s.formatting), bake_from) {
         (Some(s), Some(from)) => (from..s.conditional.len()).collect(),
         _ => Vec::new(),
     };
@@ -396,9 +426,16 @@ fn write_sheet(
     let mut cache: std::collections::HashMap<(Option<MarkColor>, String), Format> =
         std::collections::HashMap::new();
 
+    // A bold header, column widths and an autofilter are what anyone opening
+    // the file expects of a table, so they are written for every save rather
+    // than hidden behind the formatting switch.
+    let header_format = Format::new().set_bold();
     for (col_idx, col) in table.columns.iter().enumerate() {
-        worksheet.write_string(0, col_idx as u16, &col.name)?;
+        worksheet.write_string_with_format(0, col_idx as u16, &col.name, &header_format)?;
     }
+
+    // How many hyperlinks this sheet has spent, against Excel's own ceiling.
+    let mut links = 0usize;
 
     for row_idx in 0..table.row_count() {
         let xlsx_row = (row_idx + 1) as u32;
@@ -407,10 +444,16 @@ fn write_sheet(
                 continue;
             };
             let fill = cell_fill(table, style, &baked, row_idx, col_idx);
-            let code = style
+            let mut code = style
+                .filter(|s| s.formatting)
                 .and_then(|s| s.number_formats.get(&col_idx))
                 .map(|f| num_format_code(f, true))
                 .unwrap_or_default();
+            if code.is_empty() {
+                // A date with no column format of its own still needs one, or
+                // the cell shows the serial number behind the date.
+                code = implicit_date_format(cell).to_string();
+            }
 
             let format = if fill.is_none() && code.is_empty() {
                 None
@@ -460,17 +503,97 @@ fn write_sheet(
                         }
                     }
                 }
+                // A cell holding a bare web address is written as a link, so
+                // it is clickable in Excel as it is in Octa. Past Excel's own
+                // per-sheet ceiling the rest stay plain strings: over it Excel
+                // refuses to open the file.
+                None if is_web_url(cell) && links < MAX_HYPERLINKS => {
+                    links += 1;
+                    match format.as_ref() {
+                        Some(fmt) => {
+                            worksheet.write_url_with_format(
+                                xlsx_row,
+                                col_idx as u16,
+                                cell.to_string().trim(),
+                                fmt,
+                            )?;
+                        }
+                        None => {
+                            worksheet.write_url(
+                                xlsx_row,
+                                col_idx as u16,
+                                cell.to_string().trim(),
+                            )?;
+                        }
+                    }
+                }
                 None => write_cell(worksheet, xlsx_row, col_idx as u16, cell, format.as_ref())?,
             }
         }
     }
 
+    apply_widths(worksheet, table, style, !streamed)?;
+    if table.col_count() > 0 {
+        let last_row = table.row_count() as u32;
+        let last_col = (table.col_count() - 1) as u16;
+        if opts.as_table {
+            // An Excel table object brings its own filter row, so it replaces
+            // the autofilter rather than sitting on top of it. Its header cells
+            // come from the table's own column names.
+            let columns: Vec<rust_xlsxwriter::TableColumn> = table
+                .columns
+                .iter()
+                .map(|c| rust_xlsxwriter::TableColumn::new().set_header(&c.name))
+                .collect();
+            let excel_table = rust_xlsxwriter::Table::new().set_columns(&columns);
+            worksheet.add_table(0, 0, last_row, last_col, &excel_table)?;
+        } else {
+            worksheet.autofilter(0, 0, last_row, last_col)?;
+        }
+    }
+
     if let Some(style) = style {
-        apply_freeze(worksheet, style)?;
-        apply_conditional(worksheet, table, style, bake_from)?;
+        if style.formatting {
+            apply_freeze(worksheet, style)?;
+            apply_conditional(worksheet, table, style, bake_from)?;
+        }
+        apply_validation(worksheet, table, style)?;
     }
 
     Ok(())
+}
+
+/// Excel number formats for a date column that carries no format of its own.
+/// Without one the cell holds a serial number and Excel shows `45678`.
+const DATE_FORMAT: &str = "yyyy-mm-dd";
+const DATETIME_FORMAT: &str = "yyyy-mm-dd hh:mm:ss";
+
+/// Excel's hard limit on hyperlinks in one worksheet. Past it Excel refuses to
+/// open the file at all, so the writer falls back to plain strings.
+// ponytail: a flat cap with a plain-text fallback. Splitting the overflow
+// across sheets would be the upgrade, and nobody has asked for it.
+const MAX_HYPERLINKS: usize = 65_530;
+
+/// The number format a date cell needs when its column has none. Empty for
+/// every other value, which leaves the existing format decision untouched.
+fn implicit_date_format(cell: &CellValue) -> &'static str {
+    match cell {
+        CellValue::Date(_) => DATE_FORMAT,
+        CellValue::DateTime(_) => DATETIME_FORMAT,
+        _ => "",
+    }
+}
+
+/// Whether a string cell should be written as a clickable link.
+fn is_web_url(cell: &CellValue) -> bool {
+    match cell {
+        CellValue::String(s) => {
+            let s = s.trim();
+            (s.starts_with("http://") || s.starts_with("https://"))
+                && !s.contains(char::is_whitespace)
+        }
+        _ => false,
+    }
 }
 
 fn write_cell(
@@ -482,6 +605,26 @@ fn write_cell(
 ) -> Result<()> {
     match (cell, format) {
         (CellValue::Null, _) => {}
+        // A date must reach Excel as a date, or it sorts and filters as text.
+        // A value that does not parse falls back to a string rather than
+        // failing the save: one junk value in a date column must not cost the
+        // user the whole file.
+        (CellValue::Date(s) | CellValue::DateTime(s), _) => {
+            match (ExcelDateTime::parse_from_str(s), format) {
+                (Ok(dt), Some(f)) => {
+                    worksheet.write_datetime_with_format(row, col, &dt, f)?;
+                }
+                (Ok(dt), None) => {
+                    worksheet.write_datetime(row, col, &dt)?;
+                }
+                (Err(_), Some(f)) => {
+                    worksheet.write_string_with_format(row, col, s, f)?;
+                }
+                (Err(_), None) => {
+                    worksheet.write_string(row, col, s)?;
+                }
+            }
+        }
         (CellValue::Int(i), Some(f)) => {
             worksheet.write_number_with_format(row, col, *i as f64, f)?;
         }
@@ -505,6 +648,94 @@ fn write_cell(
         }
         (other, None) => {
             worksheet.write_string(row, col, other.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+/// Export the tab's validation rules as real Excel data validation, so the
+/// workbook rejects bad input instead of only colouring it red in Octa.
+///
+/// The mapping decisions live in `xlsx_style::map_validation`; a rule it
+/// cannot express returns `None` and is skipped here.
+fn apply_validation(
+    worksheet: &mut Worksheet,
+    table: &DataTable,
+    style: &TableStyle,
+) -> Result<()> {
+    if table.row_count() == 0 || table.col_count() == 0 {
+        return Ok(());
+    }
+    let last_row = table.row_count() as u32;
+    for rule in &style.validation {
+        let Some(mapped) = map_validation(rule) else {
+            continue;
+        };
+        // A rule with no column named applies to all of them.
+        let (first_col, last_col) = match rule.column {
+            Some(c) if c < table.col_count() => (c as u16, c as u16),
+            Some(_) => continue,
+            None => (0, (table.col_count() - 1) as u16),
+        };
+        let validation = match mapped {
+            XlsxValidation::Decimal { min, max } => {
+                let dv = DataValidation::new();
+                match (min, max) {
+                    (Some(lo), Some(hi)) => {
+                        dv.allow_decimal_number(DataValidationRule::Between(lo, hi))
+                    }
+                    (Some(lo), None) => {
+                        dv.allow_decimal_number(DataValidationRule::GreaterThanOrEqualTo(lo))
+                    }
+                    (None, Some(hi)) => {
+                        dv.allow_decimal_number(DataValidationRule::LessThanOrEqualTo(hi))
+                    }
+                    // `map_validation` never returns this shape.
+                    (None, None) => continue,
+                }
+            }
+            XlsxValidation::MaxLength(n) => {
+                DataValidation::new().allow_text_length(DataValidationRule::LessThanOrEqualTo(n))
+            }
+            // Length above zero with blanks no longer ignored is exactly
+            // "must not be empty", and Excel checks LEN() on numbers too.
+            XlsxValidation::NotBlank => DataValidation::new()
+                .allow_text_length(DataValidationRule::GreaterThan(0))
+                .ignore_blank(false),
+        };
+        // Row 0 is the header, so validation starts at the first data row.
+        worksheet.add_data_validation(1, first_col, last_row, last_col, &validation)?;
+    }
+    Ok(())
+}
+
+/// Column widths: the ones the user set on screen when the save carries a
+/// style, otherwise Excel's own autofit. Either way the columns are readable
+/// on opening, which a default-width sheet of long strings is not.
+fn apply_widths(
+    worksheet: &mut Worksheet,
+    table: &DataTable,
+    style: Option<&TableStyle>,
+    allow_autofit: bool,
+) -> Result<()> {
+    let widths = style.map(|s| s.col_widths.as_slice()).unwrap_or(&[]);
+    if widths.is_empty() {
+        // A streamed sheet no longer holds the cells autofit would measure -
+        // it would size every column from the last row alone. Excel's default
+        // width is the honest answer there, and it is what Octa wrote before
+        // widths existed at all.
+        if allow_autofit {
+            worksheet.autofit();
+        }
+        return Ok(());
+    }
+    for col_idx in 0..table.col_count() {
+        // A column the view never sized keeps Excel's default rather than
+        // being squeezed to zero.
+        if let Some(&w) = widths.get(col_idx)
+            && w > 0.0
+        {
+            worksheet.set_column_width_pixels(col_idx as u16, w as u32)?;
         }
     }
     Ok(())

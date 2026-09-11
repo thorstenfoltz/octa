@@ -1,39 +1,39 @@
-# hr: written natively, not translated from English.
+# hr: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet, CSV, Excel, SQLite i još tridesetak formata u brzoj tablici. Sortiraj, filtriraj, pretražuj, uređuj i pokreći SQL na svom računalu."
+short = "Parquet, CSV, XLSX, SQLite i tridesetak drugih formata podataka odmah kao tablica. Sortiranje, filtriranje, pretraga, uređivanje i SQL upiti, lokalno na vlastitom računalu."
 
 long = """
-Octa otvara Parquet, CSV, Excel, SQLite, DuckDB i JSON datoteke te još tridesetak formata podataka, bez uvoza i bez mučnog postavljanja.
+Octa otvara datoteke Parquet, CSV, XLSX, SQLite, DuckDB i JSON te tridesetak drugih formata podataka izravno kao tablicu. Uvoz, postavljanje ili projektna datoteka nisu potrebni.
 
-Podatke možeš sortirati, filtrirati, pretraživati i uređivati, nad njima pokretati SQL upite u DuckDB-u, raditi grafikone ili usporediti dvije datoteke. Ugrađeni razgovor omogućuje ti i da o podacima pitaš običnim riječima.
+Tablica se može sortirati, filtrirati i pretraživati; ćelije, stupci i redci mogu se uređivati, a svaka se promjena može poništiti. Svaka otvorena datoteka dostupna je u DuckDB-u kao SQL tablica, a više datoteka može se spojiti u jednom upitu. Uz to dolaze grafikoni, statistika po stupcima, otkrivanje duplikata i odstupajućih vrijednosti, pivot-tablice i usporedba dviju datoteka. Parquet datoteke s milijunima redaka učitavaju se u pozadini.
 
-Obrada se odvija lokalno, na tvom računalu, sve dok funkciji koju koristiš ne treba vanjski API.
+Podaci u Amazon S3, Azure Blob Storage i Google Cloud Storage ili u bazama PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery i drugima otvaraju se izravno; pristup za pisanje zadano je isključen. Neobvezni AI asistent odgovara na pitanja o podacima običnim jezikom, s vlastitim API ključem ili lokalnim modelom putem Ollame, i ostaje neaktivan dok se ne konfigurira.
 
-Sučelje je dostupno na 32 jezika. Octa je slobodan softver pod MIT licencom.
+Obrada se odvija lokalno, na vlastitom računalu, osim kada korištena funkcija zahtijeva vanjski API. Sučelje je dostupno na 32 jezika. Octa je slobodan softver pod licencom MIT: https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Otvara tridesetak formata: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata i druge",
-  "SQL upiti u DuckDB-u nad bilo kojom otvorenom datotekom, bez uvoza",
-  "Sortiraj, filtriraj i pretražuj tekstom, zamjenskim znakovima ili regularnim izrazima",
-  "Uređuj ćelije, stupce i retke, uz potpuni poništak, a u bazu se upisuju samo razlike",
-  "Grafikoni u vlastitoj kartici, izvoz u PNG, SVG ili PDF",
-  "Usporedi dvije datoteke redak po redak ili zapis po zapis",
-  "Statistika stupaca, duplikati, netipične vrijednosti i zaokretne tablice",
-  "Parquet datoteke s milijunima redaka učitava u pozadini",
-  "Čita izravno s Amazon S3, Azure Blob Storagea i Google Cloud Storagea",
-  "Povezuje se s PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery i drugima",
-  "Neobavezni AI asistent, s vlastitim ključem ili lokalnim modelom",
-  "Radi i kao alat naredbenog retka i kao Model Context Protocol poslužitelj",
+  "Tridesetak formata: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata i drugi",
+  "DuckDB SQL izravno nad svakom otvorenom datotekom, bez uvoza",
+  "Sortiranje, filtriranje i pretraga običnim tekstom, zamjenskim znakovima ili regularnim izrazima",
+  "Uređivanje ćelija, stupaca i redaka s potpunim poništavanjem; u bazu odlaze samo promjene",
+  "Grafikoni u zasebnoj kartici, izvoz u PNG, SVG ili PDF",
+  "Usporedba dviju datoteka redak po redak ili zapis po zapis",
+  "Statistika po stupcima, otkrivanje duplikata i odstupajućih vrijednosti, pivot-tablice",
+  "Parquet datoteke s milijunima redaka učitavaju se u pozadini",
+  "Izravan pristup Amazon S3, Azure Blob Storage i Google Cloud Storage",
+  "Povezivanje s PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery i drugima",
+  "Neobvezni AI asistent s vlastitim API ključem ili lokalnim modelom",
+  "Također alat naredbenog retka i poslužitelj Model Context Protocol",
   "Sučelje na 32 jezika",
-  "Slobodan softver otvorenog koda, MIT licencija",
+  "Slobodan softver otvorenog koda, licenca MIT",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "csv preglednik"
+SearchTerm2 = "otvori csv"
 SearchTerm3 = "preglednik podataka"
-SearchTerm4 = "sqlite preglednik"
+SearchTerm4 = "sqlite"
 SearchTerm5 = "duckdb"
 SearchTerm6 = "sql upiti"
-SearchTerm7 = "zamjena za excel"
+SearchTerm7 = "otvori xlsx"

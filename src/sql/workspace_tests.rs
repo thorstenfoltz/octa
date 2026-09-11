@@ -227,3 +227,91 @@ fn attach_kind_native_vs_import() {
         );
     }
 }
+
+#[test]
+fn create_table_hands_over_the_new_table_and_drops_it() {
+    let mut ws = SqlWorkspace::new().unwrap();
+    ws.set_active_table(&simple_table("name", "a", 1.0))
+        .unwrap();
+    let qo = ws
+        .execute("CREATE TABLE people (id INTEGER, name VARCHAR, born DATE)")
+        .unwrap();
+    assert_eq!(qo.kind, QueryKind::Mutation);
+    assert_eq!(qo.created.as_deref(), Some("people"));
+    assert_eq!(qo.table.row_count(), 0);
+    let types: Vec<(&str, &str)> = qo
+        .table
+        .columns
+        .iter()
+        .map(|c| (c.name.as_str(), c.data_type.as_str()))
+        .collect();
+    assert_eq!(
+        types,
+        vec![("id", "Int64"), ("name", "Utf8"), ("born", "Date32")]
+    );
+    // The workspace no longer holds it: the caller owns the table now.
+    assert!(ws.execute("SELECT * FROM people").is_err());
+    // `data` is untouched.
+    assert_eq!(
+        ws.execute("SELECT * FROM data").unwrap().table.row_count(),
+        1
+    );
+}
+
+#[test]
+fn create_table_as_select_and_view_carry_rows() {
+    let mut ws = SqlWorkspace::new().unwrap();
+    ws.set_active_table(&simple_table("name", "a", 1.0))
+        .unwrap();
+    let qo = ws
+        .execute("CREATE TEMP TABLE \"my copy\" AS SELECT id, score * 2 AS dbl FROM data")
+        .unwrap();
+    assert_eq!(qo.created.as_deref(), Some("my copy"));
+    assert_eq!(qo.table.row_count(), 1);
+    assert_eq!(qo.table.get(0, 1), Some(&CellValue::Float(2.0)));
+
+    let qo = ws
+        .execute("CREATE VIEW v AS SELECT name FROM data")
+        .unwrap();
+    assert_eq!(qo.created.as_deref(), Some("v"));
+    assert_eq!(qo.table.get(0, 0), Some(&CellValue::String("a".into())));
+    assert!(ws.execute("SELECT * FROM v").is_err());
+}
+
+#[test]
+fn create_that_adds_nothing_new_takes_the_mutation_path() {
+    let mut ws = SqlWorkspace::new().unwrap();
+    ws.set_active_table(&simple_table("name", "a", 1.0))
+        .unwrap();
+    // Replacing `data` itself is a mutation of `data`, not a new table.
+    let qo = ws
+        .execute("CREATE OR REPLACE TEMP TABLE data AS SELECT 7 AS id")
+        .unwrap();
+    assert_eq!(qo.created, None);
+    assert_eq!(qo.table.get(0, 0), Some(&CellValue::Int(7)));
+}
+
+#[test]
+fn create_inside_an_attached_database_is_refused_not_handed_over() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("side.duckdb");
+    duckdb::Connection::open(&path)
+        .unwrap()
+        .execute_batch("CREATE TABLE t (x INTEGER); INSERT INTO t VALUES (1);")
+        .unwrap();
+    let mut ws = SqlWorkspace::new().unwrap();
+    ws.set_active_table(&simple_table("name", "a", 1.0))
+        .unwrap();
+    ws.attach(&path, "side", AttachKind::DuckDb).unwrap();
+    // Attachments are read-only, so DuckDB refuses; the error reaches the
+    // caller and the catalog diff never runs.
+    let err = ws
+        .execute("CREATE TABLE side.u AS SELECT x + 1 AS y FROM side.t")
+        .unwrap_err();
+    assert!(format!("{err:#}").contains("read-only"), "{err:#}");
+    assert!(ws.execute("SELECT * FROM side.u").is_err());
+    assert_eq!(
+        ws.execute("SELECT * FROM data").unwrap().table.row_count(),
+        1
+    );
+}

@@ -313,6 +313,20 @@ fn split_frame(
     state: &mut TableViewState,
     events: Vec<egui::Event>,
 ) -> Vec<f32> {
+    run_frame(ctx, table, state, events);
+    std::iter::once(state.scroll_y)
+        .chain(state.pane_scroll.iter().map(|(_, y)| *y))
+        .collect()
+}
+
+/// One headless frame of the table with the given events, returning egui's
+/// output so a test can read the cursor it asked the platform for.
+fn run_frame(
+    ctx: &egui::Context,
+    table: &mut DataTable,
+    state: &mut TableViewState,
+    events: Vec<egui::Event>,
+) -> egui::FullOutput {
     let filtered: Vec<usize> = (0..table.rows.len()).collect();
     let shortcuts = crate::ui::shortcuts::Shortcuts::default();
     let empty_cols: HashSet<usize> = HashSet::new();
@@ -359,9 +373,7 @@ fn split_frame(
         super::split::draw_table_split(ui, table, state, cx);
     });
     out.textures_delta.clear();
-    std::iter::once(state.scroll_y)
-        .chain(state.pane_scroll.iter().map(|(_, y)| *y))
-        .collect()
+    out
 }
 
 /// One wheel notch downwards, optionally with Alt held.
@@ -547,4 +559,238 @@ fn a_table_without_a_legend_has_no_cell_tooltips() {
     assert_eq!(rows::cell_tooltip(&state, &table, 0, 0), None);
     // Out of range on both axes, which is what a stale index looks like.
     assert_eq!(rows::cell_tooltip(&state, &table, 9, 9), None);
+}
+
+/// Build the prefix sums headlessly with wrapping off, which is the mode the
+/// row-resize feature has to work in: nothing is measured, so every row is
+/// exactly the base height unless the user dragged one.
+fn offsets_with(overrides: &[(usize, f32)], rows: usize, base: f32) -> Vec<f32> {
+    let ctx = egui::Context::default();
+    let mut table = DataTable::empty();
+    table.columns = vec![crate::data::ColumnInfo {
+        name: "c".into(),
+        data_type: "Utf8".into(),
+    }];
+    table.rows = (0..rows)
+        .map(|r| vec![crate::data::CellValue::String(format!("r{r}"))])
+        .collect();
+    let mut state = TableViewState {
+        col_widths: vec![100.0],
+        ..Default::default()
+    };
+    for &(row, h) in overrides {
+        state.row_heights.insert(row, h);
+    }
+    state.invalidate_row_heights();
+    let filtered: Vec<usize> = (0..rows).collect();
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(400.0, 400.0),
+        )),
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        ensure_row_y_offsets(
+            ui,
+            &mut state,
+            &table,
+            &filtered,
+            RowHeightOpts {
+                font_size: 13.0,
+                base_row_height: base,
+                binary_display_mode: BinaryDisplayMode::Hex,
+                wrap: false,
+            },
+        );
+    });
+    out.textures_delta.clear();
+    state.row_y_offsets
+}
+
+/// A height the user dragged wins; every other row keeps the base height, and
+/// the last entry is the height of the whole table.
+#[test]
+fn dragged_row_heights_feed_the_offsets_table() {
+    let offsets = offsets_with(&[(1, 60.0), (3, 10.0)], 5, 20.0);
+
+    assert_eq!(offsets.len(), 6, "one entry per row plus the closing total");
+    // 20, 60, 20, 10, 20
+    assert_eq!(offsets, vec![0.0, 20.0, 80.0, 100.0, 110.0, 130.0]);
+}
+
+/// With no overrides and wrapping off the table is uniform, so the prefix sums
+/// have to agree with the plain `rows * height` the fast path uses.
+#[test]
+fn unresized_rows_all_get_the_base_height() {
+    let offsets = offsets_with(&[], 4, 22.0);
+
+    assert_eq!(offsets, vec![0.0, 22.0, 44.0, 66.0, 88.0]);
+}
+
+/// The scroll position is turned back into a row by binary search, and it has
+/// to land on the row that actually covers the offset even when the rows in
+/// front of it are all different heights.
+#[test]
+fn row_at_offset_handles_mixed_heights() {
+    // Rows of 20, 60, 20, 10, 20 -> boundaries at 0, 20, 80, 100, 110, 130.
+    let offsets = offsets_with(&[(1, 60.0), (3, 10.0)], 5, 20.0);
+
+    assert_eq!(row_at_offset(&offsets, 0.0), 0);
+    assert_eq!(row_at_offset(&offsets, 19.9), 0);
+    assert_eq!(
+        row_at_offset(&offsets, 20.0),
+        1,
+        "exactly on a seam is the row below"
+    );
+    assert_eq!(
+        row_at_offset(&offsets, 79.0),
+        1,
+        "the tall row spans 20..80"
+    );
+    assert_eq!(row_at_offset(&offsets, 80.0), 2);
+    assert_eq!(
+        row_at_offset(&offsets, 105.0),
+        3,
+        "the short row spans 100..110"
+    );
+    assert_eq!(row_at_offset(&offsets, 129.0), 4);
+}
+
+/// Press on a row's bottom seam in the gutter, drag down, release. The seam
+/// is a thin strip that the row-number cell (registered after it) overlaps on
+/// both halves, so the test drives real pointer events through egui's hit
+/// test rather than calling the height code directly.
+fn drag_row_seam(
+    rows_below_header: usize,
+    dy: f32,
+    batched: bool,
+) -> (TableViewState, egui::CursorIcon) {
+    let ctx = egui::Context::default();
+    let mut table = scrollable_table();
+    let mut state = TableViewState::default();
+    let base = base_row_height(13.0);
+    let seam_y = HEADER_HEIGHT + 1.0 + base * (rows_below_header as f32 + 1.0);
+    let seam = egui::pos2(10.0, seam_y);
+    let press = |pos: egui::Pos2, pressed: bool| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    run_frame(&ctx, &mut table, &mut state, vec![]);
+    let hover = run_frame(
+        &ctx,
+        &mut table,
+        &mut state,
+        vec![egui::Event::PointerMoved(seam)],
+    );
+    let cursor = hover.platform_output.cursor_icon;
+    let target = egui::pos2(seam.x, seam.y + dy);
+    // A fast mouse delivers the press and the first move inside one frame,
+    // with the pointer already past the seam band when egui looks.
+    let mut press_frame = vec![press(seam, true)];
+    if batched {
+        press_frame.push(egui::Event::PointerMoved(egui::pos2(seam.x, seam.y + 8.0)));
+    }
+    run_frame(&ctx, &mut table, &mut state, press_frame);
+    run_frame(
+        &ctx,
+        &mut table,
+        &mut state,
+        vec![egui::Event::PointerMoved(target)],
+    );
+    run_frame(
+        &ctx,
+        &mut table,
+        &mut state,
+        vec![egui::Event::PointerMoved(target)],
+    );
+    run_frame(&ctx, &mut table, &mut state, vec![press(target, false)]);
+    (state, cursor)
+}
+
+#[test]
+fn dragging_a_row_seam_resizes_that_row_only() {
+    let base = base_row_height(13.0);
+    for row in [0usize, 1, 2, 5] {
+        let (state, cursor) = drag_row_seam(row, 30.0, false);
+        let got = state.row_heights.get(&row).copied();
+        assert!(
+            got.is_some_and(|h| (h - (base + 30.0)).abs() < 1.0),
+            "row {row}: height {got:?}, expected ~{}; all heights {:?}",
+            base + 30.0,
+            state.row_heights
+        );
+        assert_eq!(
+            state.row_heights.len(),
+            1,
+            "row {row}: only that row changed"
+        );
+        assert_eq!(
+            cursor,
+            egui::CursorIcon::ResizeVertical,
+            "row {row}: hovering the seam shows the resize cursor"
+        );
+    }
+}
+
+#[test]
+fn a_press_and_move_batched_into_one_frame_still_starts_the_drag() {
+    let base = base_row_height(13.0);
+    let (state, _) = drag_row_seam(2, 30.0, true);
+    let got = state.row_heights.get(&2).copied();
+    assert!(
+        got.is_some_and(|h| (h - (base + 30.0)).abs() < 1.0),
+        "height {got:?}, expected ~{}",
+        base + 30.0
+    );
+}
+
+/// The seam adopts a drag on the press frame, which must not eat the click
+/// side of its own double-click, nor the row-number click beside it.
+#[test]
+fn seam_double_click_and_row_number_click_survive_the_drag_adoption() {
+    let ctx = egui::Context::default();
+    let mut table = scrollable_table();
+    let mut state = TableViewState::default();
+    let base = base_row_height(13.0);
+    state.row_heights.insert(2, base + 40.0);
+    let seam = egui::pos2(10.0, HEADER_HEIGHT + 1.0 + base * 3.0 + 40.0);
+    let press = |pos: egui::Pos2, pressed: bool| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    run_frame(
+        &ctx,
+        &mut table,
+        &mut state,
+        vec![egui::Event::PointerMoved(seam)],
+    );
+    for _ in 0..2 {
+        run_frame(&ctx, &mut table, &mut state, vec![press(seam, true)]);
+        run_frame(&ctx, &mut table, &mut state, vec![press(seam, false)]);
+    }
+    assert!(
+        !state.row_heights.contains_key(&2),
+        "double-click drops the hand-set height: {:?}",
+        state.row_heights
+    );
+
+    let row_number = egui::pos2(10.0, HEADER_HEIGHT + 1.0 + base * 1.5);
+    run_frame(
+        &ctx,
+        &mut table,
+        &mut state,
+        vec![egui::Event::PointerMoved(row_number)],
+    );
+    run_frame(&ctx, &mut table, &mut state, vec![press(row_number, true)]);
+    run_frame(&ctx, &mut table, &mut state, vec![press(row_number, false)]);
+    assert!(
+        state.selected_rows.contains(&1),
+        "row 1 selected: {:?}",
+        state.selected_rows
+    );
 }

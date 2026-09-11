@@ -1,5 +1,7 @@
 # Large Files
 
+<!-- SCREENSHOT: large-file-notice.png: The "This file is very large" dialog. Body naming a file and its size, the Works and Does not work lines beneath, the "read directly, no conversion needed" note, a "Do not show this again" checkbox, and the three buttons "Open in large-file mode", "Open normally" and Cancel. -->
+
 Large-file mode opens a file **read-only**, keeping its rows on disk and
 fetching only what is on screen. That is the trade: you reach every row
 of a file far bigger than memory, and in exchange the tab cannot be
@@ -69,6 +71,13 @@ the rows it returns, and `run_sql` registers the file as a view so an
 aggregate covers every row. Those responses carry `streamed: true`.
 Tools that genuinely need the rows are untouched, so nothing quietly
 answers from a slice. See the [MCP reference](../mcp/index.md).
+
+The in-app assistant is told that the tab is a **window**, not the table.
+A large-file tab holds one 2,000-row page of the file, so the tab summary
+carries the file's real row count plus a note saying which rows are on
+screen, and a tool asked for "the open tab" reads the file from disk
+instead of the page. Without that, **Explain this file** would describe
+2,000 rows of a billion-row file and say nothing about it being a slice.
 
 ## Why it is read-only
 

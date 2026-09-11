@@ -452,3 +452,147 @@ fn test_arrow_ipc_round_trip_narrow_types() {
     assert_eq!(read.get(0, 1), Some(&CellValue::Float(0.5)));
     assert_eq!(read.get(0, 2), Some(&CellValue::Binary(vec![9, 8, 7])));
 }
+
+/// A timestamp column whose Arrow type names a timezone must be shown **in
+/// that zone**, not in UTC.
+///
+/// The regression: `arrow_value_to_cell` matched `Timestamp(unit, _tz)` and
+/// formatted the instant with `chrono::DateTime::from_timestamp`, which is
+/// UTC. The column header carries the Arrow type and so said
+/// `Europe/Brussels`, while the cell beside it showed the UTC wall clock - a
+/// value two hours off in summer, with the header insisting otherwise.
+#[test]
+fn a_timestamp_with_a_timezone_reads_in_that_zone() {
+    // 2024-06-01 16:15:00 UTC is 18:15 in Brussels (CEST, UTC+2).
+    let micros = 1_717_258_500_000_000i64;
+    let field = Field::new(
+        "seen_at",
+        DataType::Timestamp(TimeUnit::Microsecond, Some("Europe/Brussels".into())),
+        false,
+    );
+    let schema = Arc::new(Schema::new(vec![field]));
+    let array =
+        TimestampMicrosecondArray::from(vec![micros]).with_timezone("Europe/Brussels".to_string());
+    let batch =
+        RecordBatch::try_new(schema.clone(), vec![Arc::new(array) as Arc<dyn Array>]).unwrap();
+
+    let f = tempfile::NamedTempFile::with_suffix(".parquet").unwrap();
+    let file = std::fs::File::create(f.path()).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let read = ParquetReader.read_file(f.path()).unwrap();
+    let shown = read.get(0, 0).map(|v| v.to_string()).unwrap_or_default();
+    assert!(
+        shown.starts_with("2024-06-01 18:15:00"),
+        "the header says Europe/Brussels, so the cell must read 18:15 there; got {shown}"
+    );
+    assert!(
+        read.columns[0].data_type.contains("Brussels"),
+        "the column type still names the zone: {}",
+        read.columns[0].data_type
+    );
+}
+
+/// Winter, so the same zone is one hour off instead of two: the conversion
+/// has to be the zone's rule at that instant, not a fixed offset.
+#[test]
+fn a_timestamp_with_a_timezone_follows_daylight_saving() {
+    // 2024-01-15 16:15:00 UTC is 17:15 in Brussels (CET, UTC+1).
+    let micros = 1_705_335_300_000_000i64;
+    let field = Field::new(
+        "seen_at",
+        DataType::Timestamp(TimeUnit::Microsecond, Some("Europe/Brussels".into())),
+        false,
+    );
+    let schema = Arc::new(Schema::new(vec![field]));
+    let array =
+        TimestampMicrosecondArray::from(vec![micros]).with_timezone("Europe/Brussels".to_string());
+    let batch =
+        RecordBatch::try_new(schema.clone(), vec![Arc::new(array) as Arc<dyn Array>]).unwrap();
+
+    let f = tempfile::NamedTempFile::with_suffix(".parquet").unwrap();
+    let file = std::fs::File::create(f.path()).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let read = ParquetReader.read_file(f.path()).unwrap();
+    let shown = read.get(0, 0).map(|v| v.to_string()).unwrap_or_default();
+    assert!(
+        shown.starts_with("2024-01-15 17:15:00"),
+        "January is CET, one hour ahead of UTC; got {shown}"
+    );
+}
+
+/// A timestamp with no zone stays exactly as it was: naive means naive, and
+/// nothing may shift it into the machine's local time.
+#[test]
+fn a_timestamp_without_a_timezone_is_left_alone() {
+    let micros = 1_717_258_500_000_000i64;
+    let field = Field::new(
+        "seen_at",
+        DataType::Timestamp(TimeUnit::Microsecond, None),
+        false,
+    );
+    let schema = Arc::new(Schema::new(vec![field]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(TimestampMicrosecondArray::from(vec![micros])) as Arc<dyn Array>],
+    )
+    .unwrap();
+
+    let f = tempfile::NamedTempFile::with_suffix(".parquet").unwrap();
+    let file = std::fs::File::create(f.path()).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let read = ParquetReader.read_file(f.path()).unwrap();
+    let shown = read.get(0, 0).map(|v| v.to_string()).unwrap_or_default();
+    assert!(
+        shown.starts_with("2024-06-01 16:15:00"),
+        "no zone means no shift; got {shown}"
+    );
+}
+
+/// Reading converts the instant into the column's zone, so writing has to
+/// convert it back out. Without that inverse a save would shift the column by
+/// the offset every time it was written.
+#[test]
+fn a_zoned_timestamp_survives_a_save_unshifted() {
+    let micros = 1_717_258_500_000_000i64; // 2024-06-01 16:15:00 UTC
+    let field = Field::new(
+        "seen_at",
+        DataType::Timestamp(TimeUnit::Microsecond, Some("Europe/Brussels".into())),
+        false,
+    );
+    let schema = Arc::new(Schema::new(vec![field]));
+    let array =
+        TimestampMicrosecondArray::from(vec![micros]).with_timezone("Europe/Brussels".to_string());
+    let batch =
+        RecordBatch::try_new(schema.clone(), vec![Arc::new(array) as Arc<dyn Array>]).unwrap();
+
+    let src = tempfile::NamedTempFile::with_suffix(".parquet").unwrap();
+    let file = std::fs::File::create(src.path()).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let read = ParquetReader.read_file(src.path()).unwrap();
+    let out = tempfile::NamedTempFile::with_suffix(".parquet").unwrap();
+    ParquetReader.write_file(out.path(), &read).unwrap();
+    let again = ParquetReader.read_file(out.path()).unwrap();
+
+    assert_eq!(
+        again.get(0, 0).map(|v| v.to_string()),
+        read.get(0, 0).map(|v| v.to_string()),
+        "a save must not move the clock"
+    );
+    assert!(
+        again.columns[0].data_type.contains("Brussels"),
+        "and it must not quietly drop the zone: {}",
+        again.columns[0].data_type
+    );
+}

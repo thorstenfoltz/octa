@@ -1,6 +1,6 @@
 # Find Near-Duplicates
 
-**Search > Find near-duplicates...** (Ctrl+Shift+U) finds rows that are *almost*
+**Data > Find near-duplicates...** (Ctrl+Shift+U) finds rows that are *almost*
 the same on the columns you choose, not just exactly equal. It catches typos,
 spacing, and reordered words (for example "Jon Smith" vs "John Smith", or
 "ACME Inc" vs "ACME, Inc.") and groups the likely duplicates into clusters with

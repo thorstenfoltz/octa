@@ -9,7 +9,10 @@ use crate::data::{CellValue, DataTable, MarkKey, is_numeric_data_type};
 use crate::ui::status_bar::format_number;
 use crate::ui::toolbar;
 
-use super::{DEFAULT_COL_WIDTH, HEADER_HEIGHT, TableInteraction, TableViewState, mark_submenu};
+use super::{
+    DEFAULT_COL_WIDTH, HEADER_HEIGHT, ROW_RESIZE_HANDLE_HEIGHT, TableInteraction, TableViewState,
+    mark_submenu,
+};
 
 pub(super) fn draw_data_row_direct(
     ui: &mut Ui,
@@ -775,9 +778,14 @@ pub(super) fn draw_data_row_direct(
         );
     }
 
-    // Row number click interaction
+    // Row number click interaction. The top and bottom edges belong to the
+    // resize seams (this row's and the one above), the way a column header
+    // keeps clear of its handle: a click rect over the seam would be hovered
+    // alongside it and its pointing hand, set later, would win the cursor.
     if rn_rect.intersects(panel_rect) {
-        let rn_interact_rect = rn_rect.intersect(panel_rect);
+        let rn_interact_rect = rn_rect
+            .shrink2(Vec2::new(0.0, ROW_RESIZE_HANDLE_HEIGHT * 0.5))
+            .intersect(panel_rect);
         let rn_response = ui.interact(
             rn_interact_rect,
             ui.id().with(("row_num", actual_row)),

@@ -25,6 +25,7 @@ fn ctx_with_tab(unlocked: bool) -> ToolContext {
         display_name: "t".into(),
         source_path: None,
         table: t,
+        window: None,
     }];
     ctx.active_tab = Some(0);
     ctx.allow_existing_writes = unlocked;
@@ -99,6 +100,97 @@ fn refuses_dropping_every_column() {
         ops: vec![OpSpec::DropColumns {
             cols: vec![ColRef::Index(0), ColRef::Index(1)],
         }],
+    };
+    assert!(run(&ctx, &p).is_err());
+}
+
+#[test]
+fn queues_sort_keys_resolved_by_name_and_direction() {
+    let ctx = ctx_with_tab(true);
+    let p = Params {
+        open_tab: "#1".into(),
+        ops: vec![OpSpec::SortRows {
+            by: vec![
+                SortSpec {
+                    col: ColRef::Name("v".into()),
+                    descending: true,
+                },
+                SortSpec {
+                    col: ColRef::Index(0),
+                    descending: false,
+                },
+            ],
+        }],
+    };
+    run(&ctx, &p).unwrap();
+    let q = ctx.pending_tab_edits.as_ref().unwrap().lock().unwrap();
+    match &q[0].ops[0] {
+        // `ascending` is the stored flag, so `descending: true` must invert.
+        ResolvedOp::SortRows(keys) => assert_eq!(keys, &vec![(1, false), (0, true)]),
+        other => panic!("expected SortRows, got {other:?}"),
+    }
+}
+
+#[test]
+fn sort_is_queued_after_row_ops_that_address_rows_by_index() {
+    let ctx = ctx_with_tab(true);
+    let p = Params {
+        open_tab: "#1".into(),
+        ops: vec![
+            OpSpec::SortRows {
+                by: vec![SortSpec {
+                    col: ColRef::Index(1),
+                    descending: false,
+                }],
+            },
+            OpSpec::DeleteRows { rows: vec![0] },
+        ],
+    };
+    run(&ctx, &p).unwrap();
+    let q = ctx.pending_tab_edits.as_ref().unwrap().lock().unwrap();
+    assert!(matches!(q[0].ops[0], ResolvedOp::DeleteRows(_)));
+    assert!(matches!(q[0].ops[1], ResolvedOp::SortRows(_)));
+}
+
+#[test]
+fn sort_with_drop_columns_is_refused_rather_than_misapplied() {
+    let ctx = ctx_with_tab(true);
+    let p = Params {
+        open_tab: "#1".into(),
+        ops: vec![
+            OpSpec::DropColumns {
+                cols: vec![ColRef::Index(0)],
+            },
+            OpSpec::SortRows {
+                by: vec![SortSpec {
+                    col: ColRef::Index(1),
+                    descending: false,
+                }],
+            },
+        ],
+    };
+    assert!(run(&ctx, &p).is_err());
+    assert!(
+        ctx.pending_tab_edits
+            .as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_large_file_tab_is_refused_instead_of_edited_through_its_page() {
+    let mut ctx = ctx_with_tab(true);
+    ctx.open_tabs[0].window = Some(crate::mcp::tools::SnapshotWindow {
+        offset: 0,
+        len: 2,
+        total: 9_000_000,
+    });
+    let p = Params {
+        open_tab: "#1".into(),
+        ops: vec![OpSpec::DeleteRows { rows: vec![0] }],
     };
     assert!(run(&ctx, &p).is_err());
 }

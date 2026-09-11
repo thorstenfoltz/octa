@@ -1019,6 +1019,14 @@ pub fn select_sample_sql(
     table: &str,
     n: usize,
 ) -> String {
+    // `usize::MAX` is the "Unlimited" cap (Settings -> Performance, `--rows
+    // all`, MCP `unlimited`), and anything past a signed 64-bit integer cannot
+    // be spelled as a limit anyway: Databricks types 18446744073709551615 as
+    // DECIMAL(20,0) and refuses the statement, Postgres overflows bigint.
+    // Unlimited means no clause, which is exactly `select_all_sql`.
+    if n == usize::MAX || n as u64 > i64::MAX as u64 {
+        return select_all_sql(engine, catalog, schema, table);
+    }
     let name = qualified_name(engine, catalog, schema, table);
     match engine {
         DbEngine::Mssql => format!("SELECT TOP {n} * FROM {name}"),
@@ -1590,6 +1598,40 @@ mod tests {
         assert_eq!(
             select_sample_sql(DbEngine::Snowflake, Some("DB"), "PUBLIC", "T", 3),
             "SELECT * FROM \"DB\".\"PUBLIC\".\"T\" LIMIT 3"
+        );
+    }
+
+    /// `usize::MAX` is the "Unlimited" row cap (Settings -> Performance,
+    /// `--rows all`, MCP `unlimited`). Printed into a limit clause it becomes
+    /// 18446744073709551615, which no engine accepts: Databricks reads it as
+    /// DECIMAL(20,0) and refuses, Postgres overflows bigint. Unlimited means
+    /// no clause at all.
+    #[test]
+    fn an_unlimited_cap_emits_no_limit_clause() {
+        for engine in [
+            DbEngine::Databricks,
+            DbEngine::Postgres,
+            DbEngine::Mssql,
+            DbEngine::Oracle,
+            DbEngine::Snowflake,
+            DbEngine::BigQuery,
+        ] {
+            let sql = select_sample_sql(engine, None, "s", "t", usize::MAX);
+            assert!(
+                !sql.contains("18446744073709551615"),
+                "{engine:?} printed the sentinel: {sql}"
+            );
+            assert_eq!(sql, select_all_sql(engine, None, "s", "t"), "{engine:?}");
+        }
+        assert_eq!(
+            select_sample_sql(
+                DbEngine::Databricks,
+                Some("main"),
+                "sales",
+                "orders",
+                usize::MAX
+            ),
+            "SELECT * FROM `main`.`sales`.`orders`"
         );
     }
 

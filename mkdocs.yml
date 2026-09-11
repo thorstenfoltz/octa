@@ -114,7 +114,6 @@ nav:
       - Detect PII: usage/detect-pii.md
       - Detect Outliers: usage/detect-outliers.md
       - Fill Missing Values: usage/fill-missing-values.md
-      - Drop Duplicate Rows: usage/drop-duplicate-rows.md
       - Union Tables: usage/union-tables.md
       - Join Tables: usage/join-tables.md
       - Fuzzy Join: usage/fuzzy-join.md

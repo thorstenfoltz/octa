@@ -210,6 +210,8 @@ impl TabState {
             show_find_duplicates: false,
             find_duplicates_key_cols: std::collections::HashSet::new(),
             find_duplicates_mode: super::state::FindDuplicatesMode::default(),
+            duplicate_filter: None,
+            duplicate_filter_cache: None,
             hidden_columns: std::collections::HashSet::new(),
             mark_filter_active: false,
             mark_filter_hidden_snapshot: None,
@@ -225,6 +227,7 @@ impl TabState {
             predicate_filters: Vec::new(),
             search_ask_mode: false,
             search_ask_profile: String::new(),
+            sql_ask_profile: String::new(),
             show_column_filter: false,
             column_filter_size: octa::ui::settings::DialogSize::default(),
             column_filter_picker_col: None,
@@ -740,6 +743,28 @@ impl OctaApp {
     /// Open a detached tab holding `n` randomly chosen rows from the active
     /// table (all rows if `n` exceeds the row count). Same pattern as
     /// `open_describe_tab`.
+    /// File -> New Table...: a blank editable grid of `cols` x `rows` in a new
+    /// tab, columns named `col1..colN`, no source path so Save asks where.
+    pub(crate) fn open_new_table_tab(&mut self, cols: usize, rows: usize) {
+        let mut table = octa::data::DataTable::empty();
+        table.columns = (1..=cols)
+            .map(|i| octa::data::ColumnInfo {
+                name: format!("col{i}"),
+                data_type: "Utf8".to_string(),
+            })
+            .collect();
+        table.rows = vec![vec![octa::data::CellValue::Null; cols]; rows];
+        table.structural_changes = true;
+        let mut new_tab = super::state::TabState::new(self.settings.default_search_mode);
+        new_tab.table = table;
+        new_tab.filter_dirty = true;
+        if rows > 0 {
+            new_tab.table_state.selected_cell = Some((0, 0));
+        }
+        self.tabs.push(new_tab);
+        self.active_tab = self.tabs.len() - 1;
+    }
+
     pub(crate) fn open_random_sample_tab(&mut self, n: usize) {
         let Some(source) = self.tabs.get(self.active_tab) else {
             return;

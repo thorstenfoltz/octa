@@ -1,39 +1,39 @@
-# hu: written natively, not translated from English.
+# hu: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet, CSV, Excel, SQLite és további harminc formátum gyors táblázatban. Rendezés, szűrés, keresés, szerkesztés és SQL, mind a saját gépeden."
+short = "Parquet, CSV, XLSX, SQLite és mintegy harminc további adatformátum azonnal táblázatként. Rendezés, szűrés, keresés, szerkesztés és SQL-lekérdezés, helyben, a saját gépen."
 
 long = """
-Az Octa megnyitja a Parquet-, CSV-, Excel-, SQLite-, DuckDB- és JSON-fájlokat, valamint további mintegy harminc adatformátumot, importálás és hosszadalmas beállítás nélkül.
+Az Octa a Parquet, CSV, XLSX, SQLite, DuckDB és JSON fájlokat, valamint mintegy harminc további adatformátumot közvetlenül táblázatként nyitja meg. Importálásra, beállításra vagy projektfájlra nincs szükség.
 
-Rendezheted, szűrheted, kereshetsz és szerkesztheted az adataidat, futtathatsz DuckDB SQL-lekérdezéseket, készíthetsz diagramokat vagy összehasonlíthatsz két fájlt. A beépített csevegésben hétköznapi nyelven is kérdezhetsz az adataidról.
+A táblázat rendezhető, szűrhető és kereshető; a cellák, oszlopok és sorok szerkeszthetők, és minden módosítás visszavonható. Minden megnyitott fájl SQL-táblaként érhető el a DuckDB-ben, több fájl pedig egyetlen lekérdezésben összekapcsolható. Ehhez jönnek a diagramok, az oszlopstatisztikák, a duplikátumok és kiugró értékek felismerése, a kimutatások és két fájl összehasonlítása. A többmillió soros Parquet fájlok a háttérben töltődnek be.
 
-Az adatok helyben, a saját gépeden dolgozódnak fel, amíg a használt funkciónak nincs szüksége külső API-ra.
+Az Amazon S3-ban, az Azure Blob Storage-ban és a Google Cloud Storage-ban, illetve a PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery és más adatbázisokban tárolt adatok közvetlenül megnyithatók; az írási hozzáférés alapértelmezés szerint ki van kapcsolva. Egy opcionális MI-asszisztens hétköznapi nyelven válaszol az adatokra vonatkozó kérdésekre, saját API-kulccsal vagy Ollama-n keresztül futó helyi modellel, és beállításig inaktív marad.
 
-A felület 32 nyelven érhető el. Az Octa szabad szoftver, MIT licenc alatt.
+A feldolgozás helyben, a saját gépen történik, kivéve ha a használt funkció külső API-t igényel. A felület 32 nyelven érhető el. Az Octa szabad szoftver MIT-licenc alatt: https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Nagyjából harminc formátumot nyit meg: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata és még több",
-  "DuckDB SQL-lekérdezések bármelyik megnyitott fájlra, importálás nélkül",
-  "Rendezés, szűrés és keresés szöveggel, helyettesítő karakterekkel vagy reguláris kifejezésekkel",
-  "Cellák, oszlopok és sorok szerkesztése, teljes visszavonással, az adatbázisba csak az eltérések kerülnek",
-  "Diagramok saját lapon, PNG, SVG vagy PDF formátumba exportálva",
-  "Két fájl összehasonlítása sorról sorra vagy rekordonként",
-  "Oszlopstatisztika, duplikátumok, kiugró értékek és kimutatások",
-  "A több millió soros Parquet fájlokat a háttérben tölti be",
-  "Közvetlenül olvas az Amazon S3-ból, az Azure Blob Storage-ból és a Google Cloud Storage-ból",
-  "Kapcsolódik PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery és további rendszerekhez",
-  "Választható MI-asszisztens, saját kulccsal vagy helyi modellel",
-  "Parancssori eszközként és Model Context Protocol kiszolgálóként is működik",
+  "Mintegy harminc formátum: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata és további",
+  "DuckDB SQL közvetlenül bármely megnyitott fájlon, importálás nélkül",
+  "Rendezés, szűrés és keresés egyszerű szöveggel, helyettesítő karakterekkel vagy reguláris kifejezésekkel",
+  "Cellák, oszlopok és sorok szerkesztése teljes visszavonással; az adatbázisba csak a módosítások kerülnek",
+  "Diagramok külön lapon, exportálás PNG, SVG vagy PDF formátumba",
+  "Két fájl összehasonlítása soronként vagy rekordonként",
+  "Oszlopstatisztikák, duplikátumok és kiugró értékek felismerése, kimutatások",
+  "Többmillió soros Parquet fájlok betöltése a háttérben",
+  "Közvetlen hozzáférés az Amazon S3, Azure Blob Storage és Google Cloud Storage tárolókhoz",
+  "Kapcsolódás PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery és más adatbázisokhoz",
+  "Opcionális MI-asszisztens saját API-kulccsal vagy helyi modellel",
+  "Parancssori eszköz és Model Context Protocol kiszolgáló is",
   "Felület 32 nyelven",
-  "Szabad, nyílt forráskódú szoftver, MIT licenc",
+  "Szabad és nyílt forráskódú szoftver, MIT-licenc",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "csv megnyitása"
+SearchTerm2 = "csv megnyitás"
 SearchTerm3 = "adatnézegető"
-SearchTerm4 = "sqlite böngésző"
+SearchTerm4 = "sqlite"
 SearchTerm5 = "duckdb"
-SearchTerm6 = "sql lekérdezések"
-SearchTerm7 = "excel alternatíva"
+SearchTerm6 = "sql lekérdezés"
+SearchTerm7 = "xlsx megnyitás"

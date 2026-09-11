@@ -69,6 +69,13 @@ For **mutation** queries (INSERT / UPDATE / DELETE):
 }
 ```
 
+A `CREATE TABLE` / `CREATE VIEW` that adds one table to the workspace is a
+mutation whose `result` holds **that table's rows** rather than `data`, with
+its declared column types, and the response carries `"created": "<name>"`.
+The table is dropped from the workspace again after it is read, so a later
+call cannot query it; `CREATE TABLE x AS SELECT ...` is therefore a way to
+get a typed result set back, not a way to keep state between calls.
+
 For calls with **`write_to`**:
 
 ```json

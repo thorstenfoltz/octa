@@ -386,6 +386,39 @@ impl OctaApp {
                 }
             }
 
+            // The duplicate filter hides rows with nothing on screen to say so.
+            // One removable chip, beside the predicate-filter chips above, is
+            // the whole affordance for turning it back off.
+            if let Some(keep_duplicates) = self.tabs[self.active_tab]
+                .duplicate_filter
+                .as_ref()
+                .map(|f| f.keep_duplicates)
+            {
+                let mut clear = false;
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_space(8.0);
+                    let label = octa::i18n::t(if keep_duplicates {
+                        "search.dupfilter_dups"
+                    } else {
+                        "search.dupfilter_unique"
+                    });
+                    if ui
+                        .small_button(format!("{label}  x"))
+                        .on_hover_text(octa::i18n::t("search.dupfilter_remove"))
+                        .clicked()
+                    {
+                        clear = true;
+                    }
+                });
+                ui.add_space(4.0);
+                if clear {
+                    let tab = &mut self.tabs[self.active_tab];
+                    tab.duplicate_filter = None;
+                    tab.duplicate_filter_cache = None;
+                    tab.filter_dirty = true;
+                }
+            }
+
             // Recompute filter before drawing (toolbar actions earlier in the
             // frame may have dirtied it).
             if self.tabs[self.active_tab].filter_dirty {
@@ -552,6 +585,7 @@ impl OctaApp {
             let filter_active = !tab.search_text.is_empty()
                 || !tab.column_filters.is_empty()
                 || !tab.predicate_filters.is_empty()
+                || tab.duplicate_filter.is_some()
                 || tab.mark_filter_active;
             let show_sequential = self.settings.show_sequential_row_numbers && filter_active;
             let hidden_cols = tab.hidden_columns.clone();
@@ -1147,6 +1181,12 @@ impl OctaApp {
                 }
             }
             return;
+        }
+
+        // A row seam was double-clicked to fit rows to their content while
+        // cells could not wrap; fitting means wrapping.
+        if interaction.fit_rows_wants_wrap {
+            self.enable_cell_line_breaks();
         }
 
         let tab = &mut self.tabs[self.active_tab];

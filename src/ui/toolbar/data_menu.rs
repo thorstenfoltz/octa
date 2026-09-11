@@ -80,12 +80,21 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
 
             ui.separator();
 
+            // Find duplicates covers highlight / new tab / filter / drop.
             if ui
-                .button(crate::i18n::t("dedupe.menu"))
-                .on_hover_text(crate::i18n::t("dedupe.menu_hint"))
+                .button(crate::i18n::t("search_menu.find_duplicates"))
+                .on_hover_text(crate::i18n::t("search_menu.find_duplicates_hint"))
                 .clicked()
             {
-                action.open_dedupe = true;
+                action.show_find_duplicates = true;
+                ui.close();
+            }
+            if ui
+                .button(crate::i18n::t("fuzzy_dup.menu"))
+                .on_hover_text(crate::i18n::t("fuzzy_dup.menu_hint"))
+                .clicked()
+            {
+                action.open_fuzzy_duplicates = true;
                 ui.close();
             }
             if ui

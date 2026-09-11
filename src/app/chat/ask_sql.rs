@@ -110,20 +110,78 @@ pub fn related_tables_block(table: &str, columns: &[ColumnRow], fks: &[ForeignKe
     out
 }
 
+/// Cap on tables described from the SQL workspace. Same budget reasoning as
+/// [`MAX_RELATED_TABLES`]: enough to answer a real question, not a whole
+/// warehouse catalogue resent on every keystroke.
+pub const MAX_WORKSPACE_TABLES: usize = 12;
+
+/// What the local DuckDB workspace can query besides the active tab, as prompt
+/// text: registered tables and the tables inside every ATTACHed database, each
+/// with its columns.
+///
+/// Without this the prompt hardcoded "refer to the table only as data", so a
+/// question spanning an attached server could not be answered at all - and the
+/// tab that is *only* a server target has no `data` to refer to. Empty when the
+/// workspace holds nothing but the active tab, which restores the old prompt.
+pub fn workspace_block(tables: &[(String, Vec<(String, String)>)]) -> String {
+    if tables.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("The SQL workspace can also query these tables:\n");
+    for (name, cols) in tables.iter().take(MAX_WORKSPACE_TABLES) {
+        out.push_str(&format!("- {name}\n"));
+        for (col, ty) in cols.iter().take(MAX_RELATED_COLUMNS) {
+            out.push_str(&format!("  - {col} ({ty})\n"));
+        }
+        if cols.len() > MAX_RELATED_COLUMNS {
+            out.push_str(&format!(
+                "  - ... and {} more columns\n",
+                cols.len() - MAX_RELATED_COLUMNS
+            ));
+        }
+    }
+    if tables.len() > MAX_WORKSPACE_TABLES {
+        out.push_str(&format!(
+            "- ... and {} more tables (not described)\n",
+            tables.len() - MAX_WORKSPACE_TABLES
+        ));
+    }
+    out
+}
+
+/// Everything the prompt says about the data, gathered on the UI thread and
+/// moved to the worker.
+///
+/// A struct rather than six more parameters: `build_prompt` was already at the
+/// argument count where `clippy::too_many_arguments` fires, and the no-`#[allow]`
+/// rule means the escape hatch is not available.
+pub struct AskSqlFacts {
+    /// How the active table must be spelled: `data` locally, `schema.table`
+    /// against a server.
+    pub table_name: String,
+    pub dialect: String,
+    pub columns: Vec<ColumnInfo>,
+    /// Rows in the whole table. `None` when only a page is loaded, which is
+    /// the normal case for a live database tab - a page size stated as a table
+    /// size is worse than saying nothing.
+    pub row_count: Option<usize>,
+    /// [`related_tables_block`] output (server mode, declared foreign keys).
+    pub related: String,
+    /// [`workspace_block`] output (local mode, registered + attached tables).
+    pub workspace: String,
+}
+
 /// The instruction sent as the system prompt. Short on purpose: one job, one
 /// output shape.
-///
-/// `related` is [`related_tables_block`] output, or empty for a table with no
-/// declared neighbours and for every local (DuckDB workspace) query, where the
-/// neighbours would not exist to join against.
-pub fn build_prompt(
-    table_name: &str,
-    dialect: &str,
-    columns: &[ColumnInfo],
-    row_count: usize,
-    related: &str,
-    question: &str,
-) -> String {
+pub fn build_prompt(facts: &AskSqlFacts, question: &str) -> String {
+    let AskSqlFacts {
+        table_name,
+        dialect,
+        columns,
+        row_count,
+        related,
+        workspace,
+    } = facts;
     let cols = columns
         .iter()
         .map(|c| format!("- {} ({})", c.name, c.data_type))
@@ -153,12 +211,39 @@ pub fn build_prompt(
             ),
         )
     };
+    // The workspace block replaces the "only as {table_name}" rule outright: a
+    // tab opened solely to attach a server has no table of its own, and telling
+    // the model to name one that is not registered produces SQL that cannot run.
+    let (workspace_block, table_rules) = if workspace.trim().is_empty() {
+        (String::new(), table_rules)
+    } else {
+        (
+            format!("\n{workspace}"),
+            "- Use only the table names listed above, spelled exactly as given, \
+             qualification included.\n\
+             - Do not invent tables or columns. If the question cannot be answered from \
+             them, answer with the closest query that can.\n"
+                .to_string(),
+        )
+    };
+    // Describing the active table at all only makes sense when there is one.
+    let table_block = if columns.is_empty() {
+        format!("The SQL dialect is {dialect}.\n")
+    } else {
+        let size = match row_count {
+            Some(n) => format!(", has {n} rows,"),
+            None => String::new(),
+        };
+        format!(
+            "The SQL dialect is {dialect}. The table is named {table_name}{size} and has these \
+             columns:\n{cols}\n"
+        )
+    };
     format!(
         "You turn a question about a table into one SQL query. Reply with JSON \
          only, no prose.\n\
          \n\
-         The SQL dialect is {dialect}. The table is named {table_name}, has \
-         {row_count} rows and these columns:\n{cols}\n{related_block}\n\
+         {table_block}{related_block}{workspace_block}\n\
          Reply shape:\n\
          {{\"sql\":\"SELECT ...\"}}\n\
          \n\
@@ -278,19 +363,30 @@ pub fn splice_at(text: &str, byte_idx: usize, insert: &str) -> String {
 /// Takes the already-built prompt rather than the table facts so the argument
 /// list stays under clippy's limit without an `#[allow]`; callers pair it with
 /// [`build_prompt`].
+/// `usage` accumulates what the provider says this request cost. It is an
+/// out-parameter rather than part of the return value because the tokens are
+/// spent whether or not the reply parses, and the session meter must not
+/// under-report a question that failed.
 pub fn ask(
     provider: &dyn ChatProvider,
     cfg: &ProviderConfig,
     system: &str,
     question: &str,
     cancel: &AtomicBool,
+    usage: &mut (u32, u32),
 ) -> Result<String, String> {
     let messages = vec![Message::user_text(question)];
     let mut reply = String::new();
-    provider.stream_turn(cfg, system, &messages, &[], cancel, &mut |ev| {
-        if let ChatEvent::TextDelta(chunk) = ev {
-            reply.push_str(&chunk);
+    provider.stream_turn(cfg, system, &messages, &[], cancel, &mut |ev| match ev {
+        ChatEvent::TextDelta(chunk) => reply.push_str(&chunk),
+        ChatEvent::Usage {
+            input_tokens,
+            output_tokens,
+        } => {
+            usage.0 = usage.0.saturating_add(input_tokens);
+            usage.1 = usage.1.saturating_add(output_tokens);
         }
+        _ => {}
     })?;
     if reply.trim().is_empty() {
         return Err("the assistant returned nothing".to_string());
@@ -313,6 +409,18 @@ mod tests {
                 data_type: "Utf8".into(),
             },
         ]
+    }
+
+    /// Facts for a plain local tab, so a test only states what it varies.
+    fn facts(table: &str, dialect: &str, related: &str) -> AskSqlFacts {
+        AskSqlFacts {
+            table_name: table.to_string(),
+            dialect: dialect.to_string(),
+            columns: cols(),
+            row_count: Some(42),
+            related: related.to_string(),
+            workspace: String::new(),
+        }
     }
 
     #[test]
@@ -404,7 +512,7 @@ mod tests {
 
     #[test]
     fn prompt_names_the_columns_types_table_and_dialect() {
-        let p = build_prompt("data", "DuckDB", &cols(), 42, "", "revenue per country");
+        let p = build_prompt(&facts("data", "DuckDB", ""), "revenue per country");
         assert!(p.contains("amount (Int64)"), "{p}");
         assert!(p.contains("country (Utf8)"), "{p}");
         assert!(p.contains("data"), "{p}");
@@ -439,7 +547,7 @@ mod tests {
     #[test]
     fn no_foreign_keys_means_no_block_and_no_new_rules() {
         assert_eq!(related_tables_block("s.orders", &[], &[]), "");
-        let p = build_prompt("s.orders", "PostgreSQL", &cols(), 1, "", "how many");
+        let p = build_prompt(&facts("s.orders", "PostgreSQL", ""), "how many");
         assert!(p.contains("Refer to the table only as s.orders"), "{p}");
         assert!(!p.contains("Join only"), "{p}");
     }
@@ -531,17 +639,70 @@ mod tests {
             &col_rows(&[("s", "customers", "id")]),
             &[fk("s.orders", "customer_id", "s.customers", "id")],
         );
-        let p = build_prompt(
-            "s.orders",
-            "PostgreSQL",
-            &cols(),
-            7,
-            &related,
-            "who spent most",
-        );
+        let p = build_prompt(&facts("s.orders", "PostgreSQL", &related), "who spent most");
         assert!(p.contains("s.customers columns: id"), "{p}");
         assert!(p.contains("Join only on a listed key pair"), "{p}");
         assert!(p.contains("A join can multiply rows"), "{p}");
         assert!(!p.contains("Refer to the table only as"), "{p}");
+    }
+
+    #[test]
+    fn workspace_tables_are_described_and_replace_the_single_table_rule() {
+        let ws = workspace_block(&[(
+            "wh.public.orders".to_string(),
+            vec![
+                ("id".to_string(), "BIGINT".to_string()),
+                ("total".to_string(), "DOUBLE".to_string()),
+            ],
+        )]);
+        let mut f = facts("data", "DuckDB", "");
+        f.workspace = ws;
+        let p = build_prompt(&f, "biggest order");
+        assert!(p.contains("wh.public.orders"), "{p}");
+        assert!(p.contains("total (DOUBLE)"), "{p}");
+        assert!(p.contains("Do not invent tables or columns"), "{p}");
+        assert!(!p.contains("Refer to the table only as"), "{p}");
+    }
+
+    /// The tab that exists only to attach a server has no table of its own.
+    /// The prompt must still be answerable, and must not name a `data` that
+    /// was never registered.
+    #[test]
+    fn a_tab_with_no_table_of_its_own_still_gets_a_usable_prompt() {
+        let f = AskSqlFacts {
+            table_name: "data".to_string(),
+            dialect: "DuckDB".to_string(),
+            columns: Vec::new(),
+            row_count: None,
+            related: String::new(),
+            workspace: workspace_block(&[(
+                "pg.public.users".to_string(),
+                vec![("email".to_string(), "VARCHAR".to_string())],
+            )]),
+        };
+        let p = build_prompt(&f, "how many users");
+        assert!(p.contains("pg.public.users"), "{p}");
+        assert!(!p.contains("The table is named"), "{p}");
+        assert!(p.contains("DuckDB"), "{p}");
+    }
+
+    /// An unknown row count is omitted rather than guessed: a live database
+    /// tab holds one page, and stating a page size as the table size is a lie
+    /// the model has no way to detect.
+    #[test]
+    fn an_unknown_row_count_is_left_out_of_the_prompt() {
+        let mut f = facts("s.orders", "PostgreSQL", "");
+        f.row_count = None;
+        let p = build_prompt(&f, "how many");
+        assert!(!p.contains(" rows"), "{p}");
+        assert!(
+            p.contains("The table is named s.orders and has these columns"),
+            "{p}"
+        );
+    }
+
+    #[test]
+    fn an_empty_workspace_leaves_the_prompt_exactly_as_it_was() {
+        assert_eq!(workspace_block(&[]), "");
     }
 }

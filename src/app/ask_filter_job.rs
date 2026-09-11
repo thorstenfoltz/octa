@@ -73,9 +73,13 @@ impl OctaApp {
             result: Arc::clone(&slot),
         });
         let ctx = ctx.clone();
+        // See `ask_sql_job`: the Ask boxes spend tokens the session meter was
+        // never told about.
+        let session = std::sync::Arc::clone(&self.chat.session);
         std::thread::spawn(move || {
             let provider = providers::make_provider(provider_kind);
             let cancel = AtomicBool::new(false);
+            let mut usage = (0u32, 0u32);
             let outcome = ask_filter::ask(
                 provider.as_ref(),
                 &cfg,
@@ -83,7 +87,12 @@ impl OctaApp {
                 row_count,
                 &question,
                 &cancel,
+                &mut usage,
             );
+            if let Ok(mut s) = session.lock() {
+                s.input_tokens = s.input_tokens.saturating_add(usage.0);
+                s.output_tokens = s.output_tokens.saturating_add(usage.1);
+            }
             if let Ok(mut g) = slot.lock() {
                 *g = Some(outcome);
             }

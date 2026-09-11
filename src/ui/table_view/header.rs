@@ -7,9 +7,9 @@ use egui::{Align2, Color32, CursorIcon, RichText, Sense, Ui, Vec2};
 use crate::data::{DataTable, MarkKey};
 
 use super::{
-    COL_INDEX_HEIGHT, DEFAULT_COL_WIDTH, HEADER_HEIGHT, MIN_COL_WIDTH, RESIZE_HANDLE_WIDTH,
-    SORT_ARROW_SIZE, TableInteraction, TableViewState, col_index_letter, compute_optimal_col_width,
-    mark_submenu,
+    COL_INDEX_HEIGHT, DEFAULT_COL_WIDTH, HEADER_HEIGHT, MIN_COL_WIDTH, MIN_ROW_HEIGHT,
+    RESIZE_HANDLE_WIDTH, ROW_RESIZE_HANDLE_HEIGHT, SORT_ARROW_SIZE, TableInteraction,
+    TableViewState, base_row_height, col_index_letter, compute_optimal_col_width, mark_submenu,
 };
 
 pub(super) fn draw_header_direct(
@@ -717,4 +717,36 @@ pub(super) fn draw_header_direct(
         egui::FontId::new(font_size, egui::FontFamily::Monospace),
         colors.text_muted,
     );
+
+    // The same gesture as the per-row seam in the gutter below, one level up:
+    // drag the corner's bottom edge to set the height of every row at once,
+    // double-click to fit them all to their content. It writes a single value
+    // rather than an entry per row, so an 11 M-row table costs nothing.
+    let corner_seam = egui::Rect::from_min_max(
+        egui::pos2(
+            rn_rect.left(),
+            rn_rect.bottom() - ROW_RESIZE_HANDLE_HEIGHT * 0.5,
+        ),
+        egui::pos2(
+            rn_rect.right(),
+            rn_rect.bottom() + ROW_RESIZE_HANDLE_HEIGHT * 0.5,
+        ),
+    );
+    let resp = super::seam_interact(ui, corner_seam, ui.id().with("all_rows_resize"));
+    let default_height = base_row_height(font_size);
+    if resp.dragged() {
+        let from = state.uniform_row_height.unwrap_or(default_height);
+        let h = (from + resp.drag_delta().y).max(MIN_ROW_HEIGHT);
+        state.uniform_row_height = Some(h);
+        state.invalidate_row_heights();
+    }
+    if resp.drag_stopped() {
+        state.invalidate_row_heights();
+    }
+    // Fit every row to its content, hand-dragged ones included: the corner is
+    // the "all rows" control, the same as Edit > Auto-fit All Rows.
+    if resp.double_clicked() {
+        state.fit_all_rows();
+        interaction.fit_rows_wants_wrap = !cx.cell_line_breaks;
+    }
 }

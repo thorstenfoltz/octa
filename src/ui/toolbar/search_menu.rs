@@ -1,4 +1,5 @@
-//! The **Search** menu: find, replace and multi-search.
+//! The **Search** menu: find, replace, column filter and multi-search.
+//! The duplicate finders live in the Data menu beside Drop duplicate rows.
 //!
 //! Split out of `toolbar/mod.rs`, where every menu lived inside one ~2,000-line
 //! `draw_toolbar`. The body below is unchanged; it reads its inputs from
@@ -53,27 +54,6 @@ pub(super) fn search_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarA
                 .on_hover_text(crate::i18n::t("search_menu.column_filter_hint"));
             if filter_btn.clicked() {
                 action.show_column_filter = Some(None);
-                ui.close();
-            }
-            let dup_btn = ui
-                .add_enabled(
-                    has_data,
-                    egui::Button::new(crate::i18n::t("search_menu.find_duplicates")),
-                )
-                .on_hover_text(crate::i18n::t("search_menu.find_duplicates_hint"));
-            if dup_btn.clicked() {
-                action.show_find_duplicates = true;
-                ui.close();
-            }
-            let fuzzy_btn = ui.add_enabled(
-                has_data,
-                egui::Button::new(crate::i18n::t("fuzzy_dup.menu")),
-            );
-            if fuzzy_btn
-                .on_hover_text(crate::i18n::t("fuzzy_dup.menu_hint"))
-                .clicked()
-            {
-                action.open_fuzzy_duplicates = true;
                 ui.close();
             }
             ui.separator();

@@ -33,6 +33,31 @@ There are three ways to open it, and it stays where it is across tabs:
 You can dock the panel to the right (the default), left, bottom, or top of the
 window from Settings.
 
+### Data mode and "Just answer"
+
+<!-- SCREENSHOT: chat-mode-toggle.png: The chat panel header with the profile dropdown and the Data / Just answer pair beside it, Just answer selected. -->
+
+Beside the profile dropdown in the panel header sit two labels:
+
+- **Data** is the normal mode. The assistant gets Octa's tools and can read
+  what you have open, run SQL, and (with writes on) edit the live tab.
+- **Just answer** asks a general question. No tools are sent and none of your
+  data goes with the request, so the assistant simply answers, and the request
+  costs a fraction of the tokens a Data-mode turn does.
+
+The choice is a mode for the question you are asking, not a saved preference:
+it lives for the session and starts on **Data** each time.
+
+### Markdown in replies
+
+Headings, lists, tables, code blocks and links in the assistant's replies are
+drawn as formatting. Your own messages, tool arguments and tool results stay
+verbatim, so you always see exactly what was sent and returned. Selecting text
+in a reply and pressing <kbd>Ctrl</kbd>+<kbd>C</kbd> copies it, and the
+right-click **Copy** entry copies the raw Markdown source rather than the
+rendered text. Turn the rendering off under **Settings > Chat / Assistant >
+Render Markdown in replies** to read the source instead.
+
 ## Model profiles
 
 A **profile** is one saved setup: a provider, a model, a temperature, an
@@ -292,6 +317,12 @@ whole conversation goes out again on each turn, tool results included, because
 the provider keeps no state between requests. One question that needs a tool is
 therefore at least two requests. **Start a new session** when you change
 subject: that is the one lever that resets the count.
+
+The counter covers everything Octa sends to the provider, not only the chat
+panel: the **Ask** boxes in the search bar and in the SQL panel each fire their
+own request, and both land here too. The one caveat is local and
+OpenAI-compatible servers, which report usage only if they choose to; when a
+server sends none, that turn cannot be counted.
 
 Two things keep it from being much worse.
 
@@ -588,7 +619,8 @@ assistant can change your data directly:
 
 - Edit the open tab live (`edit_open_tab`). Ask it to add a computed column
   (a DuckDB expression such as a moving average), insert rows, set cells,
-  delete rows, or drop columns, and the change appears in the tab immediately.
+  delete rows, drop columns, or **sort the rows** by one or more columns, and
+  the change appears in the tab immediately.
   It is a normal edit, so <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes it, and nothing
   is written to disk until **you** save.
 - Edit a file on disk that is not open (`edit_table`), including adding or

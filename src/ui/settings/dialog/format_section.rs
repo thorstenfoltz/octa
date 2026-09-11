@@ -71,11 +71,6 @@ impl SettingsDialog {
                     .on_hover_text(crate::i18n::t("settings_hint.offer_repair"));
                 ui.end_row();
 
-                ui.label(crate::i18n::t("wo.title"))
-                    .on_hover_text(crate::i18n::t("settings_hint.write_options"));
-                ui.label("");
-                ui.end_row();
-
                 ui.label(crate::i18n::t("settings.readonly_notice"))
                     .on_hover_text(crate::i18n::t("settings_hint.readonly_notice"));
                 ui.checkbox(&mut self.draft.show_readonly_notice, "")

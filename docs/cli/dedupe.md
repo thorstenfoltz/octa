@@ -26,5 +26,5 @@ octa --dedupe people.csv --dedupe-on email --dedupe-keep last
 
 ## See also
 
-- [Drop Duplicate Rows](../usage/drop-duplicate-rows.md) (GUI) and the
+- [Find duplicates](../usage/editing.md#find-duplicates) (GUI, drop mode) and the
   [`drop_duplicates`](../mcp/tools/drop_duplicates.md) MCP tool.

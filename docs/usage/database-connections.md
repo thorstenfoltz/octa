@@ -740,10 +740,13 @@ database read-only, so its tables join against local files:
   the workspace tree offers Copy / Insert / Run for its qualified name.
 - The other engines (SQL Server, Oracle, Snowflake, Databricks,
   BigQuery, ClickHouse, Exasol) have no native DuckDB extension, so their tables
-  are **imported** individually as `alias__schema__table` workspace
-  tables. The import is **row-capped** at the initial-load limit and
-  servers with very many tables are refused - query those with
-  **Run on** instead, or copy the table you need first.
+  are **imported** as plain workspace tables named after themselves
+  (`orders`), which you can rename by double-clicking the name.
+  Their menu entry therefore opens into the server's tree: pick a
+  single table, a schema, or **Attach everything here** for the level
+  you are on. The import is **row-capped** at the initial-load limit
+  and a level with very many tables is refused - drill in one further,
+  or query it with **Run on** instead.
 
 You do not even need a table open: the SQL panel opens on an empty tab
 too (Analyse > SQL), attach your connections and query the servers

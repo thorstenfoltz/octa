@@ -296,6 +296,29 @@ pub fn can_convert_value(val: &CellValue, target_type: &str) -> bool {
     }
 }
 
+/// The timezone named by a column type string, if it names one.
+///
+/// Octa's column types are Arrow type names, and a timestamp arrives spelled
+/// three different ways depending on which reader produced it: Arrow's `Debug`
+/// (`Timestamp(Microsecond, Some("Europe/Brussels"))`), Arrow's `Display`
+/// (`Timestamp(\u{b5}s, "Europe/Brussels")`, which omits the `None` entirely) and
+/// ORC's bare `Timestamp`. Asking "is there a zone in here" works on all three;
+/// testing for the literal `None` only worked on the first, and quietly called
+/// the other two zoned.
+///
+/// Lives here rather than beside a reader because both the readers and the
+/// schema exporters need the same answer, and `data` is the layer they share.
+pub fn timestamp_timezone(type_name: &str) -> Option<&str> {
+    if !type_name.starts_with("Timestamp") {
+        return None;
+    }
+    let start = type_name.find('"')? + 1;
+    let rest = &type_name[start..];
+    let end = rest.find('"')?;
+    let tz = &rest[..end];
+    (!tz.is_empty()).then_some(tz)
+}
+
 /// Convert a CellValue to a target data type.
 /// Assumes `can_convert_value` has already validated the conversion.
 pub fn convert_value(val: &CellValue, target_type: &str) -> CellValue {

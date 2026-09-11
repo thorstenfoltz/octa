@@ -42,6 +42,9 @@ impl OctaApp {
         if action_fired(SA::NewFile) {
             self.new_file();
         }
+        if action_fired(SA::NewTable) {
+            self.new_table_dialog = Some(super::state::NewTableState::default());
+        }
         if action_fired(SA::OpenFile) {
             self.open_file();
         }
@@ -349,6 +352,9 @@ impl OctaApp {
                     .table_state
                     .fit_all_columns_requested = true;
             }
+            if action_fired(SA::FitAllRows) {
+                self.fit_all_rows();
+            }
             if action_fired(SA::ReopenLastClosedTab) {
                 self.reopen_last_closed_tab(ctx);
             }
@@ -489,12 +495,17 @@ impl OctaApp {
             if action_fired(SA::CopyAsMarkdown) {
                 self.do_copy_markdown();
             }
-            if action_fired(SA::OpenDedupe)
-                && self.tabs[self.active_tab].table.col_count() > 0
-                && !self.is_readonly()
-            {
-                let col_count = self.tabs[self.active_tab].table.col_count();
-                self.dedupe_dialog = Some(super::state::DedupeState::new_all_cols(col_count));
+            if action_fired(SA::OpenDedupe) && !self.is_readonly() {
+                let tab = &mut self.tabs[self.active_tab];
+                if tab.table.col_count() > 0 {
+                    // Same dialog as Find duplicates, preset to the old
+                    // Drop-duplicate-rows defaults: whole-row key, keep first.
+                    tab.find_duplicates_key_cols = (0..tab.table.col_count()).collect();
+                    tab.find_duplicates_mode = super::state::FindDuplicatesMode::Drop(
+                        octa::data::dedupe::KeepWhich::First,
+                    );
+                    tab.show_find_duplicates = true;
+                }
             }
             if action_fired(SA::OpenImpute)
                 && self.tabs[self.active_tab].table.col_count() > 0

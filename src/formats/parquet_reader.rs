@@ -494,7 +494,7 @@ pub fn arrow_value_to_cell(array: &dyn Array, idx: usize) -> CellValue {
                 None => CellValue::String(format!("date64({})", ms)),
             }
         }
-        DataType::Timestamp(unit, _tz) => {
+        DataType::Timestamp(unit, tz) => {
             let (secs, nsecs) = match unit {
                 TimeUnit::Second => {
                     let arr = array
@@ -528,8 +528,8 @@ pub fn arrow_value_to_cell(array: &dyn Array, idx: usize) -> CellValue {
                     (v / 1_000_000_000, (v % 1_000_000_000) as u32)
                 }
             };
-            match chrono::DateTime::from_timestamp(secs, nsecs) {
-                Some(dt) => CellValue::DateTime(dt.format("%Y-%m-%d %H:%M:%S%.3f").to_string()),
+            match arrow_instant_to_local(secs, nsecs, tz.as_deref(), "%Y-%m-%d %H:%M:%S%.3f") {
+                Some(s) => CellValue::DateTime(s),
                 None => CellValue::String(format!("timestamp({})", secs)),
             }
         }
@@ -562,6 +562,53 @@ pub fn arrow_value_to_cell(array: &dyn Array, idx: usize) -> CellValue {
     }
 }
 
+/// Format an epoch instant as the datetime string a cell shows, reading it on
+/// the wall clock the Arrow type names.
+///
+/// An Arrow `Timestamp` holds an **instant**; the type's timezone says which
+/// clock that instant should be read on. Formatting it directly gives UTC,
+/// which is exactly what the column header then contradicts: a header reading
+/// `Timestamp(Microsecond, Some("Europe/Brussels"))` above a cell showing the
+/// UTC wall clock, two hours behind in summer.
+///
+/// `tz` takes either spelling Arrow allows: an IANA name (`Europe/Brussels`)
+/// or a fixed offset (`+02:00`). One that parses as neither stays in UTC
+/// rather than being guessed at - a wrong hour is worse than an unconverted
+/// one, because nothing on screen would say it had happened.
+pub fn arrow_instant_to_local(
+    secs: i64,
+    nsecs: u32,
+    tz: Option<&str>,
+    fmt: &str,
+) -> Option<String> {
+    let dt = chrono::DateTime::from_timestamp(secs, nsecs)?;
+    let Some(tz) = tz.map(str::trim).filter(|t| !t.is_empty()) else {
+        return Some(dt.format(fmt).to_string());
+    };
+    if let Ok(zone) = tz.parse::<chrono_tz::Tz>() {
+        return Some(dt.with_timezone(&zone).format(fmt).to_string());
+    }
+    if let Ok(offset) = tz.parse::<chrono::FixedOffset>() {
+        return Some(dt.with_timezone(&offset).format(fmt).to_string());
+    }
+    Some(dt.format(fmt).to_string())
+}
+
+/// Read the timezone back out of an Arrow type name, preserving its case.
+///
+/// A column's `data_type` holds `format!("{}", field.data_type())`, which for
+/// a zoned timestamp is `Timestamp(µs, "Europe/Brussels")`. The writer has to
+/// put that zone back or a save would turn a Brussels column into a naive one.
+/// Taking whatever sits between the first pair of quotes also accepts the
+/// `Debug` spelling (`Timestamp(Microsecond, Some("Europe/Brussels"))`), so a
+/// type string from either side is understood.
+///
+/// IANA names are case-sensitive, so this reads the original string rather
+/// than the lowercased copy [`data_type_from_string`] matches on.
+pub(crate) fn timestamp_tz_from_type_name(s: &str) -> Option<&str> {
+    crate::data::timestamp_timezone(s)
+}
+
 /// Map a DataTable data_type string back to an Arrow DataType.
 ///
 /// Invariant shared with [`build_arrow_array`]: every `DataType` this can
@@ -589,10 +636,45 @@ pub fn data_type_from_string(s: &str) -> DataType {
         "largebinary" => DataType::LargeBinary,
         "date32" | "date" => DataType::Date32,
         "date64" => DataType::Date64,
-        s if s.starts_with("timestamp") => DataType::Timestamp(TimeUnit::Microsecond, None),
+        lower if lower.starts_with("timestamp") => DataType::Timestamp(
+            TimeUnit::Microsecond,
+            timestamp_tz_from_type_name(s).map(Into::into),
+        ),
         "datetime" => DataType::Timestamp(TimeUnit::Microsecond, None),
         _ => DataType::Utf8, // fallback: store as string
     }
+}
+
+/// Turn a displayed datetime string back into the epoch microseconds Arrow
+/// stores, reading it on `tz`'s wall clock.
+///
+/// The inverse of [`arrow_instant_to_local`], and it has to stay the inverse:
+/// the reader converts an instant into the column's zone, so the writer must
+/// convert it back out, or every save would shift the column by the offset.
+/// A local time that does not exist (the spring-forward hour) or happens twice
+/// (the autumn one) takes the earliest reading, which is what every other
+/// timezone path in Octa does.
+fn local_string_to_micros(s: &str, tz: Option<&str>) -> Option<i64> {
+    use chrono::TimeZone;
+    let naive = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S"))
+        .ok()?;
+    let Some(tz) = tz.map(str::trim).filter(|t| !t.is_empty()) else {
+        return Some(naive.and_utc().timestamp_micros());
+    };
+    if let Ok(zone) = tz.parse::<chrono_tz::Tz>() {
+        return zone
+            .from_local_datetime(&naive)
+            .earliest()
+            .map(|dt| dt.timestamp_micros());
+    }
+    if let Ok(offset) = tz.parse::<chrono::FixedOffset>() {
+        return offset
+            .from_local_datetime(&naive)
+            .earliest()
+            .map(|dt| dt.timestamp_micros());
+    }
+    Some(naive.and_utc().timestamp_micros())
 }
 
 /// Write a DataTable to a Parquet file.
@@ -841,28 +923,29 @@ pub fn build_arrow_array(
             }
             Arc::new(builder.finish())
         }
-        DataType::Timestamp(_, _) => {
+        DataType::Timestamp(_, tz) => {
             let mut builder = TimestampMicrosecondBuilder::with_capacity(num_rows);
             for row in 0..num_rows {
                 match table.get(row, col_idx) {
                     Some(CellValue::DateTime(s)) => {
-                        if let Ok(dt) =
-                            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.3f")
-                        {
-                            builder.append_value(dt.and_utc().timestamp_micros());
-                        } else if let Ok(dt) =
-                            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
-                        {
-                            builder.append_value(dt.and_utc().timestamp_micros());
-                        } else {
-                            builder.append_null();
+                        // The cell holds the wall clock of the column's own
+                        // zone (that is what the reader wrote), so the instant
+                        // has to be recovered on that clock. Reading it as UTC
+                        // would shift every value by the offset on each save.
+                        match local_string_to_micros(s, tz.as_deref()) {
+                            Some(us) => builder.append_value(us),
+                            None => builder.append_null(),
                         }
                     }
                     Some(CellValue::Null) | None => builder.append_null(),
                     _ => builder.append_null(),
                 }
             }
-            Arc::new(builder.finish())
+            let array = builder.finish();
+            match tz {
+                Some(tz) => Arc::new(array.with_timezone(tz.to_string())),
+                None => Arc::new(array),
+            }
         }
         DataType::LargeUtf8 => {
             let mut builder = LargeStringBuilder::with_capacity(num_rows, num_rows * 32);

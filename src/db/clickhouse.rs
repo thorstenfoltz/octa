@@ -180,10 +180,16 @@ impl DbConnector for ClickHouseConnector {
 
     fn query(&mut self, sql: &str) -> Result<DataTable> {
         // Cap the result at the initial-load row limit by wrapping the query;
-        // FORMAT must be the very last clause.
+        // FORMAT must be the very last clause. An unlimited cap gets no
+        // wrapper: `usize::MAX` printed as a LIMIT is what makes an engine
+        // refuse the statement (see `db::select_sample_sql`).
         let cap = crate::formats::initial_load_rows();
         let inner = sql.trim().trim_end_matches(';');
-        let wrapped = format!("SELECT * FROM ({inner}) AS _octa_q LIMIT {cap}\nFORMAT JSONCompact");
+        let wrapped = if cap == usize::MAX {
+            format!("{inner}\nFORMAT JSONCompact")
+        } else {
+            format!("SELECT * FROM ({inner}) AS _octa_q LIMIT {cap}\nFORMAT JSONCompact")
+        };
         let body = self.post(&wrapped)?;
         parse_jsoncompact(&body)
     }

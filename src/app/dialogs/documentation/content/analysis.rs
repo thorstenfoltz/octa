@@ -64,7 +64,7 @@ The bottom **Copy as TSV** button copies the whole visible table as
 
 pub const FIND_DUPLICATES: &str = r#"# Find Duplicates
 
-Open via **Search > Find duplicates...** or **Ctrl+Shift+D** (remappable).
+Open via **Data > Find duplicates...** or **Ctrl+Shift+D** (remappable).
 A modal lists every column with a checkbox - tick the ones you want
 to use as the dedupe key. Two rows are duplicates when every checked
 column has the same displayed text.
@@ -77,6 +77,20 @@ Output modes (radio buttons):
 - **Open duplicates in a new tab**: clones the columns + just the
   duplicate rows into a fresh scratch tab. The source tab is left
   alone; the new tab has no source path so Save prompts.
+- **Show only the duplicate rows**: filters the active table down to
+  the repeats, without touching the data. A removable chip appears
+  above the table; one click on it shows every row again.
+- **Show only the rows that occur once**: the same filter inverted -
+  the repeats are hidden and what is left appeared exactly once on
+  the key columns.
+- **Drop duplicate rows**: the one mode that edits the table. Pick
+  whether to keep the **first** or the **last** occurrence of each key;
+  the rest are removed as a single undoable step (Ctrl+Z brings them
+  all back) and the status bar reports how many rows went. Greyed in
+  read-only mode. **Ctrl+Shift+H** opens the dialog preset to this mode
+  with every column ticked, so whole-row repeats are two keys away. The
+  same engine runs as `octa --dedupe` and the `drop_duplicates`
+  assistant/MCP tool.
 
 Notes:
 
@@ -88,6 +102,14 @@ Notes:
   first if you want them to.
 - If no duplicates are found, the status bar reports it and the
   active table is unchanged.
+- The two filter modes store the **key columns**, not the row numbers
+  they resolved to, so the filter stays correct after you edit, insert
+  or delete rows. They are unavailable on a very large file, where the
+  tab holds one page of the file and filtering happens in SQL; hover
+  the greyed radio button for the reason.
+- Highlight mode clears the previous run's orange row marks before it
+  paints, so a second run on different key columns does not leave the
+  first run's answer behind.
 
 The dialog seeds the key with whatever column is currently selected,
 so Ctrl+Shift+D -> Apply is the fastest path for a one-column dedupe
@@ -96,7 +118,7 @@ check.
 
 pub const FUZZY_DUPLICATES: &str = r#"# Find Near-Duplicates
 
-**Search > Find near-duplicates...** (Ctrl+Shift+U) finds rows that are
+**Data > Find near-duplicates...** (Ctrl+Shift+U) finds rows that are
 *almost* the same on the columns you choose, not just exactly equal. It catches
 typos, spacing, and reordered words (for example "Jon Smith" vs "John Smith",
 or "ACME Inc" vs "ACME, Inc.") and groups the likely duplicates into clusters
@@ -924,6 +946,12 @@ Type mapping:
   closest native type.
 - Unknown Arrow types fall back to each target's TEXT-equivalent
   with a comment so the output is never silently wrong.
+- A timestamp maps to the target's zoned column only when the column
+  type actually **names a zone**. Readers spell a naive timestamp three
+  ways - `Timestamp(us)` (Parquet, Arrow IPC), plain `Timestamp` (ORC)
+  and `Timestamp(Microsecond, None)` (DuckDB and the text formats) -
+  and all three export to the tz-less column. The same mapping produces
+  the CREATE TABLE behind database write-back.
 
 Identifier safety:
 

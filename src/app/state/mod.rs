@@ -311,6 +311,14 @@ pub(crate) struct TabState {
     /// Output mode: highlight the duplicate rows in place, or open them
     /// in a new tab.
     pub(crate) find_duplicates_mode: FindDuplicatesMode,
+    /// Active duplicate filter, set by the two Filter modes of the Find
+    /// duplicates dialog. `None` is the normal case. Session-only, like every
+    /// other filter on a tab.
+    pub(crate) duplicate_filter: Option<DuplicateFilter>,
+    /// Memoised duplicate row set for [`Self::duplicate_filter`], stamped with
+    /// the table's mutation state so an edit invalidates it. Without it every
+    /// repaint that dirties the filter would re-hash every key column.
+    pub(crate) duplicate_filter_cache: Option<(DupStamp, std::collections::HashSet<usize>)>,
     /// Columns hidden from the table view. Indices map into
     /// `table.columns`. Hidden columns keep their data intact (Save still
     /// writes them); the renderer just zeroes their visible width so they
@@ -386,6 +394,12 @@ pub(crate) struct TabState {
     /// Which chat profile answers an Ask. Session-only; seeded from the active
     /// profile the first time the toolbar renders.
     pub(crate) search_ask_profile: String,
+    /// Chat profile the SQL panel's Ask box sends to. Same shape and same
+    /// reason as [`Self::search_ask_profile`]: per tab, session-only, seeded
+    /// from `chat_active_profile` the first time the box is used. Without it
+    /// Ask silently used whatever the chat panel happened to be set to, with
+    /// no way to send this one question somewhere else.
+    pub(crate) sql_ask_profile: String,
     /// Whether the Column Filter modal is open for this tab.
     pub(crate) show_column_filter: bool,
     /// Window-size mode for the Column Filter dialog.
@@ -598,6 +612,9 @@ pub(crate) struct OctaApp {
     pub(crate) show_about_dialog: bool,
     /// Show the "Report AI content" dialog (Store generative-AI policy).
     pub(crate) show_ai_report_dialog: bool,
+    /// Open cloud object picker for the SQL workspace, if any.
+    pub(crate) cloud_ws_picker:
+        Option<crate::app::dialogs::cloud_workspace_picker::CloudWorkspacePicker>,
     /// Show the Documentation dialog
     pub(crate) show_documentation_dialog: bool,
     /// Window-size mode for the Documentation dialog.
@@ -825,6 +842,9 @@ pub(crate) struct OctaApp {
     /// Active "Random sample" dialog state, or `None` when closed
     /// (`src/app/dialogs/random_sample.rs`).
     pub(crate) random_sample_dialog: Option<RandomSampleState>,
+    /// Active New-table dialog state, or `None` when closed. Opens a blank
+    /// editable grid in a new tab (see `src/app/dialogs/new_table.rs`).
+    pub(crate) new_table_dialog: Option<NewTableState>,
     /// Active "Tidy up" dialog state, or `None` when closed
     /// (`src/app/dialogs/tidy_up.rs`).
     pub(crate) tidy_up_dialog: Option<TidyUpState>,
@@ -846,10 +866,6 @@ pub(crate) struct OctaApp {
     /// closed. Fills null / empty cells in one column using the chosen strategy
     /// (see `src/app/dialogs/impute.rs`).
     pub(crate) impute_dialog: Option<ImputeState>,
-    /// Active Drop-duplicate-rows dialog state, or `None` when closed. Removes
-    /// duplicate rows from the active tab in place (see
-    /// `src/app/dialogs/dedupe.rs`).
-    pub(crate) dedupe_dialog: Option<DedupeState>,
     /// Active Detect-outliers dialog state, or `None` when closed. Flags
     /// numeric outlier cells in the active tab (see `src/app/dialogs/outliers.rs`).
     pub(crate) outlier_dialog: Option<OutlierState>,

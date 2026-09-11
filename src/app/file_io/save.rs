@@ -494,7 +494,13 @@ impl OctaApp {
                 let mut opts = self.settings.write_options.clone();
                 let include = style_decision.unwrap_or(opts.xlsx.include_formatting);
                 opts.xlsx.include_formatting = include;
-                opts.style = include.then(|| self.tab_table_style(tab_idx)).flatten();
+                // The style travels either way: column widths and validation
+                // rules are carried on every save, and `TableStyle::formatting`
+                // tells the writer whether the decoration goes with them.
+                opts.style = self.tab_table_style(tab_idx).map(|mut s| {
+                    s.formatting = include;
+                    s
+                });
 
                 let tab = &mut self.tabs[tab_idx];
                 // DB schema-change detection (only DB tabs have db_meta).
@@ -690,6 +696,10 @@ impl OctaApp {
             conditional: tab.conditional_format_rules.clone(),
             number_formats: tab.column_number_formats.clone(),
             frozen_cols: tab.table_state.frozen_cols,
+            col_widths: tab.table_state.col_widths.clone(),
+            validation: tab.validation_rules.clone(),
+            // The caller decides; the snapshot itself carries no opinion.
+            formatting: false,
         })
     }
 

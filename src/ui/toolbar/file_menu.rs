@@ -37,6 +37,14 @@ pub(super) fn file_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 ui.close();
             }
             if ui
+                .button(crate::i18n::t("file_menu.new_table"))
+                .on_hover_text(crate::i18n::t("file_menu.new_table_hint"))
+                .clicked()
+            {
+                action.new_table = true;
+                ui.close();
+            }
+            if ui
                 .button(crate::i18n::t("common.open"))
                 .on_hover_text(crate::i18n::t("file_menu.open_hint"))
                 .clicked()

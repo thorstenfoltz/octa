@@ -81,7 +81,7 @@ mod view_enums;
 
 pub use cell_value::{
     BinaryDisplayMode, CellValue, can_convert_value, cmp_cell_values, convert_value,
-    is_numeric_data_type, wildcard_to_regex,
+    is_numeric_data_type, timestamp_timezone, wildcard_to_regex,
 };
 pub use marks::{MarkColor, MarkKey};
 pub use undo::UndoAction;

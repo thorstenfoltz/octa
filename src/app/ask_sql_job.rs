@@ -27,7 +27,26 @@ impl OctaApp {
         let Some(tab) = self.tabs.get(tab_idx) else {
             return;
         };
-        if tab.table.col_count() == 0 {
+        // Everything the prompt can describe counts, not just the tab's own
+        // table: an empty tab whose workspace has a server ATTACHed is exactly
+        // the case this box is for. Mirrors the button's own gate in
+        // `view_modes::sql`.
+        let workspace_tables: Vec<(String, Vec<(String, String)>)> = tab
+            .sql_workspace
+            .as_ref()
+            .map(|ws| {
+                ws.schema_overview(ask_sql::MAX_WORKSPACE_TABLES)
+                    .into_iter()
+                    .map(|(name, cols)| {
+                        (
+                            name,
+                            cols.into_iter().map(|c| (c.name, c.data_type)).collect(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if tab.table.col_count() == 0 && workspace_tables.is_empty() {
             self.status_message = Some((
                 octa::i18n::t("sql.ask_no_columns"),
                 std::time::Instant::now(),
@@ -99,7 +118,12 @@ impl OctaApp {
             _ => None,
         };
 
-        let profile_id = self.settings.chat_active_profile.clone();
+        // The tab's own Ask profile, picked in the combo beside the box. It
+        // is seeded from `chat_active_profile`, so an untouched tab still
+        // asks whatever the chat panel is set to.
+        // `tab_idx`, not `active_tab`: the rest of this function already
+        // reads the tab the question was typed on, and they must not diverge.
+        let profile_id = self.tabs[tab_idx].sql_ask_profile.clone();
         let Some(profile) = self
             .settings
             .chat_profiles
@@ -134,9 +158,16 @@ impl OctaApp {
         );
         let provider_kind = profile.kind;
 
-        // Snapshot the schema, not the table.
+        // Snapshot the schema, not the table. `total_rows` is the file's own
+        // size; `row_count()` is whatever is loaded, which for a live database
+        // tab is one page. Sending a page size as a table size told the model
+        // a 40-million-row table had 100,000 rows, so send nothing instead.
         let columns = tab.table.columns.clone();
-        let row_count = tab.table.row_count();
+        let row_count = tab.table.total_rows.or(if tab.db_origin.is_some() {
+            None
+        } else {
+            Some(tab.table.row_count())
+        });
 
         let slot: Arc<Mutex<Option<Result<String, String>>>> = Arc::new(Mutex::new(None));
         self.ask_sql_job = Some(AskSqlJob {
@@ -147,6 +178,10 @@ impl OctaApp {
         let ctx = ctx.clone();
         let cache = self.db_conn_cache.clone();
         let settings = self.settings.clone();
+        // The Ask boxes are real API requests and were the one thing the token
+        // meter never saw, which is what made it look as if tool traffic was
+        // being left out. Same shared state `agent.rs` adds to.
+        let session = std::sync::Arc::clone(&self.chat.session);
         std::thread::spawn(move || {
             // Two catalog queries, no table data, on the connection the tab
             // already uses. It runs here rather than on the UI thread because
@@ -177,15 +212,28 @@ impl OctaApp {
                 .unwrap_or_default();
             let provider = providers::make_provider(provider_kind);
             let cancel = AtomicBool::new(false);
-            let system = ask_sql::build_prompt(
-                &table_name,
-                &dialect,
-                &columns,
+            let facts = ask_sql::AskSqlFacts {
+                table_name,
+                dialect,
+                columns,
                 row_count,
-                &related,
+                related,
+                workspace: ask_sql::workspace_block(&workspace_tables),
+            };
+            let system = ask_sql::build_prompt(&facts, &question);
+            let mut usage = (0u32, 0u32);
+            let outcome = ask_sql::ask(
+                provider.as_ref(),
+                &cfg,
+                &system,
                 &question,
+                &cancel,
+                &mut usage,
             );
-            let outcome = ask_sql::ask(provider.as_ref(), &cfg, &system, &question, &cancel);
+            if let Ok(mut s) = session.lock() {
+                s.input_tokens = s.input_tokens.saturating_add(usage.0);
+                s.output_tokens = s.output_tokens.saturating_add(usage.1);
+            }
             if let Ok(mut g) = slot.lock() {
                 *g = Some(outcome);
             }

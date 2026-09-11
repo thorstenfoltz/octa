@@ -155,6 +155,9 @@ pub enum ParseScope {
 #[derive(Default)]
 pub struct ToolbarAction {
     pub new_file: bool,
+    /// Open the New-table dialog (a blank editable grid in a new tab).
+    /// Fired by **File -> New Table...**.
+    pub new_table: bool,
     pub open_file: bool,
     /// User picked **View -> Reopen as -> <format>**: re-read the active tab's
     /// file through the named reader, for a file whose extension lies about its
@@ -344,11 +347,8 @@ pub struct ToolbarAction {
     /// Open the Fill-missing-values (impute) dialog for the active table.
     /// Fired by **Edit -> Fill missing values...**.
     pub open_impute: bool,
-    /// Open the Drop-duplicate-rows dialog for the active table.
-    /// Fired by **Edit -> Drop duplicate rows...**.
-    pub open_dedupe: bool,
     /// Open the Find-near-duplicates (fuzzy) dialog for the active table.
-    /// Fired by **Search -> Find near-duplicates...**.
+    /// Fired by **Data -> Find near-duplicates...**.
     pub open_fuzzy_duplicates: bool,
     /// Open the Partition-by-column dialog. Fired by **Analyse -> Partition by column...**.
     pub open_partition: bool,
@@ -399,6 +399,9 @@ pub struct ToolbarAction {
     /// Wired to the Edit menu entry (the Ctrl+Shift+W shortcut is handled
     /// separately in `shortcuts_dispatch`).
     pub fit_all_columns: bool,
+    /// Give every row the height its content needs (turns cell line breaks
+    /// on). Fired by **Edit -> Auto-fit All Rows**.
+    pub fit_all_rows: bool,
     /// User clicked View -> Compare with...  The app shell opens a file
     /// picker, loads the picked file as the right side, and flips the
     /// active tab into `ViewMode::Compare`.

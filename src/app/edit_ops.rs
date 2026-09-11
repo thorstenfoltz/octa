@@ -59,6 +59,28 @@ impl OctaApp {
         }
     }
 
+    /// Edit > Auto-fit All Rows: every row of the active table takes the
+    /// height its content needs, the row-side twin of Auto-fit All Columns.
+    /// Fitting means wrapping, so cell line breaks go on if they are off.
+    pub(crate) fn fit_all_rows(&mut self) {
+        self.enable_cell_line_breaks();
+        self.tabs[self.active_tab].table_state.fit_all_rows();
+    }
+
+    /// Switch Settings > Table > cell line breaks on (persisted, like the
+    /// checkbox) and re-measure every tab, since each one's cached row
+    /// offsets assumed single-line cells. No-op when already on.
+    pub(crate) fn enable_cell_line_breaks(&mut self) {
+        if self.settings.cell_line_breaks {
+            return;
+        }
+        self.settings.cell_line_breaks = true;
+        self.settings.save();
+        for tab in &mut self.tabs {
+            tab.table_state.invalidate_row_heights();
+        }
+    }
+
     pub(crate) fn duplicate_selected_rows(&mut self) {
         let tab = &mut self.tabs[self.active_tab];
         if tab.table.col_count() == 0 {

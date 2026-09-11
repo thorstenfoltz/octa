@@ -280,7 +280,7 @@ fn pg_type(data_type: &str) -> String {
                 // TIME ZONE; Arrow's Timestamp has the same dichotomy via the
                 // tz parameter ("Timestamp(Microsecond, Some(\"UTC\"))" vs
                 // "...None"). Cheap check for "None" / "Some".
-                if other.contains("None") {
+                if super::super::timestamp_timezone(other).is_none() {
                     "TIMESTAMP".to_string()
                 } else {
                     "TIMESTAMPTZ".to_string()
@@ -364,7 +364,7 @@ fn mssql_type(data_type: &str) -> String {
         "Binary" | "LargeBinary" => "VARBINARY(MAX)".to_string(),
         other => {
             if other.starts_with("Timestamp") {
-                if other.contains("None") {
+                if super::super::timestamp_timezone(other).is_none() {
                     "DATETIME2".to_string()
                 } else {
                     "DATETIMEOFFSET".to_string()
@@ -403,7 +403,7 @@ fn databricks_type(data_type: &str) -> String {
                 // TIMESTAMP is zoned (session tz); TIMESTAMP_NTZ is the
                 // wall-clock type. Map the tz-less Arrow timestamp to
                 // TIMESTAMP_NTZ, the zoned one to TIMESTAMP.
-                if other.contains("None") {
+                if super::super::timestamp_timezone(other).is_none() {
                     "TIMESTAMP_NTZ".to_string()
                 } else {
                     "TIMESTAMP".to_string()
@@ -440,7 +440,7 @@ fn snowflake_type(data_type: &str) -> String {
         other => {
             if other.starts_with("Timestamp") {
                 // TIMESTAMP_NTZ = no time zone, TIMESTAMP_TZ = tz-aware.
-                if other.contains("None") {
+                if super::super::timestamp_timezone(other).is_none() {
                     "TIMESTAMP_NTZ".to_string()
                 } else {
                     "TIMESTAMP_TZ".to_string()
@@ -505,7 +505,7 @@ fn oracle_type(data_type: &str) -> String {
         // column that receives them is text, not a BLOB.
         "Binary" | "LargeBinary" => "VARCHAR2(4000) /* binary as hex text */".to_string(),
         other if other.starts_with("Timestamp") => {
-            if other.contains("None") {
+            if super::super::timestamp_timezone(other).is_none() {
                 "TIMESTAMP".to_string()
             } else {
                 "TIMESTAMP WITH TIME ZONE".to_string()
@@ -532,7 +532,7 @@ fn trino_type(data_type: &str) -> String {
         "Date32" | "Date64" => "DATE".to_string(),
         "Binary" | "LargeBinary" => "VARBINARY".to_string(),
         other if other.starts_with("Timestamp") => {
-            if other.contains("None") {
+            if super::super::timestamp_timezone(other).is_none() {
                 "TIMESTAMP(6)".to_string()
             } else {
                 "TIMESTAMP(6) WITH TIME ZONE".to_string()
@@ -693,6 +693,52 @@ mod tests {
         assert_eq!(oracle_type("Boolean"), "NUMBER(1)");
         assert_eq!(oracle_type("Utf8"), "VARCHAR2(4000)");
         assert_eq!(oracle_type("Timestamp(Microsecond, None)"), "TIMESTAMP");
+    }
+
+    /// A naive timestamp must export as a naive column in every dialect that
+    /// has both, whatever spelling the reader used for it.
+    ///
+    /// The regression: the zoned test was `contains("None")`, which is a fact
+    /// about one spelling rather than about the type. Parquet and Arrow IPC
+    /// name a naive column `Timestamp(us)` (Arrow's own Display omits the
+    /// `None`) and ORC names it plain `Timestamp`, so all three exported as
+    /// TIMESTAMPTZ / DATETIMEOFFSET / TIMESTAMP_TZ - a timezone the data
+    /// never had, attached by a CREATE TABLE the user would then load into.
+    #[test]
+    fn a_naive_timestamp_never_exports_as_a_zoned_column() {
+        // Every spelling of "timestamp, no zone" that reaches this module.
+        for naive in [
+            "Timestamp(Microsecond, None)",
+            "Timestamp(\u{b5}s)",
+            "Timestamp(ms)",
+            "Timestamp",
+        ] {
+            assert_eq!(pg_type(naive), "TIMESTAMP", "postgres, {naive}");
+            assert_eq!(mssql_type(naive), "DATETIME2", "mssql, {naive}");
+            assert_eq!(snowflake_type(naive), "TIMESTAMP_NTZ", "snowflake, {naive}");
+            assert_eq!(oracle_type(naive), "TIMESTAMP", "oracle, {naive}");
+            assert_eq!(trino_type(naive), "TIMESTAMP(6)", "trino, {naive}");
+        }
+
+        // And a zoned one still exports zoned, in both spellings.
+        for zoned in [
+            "Timestamp(Microsecond, Some(\"Europe/Brussels\"))",
+            "Timestamp(\u{b5}s, \"Europe/Brussels\")",
+        ] {
+            assert_eq!(pg_type(zoned), "TIMESTAMPTZ", "postgres, {zoned}");
+            assert_eq!(mssql_type(zoned), "DATETIMEOFFSET", "mssql, {zoned}");
+            assert_eq!(snowflake_type(zoned), "TIMESTAMP_TZ", "snowflake, {zoned}");
+            assert_eq!(
+                oracle_type(zoned),
+                "TIMESTAMP WITH TIME ZONE",
+                "oracle, {zoned}"
+            );
+            assert_eq!(
+                trino_type(zoned),
+                "TIMESTAMP(6) WITH TIME ZONE",
+                "trino, {zoned}"
+            );
+        }
     }
 
     #[test]

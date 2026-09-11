@@ -162,6 +162,8 @@ pub fn parse_reply(reply: &str, columns: &[ColumnInfo]) -> Result<AskResult, Str
 
 /// Run one request against `provider` and parse the reply. Blocking: callers
 /// run it on a worker thread, like every other network call in the app.
+/// `usage` accumulates what the provider says this request cost; see the note
+/// on [`super::ask_sql::ask`] for why it is an out-parameter.
 pub fn ask(
     provider: &dyn ChatProvider,
     cfg: &ProviderConfig,
@@ -169,14 +171,21 @@ pub fn ask(
     row_count: usize,
     question: &str,
     cancel: &AtomicBool,
+    usage: &mut (u32, u32),
 ) -> Result<AskResult, String> {
     let system = build_prompt(columns, row_count, question);
     let messages = vec![Message::user_text(question)];
     let mut reply = String::new();
-    provider.stream_turn(cfg, &system, &messages, &[], cancel, &mut |ev| {
-        if let ChatEvent::TextDelta(chunk) = ev {
-            reply.push_str(&chunk);
+    provider.stream_turn(cfg, &system, &messages, &[], cancel, &mut |ev| match ev {
+        ChatEvent::TextDelta(chunk) => reply.push_str(&chunk),
+        ChatEvent::Usage {
+            input_tokens,
+            output_tokens,
+        } => {
+            usage.0 = usage.0.saturating_add(input_tokens);
+            usage.1 = usage.1.saturating_add(output_tokens);
         }
+        _ => {}
     })?;
     if reply.trim().is_empty() {
         return Err("the assistant returned nothing".to_string());

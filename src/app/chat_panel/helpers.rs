@@ -44,7 +44,16 @@ pub(crate) fn current_at_prefix(text: &str, cursor_byte: usize) -> Option<(usize
 }
 
 /// Render one persisted message as bubbles + tool disclosure rows.
-pub(crate) fn render_message(ui: &mut egui::Ui, msg: &crate::app::chat::types::Message) {
+///
+/// `markdown` renders assistant prose through the app's Markdown renderer.
+/// Tool arguments and results stay verbatim monospace either way: those are
+/// JSON, and running JSON through a Markdown parser would eat its own
+/// punctuation.
+pub(crate) fn render_message(
+    ui: &mut egui::Ui,
+    msg: &crate::app::chat::types::Message,
+    markdown: bool,
+) {
     use crate::app::chat::types::{ContentBlock, Role};
     for block in &msg.blocks {
         match block {
@@ -56,7 +65,7 @@ pub(crate) fn render_message(ui: &mut egui::Ui, msg: &crate::app::chat::types::M
                     Role::Assistant => (t("chat.assistant"), false),
                     _ => (t("chat.you"), true),
                 };
-                bubble(ui, who, text, user);
+                bubble(ui, who, text, user, markdown);
             }
             ContentBlock::ToolUse { name, input, .. } => {
                 egui::CollapsingHeader::new(format!("{} {name}", t("chat.tool_call")))
@@ -140,14 +149,40 @@ fn ascii_glyphs(s: &str) -> std::borrow::Cow<'_, str> {
     std::borrow::Cow::Owned(out)
 }
 
-/// A simple speaker-labelled text block.
-pub(crate) fn bubble(ui: &mut egui::Ui, who: String, text: &str, user: bool) {
+/// A speaker-labelled text block. Assistant prose is rendered as Markdown when
+/// `markdown` is set; the user's own message never is, since they typed it and
+/// should see it back as typed.
+///
+/// ponytail: with Markdown on, the whole-block right-click Copy moves to the
+/// speaker label rather than covering the body. A click-sensing rectangle laid
+/// over the rendered text would be registered after the paragraphs and would
+/// therefore swallow clicks on the links inside them (the same hit-test rule
+/// the window resize strips document). Selecting text and pressing Ctrl+C is
+/// unaffected and is the path that matters.
+pub(crate) fn bubble(ui: &mut egui::Ui, who: String, text: &str, user: bool, markdown: bool) {
     ui.add_space(4.0);
     let color = if user {
         egui::Color32::from_rgb(0x30, 0x70, 0xc0)
     } else {
         egui::Color32::from_rgb(0x30, 0x90, 0x50)
     };
+    if !user && markdown {
+        let label =
+            egui::Label::new(egui::RichText::new(who).color(color)).sense(egui::Sense::click());
+        ui.add(label).context_menu(|ui| {
+            if ui.button(t("chat.copy")).clicked() {
+                // The source, not the rendering: what the user wants back is
+                // the Markdown they can paste somewhere that understands it.
+                ui.ctx().copy_text(text.to_string());
+                ui.close();
+            }
+        });
+        // `ascii_glyphs` first, exactly as the plain path does: the bundled
+        // fonts have no arrows or typographic punctuation, and a rendered
+        // heading full of tofu is no better than a raw one.
+        crate::view_modes::markdown::render_pulldown(ui, &ascii_glyphs(text), None);
+        return;
+    }
     ui.colored_label(color, who);
     copyable_text(ui, text, false);
 }

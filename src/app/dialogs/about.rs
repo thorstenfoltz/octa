@@ -73,7 +73,7 @@ pub(crate) fn render_about_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         .title_bar(false)
         .collapsible(false)
         .default_pos(default_pos);
-    let window = size_dialog_window(ctx, dialog_id, size, window, |w| w.resizable(false));
+    let window = size_dialog_window(ctx, dialog_id, size, window, |w| w.resizable(true));
 
     let inner = window.show(ctx, |ui| {
         egui::Panel::top("about_header")
