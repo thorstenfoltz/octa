@@ -107,7 +107,10 @@ impl FormatReader for DuckDbReader {
             }
         }
 
-        // INSERT / UPDATE per current row.
+        // INSERT / UPDATE per current row. The cells of a zoned column hold
+        // the session's wall clock (that is what the reader wrote), so the
+        // writer has to hand the instant back rather than the clock reading.
+        let write_zones = column_zones(&table.columns);
         let next_id: i64 = tx
             .query_row(
                 &format!("SELECT COALESCE(MAX({ROW_ID_COL}), 0) + 1 FROM {table_name}"),
@@ -134,8 +137,11 @@ impl FormatReader for DuckDbReader {
                         col_idents.join(", "),
                         placeholders.join(", ")
                     );
-                    let mut params: Vec<duckdb::types::Value> =
-                        row_vals.iter().map(cell_to_duckdb_value).collect();
+                    let mut params: Vec<duckdb::types::Value> = row_vals
+                        .iter()
+                        .zip(&write_zones)
+                        .map(|(v, tz)| cell_to_duckdb_value_tz(v, tz.as_deref()))
+                        .collect();
                     params.push(duckdb::types::Value::BigInt(next_id));
                     new_tags.push(Some(next_id));
                     next_id += 1;
@@ -160,8 +166,11 @@ impl FormatReader for DuckDbReader {
                         "UPDATE {table_name} SET {} WHERE {ROW_ID_COL} = ?",
                         assignments.join(", ")
                     );
-                    let mut params: Vec<duckdb::types::Value> =
-                        row_vals.iter().map(cell_to_duckdb_value).collect();
+                    let mut params: Vec<duckdb::types::Value> = row_vals
+                        .iter()
+                        .zip(&write_zones)
+                        .map(|(v, tz)| cell_to_duckdb_value_tz(v, tz.as_deref()))
+                        .collect();
                     params.push(duckdb::types::Value::BigInt(*tag));
                     tx.execute(&sql, duckdb::params_from_iter(params))?;
                 }
@@ -226,12 +235,13 @@ impl FormatReader for DuckDbReader {
         let mut row_tags: Vec<Option<i64>> = Vec::new();
         let mut original: HashMap<i64, Vec<CellValue>> = HashMap::new();
 
+        let zones = column_zones(&columns);
         let mut q = stmt.query([])?;
         while let Some(r) = q.next()? {
             let tag: i64 = r.get(0)?;
             let mut row: Vec<CellValue> = Vec::with_capacity(col_count);
-            for i in 0..col_count {
-                let v = duckdb_value_to_cell(r.get_ref(i + 1)?);
+            for (i, tz) in zones.iter().enumerate() {
+                let v = duckdb_value_to_cell_tz(r.get_ref(i + 1)?, tz.as_deref());
                 row.push(v);
             }
             original.insert(tag, row.clone());
@@ -307,6 +317,7 @@ fn list_user_tables(path: &Path) -> Result<Vec<TableInfo>> {
 }
 
 fn read_table_columns(conn: &Connection, schema: &str, table: &str) -> Result<Vec<ColumnInfo>> {
+    let session_tz = duckdb_session_timezone(conn);
     let mut stmt = conn.prepare(
         "SELECT column_name, data_type FROM information_schema.columns \
          WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position",
@@ -317,7 +328,7 @@ fn read_table_columns(conn: &Connection, schema: &str, table: &str) -> Result<Ve
             let ty: String = r.get(1)?;
             Ok(ColumnInfo {
                 name,
-                data_type: duckdb_type_to_arrow(&ty),
+                data_type: duckdb_type_to_arrow(&ty, session_tz.as_deref()),
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -379,7 +390,55 @@ fn arrow_to_duckdb_type(arrow: &str) -> &'static str {
     }
 }
 
-pub(crate) fn duckdb_type_to_arrow(ty: &str) -> String {
+/// The session timezone a DuckDB connection renders `TIMESTAMPTZ` in.
+///
+/// DuckDB stores a `TIMESTAMPTZ` as a UTC instant and picks the wall clock to
+/// show it on from this setting, which defaults to the machine's zone. Octa
+/// reads the raw instant, so it has to ask for the setting explicitly to show
+/// the same clock the DuckDB CLI would. Asking is also the only reliable way:
+/// the ICU extension applies the zone lazily, so DuckDB's *own* rendering of
+/// the very first statement on a fresh connection can still come out in UTC.
+///
+/// `None` when the setting cannot be read, which leaves the column naive
+/// rather than inventing a zone for it.
+pub(crate) fn duckdb_session_timezone(conn: &Connection) -> Option<String> {
+    conn.query_row("SELECT current_setting('TimeZone')", [], |r| {
+        r.get::<_, String>(0)
+    })
+    .ok()
+    .filter(|tz| !tz.trim().is_empty())
+}
+
+/// Make DuckDB apply its session timezone before anything reads a column type.
+///
+/// The ICU extension installs the zone lazily: on a connection nothing has
+/// asked yet, the first statement reports a `TIMESTAMPTZ` column as
+/// `Timestamp(us, "UTC")` and renders it in UTC, and every statement after
+/// that reports the real zone. Reading the setting is what triggers it, so a
+/// connection that will hand out column types asks once up front and the
+/// answer stops depending on statement order.
+pub(crate) fn warm_session_timezone(conn: &Connection) {
+    let _ = duckdb_session_timezone(conn);
+}
+
+/// The timezone of each column, by index, read back out of the type strings.
+/// `None` for every column that is not a zoned timestamp.
+pub(crate) fn column_zones(columns: &[ColumnInfo]) -> Vec<Option<String>> {
+    columns
+        .iter()
+        .map(|c| {
+            crate::formats::parquet_reader::timestamp_tz_from_type_name(&c.data_type)
+                .map(str::to_string)
+        })
+        .collect()
+}
+
+/// Map a DuckDB type name onto Octa's column-type vocabulary.
+///
+/// `session_tz` names the zone a `TIMESTAMP WITH TIME ZONE` column is shown
+/// in; it goes into the type string so the header says which clock the values
+/// are on, and so the reader and writer can both find it again.
+pub(crate) fn duckdb_type_to_arrow(ty: &str, session_tz: Option<&str>) -> String {
     let upper = ty.to_uppercase();
     if upper.contains("BIGINT")
         || upper.contains("INTEGER")
@@ -403,13 +462,17 @@ pub(crate) fn duckdb_type_to_arrow(ty: &str) -> String {
     } else if upper.contains("DATE") && !upper.contains("TIME") {
         "Date32".into()
     } else if upper.contains("TIMESTAMP") || upper.contains("DATETIME") {
-        "Timestamp(Microsecond, None)".into()
+        match session_tz.filter(|_| upper.contains("WITH TIME ZONE")) {
+            Some(tz) => format!("Timestamp(Microsecond, Some({tz:?}))"),
+            None => "Timestamp(Microsecond, None)".into(),
+        }
     } else {
         "Utf8".into()
     }
 }
 
-pub(crate) fn duckdb_value_to_cell(v: ValueRef<'_>) -> CellValue {
+/// As [`duckdb_value_to_cell`], reading a timestamp on `tz`'s wall clock.
+pub(crate) fn duckdb_value_to_cell_tz(v: ValueRef<'_>, tz: Option<&str>) -> CellValue {
     use duckdb::types::ValueRef as V;
     match v {
         V::Null => CellValue::Null,
@@ -426,7 +489,7 @@ pub(crate) fn duckdb_value_to_cell(v: ValueRef<'_>) -> CellValue {
         V::Float(f) => CellValue::Float(f as f64),
         V::Double(f) => CellValue::Float(f),
         V::Decimal(d) => CellValue::String(d.to_string()),
-        V::Timestamp(unit, ts) => duckdb_timestamp_to_cell(unit, ts),
+        V::Timestamp(unit, ts) => duckdb_timestamp_to_cell_tz(unit, ts, tz),
         V::Text(t) => match std::str::from_utf8(t) {
             Ok(s) => CellValue::String(s.to_string()),
             Err(_) => CellValue::Binary(t.to_vec()),
@@ -472,9 +535,28 @@ pub(crate) fn duckdb_date32_to_cell(d: i32) -> CellValue {
 /// Falls back to the raw number on out-of-range values. Shared with the SQL
 /// engine's result converter (`src/sql/engine.rs`).
 pub(crate) fn duckdb_timestamp_to_cell(unit: duckdb::types::TimeUnit, ts: i64) -> CellValue {
+    duckdb_timestamp_to_cell_tz(unit, ts, None)
+}
+
+/// As [`duckdb_timestamp_to_cell`], read on `tz`'s wall clock.
+///
+/// A `TIMESTAMPTZ` is a UTC instant; showing it in UTC while the connection
+/// renders it in `Europe/Berlin` puts Octa two hours away from what every
+/// other DuckDB client shows for the same row. `None` keeps the value exactly
+/// as stored, which is right for a plain `TIMESTAMP`.
+pub(crate) fn duckdb_timestamp_to_cell_tz(
+    unit: duckdb::types::TimeUnit,
+    ts: i64,
+    tz: Option<&str>,
+) -> CellValue {
     let (secs, nanos) = duckdb_unit_to_secs_nanos(unit, ts);
-    match chrono::DateTime::from_timestamp(secs, nanos) {
-        Some(dt) => CellValue::DateTime(dt.naive_utc().format("%Y-%m-%d %H:%M:%S%.f").to_string()),
+    match crate::formats::parquet_reader::arrow_instant_to_local(
+        secs,
+        nanos,
+        tz,
+        "%Y-%m-%d %H:%M:%S%.f",
+    ) {
+        Some(s) => CellValue::DateTime(s),
         None => CellValue::String(ts.to_string()),
     }
 }
@@ -492,19 +574,48 @@ pub(crate) fn duckdb_time_to_cell(unit: duckdb::types::TimeUnit, t: i64) -> Cell
     }
 }
 
-fn cell_to_duckdb_value(v: &CellValue) -> duckdb::types::Value {
+/// Bind one cell, spelling a zoned datetime so its instant cannot move.
+///
+/// The reader shows a `TIMESTAMPTZ` on the session's clock, so the writer has
+/// to convert back out of that zone. It then writes the offset explicitly
+/// (`...+00:00`) rather than handing DuckDB a bare wall clock: a bare string
+/// is parsed against the session timezone, and the ICU extension applies that
+/// setting lazily, so the same edit could land on a different instant
+/// depending on whether anything had warmed the connection up first.
+fn cell_to_duckdb_value_tz(v: &CellValue, tz: Option<&str>) -> duckdb::types::Value {
     use duckdb::types::Value;
     match v {
         CellValue::Null => Value::Null,
         CellValue::Bool(b) => Value::Boolean(*b),
         CellValue::Int(n) => Value::BigInt(*n),
         CellValue::Float(f) => Value::Double(*f),
-        CellValue::String(s)
-        | CellValue::Date(s)
-        | CellValue::DateTime(s)
-        | CellValue::Nested(s) => Value::Text(s.clone()),
+        CellValue::DateTime(s) => match tz.and_then(|tz| local_datetime_to_utc_text(s, tz)) {
+            Some(utc) => Value::Text(utc),
+            None => Value::Text(s.clone()),
+        },
+        CellValue::String(s) | CellValue::Date(s) | CellValue::Nested(s) => Value::Text(s.clone()),
         CellValue::Binary(b) => Value::Blob(b.clone()),
     }
+}
+
+/// Read a displayed datetime on `tz`'s clock and spell it back as UTC with an
+/// explicit offset. `None` when the text is not a datetime Octa wrote, which
+/// leaves the original string for DuckDB to interpret as it always did.
+fn local_datetime_to_utc_text(s: &str, tz: &str) -> Option<String> {
+    use chrono::TimeZone;
+    let zone: chrono_tz::Tz = tz.trim().parse().ok()?;
+    let naive = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S"))
+        .ok()?;
+    // Earliest reading for the hour that happens twice, same as every other
+    // timezone path in Octa.
+    let instant = zone.from_local_datetime(&naive).earliest()?;
+    Some(
+        instant
+            .naive_utc()
+            .format("%Y-%m-%d %H:%M:%S%.f+00:00")
+            .to_string(),
+    )
 }
 
 /// Make the DB table's user columns match `target` by dropping columns that are

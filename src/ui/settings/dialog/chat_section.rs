@@ -697,6 +697,12 @@ impl SettingsDialog {
                     .on_hover_text(crate::i18n::t("settings_hint.backup_before_modify"));
                 ui.end_row();
 
+                ui.label(crate::i18n::t("chat.render_markdown"))
+                    .on_hover_text(crate::i18n::t("settings_hint.chat_render_markdown"));
+                ui.checkbox(&mut self.draft.chat_render_markdown, "")
+                    .on_hover_text(crate::i18n::t("settings_hint.chat_render_markdown"));
+                ui.end_row();
+
                 ui.label(crate::i18n::t("chat.audit_log"))
                     .on_hover_text(crate::i18n::t("settings_hint.chat_audit_log"));
                 ui.checkbox(&mut self.draft.chat_audit_log_enabled, "")

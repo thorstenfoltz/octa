@@ -84,8 +84,18 @@ pub struct SqlAction {
     pub open_snippets_window: bool,
     /// User clicked **Cancel** on an in-flight "Run on server" query.
     pub cancel_server: bool,
-    /// User picked a saved live-database connection to ATTACH (its id).
-    pub attach_db_connection: Option<String>,
+    /// User picked what to attach from a saved live-database connection:
+    /// `(connection id, which part of the server)`. The scope is empty for a
+    /// whole two-level server and carries whatever the user drilled into.
+    pub attach_db_connection: Option<(String, octa::sql::AttachScope)>,
+    /// Node whose children the attach menu needs: `(connection id, path below
+    /// the connection root)`. Fetched in the background; the menu shows
+    /// "Loading..." until it lands.
+    pub list_db_node: Option<(String, Vec<String>)>,
+    /// Cloud connection whose object picker should open.
+    pub attach_cloud_connection: Option<String>,
+    /// User renamed a workspace table in place: `(current name, new name)`.
+    pub rename_table: Option<(String, String)>,
 }
 
 /// Persistent id of the SQL editor TextEdit. Exposed so the global keyboard
@@ -268,11 +278,49 @@ pub struct SqlViewContext<'a> {
     pub server_conn_name: Option<String>,
     /// Whether a "Run on server" query is currently in flight.
     pub server_running: bool,
-    /// Saved live-database connections as (id, name), for the attach menu.
-    pub db_connections: Vec<(String, String)>,
+    /// Saved live-database connections, for the attach menu.
+    pub db_connections: Vec<DbAttachEntry>,
+    /// Saved cloud connections as (id, name), for the cloud attach menu.
+    pub cloud_connections: Vec<(String, String)>,
     /// Whether at least one chat profile is configured, so the Ask box can be
     /// offered. Passed in because the view layer does not read settings.
     pub chat_profile_available: bool,
+    /// Configured chat profiles as (id, name), for the Ask box's picker.
+    pub ask_profiles: Vec<(String, String)>,
+}
+
+/// One saved live-database connection as the attach menu needs it.
+#[derive(Clone)]
+pub struct DbAttachEntry {
+    pub id: String,
+    pub name: String,
+    /// `None` for an engine DuckDB attaches natively (Postgres, MySQL,
+    /// Redshift): one click attaches the whole server and nothing is copied.
+    /// `Some` for the import engines, where every attached table is fetched
+    /// and the menu therefore drills `[catalog ->] schema -> table` so only
+    /// the picked part is imported - see `SqlWorkspace::attach_db`.
+    pub drill: Option<DrillMenu>,
+}
+
+/// What the attach menu needs to walk one import connection's tree.
+#[derive(Clone)]
+pub struct DrillMenu {
+    /// Three-level engine (Trino, Snowflake, Databricks, BigQuery): the first
+    /// level is catalogs, not schemas.
+    pub has_catalogs: bool,
+    /// Listings by node path below the connection root (`[]` = the root),
+    /// mirrored from the sidebar's shared cache so the menu reuses the same
+    /// background fetch instead of blocking the interface thread on a network
+    /// call. A path that is absent has not been asked for yet.
+    pub nodes: std::collections::HashMap<Vec<String>, NodeListing>,
+}
+
+/// State of one node's listing in [`DrillMenu::nodes`].
+#[derive(Clone)]
+pub enum NodeListing {
+    Loading,
+    Ready(Vec<String>),
+    Failed(String),
 }
 
 /// Render a split-pane SQL editor (top) and result table (bottom).
@@ -294,6 +342,39 @@ fn result_rows_label(rows: usize, took_ms: Option<u64>) -> String {
         Some(ms) => format!("{counted} ({})", format_duration(ms)),
         None => counted,
     }
+}
+
+/// One centre line for the Ask row.
+///
+/// egui centres each widget against the row height known when that widget is
+/// added, so a row of unequal heights lands on as many baselines as it has
+/// sizes. Two things had to be equalised, both measured headlessly (box 9.5,
+/// button 13.5, combo 18.0 before this):
+///
+/// * a `TextEdit`'s margin is fixed while a button's padding comes from the
+///   theme (`button_padding.y` is 5-7px in Octa's themes, against egui's 1),
+///   so the box was 8px shorter than the button beside it. The caller gives
+///   the box `button_padding.y` as its vertical margin.
+/// * `ComboBox` lays its button out inside its own nested `horizontal`, whose
+///   band starts at `interact_size.y` (18) and is then centred inside the
+///   taller outer row, dropping the combo another 4.5px. Pinning
+///   `interact_size.y` to this height is the same trick the main toolbar
+///   already uses (`ui/toolbar/mod.rs`).
+///
+/// Returns the height of a plain button in the current style.
+fn ask_row_height(ui: &egui::Ui) -> f32 {
+    ui.text_style_height(&egui::TextStyle::Button) + 2.0 * ui.spacing().button_padding.y
+}
+
+/// Width for the Ask box: the row it now has to itself, less the Ask button
+/// and (when there is a choice to make) the profile combo beside it.
+///
+/// Clamped at both ends. A panel docked narrow leaves less than the controls
+/// need, and the subtraction goes negative there; a panel across a wide screen
+/// would otherwise hand a single question a 2000px box.
+fn ask_box_width(available: f32, has_profile_combo: bool) -> f32 {
+    let reserved = if has_profile_combo { 230.0 } else { 96.0 };
+    (available - reserved).clamp(160.0, 640.0)
 }
 
 /// A query duration a person can read at a glance: milliseconds while they
@@ -324,7 +405,9 @@ pub fn render_sql_view(
         server_conn_name,
         server_running,
         db_connections,
+        cloud_connections,
         chat_profile_available,
+        ask_profiles,
     } = ctx_args;
     let mut action = SqlAction::default();
     let editor_id = editor_id();
@@ -435,59 +518,6 @@ pub fn render_sql_view(
             action.open_snippets_window = true;
         }
 
-        // Ask: plain language in, one SELECT out, into the editor at the
-        // cursor. Never runs. Disabled with a reason rather than hidden, so
-        // the control explains itself.
-        let has_columns = tab.table.col_count() > 0;
-        let ask_enabled = chat_profile_available && has_columns;
-        let ask_reason = if !chat_profile_available {
-            octa::i18n::t("sql.ask_needs_profile")
-        } else if !has_columns {
-            octa::i18n::t("sql.ask_no_columns")
-        } else {
-            format!(
-                "{}\n\n{}",
-                octa::i18n::t("sql.ask_hint"),
-                octa::i18n::t("sql.ask_keys")
-            )
-        };
-        ui.add_enabled_ui(ask_enabled, |ui| {
-            // Multiline, one row tall to start: a question longer than the box
-            // used to scroll sideways behind itself, unreadable while typing
-            // it. It now grows downwards as the text wraps, and the row of
-            // buttons beside it grows with it.
-            let box_resp = ui
-                .add(
-                    egui::TextEdit::multiline(&mut tab.sql_ask_input)
-                        .desired_rows(1)
-                        .desired_width(220.0)
-                        .hint_text(octa::i18n::t("sql.ask_placeholder")),
-                )
-                .on_hover_text(ask_reason.clone())
-                .on_disabled_hover_text(ask_reason.clone());
-            // Enter sends, Shift+Enter breaks the line - the chord the chat
-            // panel already uses. A multiline box keeps focus on Enter, so
-            // the old `lost_focus()` test would never fire again.
-            let submitted = box_resp.has_focus()
-                && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
-            let clicked = ui
-                .button(octa::i18n::t("sql.ask"))
-                .on_hover_text(ask_reason.clone())
-                .on_disabled_hover_text(ask_reason)
-                .clicked();
-            if submitted || clicked {
-                // The Enter that sent this reached the box first and left its
-                // newline behind. Take it back out: a question the assistant
-                // could not answer stays in the box, and it should stay
-                // exactly as it was typed rather than a line taller.
-                let question = tab.sql_ask_input.trim().to_string();
-                if !question.is_empty() {
-                    tab.sql_ask_input.clone_from(&question);
-                    action.ask = Some(question);
-                }
-            }
-        });
-
         let has_result = tab.sql_result.as_ref().is_some_and(|t| t.col_count() > 0);
         ui.add_enabled_ui(has_result, |ui| {
             if ui
@@ -522,6 +552,105 @@ pub fn render_sql_view(
             }
         });
     });
+
+    // Ask: plain language in, one SELECT out, into the editor at the
+    // cursor. Never runs. Disabled with a reason rather than hidden, so
+    // the control explains itself.
+    // Anything the prompt can describe is enough. The old test was "does
+    // the tab hold a table", which switched Ask off on exactly the tab the
+    // panel exists to support: an empty one whose workspace has a server
+    // ATTACHed. Those tables are describable and queryable; the tab having
+    // no file of its own says nothing about that.
+    let has_schema = tab.table.col_count() > 0
+        || !workspace_tables.is_empty()
+        || !workspace_attachments.is_empty();
+    let ask_enabled = chat_profile_available && has_schema;
+    let ask_reason = if !chat_profile_available {
+        octa::i18n::t("sql.ask_needs_profile")
+    } else if !has_schema {
+        octa::i18n::t("sql.ask_no_columns")
+    } else {
+        format!(
+            "{}\n\n{}",
+            octa::i18n::t("sql.ask_hint"),
+            octa::i18n::t("sql.ask_keys")
+        )
+    };
+    // Its own row, and the box goes in first, for one reason: a horizontal
+    // layout centres each widget against the row height *known when that
+    // widget is added*, and the row grows the moment something taller lands
+    // in it (`Placer::advance_after_rects` -> `expand_to_include_rect`). The
+    // Ask box is a multiline TextEdit and taller than a button, so while it
+    // sat in the toolbar everything after it - Ask, the model combo, Export,
+    // Write to DB, the row count - centred against the grown row and sat
+    // visibly lower than Run, Clear, History and Snippets before it. Nothing
+    // is added ahead of the box here, so there is nothing left to stagger,
+    // and the box may grow as the question wraps without moving anything.
+    ui.horizontal(|ui| {
+        ui.spacing_mut().interact_size.y = ask_row_height(ui);
+        ui.add_enabled_ui(ask_enabled, |ui| {
+            // Multiline, one row tall to start: a question longer than the box
+            // used to scroll sideways behind itself, unreadable while typing
+            // it. It grows downwards as the text wraps. Width comes from the row
+            // now that it has one to itself, less what the controls beside it
+            // need.
+            let box_width = ask_box_width(ui.available_width(), ask_profiles.len() > 1);
+            let pad = ui.spacing().button_padding.y.round() as i8;
+            let box_resp = ui
+                .add(
+                    egui::TextEdit::multiline(&mut tab.sql_ask_input)
+                        .desired_rows(1)
+                        .margin(egui::Margin::symmetric(4, pad))
+                        .desired_width(box_width)
+                        .hint_text(octa::i18n::t("sql.ask_placeholder")),
+                )
+                .on_hover_text(ask_reason.clone())
+                .on_disabled_hover_text(ask_reason.clone());
+            // Enter sends, Shift+Enter breaks the line - the chord the chat
+            // panel already uses. A multiline box keeps focus on Enter, so
+            // the old `lost_focus()` test would never fire again.
+            let submitted = box_resp.has_focus()
+                && ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift);
+            let clicked = ui
+                .button(octa::i18n::t("sql.ask"))
+                .on_hover_text(ask_reason.clone())
+                .on_disabled_hover_text(ask_reason)
+                .clicked();
+            // Which assistant answers, chosen per tab. The same control the
+            // search bar's Ask already has; without it this box could only
+            // ever use whatever the chat panel happened to be set to. One
+            // configured profile means no choice to make, so no combo.
+            if ask_profiles.len() > 1 {
+                let selected = ask_profiles
+                    .iter()
+                    .find(|(id, _)| id == &tab.sql_ask_profile)
+                    .map(|(_, name)| name.clone())
+                    .unwrap_or_default();
+                egui::ComboBox::from_id_salt("sql_ask_profile")
+                    .width(130.0)
+                    .selected_text(selected)
+                    .show_ui(ui, |ui| {
+                        for (id, name) in &ask_profiles {
+                            ui.selectable_value(&mut tab.sql_ask_profile, id.clone(), name);
+                        }
+                    })
+                    .response
+                    .on_hover_text(octa::i18n::t("sql.ask_profile_hint"));
+            }
+            if submitted || clicked {
+                // The Enter that sent this reached the box first and left its
+                // newline behind. Take it back out: a question the assistant
+                // could not answer stays in the box, and it should stay
+                // exactly as it was typed rather than a line taller.
+                let question = tab.sql_ask_input.trim().to_string();
+                if !question.is_empty() {
+                    tab.sql_ask_input.clone_from(&question);
+                    action.ask = Some(question);
+                }
+            }
+        });
+    });
+
     ui.add_space(4.0);
 
     render_workspace_section(
@@ -531,6 +660,7 @@ pub fn render_sql_view(
             tables: workspace_tables,
             attachments: workspace_attachments,
             db_connections: &db_connections,
+            cloud_connections: &cloud_connections,
         },
         inspector_selection,
         inspector_entry,

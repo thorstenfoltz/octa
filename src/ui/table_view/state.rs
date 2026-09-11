@@ -37,6 +37,17 @@ impl TableViewState {
         }
     }
 
+    /// Give every row the height its content needs: drop every hand-set
+    /// height (per row and the `#` corner's uniform one) so the offsets pass
+    /// measures the wrapped cells again. The row-side twin of
+    /// [`Self::fit_all_columns`]; needs cell line breaks on to show anything,
+    /// which the app switches on when it calls this.
+    pub fn fit_all_rows(&mut self) {
+        self.row_heights.clear();
+        self.uniform_row_height = None;
+        self.invalidate_row_heights();
+    }
+
     /// Mark the row-height cache as stale. Call after any change that could
     /// affect row heights: cell edits, column resize, data load, sort, filter,
     /// zoom, undo/redo, row insert/delete.

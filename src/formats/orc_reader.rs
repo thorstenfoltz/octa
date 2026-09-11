@@ -208,7 +208,7 @@ fn arrow_value_to_cell(array: &dyn Array, row: usize) -> CellValue {
                 None => CellValue::String(format!("{ms}")),
             }
         }
-        DataType::Timestamp(unit, _) => {
+        DataType::Timestamp(unit, tz) => {
             let (secs, nsecs) = match unit {
                 TimeUnit::Second => {
                     let a = array
@@ -242,8 +242,16 @@ fn arrow_value_to_cell(array: &dyn Array, row: usize) -> CellValue {
                     (ns / 1_000_000_000, (ns % 1_000_000_000) as u32)
                 }
             };
-            match chrono::DateTime::from_timestamp(secs, nsecs) {
-                Some(dt) => CellValue::DateTime(dt.format("%Y-%m-%d %H:%M:%S%.9f").to_string()),
+            // Read on the clock the type names, not on UTC: the column
+            // header carries the zone, so a UTC value would contradict it.
+            // Shared with the Parquet reader so both cannot drift.
+            match crate::formats::parquet_reader::arrow_instant_to_local(
+                secs,
+                nsecs,
+                tz.as_deref(),
+                "%Y-%m-%d %H:%M:%S%.9f",
+            ) {
+                Some(s) => CellValue::DateTime(s),
                 None => CellValue::String(format!("{secs}")),
             }
         }

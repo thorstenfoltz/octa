@@ -1,4 +1,4 @@
-//! State for the row-level operations: dedupe, impute, outliers, PII,
+//! State for the row-level operations: duplicates, impute, outliers, PII,
 //! union, join, partition and the fuzzy variants.
 //!
 //! One of six files split out of `state/dialogs.rs`, which held 100 top-level
@@ -9,36 +9,6 @@
 //! import churn for no gain. Definitions moved unchanged.
 
 use super::*;
-
-/// State for the "Drop duplicate rows" dialog (Edit -> Drop duplicate rows...).
-/// App-level (operates on the active tab in place). Column references are
-/// indices into the active table's `columns`.
-pub(crate) struct DedupeState {
-    /// Which columns form the duplicate key. Stored as a sorted `Vec` so the
-    /// order is stable across frames. Empty vec means "whole row" (all cols).
-    pub(crate) key_cols: Vec<usize>,
-    /// One bool per column: `true` = included in the key. Kept in sync with
-    /// `key_cols` on every frame so the checkbox list renders without a
-    /// linear search per cell.
-    pub(crate) col_selected: Vec<bool>,
-    /// Which occurrence to keep when removing duplicates.
-    pub(crate) keep: octa::data::dedupe::KeepWhich,
-    /// Dialog window sizing (Normal / Maximized / Minimized).
-    pub(crate) size: ui::settings::DialogSize,
-}
-
-impl DedupeState {
-    /// Build a fresh state seeded to include all columns of a table with
-    /// `col_count` columns (the default "whole row" key).
-    pub(crate) fn new_all_cols(col_count: usize) -> Self {
-        Self {
-            key_cols: (0..col_count).collect(),
-            col_selected: vec![true; col_count],
-            keep: octa::data::dedupe::KeepWhich::First,
-            size: ui::settings::DialogSize::default(),
-        }
-    }
-}
 
 /// Whether a column is numeric by declared type or by sampled values (so
 /// numbers stored as text still register). Samples up to 30 non-empty cells.
@@ -294,7 +264,7 @@ pub(crate) struct JoinState {
 }
 
 /// Whether the fuzzy-duplicate finder highlights rows in place or opens a
-/// Live state for the "Find near-duplicates" dialog (Search -> Find
+/// Live state for the "Find near-duplicates" dialog (Data -> Find
 /// near-duplicates...). The scan runs on a background thread (the comparison is
 /// O(n^2) within a block); the worker writes its [`FuzzyResult`] into `result`
 /// and flips `running`, mirroring the multi-search panel's worker pattern.
@@ -355,17 +325,63 @@ impl Default for FuzzyDuplicatesState {
 /// What to do with duplicate rows once `find_duplicate_rows` has
 /// returned them. `Highlight` marks each row in orange so the user can
 /// see them in place; `NewTab` opens a new tab containing only those
-/// rows, leaving the original untouched.
+/// rows, leaving the original untouched. The two `Filter` modes narrow the
+/// tab itself, which is the one thing marking cannot do: they hide the rows
+/// that do not qualify instead of colouring the ones that do. `Drop` is the
+/// only mutating mode: it deletes every repeat except the first or last
+/// occurrence, as one undo step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum FindDuplicatesMode {
     #[default]
     Highlight,
     NewTab,
+    /// Show only the rows that repeat on the key columns.
+    FilterDuplicates,
+    /// Show only the rows that appear exactly once.
+    FilterUnique,
+    /// Delete the repeats, keeping the chosen occurrence of each key.
+    Drop(octa::data::dedupe::KeepWhich),
 }
+
+/// An active duplicate filter on a tab.
+///
+/// It stores the **key columns**, not the row indices they resolved to: a row
+/// inserted or deleted afterwards would strand stored indices at the wrong
+/// rows, while re-running the key hash always answers for the table as it is
+/// now. See `OctaApp::recompute_filter` for the memoisation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DuplicateFilter {
+    pub key_cols: Vec<usize>,
+    /// `true` keeps the repeated rows, `false` keeps the rows that occur once.
+    pub keep_duplicates: bool,
+}
+
+/// Cheap fingerprint of everything that could change which rows are
+/// duplicates: the row count, the edit overlay and the undo stack (which grows
+/// on every mutation, so re-editing the same cell still moves the stamp).
+pub(crate) type DupStamp = (usize, usize, usize);
 
 /// State for the "Random sample" dialog: the requested row count (text buffer)
 /// and window sizing. Apply builds a detached tab of N random rows.
 #[derive(Clone)]
+/// State for the "New table" dialog (File -> New Table...): how many columns
+/// and rows the blank grid starts with. Driven by `OctaApp.new_table_dialog`.
+pub(crate) struct NewTableState {
+    pub(crate) cols: usize,
+    pub(crate) rows: usize,
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl Default for NewTableState {
+    fn default() -> Self {
+        Self {
+            cols: 3,
+            rows: 1,
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+}
+
 pub(crate) struct RandomSampleState {
     pub n_buf: String,
     pub size: ui::settings::DialogSize,

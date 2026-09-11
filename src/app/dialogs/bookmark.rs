@@ -5,7 +5,8 @@ use eframe::egui;
 use egui::RichText;
 
 use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
+    size_dialog_window,
 };
 
 use super::super::state::OctaApp;
@@ -28,13 +29,13 @@ pub(crate) fn render_bookmark_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         None => format!("R{}", draft.row + 1),
     };
 
+    let center = center_on_first_show(ctx, egui::vec2(360.0, 320.0));
     let window = egui::Window::new("octa_bookmark")
         .id(dialog_id)
         .title_bar(false)
-        .collapsible(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
+        .collapsible(false);
     let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
-        w.resizable(false).default_width(360.0)
+        w.resizable(true).default_width(360.0).default_pos(center)
     });
 
     let inner = window.show(ctx, |ui| {

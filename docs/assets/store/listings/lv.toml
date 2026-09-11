@@ -1,39 +1,39 @@
-# lv: written natively, not translated from English.
+# lv: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet, CSV, Excel, SQLite un vēl kādi trīsdesmit formāti ātrā tabulā. Kārto, filtrē, meklē, rediģē un raksti SQL savā datorā."
+short = "Parquet, CSV, XLSX, SQLite un aptuveni trīsdesmit citi datu formāti uzreiz kā tabula. Kārtošana, filtrēšana, meklēšana, rediģēšana un SQL vaicājumi lokāli, savā datorā."
 
 long = """
-Octa atver Parquet, CSV, Excel, SQLite, DuckDB un JSON failus, kā arī vēl kādus trīsdesmit datu formātus, bez importēšanas un bez laikietilpīgas iestatīšanas.
+Octa atver Parquet, CSV, XLSX, SQLite, DuckDB un JSON failus, kā arī aptuveni trīsdesmit citus datu formātus tieši kā tabulu. Imports, iestatīšana vai projekta fails nav nepieciešami.
 
-Datus vari kārtot, filtrēt, pārmeklēt un rediģēt, izpildīt tiem SQL vaicājumus ar DuckDB, veidot diagrammas vai salīdzināt divus failus. Iebūvētajā tērzēšanā par datiem vari pajautāt arī ikdienas valodā.
+Tabulu var kārtot, filtrēt un pārmeklēt; šūnas, kolonnas un rindas ir rediģējamas, un katru izmaiņu var atsaukt. Katrs atvērtais fails DuckDB ir pieejams kā SQL tabula, un vairākus failus var apvienot vienā vaicājumā. Papildus ir diagrammas, kolonnu statistika, dublikātu un noviržu noteikšana, rakurstabulas un divu failu salīdzināšana. Parquet faili ar miljoniem rindu tiek ielādēti fonā.
 
-Apstrāde notiek lokāli, tavā datorā, ja vien izmantotajai funkcijai nav vajadzīga ārēja API.
+Dati Amazon S3, Azure Blob Storage un Google Cloud Storage vai PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery un citās datubāzēs tiek atvērti tieši; rakstīšanas piekļuve pēc noklusējuma ir izslēgta. Neobligāts MI asistents atbild uz jautājumiem par datiem parastā valodā, izmantojot savu API atslēgu vai lokālu modeli caur Ollama, un paliek neaktīvs, līdz tiek konfigurēts.
 
-Saskarne ir pieejama 32 valodās. Octa ir brīva programmatūra ar MIT licenci.
+Apstrāde notiek lokāli, savā datorā, izņemot funkcijas, kurām nepieciešama ārēja API. Saskarne pieejama 32 valodās. Octa ir brīva programmatūra ar MIT licenci: https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Atver ap trīsdesmit formātu: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata un citus",
-  "DuckDB SQL vaicājumi jebkurā atvērtā failā, bez importēšanas",
-  "Kārto, filtrē un meklē ar tekstu, aizstājējzīmēm vai regulārajām izteiksmēm",
-  "Rediģē šūnas, kolonnas un rindas, ar pilnu atsaukšanu, bet datubāzē saglabā tikai izmaiņas",
-  "Diagrammas atsevišķā cilnē, eksportējamas uz PNG, SVG vai PDF",
-  "Salīdzini divus failus rindu pa rindai vai ierakstu pa ierakstam",
-  "Kolonnu statistika, dublikāti, novirzes un rakurstabulas",
-  "Parquet failus ar miljoniem rindu ielādē fonā",
-  "Lasa tieši no Amazon S3, Azure Blob Storage un Google Cloud Storage",
-  "Pieslēdzas PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery un citiem",
-  "Neobligāts MI asistents, ar savu atslēgu vai vietējo modeli",
+  "Aptuveni trīsdesmit formāti: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata un citi",
+  "DuckDB SQL tieši jebkuram atvērtam failam, bez importa",
+  "Kārtošana, filtrēšana un meklēšana ar vienkāršu tekstu, aizstājējzīmēm vai regulārajām izteiksmēm",
+  "Šūnu, kolonnu un rindu rediģēšana ar pilnu atsaukšanu; datubāzē nonāk tikai izmaiņas",
+  "Diagrammas atsevišķā cilnē, eksports uz PNG, SVG vai PDF",
+  "Divu failu salīdzināšana rindu pa rindai vai ierakstu pa ierakstam",
+  "Kolonnu statistika, dublikātu un noviržu noteikšana, rakurstabulas",
+  "Parquet faili ar miljoniem rindu tiek ielādēti fonā",
+  "Tieša piekļuve Amazon S3, Azure Blob Storage un Google Cloud Storage",
+  "Savienojums ar PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery un citām",
+  "Neobligāts MI asistents ar savu API atslēgu vai lokālu modeli",
   "Arī komandrindas rīks un Model Context Protocol serveris",
   "Saskarne 32 valodās",
-  "Brīva un atvērtā pirmkoda programmatūra, MIT licence",
+  "Brīva atvērtā pirmkoda programmatūra, MIT licence",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "csv skatītājs"
+SearchTerm2 = "atvērt csv"
 SearchTerm3 = "datu skatītājs"
-SearchTerm4 = "sqlite pārlūks"
+SearchTerm4 = "sqlite"
 SearchTerm5 = "duckdb"
 SearchTerm6 = "sql vaicājumi"
-SearchTerm7 = "excel alternatīva"
+SearchTerm7 = "atvērt xlsx"

@@ -1,39 +1,39 @@
-# fi: written natively, not translated from English.
+# fi: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet, CSV, Excel, SQLite ja noin kolmekymmentä muuta muotoa nopeassa taulukossa. Lajittele, suodata, hae, muokkaa ja aja SQL:ää omalla koneellasi."
+short = "Parquet, CSV, XLSX, SQLite ja noin kolmekymmentä muuta tietomuotoa näkyvät heti taulukkona. Lajittelu, suodatus, haku, muokkaus ja SQL-kyselyt paikallisesti omalla koneella."
 
 long = """
-Octa avaa Parquet-, CSV-, Excel-, SQLite-, DuckDB- ja JSON-tiedostot sekä noin kolmekymmentä muuta tietomuotoa ilman tuontivaihetta ja ilman työlästä asennusta.
+Octa avaa Parquet-, CSV-, XLSX-, SQLite-, DuckDB- ja JSON-tiedostot sekä noin kolmekymmentä muuta tietomuotoa suoraan taulukkona. Tuontia, asennusasetuksia tai projektitiedostoa ei tarvita.
 
-Voit lajitella, suodattaa, hakea ja muokata tietojasi, ajaa DuckDB:n SQL-kyselyitä, tehdä kaavioita tai verrata kahta tiedostoa. Sisäänrakennetun chatin avulla voit kysyä tiedoistasi myös tavallisella kielellä.
+Taulukkoa voi lajitella, suodattaa ja hakea; solut, sarakkeet ja rivit ovat muokattavissa, ja jokaisen muutoksen voi perua. Jokainen avattu tiedosto on DuckDB:ssä käytettävissä SQL-tauluna, ja useita tiedostoja voi yhdistää samassa kyselyssä. Lisäksi ovat kaaviot, saraketilastot, kaksoiskappaleiden ja poikkeavien arvojen tunnistus, pivot-taulukot ja kahden tiedoston vertailu. Miljoonien rivien Parquet-tiedostot ladataan taustalla.
 
-Tiedot käsitellään paikallisesti omalla koneellasi, kunhan käyttämäsi toiminto ei tarvitse ulkoista rajapintaa.
+Amazon S3:ssa, Azure Blob Storagessa ja Google Cloud Storagessa tai PostgreSQL-, MySQL-, SQL Server-, Snowflake-, BigQuery- ja muissa tietokannoissa olevat tiedot avautuvat suoraan; kirjoitusoikeus on oletuksena pois päältä. Valinnainen tekoälyavustaja vastaa tietoja koskeviin kysymyksiin luonnollisella kielellä omalla API-avaimella tai paikallisella mallilla Ollaman kautta, ja pysyy käyttämättömänä, kunnes se on määritetty.
 
-Käyttöliittymä on saatavilla 32 kielellä. Octa on vapaa ohjelmisto MIT-lisenssillä.
+Käsittely tapahtuu paikallisesti omalla koneella, paitsi kun käytetty toiminto tarvitsee ulkoista rajapintaa. Käyttöliittymä on saatavilla 32 kielellä. Octa on vapaa ohjelmisto MIT-lisenssillä: https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Avaa noin kolmekymmentä muotoa: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata ja muita",
+  "Noin kolmekymmentä muotoa: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata ja muita",
   "DuckDB-SQL suoraan mihin tahansa avattuun tiedostoon, ilman tuontia",
-  "Lajittele, suodata ja hae tekstillä, jokerimerkeillä tai säännöllisillä lausekkeilla",
-  "Muokkaa soluja, sarakkeita ja rivejä, täydellä kumoamisella ja vain erot tietokantaan tallentaen",
-  "Kaaviot omalla välilehdellään, vietävissä PNG-, SVG- tai PDF-muotoon",
-  "Vertaa kahta tiedostoa rivi riviltä tai tietue tietueelta",
-  "Sarakkeiden tilastot, kaksoiskappaleet, poikkeavat arvot ja pivot-taulukot",
-  "Lataa miljoonien rivien Parquet-tiedostoja taustalla",
-  "Lukee suoraan Amazon S3:sta, Azure Blob Storagesta ja Google Cloud Storagesta",
-  "Yhdistää tietokantoihin: PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery ja muut",
-  "Valinnainen tekoälyavustaja, omalla avaimella tai paikallisella mallilla",
-  "Toimii myös komentorivityökaluna ja Model Context Protocol -palvelimena",
+  "Lajittelu, suodatus ja haku tekstillä, jokerimerkeillä tai säännöllisillä lausekkeilla",
+  "Solujen, sarakkeiden ja rivien muokkaus, täysin peruttavissa; tietokantaan kirjoitetaan vain muutokset",
+  "Kaaviot omassa välilehdessä, vienti PNG-, SVG- tai PDF-muotoon",
+  "Kahden tiedoston vertailu rivi riviltä tai tietue tietueelta",
+  "Saraketilastot, kaksoiskappaleiden ja poikkeavien arvojen tunnistus, pivot-taulukot",
+  "Miljoonien rivien Parquet-tiedostot ladataan taustalla",
+  "Suora pääsy Amazon S3:een, Azure Blob Storageen ja Google Cloud Storageen",
+  "Yhteys PostgreSQL-, MySQL-, SQL Server-, Snowflake-, BigQuery- ja muihin tietokantoihin",
+  "Valinnainen tekoälyavustaja omalla API-avaimella tai paikallisella mallilla",
+  "Myös komentorivityökalu ja Model Context Protocol -palvelin",
   "Käyttöliittymä 32 kielellä",
   "Vapaa ja avoimen lähdekoodin ohjelmisto, MIT-lisenssi",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "csv katselin"
+SearchTerm2 = "avaa csv"
 SearchTerm3 = "datan katselu"
-SearchTerm4 = "sqlite selain"
+SearchTerm4 = "sqlite"
 SearchTerm5 = "duckdb"
-SearchTerm6 = "sql kyselyt"
-SearchTerm7 = "excel vaihtoehto"
+SearchTerm6 = "sql kysely"
+SearchTerm7 = "avaa xlsx"

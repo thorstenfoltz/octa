@@ -41,8 +41,8 @@ use crate::data::{CellValue, DataTable};
 use crate::formats::FormatRegistry;
 
 use super::engine::{
-    QueryKind, QueryOutcome, execute_query, h2o_easter_egg, is_mutation, octopuses_easter_egg,
-    quote_ident, register_table_into, stars_easter_egg,
+    QueryKind, QueryOutcome, execute_query, h2o_easter_egg, is_create, is_mutation,
+    octopuses_easter_egg, quote_ident, register_table_into, stars_easter_egg,
 };
 
 /// Origin of a registered workspace table. Recorded so the panel and the
@@ -145,6 +145,20 @@ fn attach_kind_for(engine: crate::db::DbEngine) -> AttachStrategy {
     }
 }
 
+/// Which part of a live server an attach should import.
+///
+/// `catalog` names the top level of a three-level engine
+/// ([`crate::db::DbEngine::has_catalogs`]) and is required there; `schema`
+/// and `table` narrow the import further. A Databricks catalog routinely
+/// holds hundreds of tables, which is far too many to import, so the attach
+/// menu drills down to the single table and passes what the user picked.
+#[derive(Debug, Clone, Default)]
+pub struct AttachScope {
+    pub catalog: Option<String>,
+    pub schema: Option<String>,
+    pub table: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Attachment {
     pub alias: String,
@@ -154,6 +168,18 @@ pub struct Attachment {
     /// workspace fell back to per-table loading for a SQLite file because the
     /// DuckDB `sqlite` extension wasn't available.
     pub native: bool,
+}
+
+/// What an attach did. A DuckDB `ATTACH` leaves the server queryable as
+/// `alias.schema.table` and shows up as an attachment; an engine DuckDB
+/// cannot attach has its picked tables **copied in** as ordinary workspace
+/// tables, which is not an attachment at all - listing one as well made a
+/// single import look like it had attached the connection twice.
+#[derive(Debug, Clone)]
+pub enum AttachOutcome {
+    Attached(Attachment),
+    /// Workspace table names the import registered, in the order it took them.
+    Imported(Vec<String>),
 }
 
 #[derive(Debug, Clone)]
@@ -250,7 +276,11 @@ pub struct SqlWorkspace {
 impl SqlWorkspace {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            conn: Connection::open_in_memory().context("opening in-memory DuckDB")?,
+            conn: {
+                let conn = Connection::open_in_memory().context("opening in-memory DuckDB")?;
+                crate::formats::duckdb_reader::warm_session_timezone(&conn);
+                conn
+            },
             tables: BTreeMap::new(),
             attachments: BTreeMap::new(),
             attached_tables_cache: std::cell::RefCell::new(BTreeMap::new()),
@@ -414,17 +444,27 @@ impl SqlWorkspace {
     /// and MySQL go through the DuckDB `postgres` / `mysql` extensions (which
     /// install over the network on first use, like the lakehouse readers);
     /// SQL Server, Oracle and the warehouse engines (ClickHouse, Exasol,
-    /// Snowflake, Databricks, BigQuery) have no extension, so their tables are imported as
-    /// workspace tables under `alias__schema__table` (mirrors the SQLite
+    /// Snowflake, Databricks, BigQuery) have no extension, so the tables
+    /// `scope` covers are imported as workspace tables (mirrors the SQLite
     /// fallback). `secret` is the stored password; IAM/AD auth modes mint their
     /// own token inside `db::connect` / `duckdb_attach_sql`'s password.
+    ///
+    /// `scope` says which part of the server to import. A three-level engine
+    /// **requires** a catalog: without one the enumeration below runs against
+    /// whatever catalog the server happens to default to, which is how an
+    /// attached Databricks connection used to import nothing at all while the
+    /// sidebar listed every table. A schema (and a table) narrow it further,
+    /// which is the only way a catalog of several hundred tables can be
+    /// attached at all. Natively attachable engines ignore the scope: DuckDB
+    /// ATTACH is lazy, so the whole server stays queryable for free.
     pub fn attach_db(
         &mut self,
         db_conn: &crate::db::DbConnection,
         secret: Option<&str>,
         ssh_secret: Option<&str>,
         alias: &str,
-    ) -> Result<Attachment> {
+        scope: &AttachScope,
+    ) -> Result<AttachOutcome> {
         if self.attachments.contains_key(alias) {
             bail!("alias '{alias}' is already attached");
         }
@@ -456,69 +496,152 @@ impl SqlWorkspace {
                 };
                 self.attachments
                     .insert(alias.to_string(), attachment.clone());
-                Ok(attachment)
+                Ok(AttachOutcome::Attached(attachment))
             }
             // SQL Server and the warehouse engines have no DuckDB extension, so
             // their tables are imported as workspace tables.
-            AttachStrategy::Import => {
-                self.attach_import(db_conn, secret, ssh_secret, alias, display)
-            }
+            AttachStrategy::Import => Ok(AttachOutcome::Imported(
+                self.attach_import(db_conn, secret, ssh_secret, scope)?,
+            )),
         }
     }
 
-    /// Import every table of a non-attachable connection (SQL Server or a
-    /// warehouse) as a workspace table (`alias__schema__table`), each capped at
-    /// the streaming initial-load row count.
-    // ponytail: imports all tables up to a hard count cap; a table
-    // multi-select picker is the upgrade path if servers routinely exceed it.
+    /// Import the scoped tables of a non-attachable connection (SQL Server,
+    /// Oracle or a warehouse) as workspace tables, each capped at the
+    /// streaming initial-load row count. Returns the names it registered.
+    ///
+    /// A table is named after **itself** (`orders`), because the name exists
+    /// to be typed in a `FROM` clause: `warehouse_fabric_sales_orders__orders`
+    /// was accurate and unusable. Where it is from is on the row already, as
+    /// the origin. A collision with a name the workspace already has takes the
+    /// usual `_2` suffix, and the row can be renamed
+    /// ([`Self::rename_table`]).
+    // ponytail: MAX_TABLES caps the import at 60 tables and refuses rather
+    // than truncating, so nothing is ever silently missing. The real ceiling
+    // is not the number: this loop is one SELECT per table, synchronous on
+    // the UI thread, with no progress and no cancel. Kept deliberately
+    // (2026-09-09) now that the attach menu drills down to a single table.
+    // Upgrade path: move the import onto a worker like the sidebar's table
+    // reads, then the cap can rise a lot or go entirely.
     fn attach_import(
         &mut self,
         db_conn: &crate::db::DbConnection,
         secret: Option<&str>,
         ssh_secret: Option<&str>,
-        alias: &str,
-        display: PathBuf,
-    ) -> Result<Attachment> {
+        scope: &AttachScope,
+    ) -> Result<Vec<String>> {
         const MAX_TABLES: usize = 60;
+        let catalog = scope.catalog.as_deref();
+        // A three-level engine enumerated with no catalog asks the server for
+        // "the schemas", which it answers from whatever catalog the session
+        // happens to sit in - usually none of the ones the user can see in the
+        // sidebar. Refuse instead of importing the wrong thing, or nothing.
+        if db_conn.engine.has_catalogs() && catalog.is_none() {
+            bail!(
+                "'{}' has a catalog level: pick which catalog to attach. \
+                 The sidebar's Databases section lists them.",
+                db_conn.name
+            );
+        }
+        // A table names nothing on its own: `schema.table` is the address the
+        // import selects by. Refuse before opening a connection.
+        if scope.schema.is_none() && scope.table.is_some() {
+            bail!("a table can only be attached together with its schema");
+        }
         let mut c = crate::db::connect(db_conn, secret, ssh_secret)?;
         let mut pairs: Vec<(String, String)> = Vec::new();
-        for schema in c.list_schemas(None)? {
-            for t in c.list_tables(None, &schema)? {
-                pairs.push((schema.clone(), t));
+        match (&scope.schema, &scope.table) {
+            // One table: no enumeration at all, which is what makes a
+            // catalog of hundreds of tables usable.
+            (Some(schema), Some(t)) => pairs.push((schema.clone(), t.clone())),
+            (Some(schema), None) => {
+                for t in c.list_tables(catalog, schema)? {
+                    pairs.push((schema.clone(), t));
+                }
             }
+            (None, _) => {
+                for schema in c.list_schemas(catalog)? {
+                    for t in c.list_tables(catalog, &schema)? {
+                        pairs.push((schema.clone(), t));
+                    }
+                }
+            }
+        }
+        let mut where_ = format!("'{}'", db_conn.name);
+        if let Some(cat) = catalog {
+            where_.push_str(&format!(" catalog '{cat}'"));
+        }
+        if let Some(schema) = &scope.schema {
+            where_.push_str(&format!(" schema '{schema}'"));
+        }
+        if pairs.is_empty() {
+            bail!("{where_} reported no tables to import");
         }
         if pairs.len() > MAX_TABLES {
             bail!(
-                "'{}' has {} tables; attaching imports each one, which is too much. \
-                 Query the server directly instead (Run on server).",
-                db_conn.name,
+                "{where_} has {} tables; attaching imports each one, which is too much. \
+                 Attach a single schema or table (the attach menu drills into them), \
+                 or query the server directly (Run on server). \
+                 Nothing was attached, so no table is silently missing.",
                 pairs.len()
             );
         }
         let cap = crate::formats::initial_load_rows();
+        let mut imported: Vec<String> = Vec::new();
         for (schema, t) in pairs {
-            let sql = crate::db::select_sample_sql(db_conn.engine, None, &schema, &t, cap);
+            let sql = crate::db::select_sample_sql(db_conn.engine, catalog, &schema, &t, cap);
             let table = c.query(&sql)?;
-            let name = format!(
-                "{alias}__{}__{}",
-                sanitize_sql_name(&schema),
-                sanitize_sql_name(&t)
-            );
-            self.add_table(
-                &name,
-                &table,
-                TableOrigin::Db(format!("{} {schema}.{t}", db_conn.name)),
-            )?;
+            let name = dedupe_sql_name(&t, |s| self.tables.contains_key(s));
+            let origin = match catalog {
+                Some(cat) => format!("{} {cat}.{schema}.{t}", db_conn.name),
+                None => format!("{} {schema}.{t}", db_conn.name),
+            };
+            self.add_table(&name, &table, TableOrigin::Db(origin))?;
+            imported.push(name);
         }
-        let attachment = Attachment {
-            alias: alias.to_string(),
-            path: display,
-            kind: AttachKind::Mssql,
-            native: false,
+        Ok(imported)
+    }
+
+    /// Rename a registered workspace table, in DuckDB and in the registry, so
+    /// the user picks what a `FROM` clause says. The name is sanitised the
+    /// same way an import's is, so it never needs quoting.
+    ///
+    /// The active tab's table is refused here rather than only in the UI: the
+    /// mutation path, the refresh button and `run_workspace_query` all address
+    /// it by the name it was registered under.
+    pub fn rename_table(&mut self, from: &str, to: &str) -> Result<()> {
+        // Checked before sanitising: an empty name sanitises to "table", so
+        // clearing the field and pressing Enter would silently rename to that.
+        if to.trim().is_empty() {
+            bail!("a table name cannot be empty");
+        }
+        let to = sanitize_sql_name(to);
+        if from == to {
+            return Ok(());
+        }
+        let Some(entry) = self.tables.get(from) else {
+            bail!("no table named '{from}' in workspace");
         };
-        self.attachments
-            .insert(alias.to_string(), attachment.clone());
-        Ok(attachment)
+        if matches!(entry.origin, TableOrigin::ActiveTab) {
+            bail!("'{from}' is the active tab's own table and keeps its name");
+        }
+        if self.tables.contains_key(&to) {
+            bail!("the workspace already has a table named '{to}'");
+        }
+        self.conn
+            .execute(
+                &format!(
+                    "ALTER TABLE {} RENAME TO {}",
+                    quote_ident(from),
+                    quote_ident(&to)
+                ),
+                [],
+            )
+            .with_context(|| format!("renaming {from} to {to}"))?;
+        let mut entry = self.tables.remove(from).expect("present, checked above");
+        entry.sql_name = to.clone();
+        self.tables.insert(to, entry);
+        Ok(())
     }
 
     pub fn detach(&mut self, alias: &str) -> Result<()> {
@@ -720,12 +843,10 @@ impl SqlWorkspace {
         self.inspect_by_qualified_name(&qualified, &display, sample_rows)
     }
 
-    fn inspect_by_qualified_name(
-        &self,
-        qualified_sql: &str,
-        display_name: &str,
-        sample_rows: usize,
-    ) -> Result<TableInspection> {
+    /// Column names + types of anything the workspace connection can address.
+    /// A `DESCRIBE`, so it is metadata only - no `COUNT(*)`, no rows - which is
+    /// what makes it safe to call for every table when building a prompt.
+    fn columns_of(&self, qualified_sql: &str, display_name: &str) -> Result<Vec<ColumnInspection>> {
         let mut columns: Vec<ColumnInspection> = Vec::new();
         let describe_sql = format!("DESCRIBE {qualified_sql}");
         let mut stmt = self
@@ -738,8 +859,59 @@ impl SqlWorkspace {
             let data_type: String = r.get(1)?;
             columns.push(ColumnInspection { name, data_type });
         }
-        drop(rows);
-        drop(stmt);
+        Ok(columns)
+    }
+
+    /// Every table this workspace can query, with its columns, as
+    /// `(name the user would type, columns)` - registered workspace tables
+    /// first, then the tables inside each native attachment.
+    ///
+    /// For the Ask box: a question about an ATTACHed server can only be
+    /// answered if the model is told what is in it, and inventing column names
+    /// is the failure mode this exists to prevent. Metadata only (see
+    /// [`Self::columns_of`]); the attachment listing comes from the same cache
+    /// the panel already fills every frame. `max_tables` is a token budget, not
+    /// a correctness limit, so tables past it are simply not described.
+    pub fn schema_overview(&self, max_tables: usize) -> Vec<(String, Vec<ColumnInspection>)> {
+        let mut out: Vec<(String, Vec<ColumnInspection>)> = Vec::new();
+        for name in self.tables.keys() {
+            if out.len() >= max_tables {
+                return out;
+            }
+            if let Ok(cols) = self.columns_of(name, name) {
+                out.push((name.clone(), cols));
+            }
+        }
+        for (alias, attachment) in &self.attachments {
+            if !attachment.native {
+                continue; // its tables are already registered workspace entries
+            }
+            for t in self.list_attached_tables(alias).unwrap_or_default() {
+                if out.len() >= max_tables {
+                    return out;
+                }
+                let qualified = format!(
+                    "{}.{}.{}",
+                    quote_ident(alias),
+                    quote_ident(&t.schema),
+                    quote_ident(&t.table)
+                );
+                let display = format!("{alias}.{}.{}", t.schema, t.table);
+                if let Ok(cols) = self.columns_of(&qualified, &display) {
+                    out.push((display, cols));
+                }
+            }
+        }
+        out
+    }
+
+    fn inspect_by_qualified_name(
+        &self,
+        qualified_sql: &str,
+        display_name: &str,
+        sample_rows: usize,
+    ) -> Result<TableInspection> {
+        let columns = self.columns_of(qualified_sql, display_name)?;
 
         let count_sql = format!("SELECT COUNT(*) FROM {qualified_sql}");
         let row_count: Option<usize> = self
@@ -783,6 +955,7 @@ impl SqlWorkspace {
                 kind: QueryKind::Select,
                 affected: None,
                 table: egg,
+                created: None,
             });
         }
         if let Some(egg) = stars_easter_egg(trimmed) {
@@ -790,6 +963,7 @@ impl SqlWorkspace {
                 kind: QueryKind::Select,
                 affected: None,
                 table: egg,
+                created: None,
             });
         }
         if let Some(egg) = h2o_easter_egg(trimmed) {
@@ -797,10 +971,37 @@ impl SqlWorkspace {
                 kind: QueryKind::Select,
                 affected: None,
                 table: egg,
+                created: None,
             });
         }
         if is_mutation(trimmed) {
+            // A CREATE that adds one table or view to the workspace's own
+            // catalog hands that table to the caller instead of re-selecting
+            // `data`: the catalog diff, not a parser, says what appeared, so
+            // CTAS, views, quoted and TEMP names all count. A CREATE inside an
+            // attached database is not in this catalog and stays put there.
+            let creating = is_create(trimmed);
+            let before = if creating {
+                self.own_relations()?
+            } else {
+                BTreeMap::new()
+            };
             let affected = self.conn.execute(trimmed, [])?;
+            if creating {
+                let after = self.own_relations()?;
+                let mut fresh = after.iter().filter(|(k, _)| !before.contains_key(*k));
+                if let (Some(((schema, name), kind)), None) = (fresh.next(), fresh.next()) {
+                    let qualified = format!("{}.{}", quote_ident(schema), quote_ident(name));
+                    let table = self.read_typed(&qualified)?;
+                    self.conn.execute(&format!("DROP {kind} {qualified}"), [])?;
+                    return Ok(QueryOutcome {
+                        kind: QueryKind::Mutation,
+                        affected: Some(affected),
+                        table,
+                        created: Some(name.clone()),
+                    });
+                }
+            }
             // Re-select `data` so the GUI mutation path sees the post-state.
             // If `data` no longer exists (the user dropped it), return an
             // empty result rather than erroring.
@@ -824,6 +1025,7 @@ impl SqlWorkspace {
                 kind: QueryKind::Mutation,
                 affected: Some(affected),
                 table: mutated,
+                created: None,
             });
         }
         let result = execute_query(&self.conn, trimmed)?;
@@ -831,7 +1033,54 @@ impl SqlWorkspace {
             kind: QueryKind::Select,
             affected: None,
             table: result,
+            created: None,
         })
+    }
+
+    /// Tables and views in the workspace's own catalog (the in-memory database
+    /// plus `temp`, where `data` and the registered tables live), keyed by
+    /// (schema, name) with the DROP keyword (`TABLE` / `VIEW`) as the value.
+    fn own_relations(&self) -> Result<BTreeMap<(String, String), &'static str>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT table_schema, table_name, table_type FROM information_schema.tables \
+             WHERE table_catalog IN (current_database(), 'temp')",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?;
+        let mut out = BTreeMap::new();
+        for row in rows {
+            let (schema, name, ty) = row?;
+            let kind = if ty.eq_ignore_ascii_case("VIEW") {
+                "VIEW"
+            } else {
+                "TABLE"
+            };
+            out.insert((schema, name), kind);
+        }
+        Ok(out)
+    }
+
+    /// `SELECT *` of `qualified` with the declared column types kept, unlike
+    /// `execute_query`, whose result columns are all `Utf8`. A created table
+    /// becomes a tab, and its INTEGER column should stay a number on Save.
+    fn read_typed(&self, qualified: &str) -> Result<DataTable> {
+        let mut table = execute_query(&self.conn, &format!("SELECT * FROM {qualified}"))?;
+        let mut stmt = self.conn.prepare(&format!("DESCRIBE {qualified}"))?;
+        let declared: Vec<(String, String)> = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .collect::<std::result::Result<_, _>>()?;
+        for (name, ty) in declared {
+            if let Some(col) = table.columns.iter_mut().find(|c| c.name == name) {
+                col.data_type = crate::formats::duckdb_reader::duckdb_type_to_arrow(&ty, None);
+            }
+        }
+        table.format_name = None;
+        Ok(table)
     }
 
     /// Write the result of `target.source_query` to a DuckDB or SQLite file.

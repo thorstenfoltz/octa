@@ -466,3 +466,148 @@ fn write_back_create_into_open_duckdb_file_then_picker_sees_it() {
             .any(|t| t.schema.as_deref() == Some("reports") && t.name == "q4")
     );
 }
+
+/// A three-level engine cannot be enumerated without naming a catalog.
+///
+/// The regression: `attach_import` asked for `list_schemas(None)`, which on
+/// Databricks means "the schemas of whatever catalog this session happens to
+/// sit in". The attach reported success as a fallback and imported nothing,
+/// while the sidebar - which walks catalog -> schema -> table - listed every
+/// table. The guard fires before any connection is opened, so this needs no
+/// server.
+#[test]
+fn attaching_a_catalog_engine_without_a_catalog_is_refused() {
+    use octa::db::{DbAuth, DbConnection, DbEngine};
+
+    let conn = DbConnection {
+        id: "t".into(),
+        name: "warehouse".into(),
+        engine: DbEngine::Databricks,
+        host: "example.cloud.databricks.com".into(),
+        port: 443,
+        database: "abc123".into(),
+        username: "token".into(),
+        auth: DbAuth::Password,
+        allow_writes: false,
+        oauth_client_id: None,
+        oauth_tenant: None,
+        athena_workgroup: None,
+        athena_output_location: None,
+        query_timeout_secs: octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
+        ssh: None,
+        tunnel_port: None,
+    };
+
+    let mut ws = SqlWorkspace::new().unwrap();
+    let err = ws
+        .attach_db(
+            &conn,
+            Some("secret"),
+            None,
+            "wh",
+            &octa::sql::AttachScope::default(),
+        )
+        .expect_err("a catalog engine with no catalog must not attach");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("catalog"),
+        "the refusal has to say a catalog is needed, got: {msg}"
+    );
+    assert!(
+        ws.list_attached().is_empty(),
+        "nothing may be left attached after the refusal"
+    );
+
+    // A table without its schema addresses nothing, so it is refused before
+    // a connection is opened too (this test has no server to open one on).
+    let err = ws
+        .attach_db(
+            &conn,
+            Some("secret"),
+            None,
+            "wh",
+            &octa::sql::AttachScope {
+                catalog: Some("fab".into()),
+                schema: None,
+                table: Some("orders".into()),
+            },
+        )
+        .expect_err("a table with no schema must not attach");
+    assert!(
+        format!("{err:#}").contains("schema"),
+        "the refusal has to say the schema is missing, got: {err:#}"
+    );
+}
+
+/// An imported table is named after itself so a `FROM` clause is short, and
+/// the row can be renamed to whatever the user wants to type. The rename has
+/// to move the DuckDB table too, or the registry would point at nothing.
+#[test]
+fn a_workspace_table_can_be_renamed_and_keeps_its_rows() {
+    let mut ws = SqlWorkspace::new().unwrap();
+    ws.add_table(
+        "orders",
+        &sales_table(),
+        TableOrigin::Db("wh main.sales.orders".into()),
+    )
+    .unwrap();
+    ws.add_table(
+        "customers",
+        &customers_table(),
+        TableOrigin::Db("wh main.sales.c".into()),
+    )
+    .unwrap();
+
+    ws.rename_table("orders", "o").unwrap();
+    let out = ws.execute("SELECT * FROM o").unwrap();
+    assert_eq!(out.table.row_count(), 3, "the rows travel with the name");
+    assert!(
+        ws.execute("SELECT * FROM orders").is_err(),
+        "the old name must be gone"
+    );
+    assert!(ws.list_tables().iter().any(|t| t.sql_name == "o"));
+
+    // A name someone else holds is refused, and the refusal changes nothing.
+    let err = ws
+        .rename_table("customers", "o")
+        .expect_err("name is taken");
+    assert!(format!("{err:#}").contains('o'), "{err:#}");
+    assert_eq!(
+        ws.execute("SELECT * FROM customers")
+            .unwrap()
+            .table
+            .row_count(),
+        3
+    );
+
+    // Typed names are sanitised, so a FROM clause never needs quoting.
+    ws.rename_table("customers", "My Customers").unwrap();
+    assert_eq!(
+        ws.execute("SELECT * FROM my_customers")
+            .unwrap()
+            .table
+            .row_count(),
+        3
+    );
+
+    // An empty name is refused rather than sanitised into "table".
+    assert!(ws.rename_table("my_customers", "   ").is_err());
+    assert!(
+        ws.list_tables()
+            .iter()
+            .any(|t| t.sql_name == "my_customers")
+    );
+
+    // `data` keeps its name: refresh, the edit path and the mutation flow all
+    // address the active tab's table by it. Refused in the workspace itself,
+    // not only by hiding the affordance in the panel.
+    ws.set_active_table(&sales_table()).unwrap();
+    let err = ws
+        .rename_table("data", "rows")
+        .expect_err("the active tab's table cannot be renamed");
+    assert!(format!("{err:#}").contains("data"), "{err:#}");
+    assert_eq!(
+        ws.execute("SELECT * FROM data").unwrap().table.row_count(),
+        3
+    );
+}

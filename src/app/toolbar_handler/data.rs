@@ -47,13 +47,6 @@ impl OctaApp {
         {
             self.impute_dialog = Some(crate::app::state::ImputeState::default());
         }
-        if action.open_dedupe
-            && self.tabs[self.active_tab].table.col_count() > 0
-            && !self.is_readonly()
-        {
-            let col_count = self.tabs[self.active_tab].table.col_count();
-            self.dedupe_dialog = Some(crate::app::state::DedupeState::new_all_cols(col_count));
-        }
         if action.open_multi_sort && self.tabs[self.active_tab].table.col_count() > 0 {
             self.multi_sort_dialog = Some(crate::app::state::MultiSortState::default());
         }

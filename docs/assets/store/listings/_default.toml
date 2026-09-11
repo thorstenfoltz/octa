@@ -2,10 +2,10 @@
 # column left blank inherits this, so this file alone produces 32 complete
 # listings. Per-language files override `short`, `long` and `features` only.
 
-short = "Open Parquet, CSV, Excel, SQLite and around thirty more data formats in a fast native table. Sort, filter, search, edit and run SQL on your own machine."
+short = "Open Parquet, CSV, XLSX, SQLite and around thirty more data formats in a fast native table. Sort, filter, search, edit and run SQL on your own machine."
 
 long = """
-Octa opens Parquet, CSV, Excel, SQLite, DuckDB and JSON files, plus around thirty more data formats, with no import step and no lengthy setup.
+Octa opens Parquet, CSV, XLSX, SQLite, DuckDB and JSON files, plus around thirty more data formats, with no import step and no lengthy setup.
 
 Sort, filter, search and edit your data, run DuckDB SQL queries, build charts or compare two files. The built-in chat also lets you ask about your data in plain language.
 
@@ -15,7 +15,7 @@ The interface is available in 32 languages. Octa is free software under the MIT 
 """
 
 features = [
-  "Opens around thirty formats: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata and more",
+  "Opens around thirty formats: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata and more",
   "Run DuckDB SQL against any open file, with no import step",
   "Sort, filter and search with plain text, wildcards or regular expressions",
   "Edit cells, columns and rows, with full undo and diff-based database saves",
@@ -49,7 +49,7 @@ SearchTerm3 = "data viewer"
 SearchTerm4 = "sqlite browser"
 SearchTerm5 = "duckdb"
 SearchTerm6 = "sql"
-SearchTerm7 = "excel alternative"
+SearchTerm7 = "xlsx viewer"
 StoreLogo300x300 = "octa-listing/store-tile-300x300.png"
 # The two smaller tiles are only used when the override flag is set, so the
 # flag and the paths belong together.

@@ -263,28 +263,6 @@ any violation and on any rule that could not run, and as the `check_rules` MCP
 tool.
 "#;
 
-pub const DEDUPE: &str = r#"# Drop Duplicate Rows
-
-Drop Duplicate Rows removes repeated rows from the active table in one
-step, the way you would delete duplicate lines in a spreadsheet. Open it
-via **Data > Drop duplicate rows...** (Ctrl+Shift+H).
-
-## How it works
-
-Tick the columns that make up the **key**. Two rows count as duplicates
-when all their checked columns are equal. With every column ticked
-(the default) only exact whole-row repeats are removed; tick just one
-column to collapse rows that share that value.
-
-Choose whether to **keep the first** or **keep the last** occurrence of
-each key. Apply removes the rest in a single undoable step (Ctrl+Z brings
-them all back), and the status bar reports how many rows were removed.
-
-Values are compared as text, so `1` (integer) and `1.0` (float) are not
-treated as the same. The same operation is available on the command line
-as `octa --dedupe` and as the `drop_duplicates` assistant/MCP tool.
-"#;
-
 pub const IMPUTE: &str = r#"# Fill Missing Values
 
 Fill Missing Values replaces empty or null cells in one column using a

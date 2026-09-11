@@ -4,7 +4,8 @@ use eframe::egui;
 use egui::RichText;
 
 use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
+    size_dialog_window,
 };
 
 use super::super::state::OctaApp;
@@ -27,12 +28,15 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
     let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
     let minimized = size == DialogSize::Minimized;
 
+    let center = center_on_first_show(ctx, egui::vec2(320.0, 320.0));
     let window = egui::Window::new("octa_delete_columns")
         .title_bar(false)
-        .collapsible(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
+        .collapsible(false);
     let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
-        w.resizable(true).default_width(320.0).min_width(280.0)
+        w.resizable(true)
+            .default_width(320.0)
+            .min_width(280.0)
+            .default_pos(center)
     });
 
     let inner = window.show(ctx, |ui| {

@@ -1,21 +1,25 @@
 //! Find Duplicates dialog.
 //!
-//! Pick N key columns + an output mode, hit **Find**, and the dialog
-//! either marks every duplicate row orange in place or opens a new
-//! tab containing only the duplicates. The dedupe logic lives in
-//! `octa::data::duplicates::find_duplicate_rows`; this file is only
-//! the picker + dispatch.
+//! Pick N key columns + an output mode, hit **Apply**, and the dialog
+//! marks every duplicate row orange in place, opens a new tab containing
+//! only the duplicates, filters the tab to (non-)repeats, or drops the
+//! repeats keeping the first or last occurrence. The engines live in
+//! `octa::data::duplicates::find_duplicate_rows` and
+//! `octa::data::dedupe::dedupe_dropped_indices`; this file is only the
+//! picker + dispatch.
 
 use eframe::egui;
 use egui::RichText;
 
+use octa::data::dedupe::{KeepWhich, dedupe_dropped_indices};
 use octa::data::duplicates::find_duplicate_rows;
 use octa::data::{DataTable, MarkColor, MarkKey};
 use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
+    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
+    size_dialog_window,
 };
 
-use super::super::state::{FindDuplicatesMode, OctaApp, TabState};
+use super::super::state::{DuplicateFilter, FindDuplicatesMode, OctaApp, TabState};
 
 pub(crate) fn render_find_duplicates_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     if !app.tabs[app.active_tab].show_find_duplicates {
@@ -32,6 +36,20 @@ pub(crate) fn render_find_duplicates_dialog(app: &mut OctaApp, ctx: &egui::Conte
         .collect();
     let mut key_cols = app.tabs[app.active_tab].find_duplicates_key_cols.clone();
     let mut mode = app.tabs[app.active_tab].find_duplicates_mode;
+    let is_large = app.tabs[app.active_tab].large.is_some();
+    let readonly = app.is_readonly();
+    // A mode picked on an ordinary tab must not stay selected when the dialog
+    // is next opened on a large or read-only one, or Apply would silently do
+    // nothing.
+    if (is_large
+        && matches!(
+            mode,
+            FindDuplicatesMode::FilterDuplicates | FindDuplicatesMode::FilterUnique
+        ))
+        || (readonly && matches!(mode, FindDuplicatesMode::Drop(_)))
+    {
+        mode = FindDuplicatesMode::Highlight;
+    }
     let mut close_requested = false;
     let mut run_requested = false;
 
@@ -40,17 +58,18 @@ pub(crate) fn render_find_duplicates_dialog(app: &mut OctaApp, ctx: &egui::Conte
     let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
     let minimized = size == DialogSize::Minimized;
 
+    let center = center_on_first_show(ctx, egui::vec2(420.0, 380.0));
     let window = egui::Window::new("octa_find_duplicates")
         .id(dialog_id)
         .title_bar(false)
-        .collapsible(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]);
+        .collapsible(false);
     let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
         w.resizable(true)
             .default_width(420.0)
             .default_height(380.0)
             .min_width(320.0)
             .min_height(220.0)
+            .default_pos(center)
     });
 
     let inner = window.show(ctx, |ui| {
@@ -138,6 +157,54 @@ pub(crate) fn render_find_duplicates_dialog(app: &mut OctaApp, ctx: &egui::Conte
                 FindDuplicatesMode::NewTab,
                 octa::i18n::t("dialog.fd_new_tab"),
             );
+            // A large-file tab filters against the file in SQL and never
+            // builds the row vector these two narrow, so they cannot work
+            // there. Greyed with the reason rather than hidden.
+            ui.add_enabled_ui(!is_large, |ui| {
+                ui.radio_value(
+                    &mut mode,
+                    FindDuplicatesMode::FilterDuplicates,
+                    octa::i18n::t("dialog.fd_filter_dups"),
+                )
+                .on_hover_text(octa::i18n::t("dialog.fd_filter_dups_hint"))
+                .on_disabled_hover_text(octa::i18n::t("dialog.fd_filter_large"));
+                ui.radio_value(
+                    &mut mode,
+                    FindDuplicatesMode::FilterUnique,
+                    octa::i18n::t("dialog.fd_filter_unique"),
+                )
+                .on_hover_text(octa::i18n::t("dialog.fd_filter_unique_hint"))
+                .on_disabled_hover_text(octa::i18n::t("dialog.fd_filter_large"));
+            });
+            // Drop is the one mode that edits the table, so it follows the
+            // read-only chokepoint like every other edit path.
+            ui.add_enabled_ui(!readonly, |ui| {
+                let dropping = matches!(mode, FindDuplicatesMode::Drop(_));
+                if ui
+                    .radio(dropping, octa::i18n::t("dedupe.title"))
+                    .on_hover_text(octa::i18n::t("dedupe.menu_hint"))
+                    .on_disabled_hover_text(octa::i18n::t("transform.readonly"))
+                    .clicked()
+                    && !dropping
+                {
+                    mode = FindDuplicatesMode::Drop(KeepWhich::First);
+                }
+                if dropping {
+                    ui.indent("fd_keep", |ui| {
+                        ui.label(octa::i18n::t("dedupe.keep_label"));
+                        ui.radio_value(
+                            &mut mode,
+                            FindDuplicatesMode::Drop(KeepWhich::First),
+                            octa::i18n::t("dedupe.keep_first"),
+                        );
+                        ui.radio_value(
+                            &mut mode,
+                            FindDuplicatesMode::Drop(KeepWhich::Last),
+                            octa::i18n::t("dedupe.keep_last"),
+                        );
+                    });
+                }
+            });
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
@@ -218,6 +285,20 @@ pub(crate) fn render_find_duplicates_dialog(app: &mut OctaApp, ctx: &egui::Conte
         FindDuplicatesMode::Highlight => {
             let dup_count = dup_rows.len();
             let tab = &mut app.tabs[app.active_tab];
+            // Marking is a replace, not an accumulate: without this, a second
+            // run on different key columns leaves the first run's orange rows
+            // behind and the colour stops meaning "duplicate". Goes through
+            // `clear_mark` so the whole run is one undo step.
+            let stale: Vec<MarkKey> = tab
+                .table
+                .marks
+                .iter()
+                .filter(|(k, c)| matches!(k, MarkKey::Row(_)) && **c == MarkColor::Orange)
+                .map(|(k, _)| k.clone())
+                .collect();
+            for key in stale {
+                tab.table.clear_mark(key);
+            }
             for row_idx in dup_rows {
                 tab.table.set_mark(MarkKey::Row(row_idx), MarkColor::Orange);
             }
@@ -264,9 +345,68 @@ pub(crate) fn render_find_duplicates_dialog(app: &mut OctaApp, ctx: &egui::Conte
                 std::time::Instant::now(),
             ));
         }
+        FindDuplicatesMode::FilterDuplicates | FindDuplicatesMode::FilterUnique => {
+            let keep_duplicates = mode == FindDuplicatesMode::FilterDuplicates;
+            let dup_count = dup_rows.len();
+            let tab = &mut app.tabs[app.active_tab];
+            let kept = if keep_duplicates {
+                dup_count
+            } else {
+                tab.table.row_count().saturating_sub(dup_count)
+            };
+            tab.duplicate_filter = Some(DuplicateFilter {
+                key_cols: key_cols_vec.clone(),
+                keep_duplicates,
+            });
+            tab.duplicate_filter_cache = None;
+            tab.filter_dirty = true;
+            app.status_message = Some((
+                octa::i18n::t(if keep_duplicates {
+                    "dialog.fd_filtered_dups"
+                } else {
+                    "dialog.fd_filtered_unique"
+                })
+                .replace("{n}", &kept.to_string()),
+                std::time::Instant::now(),
+            ));
+        }
+        FindDuplicatesMode::Drop(keep) => drop_duplicates(app, &key_cols_vec, keep),
     }
 
     app.tabs[app.active_tab].show_find_duplicates = false;
+}
+
+/// Delete every repeat on `key_cols` (empty = whole row) except the `keep`
+/// occurrence, as one undo step, and report the count in the status bar.
+/// Shared with the clean-up panel's "duplicate rows" fix.
+pub(crate) fn drop_duplicates(app: &mut OctaApp, key_cols: &[usize], keep: KeepWhich) {
+    let active = app.active_tab;
+
+    // Merge pending cell edits so dedupe sees the visible values.
+    app.tabs[active].table.apply_edits();
+
+    // The engine tells us exactly which original rows to drop, in descending
+    // order. Delete each (highest first, so indices don't shift) and coalesce
+    // the per-row DeleteRow undo actions into one Batch, so a single Ctrl+Z
+    // restores the full table.
+    let dropped = dedupe_dropped_indices(&app.tabs[active].table, key_cols, keep);
+    let removed = dropped.len();
+
+    if removed > 0 {
+        let undo_start = app.tabs[active].table.undo_stack.len();
+        for row_idx in dropped {
+            app.tabs[active].table.delete_row(row_idx);
+        }
+        app.tabs[active].table.coalesce_undo_since(undo_start);
+        app.tabs[active].table.structural_changes = true;
+        app.tabs[active].filter_dirty = true;
+        app.tabs[active].table_state.widths_initialized = false;
+    }
+
+    app.status_message = Some((
+        format!("{removed} {}", octa::i18n::t("dedupe.removed_status")),
+        std::time::Instant::now(),
+    ));
 }
 
 /// Clone the columns + the chosen rows out of `src` into a fresh

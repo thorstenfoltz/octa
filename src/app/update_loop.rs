@@ -5,6 +5,10 @@
 use eframe::egui;
 
 use super::state::{OctaApp, UpdateState};
+use octa::ui::settings::{
+    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
+    size_dialog_window,
+};
 
 impl eframe::App for OctaApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -207,11 +211,46 @@ impl OctaApp {
             return;
         }
         let mut close = false;
-        egui::Window::new(octa::i18n::t("diagnostics.crash_title"))
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
+        let dialog_id = egui::Id::new("octa_crash_offer_dialog");
+        let size_key = dialog_id.with("octa_dlg_size");
+        let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
+        let minimized = size == DialogSize::Minimized;
+        let mut chrome_close = false;
+
+        let center = center_on_first_show(ctx, egui::vec2(460.0, 240.0));
+        let window = egui::Window::new("octa_crash_offer")
+            .id(dialog_id)
+            .title_bar(false)
+            .collapsible(false);
+        let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+            w.resizable(true)
+                .default_width(460.0)
+                .default_height(240.0)
+                .min_width(320.0)
+                .min_height(150.0)
+                .default_pos(center)
+        });
+        let inner = window.show(ctx, |ui| {
+            egui::Panel::top("crash_offer_header")
+                .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(octa::i18n::t("diagnostics.crash_title"))
+                                .strong()
+                                .size(16.0),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if draw_window_controls(ui, &mut size) {
+                                chrome_close = true;
+                            }
+                        });
+                    });
+                });
+            if minimized {
+                return;
+            }
+            egui::CentralPanel::default().show(ui, |ui| {
                 ui.label(octa::i18n::t("diagnostics.crash_body"));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
@@ -226,6 +265,24 @@ impl OctaApp {
                     }
                 });
             });
+        });
+        if let Some(inner) = inner {
+            remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+        }
+        ctx.data_mut(|d| {
+            d.insert_temp(
+                size_key,
+                if chrome_close {
+                    DialogSize::Normal
+                } else {
+                    size
+                },
+            )
+        });
+        if chrome_close {
+            let _ = octa::diagnostics::crash::take_last_crash();
+            close = true;
+        }
         if close {
             self.pending_crash_offer = false;
         }

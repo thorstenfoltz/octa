@@ -90,6 +90,27 @@ pub struct TableSnapshot {
     pub source_path: Option<String>,
     /// A clone of the tab's table with edits already materialised.
     pub table: DataTable,
+    /// Set when the tab is in **large-file mode**, where `table` holds one
+    /// page read from disk rather than the file. See [`SnapshotWindow`].
+    pub window: Option<SnapshotWindow>,
+}
+
+/// Which slice of a file a large-file tab currently holds.
+///
+/// A large-file tab's `DataTable` is one `LARGE_PAGE_ROWS` window that moves as
+/// the user scrolls, so handing it to a tool as if it were the table made
+/// "explain this file" describe 2,000 rows of a billion-row file and say
+/// nothing about it. Every reader of a snapshot has to decide what to do with a
+/// window; `ToolContext::resolve` reads the file instead, and
+/// `open_tab_summaries` reports the real size.
+#[derive(Clone, Copy, Debug)]
+pub struct SnapshotWindow {
+    /// Index of the window's first row within the file.
+    pub offset: usize,
+    /// Rows in the window (`table.row_count()` unless the file ends sooner).
+    pub len: usize,
+    /// Rows in the whole file.
+    pub total: usize,
 }
 
 /// A resolved live-tab edit op: values are already computed/literal so the UI
@@ -109,6 +130,10 @@ pub enum ResolvedOp {
     DeleteRows(Vec<usize>),
     /// Drop columns by (already-resolved) index. Applied highest-index-first.
     DropColumns(Vec<usize>),
+    /// Reorder rows by `(column index, ascending)` keys, most significant
+    /// first. Queued last within a batch, because it permutes rows and every
+    /// other op addresses them by index.
+    SortRows(Vec<(usize, bool)>),
 }
 
 /// One batched edit the chat agent wants applied to a live GUI tab. Pushed by
@@ -298,7 +323,7 @@ impl ToolContext {
                 if table.is_none()
                     && let Some(snap) = self.snapshot_for_pathish(&path.to_string_lossy())
                 {
-                    return Ok(snap.table.clone());
+                    return self.resolve_snapshot(snap);
                 }
                 // Cloud URL (s3://, az://, gs://): download to a temp file and
                 // read it as usual. Credentials come from a saved connection
@@ -342,7 +367,7 @@ impl ToolContext {
                     .open_tabs
                     .get(idx)
                     .ok_or_else(|| anyhow::anyhow!("active tab index is out of range"))?;
-                Ok(snap.table.clone())
+                self.resolve_snapshot(snap)
             }
             Source::OpenTab(name) => {
                 // Prefer the stable handle (e.g. "#2"), so tabs that share a
@@ -353,9 +378,32 @@ impl ToolContext {
                     .find(|t| t.handle == *name)
                     .or_else(|| self.open_tabs.iter().find(|t| &t.display_name == name))
                     .ok_or_else(|| anyhow::anyhow!("no open tab named \"{name}\""))?;
-                Ok(snap.table.clone())
+                self.resolve_snapshot(snap)
             }
         }
+    }
+
+    /// Turn a tab snapshot into the table the caller actually asked for.
+    ///
+    /// Normally that is the snapshot itself. For a **windowed** snapshot
+    /// (large-file mode) it is the file on disk: the snapshot holds one page,
+    /// and answering "how many rows / what is in this file" from a page is
+    /// wrong in a way nothing downstream can detect. The path is already in
+    /// `allowed_read_paths` (the tab is open), and `large_file_min_bytes` means
+    /// the tools that can stream still stream, so this costs no more than
+    /// reading the file the user opened.
+    ///
+    /// A windowed snapshot with no `source_path` cannot happen today (large-file
+    /// mode always sets one) but falls back to the page rather than failing.
+    fn resolve_snapshot(&self, snap: &TableSnapshot) -> anyhow::Result<DataTable> {
+        if snap.window.is_some()
+            && let Some(sp) = snap.source_path.as_deref()
+        {
+            let path = PathBuf::from(sp);
+            self.ensure_readable(&path)?;
+            return read_with_registry(&path, None);
+        }
+        Ok(snap.table.clone())
     }
 
     /// A scan handle for `source`, or `None` when it should be read normally.
@@ -389,8 +437,13 @@ impl ToolContext {
         }
         let as_str = path.to_string_lossy();
         // `resolve` prefers an open tab addressed through `path`; so must this,
-        // or the two would disagree about what the caller meant.
-        if self.snapshot_for_pathish(&as_str).is_some() {
+        // or the two would disagree about what the caller meant. A *windowed*
+        // snapshot is the exception both agree on: `resolve` reads the file for
+        // one, so scanning it here is the same answer, only cheaper.
+        if self
+            .snapshot_for_pathish(&as_str)
+            .is_some_and(|s| s.window.is_none())
+        {
             return None;
         }
         if octa::cloud::is_http_url(&as_str) || octa::cloud::parse_cloud_url(&as_str).is_some() {
@@ -756,7 +809,28 @@ connection\" for it in Settings > Cloud storage",
                     "source_path".to_string(),
                     t.source_path.clone().map_or(Value::Null, Value::String),
                 );
-                m.insert("row_count".to_string(), Value::from(t.table.row_count()));
+                // A windowed tab (large-file mode) holds one page, so reporting
+                // the page as `row_count` is how "explain this file" ended up
+                // describing 2,000 rows of a huge file. Report the file's own
+                // size and say outright that reads go to disk.
+                match (&t.window, t.source_path.as_deref()) {
+                    (Some(w), Some(sp)) => {
+                        m.insert("row_count".to_string(), Value::from(w.total));
+                        m.insert(
+                            "note".to_string(),
+                            Value::String(format!(
+                                "Large-file mode: this tab displays rows {}-{} of {}. Reading it \
+                                 returns the whole file from {sp}, not the displayed window.",
+                                w.offset + 1,
+                                w.offset + w.len,
+                                w.total
+                            )),
+                        );
+                    }
+                    _ => {
+                        m.insert("row_count".to_string(), Value::from(t.table.row_count()));
+                    }
+                }
                 m.insert("column_count".to_string(), Value::from(t.table.col_count()));
                 m.insert("columns".to_string(), Value::Array(cols));
                 Value::Object(m)

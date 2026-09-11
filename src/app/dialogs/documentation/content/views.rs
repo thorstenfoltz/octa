@@ -346,6 +346,12 @@ for you: read it, change it if you like, then press Run. Only a single
 SELECT is ever produced, so Ask cannot hand you a statement that changes
 data.
 
+A dropdown beside the box picks which assistant answers, the same
+control the search bar's Ask has. It is per tab and starts on whatever
+the chat panel is set to, so one question can go to a bigger model
+without changing the panel; with only one profile configured there is
+no choice to make and the dropdown stays away.
+
 Ask sends the active table's column names, their types and the row count
 to the chat profile you have configured. It does not send the data
 itself. When the panel is set to run on a server, the query is written
@@ -365,8 +371,19 @@ either case Ask asks about the one table, as before. A local (DuckDB)
 query never gets this, because the neighbouring tables are not there to
 join.
 
-Ask is greyed out when no chat profile is set up, or when the tab has no
-columns yet. Hover it to see which.
+A local query gets the **workspace** instead: every table registered
+from another tab and every attachment's tables, with their columns, so
+Ask can write a join across them and call each one by its real name.
+The list is capped at 12 tables and 40 columns apiece to keep the
+request small, and attachment tables come from the cached listing, so
+no extra query goes to the server. On a server tab the row count sent
+is the table's own, not the size of the page currently on screen.
+
+Ask is greyed out when no chat profile is set up, or when there is
+nothing for the prompt to describe: no columns on the tab **and** no
+registered or attached workspace tables. An empty tab with a database
+attached is therefore fine, which is exactly the tab the panel exists
+for. Hover it to see which case applies.
 
 The search bar has a sibling Ask toggle that produces filters rather than
 a query, under the same one-request rule.
@@ -384,10 +401,43 @@ queryable:
 - **Attach database...** ATTACHes a DuckDB or SQLite file
   (`alias.schema.table`).
 - **Attach connection** ATTACHes a saved live-database connection
-  (PostgreSQL / MySQL read-only via DuckDB extensions; SQL Server tables
-  import individually). The alias is the connection name lowercased with
-  punctuation as `_`; the **Attached connections** box next to the
-  Inspector lists each alias with a one-click example query.
+  (PostgreSQL / MySQL read-only via DuckDB extensions; SQL Server,
+  Oracle and the warehouses have no extension, so their tables come in
+  as plain workspace tables and their entry opens into the server's
+  tree). A native attachment's alias
+  is the connection name lowercased with punctuation as `_`; the
+  **Attached connections** box next to the Inspector lists each alias
+  with a one-click example query.
+- **Attach cloud** picks objects out of a saved cloud connection and
+  registers each as a workspace table.
+
+**Picking what to attach.** PostgreSQL, MySQL and Redshift attach
+natively: one click takes the whole server and nothing is copied. Every
+other engine has no DuckDB extension, so an attach *fetches* the tables
+it covers - which is why its entry opens into the tree instead. Walk
+down to a single table (the usual answer), stop on a schema, or click
+**Attach everything here** to take the level you are standing on.
+Trino, Snowflake, Databricks and BigQuery put a catalog above the
+schema, so their tree starts there: "the schemas of this server" is not
+a question they can answer, and their root offers no Attach everything
+here. An imported table is named after **itself** (`orders`), joins the
+workspace as an ordinary table rather than an attachment, and carries
+where it came from as its origin (hover the row). A name already in use
+takes a `_2` suffix, and **double-clicking a name renames it**, so a
+`FROM` clause says whatever you want; `data` is the one name that
+cannot change. An import is capped at 60
+tables per attach; over that nothing is attached at all and the message
+says so, so no table is ever silently left out. Drill one level deeper,
+or query the server directly with Run on server.
+
+**Cloud objects as workspace tables.** Attach cloud lists your saved
+cloud connections and opens a picker on the one you choose. Browse the
+folders, tick what you want, and Add to workspace downloads each object
+and registers it as a table named after the file. Only files a reader
+can open are offered. Several ticks give several tables; **Combine the
+picked objects into one table** unions them into one instead, and starts
+off on purpose - a union reconciles differing schemas, and Octa does not
+do that to your data unless you ask.
 
 Clicking any table shows it in the **Inspector** (columns, sample rows,
 Copy / Insert / Run buttons). The SQL panel also opens on an **empty
@@ -414,6 +464,19 @@ The SQL toolbar offers two ways to reuse queries:
   and **x** (delete). The window has minimise / maximise / close controls
   and is resizable. Snippets live in `sql_snippets.json` in Octa's config
   directory.
+
+## CREATE TABLE opens a new tab
+
+A `CREATE TABLE` or `CREATE VIEW` statement turns into a new tab named after
+the table, with the declared columns and types (`CREATE TABLE people (id
+INTEGER, name VARCHAR)` gives an empty grid to type into; `CREATE TABLE top
+AS SELECT * FROM data ORDER BY score DESC LIMIT 10` gives a tab with those
+rows). The tab you ran it from is untouched, so this works from an empty tab
+with nothing open, and it is not blocked by read-only mode: a new tab is not
+an edit. The table is handed over rather than kept, so `x` is not queryable
+from the original panel afterwards; switch to the new tab and it is `data`
+there. A table created inside an attached database is left alone (and
+attachments are read-only, so DuckDB refuses it anyway).
 
 ## Mutation highlight
 
@@ -544,6 +607,12 @@ at all. And the files cannot be patched in place anyway - Parquet is columnar
 and compressed per row group, so one cell means rewriting the file, and in a
 CSV a longer value shifts every byte after it. To change a large file, use the
 SQL panel on the tab and write the result out as a new file.
+
+**The assistant sees the file, not the page.** A large-file tab holds one
+2,000-row page, so the assistant is told the file's real row count plus which
+rows are on screen, and a tool asked for "the open tab" reads the file from
+disk instead of the page. Without that, **Explain this file** would describe
+2,000 rows of a billion-row file and never say it was looking at a slice.
 
 **Ceilings.** Pages are fetched on the interface thread, which is comfortable
 for Parquet and slower for a very large CSV, where a deep position means

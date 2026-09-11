@@ -5,6 +5,10 @@
 use egui;
 
 use super::*;
+use crate::ui::dialog_chrome::{
+    DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
+    size_dialog_window,
+};
 use crate::ui::shortcuts::ShortcutAction;
 
 mod appearance_section;
@@ -845,11 +849,46 @@ impl SettingsDialog {
         }
         let mut turn_off = false;
         let mut keep = false;
-        egui::Window::new(crate::i18n::t("settings.url_redirect_off_title"))
-            .resizable(false)
-            .collapsible(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
+        let dialog_id = egui::Id::new("octa_url_redirect_off_dialog");
+        let size_key = dialog_id.with("octa_dlg_size");
+        let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
+        let minimized = size == DialogSize::Minimized;
+        let mut chrome_close = false;
+
+        let center = center_on_first_show(ctx, egui::vec2(480.0, 280.0));
+        let window = egui::Window::new("octa_url_redirect_off")
+            .id(dialog_id)
+            .title_bar(false)
+            .collapsible(false);
+        let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+            w.resizable(true)
+                .default_width(480.0)
+                .default_height(280.0)
+                .min_width(340.0)
+                .min_height(170.0)
+                .default_pos(center)
+        });
+        let inner = window.show(ctx, |ui| {
+            egui::Panel::top("url_redirect_off_header")
+                .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(crate::i18n::t("settings.url_redirect_off_title"))
+                                .strong()
+                                .size(16.0),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if draw_window_controls(ui, &mut size) {
+                                chrome_close = true;
+                            }
+                        });
+                    });
+                });
+            if minimized {
+                return;
+            }
+            egui::CentralPanel::default().show(ui, |ui| {
                 ui.set_max_width(460.0);
                 ui.label(crate::i18n::t("settings.url_redirect_off_body"));
                 ui.add_space(6.0);
@@ -873,6 +912,23 @@ impl SettingsDialog {
                     }
                 });
             });
+        });
+        if let Some(inner) = inner {
+            remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+        }
+        ctx.data_mut(|d| {
+            d.insert_temp(
+                size_key,
+                if chrome_close {
+                    DialogSize::Normal
+                } else {
+                    size
+                },
+            )
+        });
+        if chrome_close {
+            keep = true;
+        }
         if turn_off {
             self.confirm_url_redirect_disable = false;
         } else if keep {
@@ -888,11 +944,46 @@ impl SettingsDialog {
         }
         let mut confirm = false;
         let mut cancel = false;
-        egui::Window::new(crate::i18n::t("settings.reset_confirm_title"))
-            .resizable(false)
-            .collapsible(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
+        let dialog_id = egui::Id::new("octa_settings_reset_dialog");
+        let size_key = dialog_id.with("octa_dlg_size");
+        let mut size = ctx.data_mut(|d| d.get_temp::<DialogSize>(size_key).unwrap_or_default());
+        let minimized = size == DialogSize::Minimized;
+        let mut chrome_close = false;
+
+        let center = center_on_first_show(ctx, egui::vec2(440.0, 220.0));
+        let window = egui::Window::new("octa_settings_reset")
+            .id(dialog_id)
+            .title_bar(false)
+            .collapsible(false);
+        let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
+            w.resizable(true)
+                .default_width(440.0)
+                .default_height(220.0)
+                .min_width(320.0)
+                .min_height(150.0)
+                .default_pos(center)
+        });
+        let inner = window.show(ctx, |ui| {
+            egui::Panel::top("settings_reset_header")
+                .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(crate::i18n::t("settings.reset_confirm_title"))
+                                .strong()
+                                .size(16.0),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if draw_window_controls(ui, &mut size) {
+                                chrome_close = true;
+                            }
+                        });
+                    });
+                });
+            if minimized {
+                return;
+            }
+            egui::CentralPanel::default().show(ui, |ui| {
                 ui.label(crate::i18n::t("settings.reset_confirm_body"));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
@@ -904,6 +995,23 @@ impl SettingsDialog {
                     }
                 });
             });
+        });
+        if let Some(inner) = inner {
+            remember_dialog_rect(ctx, dialog_id, size, inner.response.rect);
+        }
+        ctx.data_mut(|d| {
+            d.insert_temp(
+                size_key,
+                if chrome_close {
+                    DialogSize::Normal
+                } else {
+                    size
+                },
+            )
+        });
+        if chrome_close {
+            cancel = true;
+        }
         if confirm {
             self.reset_draft();
             self.icon_changed = true;

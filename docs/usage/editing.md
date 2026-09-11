@@ -8,6 +8,22 @@ This page covers structural operations. For navigation and selection
 within the Table view, see [Table View](table-view.md). For cell
 formulas (`=A1+B1`), see [Formulas](formulas.md).
 
+## Starting from nothing
+
+**File → New Table...** asks how many columns and rows to start with
+(3 x 1 by default) and opens a blank, editable grid in a new tab, the way a
+spreadsheet opens a blank sheet. Columns are named `col1`, `col2`, ...;
+rename them, add rows or columns with the tools below, then **Save** to any
+[writable format](saving.md). Nothing exists on disk until you save. The
+[`NewTable` shortcut](../reference/shortcuts.md#file-operations) is unbound
+by default; give it a key under **Settings → Shortcuts**.
+
+**File → New File...** opens an empty *text* tab instead: type or paste CSV,
+JSON, Markdown or any text, then save it as a file.
+
+The SQL panel can do the same from a statement: see
+[CREATE TABLE opens a new tab](sql.md#create-table-opens-a-new-tab).
+
 ## Editing cells
 
 Double-click any cell to start editing. The current text is selected
@@ -128,7 +144,7 @@ The status bar shows `[Read-only]` while active.
 
 ## Find duplicates
 
-**Search → Find duplicates…** (also <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>)
+**Data → Find duplicates…** (also <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>)
 opens a modal that:
 
 1. Lists every column with a checkbox. Tick the columns you want to
@@ -142,6 +158,32 @@ opens a modal that:
      the duplicate rows into a fresh scratch tab. The source tab is
      untouched. The new tab has no source path so a Save prompts
      for one.
+   - **Show only the duplicate rows** filters the active table down to
+     the repeats, leaving the data alone. A removable chip appears above
+     the table; one click on it shows every row again.
+   - **Show only the rows that occur once** is the same filter inverted:
+     the repeats are hidden and what is left appeared exactly once on the
+     key columns.
+   - **Drop duplicate rows** is the one mode that edits the table. Choose
+     whether to **keep the first** or **keep the last** occurrence of each
+     key; the rest are removed as a single undoable step (Ctrl+Z restores
+     them all) and the status bar reports how many rows went. The radio
+     button is greyed in read-only mode. <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd>
+     opens the dialog preset to this mode with every column ticked, so
+     whole-row repeats are two keys away. The same engine is available as
+     [`octa --dedupe`](../cli/dedupe.md) and the
+     [`drop_duplicates`](../mcp/tools/drop_duplicates.md) MCP / assistant
+     tool.
+
+The two filter modes remember the **key columns**, not the row numbers
+they resolved to, so the filter stays correct after you edit, insert or
+delete rows. They are unavailable on a very large file, where the tab
+holds one page of the file at a time and filtering happens in SQL; the
+radio buttons say so on hover.
+
+Highlight mode clears the previous run's orange row marks before it
+paints, so a second run on different key columns does not leave the
+first run's answer behind.
 
 Two rows are duplicates when **every** checked column has the same
 displayed text. Hashing is text-based so it works across mixed types,

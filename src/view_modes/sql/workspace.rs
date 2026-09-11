@@ -10,7 +10,8 @@ use super::*;
 pub(super) struct WorkspaceData<'a> {
     pub(super) tables: &'a [WorkspaceRow],
     pub(super) attachments: &'a [WorkspaceAttachment],
-    pub(super) db_connections: &'a [(String, String)],
+    pub(super) db_connections: &'a [super::DbAttachEntry],
+    pub(super) cloud_connections: &'a [(String, String)],
 }
 
 pub(super) fn render_workspace_section(
@@ -104,6 +105,7 @@ fn render_workspace_list(
         tables,
         attachments,
         db_connections,
+        cloud_connections,
     } = *data;
     let weak = ui.visuals().weak_text_color();
     egui::ScrollArea::vertical()
@@ -116,9 +118,52 @@ fn render_workspace_list(
                 };
                 let selected = inspector_selection == Some(&target);
                 ui.horizontal(|ui| {
-                    let label = egui::RichText::new(&row.sql_name).strong();
-                    if ui.selectable_label(selected, label).clicked() {
-                        action.select_inspector = Some(Some(target.clone()));
+                    // Rename in place: the name exists to be typed in a FROM
+                    // clause, and a dialog for one word is more chrome than
+                    // the edit. The draft lives in egui's temp memory, so the
+                    // per-frame row list needs no state of its own.
+                    let rename_id = ui.id().with(("ws_rename", &row.sql_name));
+                    let edit_id = rename_id.with("edit");
+                    if let Some(mut buf) = ui.data(|d| d.get_temp::<String>(rename_id)) {
+                        let resp = ui.add(
+                            egui::TextEdit::singleline(&mut buf)
+                                .id(edit_id)
+                                .desired_width(160.0),
+                        );
+                        // Focus the frame the box first appears (a focus
+                        // request made while it did not exist yet is dropped
+                        // at the end of that pass). `lost_focus` guards the
+                        // frame the user clicks away, or the box would grab
+                        // the focus straight back.
+                        if !resp.has_focus() && !resp.lost_focus() {
+                            resp.request_focus();
+                        }
+                        let enter =
+                            resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        if enter {
+                            action.rename_table = Some((row.sql_name.clone(), buf.clone()));
+                        }
+                        let cancelled = !enter
+                            && (resp.lost_focus()
+                                || ui.input(|i| i.key_pressed(egui::Key::Escape)));
+                        if enter || cancelled {
+                            ui.data_mut(|d| d.remove::<String>(rename_id));
+                        } else {
+                            ui.data_mut(|d| d.insert_temp(rename_id, buf));
+                        }
+                    } else {
+                        let label = egui::RichText::new(&row.sql_name).strong();
+                        let mut resp = ui.selectable_label(selected, label);
+                        if !row.is_active {
+                            resp = resp.on_hover_text(octa::i18n::t("sql.table_row_hint"));
+                            if resp.double_clicked() {
+                                let name = row.sql_name.clone();
+                                ui.data_mut(|d| d.insert_temp(rename_id, name));
+                            }
+                        }
+                        if resp.clicked() {
+                            action.select_inspector = Some(Some(target.clone()));
+                        }
                     }
                     ui.label(
                         egui::RichText::new(format!(
@@ -211,18 +256,179 @@ fn render_workspace_list(
                 // Saved live-database connections (Settings -> Databases).
                 if !db_connections.is_empty() {
                     ui.menu_button(octa::i18n::t("sql.attach_db_connection"), |ui| {
-                        for (id, name) in db_connections {
-                            if ui.button(name).clicked() {
-                                action.attach_db_connection = Some(id.clone());
-                                ui.close();
+                        for entry in db_connections {
+                            match &entry.drill {
+                                // Native ATTACH: nothing is imported, so one
+                                // click takes the whole server.
+                                None => {
+                                    if ui.button(&entry.name).clicked() {
+                                        action.attach_db_connection =
+                                            Some((entry.id.clone(), Default::default()));
+                                        ui.close();
+                                    }
+                                }
+                                // Import engine: every table it takes is
+                                // fetched, so the entry opens into the tree
+                                // and the user picks how much to import.
+                                Some(drill) => {
+                                    ui.menu_button(&entry.name, |ui| {
+                                        drill_menu(ui, entry, drill, &mut Vec::new(), action);
+                                    })
+                                    .response
+                                    .on_hover_text(octa::i18n::t("sql.attach_drill_hint"));
+                                }
                             }
                         }
                     })
                     .response
                     .on_hover_text(octa::i18n::t("sql.attach_db_connection_hint"));
                 }
+                // Saved cloud connections (Settings -> Cloud storage).
+                if !cloud_connections.is_empty() {
+                    ui.menu_button(octa::i18n::t("sql.attach_cloud"), |ui| {
+                        for (id, name) in cloud_connections {
+                            if ui.button(name).clicked() {
+                                action.attach_cloud_connection = Some(id.clone());
+                                ui.close();
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text(octa::i18n::t("sql.attach_cloud_hint"));
+                }
             });
         });
+}
+
+/// One level of the attach drill-down: the catalogs, schemas or tables under
+/// `parts`, plus an entry that attaches everything below it. Asking for a
+/// level is a network call, so it is started when the submenu first opens and
+/// read from the sidebar's shared cache afterwards.
+///
+/// Attaching an import connection copies every table it covers, and a single
+/// Databricks catalog can hold hundreds, so the menu goes all the way down to
+/// the one table the user is after.
+fn drill_menu(
+    ui: &mut egui::Ui,
+    entry: &super::DbAttachEntry,
+    drill: &super::DrillMenu,
+    parts: &mut Vec<String>,
+    action: &mut SqlAction,
+) {
+    use super::NodeListing;
+    // Depth whose children are tables rather than another level to open.
+    let leaf_depth = if drill.has_catalogs { 2 } else { 1 };
+    let Some(listing) = drill.nodes.get(parts) else {
+        action.list_db_node = Some((entry.id.clone(), parts.clone()));
+        ui.label(octa::i18n::t("sql.loading"));
+        return;
+    };
+    match listing {
+        NodeListing::Loading => {
+            ui.horizontal(|ui| {
+                ui.add(egui::Spinner::new().size(12.0));
+                ui.label(octa::i18n::t("sql.loading"));
+            });
+            ui.ctx().request_repaint();
+        }
+        NodeListing::Failed(e) => {
+            octa::ui::message::selectable_message(ui, ui.visuals().error_fg_color, e);
+        }
+        NodeListing::Ready(items) if items.is_empty() => {
+            ui.label(octa::i18n::t("sql.attach_nothing_here"));
+        }
+        NodeListing::Ready(items) => {
+            // "Everything here" is offered at every level a server can answer.
+            // A three-level engine cannot be enumerated without a catalog, so
+            // its root is the one place that gets no such entry.
+            if !(drill.has_catalogs && parts.is_empty()) {
+                if ui
+                    .button(octa::i18n::t("sql.attach_all_here"))
+                    .on_hover_text(octa::i18n::t("sql.attach_all_here_hint"))
+                    .clicked()
+                {
+                    action.attach_db_connection =
+                        Some((entry.id.clone(), scope_for(drill, parts, None)));
+                    ui.close();
+                }
+                ui.separator();
+            }
+            // Solid scrollbars: a floating one paints over the labels.
+            ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();
+            ui.allocate_ui(level_box_size(ui, items), |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for item in items {
+                        if parts.len() == leaf_depth {
+                            if ui
+                                .button(item)
+                                .on_hover_text(octa::i18n::t("sql.attach_table_hint"))
+                                .clicked()
+                            {
+                                action.attach_db_connection =
+                                    Some((entry.id.clone(), scope_for(drill, parts, Some(item))));
+                                ui.close();
+                            }
+                        } else {
+                            parts.push(item.clone());
+                            ui.menu_button(item, |ui| drill_menu(ui, entry, drill, parts, action))
+                                .response
+                                .on_hover_text(octa::i18n::t("sql.attach_drill_hint"));
+                            parts.pop();
+                        }
+                    }
+                });
+            });
+        }
+    }
+}
+
+/// Size for one menu level's scrolling list, measured from the entries
+/// themselves.
+///
+/// A menu popup is an auto-sized [`egui::Area`]: it measures itself the first
+/// frame it opens and only ever grows when its content's `min_size` grows. A
+/// `ScrollArea` never grows - it shrinks into whatever space it is handed,
+/// down to its own 64px floor. A submenu therefore opened at the size of the
+/// "Loading..." label the listing had not replaced yet, and stayed there,
+/// showing two entries however many the server sent. Measuring the box from
+/// the entries is what makes the content grow, so the popup grows with it.
+fn level_box_size(ui: &egui::Ui, items: &[String]) -> egui::Vec2 {
+    /// Taller than this and the popup would run off a laptop screen.
+    const MAX_HEIGHT: f32 = 360.0;
+    let row = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+    let full = items.len() as f32 * row;
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let painter = ui.painter();
+    let widest = items.iter().fold(0.0_f32, |w, item| {
+        let galley = painter.layout_no_wrap(item.clone(), font.clone(), egui::Color32::PLACEHOLDER);
+        w.max(galley.size().x)
+    });
+    // Room for the button padding, a submenu arrow, and the bar when the list
+    // is long enough to scroll.
+    let bar = if full > MAX_HEIGHT {
+        ui.spacing().scroll.allocated_width()
+    } else {
+        0.0
+    };
+    egui::vec2(
+        widest + ui.spacing().button_padding.x * 2.0 + 24.0 + bar,
+        full.min(MAX_HEIGHT),
+    )
+}
+
+/// Turn a node path (plus the table clicked inside it, if any) into the scope
+/// the workspace imports: `[catalog, ] schema, table`.
+fn scope_for(
+    drill: &super::DrillMenu,
+    parts: &[String],
+    leaf: Option<&String>,
+) -> octa::sql::AttachScope {
+    let mut walk = parts.iter().chain(leaf).cloned();
+    octa::sql::AttachScope {
+        catalog: drill.has_catalogs.then(|| walk.next()).flatten(),
+        schema: walk.next(),
+        table: walk.next(),
+    }
 }
 
 /// Paint a small collapsing triangle as a clickable widget. Replaces the
@@ -594,4 +800,119 @@ fn render_workspace_inspector(
                     }
                 });
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Height of the tallest popup egui has open, or 0.0 when none is.
+    fn open_popup_height(ctx: &egui::Context) -> f32 {
+        let layers = ctx.memory(|m| m.areas().visible_layer_ids());
+        layers
+            .iter()
+            .filter(|l| l.order != egui::Order::Background)
+            .filter_map(|l| ctx.read_response(l.id.with("move")))
+            .fold(0.0_f32, |h, r| h.max(r.rect.height()))
+    }
+
+    /// A submenu that opens while its listing is still loading, then gets 200
+    /// tables. Driven headlessly near the bottom edge of a short window, the
+    /// SQL panel's own geometry.
+    ///
+    /// The regression, and the reason the first two attempts at this menu
+    /// shipped broken: a menu popup is an auto-sized `Area` that caches its
+    /// size the first frame it opens, and only ever grows when its content's
+    /// `min_size` grows. A `ScrollArea` never grows - it shrinks into whatever
+    /// space it is given, down to its 64px floor. So the popup froze at the
+    /// size of the "Loading..." label it opened with, and showed two entries
+    /// forever after. Allocating a box measured from the entries is what makes
+    /// the content grow, so the popup grows with it.
+    #[test]
+    fn a_level_that_opened_while_loading_grows_when_the_listing_lands() {
+        let entry = super::super::DbAttachEntry {
+            id: "c".to_string(),
+            name: "warehouse".to_string(),
+            drill: None,
+        };
+        let loading = super::super::DrillMenu {
+            has_catalogs: false,
+            nodes: std::collections::HashMap::new(),
+        };
+        let ready = super::super::DrillMenu {
+            has_catalogs: false,
+            nodes: std::collections::HashMap::from([(
+                Vec::new(),
+                super::super::NodeListing::Ready(
+                    (0..200).map(|i| format!("orders_{i:03}")).collect(),
+                ),
+            )]),
+        };
+        let ctx = egui::Context::default();
+        let pass = |drill: &super::super::DrillMenu, events: Vec<egui::Event>| {
+            let input = egui::RawInput {
+                events,
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::pos2(0.0, 0.0),
+                    egui::vec2(800.0, 300.0),
+                )),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| {
+                let mut action = SqlAction::default();
+                ui.add_space(255.0);
+                ui.menu_button("attach", |ui| {
+                    ui.menu_button("warehouse", |ui| {
+                        drill_menu(ui, &entry, drill, &mut Vec::new(), &mut action);
+                    });
+                });
+            });
+            out.textures_delta.clear();
+        };
+        let click = |pressed: bool| egui::Event::PointerButton {
+            pos: egui::pos2(20.0, 270.0),
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        // Open the menu, and the connection's submenu inside it, while the
+        // listing is still on its way.
+        pass(&loading, vec![]);
+        pass(
+            &loading,
+            vec![
+                egui::Event::PointerMoved(egui::pos2(20.0, 270.0)),
+                click(true),
+            ],
+        );
+        pass(&loading, vec![click(false)]);
+        for y in [240.0_f32, 235.0, 245.0, 250.0, 230.0] {
+            pass(
+                &loading,
+                vec![egui::Event::PointerMoved(egui::pos2(30.0, y))],
+            );
+            pass(&loading, vec![]);
+        }
+        assert!(
+            open_popup_height(&ctx) > 0.0,
+            "the submenu should be open while the listing runs"
+        );
+        // The listing lands.
+        for _ in 0..10 {
+            pass(&ready, vec![]);
+        }
+        let grown = open_popup_height(&ctx);
+        assert!(
+            grown > 200.0,
+            "the popup must grow to the list it now holds, got {grown}"
+        );
+        for _ in 0..30 {
+            pass(&ready, vec![]);
+        }
+        let settled = open_popup_height(&ctx);
+        assert!(
+            (settled - grown).abs() < 1.0,
+            "the popup shrank while it sat open: {grown} -> {settled}"
+        );
+    }
 }

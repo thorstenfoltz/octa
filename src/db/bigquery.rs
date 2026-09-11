@@ -67,7 +67,11 @@ impl BigQueryConnector {
         let body = serde_json::json!({
             "query": sql,
             "useLegacySql": false,
-            "maxResults": max_results,
+            // A uint32 page size, and the caller may pass the "Unlimited"
+            // sentinel (`usize::MAX`); anything past u32 the API refuses.
+            // Paging is handled by `read_pages`, so clamping only bounds the
+            // first page.
+            "maxResults": max_results.min(u32::MAX as usize),
             "timeoutMs": BQ_WAIT_SECS * 1000,
         });
         let first = self

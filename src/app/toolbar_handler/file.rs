@@ -19,6 +19,9 @@ impl OctaApp {
         if action.new_file {
             self.new_file();
         }
+        if action.new_table {
+            self.new_table_dialog = Some(crate::app::state::NewTableState::default());
+        }
         if action.open_file {
             self.open_file();
         }

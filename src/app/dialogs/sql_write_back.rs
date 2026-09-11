@@ -218,7 +218,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
         .title_bar(false)
         .collapsible(false);
     let window = size_dialog_window(ctx, dialog_id, size, window, |w| {
-        w.resizable(false).default_width(560.0)
+        w.resizable(true).default_width(560.0)
     });
 
     let inner = window.show(ctx, |ui| {

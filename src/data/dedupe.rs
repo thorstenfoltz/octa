@@ -1,7 +1,7 @@
 use crate::data::{CellValue, DataTable};
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeepWhich {
     First,
     Last,

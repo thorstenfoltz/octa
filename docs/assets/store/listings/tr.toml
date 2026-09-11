@@ -1,39 +1,39 @@
-# tr: written natively, not translated from English.
+# tr: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet, CSV, Excel, SQLite ve otuz kadar biçim daha hızlı bir tabloda. Sırala, süz, ara, düzenle ve SQL çalıştır, hepsi kendi bilgisayarında."
+short = "Parquet, CSV, XLSX, SQLite ve otuz kadar başka veri biçimi anında tablo olarak görüntülenir. Sıralama, filtreleme, arama, düzenleme ve SQL sorguları, yerel olarak kendi bilgisayarda."
 
 long = """
-Octa; Parquet, CSV, Excel, SQLite, DuckDB ve JSON dosyalarını, ayrıca otuz kadar veri biçimini daha, içe aktarma adımı ve uzun kurulum olmadan açar.
+Octa, Parquet, CSV, XLSX, SQLite, DuckDB ve JSON dosyalarını ve otuz kadar başka veri biçimini doğrudan tablo olarak açar. İçe aktarma, kurulum ayarı veya proje dosyası gerekmez.
 
-Verilerini sıralayabilir, süzebilir, arayabilir ve düzenleyebilir, DuckDB ile SQL sorguları çalıştırabilir, grafik oluşturabilir ya da iki dosyayı karşılaştırabilirsin. Yerleşik sohbet sayesinde verilerine gündelik dille de soru sorabilirsin.
+Tablo sıralanabilir, filtrelenebilir ve aranabilir; hücreler, sütunlar ve satırlar düzenlenebilir, her değişiklik geri alınabilir. Açılan her dosya DuckDB'de SQL tablosu olarak kullanılabilir ve birden çok dosya tek sorguda birleştirilebilir. Buna grafikler, sütun istatistikleri, yinelenen ve aykırı değer tespiti, özet tablolar ve iki dosyanın karşılaştırılması eklenir. Milyonlarca satırlı Parquet dosyaları arka planda yüklenir.
 
-Kullandığın işlev harici bir API gerektirmediği sürece verilerin kendi bilgisayarında işlenir.
+Amazon S3, Azure Blob Storage ve Google Cloud Storage'daki ya da PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery ve diğer veritabanlarındaki veriler doğrudan açılır; yazma erişimi varsayılan olarak kapalıdır. İsteğe bağlı yapay zeka asistanı, verilerle ilgili soruları günlük dille yanıtlar; kendi API anahtarı veya Ollama üzerinden yerel bir model kullanır ve yapılandırılana kadar devre dışı kalır.
 
-Arayüz 32 dilde kullanılabilir. Octa, MIT lisanslı özgür yazılımdır.
+İşleme, kullanılan özellik harici bir API gerektirmedikçe yerel olarak, kendi bilgisayarda gerçekleşir. Arayüz 32 dilde sunulur. Octa, MIT lisanslı özgür yazılımdır: https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Otuz kadar biçimi açar: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata ve daha fazlası",
-  "Açık olan her dosyada DuckDB ile SQL sorguları, içe aktarma olmadan",
-  "Metin, joker karakter ya da düzenli ifadelerle sırala, süz ve ara",
-  "Hücreleri, sütunları ve satırları düzenle; geri alma eksiksiz, veritabanına yalnızca farklar yazılır",
-  "Grafikler kendi sekmesinde, PNG, SVG veya PDF olarak dışa aktarılabilir",
-  "İki dosyayı satır satır ya da kayıt kayıt karşılaştır",
-  "Sütun istatistikleri, yinelenen kayıtlar, aykırı değerler ve özet tablolar",
-  "Milyonlarca satırlık Parquet dosyalarını arka planda yükler",
-  "Amazon S3, Azure Blob Storage ve Google Cloud Storage'dan doğrudan okur",
-  "PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery ve daha fazlasına bağlanır",
-  "İsteğe bağlı yapay zeka asistanı, kendi anahtarınla ya da yerel bir modelle",
-  "Ayrıca bir komut satırı aracı ve Model Context Protocol sunucusu",
-  "Arayüz 32 dilde",
+  "Otuz kadar biçim: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata ve diğerleri",
+  "Açık her dosya üzerinde doğrudan DuckDB SQL, içe aktarma olmadan",
+  "Düz metin, joker karakter veya düzenli ifadelerle sıralama, filtreleme ve arama",
+  "Hücre, sütun ve satır düzenleme, tamamen geri alınabilir; veritabanına yalnızca değişiklikler yazılır",
+  "Ayrı sekmede grafikler, PNG, SVG veya PDF olarak dışa aktarma",
+  "İki dosyayı satır satır veya kayıt kayıt karşılaştırma",
+  "Sütun istatistikleri, yinelenen ve aykırı değer tespiti, özet tablolar",
+  "Milyonlarca satırlı Parquet dosyaları arka planda yüklenir",
+  "Amazon S3, Azure Blob Storage ve Google Cloud Storage'a doğrudan erişim",
+  "PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery ve diğerlerine bağlantı",
+  "İsteğe bağlı yapay zeka asistanı, kendi API anahtarı veya yerel modelle",
+  "Ayrıca komut satırı aracı ve Model Context Protocol sunucusu",
+  "32 dilde arayüz",
   "Özgür ve açık kaynaklı yazılım, MIT lisansı",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "csv görüntüleyici"
+SearchTerm2 = "csv aç"
 SearchTerm3 = "veri görüntüleyici"
-SearchTerm4 = "sqlite tarayıcı"
+SearchTerm4 = "sqlite"
 SearchTerm5 = "duckdb"
-SearchTerm6 = "sql sorguları"
-SearchTerm7 = "excel alternatifi"
+SearchTerm6 = "sql sorgu"
+SearchTerm7 = "xlsx aç"

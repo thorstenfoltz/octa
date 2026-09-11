@@ -166,6 +166,28 @@ impl OctaApp {
         self.start_db_list(ctx, conn_id, String::new());
     }
 
+    /// Populate a node's listing if nobody has yet, without touching the
+    /// sidebar's expansion state. The SQL panel's attach menu uses this to get
+    /// a connection's catalogs off the same cache and the same worker the
+    /// sidebar uses, rather than blocking the interface thread on the network.
+    pub(crate) fn ensure_db_listing(
+        &mut self,
+        ctx: &egui::Context,
+        conn_id: String,
+        schema: String,
+    ) {
+        let key = (conn_id.clone(), schema.clone());
+        let cached = self
+            .db_browser
+            .listings
+            .lock()
+            .map(|m| m.contains_key(&key))
+            .unwrap_or(false);
+        if !cached {
+            self.start_db_list(ctx, conn_id, schema);
+        }
+    }
+
     fn start_db_list(&mut self, ctx: &egui::Context, conn_id: String, schema: String) {
         let Some(conn) = self.find_db_conn(&conn_id) else {
             return;

@@ -1,4 +1,4 @@
-//! Find-near-duplicates dialog (Search -> Find near-duplicates...). Pick the
+//! Find-near-duplicates dialog (Data -> Find near-duplicates...). Pick the
 //! columns to compare, a method, a threshold, normalisation toggles, an
 //! optional blocking column, and a row cap; **Find** runs the O(n^2) scan on a
 //! background thread (mirroring the multi-search worker) with a **Cancel**
@@ -388,10 +388,13 @@ fn apply_output(app: &mut OctaApp, st: &mut FuzzyDuplicatesState, col_names: &[S
     let active = app.active_tab;
 
     // Highlight: clear the previous run's rows first (not the user's marks).
+    // Through `clear_mark`, not `marks.remove`: the direct removal skipped the
+    // undo stack, so Ctrl+Z after a second run put marks back that the second
+    // run had already taken away.
     if st.out_highlight {
         let prev = std::mem::take(&mut st.last_highlight_rows);
         for r in prev {
-            app.tabs[active].table.marks.remove(&MarkKey::Row(r));
+            app.tabs[active].table.clear_mark(MarkKey::Row(r));
         }
         let mut marked = Vec::new();
         for cluster in &res.clusters {

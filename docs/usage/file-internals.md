@@ -1,5 +1,7 @@
 # File Internals
 
+<!-- SCREENSHOT: file-internals-overview.png: File internals tab on a Parquet file with several row groups. The facts strip is visible above the grid (format, rows, row_groups, created_by, compressed/uncompressed bytes) with a hint line beneath it, and the grid below shows one row per column per row group with the compression and min/max columns in view. -->
+
 **Analyse → File internals...** opens a read-only tab describing how the
 active file is *physically written*, as opposed to what is in it.
 

@@ -83,6 +83,36 @@ the keys, **Add column** for another key, and **x** to remove one.
 Best-fit measures up to 5,000 sample rows so it stays snappy on
 multi-million-row tables.
 
+## Resizing rows
+
+<!-- SCREENSHOT: row-resize.png: The row-number gutter with the pointer on a row's bottom seam showing the vertical resize cursor, one row visibly taller than its neighbours. -->
+
+Rows resize the same way columns do, in the row-number gutter down the
+left edge:
+
+- **Drag a row's bottom edge** in the gutter to give that row its own
+  height. The cursor turns into a vertical resize arrow over the seam.
+- **Double-click that seam** to fit the row to its content, the same
+  gesture as on a column-header seam.
+- **Edit → Auto-fit All Rows** fits every row at once, the twin of
+  **Auto-fit All Columns**. Its
+  [shortcut](../reference/shortcuts.md#view) is unbound by default; give
+  it a key under **Settings → Shortcuts**.
+- **Drag the bottom edge of the `#` corner** to set the height of
+  **every** row at once; double-click the corner seam to fit them all,
+  hand-dragged rows included.
+
+Heights are per tab and session-only, like column widths, and the "set
+every row" corner stores one number rather than an entry per row, so it
+costs nothing on a table with millions of rows.
+
+Fitting a row means showing its whole value, so any of the fit gestures
+switches **Settings → Table → cell line breaks** on if it was off; long
+values then wrap inside the cell and each row takes the height they need.
+Dragging a row taller by hand leaves that setting alone: with line breaks
+off the extra space simply stays empty, as a column dragged wider than its
+content does.
+
 ## Reordering columns
 
 **Drag a column header** sideways to reorder. The cursor changes to

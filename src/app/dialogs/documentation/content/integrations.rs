@@ -149,6 +149,27 @@ A built-in chat assistant can drive Octa's tools over your open tabs.
 Toggle the docked chat panel from **Analyse > Assistant**, the **View**
 menu, or **Ctrl+Shift+A**. It is GUI-only.
 
+## Data mode and "Just answer"
+
+Two labels sit beside the profile dropdown in the panel header.
+**Data** is the normal mode: the assistant gets Octa's tools and can
+read what you have open, run SQL and, with writes on, edit the live
+tab. **Just answer** sends no tools and none of your data, so the
+assistant simply answers a general question, and the request costs a
+fraction of what a Data-mode turn does. It is a mode for the question
+being asked, not a saved preference: it lasts the session and starts
+on Data.
+
+## Markdown in replies
+
+Headings, lists, tables, code blocks and links in the assistant's
+replies are drawn as formatting. Your own messages, tool arguments and
+tool results stay verbatim, so you always see exactly what was sent
+and returned. Selecting text in a reply and pressing Ctrl+C copies it,
+and the right-click **Copy** entry copies the raw Markdown source
+rather than the rendered text. Switch it off under **Settings > Chat /
+Assistant > Render Markdown in replies** to read the source.
+
 ## Token count
 
 The panel header counts the tokens this session used, input and output,
@@ -162,6 +183,12 @@ conversation goes out again on each turn, tool results included,
 because the provider keeps no state between requests. One question
 that needs a tool is at least two requests. Start a new session when
 you change subject: that is the one lever that resets the count.
+
+The count covers everything Octa sends to a provider, not just the
+chat panel: the **Ask** boxes in the search bar and in the SQL panel
+each fire their own request and land here too. Local and
+OpenAI-compatible servers report usage only if they choose to, so a
+turn a server said nothing about cannot be counted.
 
 Two things keep it from being worse.
 
@@ -982,7 +1009,11 @@ alias is the connection name lowercased with punctuation as `_`
 next to the Inspector lists each alias with a one-click example query,
 and clicking an attached table offers Copy / Insert / Run. PostgreSQL,
 MySQL and Redshift attach natively through DuckDB extensions; the other
-engines' tables are imported individually (row-capped). The SQL panel
+engines' tables are imported (row-capped) as plain workspace tables
+named after themselves, so their menu entry opens into the server's
+tree and you pick a table, a schema, or everything at that level.
+Double-click a table's name in the workspace list to rename it. The SQL
+panel
 also opens on an empty tab,
 so you can attach and query servers without opening any file first;
 results always show a row counter above the grid.
@@ -1403,9 +1434,12 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
 - **Table View**: row numbers, alternating row colours, negative-number
   highlight, thousand separators + number style (English / European)
   for numeric cells, edit highlight, default mark colour, line breaks,
-  clickable web links, binary display mode (Binary / Hex / Text).
-- **Files**: recent-files count, "open as text" extensions, and
-  **Auto-save** (on/off + interval in minutes). See the **Saving** section.
+  **ask about line breaks when a row is made taller**, clickable web
+  links, binary display mode (Binary / Hex / Text).
+- **Files**: recent-files count, "open as text" extensions,
+  **Auto-save** (on/off + interval in minutes), and the **Write options**
+  group (one expander per format: Parquet, CSV / TSV, Excel). See the
+  **Saving** section.
 - **Search & Editor**: default search mode, search result display, search
   history size, tab size.
 - **Summary**: a checkbox per statistic the **Analyse > Summary** tab can
@@ -1425,7 +1459,8 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
   per-profile **Allow writes**), API keys, temperature, max tool
   iterations, max response tokens, the result row limit (with an
   **Unlimited** checkbox), panel position, export directory, and the
-  tool-call audit log. **Write protection** governs GUI file saves and
+  tool-call audit log, and **Render Markdown in replies**. **Write
+  protection** governs GUI file saves and
   the MCP default; the assistant is governed per profile. See the
   **Assistant** section.
 - **Cloud storage**: the per-connection **Allow writes** switch and

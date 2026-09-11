@@ -18,6 +18,7 @@ until you click **Apply**, so **Cancel** still discards the whole lot.
 | Action                        | Default                                       | Notes                                                                                                                                                |
 |-------------------------------|-----------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
 | New file                      | <kbd>Ctrl</kbd>+<kbd>N</kbd>                  | Open an empty scratch tab.                                                                                                                           |
+| New table...                  | *(unbound)*                                   | Blank editable grid in a new tab; pick columns and rows first. See [Starting from nothing](../usage/editing.md#starting-from-nothing).               |
 | Open file                     | <kbd>Ctrl</kbd>+<kbd>O</kbd>                  | File picker (multi-select supported).                                                                                                                |
 | Save file                     | <kbd>Ctrl</kbd>+<kbd>S</kbd>                  | Write back to the original path.                                                                                                                     |
 | Save file as…                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | New path + optional new format.                                                                                                                      |
@@ -49,8 +50,6 @@ until you click **Apply**, so **Cancel** still discards the whole lot.
 | Focus search box                           | <kbd>Ctrl</kbd>+<kbd>F</kbd>                  | Filter the table in real time.                                                                                        |
 | Toggle find & replace                      | <kbd>Ctrl</kbd>+<kbd>H</kbd>                  | Replace bar above the table.                                                                                          |
 | Open column filter                         | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | Per-column value filter. See [Column Filter](../usage/search-and-filter.md#column-filter).                            |
-| Find duplicate rows…                       | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Dedupe-key picker + Highlight / New-tab output. See [Editing → Find duplicates](../usage/editing.md#find-duplicates). |
-| Find near-duplicates…                      | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd> | Fuzzy duplicate clusters (typos, spacing, word order). See [Find Near-Duplicates](../usage/find-near-duplicates.md).  |
 | Open multi-search panel                    | <kbd>F6</kbd>                                 | Cross-tab + directory grep with a docked result list. See [Multi-search](../usage/search-and-filter.md#multi-search). |
 | Run inventory on expanded cloud connection | *(unbound)*                                   | Lists the objects under the expanded cloud prefix as a table. See [Cloud Inventory](../usage/cloud-inventory.md).     |
 
@@ -136,6 +135,7 @@ same precedence Ctrl+M uses from the keyboard.
 | Open chart tab              | <kbd>F5</kbd>                                 | Open a new tab dedicated to plotting the active table. Same as **Analyse → Chart...**. See [Chart](../usage/chart.md). |
 | Toggle chat assistant panel | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> | Same as **Analyse → Assistant**. See [Chat Assistant](../usage/chatbot.md).                                            |
 | Auto-fit all columns        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>W</kbd> | Same algorithm as double-clicking a column-header seam, applied to every column.                                       |
+| Auto-fit all rows           | *(unbound)*                                   | Every row takes the height its content needs; turns cell line breaks on. Same as double-clicking the `#` corner seam.  |
 | Compare selected tabs       | <kbd>F9</kbd>                                 | Requires exactly one tab to be Ctrl-clicked in the multi-selection set.                                                |
 | Split view                  | *(unbound)*                                   | Two stacked panes over one table; fire again to close.                                                                 |
 | Split side by side          | *(unbound)*                                   | The same split, left and right instead of top and bottom.                                                              |
@@ -179,7 +179,9 @@ same precedence Ctrl+M uses from the keyboard.
 | Join diagnostics...                | *(unbound)*                                   | See [Join Diagnostics](../usage/join-diagnostics.md).                                                          |
 | Harmonise schemas...               | *(unbound)*                                   | See [Harmonise Schemas](../usage/harmonise-schemas.md).                                                        |
 | Toggle Ask (plain-language filter) | *(unbound)*                                   | Retargets the search box at a question instead of a filter.                                                    |
-| Drop duplicate rows...             | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd> | See [Drop Duplicate Rows](../usage/drop-duplicate-rows.md).                                                    |
+| Find duplicate rows...             | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Key picker + highlight / new tab / filter. See [Find duplicates](../usage/editing.md#find-duplicates).         |
+| Find near-duplicates...            | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd> | Fuzzy clusters (typos, spacing, word order). See [Find Near-Duplicates](../usage/find-near-duplicates.md).     |
+| Drop duplicate rows...             | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd> | Find duplicates preset to drop, whole-row key. See [Find duplicates](../usage/editing.md#find-duplicates).     |
 | Join tables                        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Q</kbd> | Needs two open tabs. See [Join Tables](../usage/join-tables.md).                                               |
 | Partition by column                | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Writes one file per group. See [Partition by Column](../usage/partition-by-column.md).                         |
 | Time series...                     | *(unbound)*                                   | Time buckets and rolling windows. See [Time Series](../usage/time-series.md).                                  |

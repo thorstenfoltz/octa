@@ -1,39 +1,39 @@
-# ro: written natively, not translated from English.
+# ro: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet, CSV, Excel, SQLite și încă vreo treizeci de formate într-un tabel rapid. Sortezi, filtrezi, cauți, editezi și rulezi SQL pe calculatorul tău."
+short = "Parquet, CSV, XLSX, SQLite și circa treizeci de alte formate de date, afișate imediat ca tabel. Sortare, filtrare, căutare, editare și interogări SQL, local, pe propriul calculator."
 
 long = """
-Octa deschide fișiere Parquet, CSV, Excel, SQLite, DuckDB și JSON, plus încă vreo treizeci de formate de date, fără pas de import și fără configurare complicată.
+Octa deschide fișiere Parquet, CSV, XLSX, SQLite, DuckDB și JSON, precum și circa treizeci de alte formate de date, direct ca tabel. Nu sunt necesare import, configurare sau fișier de proiect.
 
-Poți sorta, filtra, căuta și edita datele, poți rula interogări SQL cu DuckDB, poți face grafice sau compara două fișiere. Chatul integrat îți permite și să întrebi despre date în limbaj obișnuit.
+Tabelul poate fi sortat, filtrat și căutat; celulele, coloanele și rândurile sunt editabile, iar orice modificare poate fi anulată. Fiecare fișier deschis este disponibil în DuckDB ca tabel SQL, iar mai multe fișiere pot fi combinate într-o singură interogare. Se adaugă grafice, statistici pe coloane, detectarea duplicatelor și a valorilor aberante, tabele pivot și compararea a două fișiere. Fișierele Parquet cu milioane de rânduri se încarcă în fundal.
 
-Datele sunt prelucrate local, pe calculatorul tău, atâta timp cât funcția folosită nu are nevoie de un API extern.
+Datele din Amazon S3, Azure Blob Storage și Google Cloud Storage sau din PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery și alte baze de date se deschid direct; accesul la scriere este dezactivat implicit. Un asistent AI opțional răspunde în limbaj natural la întrebări despre date, cu o cheie API proprie sau un model local prin Ollama, și rămâne inactiv până la configurare.
 
-Interfața este disponibilă în 32 de limbi. Octa este software liber, sub licență MIT.
+Prelucrarea are loc local, pe propriul calculator, cu excepția funcțiilor care necesită un API extern. Interfața este disponibilă în 32 de limbi. Octa este software liber sub licența MIT: https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Deschide vreo treizeci de formate: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata și altele",
-  "Interogări SQL cu DuckDB pe orice fișier deschis, fără import",
-  "Sortezi, filtrezi și cauți cu text, caractere joker sau expresii regulate",
-  "Editezi celule, coloane și rânduri, cu anulare completă, iar în bază ajung doar diferențele",
-  "Grafice într-o filă proprie, exportabile în PNG, SVG sau PDF",
-  "Compari două fișiere linie cu linie sau înregistrare cu înregistrare",
-  "Statistici pe coloane, duplicate, valori aberante și tabele pivot",
+  "Circa treizeci de formate: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata și altele",
+  "SQL DuckDB direct pe orice fișier deschis, fără import",
+  "Sortare, filtrare și căutare cu text simplu, metacaractere sau expresii regulate",
+  "Editarea celulelor, coloanelor și rândurilor, complet reversibilă; în baza de date ajung doar modificările",
+  "Grafice într-o filă proprie, export în PNG, SVG sau PDF",
+  "Compararea a două fișiere linie cu linie sau înregistrare cu înregistrare",
+  "Statistici pe coloane, detectarea duplicatelor și a valorilor aberante, tabele pivot",
   "Fișierele Parquet cu milioane de rânduri se încarcă în fundal",
-  "Citește direct din Amazon S3, Azure Blob Storage și Google Cloud Storage",
-  "Se conectează la PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery și altele",
-  "Asistent AI opțional, cu cheia ta sau cu un model local",
-  "Funcționează și ca unealtă de linie de comandă și ca server Model Context Protocol",
+  "Acces direct la Amazon S3, Azure Blob Storage și Google Cloud Storage",
+  "Conectare la PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery și altele",
+  "Asistent AI opțional, cu cheie API proprie sau model local",
+  "De asemenea instrument în linie de comandă și server Model Context Protocol",
   "Interfață în 32 de limbi",
   "Software liber și open source, licență MIT",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "vizualizator csv"
+SearchTerm2 = "deschide csv"
 SearchTerm3 = "vizualizare date"
-SearchTerm4 = "browser sqlite"
+SearchTerm4 = "sqlite"
 SearchTerm5 = "duckdb"
 SearchTerm6 = "interogări sql"
-SearchTerm7 = "alternativă la excel"
+SearchTerm7 = "deschide xlsx"

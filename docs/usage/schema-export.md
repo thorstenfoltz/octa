@@ -79,6 +79,16 @@ The two cloud-warehouse SQL dialects map types as follows:
 20-digit decimal with a `/* … */` note. The two `Timestamp` mappings
 are the tz-less Arrow timestamp vs. the tz-aware one.
 
+Which of the two you get depends on whether the column's type **names a
+zone**, not on how the reader spelled it. Parquet and Arrow IPC name a
+naive timestamp `Timestamp(µs)`, ORC names it plain `Timestamp`, and
+DuckDB names it `Timestamp(Microsecond, None)`; all three are naive and
+all three export to the tz-less column. A column that does name a zone
+(`Timestamp(µs, "Europe/Brussels")`) exports to the tz-aware one. The
+same mapping produces the `CREATE TABLE` behind
+[database write-back](database-connections.md), so a table written to a
+server gets the same column types this page shows.
+
 MS SQL Server maps types as follows:
 
 | Arrow type             | MS SQL Server                  |

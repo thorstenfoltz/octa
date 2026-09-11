@@ -32,7 +32,14 @@ pub struct QueryOutcome {
     pub affected: Option<usize>,
     /// For SELECT: the query result. For mutations: the post-mutation contents
     /// of `data`, rebuilt with the original table's column schema preserved.
+    /// When `created` is set: the full contents of the table that statement
+    /// created, with its declared column types.
     pub table: DataTable,
+    /// Name of the table or view a `CREATE ...` statement added to the
+    /// workspace's own catalog. The workspace drops it again after reading
+    /// it into `table`: the caller owns it now (the GUI opens it as a tab).
+    /// A CREATE inside an attached database leaves this `None`.
+    pub created: Option<String>,
 }
 
 /// Classify `query` by its leading keyword. Mutating statements do not return
@@ -40,13 +47,8 @@ pub struct QueryOutcome {
 /// `execute()` instead. Also the write-classification the live-DB read-only
 /// gate uses (`crate::db::ensure_write_allowed`), hence `pub`.
 pub fn is_mutation(query: &str) -> bool {
-    let first = query
-        .split(|c: char| c.is_whitespace() || c == '(')
-        .find(|s| !s.is_empty())
-        .unwrap_or("")
-        .to_ascii_uppercase();
     matches!(
-        first.as_str(),
+        first_keyword(query).as_str(),
         "INSERT"
             | "UPDATE"
             | "DELETE"
@@ -62,6 +64,22 @@ pub fn is_mutation(query: &str) -> bool {
             | "SET"
             | "PRAGMA"
     )
+}
+
+/// Whether `query` is a `CREATE ...` statement (table, view, or anything
+/// else DuckDB accepts after the keyword). `SqlWorkspace::execute` diffs the
+/// catalog around these to hand a freshly created table to the caller.
+pub(super) fn is_create(query: &str) -> bool {
+    first_keyword(query) == "CREATE"
+}
+
+/// Leading keyword of `query`, upper-cased; empty for a blank query.
+fn first_keyword(query: &str) -> String {
+    query
+        .split(|c: char| c.is_whitespace() || c == '(')
+        .find(|s| !s.is_empty())
+        .unwrap_or("")
+        .to_ascii_uppercase()
 }
 
 /// Create a TEMP TABLE called `name` and append every row of `table` into it
@@ -117,6 +135,15 @@ pub(super) fn execute_query(conn: &Connection, query: &str) -> Result<DataTable>
         .as_ref()
         .ok_or_else(|| anyhow!("Query produced no statement"))?;
     let col_count = stmt_ref.column_count();
+    // DuckDB already bakes the session timezone into a TIMESTAMPTZ result
+    // column's Arrow type (`Timestamp(us, "Europe/Berlin")`), so the zone the
+    // values should be read on comes straight off the statement.
+    let zones: Vec<Option<String>> = (0..col_count)
+        .map(|i| {
+            let ty = format!("{}", stmt_ref.column_type(i));
+            crate::formats::parquet_reader::timestamp_tz_from_type_name(&ty).map(str::to_string)
+        })
+        .collect();
     let columns: Vec<ColumnInfo> = (0..col_count)
         .map(|i| ColumnInfo {
             name: stmt_ref
@@ -133,8 +160,8 @@ pub(super) fn execute_query(conn: &Connection, query: &str) -> Result<DataTable>
     let mut rows: Vec<Vec<CellValue>> = Vec::new();
     while let Some(r) = q.next()? {
         let mut row = Vec::with_capacity(col_count);
-        for i in 0..col_count {
-            row.push(value_ref_to_cell(r.get_ref(i)?));
+        for (i, tz) in zones.iter().enumerate() {
+            row.push(value_ref_to_cell_tz(r.get_ref(i)?, tz.as_deref()));
         }
         rows.push(row);
         if rows.len() >= cap {
@@ -184,6 +211,15 @@ pub(super) fn cell_to_value(v: &CellValue) -> duckdb::types::Value {
         | CellValue::Nested(s) => Value::Text(s.clone()),
         CellValue::Binary(b) => Value::Blob(b.clone()),
     }
+}
+
+/// As [`value_ref_to_cell`], reading a timestamp on `tz`'s wall clock so a
+/// `TIMESTAMPTZ` result matches what the connection would print for it.
+pub(super) fn value_ref_to_cell_tz(v: ValueRef<'_>, tz: Option<&str>) -> CellValue {
+    if let ValueRef::Timestamp(unit, ts) = v {
+        return crate::formats::duckdb_reader::duckdb_timestamp_to_cell_tz(unit, ts, tz);
+    }
+    value_ref_to_cell(v)
 }
 
 pub(super) fn value_ref_to_cell(v: ValueRef<'_>) -> CellValue {

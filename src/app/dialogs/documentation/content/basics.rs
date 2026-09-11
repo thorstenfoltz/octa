@@ -196,6 +196,26 @@ Jumps and extends:
 Use the navigation field in the bottom status bar (**Ctrl+G**) to jump to a
 cell by `R5:C3`, `R5`, `C3`, a row number, or a column name.
 
+## Resizing rows and columns
+
+- **Drag the right edge** of a column header to resize the column;
+  **double-click that seam** to fit the column to its widest visible value,
+  and **Ctrl+Shift+W** fits every column at once.
+- **Drag a row's bottom edge** in the row-number gutter to give that row its
+  own height; **double-click that seam** to fit the row to its content, and
+  **Edit > Auto-fit All Rows** fits every row at once (unbound by default;
+  give it a key under Settings > Shortcuts).
+- **Drag the bottom edge of the `#` corner** to set the height of every row
+  at once; double-click it to fit them all, hand-dragged rows included.
+
+Widths and heights are per tab and session-only.
+
+Fitting a row means showing its whole value, so any of the fit gestures
+switches **Settings > Table > cell line breaks** on if it was off; long
+values then wrap inside the cell. Dragging a row taller by hand does not
+change that setting: with line breaks off the extra space simply stays
+empty, the same as a column dragged wider than its content.
+
 ## Split view
 
 **View > Split view** cuts the table into two bands, one above the other,
@@ -257,6 +277,19 @@ Structural edits:
 - **Drag a column header** to reorder columns.
 - **Double-click a column header** to rename it inline.
 - **Right-click a column header** to change the column data type.
+
+## Starting from nothing
+
+- **File > New Table...** asks how many columns and rows to start with
+  (3 x 1 by default) and opens a blank, editable grid in a new tab, the
+  way a spreadsheet opens a blank sheet. Columns are named `col1`, `col2`,
+  ... ; rename them, add rows or columns with the tools above, then
+  **Save** to any writable format. Nothing exists on disk until you save.
+  Unbound by default; give it a key under **Settings > Shortcuts**.
+- **File > New File...** opens an empty text tab instead: type or paste
+  CSV, JSON, Markdown or any text, then save it as a file.
+- In the SQL panel, `CREATE TABLE` does the same from a statement; see
+  **SQL View**.
 
 ## Copying
 
@@ -510,6 +543,55 @@ pub const SAVING: &str = r#"# Saving
   precision either way.
 - Excel **write** emits a single `.xlsx` sheet (the active tab); there is no
   multi-sheet write even when the source workbook had several sheets.
+
+**Timestamps that carry a timezone.** Parquet, Arrow IPC and ORC put the
+timezone on the column *type*, not in the value, and Octa keeps it. A column
+typed `Timestamp(us, "Europe/Brussels")` shows its values on the Brussels
+clock, which is the zone the column header names, and follows the daylight
+change (UTC+2 in June, UTC+1 in January). Saving converts back out of that
+zone and writes the zone into the file again, so a read-and-save round trip
+moves neither the clock nor the zone. A column with no zone on its type is
+left exactly as it is - nothing shifts it into the machine's local time. Both
+spellings the formats allow are read, an IANA name (`Europe/Brussels`) and a
+fixed offset (`+02:00`); a zone string that parses as neither is shown in UTC
+rather than guessed at.
+
+DuckDB puts the zone somewhere else: a `TIMESTAMPTZ` is a UTC instant, and the
+clock it is shown on comes from the connection's `TimeZone` setting, which
+defaults to the machine's zone. Octa asks DuckDB for that setting and shows the
+column on the same clock the DuckDB CLI would, naming the zone in the column
+header. Typing into such a cell works on that clock as well, and the value is
+written back with an explicit `+00:00` offset so the stored instant never
+depends on which zone the connection happened to have applied at the time. A
+plain `TIMESTAMP` has no zone and is never shifted. This covers DuckDB files,
+Delta and Iceberg tables, large-file mode and the SQL panel's results, which
+all read through DuckDB.
+
+**What every Excel save carries.** Four things go into every `.xlsx` Octa
+writes, whatever the formatting switch below says. **Dates** are written as
+real Excel dates, so they sort and filter as dates rather than as text; a value
+that will not parse falls back to text instead of failing the save. **Column
+widths** come across as you set them on screen (a save with no view behind it,
+from the command line, the assistant or batch convert, uses Excel's autofit
+instead; a sheet over 500,000 rows is streamed to keep memory flat and keeps
+Excel's default widths). The **header row is bold** and the data range gets an
+**autofilter**. A cell holding a bare http:// or https:// address is written as
+a **clickable link**, up to Excel's ceiling of 65,530 links per sheet, past
+which the rest stay plain text because a file over the limit will not open at
+all.
+
+**Data-validation rules** cross over as real Excel validation, so the workbook
+rejects bad input instead of only colouring it red in Octa. In range, Not empty
+and Max length have Excel equivalents; Matches pattern and Unique do not, and
+are skipped rather than approximated by a check that means something else.
+
+Two more Excel switches, both off by default, sit under **Settings > Files >
+Write options > Excel**. **Document properties** stamps the workbook with a
+title (the file name) and Octa as the author; off because it writes the file
+name into the file's own metadata, which travels with the file. **Write as an
+Excel table** writes a real Excel table object instead of a plain range with a
+filter row; off because a table style paints its own row banding, which fights
+a conditional-format colour carried over from Octa.
 
 **Formatting in Excel files.** Colour marks, conditional-formatting colours,
 frozen columns and per-column number formats are display-only everywhere else,

@@ -39,6 +39,9 @@ LISTINGS = REPO / "docs" / "assets" / "store" / "listings"
 # The import folder's own name has to prefix every asset path.
 FOLDER_NAME = "octa-listing"
 
+# Per-language like the assets it turns on, not inherited like text.
+LOGO_FLAG = "OverrideLogosForWin10"
+
 # Field families to drop. Octa is desktop-only, so these surfaces would just
 # be hundreds of empty rows to scroll past.
 DROP = re.compile(
@@ -48,6 +51,14 @@ DROP = re.compile(
 )
 # Never drop these, whatever else matches.
 KEEP = re.compile(r"^Trailer")
+
+# Store policy: a listing must not name a product someone else publishes.
+# `excel alternative` as a keyword cost a whole submission cycle in 2026-09,
+# flagged in all 32 languages at once, so Excel is now banned from every cell
+# of the listing, prose included - the format is called XLSX here. The wider
+# list applies to keywords only, where the policy is spelled out.
+EXCEL = re.compile(r"excel|эксель|ексел|エクセル|엑셀", re.IGNORECASE)
+BANNED_KEYWORD = re.compile(r"power ?bi|google sheets|sql server", re.IGNORECASE)
 
 
 def load(name: str) -> dict:
@@ -101,6 +112,29 @@ def main() -> int:
         return 1
     per_lang = {code: load(code) for code in languages}
 
+    # A language that is short of a feature leaves that cell blank, and a blank
+    # cell inherits `default`: the listing then shows an English bullet in the
+    # middle of its own language. Same for a keyword set over Partner Center's
+    # limits, which fails the import rather than the review.
+    limits = []
+    for code, content in per_lang.items():
+        if not content:
+            continue
+        n = len(content.get("features", []))
+        if n != len(default.get("features", [])):
+            limits.append(f"{code}: {n} features, default has "
+                          f"{len(default['features'])}; the rest inherit English")
+        terms = [v for k, v in content.get("fields", {}).items()
+                 if k.startswith("SearchTerm")]
+        words = sum(len(t.split()) for t in terms)
+        if len(terms) > 7 or words > 21:
+            limits.append(f"{code}: {len(terms)} keywords / {words} words (max 7 / 21)")
+        limits += [f"{code}: keyword over 30 chars: {t!r}" for t in terms if len(t) > 30]
+    if limits:
+        for line in limits:
+            print(f"error: {line}")
+        return 1
+
     kept, dropped = [], 0
     for row in body:
         field = row[0]
@@ -116,13 +150,35 @@ def main() -> int:
                 if value is not None:
                     row[i] = value
                 elif managed is not None:
-                    # A field this repo owns and this language does not
-                    # translate must inherit `default`, which only a BLANK cell
-                    # does. Partner Center exports some fields filled in per
-                    # language (OverrideLogosForWin10 comes back as False in
-                    # all 32), and a stale value there silently beats default.
-                    row[i] = ""
+                    # TEXT a language does not translate must inherit
+                    # `default`, which only a BLANK cell does, and a stale
+                    # per-language value would silently beat `default`.
+                    # ASSETS are the exception: Partner Center keeps one image
+                    # per language listing (an export carries a separate
+                    # dashboard URL in every column, not just in `default`), so
+                    # a blank cell leaves that language with no picture instead
+                    # of inheriting the English one. Spell those out in every
+                    # column - same file, 33 times - along with the flag that
+                    # switches the two small logos on.
+                    asset = managed.startswith(f"{FOLDER_NAME}/")
+                    row[i] = managed if asset or field == LOGO_FLAG else ""
         kept.append(row)
+
+    banned = [
+        (row[0], header[i], value)
+        for row in kept
+        for i, value in enumerate(row)
+        if i >= 3
+        and (
+            EXCEL.search(value)
+            or (row[0].startswith("SearchTerm") and BANNED_KEYWORD.search(value))
+        )
+    ]
+    if banned:
+        for field, lang, value in banned:
+            print(f"error: {field} [{lang}] names another product: {value!r}")
+        print("Store policy rejects the whole submission over one such mention.")
+        return 1
 
     target = outdir / FOLDER_NAME
     target.mkdir(parents=True, exist_ok=True)

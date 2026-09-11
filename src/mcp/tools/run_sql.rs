@@ -267,6 +267,10 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     if let Some(n) = qo.affected {
         out.insert("affected".to_string(), Value::from(n));
     }
+    // A CREATE TABLE / VIEW returns the created table's rows as `result`.
+    if let Some(name) = qo.created.as_ref() {
+        out.insert("created".to_string(), Value::String(name.clone()));
+    }
     if streamed {
         // `data` was a view over the file, so the answer covers every row of
         // it rather than the first few million.

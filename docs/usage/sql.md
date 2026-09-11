@@ -77,13 +77,79 @@ your queries can reach:
   tables are addressed as `alias.schema.table`.
 - **Attach connection** ATTACHes a saved
   [live database connection](database-connections.md) read-only
-  (PostgreSQL / MySQL natively via DuckDB extensions; SQL Server tables
-  are imported individually). The **alias** you use in SQL is the
-  connection name lowercased with spaces and punctuation as `_`
+  (PostgreSQL / MySQL natively via DuckDB extensions; SQL Server,
+  Oracle and the warehouses have no DuckDB extension, so their tables
+  are imported as plain workspace tables, and their menu entry opens
+  into the tree so you can pick how much to import: see [Picking what
+  to attach](#picking-what-to-attach)). For a native ATTACH the
+  **alias** you use in SQL is
+  the connection name lowercased with spaces and punctuation as `_`
   ("Post-Test" becomes `post_test`). You never have to guess it: the
   **Attached connections** box next to the Inspector lists every alias
   with a one-click example query, and clicking any attached table in
   the tree offers **Copy / Insert / Run** for its qualified name.
+- **Attach cloud** picks objects out of a saved
+  [cloud connection](cloud-storage.md) and registers each as a
+  workspace table. See [Cloud objects as workspace
+  tables](#cloud-objects-as-workspace-tables) below.
+
+### Picking what to attach
+
+PostgreSQL, MySQL and Redshift attach natively: one click takes the
+whole server, nothing is copied, and every table stays queryable as
+`alias.schema.table`.
+
+Every other engine (SQL Server, Oracle, ClickHouse, Exasol, Snowflake,
+Databricks, BigQuery, Trino) has no DuckDB extension, so an attach
+*fetches* the tables it covers. Their entry under **Attach connection**
+therefore opens into the server's tree instead of attaching straight
+away, and you say how much you want:
+
+- a **single table** - the fastest and the usual answer,
+- a **schema**, which brings in the tables under it, or
+- **Attach everything here**, which takes the whole level you are
+  standing on.
+
+Trino, Snowflake, Databricks and BigQuery put a **catalog** above the
+schema, so their tree starts one level higher: catalog, then schema,
+then table. "The schemas of this server" is not a question those
+engines can answer, so their root has no **Attach everything here**;
+pick a catalog first.
+
+An imported table is named after **itself**: pick `orders` out of a
+Databricks catalog and you write `SELECT * FROM orders`. It joins the
+workspace as an ordinary table (not as an attachment, since nothing
+stays connected once the rows are copied), and where it came from is on
+the row: hover it to see `warehouse main.sales.orders`. A name the
+workspace already uses takes a `_2` suffix.
+
+**Double-click a table's name to rename it**, so a `FROM` clause says
+whatever you want it to. Names are lowercased with spaces and
+punctuation turned into `_`, the same as everywhere else in the
+workspace, and a name another table holds is refused rather than
+silently overwriting it. `data` is the one name you cannot change: the
+refresh button and the edit path both address the active tab by it.
+
+An import is capped at 60 tables per attach and at the **maximum rows
+loaded on open** setting per table. Over that cap nothing is attached
+at all and the message says so: no table is ever silently left out of
+an attachment. Drill in one level further, or query the server directly
+with **Run on server** instead.
+
+### Cloud objects as workspace tables
+
+**Attach cloud** lists your saved [cloud connections](cloud-storage.md)
+and opens a picker on the one you choose. Browse the folders, tick the
+objects you want, and **Add to workspace** downloads each and registers
+it as a table named after the file. Only files a reader can open are
+offered, so you cannot tick something that would fail on download.
+
+Ticking several objects gives you several tables. **Combine the picked
+objects into one table** unions them into a single table instead, and it
+starts off on purpose: a union reconciles differing schemas, and Octa
+does not do that to your data unless you ask. A column missing from one
+file comes back empty for that file's rows, exactly as in
+[Union tables](union-tables.md).
 
 Clicking a table in the list opens it in the **Inspector**: columns,
 types, and a sample of rows.
@@ -125,7 +191,8 @@ The SQL toolbar has two ways to reuse queries:
 
 ## Ask
 
-Next to Snippets there is an **Ask** box. Type what you want in plain words
+Under the toolbar there is an **Ask** box, on a row of its own with the Ask
+button and the assistant picker. Type what you want in plain words
 ("revenue per country, biggest first") and Octa writes the SQL into the editor
 at your cursor. The rest of the editor is left alone, so you can ask for one
 piece of a query you are already writing.
@@ -134,6 +201,12 @@ The box starts one line tall and **grows as you type**, so a long question
 stays readable instead of scrolling sideways out of sight. **Enter** sends the
 question and **Shift+Enter** starts a new line.
 
+Beside the box, a dropdown picks **which assistant answers**, the same control
+the search bar's Ask has. It is per tab and starts on whatever the chat panel
+is set to, so you can send one question to a bigger model without changing the
+panel. It only appears when more than one profile is configured, since with one
+there is no choice to make.
+
 The query is **never run for you**. Read it, change it if you like, then
 press Run. Only a single SELECT is ever produced: a reply containing a
 second statement, or anything that is not a SELECT (or a leading `WITH`),
@@ -141,14 +214,24 @@ is rejected and nothing is inserted.
 
 Ask sends the active table's column names, their types and the row count
 to the chat profile configured under
-**Settings > Chat / Assistant**. It does not send the data itself, and it
-does not see the other tables in the workspace, so it cannot write a join
-across them. When the panel is set to run on a server, the query is
-written in that database's dialect against the real `schema.table` name
-instead of `data`.
+**Settings > Chat / Assistant**. It does not send the data itself.
 
-Ask is greyed out when no chat profile is set up, or when the tab has no
-columns yet. Hover it to see which.
+It also sends the **workspace**: every table registered from another tab
+and every attachment's tables, with their columns, so it can write a join
+across them and call each one by its real name. The list is capped at 12
+tables and 40 columns apiece to keep the request small; attachment tables
+come from the cached listing, so no extra query goes to the server.
+
+When the panel is set to run on a server, the query is written in that
+database's dialect against the real `schema.table` name instead of
+`data`, and the row count is the table's own, not the size of the page
+currently on screen.
+
+Ask is greyed out when no chat profile is set up, or when there is
+nothing for the prompt to describe: no columns on the tab **and** no
+registered or attached workspace tables. An empty tab with a database
+attached is therefore fine, which is exactly the tab the panel exists
+for. Hover it to see which case applies.
 
 ## What's available
 
@@ -192,6 +275,37 @@ queries and to queries run on a live database connection alike. Raise
 the cap, or narrow the query, to see more.
 
 Errors render in **red** below the editor.
+
+## CREATE TABLE opens a new tab
+
+A `CREATE TABLE` or `CREATE VIEW` statement turns into a **new tab** named
+after the table, with the declared columns and types:
+
+```sql
+CREATE TABLE people (id INTEGER, name VARCHAR, born DATE)
+```
+
+gives an empty grid to type into, and
+
+```sql
+CREATE TABLE top AS SELECT * FROM data ORDER BY score DESC LIMIT 10
+```
+
+gives a tab holding those rows. Either way the tab you ran it from is
+untouched, so this works from an empty tab with nothing open (the SQL
+panel opens there too), and it is not blocked by read-only mode: a new tab
+is not an edit. Save the new tab like any other table.
+
+The table is handed over rather than kept: after the statement, `people`
+is no longer queryable from the original panel. Switch to the new tab and
+it is `data` there. `CREATE OR REPLACE` of a table that already exists
+(`data` included) is an ordinary mutation of that table, and a `CREATE`
+inside an attached database is left to that database (attachments are
+read-only, so DuckDB refuses it).
+
+On the command line, `octa --sql file -q "CREATE TABLE ..."` prints the
+created table; the `run_sql` MCP tool returns it as `result` with
+`"created": "<name>"`.
 
 ## Mutations
 

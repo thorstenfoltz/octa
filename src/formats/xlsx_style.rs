@@ -7,6 +7,7 @@
 use crate::data::MarkColor;
 use crate::data::conditional_format::{CondOp, CondRule};
 use crate::data::num_format::NumberFormat;
+use crate::data::validation::{ValidationKind, ValidationRule};
 
 /// What a [`CondRule`] becomes in a workbook.
 ///
@@ -27,6 +28,42 @@ pub enum XlsxRule {
     Blank { inverted: bool },
     /// Not expressible; paint the matching cells instead.
     Bake,
+}
+
+/// What a [`ValidationRule`] becomes in a workbook.
+///
+/// Kinds Excel has no equivalent for map to `None` and are **skipped**, not
+/// approximated: the same honesty that makes [`map_rule`] bake a rule it
+/// cannot express rather than emit a wrong live one. A workbook that silently
+/// enforces something other than what Octa checks is worse than one that
+/// enforces nothing.
+#[derive(Debug, Clone, PartialEq)]
+pub enum XlsxValidation {
+    /// A number, open on a side whose bound is `None`.
+    Decimal { min: Option<f64>, max: Option<f64> },
+    /// Text of at most this many characters.
+    MaxLength(u32),
+    /// The cell must not be empty.
+    NotBlank,
+}
+
+/// Decide how one validation rule crosses into Excel.
+///
+/// `Regex` and `Unique` have no Excel counterpart, and a `Range` with no bound
+/// on either side constrains nothing, so all three return `None`.
+pub fn map_validation(rule: &ValidationRule) -> Option<XlsxValidation> {
+    match &rule.kind {
+        ValidationKind::NotNull => Some(XlsxValidation::NotBlank),
+        ValidationKind::Range { min, max } if min.is_some() || max.is_some() => {
+            Some(XlsxValidation::Decimal {
+                min: *min,
+                max: *max,
+            })
+        }
+        ValidationKind::Range { .. } => None,
+        ValidationKind::MaxLength(n) => u32::try_from(*n).ok().map(XlsxValidation::MaxLength),
+        ValidationKind::Regex(_) | ValidationKind::Unique => None,
+    }
 }
 
 /// Decide how one rule crosses into Excel.

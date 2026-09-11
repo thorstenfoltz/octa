@@ -114,6 +114,17 @@ pub struct XlsxOptions {
     /// withholds a formula from an edited cell and from a restructured table,
     /// so this only ever covers cells Octa did not touch.
     pub preserve_formulas: bool,
+    /// Stamp the workbook with document properties: the file name as the
+    /// title, Octa as the application. Off by default, since it writes the
+    /// file name into the file's metadata whether the user wanted that or not.
+    pub document_properties: bool,
+    /// Write the data as a real Excel table object instead of a plain range
+    /// with an autofilter.
+    ///
+    /// Off by default: a table style paints its own banding, which fights a
+    /// live conditional-format rule carried over from Octa. With it off the
+    /// two never collide.
+    pub as_table: bool,
 }
 
 /// The presentation of one tab, handed to a writer that can express it.
@@ -130,6 +141,22 @@ pub struct TableStyle {
     pub number_formats: std::collections::HashMap<usize, crate::data::num_format::NumberFormat>,
     /// How many leading columns are frozen in the view. 0 = none.
     pub frozen_cols: usize,
+    /// On-screen column widths in pixels, by column index. Empty means the
+    /// caller has no view to carry (CLI, MCP, batch convert), and the writer
+    /// falls back to Excel's autofit.
+    pub col_widths: Vec<f32>,
+    /// The tab's data-validation rules. They only paint red on screen; the
+    /// writer turns the ones Excel can express into real validation.
+    pub validation: Vec<crate::data::validation::ValidationRule>,
+    /// Whether the tab's **decoration** travels: marks, conditional colours,
+    /// number formats and the frozen band. This mirrors
+    /// [`XlsxOptions::include_formatting`] and is set at the save site, the
+    /// only place that knows the answer.
+    ///
+    /// `col_widths` and `validation` above ignore it on purpose: readable
+    /// columns and a workbook that rejects bad input are not decoration, so
+    /// they travel on every save.
+    pub formatting: bool,
 }
 
 /// Every writer knob in one struct, carried per save operation.
@@ -215,6 +242,15 @@ mod tests {
             "keeping formulas must be opt-in too: a preserved one recalculates \
              in Excel and can then differ from the value Octa showed"
         );
+        assert!(
+            !o.xlsx.document_properties,
+            "writing the file name into the workbook's metadata must be opt-in"
+        );
+        assert!(
+            !o.xlsx.as_table,
+            "an Excel table object paints its own banding, which fights a \
+             carried-over conditional rule, so it must be opt-in"
+        );
     }
 
     #[test]
@@ -223,9 +259,8 @@ mod tests {
         // into settings.toml, a stale style would be reapplied on a later run.
         let o = WriteOptions {
             style: Some(TableStyle {
-                conditional: Vec::new(),
-                number_formats: std::collections::HashMap::new(),
                 frozen_cols: 3,
+                ..TableStyle::default()
             }),
             ..WriteOptions::default()
         };

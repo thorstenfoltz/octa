@@ -1,39 +1,39 @@
-# lt: written natively, not translated from English.
+# lt: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet, CSV, Excel, SQLite ir dar apie trisdešimt formatų greitoje lentelėje. Rikiuok, filtruok, ieškok, redaguok ir vykdyk SQL savo kompiuteryje."
+short = "Parquet, CSV, XLSX, SQLite ir apie trisdešimt kitų duomenų formatų iš karto kaip lentelė. Rikiavimas, filtravimas, paieška, redagavimas ir SQL užklausos vietoje, savame kompiuteryje."
 
 long = """
-Octa atveria Parquet, CSV, Excel, SQLite, DuckDB ir JSON failus bei dar apie trisdešimt kitų duomenų formatų, be importavimo ir be varginančio derinimo.
+Octa atveria Parquet, CSV, XLSX, SQLite, DuckDB ir JSON failus bei apie trisdešimt kitų duomenų formatų tiesiogiai kaip lentelę. Importo, sąrankos ar projekto failo nereikia.
 
-Duomenis gali rikiuoti, filtruoti, juose ieškoti ir redaguoti, vykdyti SQL užklausas su DuckDB, kurti diagramas arba palyginti du failus. Įtaisytame pokalbyje apie duomenis gali paklausti ir paprasta kalba.
+Lentelę galima rikiuoti, filtruoti ir peržiūrėti per paiešką; langeliai, stulpeliai ir eilutės redaguojami, o kiekvieną pakeitimą galima atšaukti. Kiekvienas atvertas failas DuckDB pasiekiamas kaip SQL lentelė, o kelis failus galima sujungti vienoje užklausoje. Papildomai yra diagramos, stulpelių statistika, dublikatų ir išskirčių aptikimas, suvestinės lentelės ir dviejų failų palyginimas. Milijonų eilučių Parquet failai įkeliami fone.
 
-Duomenys apdorojami vietoje, tavo kompiuteryje, jei tik naudojamai funkcijai nereikia išorinės API.
+Duomenys Amazon S3, Azure Blob Storage ir Google Cloud Storage arba PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery ir kitose duomenų bazėse atveriami tiesiogiai; rašymo prieiga pagal numatytuosius nustatymus išjungta. Pasirenkamas DI asistentas atsako į klausimus apie duomenis įprasta kalba, naudodamas savą API raktą arba vietinį modelį per Ollama, ir lieka neaktyvus, kol nesukonfigūruotas.
 
-Sąsaja pateikiama 32 kalbomis. Octa yra laisva programinė įranga su MIT licencija.
+Apdorojimas vyksta vietoje, savame kompiuteryje, išskyrus funkcijas, kurioms reikia išorinės API. Sąsaja pateikiama 32 kalbomis. Octa yra laisva programinė įranga pagal MIT licenciją: https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Atveria apie trisdešimt formatų: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata ir kitus",
-  "DuckDB SQL užklausos bet kuriam atvertam failui, be importavimo",
-  "Rikiuok, filtruok ir ieškok tekstu, pakaitos simboliais ar reguliariaisiais reiškiniais",
-  "Redaguok langelius, stulpelius ir eilutes, su pilnu atšaukimu, o į duomenų bazę įrašomi tik pakeitimai",
-  "Diagramos atskirame skirtuke, eksportuojamos į PNG, SVG ar PDF",
-  "Palygink du failus eilutė po eilutės arba įrašas po įrašo",
-  "Stulpelių statistika, dublikatai, išskirtys ir suvestinės lentelės",
-  "Milijonų eilučių Parquet failus įkelia fone",
-  "Skaito tiesiai iš Amazon S3, Azure Blob Storage ir Google Cloud Storage",
-  "Jungiasi prie PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery ir kitų",
-  "Pasirinktinis DI asistentas, su savo raktu arba vietiniu modeliu",
+  "Apie trisdešimt formatų: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata ir kiti",
+  "DuckDB SQL tiesiogiai bet kuriam atvertam failui, be importo",
+  "Rikiavimas, filtravimas ir paieška paprastu tekstu, pakaitos simboliais arba reguliariosiomis išraiškomis",
+  "Langelių, stulpelių ir eilučių redagavimas su visišku atšaukimu; į duomenų bazę patenka tik pakeitimai",
+  "Diagramos atskiroje kortelėje, eksportas į PNG, SVG arba PDF",
+  "Dviejų failų palyginimas eilutė po eilutės arba įrašas po įrašo",
+  "Stulpelių statistika, dublikatų ir išskirčių aptikimas, suvestinės lentelės",
+  "Milijonų eilučių Parquet failai įkeliami fone",
+  "Tiesioginė prieiga prie Amazon S3, Azure Blob Storage ir Google Cloud Storage",
+  "Ryšys su PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery ir kitomis",
+  "Pasirenkamas DI asistentas su savu API raktu arba vietiniu modeliu",
   "Taip pat komandinės eilutės įrankis ir Model Context Protocol serveris",
   "Sąsaja 32 kalbomis",
-  "Laisva ir atvirojo kodo programa, MIT licencija",
+  "Laisva atvirojo kodo programinė įranga, MIT licencija",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "csv peržiūra"
+SearchTerm2 = "atverti csv"
 SearchTerm3 = "duomenų peržiūra"
-SearchTerm4 = "sqlite naršyklė"
+SearchTerm4 = "sqlite"
 SearchTerm5 = "duckdb"
 SearchTerm6 = "sql užklausos"
-SearchTerm7 = "excel alternatyva"
+SearchTerm7 = "atverti xlsx"

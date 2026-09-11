@@ -1,39 +1,39 @@
-# zh-hans: written natively, not translated from English.
+# zh-hans: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "在快速表格中打开 Parquet、CSV、Excel、SQLite 等约三十种数据格式。排序、筛选、搜索、编辑并运行 SQL，都在你自己的电脑上完成。"
+short = "Parquet、CSV、XLSX、SQLite 等约三十种数据格式即刻以表格呈现。排序、筛选、搜索、编辑与 SQL 查询均在本机完成。"
 
 long = """
-Octa 可以直接打开 Parquet、CSV、Excel、SQLite、DuckDB 和 JSON 文件，还支持大约三十种其他数据格式，无需导入，也不用费心配置。
+Octa 可直接以表格形式打开 Parquet、CSV、XLSX、SQLite、DuckDB、JSON 文件以及约三十种其他数据格式，无需导入、配置或项目文件。
 
-你可以排序、筛选、搜索和编辑数据，用 DuckDB 运行 SQL 查询，制作图表，或者比较两个文件。内置的聊天还能让你用日常语言询问自己的数据。
+表格支持排序、筛选和搜索；单元格、列和行均可编辑，所有修改都可撤销。每个打开的文件都会作为 SQL 表提供给 DuckDB，多个文件可在同一条查询中联接。此外还提供图表、列统计、重复值与离群值检测、数据透视表以及两个文件的对比。数百万行的 Parquet 文件在后台加载。
 
-只要所用功能不需要外部 API，数据就在你自己的电脑上处理。
+存放在 Amazon S3、Azure Blob Storage、Google Cloud Storage 中的数据，以及 PostgreSQL、MySQL、SQL Server、Snowflake、BigQuery 等数据库，均可直接打开；写入权限默认关闭。可选的 AI 助手使用自有 API 密钥或通过 Ollama 运行的本地模型，以自然语言回答关于数据的问题，在完成配置前不会启用。
 
-界面支持 32 种语言。Octa 是采用 MIT 许可证的自由软件。
+除所用功能需要外部 API 的情况外，全部处理均在本机完成。界面提供 32 种语言。Octa 是 MIT 许可证下的自由软件：https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "打开约三十种格式：Parquet、CSV、Excel、SQLite、DuckDB、JSON、Arrow、Avro、ORC、SAS、SPSS、Stata 等",
+  "约三十种格式：Parquet、CSV、XLSX、SQLite、DuckDB、JSON、Arrow、Avro、ORC、SAS、SPSS、Stata 等",
   "对任意已打开的文件直接运行 DuckDB SQL，无需导入",
-  "用文本、通配符或正则表达式排序、筛选和搜索",
-  "编辑单元格、列和行，撤销一步不落，写回数据库时只提交改动",
-  "图表独占一个标签页，可导出为 PNG、SVG 或 PDF",
-  "逐行或逐条记录比较两个文件",
-  "列统计、重复项检测、离群值检测和数据透视表",
-  "数百万行的 Parquet 文件在后台流式加载",
-  "直接读取 Amazon S3、Azure Blob Storage 和 Google Cloud Storage",
-  "连接 PostgreSQL、MySQL、SQL Server、Snowflake、BigQuery 等",
-  "可选的 AI 助手，用自己的密钥或本地模型",
-  "同时也是命令行工具和 Model Context Protocol 服务器",
+  "支持纯文本、通配符或正则表达式的排序、筛选与搜索",
+  "编辑单元格、列和行，全部可撤销；写入数据库的只有变更部分",
+  "图表位于独立标签页，可导出为 PNG、SVG 或 PDF",
+  "逐行或逐条记录对比两个文件",
+  "列统计、重复值与离群值检测、数据透视表",
+  "数百万行的 Parquet 文件在后台加载",
+  "直接访问 Amazon S3、Azure Blob Storage 和 Google Cloud Storage",
+  "连接 PostgreSQL、MySQL、SQL Server、Snowflake、BigQuery 等数据库",
+  "可选的 AI 助手，使用自有 API 密钥或本地模型",
+  "同时提供命令行工具和 Model Context Protocol 服务器",
   "界面支持 32 种语言",
   "自由开源软件，MIT 许可证",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "csv查看器"
-SearchTerm3 = "数据查看器"
-SearchTerm4 = "sqlite浏览器"
+SearchTerm2 = "csv 查看器"
+SearchTerm3 = "数据查看"
+SearchTerm4 = "sqlite"
 SearchTerm5 = "duckdb"
-SearchTerm6 = "sql查询"
-SearchTerm7 = "excel替代"
+SearchTerm6 = "sql 查询"
+SearchTerm7 = "xlsx 查看器"

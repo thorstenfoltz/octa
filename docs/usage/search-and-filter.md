@@ -169,19 +169,24 @@ regex backreferences (`$1`, `$2`, …) when the search mode is Regex.
 
 ## Find duplicates
 
-A search-shaped answer to *"which rows repeat?"*. Lives in the same
-menu as the toolbar search since the workflow is the same: pick what
-counts as a match, then look at the result.
+A search-shaped answer to *"which rows repeat?"*. Lives in the Data
+menu beside **Find near-duplicates…**, and the same dialog can also
+drop the repeats, so every duplicate tool is in one place.
 
-**Search → Find duplicates…** or
+**Data → Find duplicates…** or
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd>
-([`FindDuplicates`](../reference/shortcuts.md#search))
-opens a dialog with a column checklist and two output modes:
+([`FindDuplicates`](../reference/shortcuts.md#dialogs))
+opens a dialog with a column checklist and five output modes:
 
-| Output mode                    | Effect                                                                                                                               |
-|--------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| **Highlight rows in place**    | Every duplicate row gets an orange row mark in the active tab. Wipe them in one step with **Edit → Mark → Clear all marks**.         |
-| **Open duplicates in new tab** | Clones the column list and only the duplicate rows into a fresh scratch tab. The source tab keeps its data; Save prompts a new path. |
+| Output mode                            | Effect                                                                                                                               |
+|----------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| **Highlight rows in place**            | Every duplicate row gets an orange row mark in the active tab. Wipe them in one step with **Edit → Mark → Clear all marks**.         |
+| **Open duplicates in new tab**         | Clones the column list and only the duplicate rows into a fresh scratch tab. The source tab keeps its data; Save prompts a new path. |
+| **Show only the duplicate rows**       | Filters the active table down to the repeats. A removable chip above the table clears it.                                            |
+| **Show only the rows that occur once** | The same filter inverted: hides every repeat and keeps what appeared exactly once.                                                   |
+| **Drop duplicate rows**                | Deletes the repeats, keeping the first or last occurrence, as one undo step. Greyed in read-only mode.                               |
+
+<!-- SCREENSHOT: duplicate-filter-chip.png: A table filtered to its duplicate rows, with the removable "Duplicates only" chip above the grid and the sequential row-number gutter showing. -->
 
 Two rows count as duplicates when every ticked column has the same
 displayed text. The key seeds itself from the current column or cell

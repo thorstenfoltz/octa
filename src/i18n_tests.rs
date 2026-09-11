@@ -241,6 +241,7 @@ fn locales_do_not_carry_untranslated_english_sentences() {
 /// is the promise that something is about to open.
 const OPENS_SOMETHING: &[&str] = &[
     "file_menu.new_file",          // new tab
+    "file_menu.new_table",         // dialog
     "file_menu.open_as",           // file picker
     "file_menu.open_table_folder", // folder picker
     "file_menu.batch_convert",     // dialog

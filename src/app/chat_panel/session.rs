@@ -241,16 +241,29 @@ impl OctaApp {
         // The profile's own write switch governs the whole chat surface: it
         // gates the tool list, the tool context, and the live-tab edit drain
         // (the global Write protection switch no longer applies here).
-        let allow_writes = profile.allow_writes;
+        let allow_writes = profile.allow_writes && !self.chat.plain_mode;
+        // The context is still built in plain mode, because `TurnRequest` owns
+        // one either way - but with no tools advertised nothing can reach it,
+        // and `allow_writes` is forced off above so the edit drain stays shut.
         let tool_ctx = self.build_tool_context(allow_writes);
         // Only the core group plus the `enable_tools` menu go out now; the
         // model pulls in a group when it needs one (see `chat::tool_groups`).
         let disabled: std::collections::BTreeSet<String> =
             self.settings.chat_disabled_tools.iter().cloned().collect();
-        let tool_defs = tools::initial_tool_defs(allow_writes, &disabled);
+        // "Just answer": no tools at all, and a prompt that does not describe
+        // capabilities this turn has not got. Also the cheapest request the
+        // panel can make - the tool payload is most of a normal one.
+        let tool_defs = if self.chat.plain_mode {
+            Vec::new()
+        } else {
+            tools::initial_tool_defs(allow_writes, &disabled)
+        };
         let has_tool_menu = tool_defs.iter().any(|d| d.name == tools::ENABLE_TOOLS);
-        let system =
-            build_system_prompt(&tool_ctx.open_tab_summaries(), allow_writes, has_tool_menu);
+        let system = if self.chat.plain_mode {
+            crate::app::chat::build_plain_system_prompt()
+        } else {
+            build_system_prompt(&tool_ctx.open_tab_summaries(), allow_writes, has_tool_menu)
+        };
 
         let fallback_base_url = match provider_kind {
             ChatProviderKind::Ollama => self.settings.chat_ollama_url.clone(),

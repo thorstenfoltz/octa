@@ -1,39 +1,39 @@
-# fr: written natively, not translated from English.
+# fr: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet, CSV, Excel, SQLite et une trentaine d'autres formats dans un tableau rapide. Trier, filtrer, rechercher, modifier et interroger en SQL, sur ta machine."
+short = "Parquet, CSV, XLSX, SQLite et une trentaine d'autres formats de données, affichés aussitôt en tableau. Tri, filtre, recherche, édition et requêtes SQL, en local sur la machine."
 
 long = """
-Octa ouvre les fichiers Parquet, CSV, Excel, SQLite, DuckDB et JSON, ainsi qu'une trentaine d'autres formats de données, sans import préalable ni configuration compliquée.
+Octa ouvre directement les fichiers Parquet, CSV, XLSX, SQLite, DuckDB et JSON, ainsi qu'une trentaine d'autres formats de données, et les affiche en tableau. Aucun import, aucune configuration, aucun fichier de projet.
 
-Tu peux trier, filtrer, rechercher et modifier tes données, lancer des requêtes SQL avec DuckDB, créer des graphiques ou comparer deux fichiers. Le chat intégré te permet aussi d'interroger tes données en langage naturel.
+Le tableau se trie, se filtre et se parcourt par recherche ; les cellules, colonnes et lignes sont modifiables, chaque modification pouvant être annulée. Chaque fichier ouvert est exposé à DuckDB comme table SQL, et plusieurs fichiers peuvent être joints dans une même requête. S'y ajoutent les graphiques, les statistiques par colonne, la détection des doublons et des valeurs aberrantes, les tableaux croisés dynamiques et la comparaison de deux fichiers. Les fichiers Parquet de plusieurs millions de lignes se chargent en arrière-plan.
 
-Le traitement de tes données se fait localement sur ta machine, sauf si la fonction utilisée a besoin d'une API externe.
+Les données stockées sur Amazon S3, Azure Blob Storage et Google Cloud Storage, ou dans PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery et d'autres bases, s'ouvrent directement ; l'accès en écriture est désactivé par défaut. Un assistant IA facultatif répond en langage courant aux questions sur les données, avec une clé d'API personnelle ou un modèle local via Ollama, et reste inactif tant qu'il n'est pas configuré.
 
-L'interface est disponible en 32 langues. Octa est un logiciel libre sous licence MIT.
+Le traitement s'effectue en local, sur la machine de l'utilisateur, sauf lorsque la fonction utilisée requiert une API externe. L'interface est disponible en 32 langues. Octa est un logiciel libre sous licence MIT : https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Ouvre une trentaine de formats : Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata et d'autres",
-  "Requêtes SQL DuckDB sur n'importe quel fichier ouvert, sans import",
-  "Trier, filtrer et rechercher en texte simple, avec jokers ou expressions régulières",
-  "Modifier cellules, colonnes et lignes, annulation complète et écriture des seules différences en base",
-  "Graphiques dans leur propre onglet, exportables en PNG, SVG ou PDF",
-  "Comparer deux fichiers ligne à ligne ou enregistrement par enregistrement",
-  "Statistiques de colonnes, doublons, valeurs aberrantes et tableaux croisés",
-  "Charge en arrière-plan les fichiers Parquet de plusieurs millions de lignes",
-  "Lit directement depuis Amazon S3, Azure Blob Storage et Google Cloud Storage",
-  "Se connecte à PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery et d'autres",
-  "Assistant IA optionnel, avec ta propre clé ou un modèle local",
-  "Aussi un outil en ligne de commande et un serveur Model Context Protocol",
+  "Une trentaine de formats : Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata et d'autres",
+  "Requêtes DuckDB SQL directement sur tout fichier ouvert, sans import",
+  "Tri, filtre et recherche en texte brut, avec jokers ou expressions régulières",
+  "Édition des cellules, colonnes et lignes, entièrement annulable ; seules les modifications sont écrites en base",
+  "Graphiques dans un onglet dédié, export en PNG, SVG ou PDF",
+  "Comparaison de deux fichiers ligne par ligne ou enregistrement par enregistrement",
+  "Statistiques par colonne, détection des doublons et des valeurs aberrantes, tableaux croisés",
+  "Chargement en arrière-plan des fichiers Parquet de plusieurs millions de lignes",
+  "Accès direct à Amazon S3, Azure Blob Storage et Google Cloud Storage",
+  "Connexion à PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery et d'autres",
+  "Assistant IA facultatif, avec clé d'API personnelle ou modèle local",
+  "Également un outil en ligne de commande et un serveur Model Context Protocol",
   "Interface en 32 langues",
   "Logiciel libre et open source, licence MIT",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "visionneuse csv"
-SearchTerm3 = "lecteur de données"
+SearchTerm2 = "ouvrir csv"
+SearchTerm3 = "visionneuse parquet"
 SearchTerm4 = "explorateur sqlite"
 SearchTerm5 = "duckdb"
-SearchTerm6 = "requêtes sql"
-SearchTerm7 = "alternative excel"
+SearchTerm6 = "requête sql"
+SearchTerm7 = "ouvrir xlsx"

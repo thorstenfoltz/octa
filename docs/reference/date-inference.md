@@ -99,6 +99,45 @@ Because the column is normalized to UTC, the **format-changed banner**
 fires (offset stripped, wall-clock time shifted) so you can see the
 transformation at a glance.
 
+### Binary formats that carry a zone
+
+The above is about **text** formats, where the offset lives in the value
+and has nowhere to go. Parquet, Arrow IPC and ORC are different: the
+timezone sits on the **column type**, not in the value, and Octa keeps
+it. A column typed `Timestamp(µs, "Europe/Brussels")` shows its values on
+the Brussels clock, which is the zone the column header names. A daylight
+change is followed properly, so the same column reads UTC+2 in June and
+UTC+1 in January.
+
+Saving converts back out of that zone and writes the timezone into the
+file again, so a read-and-save round trip moves neither the clock nor the
+zone. A column with no zone on its type is left exactly as it is: nothing
+shifts it into the machine's local time.
+
+Octa reads either spelling the format allows, an IANA name
+(`Europe/Brussels`) or a fixed offset (`+02:00`). A zone string it cannot
+parse is shown in UTC rather than guessed at, since a wrong hour is worse
+than an unconverted one.
+
+### DuckDB `TIMESTAMPTZ`
+
+DuckDB is the same idea with the zone in a different place. A
+`TIMESTAMPTZ` is a UTC instant, and the wall clock it is shown on comes
+from the connection's `TimeZone` setting, which defaults to the machine's
+own zone. Octa asks DuckDB for that setting and shows the column on the
+same clock the DuckDB CLI would, with the zone in the column header
+(`Timestamp(Microsecond, Some("Europe/Berlin"))`). A plain `TIMESTAMP`
+has no zone and is never shifted.
+
+Editing works on that clock too: type `18:15` into a `TIMESTAMPTZ` cell
+and the instant stored is 18:15 in the column's zone. The value is
+written back with an explicit `+00:00` offset rather than as a bare wall
+clock, so the stored instant does not depend on which timezone the
+connection happens to have applied at that moment.
+
+This covers DuckDB files, Delta and Iceberg tables, the large-file mode
+and the SQL panel's own results, since all four read through DuckDB.
+
 A column that mixes naive (`2024-01-15T14:30:00`) and tz-aware
 (`2024-01-15T14:30:00Z`) values stays as `Utf8`, because those are two
 semantically different things and inference refuses to silently

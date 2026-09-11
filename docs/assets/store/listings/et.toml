@@ -1,39 +1,39 @@
-# et: written natively, not translated from English.
+# et: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet, CSV, Excel, SQLite ja umbes kolmkümmend muud vormingut kiires tabelis. Sordi, filtreeri, otsi, muuda ja käivita SQL oma arvutis."
+short = "Parquet, CSV, XLSX, SQLite ja umbes kolmkümmend muud andmevormingut kohe tabelina. Sortimine, filtreerimine, otsing, muutmine ja SQL-päringud kohapeal, oma arvutis."
 
 long = """
-Octa avab Parquet-, CSV-, Exceli-, SQLite-, DuckDB- ja JSON-failid ning umbes kolmkümmend muud andmevormingut, ilma importimiseta ja ilma tüütu seadistamiseta.
+Octa avab Parquet-, CSV-, XLSX-, SQLite-, DuckDB- ja JSON-failid ning umbes kolmkümmend muud andmevormingut otse tabelina. Importi, seadistamist ega projektifaili pole vaja.
 
-Andmeid saad sortida, filtreerida, otsida ja muuta, käivitada nende peal DuckDB SQL-päringuid, teha diagramme või võrrelda kahte faili. Sisseehitatud vestluses saad andmete kohta küsida ka argikeeles.
+Tabelit saab sortida, filtreerida ja otsida; lahtrid, veerud ja read on muudetavad ning iga muudatuse saab tagasi võtta. Iga avatud fail on DuckDB-s saadaval SQL-tabelina ja mitu faili saab ühendada ühes päringus. Lisaks on diagrammid, veerustatistika, duplikaatide ja erindite tuvastamine, liigendtabelid ning kahe faili võrdlus. Miljonite ridadega Parquet-failid laaditakse taustal.
 
-Töötlemine toimub kohapeal, sinu arvutis, kui just kasutatav funktsioon ei vaja välist API-t.
+Andmed Amazon S3-s, Azure Blob Storage'is ja Google Cloud Storage'is või PostgreSQL-i, MySQL-i, SQL Serveri, Snowflake'i, BigQuery ja muudes andmebaasides avanevad otse; kirjutamisõigus on vaikimisi välja lülitatud. Valikuline tehisintellekti abiline vastab andmete kohta käivatele küsimustele tavakeeles, oma API-võtme või Ollama kaudu töötava kohaliku mudeliga, ning jääb seadistamiseni passiivseks.
 
-Kasutajaliides on saadaval 32 keeles. Octa on vaba tarkvara MIT-litsentsi all.
+Töötlemine toimub kohapeal, oma arvutis, välja arvatud funktsioonide puhul, mis vajavad välist API-t. Kasutajaliides on saadaval 32 keeles. Octa on vaba tarkvara MIT-litsentsi all: https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Avab umbes kolmkümmend vormingut: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata ja teisi",
-  "DuckDB SQL otse igas avatud failis, ilma importimiseta",
-  "Sordi, filtreeri ja otsi teksti, metamärkide või regulaaravaldistega",
-  "Muuda lahtreid, veerge ja ridu, täieliku tagasivõtmisega, andmebaasi salvestatakse ainult erinevused",
-  "Diagrammid omal kaardil, eksporditavad PNG-, SVG- või PDF-vormingusse",
-  "Võrdle kahte faili rida-realt või kirje kaupa",
-  "Veerustatistika, duplikaadid, erindid ja risttabelid",
-  "Miljonite ridadega Parquet-faile laadib taustal",
-  "Loeb otse Amazon S3-st, Azure Blob Storage'ist ja Google Cloud Storage'ist",
-  "Ühendub PostgreSQLi, MySQLi, SQL Serveri, Snowflake'i, BigQuery ja teistega",
-  "Valikuline tehisaru abiline, oma võtmega või kohaliku mudeliga",
-  "Ka käsurea tööriist ja Model Context Protocoli server",
+  "Umbes kolmkümmend vormingut: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata ja teised",
+  "DuckDB SQL otse igal avatud failil, ilma impordita",
+  "Sortimine, filtreerimine ja otsing tavateksti, metamärkide või regulaaravaldistega",
+  "Lahtrite, veergude ja ridade muutmine täieliku tagasivõtmisega; andmebaasi jõuavad ainult muudatused",
+  "Diagrammid eraldi vahekaardil, eksport PNG-, SVG- või PDF-vormingusse",
+  "Kahe faili võrdlus rida-realt või kirje-kirjelt",
+  "Veerustatistika, duplikaatide ja erindite tuvastamine, liigendtabelid",
+  "Miljonite ridadega Parquet-failid laaditakse taustal",
+  "Otsejuurdepääs Amazon S3-le, Azure Blob Storage'ile ja Google Cloud Storage'ile",
+  "Ühendus PostgreSQL-i, MySQL-i, SQL Serveri, Snowflake'i, BigQuery ja muude andmebaasidega",
+  "Valikuline tehisintellekti abiline oma API-võtme või kohaliku mudeliga",
+  "Lisaks käsurea tööriist ja Model Context Protocoli server",
   "Kasutajaliides 32 keeles",
-  "Vaba ja avatud lähtekoodiga tarkvara, MIT litsents",
+  "Vaba ja avatud lähtekoodiga tarkvara, MIT-litsents",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "csv vaatur"
+SearchTerm2 = "ava csv"
 SearchTerm3 = "andmete vaatamine"
-SearchTerm4 = "sqlite brauser"
+SearchTerm4 = "sqlite"
 SearchTerm5 = "duckdb"
-SearchTerm6 = "sql päringud"
-SearchTerm7 = "exceli alternatiiv"
+SearchTerm6 = "sql päring"
+SearchTerm7 = "ava xlsx"

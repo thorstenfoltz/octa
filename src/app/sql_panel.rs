@@ -12,7 +12,9 @@ use octa::ui::table_view::TableViewState;
 
 use super::state::{InspectorCacheEntry, OctaApp, TabState};
 use crate::view_modes;
-use crate::view_modes::sql::{WorkspaceAttachment, WorkspaceRow};
+use crate::view_modes::sql::{
+    DbAttachEntry, DrillMenu, NodeListing, WorkspaceAttachment, WorkspaceRow,
+};
 
 /// Identity of the entry currently selected in the workspace tree. Drives
 /// the inspector pane and the cache key for fetched introspection results.
@@ -72,6 +74,20 @@ pub(crate) struct SqlServerJob {
 /// Shared slot for a connector's thread-safe cancel closure.
 pub(crate) type SharedCancel = std::sync::Arc<std::sync::Mutex<Option<Box<dyn Fn() + Send>>>>;
 
+/// One sidebar listing as the attach menu needs it. Which level the names
+/// belong to is the node path's depth, exactly as the sidebar's worker
+/// decides it, so the three list variants collapse into one.
+fn node_listing(state: &super::db_browser::DbListState) -> NodeListing {
+    use super::db_browser::DbListState;
+    match state {
+        DbListState::Loading => NodeListing::Loading,
+        DbListState::Catalogs(v) | DbListState::Schemas(v) | DbListState::Tables(v) => {
+            NodeListing::Ready(v.clone())
+        }
+        DbListState::Error(e) => NodeListing::Failed(e.clone()),
+    }
+}
+
 impl OctaApp {
     pub(crate) fn render_sql_panel(&mut self, parent_ui: &mut egui::Ui) {
         let ctx = parent_ui.ctx().clone();
@@ -111,14 +127,77 @@ impl OctaApp {
             });
         let server_running = self.sql_server_job.is_some();
         let chat_profile_available = !self.settings.chat_profiles.is_empty();
-        let db_connections: Vec<(String, String)> = self
+        let ask_profiles: Vec<(String, String)> = self
+            .settings
+            .chat_profiles
+            .iter()
+            .map(|p| (p.id.clone(), p.name.clone()))
+            .collect();
+        // Seed from the chat panel's active profile the first time, so the box
+        // starts on the assistant the user already picked rather than blank.
+        let active_profile = self.settings.chat_active_profile.clone();
+        // An import connection's menu entry opens into its tree, so the menu
+        // needs every node the user has walked into, not just the root. The
+        // listings come off the sidebar's shared cache: the same worker, the
+        // same result, no second network path.
+        //
+        // ponytail: snapshots each frame the panel is open rather than
+        // holding the cache's lock across the draw. Only import connections
+        // are copied, so the common Postgres/MySQL setup pays nothing; hand
+        // the menu the `Arc` if a big expanded tree ever shows up in a frame
+        // profile.
+        let imports: std::collections::HashSet<&str> = self
             .settings
             .db_connections
+            .iter()
+            .filter(|c| !c.engine.duckdb_attachable())
+            .map(|c| c.id.as_str())
+            .collect();
+        let mut node_cache: std::collections::HashMap<
+            String,
+            std::collections::HashMap<Vec<String>, NodeListing>,
+        > = std::collections::HashMap::new();
+        if !imports.is_empty()
+            && let Ok(m) = self.db_browser.listings.lock()
+        {
+            for ((id, path), state) in m.iter() {
+                if !imports.contains(id.as_str()) {
+                    continue;
+                }
+                let parts = super::db_browser::split_path(path)
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect();
+                node_cache
+                    .entry(id.clone())
+                    .or_default()
+                    .insert(parts, node_listing(state));
+            }
+        }
+        let db_connections: Vec<DbAttachEntry> = self
+            .settings
+            .db_connections
+            .iter()
+            .map(|c| DbAttachEntry {
+                id: c.id.clone(),
+                name: c.name.clone(),
+                drill: (!c.engine.duckdb_attachable()).then(|| DrillMenu {
+                    has_catalogs: c.engine.has_catalogs(),
+                    nodes: node_cache.get(&c.id).cloned().unwrap_or_default(),
+                }),
+            })
+            .collect();
+        let cloud_connections: Vec<(String, String)> = self
+            .settings
+            .cloud_connections
             .iter()
             .map(|c| (c.id.clone(), c.name.clone()))
             .collect();
 
         let tab = &mut self.tabs[self.active_tab];
+        if tab.sql_ask_profile.is_empty() {
+            tab.sql_ask_profile = active_profile;
+        }
         let partial_rows = tab.table.total_rows.and_then(|total| {
             let loaded = tab.table.row_count();
             if loaded < total {
@@ -158,7 +237,9 @@ impl OctaApp {
                     server_conn_name: server_conn_name.clone(),
                     server_running,
                     db_connections: db_connections.clone(),
+                    cloud_connections: cloud_connections.clone(),
                     chat_profile_available,
+                    ask_profiles: ask_profiles.clone(),
                 },
             )
         };
@@ -221,11 +302,22 @@ impl OctaApp {
         if sql_action.attach_db {
             self.workspace_attach_db_via_picker();
         }
-        if let Some(conn_id) = sql_action.attach_db_connection {
-            self.workspace_attach_db_connection(&conn_id);
+        if let Some((conn_id, scope)) = sql_action.attach_db_connection {
+            self.workspace_attach_db_connection(&conn_id, &scope);
+        }
+        if let Some((conn_id, parts)) = sql_action.list_db_node {
+            let refs: Vec<&str> = parts.iter().map(String::as_str).collect();
+            let path = super::db_browser::join_path(&refs);
+            self.ensure_db_listing(ctx, conn_id, path);
+        }
+        if let Some(conn_id) = sql_action.attach_cloud_connection {
+            self.open_cloud_workspace_picker(&conn_id);
         }
         if let Some(name) = sql_action.remove_table {
             self.workspace_remove_table(&name);
+        }
+        if let Some((from, to)) = sql_action.rename_table {
+            self.workspace_rename_table(&from, &to);
         }
         if let Some(alias) = sql_action.detach_alias {
             self.workspace_detach(&alias);
@@ -552,7 +644,7 @@ impl OctaApp {
     /// thread, like the file ATTACH beside it.
     // ponytail: blocks the UI for the handshake (and the whole import for
     // SQL Server); move onto a worker if users attach slow servers.
-    fn workspace_attach_db_connection(&mut self, conn_id: &str) {
+    fn workspace_attach_db_connection(&mut self, conn_id: &str, scope: &octa::sql::AttachScope) {
         let Some(conn) = self
             .settings
             .db_connections
@@ -566,6 +658,10 @@ impl OctaApp {
         let ssh_secret = octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &self.settings);
         let tab = &mut self.tabs[self.active_tab];
         ensure_workspace(tab);
+        // Only a native ATTACH gets an alias, and it is always the whole
+        // server (the menu hands those an empty scope), so the connection name
+        // is the alias. An import registers plain workspace tables and names
+        // them after themselves.
         let base = octa::sql::sanitize_sql_name(&conn.name);
         let ws_imm = tab.sql_workspace.as_ref().expect("ensured");
         let existing_aliases: std::collections::HashSet<String> = ws_imm
@@ -575,20 +671,189 @@ impl OctaApp {
             .collect();
         let alias = octa::sql::dedupe_sql_name(&base, |s| existing_aliases.contains(s));
         let ws = tab.sql_workspace.as_mut().expect("ensured");
-        match ws.attach_db(&conn, secret.as_deref(), ssh_secret.as_deref(), &alias) {
-            Ok(att) => {
+        match ws.attach_db(
+            &conn,
+            secret.as_deref(),
+            ssh_secret.as_deref(),
+            &alias,
+            scope,
+        ) {
+            Ok(octa::sql::AttachOutcome::Attached(_)) => {
                 tab.sql_workspace_open = true;
-                let label = if att.native { "" } else { " (fallback)" };
                 self.status_message = Some((
-                    format!("Attached `{alias}` to SQL workspace{label}"),
+                    format!("Attached `{alias}` to SQL workspace"),
+                    std::time::Instant::now(),
+                ));
+            }
+            Ok(octa::sql::AttachOutcome::Imported(names)) => {
+                tab.sql_workspace_open = true;
+                self.status_message = Some((
+                    format!("Added to SQL workspace: {}", names.join(", ")),
                     std::time::Instant::now(),
                 ));
             }
             Err(e) => {
-                tab.sql_error = Some(e.to_string());
+                // `{e:#}`, not `{e}`: the outermost context alone would say
+                // "ATTACHing ..." and drop the server's own reason.
+                tab.sql_error = Some(format!("{e:#}"));
             }
         }
         Self::prune_inspector_cache(&mut self.tabs[self.active_tab]);
+    }
+
+    /// Download the objects picked in the cloud picker, then hand them to
+    /// `workspace_add_cloud_files` on the main thread.
+    ///
+    /// One worker for the batch, like the sidebar's Union: the network calls
+    /// must not run on the interface thread, and workers must not touch tabs.
+    pub(crate) fn start_cloud_workspace_fetch(
+        &mut self,
+        ctx: &egui::Context,
+        conn_id: &str,
+        picked: Vec<(String, String)>,
+        combine: bool,
+    ) {
+        let Some(conn) = self.find_cloud_conn(conn_id) else {
+            return;
+        };
+        if picked.is_empty() {
+            return;
+        }
+        let settings = self.settings.clone();
+        let pending = self.cloud_browser.pending_open.clone();
+        let ctx = ctx.clone();
+        self.union_progress = Some(super::state::UnionProgress::new(
+            &octa::i18n::t("cloud.union_downloading"),
+            picked.len(),
+        ));
+        let progress = self
+            .union_progress
+            .as_ref()
+            .map(|p| p.done.clone())
+            .unwrap_or_default();
+        std::thread::spawn(move || {
+            let mut files: Vec<(std::path::PathBuf, String)> = Vec::new();
+            let mut skipped = 0usize;
+            for (key, name) in &picked {
+                match super::cloud_browser::fetch_object_to_temp(&conn, key, name, &settings) {
+                    Ok(path) => {
+                        let stem = std::path::Path::new(name)
+                            .file_stem()
+                            .map(|s| s.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "table".to_string());
+                        files.push((path, octa::sql::sanitize_sql_name(&stem)));
+                    }
+                    Err(_) => skipped += 1,
+                }
+                progress.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            if let Ok(mut p) = pending.lock() {
+                p.push(super::cloud_browser::CloudOpenResult::WorkspaceReady {
+                    files,
+                    combine,
+                    skipped,
+                });
+            }
+            ctx.request_repaint();
+        });
+    }
+
+    /// Register downloaded cloud objects as workspace tables on the active tab.
+    ///
+    /// `combine` unions them into one table first. It is the picker's opt-in
+    /// box, never a default: a union reconciles differing schemas, and doing
+    /// that unasked because two files were ticked would change the data the
+    /// user gets back.
+    pub(crate) fn workspace_add_cloud_files(
+        &mut self,
+        files: Vec<(std::path::PathBuf, String)>,
+        combine: bool,
+        skipped: usize,
+    ) {
+        if files.is_empty() {
+            self.tabs[self.active_tab].sql_error = Some(octa::i18n::t("sql.cloud_pick_all_failed"));
+            return;
+        }
+        let tab = &mut self.tabs[self.active_tab];
+        ensure_workspace(tab);
+        let mut added: Vec<String> = Vec::new();
+        let mut errors: Vec<String> = Vec::new();
+        if combine {
+            match Self::union_cloud_files(&files) {
+                Ok(table) => {
+                    let name = Self::free_ws_name(tab, &files[0].1);
+                    let ws = tab.sql_workspace.as_mut().expect("ensured");
+                    match ws.add_table(
+                        &name,
+                        &table,
+                        TableOrigin::Db(octa::i18n::t("sql.cloud_pick_origin")),
+                    ) {
+                        Ok(_) => added.push(name),
+                        Err(e) => errors.push(format!("{e:#}")),
+                    }
+                }
+                Err(e) => errors.push(format!("{e:#}")),
+            }
+        } else {
+            for (path, stem) in &files {
+                let name = Self::free_ws_name(tab, stem);
+                let ws = tab.sql_workspace.as_mut().expect("ensured");
+                match ws.add_table_from_file(path, None, &name) {
+                    Ok(_) => added.push(name),
+                    Err(e) => errors.push(format!("{}: {e:#}", path.display())),
+                }
+            }
+        }
+        tab.sql_workspace_open = true;
+        if !errors.is_empty() {
+            tab.sql_error = Some(errors.join("\n"));
+        }
+        let mut msg = octa::i18n::t("sql.cloud_pick_added")
+            .replace("{n}", &added.len().to_string())
+            .replace("{names}", &added.join(", "));
+        if skipped > 0 {
+            msg.push(' ');
+            msg.push_str(
+                &octa::i18n::t("sql.cloud_pick_skipped").replace("{n}", &skipped.to_string()),
+            );
+        }
+        self.status_message = Some((msg, std::time::Instant::now()));
+        Self::prune_inspector_cache(&mut self.tabs[self.active_tab]);
+    }
+
+    /// Read every downloaded file and union them, so `combine` produces one
+    /// table. Uses the same planner the Union dialog does, so a column present
+    /// in one file and missing in another comes back null rather than shifting
+    /// the row.
+    fn union_cloud_files(
+        files: &[(std::path::PathBuf, String)],
+    ) -> anyhow::Result<octa::data::DataTable> {
+        let registry = octa::formats::FormatRegistry::new();
+        let mut tables: Vec<octa::data::DataTable> = Vec::new();
+        for (path, _) in files {
+            let reader = registry
+                .reader_for_path(path)
+                .ok_or_else(|| anyhow::anyhow!("no reader for {}", path.display()))?;
+            tables.push(reader.read_file(path)?);
+        }
+        let schemas: Vec<&[octa::data::ColumnInfo]> =
+            tables.iter().map(|t| t.columns.as_slice()).collect();
+        let plan = octa::data::union::plan_union(&schemas, true);
+        let refs: Vec<&octa::data::DataTable> = tables.iter().collect();
+        octa::data::union::union_tables(&refs, &plan)
+    }
+
+    /// A workspace name based on `stem` that nothing is registered under yet.
+    fn free_ws_name(tab: &TabState, stem: &str) -> String {
+        let ws = tab.sql_workspace.as_ref().expect("ensured");
+        let existing: std::collections::HashSet<String> = ws
+            .list_tables()
+            .iter()
+            .map(|t| t.sql_name.clone())
+            .collect();
+        octa::sql::dedupe_sql_name(&octa::sql::sanitize_sql_name(stem), |s| {
+            existing.contains(s)
+        })
     }
 
     fn run_workspace_query(&mut self, ctx: &egui::Context) {
@@ -624,6 +889,36 @@ impl OctaApp {
         // case is the one that ran for a minute and then errored.
         tab.sql_last_duration_ms = Some(started.elapsed().as_millis() as u64);
         match outcome {
+            // CREATE TABLE / VIEW: the statement's table becomes a new tab,
+            // named after it. Nothing folds back into this tab, so no
+            // read-only refusal either: a new tab is not an edit, and this is
+            // how a first table gets made from an empty tab with no `data`.
+            Ok(qo) if qo.created.is_some() => {
+                let name = qo.created.clone().unwrap_or_default();
+                let rows = qo.table.row_count();
+                record_sql_history(tab, &query, started, rows, history_on, history_limit);
+                tab.sql_error = None;
+                tab.sql_last_query = query;
+                let mut new_tab = TabState::new(self.settings.default_search_mode);
+                new_tab.table = qo.table;
+                new_tab.table.structural_changes = true;
+                new_tab.filter_dirty = true;
+                new_tab.custom_tab_label = Some(name.clone());
+                if rows > 0 {
+                    new_tab.table_state.selected_cell = Some((0, 0));
+                }
+                self.tabs.push(new_tab);
+                self.active_tab = self.tabs.len() - 1;
+                self.status_message = Some((
+                    octa::i18n::t("sql.created_tab")
+                        .replace("{name}", &name)
+                        .replace("{n}", &rows.to_string()),
+                    std::time::Instant::now(),
+                ));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                    self.tabs[self.active_tab].title_display(),
+                ));
+            }
             Ok(qo) => match qo.kind {
                 octa::sql::QueryKind::Select => {
                     let rows = qo.table.row_count();
@@ -855,6 +1150,17 @@ impl OctaApp {
             && let Err(e) = ws.remove_table(sql_name)
         {
             tab.sql_error = Some(e.to_string());
+        }
+        Self::prune_inspector_cache(tab);
+    }
+
+    fn workspace_rename_table(&mut self, from: &str, to: &str) {
+        let tab = &mut self.tabs[self.active_tab];
+        if let Some(ws) = tab.sql_workspace.as_mut()
+            && let Err(e) = ws.rename_table(from, to)
+        {
+            // `{e:#}`: the reason (name taken, empty) is the inner context.
+            tab.sql_error = Some(format!("{e:#}"));
         }
         Self::prune_inspector_cache(tab);
     }

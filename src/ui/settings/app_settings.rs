@@ -527,6 +527,13 @@ pub struct AppSettings {
     /// `app::chat::tool_groups`.
     #[serde(default)]
     pub chat_disabled_tools: Vec<String>,
+    /// Render assistant replies as Markdown (headings, lists, tables, code
+    /// blocks, links) rather than as the raw source. Default on: the model is
+    /// told to answer in Markdown and the transcript export already is
+    /// Markdown, so showing the source was the odd one out. Off gives the
+    /// literal text back.
+    #[serde(default = "default_true")]
+    pub chat_render_markdown: bool,
     /// Record every assistant tool call to `<config_dir>/chat_audit/`. Off by
     /// default. See `src/app/chat/audit.rs`.
     #[serde(default)]
@@ -850,6 +857,7 @@ impl Default for AppSettings {
             sql_history_limit: default_sql_history_limit(),
             chat_result_row_limit_unlimited: false,
             chat_export_dir: default_chat_export_dir(),
+            chat_render_markdown: true,
             chat_audit_log_enabled: false,
             chat_audit_log_warn_bytes: default_chat_audit_warn_bytes(),
             chat_audit_log_warn_enabled: true,

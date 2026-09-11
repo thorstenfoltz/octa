@@ -1,39 +1,39 @@
-# sk: written natively, not translated from English.
+# sk: written natively in a neutral register, no direct address; not a translation of the English.
 
-short = "Parquet, CSV, Excel, SQLite a ďalších asi tridsať formátov v rýchlej tabuľke. Zoraďuj, filtruj, hľadaj, upravuj a píš SQL priamo na svojom počítači."
+short = "Parquet, CSV, XLSX, SQLite a približne tridsať ďalších dátových formátov ihneď ako tabuľka. Triedenie, filtrovanie, hľadanie, úpravy a dopyty SQL, lokálne na vlastnom počítači."
 
 long = """
-Octa otvorí súbory Parquet, CSV, Excel, SQLite, DuckDB a JSON a k tomu asi tridsať ďalších dátových formátov, bez importu a bez zdĺhavého nastavovania.
+Octa otvára súbory Parquet, CSV, XLSX, SQLite, DuckDB a JSON a približne tridsať ďalších dátových formátov priamo ako tabuľku. Nie je potrebný import, nastavenie ani súbor projektu.
 
-Údaje môžeš zoraďovať, filtrovať, prehľadávať a upravovať, spúšťať nad nimi SQL dotazy v DuckDB, tvoriť grafy alebo porovnať dva súbory. Vo vstavanom chate sa na údaje opýtaš aj bežnou rečou.
+Tabuľku možno triediť, filtrovať a prehľadávať; bunky, stĺpce a riadky sú upraviteľné a každú zmenu možno vrátiť späť. Každý otvorený súbor je v DuckDB k dispozícii ako tabuľka SQL a viac súborov možno spojiť v jednom dopyte. K tomu grafy, štatistiky stĺpcov, detekcia duplicít a odľahlých hodnôt, kontingenčné tabuľky a porovnanie dvoch súborov. Súbory Parquet s miliónmi riadkov sa načítavajú na pozadí.
 
-Spracovanie prebieha lokálne na tvojom počítači, pokiaľ použitá funkcia nepotrebuje externé API.
+Dáta v Amazon S3, Azure Blob Storage a Google Cloud Storage alebo v databázach PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery a ďalších sa otvárajú priamo; zápis je predvolene vypnutý. Voliteľný asistent s umelou inteligenciou odpovedá na otázky o dátach bežným jazykom, s vlastným kľúčom API alebo lokálnym modelom cez Ollama, a zostáva neaktívny, kým nie je nastavený.
 
-Rozhranie je dostupné v 32 jazykoch. Octa je slobodný softvér pod licenciou MIT.
+Spracovanie prebieha lokálne na vlastnom počítači, s výnimkou funkcií, ktoré vyžadujú externé API. Rozhranie je dostupné v 32 jazykoch. Octa je slobodný softvér pod licenciou MIT: https://github.com/thorstenfoltz/octa
 """
 
 features = [
-  "Otvorí asi tridsať formátov: Parquet, CSV, Excel, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata a ďalšie",
-  "SQL dotazy v DuckDB nad ľubovoľným otvoreným súborom, bez importu",
-  "Zoraďuj, filtruj a hľadaj textom, zástupnými znakmi alebo regulárnymi výrazmi",
-  "Uprav bunky, stĺpce aj riadky, s úplným vrátením späť a zápisom len rozdielov do databázy",
-  "Grafy na vlastnej karte, exportovateľné do PNG, SVG alebo PDF",
-  "Porovnaj dva súbory riadok po riadku alebo záznam po zázname",
-  "Štatistiky stĺpcov, duplicity, odľahlé hodnoty a kontingenčné tabuľky",
-  "Súbory Parquet s miliónmi riadkov načítava na pozadí",
-  "Číta priamo z Amazon S3, Azure Blob Storage a Google Cloud Storage",
-  "Pripojí sa k PostgreSQL, MySQL, SQL Serveru, Snowflake, BigQuery a ďalším",
-  "Voliteľný AI asistent, s vlastným kľúčom alebo lokálnym modelom",
-  "Funguje aj ako nástroj príkazového riadka a server Model Context Protocol",
+  "Približne tridsať formátov: Parquet, CSV, XLSX, SQLite, DuckDB, JSON, Arrow, Avro, ORC, SAS, SPSS, Stata a ďalšie",
+  "SQL DuckDB priamo nad každým otvoreným súborom, bez importu",
+  "Triedenie, filtrovanie a hľadanie prostým textom, zástupnými znakmi alebo regulárnymi výrazmi",
+  "Úpravy buniek, stĺpcov a riadkov s úplným vrátením späť; do databázy sa zapisujú len zmeny",
+  "Grafy vo vlastnej karte, export do PNG, SVG alebo PDF",
+  "Porovnanie dvoch súborov riadok po riadku alebo záznam po zázname",
+  "Štatistiky stĺpcov, detekcia duplicít a odľahlých hodnôt, kontingenčné tabuľky",
+  "Súbory Parquet s miliónmi riadkov sa načítavajú na pozadí",
+  "Priamy prístup k Amazon S3, Azure Blob Storage a Google Cloud Storage",
+  "Pripojenie k PostgreSQL, MySQL, SQL Server, Snowflake, BigQuery a ďalším",
+  "Voliteľný asistent s umelou inteligenciou, s vlastným kľúčom API alebo lokálnym modelom",
+  "Aj nástroj príkazového riadka a server Model Context Protocol",
   "Rozhranie v 32 jazykoch",
   "Slobodný softvér s otvoreným kódom, licencia MIT",
 ]
 
 [fields]
 SearchTerm1 = "parquet"
-SearchTerm2 = "prehliadač csv"
+SearchTerm2 = "otvoriť csv"
 SearchTerm3 = "prehliadač dát"
-SearchTerm4 = "prehliadač sqlite"
+SearchTerm4 = "sqlite"
 SearchTerm5 = "duckdb"
-SearchTerm6 = "sql dotazy"
-SearchTerm7 = "alternatíva k excelu"
+SearchTerm6 = "sql dopyty"
+SearchTerm7 = "otvoriť xlsx"
