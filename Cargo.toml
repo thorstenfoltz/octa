@@ -26,6 +26,15 @@ lto = true
 strip = true
 codegen-units = 1
 
+# Dependencies carry no debuginfo in dev and test builds. The bundled DuckDB
+# C++ alone is a 1 GB static archive at -g, and every one of the ~70 test
+# binaries links it: 1.8 GB each, 226 GB of target/, and CI dies of "No space
+# left on device" at link time. Without it a test binary is ~0.2 GB. Octa's
+# own code keeps full debuginfo; a backtrace into a dependency loses its line
+# numbers, which is the whole cost.
+[profile.dev.package."*"]
+debug = false
+
 [dependencies]
 # eframe's `default` feature selects the **wgpu** renderer, which drags in a
 # general-purpose GPU stack octa never uses: naga (a shader compiler), wgpu-core
