@@ -1,15 +1,14 @@
 name: CI
 
 on:
-  push:
-    branches: [master]
   pull_request:
     branches: [master]
 
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
+  # `changes` lists the PR's files; `lint-gate` lists workflow runs.
+  pull-requests: read
+  actions: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -62,8 +61,38 @@ jobs:
         # only "advisories ok" and a deferred advisory becomes invisible.
         run: cargo deny --log-level info --all-features check licenses advisories
 
+  # MegaLinter lives in its own workflow (`megalinter.yml`, so the README can
+  # carry its status badge) and a workflow cannot `needs:` a job in another
+  # one, so this job stands in for it: it polls the MegaLinter run on the same
+  # commit and fails if that run did. A lint failure therefore still skips
+  # `test` instead of burning ~15 min of compute. Runs take ~2 min; the
+  # timeout only exists so a lost run cannot hold a runner forever.
+  lint-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Wait for MegaLinter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          while true; do
+            # `|| true`: the workflow is registered by its first run, so a
+            # lookup a few seconds too early must poll again, not fail.
+            read -r status conclusion <<<"$(gh run list --workflow megalinter.yml --commit "$HEAD_SHA" \
+              --json status,conclusion --jq '.[0] | "\(.status // "") \(.conclusion // "")"' || true)"
+            if [ "$status" = "completed" ]; then
+              [ "$conclusion" = "success" ] && exit 0
+              echo "::error::MegaLinter finished with '$conclusion' - fix the lint findings first"
+              exit 1
+            fi
+            echo "MegaLinter: ${status:-not started yet}"
+            sleep 15
+          done
+
   test:
-    needs: [changes, megalinter]
+    needs: [changes, lint-gate]
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -184,37 +213,3 @@ jobs:
             echo "::error::Postgres/MySQL live tests were skipped - check the service containers and env vars"
             exit 1
           fi
-
-  megalinter:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Run MegaLinter
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE:/tmp/lint" \
-            -v "$GITHUB_EVENT_PATH:/tmp/github-event.json:ro" \
-            -e DEFAULT_WORKSPACE=/tmp/lint \
-            -e MEGALINTER_CONFIG=.mega-linter.yml \
-            -e VALIDATE_ALL_CODEBASE=true \
-            -e GITHUB_TOKEN="$GITHUB_TOKEN" \
-            -e GITHUB_COMMENT_REPORTER=true \
-            -e GITHUB_STATUS_REPORTER=false \
-            -e FILEIO_REPORTER=false \
-            -e CI=true \
-            -e GITHUB_ACTIONS=true \
-            -e GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" \
-            -e GITHUB_EVENT_PATH=/tmp/github-event.json \
-            -e GITHUB_REPOSITORY="$GITHUB_REPOSITORY" \
-            -e GITHUB_SHA="$GITHUB_SHA" \
-            -e GITHUB_REF="$GITHUB_REF" \
-            -e GITHUB_HEAD_REF="$GITHUB_HEAD_REF" \
-            -e GITHUB_RUN_ID="$GITHUB_RUN_ID" \
-            -e GITHUB_SERVER_URL="$GITHUB_SERVER_URL" \
-            -e GITHUB_API_URL="$GITHUB_API_URL" \
-            ghcr.io/oxsecurity/megalinter-rust:v10
