@@ -4,7 +4,7 @@
 <img src="assets/octa-rose.svg" alt="Octa" width="128" height="128">
 </p>
 
-[![CI](https://github.com/thorstenfoltz/octa/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/thorstenfoltz/octa/actions/workflows/ci.yml)
+[![MegaLinter](https://github.com/thorstenfoltz/octa/actions/workflows/megalinter.yml/badge.svg)](https://github.com/thorstenfoltz/octa/actions/workflows/megalinter.yml)
 [![Docs](https://github.com/thorstenfoltz/octa/actions/workflows/docs.yml/badge.svg)](https://thorstenfoltz.github.io/octa/)
 [![Release](https://img.shields.io/github/v/release/thorstenfoltz/octa)](https://github.com/thorstenfoltz/octa/releases/latest)
 [![AUR](https://img.shields.io/aur/version/octa)](https://aur.archlinux.org/packages/octa)
