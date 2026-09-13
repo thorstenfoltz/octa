@@ -17,6 +17,89 @@ mod passes;
 mod repair;
 mod save;
 
+/// Whether a native file dialog can actually open on this system.
+///
+/// `rfd` tries the XDG desktop portal first and falls back to spawning
+/// `zenity`. With neither present, which is the default state of a WSL desktop
+/// and of most minimal containers, `pick_file()` returns `None` - the very
+/// same answer a cancelled dialog gives - so **Open**, **Save as** and every
+/// export button appear to do nothing at all, with nothing logged and nothing
+/// shown. Probe the two backends once at startup so the status bar can say
+/// what is missing instead.
+///
+/// The portal is DBus-activated, so "is it running" is the wrong question:
+/// what decides is whether a session bus exists and some package installed the
+/// activation file for it.
+#[cfg(target_os = "linux")]
+pub(crate) fn file_dialog_available() -> bool {
+    (session_bus_present() && portal_activatable()) || binary_on_path("zenity")
+}
+
+/// Non-Linux targets always have a dialog: Windows and macOS use the OS one,
+/// which cannot be absent.
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn file_dialog_available() -> bool {
+    true
+}
+
+#[cfg(target_os = "linux")]
+fn session_bus_present() -> bool {
+    if !env_or_empty("DBUS_SESSION_BUS_ADDRESS").is_empty() {
+        return true;
+    }
+    // The address is often unset and left to the well-known socket path.
+    let runtime_dir = env_or_empty("XDG_RUNTIME_DIR");
+    !runtime_dir.is_empty() && std::path::Path::new(&runtime_dir).join("bus").exists()
+}
+
+/// An environment variable's value, with "set but empty" folded into "unset" -
+/// which is what the XDG spec says an empty value means.
+#[cfg(target_os = "linux")]
+fn env_or_empty(name: &str) -> String {
+    std::env::var(name).unwrap_or_default()
+}
+
+/// Is a portal implementation installed at all? DBus activation finds it
+/// through a `.service` file in the data directories, so that file existing is
+/// the same test the bus itself would make.
+#[cfg(target_os = "linux")]
+fn portal_activatable() -> bool {
+    const SERVICE: &str = "dbus-1/services/org.freedesktop.portal.Desktop.service";
+    let home_data = std::env::var_os("XDG_DATA_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".local/share"))
+        });
+    let mut dirs = env_or_empty("XDG_DATA_DIRS");
+    if dirs.is_empty() {
+        dirs = "/usr/local/share:/usr/share".to_string();
+    }
+    home_data
+        .into_iter()
+        .chain(dirs.split(':').filter(|d| !d.is_empty()).map(Into::into))
+        .any(|dir| dir.join(SERVICE).exists())
+}
+
+/// Is `name` an executable somewhere on `PATH`?
+#[cfg(target_os = "linux")]
+fn binary_on_path(name: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|path| executable_in(&path, name))
+}
+
+/// Does `path` (a `PATH`-shaped list) hold an executable called `name`?
+/// Existence alone is not the test: a non-executable file of that name would
+/// suppress the very warning this probe exists to raise. Split from
+/// [`binary_on_path`] so it can be tested against a crafted list instead of
+/// mutating the process's own environment.
+#[cfg(target_os = "linux")]
+fn executable_in(path: &std::ffi::OsStr, name: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::env::split_paths(path).any(|dir| {
+        std::fs::metadata(dir.join(name))
+            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    })
+}
+
 /// Whether a format-name string belongs to a text-shaped reader (one whose
 /// `read_file` opens UTF-8 text on disk). Only these formats are eligible to
 /// fall back to a raw text view when parsing fails - binary formats would
@@ -1014,5 +1097,27 @@ mod file_stamp_tests {
     fn a_missing_file_has_no_stamp() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(file_stamp(&dir.path().join("not-here.csv")), None);
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod file_dialog_probe_tests {
+    use super::{binary_on_path, executable_in};
+    use std::ffi::OsString;
+
+    /// The probe's one subtle bit: a *file* named `zenity` that nobody can run
+    /// must not count, or the missing-dialog warning is suppressed on exactly
+    /// the systems that need it.
+    #[test]
+    fn only_an_executable_counts_as_on_path() {
+        assert!(binary_on_path("sh"), "POSIX guarantees /bin/sh");
+        assert!(!binary_on_path("octa-no-such-binary-2f9c"));
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("zenity"), "not executable").unwrap();
+        let only_this_dir = OsString::from(dir.path());
+        assert!(!executable_in(&only_this_dir, "zenity"));
+        assert!(!executable_in(&only_this_dir, "nothing-here"));
+        assert!(executable_in(&OsString::from("/bin:/usr/bin"), "sh"));
     }
 }

@@ -25,6 +25,11 @@ pub struct StreamingTurn {
     pub phase: TurnPhase,
     /// Number of tools queued to run this iteration (for the spinner label).
     pub pending_tool_count: usize,
+    /// When the current phase began; the spinner shows the time since. A
+    /// local model can spend minutes reading the prompt before it sends a
+    /// single byte, and a clock is the one thing Octa can truthfully show
+    /// meanwhile.
+    pub started: std::time::Instant,
 }
 
 impl Default for StreamingTurn {
@@ -33,6 +38,7 @@ impl Default for StreamingTurn {
             text: String::new(),
             phase: TurnPhase::Streaming,
             pending_tool_count: 0,
+            started: std::time::Instant::now(),
         }
     }
 }
@@ -54,6 +60,12 @@ pub struct ChatSessionState {
     pub error: Option<String>,
     pub input_tokens: u32,
     pub output_tokens: u32,
+    /// Generation speed of the last turn, from providers that measure it
+    /// (Ollama). Not accumulated: the point is "how fast is this model here".
+    pub tokens_per_second: Option<f32>,
+    /// The last prompt read: how many tokens and at what rate, from providers
+    /// that measure it (Ollama). Explains the silence before the first token.
+    pub prompt_read: Option<(u32, f32)>,
     /// Title was set explicitly by the user (don't auto-derive from message 1).
     pub title_pinned: bool,
 }
@@ -73,6 +85,8 @@ impl ChatSessionState {
             error: None,
             input_tokens: 0,
             output_tokens: 0,
+            tokens_per_second: None,
+            prompt_read: None,
             title_pinned: false,
         }
     }

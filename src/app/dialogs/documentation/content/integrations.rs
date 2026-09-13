@@ -186,7 +186,15 @@ you change subject: that is the one lever that resets the count.
 
 The count covers everything Octa sends to a provider, not just the
 chat panel: the **Ask** boxes in the search bar and in the SQL panel
-each fire their own request and land here too. Local and
+each fire their own request and land here too. With Ollama the counter
+also shows the speed of the answer in tokens per second: counted live
+by Octa while it streams, then Ollama's own exact figure once the turn
+ends. A rate that drops from tens to a handful means part of the model
+no longer fits the GPU. The rate starts with the first generated token;
+before that Ollama is reading the prompt and sends nothing, which on a
+CPU can take minutes. The spinner label carries a clock for that wait,
+and afterwards the meter's hover text says how many prompt tokens were
+read and how fast. Local and
 OpenAI-compatible servers report usage only if they choose to, so a
 turn a server said nothing about cannot be counted.
 
@@ -309,6 +317,18 @@ When it does not work, in order of how often each is the real cause:
 
 For a local server use the **Ollama** provider instead: it finds your
 installed models and can start the server.
+
+Ollama talks over its own native endpoint, not the OpenAI-compatible one,
+so that Octa can ask for a **32k context window** on every turn. Ollama
+otherwise sizes the window from the machine's VRAM (4k on a modest box),
+which is smaller than the assistant's tool definitions: the conversation
+then does not fit, Ollama drops the oldest messages, and your question is
+the first thing to go. Models with a built-in prompt renderer answer
+`500 no user query found in messages`; the rest answer a question they can
+no longer see. Nothing to configure. Ollama sends nothing until it has
+loaded the model and read the whole prompt, which can take minutes on a
+CPU, so Octa waits up to 30 minutes for an Ollama turn to start where a
+hosted API gets two; Cancel works the whole time.
 
 ## Thinking / reasoning
 

@@ -211,7 +211,9 @@ you.
 OpenAI requests go through the **Responses API** (`/v1/responses`), which is
 the endpoint where reasoning and tools work together on current models
 (gpt-5.x refuses `reasoning_effort` with tools on the older Chat Completions
-endpoint). OpenAI-compatible providers and Ollama stay on Chat Completions.
+endpoint). OpenAI-compatible providers stay on Chat Completions. Ollama uses
+its own native `/api/chat`, which is the only one of the three that lets Octa
+ask for a context window (see [Context window](#context-window)).
 
 ### Answer length and Pro mode (OpenAI)
 
@@ -323,6 +325,27 @@ panel: the **Ask** boxes in the search bar and in the SQL panel each fire their
 own request, and both land here too. The one caveat is local and
 OpenAI-compatible servers, which report usage only if they choose to; when a
 server sends none, that turn cannot be counted.
+
+With Ollama the counter also shows the **speed** of the answer in tokens per
+second. While the answer streams it is Octa's own count of the tokens received
+so far, updated live, so on a CPU-bound machine you can see the model working
+rather than a spinner; when the turn ends it switches to Ollama's exact figure
+(the number `ollama run --verbose` prints as *eval rate*). It is the quickest
+way to see whether a model still fits your GPU: a rate that drops from tens of
+tokens per second to a handful means part of the model has moved to system
+memory. Hosted providers stream in chunks rather than tokens and send no timing,
+so there is nothing to show for them.
+
+The rate starts with the first generated token. Before that Ollama is reading
+the prompt and sends nothing at all, and on a CPU that reading is the long part
+of a Data-mode turn: several minutes for the tool definitions and file context
+a first request carries. Two things cover that silence. The spinner label
+carries a clock ("Thinking... 4:32") that restarts with each phase of the turn,
+so you can tell a model still reading from a connection that died. And once
+the turn ends, the meter's hover text says how the wait was spent: "Last
+prompt: 7,012 tokens, read at 16 tokens/s before the first token of the
+answer." In a later round of the same turn Ollama's prompt cache makes that
+count small and the wait short.
 
 Two things keep it from being much worse.
 
@@ -524,6 +547,27 @@ Octa, so a loaded model never lingers in memory after you quit.
 
 If you run Ollama on another host or a non-default port, set the **Ollama URL**
 in settings (default `http://localhost:11434`).
+
+### Context window
+
+Ollama picks a default context window from the machine's VRAM: 4k tokens on a
+modest box. Octa's first request already carries about 6.5k tokens of tool
+definitions, so on such a machine the conversation does not fit, and Ollama
+silently drops the **oldest** messages to make room. In a round that has run a
+tool, the oldest message is your question, and the model then answers something
+it can no longer read. Qwen 3.8 and other models with a built-in prompt
+renderer refuse outright, with `500 no user query found in messages`.
+
+Octa therefore asks for a **32k context window** on every Ollama turn. Nothing
+to configure. If the window does not fit in VRAM, Ollama keeps part of the
+model in system memory instead, and generation gets slower; the speed readout
+in the panel header shows by how much.
+
+Ollama sends nothing, not even the response headers, until it has loaded the
+model and read the whole prompt, and on a CPU or a partly offloaded model that
+can take minutes for a Data-mode turn. Octa therefore waits up to 30 minutes
+for an Ollama turn to start, where a hosted API gets two; **Cancel** works the
+whole time.
 
 !!! warning "If a model fails to load"
     A `500 ... llama-server binary not found` error on the first request is an

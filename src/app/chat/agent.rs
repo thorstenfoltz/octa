@@ -111,6 +111,8 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
                 phase: TurnPhase::Streaming,
                 ..Default::default()
             });
+            // Nothing generated yet: an old rate would read as this turn's.
+            s.tokens_per_second = None;
         }
         ctx.request_repaint();
 
@@ -150,6 +152,21 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
                     if let Ok(mut s) = state.lock() {
                         s.input_tokens = s.input_tokens.saturating_add(input_tokens);
                         s.output_tokens = s.output_tokens.saturating_add(output_tokens);
+                    }
+                }
+                ChatEvent::Throughput { tokens_per_second } => {
+                    if let Ok(mut s) = state.lock() {
+                        s.tokens_per_second = Some(tokens_per_second);
+                    }
+                    // Thinking-only lines carry no TextDelta to repaint on.
+                    ctx.request_repaint();
+                }
+                ChatEvent::PromptSpeed {
+                    tokens,
+                    tokens_per_second,
+                } => {
+                    if let Ok(mut s) = state.lock() {
+                        s.prompt_read = Some((tokens, tokens_per_second));
                     }
                 }
                 ChatEvent::Done { stop_reason } => stop = stop_reason,
@@ -207,6 +224,7 @@ fn run_turn(state: &Arc<Mutex<ChatSessionState>>, req: TurnRequest, ctx: &egui::
             if let Some(st) = &mut s.streaming {
                 st.phase = TurnPhase::ExecutingTools;
                 st.pending_tool_count = tool_calls.len();
+                st.started = std::time::Instant::now();
             }
         }
         ctx.request_repaint();

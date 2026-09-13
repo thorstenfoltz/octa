@@ -181,7 +181,7 @@ impl OctaApp {
         // numbers on a normal window.
         let side = matches!(position, ChatPanelPosition::Left | ChatPanelPosition::Right);
         let (available, want_default, want_min) = if side {
-            (parent_ui.available_width(), 580.0, 380.0)
+            (parent_ui.available_width(), 720.0, 380.0)
         } else {
             (parent_ui.available_height(), 320.0, 160.0)
         };
@@ -215,13 +215,10 @@ impl OctaApp {
 
     fn render_chat_header(&mut self, ui: &mut egui::Ui) {
         let meter = self.usage_meter();
+        // Buttons first, from the right edge; the title and meter get what is
+        // left and truncate. The other way round (title first, buttons in the
+        // remainder) painted the buttons over the meter on a narrow panel.
         ui.horizontal(|ui| {
-            ui.heading(t("chat.title"));
-            // Tokens are counted by the provider, not estimated. Only the
-            // money is an estimate, which is what the tooltip says.
-            if let Some(meter) = &meter {
-                ui.weak(meter).on_hover_text(t("chat.usage_hint"));
-            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("x").on_hover_text(t("chat.close")).clicked() {
                     self.close_chat_panel();
@@ -268,6 +265,15 @@ impl OctaApp {
                 {
                     self.export_chat_session();
                 }
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.heading(t("chat.title"));
+                    // Tokens are counted by the provider, not estimated;
+                    // the speed is the provider's own timing too.
+                    if let Some((meter, hint)) = &meter {
+                        ui.add(egui::Label::new(egui::RichText::new(meter).weak()).truncate())
+                            .on_hover_text(hint);
+                    }
+                });
             });
         });
         self.render_chat_history_window(ui.ctx());
@@ -418,7 +424,13 @@ impl OctaApp {
                                 )
                             }
                         };
-                        ui.label(label);
+                        // How long this phase has run. A local model may read
+                        // the prompt for minutes before it sends a byte, and
+                        // a spinner alone cannot tell that from a hang.
+                        let secs = stream.started.elapsed().as_secs();
+                        ui.label(format!("{label} {}:{:02}", secs / 60, secs % 60));
+                        ui.ctx()
+                            .request_repaint_after(std::time::Duration::from_secs(1));
                     });
                 }
             });
