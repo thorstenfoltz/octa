@@ -186,6 +186,35 @@ rehash      # zsh
 
 Either of those, or simply opening a new shell, makes `octa` resolve.
 
+### The installed version is older than the one you downloaded
+
+`get-octa.sh` always fetches the newest release, and the installer always
+writes it to the prefix it prints. If `octa --version` still reports an
+older number afterwards, a **second copy earlier in your `PATH`** is what
+you are running: the new binary is on disk, your shell just never reaches
+it. This is common after switching between a system-wide install
+(`/usr/local/bin`) and a user-local one (`~/.local/bin`), and on Arch,
+where the AUR package installs into `/usr/bin`.
+
+`install.sh` checks for this and warns:
+
+```
+Warning: `octa` still resolves to /usr/bin/octa
+  (octa 0.17.0).
+  That copy shadows the one just installed and is what you will keep running.
+```
+
+Fix it by removing the older copy, or by putting the new prefix earlier in
+`PATH`. To see every copy at once:
+
+```bash
+type -a octa      # bash / zsh
+```
+
+If the paths already look right, your shell is caching the old one: see
+[Command not found until you restart the shell](#command-not-found-until-you-restart-the-shell)
+and run `hash -r`.
+
 ### WSL: libEGL / Mesa warnings on launch
 
 On WSL, launching the GUI prints a few warnings to the terminal:
@@ -221,6 +250,34 @@ echo 'export LIBGL_ALWAYS_SOFTWARE=1' >> ~/.bashrc   # or ~/.zshrc
 have real GPU acceleration, that requires a working WSLg GPU
 passthrough: a recent Windows 11, up-to-date GPU drivers, and the
 `libgl1-mesa-dri` package installed inside the distribution.
+
+### WSL: Open, Save as and Export do nothing
+
+The window is fine, `octa file.parquet` from the terminal works, but
+clicking **Open** produces no dialog and no error.
+
+Octa asks the desktop for a file dialog through the **XDG desktop portal**,
+falling back to `zenity`. A default WSL install has neither, and the
+request then fails in a way that is indistinguishable from you pressing
+Cancel, so the button appears dead. Octa detects this at startup and puts
+a note in the status bar.
+
+Install either backend inside the distribution:
+
+```bash
+sudo apt install xdg-desktop-portal-gtk   # the portal (preferred)
+sudo apt install zenity                   # or the simpler fallback
+```
+
+Log out of the WSL session (`wsl --shutdown` from Windows) and start Octa
+again. Until then, pass files on the command line:
+
+```bash
+octa data.parquet
+```
+
+The same applies to any minimal container or a bare window manager with no
+portal installed.
 
 ## Opening files
 
@@ -443,6 +500,54 @@ The Settings dialog flags conflicts when you record a binding. If
 two actions slipped through with the same combo somehow, the
 [**Settings → Shortcuts**](reference/settings.md#shortcuts) grid
 highlights both rows; fix one and Apply.
+
+## Assistant (chat)
+
+### Ollama: "no user query found in messages"
+
+A turn fails with:
+
+```
+Error: ollama: HTTP 500: no user query found in messages
+```
+
+Ollama sizes its context window from the machine's VRAM, which is 4k
+tokens on a modest box, and Octa's first request already carries about
+6.5k tokens of tool definitions. When the conversation does not fit,
+Ollama drops the **oldest** messages, and in a round that has run a tool
+(`system`, your question, the tool call, the tool's output) the oldest one
+is your question. Models with a built-in prompt renderer, such as Qwen 3.8,
+then refuse the prompt with the message above; other models answer a
+question they can no longer see, which is harder to notice.
+
+Octa requests a 32k window explicitly on every turn, so this is fixed from
+0.19.3 onwards. On an older build, raise the server's default instead:
+
+```bash
+OLLAMA_CONTEXT_LENGTH=32768 ollama serve
+```
+
+If you run Ollama as a service, put it in the unit's environment
+(`systemctl edit ollama`) rather than in your shell.
+
+### Ollama: "timeout: receive response"
+
+A Data-mode turn, **Explain this file** typically, fails after about two
+minutes with:
+
+```
+Error: ollama: request failed: timeout: receive response
+```
+
+Ollama sends nothing, not even the HTTP response headers, until it has loaded
+the model and read the whole prompt. A first Data-mode request carries several
+thousand tokens of tool definitions and file context, and on a CPU, or a model
+that only partly fits the GPU, reading them takes longer than the two minutes
+Octa allows a hosted API to start answering.
+
+From 0.19.3 an Ollama turn gets thirty minutes to start, and the spinner shows
+a clock while it waits. On an older build, use **Just answer** for questions
+that need no data, or a smaller model.
 
 ## Updates
 

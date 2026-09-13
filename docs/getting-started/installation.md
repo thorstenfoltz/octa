@@ -52,6 +52,23 @@ add this to your `~/.bashrc` or `~/.zshrc`:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
+The installer prints the version it just wrote and warns if a different
+`octa` earlier in your `PATH` would shadow it, which is the usual reason a
+fresh install still reports an older version. See
+[The installed version is older than the one you downloaded](../troubleshooting.md#the-installed-version-is-older-than-the-one-you-downloaded).
+
+!!! note "WSL: install a file dialog too"
+    A default WSL install has no XDG desktop portal, so **Open**, **Save
+    as** and the export buttons cannot show a dialog and appear to do
+    nothing. Octa says so in the status bar at startup. Add one backend:
+
+    ```bash
+    sudo apt install xdg-desktop-portal-gtk   # or: sudo apt install zenity
+    ```
+
+    Then restart the distribution (`wsl --shutdown` from Windows). Passing
+    a file on the command line (`octa data.parquet`) works either way.
+
 ### Pre-built binary
 
 If you would rather not pipe a script, download the Linux archive from the

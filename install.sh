@@ -33,6 +33,21 @@ if [ ! -w "$PROBE" ]; then
 	exit 1
 fi
 
+# Which `octa` a shell reaches first. Under sudo this script's own PATH is
+# root's (Debian's secure_path drops ~/.local/bin and ~/.cargo/bin, the two
+# usual homes of an older copy), so ask the invoking user's login shell
+# instead. `tail` keeps only the answer if a .profile prints something.
+# ponytail: a login shell reads .profile, not .zshrc; a PATH set only there
+# is missed. Good enough for the Ubuntu/WSL default, revisit if reported.
+resolve_octa() {
+	{ [[ -n "${SUDO_USER:-}" ]] && sudo -u "$SUDO_USER" -i command -v octa | tail -n 1; } 2>/dev/null ||
+		command -v octa 2>/dev/null || true
+}
+
+# Remembered before anything is written: an octa already on PATH is what an
+# open shell keeps running (and may keep reporting) after this install.
+PREEXISTING="$(resolve_octa)"
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # If a pre-built binary exists next to this script, use it; otherwise build from source
@@ -151,4 +166,26 @@ echo "  Icon:    $ICON_DIR/octa.svg"
 echo "  Desktop: $DESKTOP_DIR/octa.desktop"
 if [[ -f "$MAN_DIR/octa.1" ]]; then
 	echo "  Man:     $MAN_DIR/octa.1   (try \`man octa\`)"
+fi
+
+# A second `octa` earlier in PATH silently wins every later invocation, which is
+# how a fresh install gets reported as "it installed an old version": the new
+# binary is on disk, the shell just never reaches it. Say so here rather than
+# let `octa --version` lie. This is a fresh PATH lookup, not an interactive
+# shell's stale hash.
+echo "  Version: $("$BIN_DIR/octa" --version 2>/dev/null || echo "unknown")"
+RESOLVED="$(resolve_octa)"
+if [[ -z "$RESOLVED" ]]; then
+	echo
+	echo "Warning: $BIN_DIR is not on your PATH, so typing \`octa\` will not find it." >&2
+	echo "  Add it:  export PATH=\"$BIN_DIR:\$PATH\"" >&2
+elif [[ "$RESOLVED" != "$BIN_DIR/octa" ]]; then
+	echo
+	echo "Warning: \`octa\` still resolves to $RESOLVED" >&2
+	echo "  ($("$RESOLVED" --version 2>/dev/null || echo "version unknown"))." >&2
+	echo "  That copy shadows the one just installed and is what you will keep running." >&2
+	echo "  Remove it, or put $BIN_DIR earlier in PATH." >&2
+elif [[ -n "$PREEXISTING" ]]; then
+	echo "  An already-open shell may still run the previous copy from its path cache:"
+	echo "  run \`hash -r\` (bash/zsh) there, or open a new terminal."
 fi

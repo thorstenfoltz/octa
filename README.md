@@ -4,6 +4,14 @@
 <img src="assets/octa-rose.svg" alt="Octa" width="128" height="128">
 </p>
 
+[![CI](https://github.com/thorstenfoltz/octa/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/thorstenfoltz/octa/actions/workflows/ci.yml)
+[![Docs](https://github.com/thorstenfoltz/octa/actions/workflows/docs.yml/badge.svg)](https://thorstenfoltz.github.io/octa/)
+[![Release](https://img.shields.io/github/v/release/thorstenfoltz/octa)](https://github.com/thorstenfoltz/octa/releases/latest)
+[![AUR](https://img.shields.io/aur/version/octa)](https://aur.archlinux.org/packages/octa)
+[![Microsoft Store](https://img.shields.io/badge/Microsoft%20Store-Octa-0078D4)](https://apps.microsoft.com/detail/9PF9BVRT9PX4)
+[![Docker](https://img.shields.io/badge/ghcr.io-thorstenfoltz%2Focta-2496ED)](https://github.com/thorstenfoltz/octa/pkgs/container/octa)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A native desktop application for viewing, editing, and querying data files. Octa
 opens a file in a spreadsheet-like table with sorting, filtering, and search, and
 runs as a single binary on Linux, macOS, and Windows.
@@ -111,6 +119,13 @@ Or system-wide into `/usr/local`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/thorstenfoltz/octa/master/get-octa.sh | sudo bash
+```
+
+On WSL, also install a file dialog backend, or **Open** and **Save as** have
+nothing to show and appear to do nothing (Octa says so in the status bar):
+
+```bash
+sudo apt install xdg-desktop-portal-gtk   # or: sudo apt install zenity
 ```
 
 An AppImage and a plain tarball are on the

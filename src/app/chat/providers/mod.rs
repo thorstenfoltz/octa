@@ -156,18 +156,63 @@ pub fn make_provider(kind: ChatProviderKind) -> Box<dyn ChatProvider> {
     }
 }
 
+/// How long a hosted API gets to start answering. Generous for a queue, and
+/// short enough that a server which accepts the connection and then says
+/// nothing does not wedge an Ask box (whose cancel flag no UI can reach).
+const HOSTED_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
 /// POST `body` to `url` with `headers`, then stream the response as
-/// Server-Sent Events, handing each `data:` payload to `on_data`. The reader
-/// is unbuffered at the body level (`into_reader`) so chunks surface live -
-/// `read_to_string` / `.limit()` would block until the whole body arrived and
-/// defeat streaming. `on_data` returns `Ok(true)` to stop early (e.g. on
-/// `[DONE]`). `cancel` is polled between lines.
+/// Server-Sent Events, handing each `data:` payload to `on_data`. `on_data`
+/// returns `Ok(true)` to stop early (e.g. on `[DONE]`).
 pub(crate) fn stream_sse(
     url: &str,
     headers: &[(&str, String)],
     body: &Value,
     cancel: &AtomicBool,
     mut on_data: impl FnMut(&str) -> Result<bool, String>,
+) -> Result<(), String> {
+    stream_lines(
+        url,
+        headers,
+        body,
+        HOSTED_RESPONSE_TIMEOUT,
+        cancel,
+        |line| {
+            // SSE field lines: `data: <payload>`. Ignore `event:` / `id:` /
+            // comments and blank separators - the payload JSON carries its own
+            // type tag for every provider we target.
+            let Some(payload) = line.strip_prefix("data:") else {
+                return Ok(false);
+            };
+            let payload = payload.trim_start();
+            if payload.is_empty() {
+                return Ok(false);
+            }
+            on_data(payload)
+        },
+    )
+}
+
+/// POST `body` to `url` with `headers`, then hand the response back one line
+/// at a time. The reader is unbuffered at the body level (`into_reader`) so
+/// chunks surface live - `read_to_string` / `.limit()` would block until the
+/// whole body arrived and defeat streaming. `on_line` returns `Ok(true)` to
+/// stop early. `cancel` is polled between lines. Server-Sent Events go
+/// through [`stream_sse`]; Ollama's native endpoint streams bare
+/// newline-delimited JSON and uses this directly.
+///
+/// `response_timeout` bounds the wait for the response *headers*, which is
+/// the time to the first token: a streaming server sends nothing until it has
+/// one. Hosted APIs get [`HOSTED_RESPONSE_TIMEOUT`]; a local model may spend
+/// minutes loading and evaluating the prompt first, so its adapter passes
+/// its own.
+pub(crate) fn stream_lines(
+    url: &str,
+    headers: &[(&str, String)],
+    body: &Value,
+    response_timeout: std::time::Duration,
+    cancel: &AtomicBool,
+    mut on_line: impl FnMut(&str) -> Result<bool, String>,
 ) -> Result<(), String> {
     // Configure on an Agent rather than per-request: a request-level
     // `.config()...build()` erases ureq's `WithBody` type-state and drops
@@ -180,7 +225,7 @@ pub(crate) fn stream_sse(
     // their cancel flag is not reachable from any UI.
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_connect(Some(std::time::Duration::from_secs(15)))
-        .timeout_recv_response(Some(std::time::Duration::from_secs(120)))
+        .timeout_recv_response(Some(response_timeout))
         .http_status_as_error(false)
         .build()
         .into();
@@ -230,17 +275,7 @@ pub(crate) fn stream_sse(
             break; // EOF
         }
         let trimmed = line.trim_end_matches(['\n', '\r']);
-        // SSE field lines: `data: <payload>`. Ignore `event:` / `id:` /
-        // comments and blank separators - the payload JSON carries its own
-        // type tag for every provider we target.
-        let Some(payload) = trimmed.strip_prefix("data:") else {
-            continue;
-        };
-        let payload = payload.trim_start();
-        if payload.is_empty() {
-            continue;
-        }
-        if on_data(payload)? {
+        if on_line(trimmed)? {
             break;
         }
     }

@@ -81,6 +81,18 @@ impl OctaApp {
         } else {
             None
         };
+        // A GUI whose Open button silently does nothing is indistinguishable
+        // from a hung one, and that is exactly what a missing desktop portal
+        // looks like (see `file_io::file_dialog_available`). Say so, and put
+        // it ahead of the audit warning: this one breaks opening files.
+        let startup_warning = if super::file_io::file_dialog_available() {
+            audit_warning
+        } else {
+            Some((
+                octa::i18n::t("status_bar.no_file_dialog"),
+                std::time::Instant::now(),
+            ))
+        };
         // A new version brings its own notes with it. They are baked into the
         // binary, so this needs neither a network round-trip nor the update
         // check: it is a fact about the build the user is running.
@@ -138,7 +150,7 @@ impl OctaApp {
             startup_update_started: false,
             startup_update_seen: false,
             pending_release_notes: show_release_notes,
-            status_message: audit_warning,
+            status_message: startup_warning,
             last_auto_save: std::time::Instant::now(),
             recent_files,
             zoom_percent: 100,

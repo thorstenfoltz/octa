@@ -135,6 +135,17 @@ pub enum ChatEvent {
         input_tokens: u32,
         output_tokens: u32,
     },
+    /// Generation speed so far, in tokens per second. Ollama's adapter counts
+    /// the tokens it receives (one line each) for a live figure, then sends
+    /// the server's own `eval_count` / `eval_duration` when the turn ends.
+    /// Cloud APIs send neither per-token lines nor timing, so only Ollama
+    /// emits this.
+    Throughput { tokens_per_second: f32 },
+    /// How fast the prompt was read before the first token of the answer
+    /// (Ollama's `prompt_eval_count` / `prompt_eval_duration`). On a CPU that
+    /// reading is the long, silent part of a turn, so this is the number that
+    /// explains the wait.
+    PromptSpeed { tokens: u32, tokens_per_second: f32 },
     /// The turn finished.
     Done { stop_reason: StopReason },
     /// A fatal error mid-stream.

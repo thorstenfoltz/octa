@@ -165,22 +165,44 @@ impl OctaApp {
 
     /// Build the tool context, system prompt, provider config, push the user
     /// message, and spawn the worker turn.
-    /// The header's usage meter: tokens this session, input and output.
-    /// `None` before the first turn reports any usage, so an empty chat
-    /// carries no chrome.
-    pub(crate) fn usage_meter(&mut self) -> Option<String> {
-        let (input_tokens, output_tokens) = {
+    /// The header's usage meter and its hover text: tokens this session,
+    /// input and output, plus the generation speed when the provider reports
+    /// one. The hover explains the numbers and, once known, how fast the last
+    /// prompt was read. `None` before the first turn reports anything, so an
+    /// empty chat carries no chrome.
+    pub(crate) fn usage_meter(&mut self) -> Option<(String, String)> {
+        let (input_tokens, output_tokens, speed, prompt_read) = {
             let s = self.chat.session.lock().unwrap();
-            (s.input_tokens, s.output_tokens)
+            (
+                s.input_tokens,
+                s.output_tokens,
+                s.tokens_per_second,
+                s.prompt_read,
+            )
         };
-        if input_tokens == 0 && output_tokens == 0 {
-            return None;
+        let mut hint = t("chat.usage_hint");
+        if let Some((tokens, rate)) = prompt_read {
+            hint.push_str("\n\n");
+            hint.push_str(
+                &t("chat.usage_read")
+                    .replace("{n}", &format_number(tokens as usize))
+                    .replace("{rate}", &format!("{rate:.0}")),
+            );
         }
-        Some(
-            t("chat.usage")
-                .replace("{in}", &format_number(input_tokens as usize))
-                .replace("{out}", &format_number(output_tokens as usize)),
-        )
+        let speed = speed.map(|s| t("chat.usage_speed").replace("{n}", &format!("{s:.1}")));
+        if input_tokens == 0 && output_tokens == 0 {
+            // Usage lands only when a turn ends; the live rate is all there
+            // is during the first one.
+            return speed.map(|s| (s, hint));
+        }
+        let mut meter = t("chat.usage")
+            .replace("{in}", &format_number(input_tokens as usize))
+            .replace("{out}", &format_number(output_tokens as usize));
+        if let Some(speed) = speed {
+            meter.push_str(", ");
+            meter.push_str(&speed);
+        }
+        Some((meter, hint))
     }
 
     /// Ask the assistant to explain the active tab, as an ordinary chat turn.
