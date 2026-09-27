@@ -330,6 +330,8 @@ fn run_frame(
     let filtered: Vec<usize> = (0..table.rows.len()).collect();
     let shortcuts = crate::ui::shortcuts::Shortcuts::default();
     let empty_cols: HashSet<usize> = HashSet::new();
+    let empty_filters: std::collections::HashMap<usize, HashSet<String>> =
+        std::collections::HashMap::new();
     let empty_cells: HashSet<(usize, usize)> = HashSet::new();
     let formats = std::collections::HashMap::new();
     let input = egui::RawInput {
@@ -357,7 +359,8 @@ fn run_frame(
             welcome_logo_texture: None,
             shortcuts: &shortcuts,
             readonly: false,
-            filtered_columns: &empty_cols,
+            cell_history_unavailable: None,
+            column_filters: &empty_filters,
             hidden_columns: &empty_cols,
             thousands_separators: false,
             separator_style: crate::data::num_format::SeparatorStyle::default(),
@@ -792,5 +795,105 @@ fn seam_double_click_and_row_number_click_survive_the_drag_adoption() {
         state.selected_rows.contains(&1),
         "row 1 selected: {:?}",
         state.selected_rows
+    );
+}
+
+// --- facet popup -----------------------------------------------------
+
+/// The popup lists the most common values and says how many it left out.
+/// It computes nothing itself: the rows come from `value_frequency`, the
+/// same engine behind the Value frequency tab, so the two can never report
+/// different counts for the same column.
+#[test]
+fn facet_rows_come_from_value_frequency_capped_at_the_top_n() {
+    use crate::data::value_frequency::{BinningMode, compute_value_frequency};
+    use crate::data::{CellValue, ColumnInfo, DataTable};
+
+    let mut t = DataTable::empty();
+    t.columns = vec![ColumnInfo {
+        name: "city".into(),
+        data_type: "Utf8".into(),
+    }];
+    t.rows = (0..120)
+        .map(|i| vec![CellValue::String(format!("city{}", i % 60))])
+        .collect();
+
+    let vf = compute_value_frequency(&t, 0, Some(FACET_POPUP_TOP_N), BinningMode::None)
+        .expect("column exists");
+    assert_eq!(vf.rows.len(), FACET_POPUP_TOP_N, "popup shows the top N");
+    assert_eq!(vf.unique_count, 60, "but reports the true distinct count");
+    assert_eq!(
+        facet_hidden_count(&vf),
+        10,
+        "and says how many are not shown"
+    );
+}
+
+/// A column with fewer distinct values than the cap hides nothing, so the
+/// popup must not offer a search box for values that are all on screen.
+#[test]
+fn a_short_column_hides_nothing() {
+    use crate::data::value_frequency::{BinningMode, compute_value_frequency};
+    use crate::data::{CellValue, ColumnInfo, DataTable};
+
+    let mut t = DataTable::empty();
+    t.columns = vec![ColumnInfo {
+        name: "flag".into(),
+        data_type: "Utf8".into(),
+    }];
+    t.rows = (0..40)
+        .map(|i| {
+            vec![CellValue::String(
+                if i % 2 == 0 { "yes" } else { "no" }.into(),
+            )]
+        })
+        .collect();
+
+    let vf = compute_value_frequency(&t, 0, Some(FACET_POPUP_TOP_N), BinningMode::None)
+        .expect("column exists");
+    assert_eq!(vf.rows.len(), 2);
+    assert_eq!(facet_hidden_count(&vf), 0, "nothing was left out");
+}
+
+/// Applying every value is the same as no filter at all. Writing an
+/// all-inclusive allow-set instead would leave the column looking filtered
+/// (chip, header dot) while hiding nothing, so the popup reports it as a
+/// clear.
+#[test]
+fn selecting_every_value_is_a_clear_not_a_filter() {
+    let all: std::collections::HashSet<String> =
+        ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
+    let result = facet_result(1, all, 3);
+    assert!(result.cleared, "every value ticked means no filter");
+
+    let some: std::collections::HashSet<String> =
+        ["a", "b"].iter().map(|s| s.to_string()).collect();
+    let result = facet_result(1, some.clone(), 3);
+    assert!(!result.cleared);
+    assert_eq!(result.allowed, some);
+}
+
+/// The popup lists only the top N, so on a high-cardinality column ticking
+/// every row on screen is a real filter, not a clear. Measuring against the
+/// listed rows instead of the column's distinct count silently threw the
+/// filter away in exactly the case the popup exists for.
+#[test]
+fn ticking_every_listed_value_still_filters_a_wider_column() {
+    let ticked: std::collections::HashSet<String> =
+        (0..FACET_POPUP_TOP_N).map(|i| format!("v{i}")).collect();
+    let result = facet_result(1, ticked.clone(), 900);
+    assert!(!result.cleared, "50 of 900 values is a filter");
+    assert_eq!(result.allowed, ticked);
+}
+
+/// Ticking nothing is also a clear rather than a filter that hides every
+/// row: an empty allow-set would leave the user staring at an empty table
+/// with no obvious way back.
+#[test]
+fn selecting_nothing_is_a_clear_too() {
+    let result = facet_result(1, std::collections::HashSet::new(), 3);
+    assert!(
+        result.cleared,
+        "an empty selection clears instead of hiding everything"
     );
 }

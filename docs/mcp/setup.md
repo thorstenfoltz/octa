@@ -64,7 +64,7 @@ Use it in any client config by appending the flag to `args`, e.g.
 
 ## Advertising fewer tools
 
-Octa exposes around 60 tools, and their descriptions and schemas are
+Octa exposes around 70 tools, and their descriptions and schemas are
 roughly 33,000 tokens. An MCP client reads that list once and then
 carries it in **every** request it makes to its model, so a server you
 only use for reading Parquet files is still charging you for
@@ -117,7 +117,7 @@ error: unknown tool or group `kwality`. Groups: core, quality, compare, ...
 The startup banner says how many tools were hidden:
 
 ```
-octa --mcp ready [46 tools hidden] (...)
+octa --mcp ready [60 tools hidden] (...)
 ```
 
 In a client config this is just more `args`:
@@ -257,6 +257,30 @@ Octa's side of the `--`:
 ```bash
 claude mcp add --scope user octa -- octa --mcp --mcp-read-only
 ```
+
+### Registering fewer tools
+
+`--mcp-tools` and `--mcp-without` go in the same place, after `--mcp`
+on Octa's side of the `--`. See
+[Advertising fewer tools](#advertising-fewer-tools) for what the
+group names mean:
+
+```bash
+claude mcp add --scope user octa -- octa --mcp --mcp-tools core
+```
+
+Claude Code stores the whole command line, so there is no config file
+to edit afterwards. Changing the flags on a server that is already
+registered means removing it and adding it back:
+
+```bash
+claude mcp remove octa --scope user
+claude mcp add --scope user octa -- octa --mcp --mcp-tools core,databases
+```
+
+Restart Claude Code after either, since the tool list is read once at
+startup. `claude mcp list` shows the stored command line, so it also
+tells you which flags a registration actually has.
 
 ### Verify
 

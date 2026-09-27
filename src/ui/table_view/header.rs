@@ -7,9 +7,10 @@ use egui::{Align2, Color32, CursorIcon, RichText, Sense, Ui, Vec2};
 use crate::data::{DataTable, MarkKey};
 
 use super::{
-    COL_INDEX_HEIGHT, DEFAULT_COL_WIDTH, HEADER_HEIGHT, MIN_COL_WIDTH, MIN_ROW_HEIGHT,
-    RESIZE_HANDLE_WIDTH, ROW_RESIZE_HANDLE_HEIGHT, SORT_ARROW_SIZE, TableInteraction,
-    TableViewState, base_row_height, col_index_letter, compute_optimal_col_width, mark_submenu,
+    COL_INDEX_HEIGHT, DEFAULT_COL_WIDTH, FACET_HIT_WIDTH, FACET_ICON_SIZE, HEADER_HEIGHT,
+    MIN_COL_WIDTH, MIN_ROW_HEIGHT, RESIZE_HANDLE_WIDTH, ROW_RESIZE_HANDLE_HEIGHT, SORT_ARROW_SIZE,
+    TableInteraction, TableViewState, base_row_height, col_index_letter, compute_optimal_col_width,
+    mark_submenu,
 };
 
 pub(super) fn draw_header_direct(
@@ -29,7 +30,7 @@ pub(super) fn draw_header_direct(
         font_size,
         filtered_rows,
         binary_display_mode,
-        filtered_columns,
+        column_filters,
         hidden_columns,
         num_fmt,
         frozen_cols,
@@ -163,8 +164,24 @@ pub(super) fn draw_header_direct(
         let content_top = rect.top() + COL_INDEX_HEIGHT;
         let content_center_y = (content_top + rect.bottom()) / 2.0;
 
-        // --- Column name (below index, before sort arrows) ---
-        let name_clip_right = arrows_x - 2.0;
+        // --- Facet funnel, just left of the sort arrows ---
+        //
+        // The drawn glyph and the thing you click are DIFFERENT rectangles.
+        // A target the size of an 11px icon is a target nobody can hit,
+        // especially wedged between two sort arrows and a resize handle;
+        // the click area is therefore wider than the glyph and spans the
+        // full content height, so the funnel does not have to be hit
+        // vertically either.
+        let facet_centre = egui::pos2(arrows_x - 4.0 - FACET_HIT_WIDTH / 2.0, content_center_y);
+        let facet_rect =
+            egui::Rect::from_center_size(facet_centre, Vec2::new(FACET_ICON_SIZE, FACET_ICON_SIZE));
+        let facet_hit = egui::Rect::from_min_max(
+            egui::pos2(facet_centre.x - FACET_HIT_WIDTH / 2.0, content_top),
+            egui::pos2(facet_centre.x + FACET_HIT_WIDTH / 2.0, rect.bottom()),
+        );
+
+        // --- Column name (below index, before the funnel) ---
+        let name_clip_right = facet_hit.left() - 2.0;
         let cell_clip = egui::Rect::from_min_max(
             egui::pos2(rect.left() + 4.0, content_top),
             egui::pos2(name_clip_right.max(rect.left() + 4.0), rect.bottom()),
@@ -230,7 +247,7 @@ pub(super) fn draw_header_direct(
             // owns the ▼/▲ glyphs to the right). Painted only when this
             // column has an active filter so unfiltered headers look
             // unchanged.
-            if filtered_columns.contains(&col_idx) {
+            if column_filters.contains_key(&col_idx) {
                 let dot_center = egui::pos2(
                     rect.left() + 6.0 + name_size.x + 8.0,
                     content_top + 1.0 + name_size.y / 2.0,
@@ -298,6 +315,53 @@ pub(super) fn draw_header_direct(
             }
         }
 
+        // --- Facet funnel: the fast door onto this column's value filter ---
+        if facet_hit.intersects(region_clip) {
+            let facet_response = ui.interact(
+                facet_hit.intersect(region_clip),
+                ui.id().with(("facet", col_idx)),
+                Sense::click(),
+            );
+            let active = column_filters.contains_key(&col_idx);
+            let open = state.facet_col == Some(col_idx);
+            let lit = facet_response.hovered() || open || active;
+            // Lit for all three reasons a funnel is worth noticing: the
+            // pointer is on it, its popup is open, or the column is filtered.
+            let funnel_color = if lit {
+                colors.accent
+            } else {
+                colors.text_muted
+            };
+            // A hovered or open funnel gets a backing plate, so the thing
+            // you can click looks like a thing you can click. Without it the
+            // target is invisible and has to be found by accident.
+            if facet_response.hovered() || open {
+                region_painter.rect_filled(
+                    facet_hit
+                        .intersect(region_clip)
+                        .shrink2(Vec2::new(0.0, 2.0)),
+                    3.0,
+                    colors.accent.gamma_multiply(0.18),
+                );
+            }
+            if facet_response.hovered() {
+                ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+            }
+            draw_funnel(&region_painter, facet_rect, funnel_color);
+            let facet_response = facet_response.on_hover_text(crate::i18n::t("facet.open_hint"));
+            if facet_response.clicked() {
+                // Toggle: a second click on the same funnel closes it.
+                if state.facet_col == Some(col_idx) {
+                    state.facet_col = None;
+                } else {
+                    open_facet(state, col_idx);
+                }
+            }
+            if state.facet_col == Some(col_idx) {
+                draw_facet_popup(ui, &facet_response, table, col_idx, state, interaction, cx);
+            }
+        }
+
         // Down arrow (sort descending)
         if desc_rect.intersects(region_clip) {
             let desc_response = ui.interact(
@@ -345,9 +409,16 @@ pub(super) fn draw_header_direct(
         // this interaction, the field loses focus and the rename commits. Mirrors
         // the cell edit guard in rows.rs. Renaming still commits on real focus
         // loss (Enter / Esc / clicking elsewhere).
+        // Stops at the FUNNEL, not at the sort arrows.
+        //
+        // This rect is registered after the arrows and the funnel, so in
+        // egui it sits on top of them and wins their clicks. The arrows
+        // already worked because the rect stopped short of `arrows_x`; the
+        // funnel sits left of that and was therefore swallowed, which is
+        // why it took several clicks and selected the column first.
         let header_interact_rect = egui::Rect::from_min_size(
             egui::pos2(x, top_y),
-            Vec2::new((arrows_x - x).max(0.0), HEADER_HEIGHT),
+            Vec2::new((facet_hit.left() - x).max(0.0), HEADER_HEIGHT),
         );
 
         if !is_editing_name
@@ -469,8 +540,10 @@ pub(super) fn draw_header_direct(
                     interaction.sort_rows_desc_by = Some(col_idx);
                     ui.close();
                 }
+                // The same popup the header funnel opens, so a right-click
+                // and a funnel click give one filter, Shapes included.
                 if ui.button(crate::i18n::t("header.filter_values")).clicked() {
-                    interaction.ctx_filter_column = Some(col_idx);
+                    open_facet(state, col_idx);
                     ui.close();
                 }
                 if ui
@@ -536,34 +609,29 @@ pub(super) fn draw_header_direct(
                     interaction.ctx_delete_column = true;
                     ui.close();
                 }
-                ui.menu_button("Change Type", |ui| {
-                    let types = &[
-                        "String",
-                        "Int64",
-                        "Float64",
-                        "Boolean",
-                        "Date32",
-                        "Timestamp(Microsecond, None)",
-                    ];
-                    for &t in types {
-                        let is_current = col.data_type == t;
-                        let can_convert = is_current || table.can_convert_column(col_idx, t);
+                ui.menu_button(crate::i18n::t("retype.menu"), |ui| {
+                    // Every target is offered, including ones that will not
+                    // convert every value: `retype` converts what parses and
+                    // leaves the rest as text, and the caller raises the
+                    // Change type dialog when that is about to happen. The
+                    // old all-or-nothing gate greyed this submenu out on
+                    // exactly the messy columns it was wanted for.
+                    for &target in crate::data::retype::TargetType::ALL {
+                        let is_current = col.data_type == target.data_type();
+                        let label = crate::i18n::t(target.i18n_key());
                         let label = if is_current {
-                            format!("{} (current)", t)
+                            format!("{label} {}", crate::i18n::t("retype.current_marker"))
                         } else {
-                            t.to_string()
+                            label
                         };
-                        let btn =
-                            ui.add_enabled(!is_current && can_convert, egui::Button::new(label));
-                        let btn = if !can_convert && !is_current {
-                            btn.on_disabled_hover_text(
-                                "Not all values can be converted to this type",
-                            )
+                        let btn = ui.add_enabled(!is_current, egui::Button::new(label));
+                        let btn = if is_current {
+                            btn.on_disabled_hover_text(crate::i18n::t("retype.current_hint"))
                         } else {
-                            btn
+                            btn.on_hover_text(crate::i18n::t("retype.menu_hint"))
                         };
                         if btn.clicked() {
-                            interaction.change_col_type = Some((col_idx, t.to_string()));
+                            interaction.change_col_type = Some((col_idx, target));
                             ui.close();
                         }
                     }
@@ -748,5 +816,345 @@ pub(super) fn draw_header_direct(
     if resp.double_clicked() {
         state.fit_all_rows();
         interaction.fit_rows_wants_wrap = !cx.cell_line_breaks;
+    }
+}
+
+/// Paint a filter funnel: a cone over a stem. Two convex shapes rather than
+/// one polygon, because a funnel outline is concave and `convex_polygon`
+/// would fill across the neck.
+fn draw_funnel(painter: &egui::Painter, rect: egui::Rect, color: Color32) {
+    let (l, r, t) = (rect.left(), rect.right(), rect.top());
+    let cx = rect.center().x;
+    let neck_y = t + rect.height() * 0.55;
+    painter.add(egui::Shape::convex_polygon(
+        vec![egui::pos2(l, t), egui::pos2(r, t), egui::pos2(cx, neck_y)],
+        color,
+        egui::Stroke::NONE,
+    ));
+    painter.rect_filled(
+        egui::Rect::from_min_max(
+            egui::pos2(cx - 1.0, neck_y),
+            egui::pos2(cx + 1.0, rect.bottom()),
+        ),
+        0.0,
+        color,
+    );
+}
+
+/// The facet popup: the column's most common values with their counts, each
+/// with a checkbox, writing the same `column_filters` allow-set the Column
+/// Filter modal writes. A faster door onto that state, never a second filter.
+/// Open the facet popup on `col_idx`, freshly seeded from the live filter.
+/// Shared by the funnel click and the header menu's **Filter values...**.
+fn open_facet(state: &mut TableViewState, col_idx: usize) {
+    state.facet_col = Some(col_idx);
+    state.facet_search.clear();
+    state.facet_needs_seed = true;
+    state.facet_cache_key = None;
+    state.facet_shape_cache_col = None;
+}
+
+fn draw_facet_popup(
+    ui: &mut Ui,
+    anchor: &egui::Response,
+    table: &DataTable,
+    col_idx: usize,
+    state: &mut TableViewState,
+    interaction: &mut TableInteraction,
+    cx: &super::PaintCtx<'_>,
+) {
+    use crate::data::value_frequency::{BinningMode, compute_value_frequency};
+
+    // Recompute only when the column or the search text changes: the pass
+    // walks every row, so once per keystroke is the ceiling, not once per
+    // frame.
+    let key = (col_idx, state.facet_search.clone());
+    if state.facet_cache_key.as_ref() != Some(&key) {
+        // Searching queries the FULL distinct set, not the listed top N, so
+        // a value ranked 900th is still findable. That is the expensive
+        // path, which is exactly why it only runs with a search term.
+        let top_n = if state.facet_search.trim().is_empty() {
+            Some(super::FACET_POPUP_TOP_N)
+        } else {
+            None
+        };
+        let vf = compute_value_frequency(table, col_idx, top_n, BinningMode::None);
+        match vf {
+            Some(vf) => {
+                state.facet_unique = vf.unique_count;
+                state.facet_rows = vf.rows.into_iter().map(|r| (r.label, r.count)).collect();
+            }
+            None => {
+                state.facet_rows.clear();
+                state.facet_unique = 0;
+            }
+        }
+        state.facet_cache_key = Some(key);
+    }
+
+    // Shapes of the column, computed once per column: no search-driven
+    // truncation to redo, so there is nothing to recompute per keystroke.
+    if state.facet_shape_cache_col != Some(col_idx) {
+        state.facet_shape_rows = crate::data::shapes::shape_frequency(table, col_idx)
+            .shapes
+            .into_iter()
+            .map(|s| (s.shape, s.count, s.example))
+            .collect();
+        state.facet_shape_cache_col = Some(col_idx);
+    }
+
+    // Seed the ticks from the live filter, or from everything when the
+    // column has none, so the popup opens showing what is currently kept.
+    let existing = cx.column_filters.get(&col_idx);
+    if state.facet_needs_seed {
+        state.facet_ticked = match existing {
+            Some(allowed) => allowed.clone(),
+            None => state.facet_rows.iter().map(|(v, _)| v.clone()).collect(),
+        };
+        state.facet_shape_ticked = match existing {
+            Some(allowed) => allowed
+                .iter()
+                .map(|v| crate::data::shapes::shape_of(v))
+                .collect(),
+            None => state
+                .facet_shape_rows
+                .iter()
+                .map(|(s, _, _)| s.clone())
+                .collect(),
+        };
+        state.facet_needs_seed = false;
+    }
+
+    let needle = state.facet_search.trim().to_lowercase();
+    let visible: Vec<(String, usize)> = state
+        .facet_rows
+        .iter()
+        .filter(|(v, _)| needle.is_empty() || v.to_lowercase().contains(&needle))
+        .cloned()
+        .collect();
+    let visible_shapes: Vec<(String, usize, String)> = state
+        .facet_shape_rows
+        .iter()
+        .filter(|(s, _, e)| {
+            needle.is_empty()
+                || s.to_lowercase().contains(&needle)
+                || e.to_lowercase().contains(&needle)
+        })
+        .cloned()
+        .collect();
+    let hidden = state.facet_unique.saturating_sub(state.facet_rows.len());
+
+    let mut close = false;
+    let mut apply = false;
+    let mut clear = false;
+    // `close_behavior` is documented to do nothing once `open()` has been
+    // called (egui 0.36 `popup.rs`), and the open state has to live in
+    // `facet_col` so the funnel knows which column it belongs to. So the
+    // click-outside close is handled below, by hand, which also lets it
+    // exclude the funnel itself: otherwise the click that closes the popup
+    // would immediately be read as a click that reopens it.
+    let popup_response = egui::Popup::from_response(anchor)
+        .id(ui.make_persistent_id(("octa_facet_popup", col_idx)))
+        .open(true)
+        .align(egui::RectAlign::BOTTOM_START)
+        .show(|ui| {
+            ui.set_min_width(240.0);
+            ui.set_max_width(340.0);
+            ui.label(egui::RichText::new(crate::i18n::t("facet.title")).strong());
+
+            crate::ui::control_row::control_row(ui, |ui| {
+                if ui
+                    .selectable_label(
+                        !state.facet_shapes_mode,
+                        crate::i18n::t("facet.mode_values"),
+                    )
+                    .on_hover_text(crate::i18n::t("facet.mode_values_hint"))
+                    .clicked()
+                {
+                    state.facet_shapes_mode = false;
+                }
+                if ui
+                    .selectable_label(state.facet_shapes_mode, crate::i18n::t("facet.mode_shapes"))
+                    .on_hover_text(crate::i18n::t("facet.mode_shapes_hint"))
+                    .clicked()
+                {
+                    state.facet_shapes_mode = true;
+                }
+            });
+
+            if let Some((loaded, known_total)) = table.partial_note() {
+                crate::ui::message::partial_note(ui, loaded, known_total);
+            }
+
+            // Shapes are never truncated to a top N, so their own list is
+            // "more than the mixed-shapes ceiling" rather than "more than
+            // fit on screen": the same number that decides Consistent vs
+            // Mixed in the Quality Report is what makes a shape list worth
+            // searching instead of just reading.
+            let show_search = if state.facet_shapes_mode {
+                state.facet_shape_rows.len() > crate::data::shapes::MIXED_MAX_SHAPES
+            } else {
+                hidden > 0
+            };
+            if show_search {
+                ui.add(
+                    egui::TextEdit::singleline(&mut state.facet_search)
+                        .hint_text(crate::i18n::t("facet.search_hint"))
+                        .desired_width(f32::INFINITY),
+                )
+                .on_hover_text(crate::i18n::t("facet.search_hint"));
+                if !state.facet_shapes_mode {
+                    ui.weak(
+                        crate::i18n::t("facet.more_values").replace("{count}", &hidden.to_string()),
+                    );
+                }
+            }
+
+            ui.horizontal(|ui| {
+                if ui
+                    .small_button(crate::i18n::t("facet.select_all"))
+                    .on_hover_text(crate::i18n::t("facet.select_all_hint"))
+                    .clicked()
+                {
+                    if state.facet_shapes_mode {
+                        for (s, _, _) in &visible_shapes {
+                            state.facet_shape_ticked.insert(s.clone());
+                        }
+                    } else {
+                        for (v, _) in &visible {
+                            state.facet_ticked.insert(v.clone());
+                        }
+                    }
+                }
+                if ui
+                    .small_button(crate::i18n::t("facet.select_none"))
+                    .on_hover_text(crate::i18n::t("facet.select_none_hint"))
+                    .clicked()
+                {
+                    if state.facet_shapes_mode {
+                        for (s, _, _) in &visible_shapes {
+                            state.facet_shape_ticked.remove(s);
+                        }
+                    } else {
+                        for (v, _) in &visible {
+                            state.facet_ticked.remove(v);
+                        }
+                    }
+                }
+            });
+            ui.separator();
+
+            let list_empty = if state.facet_shapes_mode {
+                visible_shapes.is_empty()
+            } else {
+                visible.is_empty()
+            };
+            if list_empty {
+                ui.weak(crate::i18n::t("facet.no_values"));
+            }
+            egui::ScrollArea::vertical()
+                .max_height(260.0)
+                .show(ui, |ui| {
+                    if state.facet_shapes_mode {
+                        for (shape, count, example) in &visible_shapes {
+                            let mut on = state.facet_shape_ticked.contains(shape);
+                            let label = format!(
+                                "{shape}  ({count})  {} {example}",
+                                crate::i18n::t("facet.shape_example")
+                            );
+                            if ui
+                                .checkbox(&mut on, label)
+                                .on_hover_text(crate::i18n::t("facet.shape_row_hint"))
+                                .changed()
+                            {
+                                if on {
+                                    state.facet_shape_ticked.insert(shape.clone());
+                                } else {
+                                    state.facet_shape_ticked.remove(shape);
+                                }
+                            }
+                        }
+                    } else {
+                        for (value, count) in &visible {
+                            let mut on = state.facet_ticked.contains(value);
+                            let label = format!("{value}  ({count})");
+                            if ui.checkbox(&mut on, label).changed() {
+                                if on {
+                                    state.facet_ticked.insert(value.clone());
+                                } else {
+                                    state.facet_ticked.remove(value);
+                                }
+                            }
+                        }
+                    }
+                });
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui
+                    .button(crate::i18n::t("facet.apply"))
+                    .on_hover_text(crate::i18n::t("facet.apply_hint"))
+                    .clicked()
+                {
+                    apply = true;
+                }
+                if ui
+                    .button(crate::i18n::t("facet.clear"))
+                    .on_hover_text(crate::i18n::t("facet.clear_hint"))
+                    .clicked()
+                {
+                    clear = true;
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button(crate::i18n::t("facet.cancel"))
+                        .on_hover_text(crate::i18n::t("facet.cancel_hint"))
+                        .clicked()
+                    {
+                        close = true;
+                    }
+                });
+            });
+        });
+
+    // Click anywhere that is neither the popup nor its funnel: close, the
+    // way every other popup in the app behaves.
+    if let Some(inner) = popup_response.as_ref() {
+        let clicked = ui.input(|i| i.pointer.any_click());
+        if clicked
+            && let Some(pos) = ui.ctx().pointer_interact_pos()
+            && !inner.response.rect.contains(pos)
+            && !anchor.rect.contains(pos)
+        {
+            close = true;
+        }
+    }
+
+    if apply && state.facet_shapes_mode {
+        let allowed =
+            crate::data::shapes::values_with_shapes(table, col_idx, &state.facet_shape_ticked);
+        interaction.facet_result = Some(super::facet_result(col_idx, allowed, state.facet_unique));
+        close = true;
+    } else if apply {
+        // Measured against the column's true distinct count, not the rows on
+        // screen: ticking everything in a truncated list of fifty is still a
+        // real filter when the column holds nine hundred values.
+        interaction.facet_result = Some(super::facet_result(
+            col_idx,
+            state.facet_ticked.clone(),
+            state.facet_unique,
+        ));
+        close = true;
+    }
+    if clear {
+        interaction.facet_result = Some(super::FacetPopupResult {
+            col: col_idx,
+            allowed: std::collections::HashSet::new(),
+            cleared: true,
+        });
+        close = true;
+    }
+    if close {
+        state.facet_col = None;
     }
 }

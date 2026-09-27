@@ -108,7 +108,7 @@ octa --convert eu.csv eu.parquet
   delimiter on open), and is `,` by default on output.
 - **Multi-table sources** (SQLite, DuckDB with > 1 table) export
   the **first** table only. To export a specific table, open the
-  file in the GUI, pick the table, and use **File → Save As**.
+  file in the GUI, pick the table, and use **File → Save as**.
 - **Memory**: `--convert` loads the input table fully into memory
   before writing. For files larger than RAM, slice with
   `octa --sql ... LIMIT N` first.

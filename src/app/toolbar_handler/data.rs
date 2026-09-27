@@ -41,6 +41,10 @@ impl OctaApp {
         {
             self.anonymize_dialog = Some(crate::app::state::AnonymizeState::default());
         }
+        // Reads the tab only, so read-only mode does not stop it.
+        if action.open_test_data && self.tabs[self.active_tab].table.col_count() > 0 {
+            self.open_test_data_dialog();
+        }
         if action.open_impute
             && self.tabs[self.active_tab].table.col_count() > 0
             && !self.is_readonly()

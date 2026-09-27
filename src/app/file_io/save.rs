@@ -155,8 +155,29 @@ impl OctaApp {
     }
 
     pub(crate) fn export_sql_result(&mut self) {
-        let Some(result) = self.tabs[self.active_tab].sql_result.clone() else {
-            return;
+        // A paged result holds only the pages scrolled to. Exporting that
+        // would write the page and call it the answer, so pull the whole
+        // materialised result back out of DuckDB first.
+        let tab = &self.tabs[self.active_tab];
+        let partial = match (tab.sql_result_total, tab.sql_result.as_ref()) {
+            (Some(total), Some(loaded)) => loaded.row_count() < total,
+            _ => false,
+        };
+        let result = if partial {
+            match tab.sql_workspace.as_ref().map(|ws| ws.result_all()) {
+                Some(Ok(all)) => all,
+                Some(Err(e)) => {
+                    self.status_message =
+                        Some((format!("Error exporting: {e:#}"), std::time::Instant::now()));
+                    return;
+                }
+                None => return,
+            }
+        } else {
+            let Some(result) = tab.sql_result.clone() else {
+                return;
+            };
+            result
         };
         if result.col_count() == 0 {
             return;
@@ -211,6 +232,10 @@ impl OctaApp {
     /// Save one tab back over its own file. The single in-place save path:
     /// Ctrl+S, the close prompt, and auto-save all arrive here.
     pub(crate) fn save_tab(&mut self, tab_idx: usize) {
+        // Consumed on every attempt, whichever branch it leaves by: a "Save
+        // anyway" that then runs into a different prompt must not leave the
+        // acknowledgement lying around for an unrelated later save.
+        let partial_acknowledged = std::mem::take(&mut self.partial_save_acknowledged);
         // A live-database tab has no source file: Save means "write the diff
         // back to the server", confirmed via the write-back dialog.
         if self.tabs[tab_idx].db_origin.is_some() {
@@ -236,6 +261,13 @@ impl OctaApp {
             // about overwriting itself.
             if self.source_changed_on_disk(tab_idx) {
                 self.pending_overwrite_confirm = Some(tab_idx);
+                return;
+            }
+            // The table holds a window of the file. Writing it back would
+            // drop every row that was never read, over the original, with a
+            // success message. Ask, and offer to read the rest first.
+            if self.tabs[tab_idx].table.is_partial() && !partial_acknowledged {
+                self.pending_partial_save_confirm = Some(tab_idx);
                 return;
             }
             // Regular save writes the full table back to the source path,
@@ -313,6 +345,10 @@ impl OctaApp {
         schema_decision: Option<bool>,
         style_decision: Option<bool>,
     ) {
+        // Whatever this write does to the file, the sidebar's git marks for
+        // its repository are stale after it. Noted now, refreshed next tick.
+        self.git_marks.note_saved(&path);
+
         // If the chat assistant changed this tab, back up the original file
         // before our save overwrites it (the user's own edits don't trigger
         // this). The flag is consumed once the backup is taken so a rounding /

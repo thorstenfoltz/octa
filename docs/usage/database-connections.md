@@ -522,6 +522,12 @@ credentials can access.
 Expand a connection to list its schemas, expand a schema to list its
 tables, and click a table to open its first rows in a tab.
 
+The search box under the header narrows the tree to matching names as you
+type, and **Search all** (or <kbd>Enter</kbd>) looks through every schema of
+the expanded connections, including the ones you have not opened. See
+[Sidebar Search](sidebar-search.md). To read an open table again, right-click
+its tab and choose **Refresh** (see [Refresh a Tab](refresh-tab.md)).
+
 A table opens **one page at a time**: Octa reads
 [**Settings > Performance > Live database page size**](../reference/settings.md#performance)
 rows (100,000 by default), and fetches the next page in the background
@@ -634,7 +640,7 @@ Things to know:
   mutation on the tab rewrites the snapshot; a later save refuses with
   a "row identity lost" message. Reload the table, or use **Run on**
   the server for mutations.
-- **Save As detaches.** Saving the tab to a file exports it and turns
+- **Save as detaches.** Saving the tab to a file exports it and turns
   it into an ordinary file tab; it no longer writes back to the
   server.
 
@@ -676,7 +682,6 @@ the same question with the read-only `sync_sql` tool.
 
 ## Copying a table between servers
 
-<!-- SCREENSHOT: db-copy-dialog.png: The "Copy table to another connection" dialog: source line "admin.people @ MariaDB-Test", target-connection dropdown showing "Post-Test (PostgreSQL)", target schema "public", target table "people", mode "Create new", Copy button with a green "Copied 3 row(s)." status. -->
 ![Copy table between servers dialog](../assets/screenshots/db-copy-dialog.png){ .screenshot-placeholder }
 
 Right-click a table in the sidebar tree and pick **Copy to another

@@ -1,4 +1,5 @@
-//! Files section: recent-files count, open-as-text extensions and auto-save.
+//! Files section: recent-files count, open-as-text extensions, what Refresh
+//! does, and auto-save.
 //!
 //! Split out of `dialog/mod.rs`, which rendered fifteen sections inline while
 //! chat, cloud and databases already had a file each. The body is unchanged:
@@ -38,6 +39,23 @@ impl SettingsDialog {
                 .on_hover_text(crate::i18n::t("settings_hint.open_as_text"));
                 ui.end_row();
 
+                ui.label(crate::i18n::t("refresh.setting"))
+                    .on_hover_text(crate::i18n::t("refresh.setting_hint"));
+                egui::ComboBox::from_id_salt("refresh_behaviour_combo")
+                    .selected_text(crate::i18n::t(self.draft.refresh_behaviour.label_key()))
+                    .show_ui(ui, |ui| {
+                        for b in crate::ui::settings::RefreshBehaviour::ALL {
+                            ui.selectable_value(
+                                &mut self.draft.refresh_behaviour,
+                                b,
+                                crate::i18n::t(b.label_key()),
+                            );
+                        }
+                    })
+                    .response
+                    .on_hover_text(crate::i18n::t("refresh.setting_hint"));
+                ui.end_row();
+
                 ui.label(crate::i18n::t("settings.auto_save"))
                     .on_hover_text(crate::i18n::t("settings_hint.auto_save"));
                 ui.checkbox(&mut self.draft.auto_save_enabled, "")
@@ -55,6 +73,50 @@ impl SettingsDialog {
                     .on_hover_text(crate::i18n::t("settings_hint.auto_save_interval"));
                     ui.end_row();
                 }
+
+                ui.label(crate::i18n::t("settings.recipe_dir"))
+                    .on_hover_text(crate::i18n::t("settings_hint.recipe_dir"));
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(crate::i18n::t("settings.recipe_dir_choose"))
+                        .on_hover_text(crate::i18n::t("settings_hint.recipe_dir"))
+                        .clicked()
+                        && let Some(dir) = rfd::FileDialog::new().pick_folder()
+                    {
+                        self.draft.recipe_autosave_dir = Some(dir.display().to_string());
+                    }
+                    match &self.draft.recipe_autosave_dir {
+                        Some(dir) => {
+                            ui.label(egui::RichText::new(dir).weak());
+                            if ui
+                                .button(crate::i18n::t("settings.recipe_dir_reset"))
+                                .on_hover_text(crate::i18n::t("settings_hint.recipe_dir_reset"))
+                                .clicked()
+                            {
+                                self.draft.recipe_autosave_dir = None;
+                            }
+                        }
+                        None => {
+                            let path = crate::ui::settings::AppSettings::default_recipe_dir()
+                                .map(|p| p.display().to_string())
+                                .unwrap_or_default();
+                            ui.label(
+                                egui::RichText::new(
+                                    crate::i18n::t("settings.recipe_dir_default")
+                                        .replace("{path}", &path),
+                                )
+                                .weak(),
+                            );
+                        }
+                    }
+                });
+                ui.end_row();
+
+                ui.label(crate::i18n::t("settings.recipe_autosave"))
+                    .on_hover_text(crate::i18n::t("settings_hint.recipe_autosave"));
+                ui.checkbox(&mut self.draft.recipe_autosave, "")
+                    .on_hover_text(crate::i18n::t("settings_hint.recipe_autosave"));
+                ui.end_row();
             });
 
         // The write-option defaults are a group rather than a row pair, so

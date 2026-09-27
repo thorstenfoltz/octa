@@ -3,7 +3,9 @@
 //! `mod` list here, add a wrapper method to `OctaMcpServer`).
 
 pub mod anonymize;
+pub mod apply_recipe;
 pub mod batch_convert;
+pub mod cell_history;
 pub mod check_references;
 pub mod check_rules;
 pub mod compare_distributions;
@@ -28,22 +30,29 @@ pub mod edit_open_tab;
 pub mod edit_table;
 pub mod export_schema;
 pub mod find_duplicates;
+pub mod find_lookups;
+pub mod find_overlaps;
+pub mod forecast;
 pub mod fuzzy_duplicates;
 pub mod fuzzy_join;
+pub mod generate_test_data;
 pub mod grep_files;
 pub mod harmonise_schemas;
 pub mod impute;
 pub mod join;
+pub mod list_api_connections;
 pub mod list_db_connections;
 pub mod list_db_tables;
 pub mod list_objects;
 pub mod list_tables;
+pub mod merge_tables;
 pub mod move_object;
 pub mod outliers;
 pub mod partition;
 pub mod pii;
 pub mod pivot;
 pub mod profile;
+pub mod query_api;
 pub mod query_db;
 pub mod read_table;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
@@ -55,6 +64,7 @@ pub mod sample;
 pub mod schema;
 pub mod schema_drift;
 pub mod search;
+pub mod spatial_join;
 pub mod suggest_join_keys;
 pub mod sync_sql;
 pub mod tail;
@@ -63,6 +73,7 @@ pub mod union;
 pub mod unique_columns;
 pub mod validate_schema;
 pub mod value_frequency;
+pub mod value_shapes;
 pub mod write_db_table;
 pub mod write_table;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
@@ -134,6 +145,76 @@ pub enum ResolvedOp {
     /// first. Queued last within a batch, because it permutes rows and every
     /// other op addresses them by index.
     SortRows(Vec<(usize, bool)>),
+}
+
+impl ResolvedOp {
+    /// Apply this op to `table` through the normal undoable mutators.
+    ///
+    /// The one place an op turns into table mutations: the assistant's
+    /// auto-apply drain and the Plan-mode apply both call this, so a plan can
+    /// never diverge from what applying the same ops directly would do. Each
+    /// mutator pushes its own undo action; callers group them with
+    /// [`DataTable::coalesce_undo_since`].
+    pub fn apply_to(&self, table: &mut DataTable) {
+        match self {
+            ResolvedOp::AddColumn {
+                name,
+                type_name,
+                values,
+            } => {
+                let idx = table.col_count();
+                table.insert_column(idx, name.clone(), type_name.clone());
+                for (r, v) in values.iter().enumerate() {
+                    if r < table.row_count() {
+                        table.set(r, idx, v.clone());
+                    }
+                }
+            }
+            ResolvedOp::InsertRows { at, rows } => {
+                for row in rows {
+                    let at_i = at
+                        .unwrap_or_else(|| table.row_count())
+                        .min(table.row_count());
+                    table.insert_row(at_i);
+                    for (c, v) in row.iter().enumerate() {
+                        table.set(at_i, c, v.clone());
+                    }
+                }
+            }
+            ResolvedOp::SetCells(cells) => {
+                for (r, c, v) in cells {
+                    table.set(*r, *c, v.clone());
+                }
+            }
+            ResolvedOp::DeleteRows(idxs) => {
+                let mut sorted = idxs.clone();
+                sorted.sort_unstable();
+                sorted.dedup();
+                for &i in sorted.iter().rev() {
+                    if i < table.row_count() {
+                        table.delete_row(i);
+                    }
+                }
+            }
+            ResolvedOp::DropColumns(idxs) => {
+                let mut sorted = idxs.clone();
+                sorted.sort_unstable();
+                sorted.dedup();
+                for &c in sorted.iter().rev() {
+                    if c < table.col_count() {
+                        table.delete_column(c);
+                    }
+                }
+            }
+            ResolvedOp::SortRows(keys) => {
+                // The same call the Ask filter's sort makes, so a sort asked
+                // for in prose and one asked for in chat land in the same
+                // place. Marks and row tags travel with their rows;
+                // `edit_open_tab` queues this last.
+                table.sort_rows_by_columns(keys);
+            }
+        }
+    }
 }
 
 /// One batched edit the chat agent wants applied to a live GUI tab. Pushed by
@@ -212,6 +293,10 @@ pub struct ToolContext {
     /// Saved live-database connections (Settings -> Databases). Loaded once
     /// at server startup for MCP, from live settings for chat.
     pub db_connections: Vec<octa::db::DbConnection>,
+    /// Saved REST/JSON API endpoints (Settings -> API endpoints). Tools may
+    /// invoke one **by name**; they can never be handed a raw URL, so the set
+    /// of hosts reachable from here is exactly the set a human saved.
+    pub api_connections: Vec<octa::api::ApiConnection>,
     /// `--mcp-read-only`: refuse database mutations in `query_db` even when
     /// the connection itself allows writes. Chat leaves this `false`.
     pub read_only: bool,
@@ -244,6 +329,9 @@ impl ToolContext {
             pending_tab_edits: None,
             cloud_settings: None,
             db_connections,
+            // Set by the caller that has them; `for_mcp`'s signature is
+            // already long, and every existing call site would change.
+            api_connections: Vec::new(),
             read_only,
         }
     }
@@ -985,6 +1073,25 @@ pub fn table_to_json(table: &DataTable, row_cap: Option<usize>, cell_byte_cap: u
 omitted the rest. The query still ran over every row. To get the complete output, \
 write the full result to a file or a new tab (for example run_sql with `write_to`), \
 or narrow the query. Do not add a SQL LIMIT yourself."
+            )),
+        );
+    }
+    // Two different truncations, and conflating them is how a model comes
+    // to state a wrong total. `truncated` above is the *response* cap: the
+    // query ran over every row, only some are being shown. This one is the
+    // *load* cap: the table itself never held the whole source, so even
+    // `total_rows_available` is only what was read.
+    if table.is_partial() {
+        out.insert("initial_load_capped".to_string(), Value::Bool(true));
+        let known = match table.known_total() {
+            Some(t) => format!("{t}"),
+            None => "an unknown number of".to_string(),
+        };
+        out.insert(
+            "initial_load_note".to_string(),
+            Value::String(format!(
+                "The source was only read up to the initial-load row cap: this table holds {} rows out of {known} in the source, so every number here describes that slice, not the whole source. Pass `unlimited: true` to read all of it.",
+                table.row_count()
             )),
         );
     }

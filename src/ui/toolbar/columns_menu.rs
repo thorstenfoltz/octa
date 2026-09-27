@@ -41,6 +41,14 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
                 action.add_column = true;
                 ui.close();
             }
+            if ui
+                .button(crate::i18n::t("ccol.menu"))
+                .on_hover_text(crate::i18n::t("ccol.menu_hint"))
+                .clicked()
+            {
+                action.open_conditional_column = true;
+                ui.close();
+            }
             let del_col = ui
                 .add_enabled(
                     has_selected_cell,
@@ -49,6 +57,14 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
                 .on_hover_text(crate::i18n::t("toolbar.delete_column_hint"));
             if del_col.clicked() {
                 action.delete_column = true;
+                ui.close();
+            }
+            if ui
+                .button(crate::i18n::t("retype.menu_entry"))
+                .on_hover_text(crate::i18n::t("retype.menu_entry_hint"))
+                .clicked()
+            {
+                action.open_retype = true;
                 ui.close();
             }
             if ui
@@ -111,6 +127,21 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
                 .on_hover_text(crate::i18n::t("edit_menu.sort_cols_desc_hint"));
             if sort_cols_desc.clicked() {
                 action.sort_columns_desc = true;
+                ui.close();
+            }
+
+            ui.separator();
+
+            // The Column Filter window: any column, a find field, values or
+            // shapes. The header funnel (and its right-click entry) is the
+            // same filter for one column. Deliberately *not* suffixed with
+            // the shortcut combo, same convention as the F8 read-only entry.
+            if ui
+                .button(crate::i18n::t("columns_menu.filter"))
+                .on_hover_text(crate::i18n::t("columns_menu.filter_hint"))
+                .clicked()
+            {
+                action.show_column_filter = Some(None);
                 ui.close();
             }
 

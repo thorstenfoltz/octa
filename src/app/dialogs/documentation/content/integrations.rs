@@ -91,10 +91,18 @@ claude mcp add --scope user octa -- octa --mcp
 Add `--mcp-read-only` alongside `--mcp` for a read-only server: the
 file-writing tools (`write_table`, `edit_table`, `convert`) are
 dropped, so an agent can read and query but not modify files.
+`--mcp-tools` and `--mcp-without` (below) go in the same place. Claude
+Code stores the whole command line, so changing any of those flags
+later means `claude mcp remove octa --scope user` and adding it back,
+then a restart:
+
+```
+claude mcp add --scope user octa -- octa --mcp --mcp-tools core
+```
 
 ## Advertising fewer tools
 
-Octa exposes around 60 tools, and their descriptions and schemas come
+Octa exposes around 70 tools, and their descriptions and schemas come
 to roughly 33,000 tokens. An MCP client reads that list once and then
 carries it in every request to its model, so a server you only use for
 reading files is still paying for `fuzzy_join` and `detect_pii` on
@@ -149,16 +157,57 @@ A built-in chat assistant can drive Octa's tools over your open tabs.
 Toggle the docked chat panel from **Analyse > Assistant**, the **View**
 menu, or **Ctrl+Shift+A**. It is GUI-only.
 
-## Data mode and "Just answer"
+## Data, "Just answer" and Plan
 
-Two labels sit beside the profile dropdown in the panel header.
+Three labels sit beside the profile dropdown in the panel header.
 **Data** is the normal mode: the assistant gets Octa's tools and can
 read what you have open, run SQL and, with writes on, edit the live
 tab. **Just answer** sends no tools and none of your data, so the
 assistant simply answers a general question, and the request costs a
-fraction of what a Data-mode turn does. It is a mode for the question
-being asked, not a saved preference: it lasts the session and starts
-on Data.
+fraction of what a Data-mode turn does. **Plan** proposes changes
+instead of making them. The choice is a mode for the question being
+asked, not a saved preference: it lasts the session and starts on
+Data.
+
+## Plan mode
+
+In Data mode the assistant's edits land in the tab as soon as it makes
+them. They are undoable, but you see them only afterwards. Plan mode
+puts a review step in front of that.
+
+Ask for something broad - clean this file up, make these dates
+consistent, fix the country column. Instead of changing anything, the
+assistant comes back with a numbered plan at the end of the
+conversation. Click a step to unfold what it would do: the values a
+new column would hold, the before and after of every cell it would
+set, the rows it would delete. Untick anything you do not want.
+
+**Apply** makes the ticked steps happen, all at once, and one Ctrl+Z
+undoes the whole plan rather than one step of it. If any step cannot
+be applied, none is: the table is left exactly as it was and the
+message names the step that failed. **Ask for a revision** sends the
+unticked steps back for a new plan, capped at three in a row.
+**Discard** throws the plan away - nothing was applied, so there is
+nothing to undo.
+
+In Plan mode the assistant has exactly one way to change anything:
+the live-tab edit tool, whose steps you review. The other write tools
+(transform, anonymise, fill missing, convert, writing to a file or a
+database) are refused, because those take effect the instant they run
+and there would be nothing left to accept. The assistant expresses
+the whole change as edit steps instead, and says so if something
+genuinely cannot be put that way. Reading is unaffected: it still
+inspects the data and runs SQL, which is how it arrives at a plan.
+
+Plan mode needs the profile's **Allow writes** switch on, since
+planning means proposing edits; with it off the label is greyed out
+and says so. A plan belongs to the conversation that proposed it, so
+starting a new session or closing Octa drops it. If the table changes
+while the plan sits there, applying it is refused and you are offered
+a revision: its steps address rows by position, and those have moved.
+A step that sorts rows cannot be applied while cell edits are pending,
+because sorting commits them first - apply or revert them in the edit
+audit trail and try again.
 
 ## Markdown in replies
 
@@ -200,7 +249,7 @@ turn a server said nothing about cannot be counted.
 
 Two things keep it from being worse.
 
-**Tools are loaded when they are needed.** Describing all 62 tools
+**Tools are loaded when they are needed.** Describing all 73 tools
 costs about 33,000 tokens on every request, used or not. So the core
 group goes out in full, about 6,500 tokens: reading, schemas,
 counting, search, profiling and SQL, which is what most questions
@@ -933,7 +982,7 @@ Notes:
 - A local SQL mutation on the tab rewrites the snapshot and loses row
   identity; save then refuses and suggests reloading or **Run on
   server**.
-- **Save As** exports the tab to a file and detaches it from the
+- **Save as** exports the tab to a file and detaches it from the
   server.
 
 ### Exporting the changes as SQL instead
@@ -1331,7 +1380,7 @@ command that stores one tells you that is where it went.
 ## Saving back
 
 By default, cloud-opened files are read-only: pressing **Save** shows a
-reminder and does nothing, but **Save As** to a local path always works (and
+reminder and does nothing, but **Save as** to a local path always works (and
 detaches the tab from the cloud).
 
 To save back to the object, turn on **Allow writes on this connection**
@@ -1451,7 +1500,7 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
 - **Appearance**: font size and family, theme, icon variant, custom font
   path, custom title bar, and **Message timeout**. The chosen theme applies
   when you press **Apply**.
-- **Table View**: row numbers, alternating row colours, negative-number
+- **Table view**: row numbers, alternating row colours, negative-number
   highlight, thousand separators + number style (English / European)
   for numeric cells, edit highlight, default mark colour, line breaks,
   **ask about line breaks when a row is made taller**, clickable web
@@ -1564,7 +1613,7 @@ already have the newest version, Octa stays quiet - a failed check at launch
 is not worth a pop-up.
 
 Turn it off and Octa never contacts GitHub unless you ask it to through
-**Help > Check for Updates**, which still works exactly as before. Neither the
+**Help > Check for updates**, which still works exactly as before. Neither the
 setting nor the menu entry exists in a Microsoft Store copy - see below.
 
 ## Show what a new release brings
@@ -1587,7 +1636,7 @@ have upgraded.
 
 A copy installed from the Microsoft Store is updated by the Store itself, in
 the background, so Octa stays out of it: there is no update check at all in a
-Store copy. **Help > Check for Updates** is not in the menu, the launch-time
+Store copy. **Help > Check for updates** is not in the menu, the launch-time
 check never runs, and the setting above is greyed out. Windows already knows
 about a new version and installs it on its own.
 
@@ -1656,4 +1705,69 @@ folder) with your app version, operating system, theme and language, the tail
 of the log, the last crash if any, and your settings. Secrets are stripped and
 your home folder and username are masked, so it is safe to attach to a GitHub
 issue. No cell values or column data are included.
+"#;
+
+pub const API_ENDPOINTS: &str = r#"# API Endpoints
+
+Octa reads saved REST and JSON endpoints as tables. It applies the
+endpoint's authentication and walks its pagination, so opening one
+gives you every page's rows, not just the first page.
+
+## Setting one up
+
+**Settings > API endpoints**. Give it a name, a base URL (scheme,
+host and any common prefix), and the default path it reads. Pick how
+it authenticates - none, a bearer token, a key in a header, a key in
+a query parameter, or a username and password - and put the
+credential in. The credential goes to your operating system's
+keyring, never into the settings file.
+
+Press **Test**. It fetches the first page and reports how many rows
+came back and what columns they make, without saving anything. It
+also lists every array of objects it found in the response, so you
+can pick which one holds the rows instead of typing a path.
+
+## Pagination
+
+- **One request only** reads a single response.
+- **Page number** walks `?page=1`, `?page=2`, ... and stops on the
+  first empty page.
+- **Offset and limit** walks `?offset=0&limit=100`, ... and stops on
+  a short page.
+- **Cursor in the response** reads a cursor from a path in the body
+  and sends it back as a parameter, stopping when it is gone.
+- **Link header** follows `Link: <...>; rel="next"`.
+
+Reading also stops at the row cap under Settings > Performance and at
+a fixed page ceiling. When it stops on a limit the status bar says
+so: a truncated table that looks complete is worse than a slow one.
+
+## Opening one
+
+**File > Open API endpoint...**, pick the endpoint, optionally give a
+different path, press Open. The result is an ordinary tab - filter
+it, chart it, run SQL on it, save it to a file. Ctrl+R re-runs the
+fetch, the same key that reloads a file from disk.
+
+From the command line it is `octa --api NAME`, optionally with
+`--api-path /orders`. The assistant reaches the same endpoints with
+its `query_api` and `list_api_connections` tools.
+
+## Why a saved endpoint and not a URL
+
+The host and the credential are chosen once, by you, in Settings.
+Everything else only invokes what you saved. A path is always joined
+under the endpoint's base URL, so neither a command-line argument nor
+a tool call from the assistant can move the request to another host.
+Redirects are not followed, and a next-page link pointing somewhere
+else stops the read rather than being followed - those links are data
+the endpoint chose, and an endpoint should not be able to walk the
+fetch onto an address you never approved.
+
+That is what makes these endpoints safe to hand to the assistant: it
+can use them, but it cannot invent one.
+
+An API endpoint is a read-only source; there is no write path. For a
+one-off address with no credentials and a single request, use
+**File > Open URL...** instead.
 "#;

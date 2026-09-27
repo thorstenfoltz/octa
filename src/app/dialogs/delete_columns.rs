@@ -127,6 +127,13 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
     });
 
     if should_delete {
+        let chosen: Vec<usize> = app.tabs[app.active_tab]
+            .delete_col_selection
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &sel)| sel.then_some(i))
+            .collect();
+        let columns = app.column_names(&chosen);
         let tab = &mut app.tabs[app.active_tab];
         // Delete in reverse order to keep indices valid
         let to_delete: Vec<usize> = tab
@@ -151,6 +158,11 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
         tab.table_state.widths_initialized = false;
         tab.filter_dirty = true;
         tab.show_delete_columns_dialog = false;
+        if !columns.is_empty() {
+            app.record_step(octa::data::recipe::RecipeStep::DeleteColumns(
+                octa::data::recipe::DeleteColumns { columns },
+            ));
+        }
     }
 
     if close {

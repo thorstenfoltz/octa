@@ -140,9 +140,12 @@ pub fn syntax_by_name(name: &str) -> Option<&'static SyntaxReference> {
 /// for `'static` thanks to the OnceLock.
 pub fn theme_for_mode(mode: ThemeMode) -> &'static Theme {
     let ts = theme_set();
-    let key = match mode {
-        ThemeMode::Light => "InspiredGitHub",
-        _ => "base16-mocha.dark",
+    // By brightness, not by name: every light theme (Warm, Manga, Frost,
+    // Solarized Light) needs the light colouring, not only `Light`.
+    let key = if mode.is_dark() {
+        "base16-mocha.dark"
+    } else {
+        "InspiredGitHub"
     };
     ts.themes
         .get(key)

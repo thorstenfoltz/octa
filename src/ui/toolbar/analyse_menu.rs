@@ -204,6 +204,14 @@ pub(super) fn analyse_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
                     ui.close();
                 }
                 if ui
+                    .button(crate::i18n::t("analyse_menu.lookups"))
+                    .on_hover_text(crate::i18n::t("analyse_menu.lookups_hint"))
+                    .clicked()
+                {
+                    action.open_lookups = true;
+                    ui.close();
+                }
+                if ui
                     .button(crate::i18n::t("distcmp.menu"))
                     .on_hover_text(crate::i18n::t("distcmp.menu_hint"))
                     .clicked()

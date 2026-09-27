@@ -26,7 +26,10 @@ use super::progress::{Progress, short_name};
 /// argument-count threshold, matching `cli::fuzzy_join::Args`.
 pub struct Args {
     pub dir: PathBuf,
+    /// A folder of harmonised copies, or with `combine` the one file they
+    /// are folded into.
     pub out_dir: PathBuf,
+    pub combine: bool,
     pub target_file: Option<PathBuf>,
     pub recursive: bool,
     pub ignore_case: bool,
@@ -41,6 +44,7 @@ pub fn run(
     let Args {
         dir,
         out_dir,
+        combine,
         target_file,
         recursive,
         ignore_case,
@@ -48,6 +52,9 @@ pub fn run(
     } = args;
     if !dir.is_dir() {
         anyhow::bail!("{} is not a directory", dir.display());
+    }
+    if combine {
+        return run_combine(&dir, &out_dir, recursive, ignore_case, format, write_opts);
     }
     if out_dir == dir {
         anyhow::bail!(
@@ -138,5 +145,60 @@ pub fn run(
     if report.refused > 0 {
         return Ok(ExitCode::from(1));
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `--harmonise-schema DIR --combine --out FILE`: fold the folder into one
+/// table with a provenance column and write it once.
+///
+/// Shares the scan and the reconciliation with the per-file mode through
+/// `normalise_folder::combine_folder`, so the two cannot disagree about what
+/// the union schema is. Skipped files are reported on stderr and do not fail
+/// the run: one corrupt part must not cost the other four hundred.
+fn run_combine(
+    dir: &std::path::Path,
+    out: &std::path::Path,
+    recursive: bool,
+    ignore_case: bool,
+    format: OutputFormat,
+    write_opts: &octa::formats::write_options::WriteOptions,
+) -> anyhow::Result<ExitCode> {
+    use octa::data::normalise_folder::{CombineOptions, DEFAULT_SOURCE_COLUMN, combine_folder};
+
+    if out.is_dir() {
+        anyhow::bail!(
+            "--out must name a file when combining, but {} is a directory",
+            out.display()
+        );
+    }
+    let opts = CombineOptions {
+        root: dir.to_path_buf(),
+        recursive,
+        ignore_case,
+        source_column: DEFAULT_SOURCE_COLUMN.to_string(),
+    };
+    let report = combine_folder(
+        &opts,
+        &|_, _| {},
+        &std::sync::atomic::AtomicBool::new(false),
+    )?;
+
+    let registry = FormatRegistry::new();
+    let writer = registry
+        .reader_for_path(out)
+        .ok_or_else(|| anyhow::anyhow!("no writer for {}", out.display()))?;
+    writer.write_file_with_options(out, &report.table, write_opts)?;
+
+    for (label, reason) in &report.skipped {
+        eprintln!("skipped {label}: {reason}");
+    }
+    eprintln!(
+        "combined {} file(s) into {} ({} row(s), {} skipped)",
+        report.files_read,
+        out.display(),
+        report.table.row_count(),
+        report.skipped.len()
+    );
+    let _ = format;
     Ok(ExitCode::SUCCESS)
 }

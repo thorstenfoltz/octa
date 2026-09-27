@@ -182,3 +182,87 @@ fn an_upward_band_works_like_a_downward_one() {
     assert_eq!(down.contains_row(&centers), vec![0, 1, 2]);
     assert_eq!(up.contains_row(&centers), down.contains_row(&centers));
 }
+
+use crate::git::marks::Status;
+
+// --- git marks -----------------------------------------------------------
+
+const WARN: egui::Color32 = egui::Color32::from_rgb(1, 1, 1);
+const ACCENT: egui::Color32 = egui::Color32::from_rgb(2, 2, 2);
+
+#[test]
+fn an_unmarked_row_gets_nothing() {
+    assert!(row_mark(None, None, WARN, ACCENT).is_none());
+    assert!(row_mark(Some(FileMark::default()), None, WARN, ACCENT).is_none());
+    assert!(row_mark(None, Some(DirMark::default()), WARN, ACCENT).is_none());
+}
+
+#[test]
+fn uncommitted_wins_the_colour_and_the_badge_shows_both() {
+    let m = row_mark(
+        Some(FileMark {
+            uncommitted: Some(Status::Modified),
+            branch_changed: true,
+        }),
+        None,
+        WARN,
+        ACCENT,
+    )
+    .unwrap();
+    assert_eq!(m.color, WARN);
+    assert_eq!(m.badge, "M*");
+    assert_eq!(m.hint_keys, vec!["git_marks.modified", "git_marks.branch"]);
+}
+
+#[test]
+fn branch_only_is_accent_with_a_star() {
+    let m = row_mark(
+        Some(FileMark {
+            uncommitted: None,
+            branch_changed: true,
+        }),
+        None,
+        WARN,
+        ACCENT,
+    )
+    .unwrap();
+    assert_eq!(m.color, ACCENT);
+    assert_eq!(m.badge, "*");
+    assert_eq!(m.hint_keys, vec!["git_marks.branch"]);
+}
+
+#[test]
+fn a_folder_gets_colour_and_words_but_no_badge() {
+    let m = row_mark(
+        None,
+        Some(DirMark {
+            uncommitted: true,
+            branch_changed: true,
+        }),
+        WARN,
+        ACCENT,
+    )
+    .unwrap();
+    assert_eq!(m.color, WARN);
+    assert_eq!(m.badge, "");
+    assert_eq!(
+        m.hint_keys,
+        vec!["git_marks.dir_uncommitted", "git_marks.dir_branch"]
+    );
+}
+
+#[test]
+fn a_folder_with_only_branch_changes_is_accent() {
+    let m = row_mark(
+        None,
+        Some(DirMark {
+            uncommitted: false,
+            branch_changed: true,
+        }),
+        WARN,
+        ACCENT,
+    )
+    .unwrap();
+    assert_eq!(m.color, ACCENT);
+    assert_eq!(m.hint_keys, vec!["git_marks.dir_branch"]);
+}

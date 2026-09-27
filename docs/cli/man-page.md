@@ -39,6 +39,27 @@ octa --schema-drift DIR [--recursive] [--ignore-case] [-f FORMAT]
 
 octa --drift-report FILE_A FILE_B [--fail-on SPEC] [-f FORMAT]
 
+octa --recipe RECIPE FILE [--recipe-out FILE] [-f FORMAT]
+
+octa --overlaps FILE [--overlaps-start COL] [--overlaps-end COL] [--overlaps-lane COL]
+     [--overlaps-label COL] [-f FORMAT]
+
+octa --shapes FILE --shapes-column COL [-f FORMAT]
+
+octa --lookups FILE [--lookups-min N] [-f FORMAT]
+
+octa --cell-history FILE --history-column COL (--history-key COLS --history-value VALUES | --history-row N) [--history-depth N] [-f FORMAT]
+
+octa --spatial-join FILE --spatial-layer FILE... [--spatial-op inside|nearest] [--within-km N] [-f FORMAT]
+
+octa --forecast FILE --forecast-x COL --forecast-y COL [--forecast-periods N] [--forecast-season N] [-f FORMAT]
+
+octa --test-data FILE... [--test-data-rows N] [--seed N] [--test-data-out PATH]
+     [--test-data-rename-categories] [-f FORMAT]
+
+octa --merge FILE FILE... [--merge-original FILE] [--merge-key COLS]
+     [--merge-prefer N] [--merge-out FILE] [--merge-format EXT] [-f FORMAT]
+
 octa --check FILE --rules RULES.toml [-f FORMAT]
 
 octa --relationships DIR [--recursive] [-f FORMAT]
@@ -79,7 +100,7 @@ optionally opening the supplied *FILE*(s) in tabs. When invoked
 with one of the action flags (`--schema`, `--head`, `--tail`,
 `--sample`, `--convert`, `--sql`, `--export-schema`,
 `--compare-schemas`, `--diff`, `--describe`, `--validate-schema`,
-`--schema-drift`, `--drift-report`, `--check`, `--relationships`,
+`--schema-drift`, `--drift-report`, `--merge`, `--recipe`, `--test-data`, `--overlaps`, `--shapes`, `--lookups`, `--cell-history`, `--spatial-join`, `--forecast`, `--check`, `--relationships`,
 `--harmonise-schema`, `--report`, `--fuzzy-join`,
 `--unique-columns`, `--anonymize`, `--dedupe`, `--impute`,
 `--outliers`, `--detect-pii`, `--union`, `--join`, `--partition-by`,
@@ -240,6 +261,145 @@ output still goes to a local path.
     any gate. Metric names are `rows`, `null_rate`, `distinct_count`,
     `min`, `max` and `mean`.
 
+`--recipe RECIPE FILE`
+:   Replay a recipe (a `.ocp` file, short for Octa reCiPe, recorded in
+    the GUI) on *FILE*. Every step runs by column name. When any step
+    cannot run, nothing is written, the skipped steps go to stderr and
+    the exit code is `1`. See [`octa --recipe`](recipe.md).
+
+`--recipe-out FILE`
+:   Write the `--recipe` result to *FILE* instead of stdout.
+
+`--overlaps FILE`
+:   Rows whose time spans overlap inside a lane (two bookings of one
+    room). One row per pair on stdout; **exits 1 when any is found**.
+    Spans that only touch do not overlap. See [`octa --overlaps`](overlaps.md).
+
+`--overlaps-start COL`, `--overlaps-end COL`
+:   Start and end columns for `--overlaps` (default: the first two date
+    columns). No end makes every row a point.
+
+`--overlaps-lane COL`
+:   Only rows with the same value in *COL* can overlap.
+
+`--overlaps-label COL`
+:   A column shown beside each row of an `--overlaps` pair.
+
+`--shapes FILE`
+:   What a column's values look like: digits folded to `9`, capitals to
+    `A`, other letters to `a`, punctuation kept. One row per shape, most
+    common first, with a count and an example. Requires
+    `--shapes-column`. See [`octa --shapes`](shapes.md).
+
+`--shapes-column COL`
+:   Column to shape for `--shapes`.
+
+`--lookups FILE`
+:   Hidden lookup tables: columns that always follow another column. One
+    row per key and following column, with its consistency, conflicting
+    keys and breaking rows. See [`octa --lookups`](lookups.md).
+
+`--lookups-min N`
+:   Share of rows (0 to 1) that must agree with their key for
+    `--lookups`. Default `0.95`.
+
+`--cell-history FILE`
+:   The commits that changed one cell of a file in a Git repository,
+    newest first, following the row by key and the file through renames.
+    Needs `--history-column` and either `--history-key` +
+    `--history-value` or `--history-row`. See
+    [`octa --cell-history`](cell-history.md).
+
+`--history-column COL`
+:   Column of the cell for `--cell-history`.
+
+`--history-key COLS`
+:   Comma-separated key column(s) that identify the row.
+
+`--history-value VALUES`
+:   Comma-separated values of the row in each key column.
+
+`--history-row N`
+:   1-based row number, when there is no key.
+
+`--history-depth N`
+:   How many commits to read, newest first. Default `50`.
+
+`--spatial-join FILE`
+:   Join by location: each point of FILE gets the columns of the layer
+    polygon it lies in, or of the nearest layer point with its distance.
+    Needs at least one `--spatial-layer`. See
+    [`octa --spatial-join`](spatial-join.md).
+
+`--spatial-layer FILE`
+:   A table to join against. Repeat for several layers.
+
+`--spatial-op inside|nearest`
+:   The operation. Default `inside`.
+
+`--within-km N`
+:   With `--spatial-op nearest`: points farther than this stay empty.
+
+`--forecast FILE`
+:   Forecast one column over time (Holt-Winters) with 80% and 95%
+    ranges. Needs `--forecast-x` and `--forecast-y`. See
+    [`octa --forecast`](forecast.md).
+
+`--forecast-x COL`
+:   Time column: dates, date-times or numbers, evenly spaced.
+
+`--forecast-y COL`
+:   Column of numbers to forecast.
+
+`--forecast-periods N`
+:   How many periods ahead. Default `12`.
+
+`--forecast-season N`
+:   Season length in points. Default: read from the spacing.
+
+`--test-data FILE...`
+:   Generate new rows shaped like each *FILE*: the same columns, numbers
+    and dates from the real spread, fake names, emails, IBANs and IDs,
+    empty cells at the real rate. Several files are generated together so
+    links between them still join. See [`octa --test-data`](test-data.md).
+
+`--test-data-rows N`
+:   Rows per `--test-data` table (default: as many as the real one).
+
+`--test-data-out PATH`
+:   Output file for one `--test-data` input, or an existing folder for
+    several (written as `<name>_test.<ext>`).
+
+`--test-data-rename-categories`
+:   Replace real category values with `value_1`, `value_2`, ...
+
+`--merge FILE FILE...`
+:   Merge two or more versions of a table, per row and per cell. With
+    `--merge-original`, a change made in one version is taken and only
+    different changes to one cell, or a row deleted in one version and
+    edited in another, conflict; without it, every cell where the
+    versions differ conflicts. Rows are matched by `--merge-key`, or by
+    position without one. While a conflict is open nothing is written,
+    the conflicts are printed on stdout and the exit code is `1`, which
+    makes it usable as a git merge driver. See [`octa --merge`](merge.md).
+
+`--merge-original FILE`
+:   The table every `--merge` version was edited from. Optional.
+
+`--merge-key COLS`
+:   Key column(s) for `--merge`, comma-separated or repeated.
+
+`--merge-prefer N`
+:   Settle every `--merge` conflict in favour of version *N* (1 = the
+    first file given to `--merge`).
+
+`--merge-out FILE`
+:   Write the `--merge` result to *FILE* instead of stdout.
+
+`--merge-format EXT`
+:   Format of the `--merge` files, for files without an extension. An
+    extension (`csv`) or a file name to take it from (git's `%P`).
+
 `--check FILE`
 :   Check *FILE*'s values against the rules in `--rules` (required)
     and report which rules failed. The rules file is TOML, one
@@ -366,7 +526,7 @@ output still goes to a local path.
 
 `--join FILE`
 :   Join the positional *FILE*(s) plus every `--join-file` on the
-    `--join-on` key(s). `--join-type` is `left`/`inner`/`right`/`full`.
+    `--join-on` key(s). `--join-type` is `left`/`inner`/`right`/`full`/`semi`/`anti`/`asof`.
     See [`octa --join`](join.md).
 
 `--partition-by COL`
@@ -574,7 +734,8 @@ stderr is a terminal, so redirected output and CI logs are unchanged.
 :   Row count for `--head`, `--tail`, and `--sample`. Default **20**.
 
 `--seed N`
-:   Seed for `--sample`, for reproducible output. Default **0**.
+:   Seed for `--sample` and `--test-data`, for reproducible output.
+    Default **0**.
 
 `-q QUERY`, `--query QUERY`
 :   SQL query string for `--sql`. Always reference the file's data
@@ -706,7 +867,9 @@ stderr is a terminal, so redirected output and CI logs are unchanged.
 
 `--join-type TYPE`
 :   Join strategy for `--join`: `left` (default), `inner`, `right`,
-    `full`.
+    `full`, `semi` (rows of the first file with a partner), `anti` (rows
+    without one) or `asof` (the last `--join-on` key matches the nearest
+    earlier value).
 
 `--out-dir DIR`
 :   Output directory for `--partition-by` (required; created if absent).
@@ -758,7 +921,8 @@ arguments, file-not-found, parse failure, write rejection, etc.).
 the schemas differ, and `--schema-drift` exits **1** on a successful
 scan where the files disagree, so CI pipelines can gate on the schema
 directly. `--drift-report` exits **1** when a `--fail-on` gate was breached,
-and `--check` exits **1** on any failing or unrunnable rule.
+`--merge` while a conflict is open, `--recipe` when a step could not run, and `--check` exits **1** on any
+failing or unrunnable rule.
 
 ## Examples
 

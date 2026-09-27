@@ -95,6 +95,14 @@ impl SchemaDriftState {
 pub(crate) struct HarmoniseState {
     pub(crate) folder: String,
     pub(crate) out_dir: String,
+    /// Fold the folder into ONE table opened as a tab, instead of writing a
+    /// harmonised copy of every file. Skips the plan step: combining casts
+    /// nothing, so there is no per-file refusal to read before committing.
+    pub(crate) combine: bool,
+    /// Filled by the combine worker; drained by the update loop.
+    pub(crate) combine_slot: std::sync::Arc<
+        std::sync::Mutex<Option<Result<octa::data::normalise_folder::CombineReport, String>>>,
+    >,
     pub(crate) recursive: bool,
     pub(crate) ignore_case: bool,
     pub(crate) overwrite: bool,
@@ -122,6 +130,8 @@ impl HarmoniseState {
         Self {
             folder,
             out_dir: String::new(),
+            combine: false,
+            combine_slot: std::sync::Arc::new(std::sync::Mutex::new(None)),
             recursive: false,
             ignore_case: false,
             overwrite: false,
@@ -139,6 +149,76 @@ impl HarmoniseState {
 /// every numeric column, so there is nothing else to pick).
 pub(crate) struct CorrelationState {
     pub(crate) method: octa::data::correlation::CorrMethod,
+    pub(crate) size: DialogSize,
+}
+
+/// Find lookup tables dialog. The scan runs on a worker (every column pair
+/// is measured), the result lands in `result`.
+pub(crate) struct LookupsState {
+    /// The tab the scan ran on; results index its columns.
+    pub(crate) tab: usize,
+    pub(crate) min_consistency_pct: f64,
+    pub(crate) result:
+        std::sync::Arc<std::sync::Mutex<Option<Vec<octa::data::lookups::LookupFinding>>>>,
+    pub(crate) running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) findings: Option<Vec<octa::data::lookups::LookupFinding>>,
+    /// Per finding (by index), the dependents ticked for Split out.
+    pub(crate) ticked: Vec<std::collections::BTreeSet<usize>>,
+    pub(crate) size: DialogSize,
+}
+
+impl LookupsState {
+    pub(crate) fn new(tab: usize) -> Self {
+        Self {
+            tab,
+            min_consistency_pct: octa::data::lookups::DEFAULT_MIN_CONSISTENCY * 100.0,
+            result: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            running: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            findings: None,
+            ticked: Vec::new(),
+            size: DialogSize::default(),
+        }
+    }
+}
+
+/// Committed versions of a tab's file read by Cell history, oldest last.
+pub(crate) struct CellHistoryCache {
+    /// HEAD when the versions were read; a different HEAD drops the cache.
+    pub(crate) head: String,
+    pub(crate) versions: Vec<octa::data::cell_history::Version>,
+    pub(crate) unreadable: Vec<(octa::data::cell_history::CommitInfo, String)>,
+    /// Whether older commits exist beyond what was read.
+    pub(crate) more: bool,
+}
+
+/// A page of versions arriving from the Cell history worker.
+pub(crate) type CellHistoryPending =
+    std::sync::Arc<std::sync::Mutex<Option<anyhow::Result<octa::git::history::LoadedVersions>>>>;
+
+/// Cell history dialog. Versions load on a worker into `pending`; the
+/// dialog moves them into the tab's `cell_history_cache`.
+pub(crate) struct CellHistoryState {
+    pub(crate) tab: usize,
+    /// Row index in the tab (not the filtered view) and the column's name.
+    pub(crate) row: usize,
+    pub(crate) column: String,
+    /// Key columns, as indices into the tab's columns.
+    pub(crate) keys: Vec<usize>,
+    /// Whether `keys` is still the first-unique-column guess, to be replaced
+    /// by a key suggested from the oldest version once one is in.
+    pub(crate) keys_guessed: bool,
+    /// The tab's current data, when it differs from HEAD.
+    pub(crate) working: Option<octa::data::cell_history::Version>,
+    /// Repository root, and the file's path and HEAD sha when opened.
+    pub(crate) root: std::path::PathBuf,
+    pub(crate) path: std::path::PathBuf,
+    pub(crate) head: String,
+    pub(crate) pending: CellHistoryPending,
+    pub(crate) running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) history: Option<octa::data::cell_history::History>,
+    pub(crate) error: Option<String>,
     pub(crate) size: DialogSize,
 }
 

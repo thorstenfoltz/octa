@@ -96,6 +96,18 @@ pub struct AppSettings {
     /// apply; default 5.
     #[serde(default = "default_auto_save_interval")]
     pub auto_save_interval_minutes: u32,
+    /// Write a tab's recipe (`.ocp`) into `recipe_autosave_dir` after every
+    /// recorded step. Off by default: recipes are saved by hand.
+    #[serde(default)]
+    pub recipe_autosave: bool,
+    /// The folder auto-saved recipes go into. `None` means the default,
+    /// `<config dir>/recipes` (see [`Self::recipe_dir`]).
+    #[serde(default)]
+    pub recipe_autosave_dir: Option<String>,
+    /// What Ctrl+R and the tab menu's Refresh do (`app::refresh`). A tab
+    /// with unsaved changes asks whatever this says.
+    #[serde(default)]
+    pub refresh_behaviour: RefreshBehaviour,
     /// Whether to allow line breaks in table cells (wraps long text).
     #[serde(default)]
     pub cell_line_breaks: bool,
@@ -130,6 +142,32 @@ pub struct AppSettings {
     /// Default LIMIT used in the placeholder query for new tabs.
     #[serde(default = "default_sql_row_limit")]
     pub sql_default_row_limit: usize,
+    /// Rows a SQL result fetches at a time. The result is materialised inside
+    /// DuckDB and paged out of it as the user scrolls, so this is display
+    /// cost, not a ceiling on the answer: the row counter and Export both
+    /// cover the whole result regardless. `0` loads every row at once.
+    #[serde(default = "default_sql_result_page_rows")]
+    pub sql_result_page_rows: usize,
+    /// Make every other open tab queryable in the SQL panel under its own
+    /// name, so joining two open files needs no manual attach step.
+    ///
+    /// Tabs backed by a live database connection are deliberately excluded:
+    /// their sibling tables are already reachable by their real names when the
+    /// query runs on the server, and copying a server table into DuckDB to
+    /// join it with another table on the *same* server would be slower and
+    /// less correct than letting the server do the join.
+    #[serde(default = "default_true")]
+    pub sql_auto_register_open_tabs: bool,
+    /// Ceiling for that. Registering copies a tab's rows into DuckDB, so a
+    /// multi-million-row tab would freeze the panel on open; above this it is
+    /// listed with a Register button instead of being copied automatically.
+    #[serde(default = "default_sql_auto_register_max_rows")]
+    pub sql_auto_register_max_rows: usize,
+    /// One-time note in the SQL panel naming the open tabs it registered.
+    /// Dismissing it sets this to false; it explains a behaviour the user did
+    /// not ask for, so it has to be visible at least once.
+    #[serde(default = "default_true")]
+    pub show_sql_auto_register_notice: bool,
     /// Whether the SQL editor offers keyword + column-name autocomplete.
     #[serde(default = "default_true")]
     pub sql_autocomplete: bool,
@@ -236,6 +274,25 @@ pub struct AppSettings {
     /// this on so a single huge parquet/CSV opens in one shot.
     #[serde(default)]
     pub initial_load_rows_unlimited: bool,
+    /// How many values the date-layout vote reads when **Change type**
+    /// converts a text column to Date or Date and time. Default 10,000.
+    ///
+    /// The vote costs seven date parses per sampled value, in one go on the
+    /// UI thread, so raising this trades responsiveness for accuracy on
+    /// unrepresentatively-ordered columns. It never changes a reported count:
+    /// every loaded row is classified under whichever layout wins. See
+    /// `octa::data::retype::LAYOUT_SAMPLE` for the full reasoning. Ignored
+    /// when [`retype_layout_sample_unlimited`](Self::retype_layout_sample_unlimited)
+    /// is `true`.
+    #[serde(default = "default_retype_layout_sample")]
+    pub retype_layout_sample: usize,
+    /// When `true`, the date-layout vote reads every value in the column
+    /// instead of a sample. Trumps
+    /// [`retype_layout_sample`](Self::retype_layout_sample). Default `false`:
+    /// on a multi-million-row column this freezes the window for seconds on a
+    /// single click.
+    #[serde(default)]
+    pub retype_layout_sample_unlimited: bool,
     /// Rows fetched per request when reading a table from a **live database**
     /// connection. Default 100,000.
     ///
@@ -283,6 +340,21 @@ pub struct AppSettings {
     /// [`folder_union_max_files`](Self::folder_union_max_files). Default `false`.
     #[serde(default)]
     pub folder_union_max_files_unlimited: bool,
+    /// How many cloud objects a union downloads at the same time. Default 8.
+    ///
+    /// Fetching from an object store is mostly waiting for the round trip
+    /// rather than moving bytes, so downloading one after another leaves the
+    /// link idle between requests; running several at once hides that. Eight
+    /// is about what a browser allows per host: enough to hide the latency,
+    /// low enough not to trip the rate limiting S3, Azure and GCS apply to a
+    /// burst from one client.
+    ///
+    /// Clamped to at least 1 where it is used, so a corrupt `0` in
+    /// `settings.toml` cannot leave a union with no workers and no progress.
+    /// There is deliberately no upper clamp, but a large value spawns that
+    /// many OS threads and is the quickest way to earn an HTTP 429.
+    #[serde(default = "default_cloud_download_concurrency")]
+    pub cloud_download_concurrency: usize,
     /// Master gate for modifying existing data. Default **true** (protected).
     /// While true: the assistant cannot write to existing files, the chat
     /// live-edit tool refuses, and schema-changing DuckDB/SQLite/GeoPackage
@@ -477,7 +549,15 @@ pub struct AppSettings {
     pub chat_ollama_url: String,
     /// Where to dock the chat panel. Default Right.
     #[serde(default)]
-    pub chat_panel_position: ChatPanelPosition,
+    pub chat_panel_position: PanelPosition,
+    /// Where the column navigator panel docks. Defaults to the left, opposite
+    /// the chat panel, so both can be open at once.
+    #[serde(default = "default_column_navigator_position")]
+    pub column_navigator_position: PanelPosition,
+    /// Where the edit audit trail docks. Defaults to the bottom: it is a wide,
+    /// short list and it must not fight the navigator for horizontal space.
+    #[serde(default = "default_edit_audit_position")]
+    pub edit_audit_position: PanelPosition,
     /// Sampling temperature passed to the provider. Default 0.7.
     #[serde(default = "default_chat_temperature")]
     pub chat_temperature: f32,
@@ -561,6 +641,23 @@ pub struct AppSettings {
     /// Turn off to list every file regardless of type.
     #[serde(default = "default_true")]
     pub directory_tree_filter_enabled: bool,
+    /// Colour files and folders in the sidebar that have uncommitted git
+    /// changes (modified, added, deleted, renamed, untracked).
+    #[serde(default = "default_true")]
+    pub git_marks_uncommitted: bool,
+    /// Colour files and folders changed on the current branch since it forked
+    /// from `git_marks_base_branch`.
+    #[serde(default = "default_true")]
+    pub git_marks_branch: bool,
+    /// Branch the branch mark compares against. `main` is tried when this
+    /// name does not exist in a repository.
+    #[serde(default = "default_git_marks_base_branch")]
+    pub git_marks_base_branch: String,
+    /// Seconds between sidebar git refreshes while the sidebar is visible.
+    /// `0` turns the timer (and the window-focus refresh) off: then the marks
+    /// refresh only when a folder is opened and when Octa saves a file.
+    #[serde(default = "default_git_marks_refresh_secs")]
+    pub git_marks_refresh_secs: u32,
     /// Saved cloud connections (no secrets here; secrets live in the keyring /
     /// `cloud_secrets` fallback, keyed by connection id).
     #[serde(default)]
@@ -579,6 +676,15 @@ pub struct AppSettings {
     /// the keyring is preferred and the UI warns about plaintext.
     #[serde(default)]
     pub db_secrets: std::collections::BTreeMap<String, String>,
+    /// Saved REST/JSON API endpoints (no secrets here; secrets live in the
+    /// keyring / `api_secrets` fallback, keyed by connection id).
+    #[serde(default)]
+    pub api_connections: Vec<crate::api::ApiConnection>,
+    /// Plaintext per-connection API credentials, keyed by connection id. Only
+    /// populated when the OS keyring is unavailable; the keyring is preferred
+    /// and the UI warns about plaintext.
+    #[serde(default)]
+    pub api_secrets: std::collections::BTreeMap<String, String>,
 }
 
 fn default_summary_stats() -> Vec<crate::data::summary::SummaryStat> {
@@ -595,6 +701,14 @@ fn default_chat_temperature() -> f32 {
 
 fn default_chat_ollama_url() -> String {
     "http://localhost:11434".to_string()
+}
+
+fn default_column_navigator_position() -> PanelPosition {
+    PanelPosition::Left
+}
+
+fn default_edit_audit_position() -> PanelPosition {
+    PanelPosition::Bottom
 }
 
 fn default_chat_max_tool_iterations() -> usize {
@@ -652,6 +766,29 @@ fn default_tab_size() -> usize {
     4
 }
 
+/// Rows a tab may hold and still be registered into the SQL workspace without
+/// being asked for. Registering copies every row into DuckDB; a few hundred
+/// thousand is instant, millions are not.
+fn default_sql_auto_register_max_rows() -> usize {
+    200_000
+}
+
+/// One page of a SQL result. Large enough that most answers arrive whole,
+/// small enough that `SELECT *` over millions of rows paints immediately.
+fn default_sql_result_page_rows() -> usize {
+    1000
+}
+
+fn default_git_marks_base_branch() -> String {
+    "master".to_string()
+}
+
+/// Ten seconds: a commit made in a terminal beside Octa shows up before
+/// anyone wonders, and `git status` on a normal repo is milliseconds.
+fn default_git_marks_refresh_secs() -> u32 {
+    10
+}
+
 fn default_sql_row_limit() -> usize {
     100
 }
@@ -668,6 +805,12 @@ fn default_initial_load_rows() -> usize {
     5_000_000
 }
 
+/// Defers to the engine's own constant rather than repeating the literal,
+/// so the two cannot drift.
+fn default_retype_layout_sample() -> usize {
+    crate::data::retype::DEFAULT_LAYOUT_SAMPLE
+}
+
 fn default_db_page_rows() -> usize {
     100_000
 }
@@ -678,6 +821,10 @@ fn default_raw_view_max_bytes() -> usize {
 
 fn default_max_decompressed_bytes() -> u64 {
     crate::formats::compression::DEFAULT_MAX_DECOMPRESSED_BYTES
+}
+
+fn default_cloud_download_concurrency() -> usize {
+    8
 }
 
 fn default_folder_union_max_files() -> usize {
@@ -782,6 +929,9 @@ impl Default for AppSettings {
             max_recent_files: 10,
             auto_save_enabled: false,
             auto_save_interval_minutes: default_auto_save_interval(),
+            recipe_autosave: false,
+            recipe_autosave_dir: None,
+            refresh_behaviour: RefreshBehaviour::default(),
             tab_size: 4,
             body_font: BodyFont::Proportional,
             custom_font_path: String::new(),
@@ -789,6 +939,10 @@ impl Default for AppSettings {
             sql_panel_default_open: false,
             sql_panel_position: SqlPanelPosition::default(),
             sql_default_row_limit: 100,
+            sql_result_page_rows: default_sql_result_page_rows(),
+            show_sql_auto_register_notice: true,
+            sql_auto_register_open_tabs: true,
+            sql_auto_register_max_rows: default_sql_auto_register_max_rows(),
             sql_autocomplete: true,
             sql_editor_font: SqlEditorFont::default(),
             sql_row_diff_highlight_enabled: true,
@@ -809,6 +963,8 @@ impl Default for AppSettings {
             show_large_file_notice: true,
             initial_load_rows: default_initial_load_rows(),
             initial_load_rows_unlimited: false,
+            retype_layout_sample: default_retype_layout_sample(),
+            retype_layout_sample_unlimited: false,
             db_page_rows: default_db_page_rows(),
             raw_view_max_bytes: default_raw_view_max_bytes(),
             raw_view_max_bytes_unlimited: false,
@@ -816,6 +972,7 @@ impl Default for AppSettings {
             max_decompressed_unlimited: false,
             folder_union_max_files: default_folder_union_max_files(),
             folder_union_max_files_unlimited: false,
+            cloud_download_concurrency: default_cloud_download_concurrency(),
             write_protection: true,
             confirm_url_redirects: true,
             confirm_db_write_back: true,
@@ -846,7 +1003,9 @@ impl Default for AppSettings {
             chat_models: std::collections::BTreeMap::new(),
             chat_base_url: String::new(),
             chat_ollama_url: default_chat_ollama_url(),
-            chat_panel_position: ChatPanelPosition::default(),
+            chat_panel_position: PanelPosition::default(),
+            column_navigator_position: default_column_navigator_position(),
+            edit_audit_position: default_edit_audit_position(),
             chat_temperature: default_chat_temperature(),
             chat_max_tool_iterations: default_chat_max_tool_iterations(),
             chat_max_tokens: default_chat_max_tokens(),
@@ -864,10 +1023,16 @@ impl Default for AppSettings {
             chat_api_keys: std::collections::BTreeMap::new(),
             summary_stats: default_summary_stats(),
             directory_tree_filter_enabled: true,
+            git_marks_uncommitted: true,
+            git_marks_branch: true,
+            git_marks_base_branch: default_git_marks_base_branch(),
+            git_marks_refresh_secs: default_git_marks_refresh_secs(),
             cloud_connections: Vec::new(),
             cloud_secrets: std::collections::BTreeMap::new(),
             db_connections: Vec::new(),
             db_secrets: std::collections::BTreeMap::new(),
+            api_connections: Vec::new(),
+            api_secrets: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -888,6 +1053,15 @@ impl AppSettings {
         self.db_page_rows
             .max(1)
             .min(crate::formats::initial_load_rows())
+    }
+
+    /// What the sidebar's git marks collect, in the library's own terms.
+    pub fn git_marks_options(&self) -> crate::git::marks::MarksOptions {
+        crate::git::marks::MarksOptions {
+            uncommitted: self.git_marks_uncommitted,
+            branch: self.git_marks_branch,
+            base: self.git_marks_base_branch.clone(),
+        }
     }
 
     pub fn raw_view_allows(&self, size_bytes: u64) -> bool {
@@ -914,6 +1088,20 @@ impl AppSettings {
         } else {
             (self.grep_max_file_size_mb as u64).saturating_mul(1024 * 1024)
         }
+    }
+
+    /// Where auto-saved recipes go: the folder the user chose, else
+    /// `<config dir>/recipes`. Not created here; the first save does that.
+    pub fn recipe_dir(&self) -> Option<PathBuf> {
+        match &self.recipe_autosave_dir {
+            Some(dir) => Some(PathBuf::from(dir)),
+            None => Self::default_recipe_dir(),
+        }
+    }
+
+    /// `<config dir>/recipes`, the recipe folder when none is chosen.
+    pub fn default_recipe_dir() -> Option<PathBuf> {
+        Self::config_dir().map(|d| d.join("recipes"))
     }
 
     /// Platform-specific config directory.
@@ -1105,6 +1293,40 @@ fn dirs_path_home() -> Option<PathBuf> {
 /// (`Ok(())` or `Err(message)`), drained by the DB form per frame.
 pub(crate) type DbTestSlot = std::sync::Arc<std::sync::Mutex<Option<Result<(), String>>>>;
 
+/// What probing an API endpoint found: enough to report success and to fill
+/// the records-array picker, so Test and "which array holds the rows" are one
+/// request rather than two.
+#[derive(Debug, Clone, Default)]
+pub struct ApiProbe {
+    /// Rows the current records path yielded on page one.
+    pub rows: usize,
+    /// Every array-of-objects path in the response, as JSON pointers.
+    pub candidates: Vec<String>,
+    /// Column names the rows would produce.
+    pub columns: Vec<String>,
+}
+
+pub(crate) type ApiTestSlot = std::sync::Arc<std::sync::Mutex<Option<Result<ApiProbe, String>>>>;
+
 /// Shared slot a chat "Test connection" worker writes its outcome into: the
 /// model's reply on success, the provider's error message on failure.
 pub type ChatTestSlot = std::sync::Arc<std::sync::Mutex<Option<Result<String, String>>>>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn panel_positions_default_and_round_trip_through_toml() {
+        let s = AppSettings::default();
+        assert_eq!(s.chat_panel_position, PanelPosition::Right);
+        assert_eq!(s.column_navigator_position, PanelPosition::Left);
+        assert_eq!(s.edit_audit_position, PanelPosition::Bottom);
+
+        // An existing settings file written before the rename still loads: the
+        // variant names are what serialise, and they have not changed.
+        let toml = r#"chat_panel_position = "Bottom""#;
+        let loaded: AppSettings = toml::from_str(toml).expect("parses");
+        assert_eq!(loaded.chat_panel_position, PanelPosition::Bottom);
+    }
+}

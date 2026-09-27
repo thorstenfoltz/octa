@@ -57,14 +57,51 @@ This matters more than it sounds. A harmonised folder full of silently
 emptied cells looks perfectly clean, passes every schema check, and has lost
 data. Refusing is the only honest answer.
 
+## Combining into one table
+
+Harmonising gives you a folder of files that finally agree. Often what you
+actually wanted was **one** table.
+
+Tick **Combine into one table** in the dialog (or pass `--combine` on the
+command line, or `"combine": true` to the tool) and the same inputs are
+folded into a single table instead, with a **`source_file`** column saying
+which file each row came from. Without that column a combined folder loses
+the one thing that made the parts separate.
+
+Combining skips the plan step, because there is nothing to refuse: nothing
+is cast, so no value can be lost to a narrowing conversion. Columns that
+only some files have are kept and left empty for the files that lacked
+them, exactly as [Union tables](union-tables.md) does, because it is the
+same engine underneath.
+
+If your data already has a column called `source_file`, it is **not**
+overwritten. The provenance column is suffixed (`source_file_2`) instead,
+and the suffix is decided once across every input so all the rows land in
+the same column.
+
+A file that cannot be read is named, skipped and counted; one corrupt part
+does not cost you the other four hundred.
+
+In the GUI the result opens as a new tab, so you can look at it before
+deciding where it belongs. On the command line and through the tool it is
+written to the path you name.
+
 ## Command line
 
 ```bash
 octa --harmonise-schema ./parts --out-dir ./parts-clean
 ```
 
+To combine instead, name a single output **file**:
+
+```bash
+octa --harmonise-schema ./parts --combine --out ./all-parts.csv
+```
+
 Options: `--recursive`, `--ignore-case`, `--overwrite`, and `--target-file
-FILE` to name the target schema instead of taking the majority.
+FILE` to name the target schema instead of taking the majority. `--combine`
+takes `--out FILE` rather than `--out-dir DIR`, since it produces one file;
+asking for it without `--out` is refused rather than guessed at.
 
 **Exits 1 when any file was refused**, like `--schema-drift` and
 `--validate-schema`, so a CI step can gate on it. The report goes to stdout;

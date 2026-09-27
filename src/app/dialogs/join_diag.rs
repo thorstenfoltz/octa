@@ -399,6 +399,7 @@ pub(crate) fn render_join_diag_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 right_col: st.right_col,
             }],
             join_type: JoinType::Left,
+            spatial: None,
             error: None,
             size: DialogSize::default(),
         });

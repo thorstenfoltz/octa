@@ -56,3 +56,5 @@ surface belongs.
 Tests: `mcp::tool_groups::tests` (selector parsing), `mcp::read_only_tests`
 (router shape), and `tests/mcp_smoke_tests.rs` over the wire - the advertised
 list, a refused call to a filtered-out tool, and the startup refusal on a typo.
+
+Batch 2026-09-25 tools (all read-only): `value_shapes` and `find_lookups` (Quality), `cell_history` (Compare), `spatial_join` (Combine; `points` + `layers` reuse `union::SourceParam`), `forecast` (Reshape). The handshake smoke test fails until `docs/mcp/tools/<name>.md` exists, so write the page in the same change.

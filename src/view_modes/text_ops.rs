@@ -41,19 +41,72 @@ pub(crate) fn char_range_to_byte_range(
     byte_start..byte_end
 }
 
-/// Count tab characters among the first `cursor_chars` characters of `text`.
+/// Replace the run of tabs sitting immediately before `cursor` with
+/// `tab_size` spaces each, and report where the cursor ends up. `None` when
+/// there is no tab there, which is the common case: this must only rewrite
+/// what the user just typed.
 ///
-/// `cursor_chars` is a CHARACTER count, which is what egui's `CCursor` carries.
-/// This walks `chars()` on purpose: the Tab-expansion handlers used to slice
-/// `text[..cursor_chars]`, mixing a char index into a byte offset. On any line
-/// with a multi-byte character that under-counted the tabs (so the cursor
-/// landed in the wrong place after expansion) and could panic outright when the
-/// offset fell inside a character.
-pub(crate) fn tabs_before_cursor(text: &str, cursor_chars: usize) -> usize {
-    text.chars()
-        .take(cursor_chars)
-        .filter(|&c| c == '\t')
-        .count()
+/// Expanding *every* tab in the buffer instead would rewrite a file that
+/// merely contains tabs (a tab-indented JSON, a Makefile) the moment it is
+/// drawn, and mark it modified for having been looked at.
+pub(crate) fn expand_tabs_at_cursor(
+    text: &str,
+    cursor: usize,
+    tab_size: usize,
+) -> Option<(String, usize)> {
+    let chars: Vec<char> = text.chars().collect();
+    let cursor = cursor.min(chars.len());
+    let mut start = cursor;
+    while start > 0 && chars[start - 1] == '\t' {
+        start -= 1;
+    }
+    if start == cursor {
+        return None;
+    }
+    let tabs = cursor - start;
+    let mut out: String = chars[..start].iter().collect();
+    for _ in 0..tabs {
+        for _ in 0..tab_size {
+            out.push(' ');
+        }
+    }
+    out.extend(&chars[cursor..]);
+    Some((out, start + tabs * tab_size))
+}
+
+/// Turn the literal tab egui just inserted for a Tab press into `tab_size`
+/// spaces, and move the cursor past them so typing carries on where the user
+/// is looking. Returns true when the buffer changed.
+///
+/// Every editor here sets `lock_focus(true)` so Tab types instead of moving
+/// focus to the next widget, and egui then inserts a real `\t`. None of them
+/// shows tab characters, so each one calls this straight after `show`. The
+/// caller decides whether it may run at all: a read-only editor must not,
+/// since it has nothing to write back to.
+pub fn expand_tabs_to_spaces(
+    ctx: &egui::Context,
+    buffer: &mut dyn egui::TextBuffer,
+    output: &mut egui::text_edit::TextEditOutput,
+    tab_size: usize,
+) -> bool {
+    let cursor_idx = match output.cursor_range {
+        Some(r) => r.primary.index.0,
+        None => return false,
+    };
+    let Some((expanded, new_idx)) = expand_tabs_at_cursor(buffer.as_str(), cursor_idx, tab_size)
+    else {
+        return false;
+    };
+    buffer.replace_with(&expanded);
+    output
+        .state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::one(
+            egui::text::CCursor::new(new_idx),
+        )));
+    // Clone before storing so `output.state` stays usable by the caller.
+    output.state.clone().store(ctx, output.response.id);
+    true
 }
 
 /// Convert the currently selected text in the TextEdit identified by

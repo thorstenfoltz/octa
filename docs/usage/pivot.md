@@ -8,7 +8,6 @@ The result always opens in a **new detached tab**, so your original
 table is never modified. It runs on the table as you currently see it,
 including any unsaved edits.
 
-<!-- SCREENSHOT: pivot-dialog.png: The Pivot / Unpivot dialog in Pivot mode, showing the Pivot/Unpivot toggle, a "Spread column" dropdown, an aggregate dropdown with a value-column dropdown, and a group-by column checklist. -->
 ![Pivot dialog](../assets/screenshots/pivot-dialog.png){ .screenshot-placeholder }
 
 ## Pivot (long to wide)
@@ -54,7 +53,7 @@ Both modes build a DuckDB
 [`PIVOT` / `UNPIVOT`](https://duckdb.org/docs/sql/statements/pivot)
 statement and run it against the active table (exposed to DuckDB as
 the table `data`, the same as the [SQL panel](sql.md)). Because the
-output is a detached tab with no source path, **Save As** prompts for
+output is a detached tab with no source path, **Save as** prompts for
 a new file and the original is safe.
 
 ## See also

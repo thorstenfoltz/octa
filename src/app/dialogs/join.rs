@@ -5,20 +5,28 @@
 //! column of the right table via a comparison operator (`=`, `<`, `<=`, `>`,
 //! `>=`). Column names and types need not match - both sides are cast to a
 //! common type before comparing (numeric when both are numeric, else text).
-//! Multiple conditions are ANDed.
+//! Multiple conditions are ANDed. Semi and anti keep only left rows (with or
+//! without a partner); as-of needs exactly one inequality, which picks the
+//! nearest right row.
 //!
 //! Applying calls [`octa::data::join::join_two`] and opens the result in a new
 //! tab (same pattern as the Union dialog).
+//!
+//! The **Spatial** type swaps the conditions for the spatial options and
+//! joins by location instead ([`octa::data::spatial_join`]): the right tab is
+//! the first layer, and **More layers** adds further tabs.
 
 use eframe::egui;
 use egui::RichText;
 
 use octa::data::join::{JoinCond, JoinOp, JoinType, join_two};
+use octa::data::spatial_join::{PointCols, point_cols};
+use octa::ui::control_row::{control_grid, control_row, control_text_edit};
 use octa::ui::settings::{
     DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
 };
 
-use crate::app::state::{JoinCondDraft, JoinState, OctaApp, TabState};
+use crate::app::state::{JoinCondDraft, JoinState, OctaApp, SpatialDraft, TabState};
 
 impl OctaApp {
     /// Build the default join state: left = active tab, right = the first other
@@ -37,6 +45,7 @@ impl OctaApp {
                 right_col: 0,
             }],
             join_type: JoinType::Left,
+            spatial: None,
             error: None,
             size: DialogSize::default(),
         }
@@ -64,6 +73,31 @@ fn op_label(op: JoinOp) -> &'static str {
         JoinOp::Gt => ">",
         JoinOp::Ge => ">=",
     }
+}
+
+fn type_label(t: JoinType) -> String {
+    octa::i18n::t(match t {
+        JoinType::Inner => "join.type_inner",
+        JoinType::Left => "join.type_left",
+        JoinType::Right => "join.type_right",
+        JoinType::Full => "join.type_full",
+        JoinType::Semi => "join.type_semi",
+        JoinType::Anti => "join.type_anti",
+        JoinType::AsOf => "join.type_asof",
+    })
+}
+
+/// What one join type keeps, shown when hovering it in the list.
+fn type_hint(t: JoinType) -> String {
+    octa::i18n::t(match t {
+        JoinType::Inner => "join.type_inner_hint",
+        JoinType::Left => "join.type_left_hint",
+        JoinType::Right => "join.type_right_hint",
+        JoinType::Full => "join.type_full_hint",
+        JoinType::Semi => "join.type_semi_hint",
+        JoinType::Anti => "join.type_anti_hint",
+        JoinType::AsOf => "join.type_asof_hint",
+    })
 }
 
 fn col_name(app: &OctaApp, tab: usize, col: usize) -> String {
@@ -124,6 +158,23 @@ pub(crate) fn render_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         .map(|(i, t)| tab_label(t, i))
         .collect();
 
+    // Which tabs have points, for moving Left to one when Spatial is picked.
+    let has_points: Vec<bool> = app
+        .tabs
+        .iter()
+        .map(|t| point_cols(&t.table).is_some())
+        .collect();
+    // The left tab's points, for the Spatial type: a "lat, lon" or geometry
+    // column description, `None` when it has none.
+    let left_points: Option<String> = point_cols(&app.tabs[st.left_tab].table).map(|p| match p {
+        PointCols::LatLon { lat, lon } => format!("{}, {}", left_cols[lat], left_cols[lon]),
+        PointCols::Geometry(c) => left_cols[c].clone(),
+    });
+    if let Some(sp) = &mut st.spatial {
+        sp.layers
+            .retain(|&i| i < n_tabs && i != st.left_tab && i != st.right_tab);
+    }
+
     let mut size = st.size;
     let minimized = size == DialogSize::Minimized;
     let mut remove_cond: Option<usize> = None;
@@ -168,7 +219,12 @@ pub(crate) fn render_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.button(octa::i18n::t("join.apply")).clicked() {
+                    let no_points = st.spatial.is_some() && left_points.is_none();
+                    if ui
+                        .add_enabled(!no_points, egui::Button::new(octa::i18n::t("join.apply")))
+                        .on_disabled_hover_text(octa::i18n::t("join.spatial_no_points"))
+                        .clicked()
+                    {
                         apply = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -180,29 +236,110 @@ pub(crate) fn render_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             });
 
         egui::CentralPanel::default().show(ui, |ui| {
-            // --- Left / right tab pickers ---
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(octa::i18n::t("join.left_label")).strong());
-                egui::ComboBox::from_id_salt("join_left_tab")
-                    .selected_text(tab_labels.get(st.left_tab).cloned().unwrap_or_default())
+            // --- Left / right tab pickers and join type, one grid so the
+            // three pickers start at the same x ---
+            control_grid(ui, "join_pickers", |ui| {
+                for (key, salt, sel) in [
+                    ("join.left_label", "join_left_tab", &mut st.left_tab),
+                    ("join.right_label", "join_right_tab", &mut st.right_tab),
+                ] {
+                    ui.label(RichText::new(octa::i18n::t(key)).strong());
+                    egui::ComboBox::from_id_salt(salt)
+                        .selected_text(tab_labels.get(*sel).cloned().unwrap_or_default())
+                        .width(200.0)
+                        .show_ui(ui, |ui| {
+                            for (i, label) in tab_labels.iter().enumerate() {
+                                ui.selectable_value(sel, i, label);
+                            }
+                        });
+                    ui.end_row();
+                }
+                ui.label(RichText::new(octa::i18n::t("join.type_label")).strong())
+                    .on_hover_text(octa::i18n::t("join.type_hint"));
+                let spatial_on = st.spatial.is_some();
+                let (selected, selected_hint) = if spatial_on {
+                    (
+                        octa::i18n::t("join.type_spatial"),
+                        octa::i18n::t("join.type_spatial_hint"),
+                    )
+                } else {
+                    (type_label(st.join_type), type_hint(st.join_type))
+                };
+                egui::ComboBox::from_id_salt("join_type_combo")
+                    .selected_text(selected)
                     .width(200.0)
                     .show_ui(ui, |ui| {
-                        for (i, label) in tab_labels.iter().enumerate() {
-                            ui.selectable_value(&mut st.left_tab, i, label);
+                        for t in JoinType::ALL {
+                            let picked = !spatial_on && st.join_type == t;
+                            if ui
+                                .selectable_label(picked, type_label(t))
+                                .on_hover_text(type_hint(t))
+                                .clicked()
+                            {
+                                st.join_type = t;
+                                st.spatial = None;
+                            }
                         }
-                    });
-            });
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(octa::i18n::t("join.right_label")).strong());
-                egui::ComboBox::from_id_salt("join_right_tab")
-                    .selected_text(tab_labels.get(st.right_tab).cloned().unwrap_or_default())
-                    .width(200.0)
-                    .show_ui(ui, |ui| {
-                        for (i, label) in tab_labels.iter().enumerate() {
-                            ui.selectable_value(&mut st.right_tab, i, label);
+                        if ui
+                            .selectable_label(spatial_on, octa::i18n::t("join.type_spatial"))
+                            .on_hover_text(octa::i18n::t("join.type_spatial_hint"))
+                            .clicked()
+                            && !spatial_on
+                        {
+                            // The points go on the left. If the tab there has
+                            // none (a regions file opened last is the active
+                            // tab), move a tab that has them there, and make
+                            // every other tab a layer candidate.
+                            if !has_points[st.left_tab]
+                                && let Some(p) = has_points.iter().position(|&h| h)
+                            {
+                                st.left_tab = p;
+                            }
+                            // The right tab is the first layer; keep it off
+                            // the tab that moved to the left.
+                            if st.right_tab == st.left_tab
+                                && let Some(r) = (0..tab_labels.len()).find(|&i| i != st.left_tab)
+                            {
+                                st.right_tab = r;
+                            }
+                            st.spatial = Some(SpatialDraft {
+                                nearest: false,
+                                within_km_text: String::new(),
+                                layers: std::collections::BTreeSet::new(),
+                            });
                         }
-                    });
+                    })
+                    .response
+                    .on_hover_text(selected_hint);
+                ui.end_row();
             });
+            if let Some(sp) = &mut st.spatial {
+                ui.add_space(8.0);
+                ui.separator();
+                spatial_section(
+                    ui,
+                    sp,
+                    (st.left_tab, st.right_tab),
+                    &tab_labels,
+                    left_points.as_deref(),
+                );
+                if let Some(err) = &st.error {
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new(err)
+                            .color(ui.visuals().error_fg_color)
+                            .size(11.0),
+                    );
+                }
+                return;
+            }
+            if st.join_type == JoinType::AsOf {
+                ui.label(
+                    RichText::new(octa::i18n::t("join.explain_asof"))
+                        .weak()
+                        .size(11.0),
+                );
+            }
 
             ui.add_space(8.0);
             ui.separator();
@@ -226,7 +363,7 @@ pub(crate) fn render_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
                     for (ci, cond) in st.conds.iter_mut().enumerate() {
-                        ui.horizontal(|ui| {
+                        control_row(ui, |ui| {
                             // Left column.
                             egui::ComboBox::from_id_salt(("join_lcol", ci))
                                 .selected_text(
@@ -261,7 +398,7 @@ pub(crate) fn render_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                     }
                                 });
                             // Remove (only when more than one condition).
-                            if more_than_one && ui.small_button("X").clicked() {
+                            if more_than_one && ui.button("X").clicked() {
                                 remove_cond = Some(ci);
                             }
                         });
@@ -271,49 +408,6 @@ pub(crate) fn render_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             if ui.button(octa::i18n::t("join.add_condition")).clicked() {
                 add_cond = true;
             }
-
-            ui.add_space(8.0);
-            ui.separator();
-
-            // --- Join type ---
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(octa::i18n::t("join.type_label"))
-                        .strong()
-                        .size(13.0),
-                );
-                let selected_text = match st.join_type {
-                    JoinType::Inner => octa::i18n::t("join.type_inner"),
-                    JoinType::Left => octa::i18n::t("join.type_left"),
-                    JoinType::Right => octa::i18n::t("join.type_right"),
-                    JoinType::Full => octa::i18n::t("join.type_full"),
-                };
-                egui::ComboBox::from_id_salt("join_type_combo")
-                    .selected_text(selected_text)
-                    .width(120.0)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut st.join_type,
-                            JoinType::Inner,
-                            octa::i18n::t("join.type_inner"),
-                        );
-                        ui.selectable_value(
-                            &mut st.join_type,
-                            JoinType::Left,
-                            octa::i18n::t("join.type_left"),
-                        );
-                        ui.selectable_value(
-                            &mut st.join_type,
-                            JoinType::Right,
-                            octa::i18n::t("join.type_right"),
-                        );
-                        ui.selectable_value(
-                            &mut st.join_type,
-                            JoinType::Full,
-                            octa::i18n::t("join.type_full"),
-                        );
-                    });
-            });
 
             if let Some(err) = &st.error {
                 ui.add_space(6.0);
@@ -345,7 +439,11 @@ pub(crate) fn render_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     }
 
     if apply {
-        match apply_join(app, &st) {
+        let applied = match &st.spatial {
+            Some(sp) => apply_spatial(app, &st, sp),
+            None => apply_join(app, &st),
+        };
+        match applied {
             Ok(()) => return,
             Err(e) => st.error = Some(e),
         }
@@ -381,8 +479,8 @@ fn apply_join(app: &mut OctaApp, st: &JoinState) -> Result<(), String> {
     let mut right = app.tabs[st.right_tab].table.clone();
     right.apply_edits();
 
-    let result =
-        join_two(("l", &left), ("r", &right), &conds, st.join_type).map_err(|e| e.to_string())?;
+    let result = join_two(("l", &left), ("r", &right), &conds, st.join_type)
+        .map_err(|e| format!("{e:#}"))?;
 
     let mut new_tab = TabState::new(app.settings.default_search_mode);
     new_tab.table = result;
@@ -393,6 +491,140 @@ fn apply_join(app: &mut OctaApp, st: &JoinState) -> Result<(), String> {
     if new_tab.table.row_count() > 0 && new_tab.table.col_count() > 0 {
         new_tab.table_state.selected_cell = Some((0, 0));
     }
+    app.tabs.push(new_tab);
+    app.active_tab = app.tabs.len() - 1;
+    Ok(())
+}
+
+/// The Spatial type's body: the detected points, Inside / Nearest, the
+/// distance cut-off and one checkbox per layer tab.
+fn spatial_section(
+    ui: &mut egui::Ui,
+    sp: &mut SpatialDraft,
+    (left_tab, right_tab): (usize, usize),
+    tab_labels: &[String],
+    left_points: Option<&str>,
+) {
+    control_row(ui, |ui| {
+        ui.label(RichText::new(octa::i18n::t("join.spatial_points")).strong());
+        match left_points {
+            Some(cols) => {
+                ui.label(cols);
+            }
+            None => {
+                ui.label(
+                    RichText::new(octa::i18n::t("join.spatial_no_points"))
+                        .color(ui.visuals().error_fg_color),
+                );
+            }
+        }
+    });
+    control_row(ui, |ui| {
+        ui.radio_value(&mut sp.nearest, false, octa::i18n::t("join.spatial_inside"))
+            .on_hover_text(octa::i18n::t("join.spatial_inside_hint"));
+        ui.radio_value(&mut sp.nearest, true, octa::i18n::t("join.spatial_nearest"))
+            .on_hover_text(octa::i18n::t("join.spatial_nearest_hint"));
+        if sp.nearest {
+            ui.label(octa::i18n::t("join.spatial_within"))
+                .on_hover_text(octa::i18n::t("join.spatial_within_hint"));
+            control_text_edit(ui, 80.0, egui::TextEdit::singleline(&mut sp.within_km_text))
+                .on_hover_text(octa::i18n::t("join.spatial_within_hint"));
+        }
+    });
+    // The right tab is the first layer; any other tab can join as well.
+    let extra: Vec<usize> = (0..tab_labels.len())
+        .filter(|&i| i != left_tab && i != right_tab)
+        .collect();
+    if extra.is_empty() {
+        return;
+    }
+    ui.add_space(4.0);
+    ui.label(RichText::new(octa::i18n::t("join.spatial_more_layers")).strong())
+        .on_hover_text(octa::i18n::t("join.spatial_layer_hint"));
+    egui::ScrollArea::vertical()
+        .id_salt("join_spatial_layers")
+        .max_height(180.0)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            for &i in &extra {
+                let mut on = sp.layers.contains(&i);
+                if ui
+                    .checkbox(&mut on, &tab_labels[i])
+                    .on_hover_text(octa::i18n::t("join.spatial_layer_hint"))
+                    .changed()
+                {
+                    if on {
+                        sp.layers.insert(i);
+                    } else {
+                        sp.layers.remove(&i);
+                    }
+                }
+            }
+        });
+}
+
+/// Join the left tab's points against the right tab and every ticked extra
+/// layer by location, opening the result in a new tab.
+fn apply_spatial(app: &mut OctaApp, st: &JoinState, sp: &SpatialDraft) -> Result<(), String> {
+    use octa::data::spatial_join::{Layer, SpatialOp, prefix_for, spatial_join};
+    if st.left_tab == st.right_tab {
+        return Err(octa::i18n::t("join.same_tab"));
+    }
+    let layer_tabs: Vec<usize> = std::iter::once(st.right_tab)
+        .chain(sp.layers.iter().copied())
+        .filter(|&i| i != st.left_tab)
+        .collect();
+    let mut points = app.tabs[st.left_tab].table.clone();
+    points.apply_edits();
+    let cols = point_cols(&points).ok_or_else(|| octa::i18n::t("join.spatial_no_points"))?;
+    let tables: Vec<(String, octa::data::DataTable)> = layer_tabs
+        .iter()
+        .map(|&i| {
+            let mut t = app.tabs[i].table.clone();
+            t.apply_edits();
+            (prefix_for(&tab_label(&app.tabs[i], i)), t)
+        })
+        .collect();
+    let layers: Vec<Layer> = tables
+        .iter()
+        .map(|(name, table)| Layer {
+            name: name.clone(),
+            table,
+        })
+        .collect();
+    let within_km = match sp.within_km_text.trim().replace(',', ".") {
+        s if s.is_empty() => None,
+        s => Some(
+            s.parse::<f64>()
+                .ok()
+                .filter(|v| v.is_finite() && *v >= 0.0)
+                .ok_or_else(|| octa::i18n::t("join.spatial_within_bad"))?,
+        ),
+    };
+    let op = if sp.nearest {
+        SpatialOp::Nearest { within_km }
+    } else {
+        SpatialOp::Inside
+    };
+    let r = spatial_join(&points, cols, &layers, op).map_err(|e| format!("{e:#}"))?;
+    let mut notes = Vec::new();
+    if r.multi_match > 0 {
+        notes.push(
+            octa::i18n::t("join.spatial_multi_note").replace("{count}", &r.multi_match.to_string()),
+        );
+    }
+    if r.no_point > 0 {
+        notes.push(
+            octa::i18n::t("join.spatial_no_point_note").replace("{count}", &r.no_point.to_string()),
+        );
+    }
+    let mut new_tab = TabState::new(app.settings.default_search_mode);
+    new_tab.table = r.table;
+    new_tab.table.source_path = None;
+    new_tab.table.format_name = None;
+    new_tab.custom_tab_label = Some(octa::i18n::t("join.spatial_tab_label"));
+    new_tab.parse_error_banner = (!notes.is_empty()).then(|| notes.join(" "));
+    new_tab.filter_dirty = true;
     app.tabs.push(new_tab);
     app.active_tab = app.tabs.len() - 1;
     Ok(())

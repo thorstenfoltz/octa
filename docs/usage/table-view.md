@@ -1,4 +1,4 @@
-# Table View
+# Table view
 
 The Table view is Octa's default for almost every format: Parquet,
 CSV, SQLite, Excel, you name it. It's a spreadsheet-like virtual
@@ -6,7 +6,6 @@ renderer that streams large files smoothly and supports inline
 editing, multi-cell selection, sorting, filtering, and clipboard
 operations.
 
-<!-- SCREENSHOT: table-view-overview.png: Octa main window in Table view. Show a file with maybe 8-10 columns, a few rows highlighted (selection), a sort indicator on one column. Light theme. -->
 ![Table view](../assets/screenshots/hero-table-view.png)
 
 ## Navigation
@@ -85,8 +84,6 @@ multi-million-row tables.
 
 ## Resizing rows
 
-<!-- SCREENSHOT: row-resize.png: The row-number gutter with the pointer on a row's bottom seam showing the vertical resize cursor, one row visibly taller than its neighbours. -->
-
 Rows resize the same way columns do, in the row-number gutter down the
 left edge:
 
@@ -94,8 +91,8 @@ left edge:
   height. The cursor turns into a vertical resize arrow over the seam.
 - **Double-click that seam** to fit the row to its content, the same
   gesture as on a column-header seam.
-- **Edit → Auto-fit All Rows** fits every row at once, the twin of
-  **Auto-fit All Columns**. Its
+- **Edit → Auto-fit all rows** fits every row at once, the twin of
+  **Auto-fit all columns**. Its
   [shortcut](../reference/shortcuts.md#view) is unbound by default; give
   it a key under **Settings → Shortcuts**.
 - **Drag the bottom edge of the `#` corner** to set the height of
@@ -112,6 +109,13 @@ values then wrap inside the cell and each row takes the height they need.
 Dragging a row taller by hand leaves that setting alone: with line breaks
 off the extra space simply stays empty, as a column dragged wider than its
 content does.
+
+A wrapped cell breaks **anywhere**, not only at spaces. A minified JSON
+value has no spaces to break at, so word wrapping alone would run it past
+the column edge until the first space, which reads as not wrapping at
+all. A table with a **single column** also caps that column's width to
+the window: there is nothing to scroll sideways to, so a wider column
+would only push its own text off the right edge.
 
 ## Reordering columns
 
@@ -300,7 +304,7 @@ the table view only.
 
 Right-click any column header and pick **Hide column** to drop it
 from the view. Hidden columns are still part of the underlying
-table on disk: both **Save** and **Save As** write them out
+table on disk: both **Save** and **Save as** write them out
 unchanged. Pull them back via **Columns → Show hidden columns** (the
 menu entry is greyed when nothing is hidden).
 
@@ -342,7 +346,7 @@ path) cannot be pinned; the menu entry is greyed out for them.
     the standard Save / Don't Save / Cancel dialog. The pinned tab
     reopens on next launch with whatever is on disk. Any unsaved
     edits from the previous session are lost if you didn't save
-    them. Save with **Ctrl+S** (or **Save As**) before quitting.
+    them. Save with **Ctrl+S** (or **Save as**) before quitting.
 
 ## See also
 

@@ -322,6 +322,32 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 ui.close();
             }
 
+            ui.separator();
+            if ui
+                .button(crate::i18n::t("edit_menu.edit_audit"))
+                .on_hover_text(crate::i18n::t("edit_menu.edit_audit_hint"))
+                .clicked()
+            {
+                action.toggle_edit_audit = true;
+                ui.close();
+            }
+            if ui
+                .button(crate::i18n::t("edit_menu.recipe_panel"))
+                .on_hover_text(crate::i18n::t("edit_menu.recipe_panel_hint"))
+                .clicked()
+            {
+                action.toggle_recipe_panel = true;
+                ui.close();
+            }
+            if ui
+                .button(crate::i18n::t("edit_menu.apply_recipe"))
+                .on_hover_text(crate::i18n::t("edit_menu.apply_recipe_hint"))
+                .clicked()
+            {
+                action.open_apply_recipe = true;
+                ui.close();
+            }
+
             if has_edits {
                 ui.separator();
                 if ui

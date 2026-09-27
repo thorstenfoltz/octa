@@ -43,6 +43,7 @@ pub(super) fn draw_data_row_direct(
         cell_line_breaks,
         clickable_links,
         readonly,
+        cell_history_unavailable,
         is_rainbow_theme,
         search_matches,
         current_match,
@@ -400,6 +401,7 @@ pub(super) fn draw_data_row_direct(
                         } else {
                             f32::INFINITY
                         };
+                        job.wrap.break_anywhere = cell_line_breaks;
                         job.append(
                             &display_text,
                             0.0,
@@ -412,12 +414,20 @@ pub(super) fn draw_data_row_direct(
                         );
                         painter.layout_job(job)
                     } else if cell_line_breaks {
-                        painter.layout(
+                        // `break_anywhere`, not egui's default: it breaks only
+                        // at whitespace, and a minified JSON blob (a `Nested`
+                        // cell is stored minified) has none - so the value ran
+                        // on to the first space, far past the column edge,
+                        // which reads as "it does not break". Now the break
+                        // lands exactly at the column edge.
+                        let mut job = egui::text::LayoutJob::simple(
                             display_text,
                             egui::FontId::new(font_size, egui::FontFamily::Monospace),
                             text_color,
                             text_rect.width(),
-                        )
+                        );
+                        job.wrap.break_anywhere = true;
+                        painter.layout_job(job)
                     } else {
                         painter.layout_no_wrap(
                             display_text,
@@ -715,6 +725,18 @@ pub(super) fn draw_data_row_direct(
                             ui.close();
                         }
                     });
+                    let history = ui.add_enabled(
+                        cell_history_unavailable.is_none(),
+                        egui::Button::new(crate::i18n::t("context_menu.cell_history")),
+                    );
+                    if history
+                        .on_hover_text(crate::i18n::t("context_menu.cell_history_hint"))
+                        .on_disabled_hover_text(cell_history_unavailable.unwrap_or_default())
+                        .clicked()
+                    {
+                        interaction.ctx_cell_history = Some((actual_row, col_idx));
+                        ui.close();
+                    }
                 });
             }
         }

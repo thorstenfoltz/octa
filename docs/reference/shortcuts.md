@@ -26,14 +26,15 @@ until you click **Apply**, so **Cancel** still discards the whole lot.
 | Save to database…             | *(unbound)*                                   | Write the open table into a live connection or a DuckDB / SQLite file. See [Database Connections](../usage/database-connections.md).                 |
 | Export workbook…              | *(unbound)*                                   | Write several open tabs into one `.xlsx`, one sheet per tab. See [Saving](../usage/saving.md).                                                       |
 | Open URL…                     | *(unbound)*                                   | Open an `http(s)://` or cloud address as a file. See [Cloud Storage](../usage/cloud-storage.md).                                                     |
+| Open API endpoint…            | *(unbound)*                                   | Read a saved REST/JSON endpoint as a table. See [API Endpoints](../usage/api-endpoints.md).                                                          |
 | Export schema…                | <kbd>F7</kbd>                                 | Open the Schema Export dialog with all ten targets. See [Schema Export](../usage/schema-export.md).                                                  |
-| Reload file from disk         | <kbd>Ctrl</kbd>+<kbd>R</kbd>                  | Discards unsaved changes after a confirmation.                                                                                                       |
+| Refresh tab                   | <kbd>Ctrl</kbd>+<kbd>R</kbd>                  | Reads the tab's source again, into the same tab or a new one. See [Refresh a Tab](../usage/refresh-tab.md).                                          |
 | Close current tab             | <kbd>Ctrl</kbd>+<kbd>W</kbd>                  | Prompts when there are unsaved changes.                                                                                                              |
 | Reopen last closed tab        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> | Walks back through the last 10 closed tabs.                                                                                                          |
 | Quit application              | <kbd>Ctrl</kbd>+<kbd>Q</kbd>                  | Prompts when any tab has unsaved changes.                                                                                                            |
 | Open table folder             | *(unbound)*                                   | Open a Delta / Iceberg / dataset directory as one table. See [Supported Formats](../getting-started/supported-formats.md).                           |
 | Export to PDF...              | *(unbound)*                                   | Render the table to a paginated PDF. See [PDF Export](../usage/pdf-export.md).                                                                       |
-| Open Directory...             | *(unbound)*                                   | Show a folder in the sidebar tree and open files straight from it.                                                                                   |
+| Open directory...             | *(unbound)*                                   | Show a folder in the sidebar tree and open files straight from it.                                                                                   |
 
 ## Tabs
 
@@ -49,7 +50,7 @@ until you click **Apply**, so **Cancel** still discards the whole lot.
 |--------------------------------------------|-----------------------------------------------|-----------------------------------------------------------------------------------------------------------------------|
 | Focus search box                           | <kbd>Ctrl</kbd>+<kbd>F</kbd>                  | Filter the table in real time.                                                                                        |
 | Toggle find & replace                      | <kbd>Ctrl</kbd>+<kbd>H</kbd>                  | Replace bar above the table.                                                                                          |
-| Open column filter                         | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | Per-column value filter. See [Column Filter](../usage/search-and-filter.md#column-filter).                            |
+| Filter by value or shape...                | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | Per-column value or shape filter. See [Column Filter](../usage/search-and-filter.md#column-filter).                   |
 | Open multi-search panel                    | <kbd>F6</kbd>                                 | Cross-tab + directory grep with a docked result list. See [Multi-search](../usage/search-and-filter.md#multi-search). |
 | Run inventory on expanded cloud connection | *(unbound)*                                   | Lists the objects under the expanded cloud prefix as a table. See [Cloud Inventory](../usage/cloud-inventory.md).     |
 
@@ -153,55 +154,66 @@ same precedence Ctrl+M uses from the keyboard.
 
 ## Dialogs
 
-| Action                             | Default                                       | Notes                                                                                                          |
-|------------------------------------|-----------------------------------------------|----------------------------------------------------------------------------------------------------------------|
-| Open documentation                 | <kbd>F1</kbd>                                 | This documentation, in-app.                                                                                    |
-| Open settings                      | <kbd>F3</kbd>                                 |                                                                                                                |
-| Show column value frequency        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd> | Top-N values + counts for the column of the selected cell. See [Value Frequency](../usage/value-frequency.md). |
-| Pivot / Unpivot...                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> | See [Pivot / Unpivot](../usage/pivot.md).                                                                      |
-| Transform column...                | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> | See [Transform column](../usage/transform-column.md).                                                          |
-| Conditional formatting...          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> | See [Conditional formatting](../usage/conditional-formatting.md).                                              |
-| Conditional column...              | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>J</kbd> | If / else-if / else CASE column. See [Transform column](../usage/transform-column.md).                         |
-| Anonymise columns...               | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd> | Mask / scramble sensitive columns. See [Anonymise Columns](../usage/anonymize-columns.md).                     |
-| Data validation...                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | See [Data validation](../usage/data-validation.md).                                                            |
-| Sort by columns...                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> | Multi-column sort.                                                                                             |
-| Summary tab                        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | See [Summary](../usage/summary.md).                                                                            |
-| Data quality report...             | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Q</kbd>   | See [Data Quality Report](../usage/data-quality-report.md).                                                    |
-| Rename columns…                    | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>R</kbd>   | Bulk column rename. See [Rename Columns](../usage/rename-columns.md).                                          |
-| Fill missing values...             | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd>   | See [Fill Missing Values](../usage/fill-missing-values.md).                                                    |
-| Union tables...                    | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd>   | Needs two open tabs. See [Union Tables](../usage/union-tables.md).                                             |
-| Detect outliers...                 | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>O</kbd>   | See [Detect Outliers](../usage/detect-outliers.md).                                                            |
-| Detect PII...                      | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd>   | See [Detect PII](../usage/detect-pii.md).                                                                      |
-| Clean-up suggestions               | *(unbound)*                                   | Toggles the panel; opening it scans. See [Clean-up Suggestions](../usage/cleanup-suggestions.md).              |
-| File internals...                  | *(unbound)*                                   | Physical layout of the open file. See [File Internals](../usage/file-internals.md).                            |
-| Compare with database or cloud...  | *(unbound)*                                   | See [Compare with Database or Cloud](../usage/compare-with-database.md).                                       |
-| Join key finder...                 | *(unbound)*                                   | See [Join Key Finder](../usage/join-key-finder.md).                                                            |
-| Join diagnostics...                | *(unbound)*                                   | See [Join Diagnostics](../usage/join-diagnostics.md).                                                          |
-| Harmonise schemas...               | *(unbound)*                                   | See [Harmonise Schemas](../usage/harmonise-schemas.md).                                                        |
-| Toggle Ask (plain-language filter) | *(unbound)*                                   | Retargets the search box at a question instead of a filter.                                                    |
-| Find duplicate rows...             | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Key picker + highlight / new tab / filter. See [Find duplicates](../usage/editing.md#find-duplicates).         |
-| Find near-duplicates...            | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd> | Fuzzy clusters (typos, spacing, word order). See [Find Near-Duplicates](../usage/find-near-duplicates.md).     |
-| Drop duplicate rows...             | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd> | Find duplicates preset to drop, whole-row key. See [Find duplicates](../usage/editing.md#find-duplicates).     |
-| Join tables                        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Q</kbd> | Needs two open tabs. See [Join Tables](../usage/join-tables.md).                                               |
-| Partition by column                | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Writes one file per group. See [Partition by Column](../usage/partition-by-column.md).                         |
-| Time series...                     | *(unbound)*                                   | Time buckets and rolling windows. See [Time Series](../usage/time-series.md).                                  |
-| Batch convert...                   | *(unbound)*                                   | See [Batch Convert](../usage/batch-convert.md).                                                                |
-| Schema drift...                    | *(unbound)*                                   | See [Schema Drift](../usage/schema-drift.md).                                                                  |
-| Report...                          | *(unbound)*                                   | HTML profiling report. See [Report](../usage/report.md).                                                       |
-| Fuzzy join...                      | *(unbound)*                                   | See [Fuzzy Join](../usage/fuzzy-join.md).                                                                      |
-| Data drift...                      | *(unbound)*                                   | How one dataset changed between two versions. See [Data Drift](../usage/data-drift.md).                        |
-| Relationship map...                | *(unbound)*                                   | Which tables link to which, and on which columns. See [Relationship Map](../usage/relationship-map.md).        |
-| Correlation...                     | *(unbound)*                                   | Pairwise correlation over the numeric columns. See [Correlation](../usage/correlation.md).                     |
-| Compare distributions...           | *(unbound)*                                   | See [Compare Distributions](../usage/compare-distributions.md).                                                |
-| Referential integrity...           | *(unbound)*                                   | Values in one column with no match in another. See [Referential Integrity](../usage/referential-integrity.md). |
-| Transpose...                       | *(unbound)*                                   | Swap rows and columns into a new tab.                                                                          |
-| Compare rows...                    | *(unbound)*                                   | Put the selected or marked rows side by side, field by field.                                                  |
-| Random sample...                   | *(unbound)*                                   | Open a new tab holding a chosen number of random rows.                                                         |
-| Tidy up...                         | *(unbound)*                                   | Whitespace, casing and empty rows or columns in one pass. Refused in read-only mode.                           |
-| Date/Time calculation...           | *(unbound)*                                   | Differences between dates, and date arithmetic into a new column.                                              |
-| Compare with git version...        | *(unbound)*                                   | Diff the open file against a revision from its git history.                                                    |
-| Explain this file                  | *(unbound)*                                   | Ask the assistant what the open table is. Needs a chat profile.                                                |
-| Report AI content...               | *(unbound)*                                   | Report inappropriate assistant output.                                                                         |
+| Action                             | Default                                       | Notes                                                                                                                               |
+|------------------------------------|-----------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| Open documentation                 | <kbd>F1</kbd>                                 | This documentation, in-app.                                                                                                         |
+| Open settings                      | <kbd>F3</kbd>                                 |                                                                                                                                     |
+| Show column value frequency        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd> | Top-N values + counts for the column of the selected cell. See [Value Frequency](../usage/value-frequency.md).                      |
+| Pivot / Unpivot...                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> | See [Pivot / Unpivot](../usage/pivot.md).                                                                                           |
+| Transform column...                | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> | See [Transform column](../usage/transform-column.md).                                                                               |
+| Conditional formatting...          | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> | See [Conditional formatting](../usage/conditional-formatting.md).                                                                   |
+| Conditional column...              | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>J</kbd> | If / else-if / else CASE column. See [Transform column](../usage/transform-column.md).                                              |
+| Anonymise columns...               | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd> | Mask / scramble sensitive columns. See [Anonymise Columns](../usage/anonymize-columns.md).                                          |
+| Data validation...                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | See [Data validation](../usage/data-validation.md).                                                                                 |
+| Sort by columns...                 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> | Multi-column sort.                                                                                                                  |
+| Summary tab                        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | See [Summary](../usage/summary.md).                                                                                                 |
+| Data quality report...             | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Q</kbd>   | See [Data Quality Report](../usage/data-quality-report.md).                                                                         |
+| Rename columns…                    | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>R</kbd>   | Bulk column rename. See [Rename columns](../usage/rename-columns.md).                                                               |
+| Fill missing values...             | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd>   | See [Fill Missing Values](../usage/fill-missing-values.md).                                                                         |
+| Change type...                     | unbound                                       | See [Change column type](../usage/change-column-type.md).                                                                           |
+| Tab memory...                      | unbound                                       | See [Tab memory](../usage/tab-memory.md).                                                                                           |
+| Union tables...                    | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>N</kbd>   | Needs two open tabs. See [Union Tables](../usage/union-tables.md).                                                                  |
+| Detect outliers...                 | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>O</kbd>   | See [Detect Outliers](../usage/detect-outliers.md).                                                                                 |
+| Detect PII...                      | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd>   | See [Detect PII](../usage/detect-pii.md).                                                                                           |
+| Clean-up suggestions               | *(unbound)*                                   | Toggles the panel; opening it scans. See [Clean-up Suggestions](../usage/cleanup-suggestions.md).                                   |
+| Toggle column navigator            | *(unbound)*                                   | Docked, searchable list of columns: show, hide, freeze and reorder. See [Column Navigator](../usage/column-navigator.md).           |
+| Toggle edit audit trail            | *(unbound)*                                   | Docked list of pending cell edits, with before/after values, jump and revert. See [Edit Audit Trail](../usage/edit-audit-trail.md). |
+| Toggle recipe panel                | *(unbound)*                                   | The steps done to this tab, to save as a recipe. See [Recipes](../usage/recipes.md).                                                |
+| Apply recipe...                    | *(unbound)*                                   | Replay a saved `.ocp` recipe on the active tab. See [Recipes](../usage/recipes.md).                                                 |
+| Choose recipe ID column...         | *(unbound)*                                   | Which column names a row for recorded cell edits. See [Recipes](../usage/recipes.md).                                               |
+| File internals...                  | *(unbound)*                                   | Physical layout of the open file. See [File Internals](../usage/file-internals.md).                                                 |
+| Compare with database or cloud...  | *(unbound)*                                   | See [Compare with Database or Cloud](../usage/compare-with-database.md).                                                            |
+| Join key finder...                 | *(unbound)*                                   | See [Join Key Finder](../usage/join-key-finder.md).                                                                                 |
+| Join diagnostics...                | *(unbound)*                                   | See [Join Diagnostics](../usage/join-diagnostics.md).                                                                               |
+| Harmonise schemas...               | *(unbound)*                                   | See [Harmonise Schemas](../usage/harmonise-schemas.md).                                                                             |
+| Toggle Ask (plain-language filter) | *(unbound)*                                   | Retargets the search box at a question instead of a filter.                                                                         |
+| Find duplicate rows...             | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Key picker + highlight / new tab / filter. See [Find duplicates](../usage/editing.md#find-duplicates).                              |
+| Find near-duplicates...            | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>U</kbd> | Fuzzy clusters (typos, spacing, word order). See [Find Near-Duplicates](../usage/find-near-duplicates.md).                          |
+| Drop duplicate rows...             | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd> | Find duplicates preset to drop, whole-row key. See [Find duplicates](../usage/editing.md#find-duplicates).                          |
+| Join tables                        | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Q</kbd> | Needs two open tabs. See [Join Tables](../usage/join-tables.md).                                                                    |
+| Partition by column                | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Writes one file per group. See [Partition by Column](../usage/partition-by-column.md).                                              |
+| Time series...                     | *(unbound)*                                   | Time buckets and rolling windows. See [Time Series](../usage/time-series.md).                                                       |
+| Batch convert...                   | *(unbound)*                                   | See [Batch Convert](../usage/batch-convert.md).                                                                                     |
+| Schema drift...                    | *(unbound)*                                   | See [Schema Drift](../usage/schema-drift.md).                                                                                       |
+| Merge versions...                  | *(unbound)*                                   | Merge two or more edited versions of a table. See [Merge Versions](../usage/merge-versions.md).                                     |
+| Generate test data...              | *(unbound)*                                   | New rows shaped like the table, to share. See [Test Data](../usage/test-data.md).                                                   |
+| Report...                          | *(unbound)*                                   | HTML profiling report. See [Report](../usage/report.md).                                                                            |
+| Fuzzy join...                      | *(unbound)*                                   | See [Fuzzy Join](../usage/fuzzy-join.md).                                                                                           |
+| Data drift...                      | *(unbound)*                                   | How one dataset changed between two versions. See [Data Drift](../usage/data-drift.md).                                             |
+| Relationship map...                | *(unbound)*                                   | Which tables link to which, and on which columns. See [Relationship Map](../usage/relationship-map.md).                             |
+| Correlation...                     | *(unbound)*                                   | Pairwise correlation over the numeric columns. See [Correlation](../usage/correlation.md).                                          |
+| Find lookup tables...              | *(unbound)*                                   | Columns that always follow another column. See [Find Lookup Tables](../usage/lookup-tables.md).                                     |
+| Cell history...                    | *(unbound)*                                   | The commits that changed the selected cell. See [Cell History](../usage/cell-history.md).                                           |
+| Compare distributions...           | *(unbound)*                                   | See [Compare Distributions](../usage/compare-distributions.md).                                                                     |
+| Referential integrity...           | *(unbound)*                                   | Values in one column with no match in another. See [Referential Integrity](../usage/referential-integrity.md).                      |
+| Transpose...                       | *(unbound)*                                   | Swap rows and columns into a new tab.                                                                                               |
+| Compare rows...                    | *(unbound)*                                   | Put the selected or marked rows side by side, field by field.                                                                       |
+| Random sample...                   | *(unbound)*                                   | Open a new tab holding a chosen number of random rows.                                                                              |
+| Tidy up...                         | *(unbound)*                                   | Whitespace, casing and empty rows or columns in one pass. Refused in read-only mode.                                                |
+| Date/Time calculation...           | *(unbound)*                                   | Differences between dates, and date arithmetic into a new column.                                                                   |
+| Compare with git version...        | *(unbound)*                                   | Diff the open file against a revision from its git history.                                                                         |
+| Explain this file                  | *(unbound)*                                   | Ask the assistant what the open table is. Needs a chat profile.                                                                     |
+| Report AI content...               | *(unbound)*                                   | Report inappropriate assistant output.                                                                                              |
 
 All of these are rebindable in **Settings → Shortcuts**, which refuses to let two
 actions share the same combination.
@@ -231,6 +243,6 @@ If you only remember a handful:
 ## See also
 
 - [Settings → Shortcuts](settings.md#shortcuts), the rebinding UI.
-- [Table View](../usage/table-view.md) for context on the navigation
+- [Table view](../usage/table-view.md) for context on the navigation
   and selection shortcuts.
 - [Editing](../usage/editing.md) for context on the editing shortcuts.

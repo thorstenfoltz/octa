@@ -7,7 +7,7 @@ by format family; this page covers what to expect for each.
 
 - **File → Save** (Ctrl+S) writes back to the original path in the
   original format.
-- **File → Save As…** lets you pick a new path and / or a different
+- **File → Save as…** lets you pick a new path and / or a different
   format. The output format is chosen from the file extension you
   type in the save dialog.
 - Closing a tab or quitting Octa with unsaved changes pops a
@@ -31,10 +31,10 @@ existed:
 - **Reload** throws away your unsaved edits and reads the file from disk
   again, the same as Ctrl+R.
 - **Cancel** touches nothing. The tab keeps your edits, so you can copy
-  what you need out of it, or **Save As** to a second file and compare
+  what you need out of it, or **Save as** to a second file and compare
   the two.
 
-Only **Save** is guarded. **Save As** writes wherever you point it,
+Only **Save** is guarded. **Save as** writes wherever you point it,
 because you just chose that path in the file dialog and the dialog asked
 about overwriting itself. A file that has been *deleted* is not a
 conflict either: saving recreates it.
@@ -42,12 +42,31 @@ conflict either: saving recreates it.
 [Auto-save](auto-save.md) never raises this prompt. It skips a tab whose
 file changed and leaves the question for your next manual save.
 
+## When only part of the file is loaded
+
+Octa stops reading at the
+[initial-load row cap](large-files.md), so a very large file is open as a
+window onto itself. **Save** writes the rows it holds over the source
+path, which for such a file would delete every row that was never read,
+silently and with a success message.
+
+So that one save asks first, naming the numbers:
+
+- **Load all rows** reads the whole file with the limit lifted, and then
+  you save normally. On a big file that costs time and memory.
+- **Save anyway** writes only the loaded rows over the file. The rest is
+  gone. This is right when you deliberately opened a slice.
+- **Cancel** touches nothing.
+
+**Save as** is unguarded here for the same reason as above: writing a
+slice to a *new* file loses nothing.
+
 ## Rounding on save
 
 [Per-column number formats](table-view.md#number-display-separators-and-rounding)
 are display-only: the in-memory table keeps full precision. If you set
 a rounding format (fixed decimals) on any column and then **Save** or
-**Save As**, Octa asks how the file should be written:
+**Save as**, Octa asks how the file should be written:
 
 - **Save rounded values** writes the rounded numbers shown
   in the table.
@@ -221,7 +240,7 @@ Apart from the Parquet codec, which is `zstd`, the defaults reproduce
 exactly what Octa wrote before these options existed. Formats other than
 Parquet, CSV, TSV and `.xlsx` ignore them.
 
-**Save As** uses the Settings defaults: it is the operating system's file
+**Save as** uses the Settings defaults: it is the operating system's file
 picker, so there is nowhere to put per-save controls. Use Batch Convert
 (or the CLI flags below) when you want to override them for one run.
 
@@ -370,31 +389,31 @@ geometries yet; only GeoJSON triggers the Map view today.
 | **R Datasets** (`.rds`, `.rdata`, `.rda`) | `rds2rust` is read-only and Octa only handles the single `data.frame` case anyway.         |
 | **HDF5** (`.h5`, `.hdf5`, `.hdf`)         | `hdf5-reader 0.4` is read-only.                                                            |
 | **NetCDF v3** (`.nc`)                     | `netcdf3 0.6` is read-only in the upstream crate.                                          |
-| **EPUB** (`.epub`)                        | Read-only by design; the [EPUB Reader view](view-modes/epub-reader.md) is a viewer.        |
+| **EPUB** (`.epub`)                        | Read-only by design; the [EPUB reader view](view-modes/epub-reader.md) is a viewer.        |
 | **GeoJSON** (`.geojson`)                  | Read-only for now; the [Map view](view-modes/map.md) doesn't currently write back changes. |
 
-To export from a read-only format, use **Save As…** and pick a
+To export from a read-only format, use **Save as…** and pick a
 writable format (CSV, Parquet, etc.).
 
-## Save As across formats
+## Save as across formats
 
-**File → Save As…** routes through `FormatRegistry`: pick any file
+**File → Save as…** routes through `FormatRegistry`: pick any file
 extension that Octa can write and the appropriate writer handles
 the conversion. Same as the CLI's
 [`octa --convert`](../cli/convert.md).
 
-If you try to Save As into a **read-only target** (`.sas7bdat`,
+If you try to Save as into a **read-only target** (`.sas7bdat`,
 `.rds`, etc.), the dialog accepts the path but the save fails
 loudly with *"format X does not support writing"*.
 
-## Save As respects active filters
+## Save as respects active filters
 
 When the active tab has a text search or
 [column filter](search-and-filter.md#column-filter) applied,
-**Save As** writes only the **currently visible** rows. The status
+**Save as** writes only the **currently visible** rows. The status
 bar confirms the export: *"Exported N filtered rows to {path}
 (in-memory table unchanged)"*. The tab's `source_path` is **not**
-updated and the modified flag is left alone. Save As under filters
+updated and the modified flag is left alone. Save as under filters
 behaves as a one-shot export, not a permanent re-anchor.
 
 Regular **Save** (Ctrl+S) is unaffected by filters: it always writes

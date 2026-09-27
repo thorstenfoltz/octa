@@ -249,12 +249,11 @@ impl OctaApp {
         {
             self.save_file_as();
         }
-        if action_fired(SA::ReloadFile) && self.tabs[self.active_tab].table.source_path.is_some() {
-            if self.tabs[self.active_tab].is_modified() {
-                self.show_reload_confirm = true;
-            } else {
-                self.reload_active_file();
-            }
+        if action_fired(SA::ReloadFile) {
+            // Every tab with a source refreshes: a file, a database table, a
+            // cloud object or an endpoint. Same key, same meaning: get me the
+            // current data.
+            self.request_refresh(self.active_tab, ctx);
         }
         if action_fired(SA::GoToCell) {
             self.nav_focus_requested = true;
@@ -314,13 +313,22 @@ impl OctaApp {
             if action_fired(SA::OpenUrl) {
                 self.open_url_dialog();
             }
+            if action_fired(SA::OpenApiEndpoint) {
+                self.open_api_dialog();
+            }
             if action_fired(SA::Undo) && !self.is_readonly() {
                 self.do_undo();
             }
             if action_fired(SA::Redo) && !self.is_readonly() {
                 self.do_redo();
             }
-            if action_fired(SA::Mark) && !self.is_readonly() {
+            // Colour marks are view state (`DataTable.marks`), not a data
+            // edit. The context menu (`table_view/rows.rs`, `header.rs`)
+            // and Edit -> Mark never consult `is_readonly()`, so gating
+            // only the chord on it made Ctrl+M a silent no-op on every
+            // live-DB tab that is not write-enabled - marking by menu
+            // worked, the shortcut did nothing. All three paths agree now.
+            if action_fired(SA::Mark) {
                 let color = self.settings.default_mark_color;
                 self.mark_selection_default(color);
             }
@@ -507,6 +515,24 @@ impl OctaApp {
                     tab.show_find_duplicates = true;
                 }
             }
+            if action_fired(SA::OpenTabMemory) && !text_edit_focused {
+                self.open_tab_memory();
+            }
+            if action_fired(SA::OpenRetypeColumn)
+                && !text_edit_focused
+                && !self.is_readonly()
+                && self.tabs[self.active_tab].table.col_count() > 0
+            {
+                let col = self.tabs[self.active_tab]
+                    .table_state
+                    .selected_cell
+                    .map(|(_, c)| c)
+                    .unwrap_or(0);
+                self.retype_dialog = Some(crate::app::state::RetypeState::new(
+                    col,
+                    octa::data::retype::TargetType::Text,
+                ));
+            }
             if action_fired(SA::OpenImpute)
                 && self.tabs[self.active_tab].table.col_count() > 0
                 && !self.is_readonly()
@@ -517,6 +543,12 @@ impl OctaApp {
                 && let Some(path) = rfd::FileDialog::new().pick_folder()
             {
                 super::dialogs::batch_convert::open_for_folder(self, &path);
+            }
+            if action_fired(SA::OpenMergeVersions) {
+                self.open_merge_versions_dialog();
+            }
+            if action_fired(SA::OpenTestData) && self.tabs[self.active_tab].table.col_count() > 0 {
+                self.open_test_data_dialog();
             }
             if action_fired(SA::OpenSchemaDrift) {
                 self.schema_drift_dialog = Some(super::state::SchemaDriftState::new(String::new()));
@@ -573,6 +605,21 @@ impl OctaApp {
                 && self.tabs[self.active_tab].table.col_count() > 0
             {
                 self.toggle_cleanup_panel();
+            }
+            if action_fired(SA::ToggleColumnNavigator) {
+                self.toggle_column_navigator();
+            }
+            if action_fired(SA::ToggleRecipePanel) {
+                self.toggle_recipe_panel();
+            }
+            if action_fired(SA::ApplyRecipe) {
+                self.pick_and_apply_recipe();
+            }
+            if action_fired(SA::ChooseRecipeKey) {
+                self.open_recipe_key_dialog(false);
+            }
+            if action_fired(SA::ToggleEditAudit) {
+                self.toggle_edit_audit();
             }
             // Union and Join need a second open table; tell the user instead
             // of failing silently when only one tab is open.
@@ -691,6 +738,16 @@ impl OctaApp {
                     method: octa::data::correlation::CorrMethod::Pearson,
                     size: octa::ui::settings::DialogSize::default(),
                 });
+            }
+            if action_fired(SA::OpenLookups) && has_columns {
+                let mut st = super::state::LookupsState::new(self.active_tab);
+                super::dialogs::lookups::start_scan(self, &mut st);
+                self.lookups_dialog = Some(st);
+            }
+            if action_fired(SA::OpenCellHistory)
+                && let Some((r, c)) = self.tabs[self.active_tab].table_state.selected_cell
+            {
+                self.open_cell_history(r, c);
             }
             if action_fired(SA::OpenDistCompare) && has_columns {
                 self.dist_compare_dialog = Some(super::state::DistCompareState {

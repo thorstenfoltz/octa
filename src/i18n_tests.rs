@@ -186,6 +186,7 @@ const UNTRANSLATABLE_PHRASES: &[&str] = &[
     "db.auth_gcp_iam",           // GCP IAM (Cloud SQL)
     "db.auth_gcp_adc",           // Application Default Credentials
     "dialog.swb_target_is_file", // File (DuckDB / SQLite)
+    "validation_kind.gtin",      // EAN / ISBN / UPC, the standards' own names
 ];
 
 /// A locale must not carry whole English sentences.
@@ -245,7 +246,12 @@ const OPENS_SOMETHING: &[&str] = &[
     "file_menu.open_as",           // file picker
     "file_menu.open_table_folder", // folder picker
     "file_menu.batch_convert",     // dialog
+    "retype.menu_entry",           // dialog
+    "tabmem.menu",                 // dialog
     "file_menu.schema_drift",
+    "file_menu.merge_versions",     // dialog
+    "testdata.menu",                // dialog
+    "edit_menu.apply_recipe",       // file picker
     "file_menu.harmonise",          // dialog
     "file_menu.report",             // dialog
     "file_menu.open_directory",     // folder picker
@@ -254,6 +260,7 @@ const OPENS_SOMETHING: &[&str] = &[
     "file_menu.save_sql",           // file picker
     "file_menu.export_workbook",    // dialog
     "file_menu.open_url",           // dialog
+    "file_menu.open_api",           // dialog
     "common.open",                  // file picker
     "common.save_as",               // file picker
     "edit_menu.rename_columns",     // dialog
@@ -281,6 +288,9 @@ const OPENS_SOMETHING: &[&str] = &[
     "analyse_menu.pivot",
     "analyse_menu.timeseries",      // dialog
     "analyse_menu.correlation",     // dialog
+    "analyse_menu.lookups",         // dialog
+    "context_menu.cell_history",    // dialog
+    "columns_menu.filter",          // dialog
     "distcmp.menu",                 // dialog
     "refint.menu",                  // dialog
     "analyse_menu.multi_sort",      // dialog
@@ -305,16 +315,22 @@ const JUST_EXECUTES: &[&str] = &[
     "file_menu.exit",
     "common.save",
     "edit_menu.fit_all_columns",
+    "edit_menu.recipe_panel", // toggles the panel
+    "retype.menu",            // opens a submenu, not a window
     "edit_menu.copy_markdown",
     "edit_menu.insert_row",
     "edit_menu.clear_all_marks",
     "edit_menu.discard_all_edits",
     "view_menu.record",    // switches view mode in place
+    "view_menu.timeline",  // switches view mode in place
     "view_menu.reopen_as", // re-reads the file in place
+    "refresh.menu",        // re-reads the source in place; its question is a confirmation
     "view_menu.readonly",
-    "view_menu.split",      // toggles the second row band in place
-    "view_menu.split_side", // same, side by side
-    "view_menu.add_pane",   // one more band, in place
+    "view_menu.split",            // toggles the second row band in place
+    "view_menu.split_side",       // same, side by side
+    "view_menu.column_navigator", // toggles a docked panel, like SQL / Assistant
+    "view_menu.edit_audit",       // toggles a docked panel, like SQL / Assistant
+    "view_menu.add_pane",         // one more band, in place
     "view_menu.remove_pane",
     "view_menu.zoom_reset",
     "search_menu.find",

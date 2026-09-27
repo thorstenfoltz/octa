@@ -1,3 +1,4 @@
+pub mod api_secrets;
 pub mod chat_models;
 pub mod chat_profiles;
 pub mod chat_tools;

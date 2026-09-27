@@ -79,6 +79,98 @@ enum JsonRowKind<'a> {
     Leaf { value: &'a serde_json::Value },
 }
 
+/// Cheap shape test for "this string might be a JSON document". Runs per
+/// frame for every visible leaf, so it must not parse: the real parse happens
+/// once, when the user actually unfolds the value.
+fn looks_like_nested_json(s: &str) -> bool {
+    let t = s.trim();
+    t.len() > 2
+        && ((t.starts_with('{') && t.ends_with('}')) || (t.starts_with('[') && t.ends_with(']')))
+}
+
+/// Separates a leaf's own path from a path *inside* the JSON document that
+/// leaf's string holds. Paths are otherwise built from keys and indices
+/// (`orders[0].id`), so a path carrying this control character is one the
+/// file does not have: display-only, never edited or written back.
+const NESTED_MARK: char = '\u{1}';
+
+/// Is this row part of an unfolded nested document rather than the file?
+fn is_nested_path(path: &str) -> bool {
+    path.contains(NESTED_MARK)
+}
+
+/// Parse a string that holds a JSON document. A value that only looked like
+/// JSON comes back as the parse error, shown as a single leaf, rather than
+/// unfolding to nothing.
+fn parse_nested_json(s: &str) -> serde_json::Value {
+    serde_json::from_str(s).unwrap_or_else(|e| {
+        serde_json::Value::String(format!("{} ({e})", octa::i18n::t("view.jt_nested_invalid")))
+    })
+}
+
+/// How deep a chain of JSON-inside-JSON one click follows, and how many
+/// documents it may parse on the way.
+///
+/// A file that encodes JSON as a string usually does it more than once: the
+/// blob holds records, and a field of each record is another blob. Unfolding
+/// one level left the rest as a single endless line, which is the whole
+/// complaint the unfold exists to answer.
+///
+/// ponytail: a flat budget rather than a size-aware one. Both limits are
+/// generous for hand-inspected files; make them settings if someone opens a
+/// blob that needs more.
+const NESTED_MAX_DEPTH: usize = 8;
+const NESTED_MAX_DOCS: usize = 4000;
+
+/// String leaves inside `value` that are themselves JSON, as
+/// `(path, contents)`. Paths are built exactly as [`flatten`] builds them, or
+/// the cache lookup would miss.
+fn nested_json_strings(value: &serde_json::Value, path: &str, out: &mut Vec<(String, String)>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (k, v) in map {
+                nested_json_strings(v, &format!("{path}.{k}"), out);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for (i, v) in arr.iter().enumerate() {
+                nested_json_strings(v, &format!("{path}[{i}]"), out);
+            }
+        }
+        serde_json::Value::String(s) if looks_like_nested_json(s) => {
+            out.push((path.to_string(), s.clone()));
+        }
+        _ => {}
+    }
+}
+
+/// Unfold the JSON document held in `raw` under `path`, then keep going into
+/// every string leaf of it that is itself JSON. Fills `docs` with one parsed
+/// document per unfolded leaf and `expanded` with every path to open, so one
+/// click opens the whole chain instead of its first link.
+fn unfold_nested_json(
+    raw: &str,
+    path: &str,
+    docs: &mut std::collections::HashMap<String, serde_json::Value>,
+    expanded: &mut std::collections::HashSet<String>,
+    depth: usize,
+) {
+    if docs.len() >= NESTED_MAX_DOCS {
+        return;
+    }
+    let doc = parse_nested_json(raw);
+    let prefix = format!("{path}{NESTED_MARK}");
+    expanded.extend(json_util::collect_json_paths_under(&doc, &prefix));
+    if depth < NESTED_MAX_DEPTH {
+        let mut inner = Vec::new();
+        nested_json_strings(&doc, &prefix, &mut inner);
+        for (inner_path, contents) in inner {
+            unfold_nested_json(&contents, &inner_path, docs, expanded, depth + 1);
+        }
+    }
+    docs.insert(path.to_string(), doc);
+}
+
 /// Render the interactive JSON tree view (Firefox-style collapsible tree).
 pub fn render_json_tree_view(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMode) {
     render_value_tree(ui, tab, theme_mode, TreeKind::Json);
@@ -165,6 +257,7 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
         }
     } else if collapse_all {
         tab.json_tree_expanded.clear();
+        tab.json_nested_docs.clear();
     } else if let Some(d) = apply_depth
         && let Some(v) = kind.value(tab)
     {
@@ -196,6 +289,7 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
             is_last: true,
         },
         &tab.json_tree_expanded,
+        &tab.json_nested_docs,
         &mut rows,
     );
 
@@ -234,6 +328,7 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
     let match_set: std::collections::HashSet<usize> = match_indices.into_iter().collect();
 
     let mut toggle_path: Option<String> = None;
+    let mut nested_toggle: Option<(String, String)> = None;
     let mut edit_request: Option<(String, String)> = None;
     let mut key_edit_request: Option<(String, String)> = None;
     let mut add_key_request: Option<String> = None;
@@ -259,6 +354,10 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
         ui.add_space(8.0);
         for i in range {
             let row = &rows[i];
+            // Rows unfolded out of a string's own JSON document: shown, never
+            // edited. They are not in the file, so a rename, a new key or a
+            // changed value would have nowhere to go.
+            let read_only = is_nested_path(&row.path);
             let comma = if row.is_last { "" } else { "," };
             // Highlight background for this node when its key/value matches.
             // Painted as a zero-margin Frame fill so it sits behind the row
@@ -308,7 +407,8 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
                                     tab.tree_key_edit_path.as_deref(),
                                     &mut tab.tree_key_edit_buffer,
                                     &colors,
-                                ) {
+                                ) && !read_only
+                                {
                                     key_edit_request = Some(req);
                                 }
                                 if *is_expanded {
@@ -319,6 +419,7 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
                                             .color(colors.text_primary),
                                     );
                                     if *is_object
+                                        && !read_only
                                         && ui
                                             .small_button("+")
                                             .on_hover_text(octa::i18n::t("view.jt_add_key"))
@@ -379,7 +480,8 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
                                     tab.tree_key_edit_path.as_deref(),
                                     &mut tab.tree_key_edit_buffer,
                                     &colors,
-                                ) {
+                                ) && !read_only
+                                {
                                     key_edit_request = Some(req);
                                 }
                                 let is_editing = tab.json_edit_path.as_deref() == Some(&row.path);
@@ -416,9 +518,32 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
                                         .selectable(true)
                                         .sense(egui::Sense::click()),
                                     );
-                                    if response.double_clicked() {
+                                    if response.double_clicked() && !read_only {
                                         edit_request =
                                             Some((row.path.clone(), leaf_edit_text(value)));
+                                    }
+                                    // Unfold a string whose content is itself
+                                    // a JSON document.
+                                    if let serde_json::Value::String(sv) = value
+                                        && looks_like_nested_json(sv)
+                                    {
+                                        let open = tab.json_nested_docs.contains_key(&row.path);
+                                        let glyph = if open { "[-]" } else { "[+]" };
+                                        ui.add_space(4.0);
+                                        if ui
+                                            .add(
+                                                egui::Label::new(
+                                                    RichText::new(glyph)
+                                                        .font(mono())
+                                                        .color(colors.text_muted),
+                                                )
+                                                .sense(egui::Sense::click()),
+                                            )
+                                            .on_hover_text(octa::i18n::t("view.jt_nested_hint"))
+                                            .clicked()
+                                        {
+                                            nested_toggle = Some((row.path.clone(), sv.clone()));
+                                        }
                                     }
                                 }
                             }
@@ -456,6 +581,24 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
     {
         tab.json_tree_expanded.insert(p);
     }
+    // Parse once, here: `flatten` then reads the cached documents every frame.
+    if let Some((path, raw)) = nested_toggle {
+        let prefix = format!("{path}{NESTED_MARK}");
+        if tab.json_nested_docs.remove(&path).is_some() {
+            // Folding drops the whole chain this leaf opened, not just its
+            // first link.
+            tab.json_nested_docs.retain(|p, _| !p.starts_with(&prefix));
+            tab.json_tree_expanded.retain(|p| !p.starts_with(&prefix));
+        } else {
+            unfold_nested_json(
+                &raw,
+                &path,
+                &mut tab.json_nested_docs,
+                &mut tab.json_tree_expanded,
+                0,
+            );
+        }
+    }
     if let Some((path, buf)) = edit_request {
         tab.json_edit_path = Some(path);
         tab.json_edit_buffer = buf;
@@ -471,6 +614,9 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
     }
     if edit_commit {
         if let Some(ref edit_path) = tab.json_edit_path.clone() {
+            // The unfolded document was the *old* value's. Fold rather than
+            // re-parse: the new text may not be JSON any more.
+            tab.json_nested_docs.remove(edit_path);
             let new_value = json_util::parse_json_edit(&tab.json_edit_buffer);
             let mutated = match kind.value_mut(tab) {
                 Some(root) => json_util::set_json_value_at_path(root, edit_path, new_value).is_ok(),
@@ -674,10 +820,10 @@ fn json_row_matches(row: &JsonRow, m: &RowMatcher) -> bool {
     {
         return true;
     }
-    if let JsonRowKind::Leaf { value } = &row.kind {
-        return m.matches(&leaf_edit_text(value));
+    match &row.kind {
+        JsonRowKind::Leaf { value } => m.matches(&leaf_edit_text(value)),
+        _ => false,
     }
-    false
 }
 
 fn leaf_display(value: &serde_json::Value, comma: &str) -> String {
@@ -733,6 +879,7 @@ fn flatten<'a>(
     path: &str,
     pos: NodePos<'_>,
     expanded: &std::collections::HashSet<String>,
+    nested: &'a std::collections::HashMap<String, serde_json::Value>,
     out: &mut Vec<JsonRow<'a>>,
 ) {
     let NodePos {
@@ -774,6 +921,7 @@ fn flatten<'a>(
                             is_last: i + 1 == n,
                         },
                         expanded,
+                        nested,
                         out,
                     );
                 }
@@ -820,6 +968,7 @@ fn flatten<'a>(
                             is_last: i + 1 == n,
                         },
                         expanded,
+                        nested,
                         out,
                     );
                 }
@@ -842,6 +991,29 @@ fn flatten<'a>(
                 is_last,
                 kind: JsonRowKind::Leaf { value },
             });
+            // A string holding a whole JSON document. Unfolded, it becomes
+            // the same rows the file's own structure gets - keys, arrays,
+            // collapsible objects - under a `NESTED_MARK` path, which is what
+            // makes them display-only.
+            if let Some(doc) = nested.get(path) {
+                flatten(
+                    doc,
+                    &format!("{path}{NESTED_MARK}"),
+                    NodePos {
+                        key: None,
+                        is_index: false,
+                        depth: depth + 1,
+                        is_last: true,
+                    },
+                    expanded,
+                    nested,
+                    out,
+                );
+            }
         }
     }
 }
+
+#[cfg(test)]
+#[path = "json_tree_view_tests.rs"]
+mod tests;

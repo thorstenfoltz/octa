@@ -99,6 +99,7 @@ fn value_hints_sit_on_the_two_verdict_columns() {
         let expected = match id {
             "benford_verdict" => crate::data::benford::VALUE_HINTS.len(),
             "calendar_verdict" => crate::data::calendar_coverage::VALUE_HINTS.len(),
+            "shape_verdict" => crate::data::shapes::VALUE_HINTS.len(),
             _ => 0,
         };
         assert_eq!(count, expected, "{id} carries the wrong value hints");
@@ -113,6 +114,7 @@ fn every_value_hint_key_resolves() {
     for (value, key) in crate::data::benford::VALUE_HINTS
         .iter()
         .chain(crate::data::calendar_coverage::VALUE_HINTS)
+        .chain(crate::data::shapes::VALUE_HINTS)
     {
         assert_ne!(crate::i18n::t(key), *key, "{value} has no English text");
     }
@@ -179,6 +181,34 @@ fn benford_reports_a_reason_when_it_does_not_apply() {
     assert_eq!(
         rep.table.get(1, col).map(ToString::to_string),
         Some("not tested: not numbers".to_string())
+    );
+}
+
+/// A text column that is mostly one shape, with a handful of stragglers,
+/// has to reach both surfaces at once: a `mixed` verdict on the main table,
+/// and its own section tab listing the stray shapes.
+#[test]
+fn shape_verdict_flags_a_straggler_and_opens_a_section() {
+    let mut t = DataTable::empty();
+    t.columns = vec![ColumnInfo {
+        name: "postcode".into(),
+        data_type: "Utf8".into(),
+    }];
+    t.rows = (0..19)
+        .map(|i| vec![CellValue::String(format!("D-{i:05}"))])
+        .chain(std::iter::once(vec![CellValue::String("12345".into())]))
+        .collect();
+    let report = build_quality_report(&t).unwrap();
+    let col = quality_column_ids()
+        .iter()
+        .position(|id| *id == "shape_verdict")
+        .unwrap();
+    assert_eq!(report.table.rows[0][col], CellValue::String("mixed".into()));
+    assert!(
+        report
+            .sections
+            .iter()
+            .any(|s| s.title_key == "quality.section_shapes")
     );
 }
 

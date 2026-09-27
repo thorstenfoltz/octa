@@ -1,18 +1,17 @@
-# JSON & YAML Tree View
+# JSON & YAML tree View
 
 A Firefox-style collapsible tree for inspecting JSON, JSONL, and
 YAML documents. The same renderer handles both: the YAML tree is
 fed by `serde_yaml` converted to the same `serde_json::Value` shape
 that JSON uses.
 
-<!-- SCREENSHOT: json-tree-view.png: JSON Tree view with several levels expanded, showing keys, nested objects, arrays, mixed value types. -->
-![JSON Tree view](../../assets/screenshots/json-tree-view.png){ .screenshot-placeholder }
+![JSON tree view](../../assets/screenshots/json-tree-view.png){ .screenshot-placeholder }
 
 ## When the tree view is available
 
-- `.json` and `.jsonl` files: JSON Tree mode shows in the View
+- `.json` and `.jsonl` files: JSON tree mode shows in the View
   menu after a successful parse.
-- `.yaml` / `.yml` files: YAML Tree mode shows after parse.
+- `.yaml` / `.yml` files: YAML tree mode shows after parse.
 
 Both modes parse the file once at load time and cache the result
 on the tab.
@@ -28,6 +27,21 @@ You can also open JSON / YAML in [Table view](../table-view.md)
 - **Right-click anywhere** for the context menu:
   - Copy JSON (whole document, pretty-printed)
   - Copy YAML (when the tree is YAML)
+
+## Unfolding a value that is itself JSON
+
+A field whose *string* holds a whole JSON document is a common shape in
+logs and API dumps, and it arrives as one endless leaf. Such a leaf gets
+a small `[+]` beside it: click to unfold the string into a tree of its
+own, with keys, arrays and collapsible objects exactly like the file's
+own structure, click `[-]` to fold it back. Unfolding opens every level,
+since seeing the keys is the point.
+
+This is display only. The unfolded document is not merged into the file:
+its rows cannot be renamed, edited or added to, and nothing about the
+file changes. They do take part in [search](../search-and-filter.md), so
+a term buried inside the blob is findable. If the string is not valid
+JSON after all, a single row says so instead of the content.
 
 ## Editing in place
 

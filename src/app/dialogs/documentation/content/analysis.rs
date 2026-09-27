@@ -252,7 +252,7 @@ numbers underneath (no separators baked in).
 ## Working with the result
 
 The Summary tab is an ordinary table tab: you can sort it, filter it,
-copy cells, and export it via **File > Save As**. It is a detached
+copy cells, and export it via **File > Save as**. It is a detached
 snapshot with no source path, so it can never overwrite the original
 file. Re-run **Analyse > Summary...** after further edits to get a
 fresh snapshot.
@@ -282,7 +282,7 @@ The grid has one row per column per row group:
 
 Up to three plain-language hints appear when the layout looks poor: very
 small row groups, missing column statistics, or no compression. All
-three are fixable from Octa via the write options in Save As and Batch
+three are fixable from Octa via the write options in Save as and Batch
 convert.
 
 Parquet reports full detail. Other formats report their size and say
@@ -447,11 +447,34 @@ worst outcome this feature could have.
 Two input files from different subfolders that share a name would write to the
 same output. Both are refused rather than one being quietly renamed.
 
+## Combining into one table
+
+Harmonising leaves you with a folder of files that finally agree. Often
+what you wanted was ONE table.
+
+Tick **Combine into one table** and the same inputs are folded into a
+single table instead, with a **source_file** column saying which file
+each row came from. Without that column a combined folder loses the one
+thing that made the parts separate.
+
+Combining skips the plan step: nothing is cast, so no value can be lost
+to a narrowing conversion and there is nothing to refuse. Columns only
+some files have are kept and left empty for the rest, the same as Union
+tables, because it is the same engine underneath.
+
+If the data already has a column called source_file it is not
+overwritten: the provenance column is suffixed instead, once across
+every input so all the rows land in the same column.
+
+The result opens as a new tab, so you can look at it before deciding
+where it belongs.
+
 ## Elsewhere
 
 Also available as `octa --harmonise-schema DIR --out-dir DIR` (exits 1 if any
 file was refused, so CI can gate on it) and the `harmonise_schemas` tool for
-the Assistant and MCP.
+the Assistant and MCP. Both take the combine mode too: `--combine --out FILE`
+on the command line, `"combine": true` for the tool.
 "#;
 
 pub const SCHEMA_DRIFT: &str = r#"# Schema Drift
@@ -556,6 +579,196 @@ Category lists name at most ten values, then say how many more there were.
 `--fail-on null_rate:0.05,rows:0.1` turns it into a CI gate that exits 1 when a
 metric moved too far. The `data_drift` MCP tool answers the same question with
 a `failed` flag, and the Assistant can call it.
+"#;
+
+pub const MERGE_VERSIONS: &str = r#"# Merge Versions
+
+Several people edited copies of the same table. This puts their changes back
+together, per row and per cell, for any number of versions from two up.
+
+**Opening it.** **File > Merge versions...**. Each row of the dialog is one
+version, an open tab or a file (the active tab starts out as version 1);
+**Add version** adds more. Press **Merge**; nothing is saved yet. No default
+keyboard shortcut; assign one under **Settings > Shortcuts** if you want it.
+
+**The original.** If you still have the table the versions were all edited
+from, mark it with its **Original** radio. Then Octa knows who changed what: a
+change made in one version is taken over, the same change in several versions
+is taken once, and only different changes to the same cell ask you. A row
+deleted in some versions and untouched in the rest is deleted; deleted in some
+and edited in another, it asks. **Without an original** Octa cannot tell a
+change from the old value, so every cell where the versions differ asks, and
+rows from any version are kept.
+
+**Matching rows.** Rows are matched by **key columns**, usually an ID. Octa
+ticks the most likely one; tick another and the merge is redone at once. With
+none ticked, rows are matched by position.
+
+**Settling conflicts.** Each conflict lists its **Choices**, every distinct
+value with the numbers of the versions that hold it, like `9.99 [1, 3]`.
+Click one. **Take all from** settles every conflict with one version's
+values. **Open merged table** stays greyed out until nothing is open, then
+opens the result with rows coloured: green changed, blue added, orange a
+conflict you settled. The xlsx writer keeps these marks as cell colours, so
+clear them first if you save to xlsx and do not want them.
+
+**Git merge conflicts.** When the active tab's file is in a git merge conflict,
+the three versions are filled in from git, the first marked as original. The
+result tab then points at the conflicted file, without colours, so **Save**
+writes the resolution in place; run `git add` afterwards. Octa can also be
+git's merge driver; the mkdocs page has the two lines of setup.
+
+**Elsewhere.** `octa --merge A B C --merge-original O --merge-key id` merges
+on the command line and exits 1 while a conflict is open. The `merge_tables`
+MCP tool does the same, and the Assistant can call it.
+"#;
+
+pub const TEST_DATA: &str = r#"# Test Data
+
+You want to show someone how your table looks, but the data is customers,
+salaries or patients. **Data > Generate test data...** makes new rows shaped
+like the real ones: the same columns, the same kind of values, nothing real.
+No default keyboard shortcut; assign one under **Settings > Shortcuts**.
+
+**What each column becomes.** Octa looks at every column and picks how to make
+it, shown in a dropdown you can change: an ID becomes a running number;
+numbers, dates and datetimes are drawn from the real percentiles, so a skewed
+column stays skewed; names, emails, phones, IBANs and card numbers (found like
+Detect PII does) become fake ones of that kind, and a fake IBAN or card number
+even passes its check digit; codes like ORD-00123 keep their shape; other text
+becomes neutral words. Every column gets empty cells at the real rate.
+
+**The one place real values appear.** A small category (a status, a country)
+keeps its real values at their real frequencies, marked **real values** in
+orange. Pick **Categories, renamed** if even those must not appear.
+
+**Several tables.** Tick more than one tab. When one points at another (an
+orders.customer_id pointing at customers.id), the child column draws only from
+the parent's generated IDs, so the test tables still join. The dropdown then
+shows **Values of customers.id**.
+
+**Rows and seed.** Leave the row count empty for as many rows as the real
+table, or type any number. The same seed with the same settings gives exactly
+the same rows. **Generate** opens one new tab per table.
+
+**Limits.** Every column is made on its own, so relationships between columns
+are not kept (an end date can come out before its start date).
+
+**Elsewhere.** `octa --test-data a.csv b.csv --test-data-out DIR` on the
+command line, and the `generate_test_data` MCP tool, which the Assistant can
+call.
+"#;
+
+pub const RECIPES: &str = r#"# Recipes
+
+Every month the same export arrives and every month you rename the same
+columns, fix the same types and remove the same duplicates. A **recipe** records
+those steps once and replays them on the next file. Recipes are saved as `.ocp`
+files, short for **O**cta re**C**i**P**e. It is plain TOML, so any text editor
+can open it.
+
+**Recording.** Nothing to switch on: Octa records while you work.
+**Edit > Recipe panel** shows the list for the active tab. Recorded are renames,
+deleted columns, type changes, sorts, removed duplicates, filled missing values,
+every Transform column operation, and values you type, paste or replace in
+cells. Each step is stored by **column name**, so it means the same thing on a
+file whose columns are in another order. Filters are not recorded (they change
+what you see, not the data). Undo takes a step back out of the list; redo puts
+it back.
+
+**Typed values.** A typed value cannot be stored as "row 5", because next
+month's file has other rows in another order. It is stored as "price = 9.99 in
+the row where id = 1042" and found by that ID on replay. Octa picks the ID
+column itself when one plainly is one (named like an ID and unique, or a
+unique first column). When none is, the edit is marked **needs an ID column**
+and **Choose ID column...** asks you, explaining why; Save recipe asks first
+too. An edit whose row is missing in the new file is reported as skipped.
+
+**The panel.** Untick a step to leave it out of the saved recipe, or remove it
+with the small x. **Clear** forgets the whole list. None of this changes the
+table.
+
+**Saving.** **Save recipe...** writes the ticked steps to a `.ocp` file. That
+is the only way by default. To save automatically, tick **Save recipes
+automatically** under **Settings > Files**: after every step the tab's recipe is
+written into the recipe folder, named after the data file. That folder is
+`recipes` inside Octa's settings folder, created on first use, unless you choose
+another one there (**Use default** goes back to it).
+
+**Keep each recipe in its own file (recommended).** Once a recipe works, save
+it with **Save recipe...** under a lasting name, one recipe per kind of file
+you receive: `sales_export.ocp`, `bank_statement.ocp`. Three reasons. A recipe
+mixing two sources skips half its steps on each, and on the command line one
+skipped step means nothing is written. Auto-save names the recipe after the
+data file, so next month's file with the same name overwrites last month's
+recipe with its first step; a recipe saved by hand under a name no data file
+has is left alone. And the data is replaced every month while the recipe stays, so keep
+it apart: in the recipe folder or a project folder under version control. Small
+recipes combine: apply a shared one, then the one for this source. Typed values
+are stored with the row's ID and value, so look at a recipe before sharing it.
+
+**Replaying.** Open next month's file, then **Edit > Apply recipe...** and pick
+the `.ocp` (opening a `.ocp` file from File > Open or the sidebar does the
+same). The dialog lists the steps first and warns under any step whose column
+this table lacks. **Apply** runs them; a step that cannot run is skipped and
+reported, the rest still run, and one Ctrl+Z takes the whole replay back.
+
+**Elsewhere.** `octa --recipe monthly.ocp april.csv --recipe-out clean.parquet`
+replays on the command line; there it is all or nothing, so a skipped step
+means nothing is written and exit code 1. The `apply_recipe` MCP tool does the
+same, and the Assistant can call it.
+"#;
+
+pub const LOG_FILES: &str = r#"# Log Files
+
+A `.log` file (or `syslog`, `messages`, `access_log`, a rotated
+`access.log.1`) opens as a table: one row per entry, with a sortable
+**timestamp**, a normalised **level** and the format's own fields as columns.
+Octa picks the format that fits most of the first 500 lines:
+
+- Apache / nginx access logs, common and combined
+- syslog, classic (RFC 3164) and structured (RFC 5424)
+- JSON lines and logfmt
+- timestamped text, as Java and Python logging write it
+
+**utc_offset** holds the offset the time was written in, since a date/time
+cell cannot carry one. Levels are normalised: `warning`, `warn` and `W` all
+become `WARN`.
+
+Stack traces stay with their entry: indented lines and lines starting with
+`at `, `Caused by:` or `Traceback` join the message above. Any other line that
+fits no entry keeps its own row in the **raw** column, and a banner counts
+them.
+
+A `.log` that is not a log (under 60% of lines fit) opens as plain text as
+before. **View > Reopen as > Log** uses the best format anyway.
+"#;
+
+pub const PDF_TABLES: &str = r#"# Tables from PDFs
+
+Open a PDF like any other file and Octa finds the tables inside: invoices, bank
+statements, reports. One table opens straight away; with several, the table
+picker lists them as `Page 1, table 1`, `Page 2, table 1` and so on. From there
+it is an ordinary tab to filter, fix and save as xlsx or csv. The first row
+becomes the column names.
+
+**What counts as a table.** A PDF holds only text placed on a page. Octa groups
+it into lines, splits a line where there is a wide gap, and treats lines that
+line up into two or more columns as a table. Titles and paragraphs are left
+out. A header spanning two columns merges them, and a cell that wraps onto a
+second line ends the table.
+
+**Scanned pages are pictures.** A scanned page has no text, only pixels, and
+Octa does no OCR, so a table on it cannot be read. Octa says so instead of
+showing nothing: a PDF made only of scans reports that its tables are pictures
+and need OCR first; in a PDF where only some pages are scanned, the other
+tables open and a note names the pages that were not read. Most scanner and PDF
+tools can add a text layer ("OCR", "make searchable"); open that version.
+
+**Other messages.** "No table found" means the text never lines up into
+columns (a letter, a report in paragraphs). Password-protected PDFs cannot be
+opened; save an unprotected copy. PDFs protected only against editing or
+printing open normally.
 "#;
 
 pub const REL_MAP: &str = r#"# Relationship Map
@@ -913,6 +1126,68 @@ overlapping values, or no variation, is left blank. Non-numeric columns are
 ignored automatically.
 "#;
 
+pub const CELL_HISTORY: &str = r#"# Cell History
+
+For a file kept in a Git repository, right-click a cell and choose **Cell
+history...** to see the commits in which that cell's value changed, newest
+first, with the date, author, commit message and the value. The entry is
+greyed out outside a repository and for database, API and cloud tabs.
+
+## Following the row
+
+Rows are followed by a key, so a re-sorted file does not look as if every row
+changed. **Follow the row by** starts on the first column whose values are all
+different and switches to a better key once older versions are loaded; change
+it if you know better. Where the key does not work in a version (a duplicate,
+or the column did not exist yet), the row is matched by its position there and
+a banner says so. Clear the key to follow the row by position everywhere.
+Drag the line under the column list to give it more or less room.
+
+## The list
+
+- **Not committed yet** at the top when the tab differs from the last commit.
+- One line per commit where the value changed; **row added**, **row removed**,
+  **column added** and **column removed** say when the row or column came and
+  went. The oldest version read is marked **earliest loaded**.
+- Renames are followed. A version that cannot be read is named in a banner.
+
+**Open this version** opens the whole file as it was in that commit in a new
+tab. **Load older** reads the next 50 commits; loaded versions stay cached for
+the tab until a new commit arrives.
+"#;
+
+pub const LOOKUP_TABLES: &str = r#"# Find lookup tables
+
+A flat export often repeats a customer's name and city on every order row next
+to the customer ID. **Analyse > Find lookup tables...** finds columns that
+always follow another column like that, shows the rows that break the pattern,
+and can split the lookup back out into its own table.
+
+The scan starts when the dialog opens and runs in the background over every
+pair of columns (unsaved edits included). Press **Cancel** to stop it.
+
+## The threshold
+
+**At least** sets how consistently a column must follow the key to be listed:
+the share of rows (among keys that occur more than once) that carry their
+key's most common value. 100% lists only perfect lookups; the default 95% also
+finds lookups with a few mistakes. Change it and press **Scan again**. A column
+with more than half as many distinct values as rows is never a key.
+
+## The buttons
+
+Tick the columns to use, then:
+
+- **Show breaking rows** opens a tab with every row of every key whose ticked
+  columns disagree, grouped by key.
+- **Split out** opens two tabs: the lookup (one row per key) and the table
+  without the ticked columns. A conflicting key takes its most common value,
+  and a banner says how many keys that affected.
+
+The scanned tab is never changed. Values compare by displayed text, and keys
+are single columns.
+"#;
+
 pub const SCHEMA_EXPORT: &str = r#"# Schema Export
 
 Open via **File > Export schema...** or **F7** (remappable).
@@ -1102,6 +1377,48 @@ Three rules keep the list short enough to read:
   blank field becomes.
 "#;
 
+pub const VALUE_SHAPES: &str = r#"# Value Shapes
+
+A shape is what a value looks like with the specifics taken out: every
+digit becomes `9`, every capital letter `A`, every other letter `a`
+(lower case, and scripts without a case such as CJK), everything else
+- spaces, punctuation - stays as it is. `D-80331` becomes `A-99999`;
+`anna@x.de` becomes `aaaa@a.aa`. Grouping a column by shape finds the
+handful of values typed in the wrong format, which a "mostly text" type
+check cannot.
+
+## Switching the funnel to Shapes
+
+Every column header funnel (see [Filter by Value](filter-facets.md))
+opens listing values by default. A **Values / Shapes** switch at the top
+of the popup swaps the list to shapes instead: each row shows a shape,
+how many values have it, and one example. Tick shapes and press **Apply**
+to keep every value that has a ticked shape - the same allow-set filter
+the Values list writes, just chosen a different way. Ticking every shape,
+like ticking every value, clears the filter rather than doing nothing.
+
+## The Quality Report's shape_verdict
+
+The Data Quality Report scores every text column's shapes the same way it
+scores calendar coverage: most columns get a verdict of **consistent**
+(every value shares one shape), **mixed** (one shape covers at least 90%
+of the values and there are at most 20 shapes, so a handful of stragglers
+stand out), or **na**, meaning the column is empty, is not text, or has
+too many shapes to call anything - free text, or several formats used on
+purpose. Numeric, date and boolean columns are skipped outright: `5` and
+`12345` are both perfectly good numbers with different shapes, so judging
+their shape would only mislead.
+
+## The Mixed shapes tab
+
+Every **mixed** column's stray shapes open in their own tab beside the
+report, one row per stray shape with the column it is in, how often it
+occurs, and one example. A postcode column with nineteen values shaped
+`A-99999` and one plain `12345` scores **mixed**, and that one row is
+exactly what the Mixed shapes tab lists - the kind of stray value a null
+count or a type check would never catch.
+"#;
+
 pub const DIST_COMPARE: &str = r#"# Compare Distributions
 
 **Analyse > Compare distributions...** answers one question: do these two
@@ -1222,7 +1539,7 @@ the `union_tables` assistant/MCP tool (with `ignore_case`).
 
 ## Saving the result back in its own format
 
-When every source shares one format, the result tab remembers it, and Save As
+When every source shares one format, the result tab remembers it, and Save as
 opens pre-filled with a matching name - so forty JSON files in, one JSON file
 out, in a single click. A mixed selection has no single answer, so the picker
 opens with no suggestion. Nothing is written until you save; Apply only opens
@@ -1278,6 +1595,27 @@ number, or tick **Unlimited**, under **Folder union file cap** in
 **Settings > Performance**.
 "#;
 
+pub const SPATIAL_JOIN: &str = r#"# Spatial Join
+
+Join by location instead of by matching values. In **Data > Join
+tables...** pick the points tab as **Left**, **Spatial** as the type and the
+layer as **Right**; **More layers** adds further tabs. The points tab needs latitude/longitude
+columns or a point geometry; if the Left tab has none when you pick Spatial,
+Left switches to a tab that has them.
+
+- **Inside**: each point gets the columns of the polygon it lies in (GeoJSON
+  or shapefile). Holes are honoured; a point in no polygon stays empty. A
+  point in several polygons of one layer takes the first, and a banner
+  counts them.
+- **Nearest**: each point gets the columns of the closest point in each layer
+  plus `<layer>_distance_km`, measured over the earth's surface. **Only within
+  km** leaves farther points empty.
+
+Layer columns are prefixed with the layer's name; its geometry column is left
+out. Coordinates must be latitude/longitude: a layer in metres is refused with
+a message, not silently mismatched. The joined tabs are not changed.
+"#;
+
 pub const JOIN: &str = r#"# Join Tables
 
 Join Tables matches rows between two open tabs, like a spreadsheet VLOOKUP
@@ -1299,20 +1637,47 @@ match** - Octa converts both sides to a common type before comparing
 `id` against a text `ref`, or match rows where one table's date is `>=`
 another's. Add several conditions to require all of them (an AND join).
 
-Then pick the join type:
+Then pick the join type (hover a type in the list for what it keeps):
 
 - **Inner** - keep only rows that match.
 - **Left** - keep every row of the left table, filling unmatched right
   columns with empty cells.
 - **Right** - keep every row of the right table.
 - **Full** - keep every row of both.
+- **Semi** - keep the left rows that have a partner, with the left
+  table's columns only. A left row with three partners still appears
+  once. "Which customers have ordered?"
+- **Anti** - keep the left rows that have **no** partner, left columns
+  only. "Which customers have never ordered?"
+- **As-of** - give every left row the **nearest** right row instead of
+  an equal one. See below.
 
 The matched result opens in a new tab. Joins run through DuckDB, so they are
 fast even on large tables.
 
+## As-of join: the nearest row, not an equal one
+
+A trade at 09:03:30 has no quote at exactly that second. What you want
+is the last quote **before** it. That is an as-of join:
+
+- Add the `=` conditions that must match exactly, for example
+  `ticker = ticker`.
+- Add **exactly one** `>=` or `<=` condition for the column to search
+  along, usually a time or a date: `time >= time` takes the nearest
+  **earlier** right row, `time <= time` the nearest **later** one.
+- Pick **As-of**.
+
+Every left row stays. One with no earlier row (a trade before the first
+quote, a ticker without quotes) keeps empty right columns. Dates and
+datetimes are compared as dates, never as text. With no inequality, or
+more than one, the dialog says so instead of guessing.
+
+
 The command-line `octa --join` and the `join_tables` assistant/MCP tool
-join on shared **column names** with equality (`--join-on`); the in-app
-dialog is the place for different column names or non-equal operators.
+join on shared **column names** (`--join-on`) and know every join type.
+For as-of there, the **last** key column is matched to the nearest earlier
+value: `--join-on ticker,time --join-type asof`. The in-app dialog is the
+place for different column names, other operators, or a nearest later row.
 "#;
 
 pub const BATCH_CONVERT: &str = r#"# Batch Convert
@@ -1372,7 +1737,7 @@ The same operation is on the command line as `--batch-convert --to EXT
 pub const DATE_TIME_CALC: &str = r#"# Date/Time Calculation
 
 Derive a new column from date, time or duration values, opened from
-**Edit -> Date/Time calculation...** The new column is materialised in
+**Data -> Date/Time calculation...** The new column is materialised in
 place and is undoable.
 
 Pick one of six operations; the fields below change to match.

@@ -49,6 +49,10 @@ pub(crate) struct DbOrigin {
     pub(crate) identity: Option<octa::db::write_back::RowIdentity>,
 }
 
+/// `(source path asked about, repository root + relative path, or why not)`,
+/// see [`TabState::git_root`].
+pub(crate) type GitRootCache = (Option<String>, Result<(std::path::PathBuf, String), String>);
+
 pub(crate) struct TabState {
     pub(crate) table: DataTable,
     /// Set when the chat assistant changed this tab's table in place
@@ -100,6 +104,14 @@ pub(crate) struct TabState {
     /// the user toggles back into the raw view.
     pub(crate) raw_perf_prompt_resolved: bool,
     pub(crate) raw_view_formatted: bool,
+    /// Fold long lines in the raw editor at the pane width instead of
+    /// scrolling sideways to them. Off by default: the view exists to
+    /// show a file as it is, and folding a column-aligned CSV row
+    /// destroys the alignment. The escape hatch for a minified JSON or
+    /// a line holding a whole stringified JSON blob, which no amount of
+    /// pretty-printing can break (a newline inside a JSON string would
+    /// corrupt the document). Session-only, per tab.
+    pub(crate) raw_view_wrap: bool,
     pub(crate) csv_delimiter: u8,
     /// Quote convention used by the raw CSV/TSV column-alignment view.
     pub(crate) raw_csv_quote: RawCsvQuote,
@@ -120,6 +132,13 @@ pub(crate) struct TabState {
     /// markdown in the split view.
     pub(crate) markdown_render_cache: Option<(u64, String)>,
     pub(crate) json_tree_expanded: std::collections::HashSet<String>,
+    /// Leaf paths whose *string* value is itself a JSON document and has
+    /// been unfolded, mapped to that parsed document. Present means
+    /// unfolded; the tree renders it as real rows, keys and all, under
+    /// paths carrying `NESTED_MARK`. Parsed once here rather than per
+    /// frame. The rows stay display-only: the document is not part of the
+    /// file, so it must not be editable or writable back.
+    pub(crate) json_nested_docs: std::collections::HashMap<String, serde_json::Value>,
     pub(crate) json_value: Option<serde_json::Value>,
     /// Parsed YAML root, converted to a `serde_json::Value` so the same tree
     /// renderer handles both formats. Populated at load time for `.yaml`/`.yml`
@@ -176,6 +195,11 @@ pub(crate) struct TabState {
     /// the server (native dialect), `false` on the local DuckDB snapshot.
     /// Meaningless while `db_origin` is None.
     pub(crate) sql_run_on_server: bool,
+    /// Rows the last SQL result has in total, exact, from a `count(*)`
+    /// over the materialised result. `sql_result` holds only the pages
+    /// scrolled to so far; `None` means the statement was not paged and
+    /// `sql_result` is already everything.
+    pub(crate) sql_result_total: Option<usize>,
     /// Set to `true` when the SQL panel is opened so the editor grabs keyboard
     /// focus on the next frame (the user can start typing immediately without
     /// clicking). Consumed (cleared) by `draw_sql_editor`.
@@ -217,6 +241,14 @@ pub(crate) struct TabState {
     /// Toggle for the collapsible Workspace section at the top of the SQL
     /// panel. Off by default to keep the panel compact for users who only
     /// query `data`.
+    /// Names this tab's workspace auto-registered the other open tabs
+    /// under, in the order they were registered. Drives the one-time
+    /// notice and the workspace listing.
+    pub(crate) sql_auto_registered: Vec<String>,
+    /// Signature of the open-tab set the auto-registration last ran
+    /// against. Registering copies rows, so it must happen when the set
+    /// of tabs changes, not every frame.
+    pub(crate) sql_auto_register_sig: String,
     pub(crate) sql_workspace_open: bool,
     /// Currently selected entry in the workspace tree; drives the inspector
     /// pane on the right side of the workspace section. `None` shows the
@@ -287,6 +319,22 @@ pub(crate) struct TabState {
     /// orange by the renderer (see `octa::data::outliers`). Session-only; a
     /// snapshot stamped on Apply (not recomputed as rows change).
     pub(crate) outlier_cells: std::collections::HashSet<(usize, usize)>,
+    /// Cells that kept their text through a re-type because they would not
+    /// convert (see `octa::data::retype`). Walked by F10 alongside the other
+    /// two sets. Session-only, and REPLACED by each re-type rather than
+    /// accumulated: it describes the last conversion, so an undo or a second
+    /// re-type cannot leave stale coordinates behind.
+    pub(crate) retype_kept_as_text: std::collections::HashSet<(usize, usize)>,
+    /// What was done to this tab, by column name, for a recipe
+    /// (`app::recipe`). Session-only.
+    pub(crate) recipe: Vec<crate::app::recipe::RecordedStep>,
+    /// Steps an undo took back, restored by the matching redo.
+    pub(crate) recipe_undone: Vec<crate::app::recipe::RecordedStep>,
+    /// Undo-stack length the hand-edit recorder has looked at.
+    pub(crate) recipe_seen: usize,
+    /// The column(s) that identify a row for recorded hand edits: guessed
+    /// once, or chosen by the user when there is no plain ID.
+    pub(crate) recipe_key: Option<Vec<String>>,
     /// Whether the "Data validation..." dialog is open on this tab.
     pub(crate) show_validation: bool,
     /// Data-validation dialog window sizing (Normal/Maximized/Minimized).
@@ -352,10 +400,25 @@ pub(crate) struct TabState {
     /// tab strip can show e.g. "Chart - sales.parquet". Ignored on
     /// non-chart tabs.
     pub(crate) chart_tab_label: Option<String>,
+    /// Cached memory estimate for this tab. `None` means "recompute": the
+    /// walk touches every cell, so it must not run per frame. Invalidated
+    /// wherever the data changes shape.
+    pub(crate) memory_estimate: Option<u64>,
+    /// Set when the tab's rows were dropped by **View -> Tab memory**. The
+    /// file is re-read the next time the tab is selected.
+    pub(crate) needs_reload: bool,
     /// Optional fixed label for derived non-chart tabs (e.g.
     /// "Summary - sales.parquet"). When set it overrides the
     /// source-path-based title; `None` keeps the normal behaviour.
     pub(crate) custom_tab_label: Option<String>,
+    /// This tab was computed from a table that held only part of its
+    /// source: `(rows the source table had loaded, total when known)`.
+    ///
+    /// A Summary, a quality score or a report over a capped table is an
+    /// answer about the rows that happened to be in memory, and every
+    /// one of them presented that as an answer about the file. The note
+    /// travels with the result so it cannot be read without its scope.
+    pub(crate) partial_source_note: Option<(usize, Option<usize>)>,
     /// One sentence answering "what am I looking at?", shown when the pointer
     /// rests on the tab. Set by the analysis tabs Octa opens on the user's
     /// behalf - a report tab arrives without the user having chosen its
@@ -420,6 +483,13 @@ pub(crate) struct TabState {
     /// Without this, "Select none" + frame-flip would immediately re-seed
     /// and undo the user's intent.
     pub(crate) column_filter_needs_seed: bool,
+    /// The Column Filter window lists shapes (`A-99999`) instead of values,
+    /// like the header funnel's Shapes switch. Session only.
+    pub(crate) column_filter_shapes_mode: bool,
+    /// Ticked shapes while in Shapes mode. `None` means "derive from the
+    /// value draft on the next render": set on open, on a column switch and
+    /// when switching into Shapes.
+    pub(crate) column_filter_shape_draft: Option<std::collections::HashSet<String>>,
     /// Set to true when this tab represents an empty (0-byte) file. Renders
     /// the easter-egg ASCII art instead of the table view.
     pub(crate) empty_file_placeholder: bool,
@@ -481,6 +551,8 @@ pub(crate) struct TabState {
     /// (whose geometry comes from the file) or before the Map view is opened.
     /// The Map view's column dropdown writes here and rebuilds the points.
     pub(crate) map_coord_cols: Option<(usize, usize)>,
+    /// Timeline view's column picks and cached bars (session only).
+    pub(crate) timeline: crate::view_modes::timeline::TimelineState,
     /// Per-tab map rendering mode. Initialised from
     /// `AppSettings.map_default_mode`; flipped by the Map toolbar's
     /// Tiles/Geometry toggle.
@@ -504,17 +576,37 @@ pub(crate) struct TabState {
     /// every change. Each buffer is empty when the corresponding `Option`
     /// is `None`, otherwise holds the f64 / usize formatted for display.
     pub(crate) chart_buffers: ChartInputBuffers,
+    /// Trend and forecast overlays for the chart, keyed by a hash of what
+    /// they depend on, so the forecast fit runs once per setting.
+    pub(crate) chart_overlay_cache: Option<(
+        u64,
+        Result<octa::data::forecast::Overlays, octa::data::forecast::ForecastError>,
+    )>,
     /// Set when this tab was opened from cloud storage. Carries the connection
     /// id + object key so a later save can write back (gated by
     /// `allow_writes`). `None` for local files.
     pub(crate) cloud_origin: Option<CloudOrigin>,
     /// Set when the tab shows a live database table (read-only).
     pub(crate) db_origin: Option<DbOrigin>,
+    /// Set when this tab was fetched from a saved API endpoint. Carries the
+    /// connection id and path so Refresh can re-run the same fetch. The tab
+    /// has no file behind it, so it is read-only as a source.
+    pub(crate) api_origin: Option<crate::app::api_browser::ApiOrigin>,
     /// Set when this tab was opened from a compressed file (`.gz` / `.zst`).
     /// The tab's own `source_path` points at the decompressed temp file;
     /// Save re-compresses that temp back onto the original path. Save As to
     /// any other path leaves the original compressed file untouched.
     pub(crate) compressed_origin: Option<CompressedOrigin>,
+    /// Repository root and path of this tab's file, asked of `git` once per
+    /// source path: `(source_path, answer)`, the answer `None` when the file
+    /// is not in a repository. Keyed on the path because a tab outlives its
+    /// file: the welcome tab is asked (no file, so no repository) and the
+    /// first file opened then reuses that tab, which used to inherit the
+    /// "no repository" answer and grey out Cell history.
+    pub(crate) git_root: Option<GitRootCache>,
+    /// Committed versions Cell history has read so far, kept per tab so a
+    /// second cell does not re-read the log. Dropped when HEAD moves.
+    pub(crate) cell_history_cache: Option<CellHistoryCache>,
     /// Set when this tab is in large-file mode: the rows live on disk and the
     /// handle pages in whatever the view is showing. Its presence is also what
     /// makes the tab read-only (see `OctaApp::is_readonly`).
@@ -547,6 +639,8 @@ pub(crate) struct ChartInputBuffers {
     pub y_min: String,
     pub y_max: String,
     pub y_step: String,
+    pub forecast_periods: String,
+    pub forecast_season: String,
 }
 
 pub(crate) struct OctaApp {
@@ -657,11 +751,19 @@ pub(crate) struct OctaApp {
     pub(crate) nav_input: String,
     /// Focus the status-bar navigation input next frame (Ctrl+G / Go To Cell).
     pub(crate) nav_focus_requested: bool,
-    /// Confirm before reloading the file from disk and losing unsaved edits.
-    pub(crate) show_reload_confirm: bool,
+    /// The tab a refresh should land in, and the source it waits for
+    /// (`app::refresh`).
+    pub(crate) reload_target: Option<crate::app::refresh::ReloadTarget>,
+    /// A refresh waiting on the "this tab or a new tab" dialog.
+    pub(crate) pending_refresh: Option<crate::app::refresh::PendingRefresh>,
     /// Tab whose Save found the file changed on disk since it was opened,
     /// waiting on the overwrite / reload / cancel prompt.
     pub(crate) pending_overwrite_confirm: Option<usize>,
+    /// Tab whose Save is waiting on the partly-loaded confirmation.
+    pub(crate) pending_partial_save_confirm: Option<usize>,
+    /// The user answered "Save anyway" on that dialog, so the save it
+    /// re-triggers must not ask again. Cleared by the save it lets past.
+    pub(crate) partial_save_acknowledged: bool,
     /// Pending modal table picker (DB sources containing multiple tables).
     pub(crate) pending_table_picker: Option<ui::table_picker::TablePickerState>,
     /// Pending multi-select sheet picker, shown when an Excel workbook has
@@ -760,6 +862,12 @@ pub(crate) struct OctaApp {
     /// In-flight live-DB write-back worker, if any (one at a time app-wide).
     pub(crate) db_write_back_job: Option<crate::app::dialogs::db_write_back::DbWriteBackJob>,
     pub(crate) ask_filter_job: Option<AskFilterJob>,
+    /// One in-flight whole-source search (see `app::full_scan`).
+    pub(crate) full_scan_job: Option<crate::app::full_scan::FullScanJob>,
+    /// Row cap to put back once the reload started by **Load all rows**
+    /// lands. The cap is process-wide and the read runs on a worker, so
+    /// a scope guard would be gone before the file was read.
+    pub(crate) load_cap_to_restore: Option<usize>,
     /// In-flight plain-language query request ("Ask" in the SQL panel header).
     /// `Some` while the assistant is answering; drained by `drain_ask_sql`.
     pub(crate) ask_sql_job: Option<AskSqlJob>,
@@ -767,6 +875,9 @@ pub(crate) struct OctaApp {
     pub(crate) join_diag_dialog: Option<crate::app::dialogs::join_diag::JoinDiagState>,
     pub(crate) db_compare_dialog: Option<crate::app::dialogs::db_compare::DbCompareState>,
     pub(crate) drift_dialog: Option<crate::app::dialogs::drift::DriftState>,
+    pub(crate) merge_versions_dialog:
+        Option<crate::app::dialogs::merge_versions::MergeVersionsState>,
+    pub(crate) test_data_dialog: Option<crate::app::dialogs::test_data::TestDataState>,
     /// The pending "this file is very large" question, if one is on screen.
     pub(crate) pending_large_file_notice:
         Option<crate::app::dialogs::large_file_notice::LargeFileNotice>,
@@ -800,6 +911,8 @@ pub(crate) struct OctaApp {
     pub(crate) batch_convert_dialog: Option<BatchConvertState>,
     pub(crate) workbook_dialog: Option<WorkbookState>,
     pub(crate) open_url_dialog: Option<OpenUrlState>,
+    /// File > Open API endpoint...: which saved endpoint to fetch.
+    pub(crate) api_endpoint_dialog: Option<crate::app::dialogs::api_endpoint::ApiEndpointState>,
     /// Pending Schema drift scan dialog. Opened from the Analyse menu or a
     /// folder's sidebar context menu; the scan itself runs on a worker.
     pub(crate) schema_drift_dialog: Option<SchemaDriftState>,
@@ -822,6 +935,14 @@ pub(crate) struct OctaApp {
     /// Active correlation-matrix dialog, or `None` when closed. Computes a
     /// correlation matrix into a detached tab (see `src/app/dialogs/correlation.rs`).
     pub(crate) correlation_dialog: Option<CorrelationState>,
+    /// Active Find lookup tables dialog, or `None` when closed. Scans the
+    /// active tab on a worker for columns that always follow another column
+    /// (see `src/app/dialogs/lookups.rs`).
+    pub(crate) lookups_dialog: Option<LookupsState>,
+    /// Active Cell history dialog, or `None` when closed. Follows one cell
+    /// through the Git history of the tab's file (see
+    /// `src/app/dialogs/cell_history.rs`).
+    pub(crate) cell_history_dialog: Option<CellHistoryState>,
     /// Active Compare-distributions dialog, or `None` when closed.
     pub(crate) dist_compare_dialog: Option<DistCompareState>,
     /// Active Referential-integrity dialog, or `None` when closed.
@@ -866,6 +987,16 @@ pub(crate) struct OctaApp {
     /// closed. Fills null / empty cells in one column using the chosen strategy
     /// (see `src/app/dialogs/impute.rs`).
     pub(crate) impute_dialog: Option<ImputeState>,
+    /// Columns -> Change type... (also raised by the header's Change type
+    /// submenu when the chosen type would not convert everything).
+    pub(crate) retype_dialog: Option<RetypeState>,
+    /// Whether the Tab memory dialog is open.
+    /// The passphrase prompt for a protected file, when one is open.
+    pub(crate) passphrase_prompt: Option<crate::app::dialogs::passphrase::PassphraseState>,
+    /// Whether the Tab memory dialog is open.
+    pub(crate) show_tab_memory: bool,
+    /// Window-size mode for the Tab memory dialog.
+    pub(crate) tab_memory_size: ui::settings::DialogSize,
     /// Active Detect-outliers dialog state, or `None` when closed. Flags
     /// numeric outlier cells in the active tab (see `src/app/dialogs/outliers.rs`).
     pub(crate) outlier_dialog: Option<OutlierState>,
@@ -890,6 +1021,8 @@ pub(crate) struct OctaApp {
     pub(crate) join_dialog: Option<JoinState>,
     /// Currently opened directory tree sidebar (`None` = sidebar hidden).
     pub(crate) directory_tree: Option<ui::directory_tree::DirectoryTreeState>,
+    /// Git marks for the folder sidebar (see `app::git_marks`).
+    pub(crate) git_marks: crate::app::git_marks::GitMarksCache,
     /// How many key presses of the Konami sequence have been matched so far.
     pub(crate) konami_index: u8,
     /// Wall-clock deadline up to which the confetti overlay is animated.
@@ -939,10 +1072,26 @@ pub(crate) struct OctaApp {
     /// or the `MultiSearch` keyboard shortcut.
     pub(crate) multi_search: super::multi_search::MultiSearchState,
     pub(crate) cleanup_panel: super::cleanup_panel::CleanupPanelState,
+    /// Whether the column navigator panel is open. Session-only, like the
+    /// clean-up and multi-search panels; never persisted.
+    pub(crate) column_navigator_visible: bool,
+    /// Live filter text for the column navigator's search box. Session-only,
+    /// per app (not per tab): switching tabs keeps the typed query.
+    pub(crate) column_navigator_query: String,
+    /// Whether the edit audit trail panel is open. Session-only, like the
+    /// column navigator; never persisted.
+    pub(crate) edit_audit_visible: bool,
+    /// Whether the Recipe panel is open. Session-only.
+    pub(crate) recipe_panel_visible: bool,
+    pub(crate) apply_recipe_dialog: Option<crate::app::recipe::ApplyRecipeState>,
+    pub(crate) recipe_key_dialog: Option<crate::app::recipe::RecipeKeyState>,
     /// In-GUI chat assistant panel state (conversation, input, provider
     /// switching). Initialised hidden; opened via the toolbar Assistant
     /// button or the `ToggleChatPanel` shortcut.
     pub(crate) chat: super::chat_panel::ChatPanelState,
+    /// Finished API-endpoint fetches waiting for the UI thread, drained per
+    /// frame. Same channel shape as the cloud and database open slots.
+    pub(crate) api_pending_open: crate::app::api_browser::ApiOpenSlot,
     /// Live-tab edits queued by the chat `edit_open_tab` tool, drained per frame.
     pub(crate) pending_tab_edits:
         std::sync::Arc<std::sync::Mutex<Vec<crate::mcp::tools::PendingTabEdit>>>,

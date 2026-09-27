@@ -70,12 +70,14 @@ impl OctaApp {
                 .table
                 .sort_rows_by_column(col_idx, true);
             self.tabs[self.active_tab].filter_dirty = true;
+            self.record_sort(col_idx, true);
         }
         if let Some(col_idx) = action.sort_rows_desc_by {
             self.tabs[self.active_tab]
                 .table
                 .sort_rows_by_column(col_idx, false);
             self.tabs[self.active_tab].filter_dirty = true;
+            self.record_sort(col_idx, false);
         }
         if action.discard_edits {
             self.tabs[self.active_tab].table.discard_edits();

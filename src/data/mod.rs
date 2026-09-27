@@ -1,9 +1,11 @@
 pub mod batch_convert;
 pub mod benford;
 pub mod calendar_coverage;
+pub mod cell_history;
 pub mod chart;
 pub mod chart_export;
 pub mod cleanup;
+pub mod column_list;
 pub mod compare;
 pub mod compare_schemas;
 pub mod conditional_format;
@@ -15,13 +17,16 @@ pub mod diff;
 pub mod distribution_compare;
 pub mod drift;
 pub mod duplicates;
+pub mod edit_audit;
 pub mod encoding;
 pub mod file_internals;
+pub mod forecast;
 pub mod formulas;
 pub mod fuzzy_duplicates;
 pub mod fuzzy_join;
 pub mod geo_detect;
 pub mod harmonise;
+pub mod id_checks;
 pub mod impute;
 pub mod inventory;
 pub mod join;
@@ -29,10 +34,13 @@ pub mod join_diag;
 pub mod join_keys;
 pub mod json_util;
 pub mod links;
+pub mod lookups;
 pub mod mark_filter;
+pub mod merge_versions;
 pub mod missingness;
 pub mod mojibake;
 pub mod multi_search;
+pub mod normalise_folder;
 pub mod num_format;
 pub mod num_parse;
 pub mod outliers;
@@ -43,19 +51,26 @@ pub mod pivot;
 pub mod predicate_filter;
 pub mod problem_nav;
 pub mod quality;
+pub mod recipe;
 pub mod referential;
 pub mod rel_map;
 pub mod rel_map_export;
 pub mod rename_map;
 pub mod report;
+pub mod retype;
 pub mod row_compare;
 pub mod sample;
 pub mod schema_drift;
 pub mod schema_export;
 pub mod search;
+pub mod shapes;
+pub mod spatial_join;
 pub mod summary;
+pub mod tab_memory;
 pub mod table_edits;
+pub mod test_data;
 pub mod time_calc;
+pub mod timeline;
 pub mod timeseries;
 pub mod transform;
 pub mod transpose;
@@ -200,6 +215,38 @@ impl DataTable {
         self.rows.len()
     }
 
+    /// Does the source hold rows this table does not?
+    ///
+    /// `total_rows` is set by every reader that stopped at a cap, by the
+    /// live-database page fetch, and by nothing else. Read it through here
+    /// rather than directly: the answer drives whether a result computed from
+    /// these rows can be presented as an answer about the file.
+    pub fn is_partial(&self) -> bool {
+        self.total_rows.is_some_and(|t| t > self.rows.len())
+    }
+
+    /// Rows in the source, when that is actually known.
+    ///
+    /// Readers that can say exactly (Parquet from its footer, fixed-width from
+    /// the line count) store the real number. CSV cannot know without reading
+    /// the whole file, so it stores `usize::MAX` as "there is more, I cannot
+    /// say how much" - a sentinel that must never reach a user, which is the
+    /// reason this returns an `Option` instead of the field.
+    pub fn known_total(&self) -> Option<usize> {
+        match self.total_rows {
+            Some(t) if t != usize::MAX && t > self.rows.len() => Some(t),
+            _ => None,
+        }
+    }
+
+    /// `(loaded rows, total when known)` for a partial table, `None` for a
+    /// complete one: the shape every "this is only part of the data" note
+    /// takes, so a result tab or a search bar can carry it in one field.
+    pub fn partial_note(&self) -> Option<(usize, Option<usize>)> {
+        self.is_partial()
+            .then(|| (self.rows.len(), self.known_total()))
+    }
+
     pub fn col_count(&self) -> usize {
         self.columns.len()
     }
@@ -209,6 +256,12 @@ impl DataTable {
         if let Some(edited) = self.edits.get(&(row, col)) {
             return Some(edited);
         }
+        self.rows.get(row).and_then(|r| r.get(col))
+    }
+
+    /// Get the original cell value, ignoring the edit overlay.
+    /// Returns `None` if the cell is out of bounds.
+    pub fn original_value(&self, row: usize, col: usize) -> Option<&CellValue> {
         self.rows.get(row).and_then(|r| r.get(col))
     }
 
@@ -632,6 +685,7 @@ impl DataTable {
             let cmp = cmp_cell_values(va, vb);
             if ascending { cmp } else { cmp.reverse() }
         });
+        self.record_row_order(&order);
         self.apply_row_order(&order);
     }
 
@@ -665,7 +719,26 @@ impl DataTable {
             }
             std::cmp::Ordering::Equal
         });
+        self.record_row_order(&order);
         self.apply_row_order(&order);
+    }
+
+    /// Push the undo entry for a row permutation.
+    ///
+    /// Both sort entry points call this immediately before
+    /// [`Self::apply_row_order`], which is deliberately silent so the undo and
+    /// redo arms can reuse it without recording themselves. Without this a
+    /// sort was simply not reversible: it permuted rows, tags, edits and marks
+    /// correctly and recorded nothing, so an assistant batch containing one
+    /// could not be undone even though every other op in it could.
+    fn record_row_order(&mut self, order: &[usize]) {
+        if order.len() != self.rows.len() {
+            return;
+        }
+        self.undo_stack.push(UndoAction::ReorderRows {
+            order: order.to_vec(),
+        });
+        self.redo_stack.clear();
     }
 
     /// Merge the edits into the rows like [`apply_edits`](Self::apply_edits),

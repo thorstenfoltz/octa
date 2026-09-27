@@ -1,8 +1,12 @@
-//! Excel-style per-column value-set filter dialog.
+//! Excel-style per-column value-set filter dialog (**Columns -> Filter by
+//! value or shape...**).
 //!
-//! Renders when `tab.show_column_filter` is true. The user picks a column,
+//! Renders when `tab.show_column_filter` is true. The user picks any column,
 //! the dialog computes its unique cell values, and a scrollable checkbox
-//! list controls which values pass the filter. Filters AND with each other
+//! list controls which values pass the filter. A Values / Shapes switch lists
+//! the column's shapes instead (`A-99999`, see `octa::data::shapes`), exactly
+//! like the header funnel; ticked shapes are turned into the same value set
+//! on Apply, so there is still only one filter. Filters AND with each other
 //! and with the toolbar text-search via `recompute_filter`.
 
 use std::collections::{BTreeSet, HashSet};
@@ -49,6 +53,20 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
     };
     let total_unique = unique_values.len();
 
+    // --- Shapes mode: the column's shapes, and a shape draft derived from
+    // the value draft whenever it is unset (open, column switch, switching
+    // into Shapes). ---
+    let shapes_mode = app.tabs[app.active_tab].column_filter_shapes_mode;
+    let shape_rows: Vec<(String, usize, String)> = if shapes_mode {
+        octa::data::shapes::shape_frequency(&app.tabs[app.active_tab].table, col_idx)
+            .shapes
+            .into_iter()
+            .map(|s| (s.shape, s.count, s.example))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     // --- Seed an "all checked" draft on first-open when no saved filter
     // exists. Driven by the one-shot `column_filter_needs_seed` flag set
     // by `open_column_filter_dialog` / column-switch. Without the flag,
@@ -76,6 +94,20 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
     let mut value_search = std::mem::take(&mut app.tabs[app.active_tab].column_filter_value_search);
     let mut draft: HashSet<String> =
         std::mem::take(&mut app.tabs[app.active_tab].column_filter_draft_allowed);
+    let mut shape_draft: HashSet<String> = if shapes_mode {
+        app.tabs[app.active_tab]
+            .column_filter_shape_draft
+            .take()
+            .unwrap_or_else(|| {
+                draft
+                    .iter()
+                    .map(|v| octa::data::shapes::shape_of(v))
+                    .collect()
+            })
+    } else {
+        HashSet::new()
+    };
+    let mut switch_mode: Option<bool> = None;
     let mut close_requested = false;
     let mut apply_requested = false;
     let mut clear_requested = false;
@@ -101,7 +133,7 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new(octa::i18n::t("dialog.cf_title"))
+                        RichText::new(octa::i18n::t("columns_menu.filter_title"))
                             .strong()
                             .size(16.0),
                     );
@@ -121,7 +153,11 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.button(octa::i18n::t("dialog.cf_clear")).clicked() {
+                    if ui
+                        .button(octa::i18n::t("dialog.cf_clear"))
+                        .on_hover_text(octa::i18n::t("columns_menu.filter_clear_hint"))
+                        .clicked()
+                    {
                         clear_requested = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -153,6 +189,26 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                         });
                 });
 
+                // Values / Shapes, the same switch as the header funnel.
+                ui.horizontal(|ui| {
+                    if ui
+                        .selectable_label(!shapes_mode, octa::i18n::t("facet.mode_values"))
+                        .on_hover_text(octa::i18n::t("facet.mode_values_hint"))
+                        .clicked()
+                        && shapes_mode
+                    {
+                        switch_mode = Some(false);
+                    }
+                    if ui
+                        .selectable_label(shapes_mode, octa::i18n::t("facet.mode_shapes"))
+                        .on_hover_text(octa::i18n::t("facet.mode_shapes_hint"))
+                        .clicked()
+                        && !shapes_mode
+                    {
+                        switch_mode = Some(true);
+                    }
+                });
+
                 ui.separator();
 
                 // Value-list type-filter.
@@ -164,6 +220,72 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                     );
                 });
                 let needle = value_search.to_lowercase();
+                if shapes_mode {
+                    let visible: Vec<&(String, usize, String)> = shape_rows
+                        .iter()
+                        .filter(|(shape, _, example)| {
+                            needle.is_empty()
+                                || shape.to_lowercase().contains(&needle)
+                                || example.to_lowercase().contains(&needle)
+                        })
+                        .collect();
+                    ui.horizontal(|ui| {
+                        if ui
+                            .small_button(octa::i18n::t("dialog.select_all"))
+                            .clicked()
+                        {
+                            for (shape, _, _) in &visible {
+                                shape_draft.insert(shape.clone());
+                            }
+                        }
+                        if ui
+                            .small_button(octa::i18n::t("dialog.select_none"))
+                            .clicked()
+                        {
+                            for (shape, _, _) in &visible {
+                                shape_draft.remove(shape);
+                            }
+                        }
+                        let checked = shape_rows
+                            .iter()
+                            .filter(|(shape, _, _)| shape_draft.contains(shape))
+                            .count();
+                        ui.label(
+                            RichText::new(format!(
+                                "{}/{} {}",
+                                checked,
+                                shape_rows.len(),
+                                octa::i18n::t("dialog.cf_checked")
+                            ))
+                            .size(10.0)
+                            .color(ui.visuals().weak_text_color()),
+                        );
+                    });
+                    ui.separator();
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            for (shape, count, example) in &visible {
+                                let mut checked = shape_draft.contains(shape);
+                                let label = format!(
+                                    "{shape}  ({count})  {} {example}",
+                                    octa::i18n::t("facet.shape_example")
+                                );
+                                if ui
+                                    .checkbox(&mut checked, label)
+                                    .on_hover_text(octa::i18n::t("facet.shape_row_hint"))
+                                    .changed()
+                                {
+                                    if checked {
+                                        shape_draft.insert(shape.clone());
+                                    } else {
+                                        shape_draft.remove(shape);
+                                    }
+                                }
+                            }
+                        });
+                    return;
+                }
                 let matches_search = |v: &String| -> bool {
                     needle.is_empty() || v.to_lowercase().contains(&needle)
                 };
@@ -248,19 +370,29 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
     // --- Persist back. The order of branches matters: apply/clear/switch
     // mutate `column_filters`; close discards; the fallthrough just keeps
     // the intermediate dialog state alive for the next frame. ---
+    //
+    // What the draft means as a filter: `None` = no filter (everything
+    // passes). In Shapes mode every shape ticked is no filter; otherwise the
+    // ticked shapes become the values that have them, the same set the
+    // header funnel writes. "None checked" stays a filter that allows no
+    // values, which is what Select none asked for.
+    let shapes_all_ticked = shape_rows.iter().all(|(s, _, _)| shape_draft.contains(s));
+    let effective = |draft: &HashSet<String>, table: &octa::data::DataTable| {
+        if shapes_mode {
+            (!shapes_all_ticked)
+                .then(|| octa::data::shapes::values_with_shapes(table, col_idx, &shape_draft))
+        } else {
+            (draft.len() != total_unique).then(|| draft.clone())
+        }
+    };
     let tab = &mut app.tabs[app.active_tab];
     tab.column_filter_size = size;
 
     if apply_requested {
-        // "All checked" = no filter active (every value passes, equivalent
-        // to no filter). "None checked" = filter that allows no values =
-        // zero visible rows, which is what the user asked for via Select
-        // none. Anything in between is a partial filter.
-        if draft.len() == total_unique {
-            tab.column_filters.remove(&col_idx);
-        } else {
-            tab.column_filters.insert(col_idx, draft);
-        }
+        match effective(&draft, &tab.table) {
+            None => tab.column_filters.remove(&col_idx),
+            Some(allowed) => tab.column_filters.insert(col_idx, allowed),
+        };
         tab.column_filter_value_search.clear();
         tab.column_filter_draft_allowed.clear();
         tab.filter_dirty = true;
@@ -278,14 +410,14 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
     } else if let Some(next) = switch_col {
         // Commit the current column's draft before swapping so in-progress
         // edits aren't lost.
-        if draft.len() == total_unique {
-            tab.column_filters.remove(&col_idx);
-        } else {
-            tab.column_filters.insert(col_idx, draft);
-        }
+        match effective(&draft, &tab.table) {
+            None => tab.column_filters.remove(&col_idx),
+            Some(allowed) => tab.column_filters.insert(col_idx, allowed),
+        };
         tab.filter_dirty = true;
         tab.column_filter_picker_col = Some(next);
         tab.column_filter_value_search.clear();
+        tab.column_filter_shape_draft = None;
         // Seed the next column's draft from any saved filter; if none, arm
         // the seed flag so the next frame re-seeds with "all checked".
         match tab.column_filters.get(&next) {
@@ -298,9 +430,25 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                 tab.column_filter_needs_seed = true;
             }
         }
-    } else {
-        // Steady state: keep intermediate draft alive for the next frame.
+    } else if let Some(to_shapes) = switch_mode {
+        // Carry the ticks across: shapes from the ticked values, or back to
+        // the values that have the ticked shapes.
+        if !to_shapes {
+            draft = match effective(&draft, &tab.table) {
+                None => unique_values.iter().cloned().collect(),
+                Some(allowed) => allowed,
+            };
+        }
+        tab.column_filter_shapes_mode = to_shapes;
+        tab.column_filter_shape_draft = None;
         tab.column_filter_value_search = value_search;
         tab.column_filter_draft_allowed = draft;
+    } else {
+        // Steady state: keep intermediate drafts alive for the next frame.
+        tab.column_filter_value_search = value_search;
+        tab.column_filter_draft_allowed = draft;
+        if shapes_mode {
+            tab.column_filter_shape_draft = Some(shape_draft);
+        }
     }
 }

@@ -60,6 +60,13 @@ impl OctaApp {
             settings.initial_load_rows
         };
         octa::formats::set_initial_load_rows(initial_cap);
+        // Same shape for the date-layout vote in Change type: the numeric
+        // value unless the Unlimited box overrides it.
+        octa::data::retype::set_layout_sample(if settings.retype_layout_sample_unlimited {
+            usize::MAX
+        } else {
+            settings.retype_layout_sample
+        });
         // Apply the persisted UI language before any frame renders.
         octa::i18n::set_language(&settings.language);
         // Warn once at startup if the chat audit logs have grown past the
@@ -156,8 +163,11 @@ impl OctaApp {
             zoom_percent: 100,
             nav_input: String::new(),
             nav_focus_requested: false,
-            show_reload_confirm: false,
+            reload_target: None,
+            pending_refresh: None,
             pending_overwrite_confirm: None,
+            pending_partial_save_confirm: None,
+            partial_save_acknowledged: false,
             pending_table_picker: None,
             pending_sheet_picker: None,
             pending_compressed_origin: None,
@@ -187,12 +197,16 @@ impl OctaApp {
             pending_db_write_back: None,
             db_write_back_job: None,
             ask_filter_job: None,
+            full_scan_job: None,
+            load_cap_to_restore: None,
             ask_sql_job: None,
             join_keys_dialog: None,
             join_diag_dialog: None,
             harmonise_dialog: None,
             db_compare_dialog: None,
             drift_dialog: None,
+            merge_versions_dialog: None,
+            test_data_dialog: None,
             pending_large_file_notice: None,
             large_convert_job: None,
             large_check_bypass: None,
@@ -207,6 +221,7 @@ impl OctaApp {
             batch_convert_dialog: None,
             workbook_dialog: None,
             open_url_dialog: None,
+            api_endpoint_dialog: None,
             schema_drift_dialog: None,
             report_dialog: None,
             fuzzy_join_dialog: None,
@@ -214,6 +229,8 @@ impl OctaApp {
             multi_sort_dialog: None,
             git_compare_dialog: None,
             correlation_dialog: None,
+            lookups_dialog: None,
+            cell_history_dialog: None,
             dist_compare_dialog: None,
             referential_dialog: None,
             units_dialog: None,
@@ -228,6 +245,10 @@ impl OctaApp {
             tab_rename_draft: None,
             anonymize_dialog: None,
             impute_dialog: None,
+            retype_dialog: None,
+            passphrase_prompt: None,
+            show_tab_memory: false,
+            tab_memory_size: Default::default(),
             outlier_dialog: None,
             pii_dialog: None,
             fuzzy_duplicates_dialog: None,
@@ -235,6 +256,7 @@ impl OctaApp {
             union_dialog: None,
             join_dialog: None,
             directory_tree: None,
+            git_marks: crate::app::git_marks::GitMarksCache::new(),
             konami_index: 0,
             confetti_until: None,
             logo_click_count: 0,
@@ -245,6 +267,13 @@ impl OctaApp {
             startup_pin_load_done: false,
             multi_search: super::multi_search::MultiSearchState::new(search_mode),
             cleanup_panel: super::cleanup_panel::CleanupPanelState::default(),
+            column_navigator_visible: false,
+            column_navigator_query: String::new(),
+            edit_audit_visible: false,
+            recipe_panel_visible: false,
+            apply_recipe_dialog: None,
+            recipe_key_dialog: None,
+            api_pending_open: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             pending_tab_edits: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             cloud_browser: super::cloud_browser::CloudBrowserState::default(),
             db_browser: super::db_browser::DbBrowserState::default(),

@@ -48,6 +48,20 @@ impl OctaApp {
         if action.show_all_columns {
             self.tabs[self.active_tab].hidden_columns.clear();
         }
+        if action.open_retype
+            && self.tabs[self.active_tab].table.col_count() > 0
+            && !self.is_readonly()
+        {
+            let col = self.tabs[self.active_tab]
+                .table_state
+                .selected_cell
+                .map(|(_, c)| c)
+                .unwrap_or(0);
+            self.retype_dialog = Some(crate::app::state::RetypeState::new(
+                col,
+                octa::data::retype::TargetType::Text,
+            ));
+        }
         if action.open_column_format {
             self.open_column_format_for_selection();
         }

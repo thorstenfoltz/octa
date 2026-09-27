@@ -2,12 +2,12 @@
 .\"     Title: octa
 .\"    Author: [see the "AUTHOR(S)" section]
 .\" Generator: Asciidoctor 2.0.26
-.\"      Date: 2026-09-01
+.\"      Date: 2026-09-24
 .\"    Manual: OCTA
 .\"    Source: OCTA
 .\"  Language: English
 .\"
-.TH "OCTA" "1" "2026-09-01" "OCTA" "OCTA"
+.TH "OCTA" "1" "2026-09-24" "OCTA" "OCTA"
 .ie \n(.g .ds Aq \(aq
 .el       .ds Aq '
 .ss \n[.ss] 0
@@ -63,6 +63,17 @@ octa \- multi\-format tabular data viewer, editor, CLI tool, and MCP server
 .sp
 \fBocta\fP \fB\-\-drift\-report\fP \fIFILE_A\fP \fIFILE_B\fP [\fB\-\-fail\-on\fP \fISPEC\fP] [\fB\-f\fP \fIFORMAT\fP]
 .sp
+\fBocta\fP \fB\-\-recipe\fP \fIRECIPE\fP \fIFILE\fP [\fB\-\-recipe\-out\fP \fIFILE\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-overlaps\fP \fIFILE\fP [\fB\-\-overlaps\-start\fP \fICOL\fP] [\fB\-\-overlaps\-end\fP \fICOL\fP] [\fB\-\-overlaps\-lane\fP \fICOL\fP]
+[\fB\-\-overlaps\-label\fP \fICOL\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-test\-data\fP \fIFILE\fP.\|.\|. [\fB\-\-test\-data\-rows\fP \fIN\fP] [\fB\-\-seed\fP \fIN\fP] [\fB\-\-test\-data\-out\fP \fIPATH\fP]
+[\fB\-\-test\-data\-rename\-categories\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
+\fBocta\fP \fB\-\-merge\fP \fIFILE\fP \fIFILE\fP.\|.\|. [\fB\-\-merge\-original\fP \fIFILE\fP] [\fB\-\-merge\-key\fP \fICOLS\fP]
+[\fB\-\-merge\-prefer\fP \fIN\fP] [\fB\-\-merge\-out\fP \fIFILE\fP] [\fB\-\-merge\-format\fP \fIEXT\fP] [\fB\-f\fP \fIFORMAT\fP]
+.sp
 \fBocta\fP \fB\-\-harmonise\-schema\fP \fIDIR\fP \fB\-\-out\-dir\fP \fIDIR\fP [\fB\-\-target\-file\fP \fIFILE\fP]
 [\fB\-\-recursive\fP] [\fB\-\-ignore\-case\fP] [\fB\-\-overwrite\fP]
 .sp
@@ -115,7 +126,7 @@ optionally opening the supplied \fIFILE\fP(s) in tabs. When invoked with
 one of the action flags (\fB\-\-schema\fP, \fB\-\-head\fP, \fB\-\-tail\fP, \fB\-\-sample\fP,
 \fB\-\-convert\fP, \fB\-\-sql\fP, \fB\-\-export\-schema\fP, \fB\-\-compare\-schemas\fP, \fB\-\-diff\fP,
 \fB\-\-describe\fP, \fB\-\-validate\-schema\fP, \fB\-\-schema\-drift\fP, \fB\-\-harmonise\-schema\fP,
-\fB\-\-drift\-report\fP, \fB\-\-check\fP, \fB\-\-relationships\fP,
+\fB\-\-drift\-report\fP, \fB\-\-merge\fP, \fB\-\-recipe\fP, \fB\-\-test\-data\fP, \fB\-\-overlaps\fP, \fB\-\-check\fP, \fB\-\-relationships\fP,
 \fB\-\-report\fP, \fB\-\-fuzzy\-join\fP,
 \fB\-\-unique\-columns\fP,
 \fB\-\-anonymize\fP,
@@ -369,6 +380,108 @@ any gate. Metric names are \fBrows\fP, \fBnull_rate\fP, \fBdistinct_count\fP,
 \fBmin\fP, \fBmax\fP and \fBmean\fP.
 .RE
 .sp
+\fB\-\-recipe\fP \fIRECIPE\fP \fIFILE\fP
+.RS 4
+Replay a recipe (a \fB.ocp\fP file, short for Octa reCiPe, recorded in
+the GUI) on \fIFILE\fP. Every step runs by column name. When any step
+cannot run, nothing is written, the skipped steps go to stderr and
+the exit code is \fB1\fP.
+.RE
+.sp
+\fB\-\-recipe\-out\fP \fIFILE\fP
+.RS 4
+Write the \fB\-\-recipe\fP result to \fIFILE\fP instead of stdout.
+.RE
+.sp
+\fB\-\-overlaps\fP \fIFILE\fP
+.RS 4
+Rows whose time spans overlap inside a lane (two bookings of one
+room). One row per pair on stdout; \fBexits 1 when any is found\fP.
+Spans that only touch do not overlap. Without \fB\-\-overlaps\-start\fP /
+\fB\-\-overlaps\-end\fP the first two date columns are used.
+.RE
+.sp
+\fB\-\-overlaps\-start\fP \fICOL\fP, \fB\-\-overlaps\-end\fP \fICOL\fP
+.RS 4
+Start and end columns for \fB\-\-overlaps\fP. No end makes every row a point.
+.RE
+.sp
+\fB\-\-overlaps\-lane\fP \fICOL\fP
+.RS 4
+Only rows with the same value in \fICOL\fP can overlap.
+.RE
+.sp
+\fB\-\-overlaps\-label\fP \fICOL\fP
+.RS 4
+A column shown beside each row of an \fB\-\-overlaps\fP pair.
+.RE
+.sp
+\fB\-\-test\-data\fP \fIFILE\fP.\|.\|.
+.RS 4
+Generate new rows shaped like each \fIFILE\fP: the same columns, numbers
+and dates from the real spread, fake names, emails, IBANs and IDs,
+empty cells at the real rate. Several files are generated together so
+links between them still join. The plan goes to stderr, with a note
+for every small category column that keeps its real values.
+.RE
+.sp
+\fB\-\-test\-data\-rows\fP \fIN\fP
+.RS 4
+Rows per \fB\-\-test\-data\fP table (default: as many as the real one).
+.RE
+.sp
+\fB\-\-test\-data\-out\fP \fIPATH\fP
+.RS 4
+Output file for one \fB\-\-test\-data\fP input, or an existing folder for
+several (written as \fIname_test.ext\fP). Without it, one table goes to
+stdout.
+.RE
+.sp
+\fB\-\-test\-data\-rename\-categories\fP
+.RS 4
+Replace real category values with \fBvalue_1\fP, \fBvalue_2\fP, .\|.\|.
+.RE
+.sp
+\fB\-\-merge\fP \fIFILE\fP \fIFILE\fP.\|.\|.
+.RS 4
+Merge two or more versions of a table, per row and per cell. With
+\fB\-\-merge\-original\fP, a change made in one version is taken and only
+different changes to one cell, or a row deleted in one version and
+edited in another, conflict; without it, every cell where the versions
+differ conflicts. Rows are matched by \fB\-\-merge\-key\fP, or by position
+without one. While a conflict is open nothing is written, the
+conflicts are printed on stdout and the exit code is \fB1\fP, which makes
+it usable as a git merge driver: \f(CRocta \-\-merge %A %B \-\-merge\-original
+%O \-\-merge\-key id \-\-merge\-out %A \-\-merge\-format %P\fP.
+.RE
+.sp
+\fB\-\-merge\-original\fP \fIFILE\fP
+.RS 4
+The table every \fB\-\-merge\fP version was edited from. Optional.
+.RE
+.sp
+\fB\-\-merge\-key\fP \fICOLS\fP
+.RS 4
+Key column(s) for \fB\-\-merge\fP, comma\-separated or repeated.
+.RE
+.sp
+\fB\-\-merge\-prefer\fP \fIN\fP
+.RS 4
+Settle every \fB\-\-merge\fP conflict in favour of version \fIN\fP (1 = the
+first file given to \fB\-\-merge\fP).
+.RE
+.sp
+\fB\-\-merge\-out\fP \fIFILE\fP
+.RS 4
+Write the \fB\-\-merge\fP result to \fIFILE\fP instead of stdout.
+.RE
+.sp
+\fB\-\-merge\-format\fP \fIEXT\fP
+.RS 4
+Format of the \fB\-\-merge\fP files, for files without an extension. An
+extension (\fBcsv\fP) or a file name to take it from (git\(cqs \fB%P\fP).
+.RE
+.sp
 \fB\-\-harmonise\-schema\fP \fIDIR\fP
 .RS 4
 Rewrite every file in \fIDIR\fP to one common set of columns, writing
@@ -483,7 +596,7 @@ per\-step report goes to stderr.
 .RS 4
 Join the positional \fIFILE\fP(s) plus every \fB\-\-join\-file\fP \fIFILE\fP on the
 \fB\-\-join\-on\fP \fICOLS\fP key(s). \fB\-\-join\-type\fP is \fBleft\fP (default), \fBinner\fP,
-\fBright\fP, or \fBfull\fP.
+\fBright\fP, \fBfull\fP, \fBsemi\fP, \fBanti\fP or \fBasof\fP.
 .RE
 .sp
 \fB\-\-partition\-by\fP \fICOL\fP
@@ -661,6 +774,31 @@ Only valid with \fB\-\-mcp\fP. Omits the file\-writing tools (\fBwrite_table\fP,
 \fBedit_table\fP, \fBconvert\fP) so the server exposes a read\-only surface.
 .RE
 .sp
+\fB\-\-mcp\-tools\fP=\fILIST\fP
+.RS 4
+Only valid with \fB\-\-mcp\fP. Advertise ONLY these tools, comma\-separated. Takes
+group names (\fBcore\fP, \fBquality\fP, \fBcompare\fP, \fBcombine\fP, \fBreshape\fP, \fBdatabases\fP,
+\fBcloud\fP, \fBwrite\fP) and individual tool names, mixed freely:
+\fB\-\-mcp\-tools core,databases\fP or \fB\-\-mcp\-tools read_table,run_sql\fP. Without it
+every tool is advertised. A tool left out is also not callable. An
+unrecognised name is an error and the server does not start. This is the
+lever for an agent\(cqs context size: the client reads the tool list once and
+carries it in every request to its model, and all of Octa\(cqs tools together
+are roughly 33,000 tokens of description and schema.
+.RE
+.sp
+\fB\-\-mcp\-without\fP=\fILIST\fP
+.RS 4
+Only valid with \fB\-\-mcp\fP. Advertise everything except these, in the same
+spelling as \fB\-\-mcp\-tools\fP. Applied after it, so the two combine:
+\fB\-\-mcp\-tools core,write \-\-mcp\-without convert\fP.
+.RE
+.sp
+\fB\-\-batch\-convert\fP, \fB\-\-harmonise\-schema\fP, \fB\-\-partition\-by\fP and \fB\-\-db\-copy\fP
+report progress on stderr while they run, on a single line that rewrites itself
+(\f(CR[137/500] file.csv  ETA 1:12\fP). The line appears only when stderr is a
+terminal, so redirected output and CI logs are unchanged.
+.sp
 \fB\-\-completions\fP \fISHELL\fP
 .RS 4
 Print a shell completion script for \fISHELL\fP to standard output and exit.
@@ -752,7 +890,8 @@ Row count for \fB\-\-head\fP, \fB\-\-tail\fP, and \fB\-\-sample\fP. Default \fB2
 .sp
 \fB\-\-seed\fP \fIN\fP
 .RS 4
-Seed for \fB\-\-sample\fP, for reproducible output. Default \fB0\fP.
+Seed for \fB\-\-sample\fP and \fB\-\-test\-data\fP, for reproducible output.
+Default \fB0\fP.
 .RE
 .sp
 \fB\-q\fP \fIQUERY\fP, \fB\-\-query\fP \fIQUERY\fP
@@ -918,7 +1057,10 @@ Key column(s) for \fB\-\-join\fP; comma\-separated or repeated. Required.
 .sp
 \fB\-\-join\-type\fP \fITYPE\fP
 .RS 4
-Join strategy for \fB\-\-join\fP: \fBleft\fP (default), \fBinner\fP, \fBright\fP, \fBfull\fP.
+Join strategy for \fB\-\-join\fP: \fBleft\fP (default), \fBinner\fP, \fBright\fP, \fBfull\fP,
+\fBsemi\fP (rows of the first file with a partner), \fBanti\fP (rows without
+one) or \fBasof\fP (the last \fB\-\-join\-on\fP key matches the nearest earlier
+value).
 .RE
 .sp
 \fB\-\-compression\fP \fICODEC\fP
@@ -1020,9 +1162,9 @@ file\-not\-found, parse failure, write rejection, etc.).
 schemas differ, and \fB\-\-schema\-drift\fP exits \fB1\fP on a successful scan
 where the files disagree. \fB\-\-harmonise\-schema\fP exits \fB1\fP when any file
 was refused, \fB\-\-batch\-convert\fP when any input failed,
-\fB\-\-drift\-report\fP when a \fB\-\-fail\-on\fP gate was breached, and \fB\-\-check\fP
-on any failing or unrunnable rule, so CI pipelines can gate on all six
-directly.
+\fB\-\-drift\-report\fP when a \fB\-\-fail\-on\fP gate was breached, \fB\-\-merge\fP
+while a conflict is open, \fB\-\-recipe\fP when a step could not run, and \fB\-\-check\fP on any failing or unrunnable
+rule, so CI pipelines can gate on all eight directly.
 .SH "EXAMPLES"
 .sp
 Open multiple files in the GUI

@@ -381,6 +381,7 @@ pub(crate) fn render_find_duplicates_dialog(app: &mut OctaApp, ctx: &egui::Conte
 /// Shared with the clean-up panel's "duplicate rows" fix.
 pub(crate) fn drop_duplicates(app: &mut OctaApp, key_cols: &[usize], keep: KeepWhich) {
     let active = app.active_tab;
+    let key_names = app.column_names(key_cols);
 
     // Merge pending cell edits so dedupe sees the visible values.
     app.tabs[active].table.apply_edits();
@@ -401,6 +402,9 @@ pub(crate) fn drop_duplicates(app: &mut OctaApp, key_cols: &[usize], keep: KeepW
         app.tabs[active].table.structural_changes = true;
         app.tabs[active].filter_dirty = true;
         app.tabs[active].table_state.widths_initialized = false;
+        app.record_step(octa::data::recipe::RecipeStep::DropDuplicates(
+            octa::data::recipe::DropDuplicates::new(key_names, keep),
+        ));
     }
 
     app.status_message = Some((

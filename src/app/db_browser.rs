@@ -13,6 +13,7 @@ use eframe::egui;
 
 use octa::db::{self, DbConnection};
 use octa::ui::settings::db_secrets::{get_db_secret, get_ssh_secret};
+use octa::ui::tree_filter::{self, SearchSlot, TreeSearch};
 
 use super::state::{DbOrigin, OctaApp};
 
@@ -97,6 +98,20 @@ pub(crate) enum DbOpenResult {
     Failed(String),
 }
 
+/// One table a deep search found.
+#[derive(Debug, Clone)]
+pub(crate) struct DbHit {
+    pub(crate) conn_id: String,
+    pub(crate) conn_name: String,
+    pub(crate) catalog: Option<String>,
+    pub(crate) schema: String,
+    pub(crate) table: String,
+}
+
+/// How many schemas one deep search lists tables for before it stops. A
+/// warehouse can hold thousands, and each is a round trip.
+const SEARCH_MAX_SCHEMAS: usize = 500;
+
 pub(crate) struct DbBrowserState {
     /// Whether the sidebar's Databases section is shown.
     pub(crate) visible: bool,
@@ -106,6 +121,10 @@ pub(crate) struct DbBrowserState {
     pub(crate) expanded: HashSet<ConnSchema>,
     /// Finished/failed table loads, drained on the main thread per frame.
     pub(crate) pending_open: Arc<Mutex<Vec<DbOpenResult>>>,
+    /// The search box's text.
+    pub(crate) search_query: String,
+    /// The deep search, written by its worker.
+    pub(crate) search: Arc<Mutex<SearchSlot<DbHit>>>,
 }
 
 impl Default for DbBrowserState {
@@ -115,6 +134,8 @@ impl Default for DbBrowserState {
             listings: Arc::new(Mutex::new(HashMap::new())),
             expanded: HashSet::new(),
             pending_open: Arc::new(Mutex::new(Vec::new())),
+            search_query: String::new(),
+            search: Arc::new(Mutex::new(SearchSlot::default())),
         }
     }
 }
@@ -231,6 +252,133 @@ impl OctaApp {
             let state = result.unwrap_or_else(|e| DbListState::Error(format!("{e:#}")));
             if let Ok(mut m) = listings.lock() {
                 m.insert(key, state);
+            }
+            ctx.request_repaint();
+        });
+    }
+
+    /// Search every schema of the expanded connections for tables whose name
+    /// contains the search box's text, on a worker. Only expanded
+    /// connections: listing one means connecting to it, and a connection the
+    /// user has not opened may well ask for a sign-in.
+    pub(crate) fn start_db_search(&mut self, ctx: &egui::Context) {
+        let query = self.db_browser.search_query.clone();
+        let Some(needle) = tree_filter::needle(&query) else {
+            return;
+        };
+        let conns: Vec<DbConnection> = self
+            .settings
+            .db_connections
+            .iter()
+            .filter(|c| {
+                self.db_browser
+                    .expanded
+                    .contains(&(c.id.clone(), String::new()))
+            })
+            .cloned()
+            .collect();
+        let slot = self.db_browser.search.clone();
+        let Ok(mut s) = slot.lock() else {
+            return;
+        };
+        let stop = s.start(&query);
+        if conns.is_empty() {
+            s.state = TreeSearch::Failed(octa::i18n::t("treesearch.need_expand"));
+            return;
+        }
+        drop(s);
+        let settings = self.settings.clone();
+        let cache = self.db_conn_cache.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let mut hits = Vec::new();
+            let mut errors = Vec::new();
+            let mut schemas_seen = 0usize;
+            let mut stopped_at = None;
+            for conn in &conns {
+                if stopped_at.is_some() || stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+                let secret = get_db_secret(&conn.id, &settings);
+                let ssh_secret = get_ssh_secret(&conn.id, &settings);
+                let walked = cache.with_conn(conn, secret.as_deref(), ssh_secret.as_deref(), |c| {
+                    let catalogs: Vec<Option<String>> = if conn.engine.has_catalogs() {
+                        c.list_catalogs()?.into_iter().map(Some).collect()
+                    } else {
+                        vec![None]
+                    };
+                    let mut schemas: Vec<(Option<String>, String)> = Vec::new();
+                    for catalog in catalogs {
+                        if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                            break;
+                        }
+                        // One catalogue query per catalog; walking schema by
+                        // schema is one round trip each, minutes on a warehouse.
+                        let found =
+                            octa::db::table_search_sql(conn.engine, catalog.as_deref(), &needle)
+                                .and_then(|sql| c.query(&sql).ok());
+                        if let Some(t) = found {
+                            hits.extend(t.rows.iter().filter(|r| r.len() >= 2).map(|r| DbHit {
+                                conn_id: conn.id.clone(),
+                                conn_name: conn.name.clone(),
+                                catalog: catalog.clone(),
+                                schema: r[0].to_string(),
+                                table: r[1].to_string(),
+                            }));
+                            continue;
+                        }
+                        // A catalog the account cannot read is skipped, not
+                        // the end of the search.
+                        match c.list_schemas(catalog.as_deref()) {
+                            Ok(names) => {
+                                schemas.extend(names.into_iter().map(|s| (catalog.clone(), s)))
+                            }
+                            Err(e) if catalog.is_none() => return Err(e),
+                            Err(_) => {}
+                        }
+                    }
+                    for (catalog, schema) in schemas {
+                        // Cancel: one schema's listing is the longest wait.
+                        if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                            break;
+                        }
+                        if schemas_seen >= SEARCH_MAX_SCHEMAS {
+                            stopped_at = Some(schemas_seen);
+                            break;
+                        }
+                        schemas_seen += 1;
+                        let Ok(tables) = c.list_tables(catalog.as_deref(), &schema) else {
+                            continue;
+                        };
+                        hits.extend(
+                            tables
+                                .into_iter()
+                                .filter(|t| tree_filter::matches(t, &needle))
+                                .map(|table| DbHit {
+                                    conn_id: conn.id.clone(),
+                                    conn_name: conn.name.clone(),
+                                    catalog: catalog.clone(),
+                                    schema: schema.clone(),
+                                    table,
+                                }),
+                        );
+                    }
+                    Ok(())
+                });
+                if let Err(e) = walked {
+                    errors.push(format!("{}: {e:#}", conn.name));
+                }
+            }
+            // A connection that failed does not hide what the others found.
+            let state = if hits.is_empty() && !errors.is_empty() {
+                TreeSearch::Failed(
+                    octa::i18n::t("treesearch.failed").replace("{error}", &errors.join("; ")),
+                )
+            } else {
+                TreeSearch::Done { hits, stopped_at }
+            };
+            if let Ok(mut s) = slot.lock() {
+                s.finish(&stop, state);
             }
             ctx.request_repaint();
         });
@@ -564,6 +712,12 @@ impl OctaApp {
                     if let Some(note) = note {
                         self.status_message = Some((note, std::time::Instant::now()));
                     }
+                    self.take_reload_slot(&super::refresh::db_source(
+                        &origin.conn_id,
+                        origin.catalog.as_deref(),
+                        &origin.schema,
+                        &origin.table,
+                    ));
                     new_tab.db_origin = Some(origin);
                     // Arm the scroll-to-load-more path, the same four fields
                     // the file open sets (`file_io::mod`). `total_rows` is

@@ -11,7 +11,7 @@ Three ways to get a file open:
 1. **From the menu**, via `File → Open` (default shortcut **Ctrl+O**),
    which shows a file picker. Multi-select works, and every file you
    pick opens in its own tab.
-2. **From recently-opened**, via `File → Recent Files`, which lists
+2. **From recently-opened**, via `File → Recent files`, which lists
    the last files you opened (configurable count under
    [**Settings → Files**](../reference/settings.md#files)).
 3. **From the command line**, with [`octa data.parquet`](../cli/index.md),
@@ -24,7 +24,6 @@ has not implemented Wayland drag-and-drop yet. On X11, macOS, and
 Windows the OS-level hook would land, but Octa does not subscribe to
 those drop events today either; use **File → Open** instead.
 
-<!-- SCREENSHOT: first-steps-file-menu.png: File menu open, showing Open / Open Directory / Recent Files / Save / Save As entries. -->
 ![File menu](../assets/screenshots/first-steps-file-menu.png)
 
 ## Anatomy of the window
@@ -46,13 +45,12 @@ Once a file is open, the layout is:
   [Table view](../usage/table-view.md); switches based on the file
   type ([Markdown](../usage/view-modes/markdown.md) files open in
   Markdown view, [EPUBs](../usage/view-modes/epub-reader.md) in the
-  EPUB Reader, `.geojson` files in the
+  EPUB reader, `.geojson` files in the
   [Map view](../usage/view-modes/map.md), etc.).
 - **Status bar** at the bottom, with row/column counts, selection
   info, zoom level, a navigation field (jump to `R5:C3`), and a busy
   spinner during long operations.
 
-<!-- SCREENSHOT: first-steps-window-anatomy.png: Window with annotations or labels pointing at toolbar / tab strip / sidebar / table / status bar. If annotation isn't easy, just a clean shot of the full window with one file open. -->
 ![Window anatomy](../assets/screenshots/first-steps-window-anatomy.png)
 
 ## Getting around the table
@@ -96,10 +94,10 @@ automatically based on the column's type. See
 [Date Inference](../reference/date-inference.md) for the full
 mechanics.
 
-Need to insert a new row or column? **Edit → Insert Row** and
-**Columns → Insert Column** open the right dialog (the column dialog also
+Need to insert a new row or column? **Edit → Insert row** and
+**Columns → Insert column** open the right dialog (the column dialog also
 accepts a [formula](../usage/formulas.md) like `=A1+B1`).
-**Edit → Delete Row** and **Columns → Delete Column** remove the selected one.
+**Edit → Delete row** and **Columns → Delete column** remove the selected one.
 
 **Ctrl+Z** undoes; **Ctrl+Y** redoes. Both stacks are visible in
 the **Edit** menu.
@@ -114,12 +112,12 @@ Press **F4** to cycle through them. Examples of what triggers what:
 | `.parquet`, `.csv`, `.tsv`, `.xlsx`, `.sqlite`, … | [Table](../usage/table-view.md)                                                        |
 | `.md`                                             | [Markdown](../usage/view-modes/markdown.md)                                            |
 | `.ipynb`                                          | [Notebook](../usage/view-modes/notebook.md)                                            |
-| `.json` / `.jsonl`                                | Table (with [**JSON Tree**](../usage/view-modes/json-and-yaml-tree.md) also available) |
-| `.epub`                                           | [EPUB Reader](../usage/view-modes/epub-reader.md)                                      |
+| `.json` / `.jsonl`                                | Table (with [**JSON tree**](../usage/view-modes/json-and-yaml-tree.md) also available) |
+| `.epub`                                           | [EPUB reader](../usage/view-modes/epub-reader.md)                                      |
 | `.geojson`                                        | [Map](../usage/view-modes/map.md)                                                      |
-| Any unrecognised text file                        | [Raw Text](../usage/view-modes/raw-text.md)                                            |
+| Any unrecognised text file                        | [Raw text](../usage/view-modes/raw-text.md)                                            |
 
-Every file can be inspected as a Table or Raw Text regardless. See
+Every file can be inspected as a Table or Raw text regardless. See
 the [View modes overview](../usage/view-modes/overview.md) for the
 full list.
 
@@ -127,7 +125,7 @@ full list.
 
 - **File → Save** (Ctrl+S) writes back to the original file in its
   original format.
-- **File → Save As** lets you save to a different path or different
+- **File → Save as** lets you save to a different path or different
   format.
 - Closing a tab (or Octa itself) with unsaved changes pops a *"Save?
   Don't Save? Cancel?"* confirmation.

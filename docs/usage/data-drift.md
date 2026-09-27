@@ -1,7 +1,5 @@
 # Data Drift
 
-<!-- SCREENSHOT: data-drift-dialog.png: The Data drift dialog. Before / After each with the "Open tab" radio selected and a tab chosen in the dropdown, the Category limit field showing 50, and the Compare button enabled at the bottom. -->
-
 **Analyse -> Data drift...** compares two versions of the same data and
 tells you what moved. Not which rows changed, which is what
 [Compare](view-modes/compare.md) and `--diff` answer, but whether the
@@ -79,9 +77,6 @@ from the window reports movement without judging it.
 2. Pick a source on each side: an open tab, or a file from disk. The
    older version goes in **Before**.
 3. **Compare** opens the result in a new tab.
-
-<!-- TODO screenshot: the Data drift dialog with a before and an after side
-     chosen. Listed in docs/assets/screenshots/INDEX.md. -->
 
 ## From the command line
 

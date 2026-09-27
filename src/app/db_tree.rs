@@ -8,8 +8,9 @@ use std::collections::{HashMap, HashSet};
 use eframe::egui;
 
 use octa::db::{DbConnection, DbEngine};
+use octa::ui::tree_filter::{self, RowFilter, TreeSearch};
 
-use super::db_browser::{ConnSchema, DbListState, join_path, split_path};
+use super::db_browser::{ConnSchema, DbHit, DbListState, join_path, split_path};
 
 const INDENT_PER_LEVEL: f32 = 14.0;
 
@@ -32,6 +33,17 @@ pub(crate) struct DbTreeAction {
     pub(crate) add_connection: bool,
     /// Hide the Databases section.
     pub(crate) close: bool,
+    /// Search every schema of the expanded connections for the query.
+    pub(crate) search_all: bool,
+    /// Stop the running search.
+    pub(crate) cancel_search: bool,
+}
+
+/// The search half of the Databases section: the box's text and the deep
+/// search's results.
+pub(crate) struct DbTreeSearch<'a> {
+    pub(crate) query: &'a mut String,
+    pub(crate) results: &'a TreeSearch<DbHit>,
 }
 
 /// Render the Databases section. `share` caps the list at half height when
@@ -41,6 +53,7 @@ pub(crate) fn render_db_tree(
     connections: &[DbConnection],
     listings: &HashMap<ConnSchema, DbListState>,
     expanded: &HashSet<ConnSchema>,
+    search: DbTreeSearch<'_>,
     share: bool,
 ) -> DbTreeAction {
     let mut action = DbTreeAction::default();
@@ -82,6 +95,15 @@ pub(crate) fn render_db_tree(
         return action;
     }
 
+    action.search_all = tree_filter::search_box(ui, "db_tree_search", search.query).search_all;
+    let mut hit_action = DbTreeAction::default();
+    action.cancel_search =
+        tree_filter::search_results(ui, "db_tree_search_results", search.results, |ui, hit| {
+            draw_hit(ui, hit, &mut hit_action);
+        });
+    action.open = hit_action.open;
+    let needle = tree_filter::needle(search.query);
+
     let max_height = if share {
         ui.available_height() * 0.5
     } else {
@@ -94,10 +116,67 @@ pub(crate) fn render_db_tree(
         .show(ui, |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
             for conn in connections {
-                draw_connection(ui, listings, expanded, conn, &mut action);
+                draw_connection(ui, listings, expanded, conn, needle.as_deref(), &mut action);
             }
         });
     action
+}
+
+/// One deep-search hit: the table, and where it lives.
+fn draw_hit(ui: &mut egui::Ui, hit: &DbHit, action: &mut DbTreeAction) {
+    let place = match &hit.catalog {
+        Some(cat) => format!("{} / {cat}.{}", hit.conn_name, hit.schema),
+        None => format!("{} / {}", hit.conn_name, hit.schema),
+    };
+    let resp = ui
+        .horizontal(|ui| {
+            let resp = ui
+                .add(egui::Label::new(&hit.table).sense(egui::Sense::click()))
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text(format!(
+                    "{place}\n{}",
+                    octa::i18n::t("treesearch.result_hint")
+                ));
+            ui.label(
+                egui::RichText::new(&place)
+                    .small()
+                    .color(ui.visuals().weak_text_color()),
+            );
+            resp
+        })
+        .inner;
+    if resp.clicked() {
+        action.open = Some((
+            hit.conn_id.clone(),
+            hit.catalog.clone(),
+            hit.schema.clone(),
+            hit.table.clone(),
+        ));
+    }
+}
+
+/// Whether anything already loaded under node `path` matches `needle`.
+fn subtree_matches(
+    listings: &HashMap<ConnSchema, DbListState>,
+    conn_id: &str,
+    path: &str,
+    needle: &str,
+) -> bool {
+    let child = |name: &str| {
+        let mut parts = split_path(path);
+        parts.push(name);
+        join_path(&parts)
+    };
+    match listings.get(&(conn_id.to_string(), path.to_string())) {
+        Some(DbListState::Catalogs(names)) | Some(DbListState::Schemas(names)) => {
+            names.iter().any(|n| {
+                tree_filter::matches(n, needle)
+                    || subtree_matches(listings, conn_id, &child(n), needle)
+            })
+        }
+        Some(DbListState::Tables(names)) => names.iter().any(|n| tree_filter::matches(n, needle)),
+        Some(DbListState::Loading) | Some(DbListState::Error(_)) | None => false,
+    }
 }
 
 fn draw_connection(
@@ -105,10 +184,16 @@ fn draw_connection(
     listings: &HashMap<ConnSchema, DbListState>,
     expanded: &HashSet<ConnSchema>,
     conn: &DbConnection,
+    filter: Option<&str>,
     action: &mut DbTreeAction,
 ) {
     let root_key = (conn.id.clone(), String::new());
-    let is_open = expanded.contains(&root_key);
+    // Connections always stay listed: they are where a search starts. A
+    // match below one opens it.
+    let row = RowFilter::of(filter, &conn.name, |n| {
+        subtree_matches(listings, &conn.id, "", n)
+    });
+    let is_open = expanded.contains(&root_key) || row == RowFilter::OpenForMatch;
     ui.horizontal(|ui| {
         let caret = if is_open { "▼" } else { "▶" };
         let resp = ui
@@ -155,6 +240,7 @@ fn draw_connection(
                 conn,
                 catalog: None,
                 indent: INDENT_PER_LEVEL,
+                filter: row.child_filter(filter),
             },
             "",
             action,
@@ -177,6 +263,8 @@ struct TreeCtx<'a> {
     conn: &'a DbConnection,
     catalog: Option<&'a str>,
     indent: f32,
+    /// The search box's needle, while it still applies at this depth.
+    filter: Option<&'a str>,
 }
 
 fn draw_level(ui: &mut egui::Ui, cx: TreeCtx<'_>, path: &str, action: &mut DbTreeAction) {
@@ -199,8 +287,14 @@ fn draw_level(ui: &mut egui::Ui, cx: TreeCtx<'_>, path: &str, action: &mut DbTre
         Some(DbListState::Catalogs(cats)) => {
             for cat in cats {
                 let child = child_key(cat);
+                let row = RowFilter::of(cx.filter, cat, |n| {
+                    subtree_matches(listings, &conn.id, &child, n)
+                });
+                if row == RowFilter::Hide {
+                    continue;
+                }
                 let key = (conn.id.clone(), child.clone());
-                let is_open = expanded.contains(&key);
+                let is_open = expanded.contains(&key) || row == RowFilter::OpenForMatch;
                 let caret = if is_open { "▼" } else { "▶" };
                 let resp = indented(ui, indent, |ui| {
                     ui.add(egui::Label::new(format!("{caret} {cat}")).sense(egui::Sense::click()))
@@ -215,6 +309,7 @@ fn draw_level(ui: &mut egui::Ui, cx: TreeCtx<'_>, path: &str, action: &mut DbTre
                         TreeCtx {
                             catalog: Some(cat),
                             indent: indent + INDENT_PER_LEVEL,
+                            filter: row.child_filter(cx.filter),
                             ..cx
                         },
                         &child,
@@ -226,8 +321,14 @@ fn draw_level(ui: &mut egui::Ui, cx: TreeCtx<'_>, path: &str, action: &mut DbTre
         Some(DbListState::Schemas(schemas)) => {
             for schema in schemas {
                 let child = child_key(schema);
+                let row = RowFilter::of(cx.filter, schema, |n| {
+                    subtree_matches(listings, &conn.id, &child, n)
+                });
+                if row == RowFilter::Hide {
+                    continue;
+                }
                 let key = (conn.id.clone(), child.clone());
-                let is_open = expanded.contains(&key);
+                let is_open = expanded.contains(&key) || row == RowFilter::OpenForMatch;
                 let caret = if is_open { "▼" } else { "▶" };
                 let resp = indented(ui, indent, |ui| {
                     ui.add(
@@ -243,6 +344,7 @@ fn draw_level(ui: &mut egui::Ui, cx: TreeCtx<'_>, path: &str, action: &mut DbTre
                         ui,
                         TreeCtx {
                             indent: indent + INDENT_PER_LEVEL,
+                            filter: row.child_filter(cx.filter),
                             ..cx
                         },
                         schema,
@@ -273,6 +375,7 @@ fn draw_tables(
         conn,
         catalog,
         indent,
+        filter,
         ..
     } = cx;
     match listings.get(&(conn.id.clone(), path.to_string())) {
@@ -281,6 +384,9 @@ fn draw_tables(
         Some(DbListState::Catalogs(_)) | Some(DbListState::Schemas(_)) => {}
         Some(DbListState::Tables(tables)) => {
             for table in tables {
+                if filter.is_some_and(|n| !tree_filter::matches(table, n)) {
+                    continue;
+                }
                 let resp = indented(ui, indent, |ui| {
                     ui.add(egui::Label::new(table).sense(egui::Sense::click()))
                         .on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -360,5 +466,38 @@ fn engine_short(engine: DbEngine) -> &'static str {
         DbEngine::Snowflake => "Snowflake",
         DbEngine::Databricks => "Databricks",
         DbEngine::BigQuery => "BigQuery",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_table_match_is_found_through_catalog_and_schema() {
+        let mut listings = HashMap::new();
+        let conn = "c".to_string();
+        listings.insert(
+            (conn.clone(), String::new()),
+            DbListState::Catalogs(vec!["main".into()]),
+        );
+        listings.insert(
+            (conn.clone(), "main".into()),
+            DbListState::Schemas(vec!["public".into(), "stage".into()]),
+        );
+        listings.insert(
+            (conn.clone(), join_path(&["main", "public"])),
+            DbListState::Tables(vec!["orders".into(), "fact_sales".into()]),
+        );
+        // "stage" was never opened: nothing is known below it.
+        assert!(subtree_matches(&listings, &conn, "", "sales"));
+        assert!(subtree_matches(&listings, &conn, "main", "sales"));
+        assert!(!subtree_matches(
+            &listings,
+            &conn,
+            &join_path(&["main", "stage"]),
+            "sales"
+        ));
+        assert!(!subtree_matches(&listings, &conn, "", "invoices"));
     }
 }

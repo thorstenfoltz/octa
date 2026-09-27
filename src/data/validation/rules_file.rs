@@ -29,7 +29,8 @@ pub struct NamedRule {
     /// Column this rule applies to. Absent means every column.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub column: Option<String>,
-    /// One of `not_null`, `range`, `regex`, `unique`, `max_length`.
+    /// One of `not_null`, `range`, `regex`, `unique`, `max_length`, or an ID
+    /// check: `iban`, `card_number`, `gtin`, `vat_id`, `email`.
     pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min: Option<f64>,
@@ -50,6 +51,7 @@ fn kind_id(kind: &ValidationKind) -> &'static str {
         ValidationKind::Regex(_) => "regex",
         ValidationKind::Unique => "unique",
         ValidationKind::MaxLength(_) => "max_length",
+        ValidationKind::Id(k) => k.id(),
     }
 }
 
@@ -73,7 +75,7 @@ pub fn to_named(rules: &[ValidationRule], columns: &[ColumnInfo]) -> RulesFile {
                 }
                 ValidationKind::Regex(p) => out.pattern = Some(p.clone()),
                 ValidationKind::MaxLength(n) => out.max_length = Some(*n),
-                ValidationKind::NotNull | ValidationKind::Unique => {}
+                ValidationKind::NotNull | ValidationKind::Unique | ValidationKind::Id(_) => {}
             }
             out
         })
@@ -110,10 +112,13 @@ pub fn resolve(file: &RulesFile, columns: &[ColumnInfo]) -> (Vec<ValidationRule>
             },
             "regex" => ValidationKind::Regex(r.pattern.clone().unwrap_or_default()),
             "max_length" => ValidationKind::MaxLength(r.max_length.unwrap_or(0)),
-            other => {
-                unknown.push(format!("unknown rule kind '{other}'"));
-                continue;
-            }
+            other => match crate::data::id_checks::IdKind::from_id(other) {
+                Some(k) => ValidationKind::Id(k),
+                None => {
+                    unknown.push(format!("unknown rule kind '{other}'"));
+                    continue;
+                }
+            },
         };
         rules.push(ValidationRule { column, kind });
     }
@@ -169,6 +174,10 @@ mod tests {
             ValidationRule {
                 column: None,
                 kind: ValidationKind::NotNull,
+            },
+            ValidationRule {
+                column: Some(0),
+                kind: ValidationKind::Id(crate::data::id_checks::IdKind::VatId),
             },
         ];
         let file = to_named(&rules, &cols());

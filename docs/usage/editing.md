@@ -5,12 +5,12 @@ inline cell editing, row and column structural changes, colour marks,
 and full undo/redo for everything.
 
 This page covers structural operations. For navigation and selection
-within the Table view, see [Table View](table-view.md). For cell
+within the Table view, see [Table view](table-view.md). For cell
 formulas (`=A1+B1`), see [Formulas](formulas.md).
 
 ## Starting from nothing
 
-**File → New Table...** asks how many columns and rows to start with
+**File → New table...** asks how many columns and rows to start with
 (3 x 1 by default) and opens a blank, editable grid in a new tab, the way a
 spreadsheet opens a blank sheet. Columns are named `col1`, `col2`, ...;
 rename them, add rows or columns with the tools below, then **Save** to any
@@ -18,7 +18,7 @@ rename them, add rows or columns with the tools below, then **Save** to any
 [`NewTable` shortcut](../reference/shortcuts.md#file-operations) is unbound
 by default; give it a key under **Settings → Shortcuts**.
 
-**File → New File...** opens an empty *text* tab instead: type or paste CSV,
+**File → New file...** opens an empty *text* tab instead: type or paste CSV,
 JSON, Markdown or any text, then save it as a file.
 
 The SQL panel can do the same from a statement: see
@@ -43,13 +43,13 @@ Values are parsed based on the column's declared type:
 | `Binary`             | Per the active display mode                            | See [**Settings → Table View → Binary display mode**](../reference/settings.md#table-view) |
 
 Edits are tracked in an **overlay**, so the underlying rows aren't
-mutated until **File → Save** or **Edit → Discard All Edits**. This
+mutated until **File → Save** or **Edit → Discard all edits**. This
 means undo can walk back through every edit and structural change
 even after dozens of mutations.
 
 ## Inserting rows
 
-- **Edit → Insert Row** (or right-click → Insert Row) adds a new
+- **Edit → Insert row** (or right-click → Insert row) adds a new
   empty row below the selected cell.
 - The default shortcut is configurable under
   [**Settings → Shortcuts → InsertRowBelow**](../reference/settings.md#shortcuts).
@@ -63,7 +63,7 @@ table with auto-generated IDs where applicable (see
 
 ## Inserting columns
 
-**Columns → Insert Column…** opens a dialog with three fields:
+**Columns → Insert column…** opens a dialog with three fields:
 
 - **Name**: the new column's name. Must be unique.
 - **Type**: pick from a dropdown (Int64, Float64, Utf8, Boolean,
@@ -83,7 +83,7 @@ first and reload.
 ## Deleting rows
 
 - Select a row by clicking its row number.
-- **Edit → Delete Row** (or right-click → Delete Row).
+- **Edit → Delete row** (or right-click → Delete row).
 - Multi-select with Ctrl/Shift to delete several at once.
 
 Deleted rows are remembered until save. For database-backed tabs,
@@ -92,15 +92,15 @@ they become DELETE statements in the diff-based save flow.
 ## Deleting columns
 
 - Right-click a column header → **Delete column**.
-- Or **Columns → Delete Column** opens a multi-select dialog for
+- Or **Columns → Delete column** opens a multi-select dialog for
   bulk operations.
 
 For databases, see the schema-change note above.
 
 ## Moving rows and columns
 
-- **Edit → Move Row Up / Down** moves the selected row.
-- **Columns → Move Column Left / Right** moves the selected column.
+- **Edit → Move row up / Down** moves the selected row.
+- **Columns → Move column left / Right** moves the selected column.
 - Or drag the row number / column header directly with the mouse.
 
 Reordering does not change the underlying data, just the display
@@ -234,7 +234,7 @@ A scope decides what becomes the payload:
 | **Cell**        | A synthetic 1×1 table with the source column name as the header and the cell value as the only data row. If several cells are marked (Ctrl+click), the whole block is serialised instead: the bounding grid of the selected rows × columns, with any unselected cell in that block left blank. |
 | **Row**         | A synthetic single row table whose headers are the full source column names and whose values are the row's cells, all as strings.                                                                                                                                                              |
 | **Column**      | A synthetic single column table with the source column name as the header and every cell of that column as the data rows. With several columns selected, all of them are serialised together as a multi-column table.                                                                          |
-| **Whole table** | The active table is serialised through the same format writer that **Save As** uses, so headers and types round trip exactly.                                                                                                                                                                  |
+| **Whole table** | The active table is serialised through the same format writer that **Save as** uses, so headers and types round trip exactly.                                                                                                                                                                  |
 
 Synthetic cells are always typed as strings; let date inference or
 manual type changes promote them after the parse if you want typed
@@ -276,7 +276,7 @@ automatically so the common case needs no thought.
 
 The new tab opens in the chosen format's default view mode:
 
-- JSON / JSON Lines / YAML → JSON or YAML Tree.
+- JSON / JSON Lines / YAML → JSON or YAML tree.
 - Markdown → the Markdown preview / split view.
 - CSV / TSV / TOML / XML → Table view.
 - Plain Text → Raw view.
@@ -286,7 +286,7 @@ not what you want.
 
 ### When to reach for this versus the JSON tree
 
-Use the **JSON Tree view** when the *whole file* is JSON or YAML and
+Use the **JSON tree view** when the *whole file* is JSON or YAML and
 you want to drill in or rename keys in place. Use **Parse in new
 tab…** when JSON or YAML shaped text lives *inside* a cell, row, or
 column of a tabular file and you want to lift it out into its own
@@ -352,7 +352,7 @@ to ask.
 
 ## Discard all edits
 
-**Edit → Discard All Edits** reverts every change since the file was
+**Edit → Discard all edits** reverts every change since the file was
 opened (or last saved). It clears the edit overlay, the structural
 change flag, and the undo / redo stacks.
 

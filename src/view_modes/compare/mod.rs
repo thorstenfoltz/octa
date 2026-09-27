@@ -37,6 +37,8 @@ pub fn render_compare_view(
     tab: &mut TabState,
     theme_mode: ThemeMode,
     syntax_highlight_max_bytes: usize,
+    readonly: bool,
+    tab_size: usize,
 ) -> CompareAction {
     let mut action = CompareAction::default();
     let colors = ui::theme::ThemeColors::for_mode(theme_mode);
@@ -71,15 +73,33 @@ pub fn render_compare_view(
             .unwrap_or_else(|| "(no file)".to_string());
         let left_label = short_filename(&left_full);
         let right_label = short_filename(&right_full);
+        // The text diff's left pane is a real editor, so say so on the row
+        // that names the side, and say why when it is not.
+        // A binary format has no text on either side, so neither note is
+        // true of it; only a genuinely locked tab gets the read-only reason.
+        let left_note = match (tab.compare_mode, readonly, tab.raw_content.is_some()) {
+            (CompareMode::TextDiff, true, _) => Some(octa::i18n::t("compare.left_readonly")),
+            (CompareMode::TextDiff, false, true) => Some(octa::i18n::t("compare.left_editable")),
+            _ => None,
+        };
+        let left_hover = match left_note {
+            Some(note) => format!("{left_full}\n{note}"),
+            None => left_full.clone(),
+        };
+        let right_hover = if tab.compare_mode == CompareMode::TextDiff {
+            format!("{right_full}\n{}", octa::i18n::t("compare.right_readonly"))
+        } else {
+            right_full.clone()
+        };
         ui.label(RichText::new("Left:").strong())
-            .on_hover_text(&left_full);
+            .on_hover_text(&left_hover);
         ui.label(RichText::new(left_label).color(colors.text_secondary))
-            .on_hover_text(&left_full);
+            .on_hover_text(&left_hover);
         ui.add_space(12.0);
         ui.label(RichText::new("Right:").strong())
-            .on_hover_text(&right_full);
+            .on_hover_text(&right_hover);
         ui.label(RichText::new(right_label).color(colors.text_secondary))
-            .on_hover_text(&right_full);
+            .on_hover_text(&right_hover);
         ui.add_space(16.0);
         // Mode toggle. Each radio commits the new mode immediately -
         // there's no Apply step, the renderers are cheap enough.
@@ -121,7 +141,14 @@ pub fn render_compare_view(
 
     match tab.compare_mode {
         CompareMode::TextDiff => {
-            text_diff::render(ui, tab, theme_mode, syntax_highlight_max_bytes);
+            text_diff::render(
+                ui,
+                tab,
+                theme_mode,
+                syntax_highlight_max_bytes,
+                readonly,
+                tab_size,
+            );
         }
         CompareMode::RowHashDiff => {
             row_diff::render(ui, tab, theme_mode);

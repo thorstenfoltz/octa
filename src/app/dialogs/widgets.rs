@@ -58,31 +58,47 @@ pub(crate) fn col_combo_ordered(
 /// of columns up to a cap, then scrolls, so the dialog never stretches to the
 /// bottom of the screen.
 pub(crate) fn multi_col_picker(ui: &mut egui::Ui, id: &str, sel: &mut Vec<usize>, cols: &[String]) {
+    multi_col_picker_sized(ui, id, sel, cols, None);
+}
+
+/// [`multi_col_picker`] with `fill_height`: `Some(h)` makes the list exactly
+/// `h` tall (scrolling inside), for a picker whose height a splitter sets.
+pub(crate) fn multi_col_picker_sized(
+    ui: &mut egui::Ui,
+    id: &str,
+    sel: &mut Vec<usize>,
+    cols: &[String],
+    fill_height: Option<f32>,
+) {
     // Frame the picker so the wrap region reads as one panel.
     egui::Frame::group(ui.style()).show(ui, |ui| {
-        egui::ScrollArea::vertical()
-            .id_salt(id)
-            // `auto_shrink([false, true])`: take the full width, but shrink to
-            // the content height up to `max_height` (then scroll). This is the
-            // bound that stops the list running to the end of the screen.
-            .auto_shrink([false, true])
-            .max_height(220.0)
-            .show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    for (i, name) in cols.iter().enumerate() {
-                        let mut on = sel.contains(&i);
-                        if ui.checkbox(&mut on, name).changed() {
-                            if on {
-                                if !sel.contains(&i) {
-                                    sel.push(i);
-                                }
-                            } else {
-                                sel.retain(|c| *c != i);
+        let area = egui::ScrollArea::vertical().id_salt(id);
+        // Default: take the full width, but shrink to the content height up
+        // to 220 px (then scroll). This is the bound that stops the list
+        // running to the end of the screen.
+        let area = match fill_height {
+            Some(h) => area
+                .auto_shrink([false, false])
+                .min_scrolled_height(h)
+                .max_height(h),
+            None => area.auto_shrink([false, true]).max_height(220.0),
+        };
+        area.show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for (i, name) in cols.iter().enumerate() {
+                    let mut on = sel.contains(&i);
+                    if ui.checkbox(&mut on, name).changed() {
+                        if on {
+                            if !sel.contains(&i) {
+                                sel.push(i);
                             }
+                        } else {
+                            sel.retain(|c| *c != i);
                         }
                     }
-                });
+                }
             });
+        });
     });
 }
 

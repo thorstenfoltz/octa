@@ -46,14 +46,6 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 action.open_transform = true;
                 ui.close();
             }
-            if ui
-                .button(crate::i18n::t("ccol.menu"))
-                .on_hover_text(crate::i18n::t("ccol.menu_hint"))
-                .clicked()
-            {
-                action.open_conditional_column = true;
-                ui.close();
-            }
             // Filter to marked: label flips to the "clear" variant when
             // the filter is already active on this tab.
             let filter_marked_label = if mark_filter_active {
@@ -98,6 +90,15 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 ui.close();
             }
             if ui
+                .button(crate::i18n::t("tabmem.menu"))
+                .on_hover_text(crate::i18n::t("tabmem.menu_hint"))
+                .clicked()
+            {
+                action.open_tab_memory = true;
+                ui.close();
+            }
+            ui.separator();
+            if ui
                 .button(crate::i18n::t("impute.menu"))
                 .on_hover_text(crate::i18n::t("impute.menu_hint"))
                 .clicked()
@@ -111,6 +112,14 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 .clicked()
             {
                 action.open_anonymize = true;
+                ui.close();
+            }
+            if ui
+                .button(crate::i18n::t("testdata.menu"))
+                .on_hover_text(crate::i18n::t("testdata.menu_hint"))
+                .clicked()
+            {
+                action.open_test_data = true;
                 ui.close();
             }
             if ui

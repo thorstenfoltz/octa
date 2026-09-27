@@ -485,6 +485,98 @@ pub fn render_plan_sql(
     out
 }
 
+/// A ready-to-paste SQL script built from the edit audit trail, one `UPDATE`
+/// per edited row (unlike [`render_plan_sql`], this never touches inserts or
+/// deletes - the trail only ever sees cell edits).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SqlExport {
+    pub statements: Vec<String>,
+    /// `true` when there was no real row key to address rows by, so the
+    /// statements are matched on the first column's original value instead -
+    /// a starting point for the user to edit, not something to run as-is.
+    pub is_template: bool,
+}
+
+/// Turn the active tab's pending cell edits into `UPDATE` statements, reusing
+/// [`update_sql`] so quoting, identifier escaping and literal formatting stay
+/// dialect-correct in the one place that already gets them right.
+///
+/// `identity` is the row's key on a live-database tab; `None` (a file-backed
+/// tab has no server key) falls back to the table's first column as a
+/// stand-in, and the result is marked [`SqlExport::is_template`] so the panel
+/// can say so. Either way, rows are addressed by the key columns' ORIGINAL
+/// values (`DataTable::original_value`), so a key cell that was itself edited
+/// is still found where the server still has it.
+pub fn edits_as_update_sql(
+    table: &DataTable,
+    engine: DbEngine,
+    schema: &str,
+    table_name: &str,
+    identity: Option<&RowIdentity>,
+) -> anyhow::Result<SqlExport> {
+    let is_template = identity.is_none();
+    let key_cols: Vec<String> = match identity {
+        Some(id) => id.columns().to_vec(),
+        None => {
+            let first = table
+                .columns
+                .first()
+                .ok_or_else(|| anyhow::anyhow!("the table has no columns"))?;
+            vec![first.name.clone()]
+        }
+    };
+    let key_idx: Vec<usize> = key_cols
+        .iter()
+        .map(|k| {
+            table
+                .columns
+                .iter()
+                .position(|c| &c.name == k)
+                .ok_or_else(|| anyhow::anyhow!("key column '{k}' is not in the table"))
+        })
+        .collect::<anyhow::Result<_>>()?;
+
+    let entries = crate::data::edit_audit::audit_entries(table);
+    let mut statements = Vec::new();
+    let mut i = 0;
+    while i < entries.len() {
+        let row = entries[i].row;
+        let mut cols = Vec::new();
+        let mut vals = Vec::new();
+        let mut j = i;
+        while j < entries.len() && entries[j].row == row {
+            let col_idx = entries[j].col;
+            cols.push(table.columns[col_idx].clone());
+            vals.push(
+                table
+                    .edits
+                    .get(&(row, col_idx))
+                    .cloned()
+                    .unwrap_or(CellValue::Null),
+            );
+            j += 1;
+        }
+        let pk_vals: Vec<CellValue> = key_idx
+            .iter()
+            .map(|&idx| {
+                table
+                    .original_value(row, idx)
+                    .cloned()
+                    .unwrap_or(CellValue::Null)
+            })
+            .collect();
+        let sql = update_sql(
+            engine, schema, table_name, &cols, &key_cols, &pk_vals, &vals,
+        );
+        statements.push(format!("{sql};"));
+        i = j;
+    }
+    Ok(SqlExport {
+        statements,
+        is_template,
+    })
+}
+
 /// Apply the plan in ONE transaction: `ALTER TABLE ADD` per new column,
 /// DELETE by PK, full-row UPDATE by PK, INSERT new rows. Rolls back on any
 /// error (mirrors `write_table_generic`'s transaction skeleton). The caller
@@ -1128,5 +1220,85 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(err.contains("nope"), "{err}");
+    }
+
+    // --- edit audit trail SQL export -----------------------------------
+
+    /// A plain two-column table (no `db_meta`), matching what the edit audit
+    /// panel actually has on hand: `DataTable.rows` plus an edit overlay.
+    fn two_col_table() -> DataTable {
+        let mut t = DataTable::empty();
+        t.columns = vec![col("id", "Int64"), col("city", "Utf8")];
+        t.rows = vec![
+            vec![CellValue::Int(1), CellValue::String("Berlin".into())],
+            vec![CellValue::Int(2), CellValue::String("Hamburg".into())],
+        ];
+        t
+    }
+
+    /// A keyed table exports one real UPDATE per edited row, addressed by the
+    /// key's ORIGINAL value even when the key cell itself was edited, and
+    /// never rewrites a column nobody touched.
+    #[test]
+    fn a_keyed_table_exports_updates_addressed_by_the_original_key() {
+        let mut t = two_col_table();
+        t.columns.push(col("country", "Utf8"));
+        t.rows[0].push(CellValue::String("Germany".into()));
+        t.rows[1].push(CellValue::String("Germany".into()));
+        t.edits.insert((0, 0), CellValue::Int(100));
+        t.edits
+            .insert((0, 1), CellValue::String("Duesseldorf".into()));
+
+        let identity = RowIdentity::Key(vec!["id".into()]);
+        let out =
+            edits_as_update_sql(&t, DbEngine::Postgres, "", "customers", Some(&identity)).unwrap();
+        assert!(!out.is_template, "a keyed table exports real statements");
+        assert_eq!(out.statements.len(), 1);
+        let sql = &out.statements[0];
+        assert!(sql.contains("UPDATE"), "got: {sql}");
+        assert!(sql.contains("customers"), "names the target table: {sql}");
+        assert!(sql.contains("WHERE"), "targets by key: {sql}");
+        assert!(
+            sql.contains("\"id\" = 1"),
+            "WHERE uses the ORIGINAL key value, not the edited one: {sql}"
+        );
+        assert!(
+            !sql.contains("\"country\""),
+            "must not rewrite an unchanged column: {sql}"
+        );
+        assert!(sql.trim_end().ends_with(';'), "{sql}");
+    }
+
+    /// A key column that is not in the table at all is refused, naming it.
+    #[test]
+    fn a_missing_key_column_is_an_error_naming_it() {
+        let t = two_col_table();
+        let identity = RowIdentity::Key(vec!["nope".into()]);
+        let err = edits_as_update_sql(&t, DbEngine::Postgres, "", "customers", Some(&identity))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("nope"), "{err}");
+    }
+
+    /// A file-backed table has no key, so the export is flagged as a
+    /// template keyed on the first column, named after the source file.
+    #[test]
+    fn a_file_backed_table_exports_a_flagged_template() {
+        let mut t = two_col_table();
+        t.source_path = Some("/tmp/sales_2026.csv".into());
+        t.edits
+            .insert((0, 1), CellValue::String("Duesseldorf".into()));
+
+        let out = edits_as_update_sql(&t, DbEngine::Postgres, "", "sales_2026", None).unwrap();
+        assert!(
+            out.is_template,
+            "no identity means no key, so it is a template"
+        );
+        assert_eq!(out.statements.len(), 1);
+        assert!(
+            out.statements[0].contains("sales_2026"),
+            "table name from the file stem: {}",
+            out.statements[0]
+        );
     }
 }

@@ -4,7 +4,6 @@ Octa is multi-tab from the ground up. Every file you open lives in
 its own tab; the same file opened twice gets two independent tabs
 with independent edit overlays.
 
-<!-- SCREENSHOT: tabs-and-sidebar.png: Window with the folder sidebar docked on the left, expanded down a few levels, and several tabs open in the strip across the top. -->
 ![Tabs and folder sidebar](../assets/screenshots/tabs-and-sidebar.png)
 
 ## The tab strip
@@ -19,6 +18,8 @@ even when only one tab is open. Each tab shows the filename and an
 - **Hover** a tab to see its full file path in a tooltip, useful
   when several tabs share a filename.
 - **Right-click** a tab for the context menu:
+  - Refresh reads the tab's file, database table, cloud object or endpoint
+    again. See [Refresh a Tab](refresh-tab.md).
   - Pin tab
   - Compare with active tab
   - Rename tab... (or <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd>) sets a display-only label;
@@ -45,7 +46,7 @@ external changes are picked up). Scratch tabs (no source path,
 e.g. "parsed in new tab" results or raw edits) re-create the
 visible state verbatim from the snapshot Octa kept.
 
-The Edit menu surfaces **Reopen Last Closed Tab** with the binding
+The Edit menu surfaces **Reopen last closed tab** with the binding
 shown when at least one closed-tab snapshot exists.
 
 ## Multi-file open
@@ -71,7 +72,7 @@ proceeds.
 
 ## The folder sidebar
 
-**File → Open Directory…** opens a directory picker and installs a
+**File → Open directory…** opens a directory picker and installs a
 sidebar showing the folder's tree. It's a resizable panel docked
 on the **left** by default; dock it on the right, top or bottom under
 [**Settings → Directory Tree → Sidebar position**](../reference/settings.md#directory-tree)
@@ -94,6 +95,36 @@ it, including all the way down narrow so the table gets the full width.
   - Copy name (basename only)
   - Union selected files... (see below)
 
+### Git marks
+
+When the folder, or a folder beneath it, is a git repository, the sidebar
+colours what git knows about:
+
+- **Uncommitted changes** in the theme's warning colour, with a letter after
+  the name: `M` modified, `A` added, `D` deleted, `R` renamed, `U` untracked.
+  Files listed in `.gitignore` are never marked.
+- **Changes on this branch** in the accent colour, with a `*` after the
+  name: files committed on the current branch since it forked from the base
+  branch (`git diff base...HEAD`). Uncommitted edits are the other mark, so
+  the two never mean the same thing; a file with both keeps the warning
+  colour and shows both signs, `M*`.
+
+A folder takes the colour of anything beneath it and shows no letter. Hover
+any marked row and the state is spelled out in words.
+
+The base branch is `master` unless you change it under
+[**Settings → Directory Tree**](../reference/settings.md#directory-tree); a
+repository that has no branch of that name is compared against `main`
+instead, and if that is missing too the branch mark is simply absent and
+the root folder's hover says so. Either mark can be switched off on its own.
+
+Marks refresh when the folder is opened, when Octa saves a file, when the
+window regains focus, and every ten seconds while the sidebar is visible;
+the interval is a setting, and `0` leaves only open and save. Git runs on a
+worker thread and never on the drawing path, so a slow repository costs
+nothing but a later update. Each repository is handled on its own, so a
+folder holding several projects marks each one as you expand into it.
+
 ### Selecting several files (Union)
 
 **Ctrl-click** file rows to select them instead of opening them;
@@ -110,7 +141,7 @@ file, and clears the selection.
 
 ### Closing the sidebar
 
-**File → Close Directory** hides the sidebar without touching any of
+**File → Close directory** hides the sidebar without touching any of
 the tabs you've already opened from it. Re-opening a folder shows it
 again.
 
@@ -139,7 +170,6 @@ When you open a `.sqlite` / `.duckdb` / `.gpkg` file with **more than
 one user table**, Octa shows a modal table picker before the data
 loads:
 
-<!-- SCREENSHOT: table-picker.png: Modal dialog listing tables in a database, with table name, row count, and a schema preview for the highlighted one. -->
 ![Table picker dialog](../assets/screenshots/table-picker.png){ .screenshot-placeholder }
 
 - Click a table to select it; the right pane previews the schema.

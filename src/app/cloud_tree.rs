@@ -10,9 +10,11 @@ use eframe::egui;
 
 use octa::cloud::{CloudConnection, CloudKind};
 use octa::ui::status_bar::human_size;
+use octa::ui::tree_filter::{self, RowFilter, TreeSearch};
 
 use super::cloud_browser::{
-    CloudSelection, CloudSort, ConnPrefix, ListState, SignInState, root_prefix, sorted_entries,
+    CloudHit, CloudSelection, CloudSort, ConnPrefix, ListState, SignInState, root_prefix,
+    sorted_entries,
 };
 
 const INDENT_PER_LEVEL: f32 = 14.0;
@@ -61,6 +63,13 @@ pub(crate) struct CloudTreeAction {
     pub(crate) union_folder: Option<(String, String, bool)>,
     /// Replace the whole batch selection (rubber-band marquee result).
     pub(crate) set_selection: Option<HashSet<CloudSelection>>,
+    /// Search every object under the expanded connections for the query.
+    pub(crate) search_all: bool,
+    /// Stop the running search.
+    pub(crate) cancel_search: bool,
+    /// A folder search hit was clicked: expand the tree down to
+    /// (conn_id, folder key).
+    pub(crate) reveal: Option<ConnPrefix>,
 }
 
 /// Shared, read-only borrows the caller assembles and threads through the
@@ -80,6 +89,17 @@ pub(crate) struct TreeCtx<'a> {
     pub(crate) sort: CloudSort,
     /// Objects Ctrl-clicked for a batch action (Union).
     pub(crate) selected: &'a HashSet<CloudSelection>,
+    /// The deep search's results.
+    pub(crate) search: &'a TreeSearch<CloudHit>,
+}
+
+/// The listing node being drawn, and the filter that still applies there.
+#[derive(Clone, Copy)]
+struct Node<'a> {
+    conn_id: &'a str,
+    prefix: &'a str,
+    depth: usize,
+    filter: Option<&'a str>,
 }
 
 /// Render the cloud section. `share_with_dir` caps the list at half height when
@@ -88,6 +108,7 @@ pub(crate) fn render_cloud_tree(
     ui: &mut egui::Ui,
     connections: &[CloudConnection],
     ctx: &TreeCtx,
+    query: &mut String,
     share_with_dir: bool,
 ) -> CloudTreeAction {
     let mut action = CloudTreeAction::default();
@@ -174,6 +195,15 @@ pub(crate) fn render_cloud_tree(
         return action;
     }
 
+    action.search_all = tree_filter::search_box(ui, "cloud_tree_search", query).search_all;
+    let mut hit_action = CloudTreeAction::default();
+    action.cancel_search =
+        tree_filter::search_results(ui, "cloud_tree_search_results", ctx.search, |ui, hit| {
+            draw_hit(ui, hit, &mut hit_action);
+        });
+    action.open = hit_action.open;
+    let needle = tree_filter::needle(query);
+
     let max_height = if share_with_dir {
         ui.available_height() * 0.5
     } else {
@@ -196,7 +226,7 @@ pub(crate) fn render_cloud_tree(
 
             let mut rows: Vec<(egui::Rect, CloudSelection)> = Vec::new();
             for conn in connections {
-                draw_connection(ui, ctx, conn, &mut action, &mut rows);
+                draw_connection(ui, ctx, conn, needle.as_deref(), &mut action, &mut rows);
             }
 
             cloud_marquee(ui, ctx, viewport, &rows, &mut action);
@@ -313,16 +343,78 @@ fn cloud_marquee(
     );
 }
 
+/// One deep-search hit: the object or folder, and the folder it sits in.
+fn draw_hit(ui: &mut egui::Ui, hit: &CloudHit, action: &mut CloudTreeAction) {
+    let folder = hit
+        .key
+        .trim_end_matches('/')
+        .rsplit_once('/')
+        .map(|(f, _)| f)
+        .unwrap_or("");
+    let place = format!("{} / {folder}", hit.conn_name);
+    let label = if hit.is_folder {
+        format!("{}/", hit.name)
+    } else {
+        hit.name.clone()
+    };
+    let hint = if hit.is_folder {
+        "treesearch.folder_result_hint"
+    } else {
+        "treesearch.result_hint"
+    };
+    let resp = ui
+        .horizontal(|ui| {
+            let resp = ui
+                .add(egui::Label::new(label).sense(egui::Sense::click()))
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text(format!("{}\n{}", hit.key, octa::i18n::t(hint)));
+            ui.label(
+                egui::RichText::new(&place)
+                    .small()
+                    .color(ui.visuals().weak_text_color()),
+            );
+            resp
+        })
+        .inner;
+    if resp.clicked() && hit.is_folder {
+        action.reveal = Some((hit.conn_id.clone(), hit.key.clone()));
+    } else if resp.clicked() {
+        action.open = Some((hit.conn_id.clone(), hit.key.clone(), hit.name.clone()));
+    }
+}
+
+/// Whether anything already listed under `prefix` matches `needle`.
+fn subtree_matches(
+    listings: &HashMap<ConnPrefix, ListState>,
+    conn_id: &str,
+    prefix: &str,
+    needle: &str,
+) -> bool {
+    match listings.get(&(conn_id.to_string(), prefix.to_string())) {
+        Some(ListState::Ready(entries)) => entries.iter().any(|e| {
+            tree_filter::matches(&e.name, needle)
+                || (e.is_prefix && subtree_matches(listings, conn_id, &e.key, needle))
+        }),
+        Some(ListState::Loading) | Some(ListState::Error(_)) | None => false,
+    }
+}
+
 fn draw_connection(
     ui: &mut egui::Ui,
     ctx: &TreeCtx,
     conn: &CloudConnection,
+    filter: Option<&str>,
     action: &mut CloudTreeAction,
     rows: &mut Vec<(egui::Rect, CloudSelection)>,
 ) {
     let root = root_prefix(conn);
     let root_key = (conn.id.clone(), root.clone());
-    let is_open = ctx.expanded.contains(&root_key);
+    // Connections always stay listed: they are where a search starts. A
+    // match below one opens it.
+    let row = RowFilter::of(filter, &conn.name, |n| {
+        subtree_matches(ctx.listings, &conn.id, &root, n)
+    });
+    let is_open = ctx.expanded.contains(&root_key) || row == RowFilter::OpenForMatch;
     let has_cli = ctx.cli_avail.get(&conn.kind).copied().unwrap_or(false);
     let has_secret = ctx.secret_present.get(&conn.id).copied().unwrap_or(false);
     let sign_out_armed = ctx.sign_out_confirm == Some(conn.id.as_str());
@@ -455,7 +547,13 @@ fn draw_connection(
     }
 
     if is_open {
-        draw_listing(ui, ctx, &conn.id, &root, 1, action, rows);
+        let node = Node {
+            conn_id: &conn.id,
+            prefix: &root,
+            depth: 1,
+            filter: row.child_filter(filter),
+        };
+        draw_listing(ui, ctx, node, action, rows);
     }
 }
 
@@ -501,12 +599,16 @@ fn draw_status_line(ui: &mut egui::Ui, ctx: &TreeCtx, conn: &CloudConnection, ha
 fn draw_listing(
     ui: &mut egui::Ui,
     ctx: &TreeCtx,
-    conn_id: &str,
-    prefix: &str,
-    depth: usize,
+    node: Node<'_>,
     action: &mut CloudTreeAction,
     rows: &mut Vec<(egui::Rect, CloudSelection)>,
 ) {
+    let Node {
+        conn_id,
+        prefix,
+        depth,
+        filter,
+    } = node;
     let indent = depth as f32 * INDENT_PER_LEVEL;
     match ctx.listings.get(&(conn_id.to_string(), prefix.to_string())) {
         None | Some(ListState::Loading) => {
@@ -532,8 +634,14 @@ fn draw_listing(
             }
             for entry in sorted_entries(entries, ctx.sort) {
                 if entry.is_prefix {
+                    let row = RowFilter::of(filter, &entry.name, |n| {
+                        subtree_matches(ctx.listings, conn_id, &entry.key, n)
+                    });
+                    if row == RowFilter::Hide {
+                        continue;
+                    }
                     let key = (conn_id.to_string(), entry.key.clone());
-                    let is_open = ctx.expanded.contains(&key);
+                    let is_open = ctx.expanded.contains(&key) || row == RowFilter::OpenForMatch;
                     let caret = if is_open { "▼" } else { "▶" };
                     let resp = indented(ui, indent, |ui| {
                         ui.add(
@@ -584,9 +692,18 @@ fn draw_listing(
                         );
                     });
                     if is_open {
-                        draw_listing(ui, ctx, conn_id, &entry.key, depth + 1, action, rows);
+                        let child = Node {
+                            prefix: &entry.key,
+                            depth: depth + 1,
+                            filter: row.child_filter(filter),
+                            ..node
+                        };
+                        draw_listing(ui, ctx, child, action, rows);
                     }
                 } else {
+                    if filter.is_some_and(|n| !tree_filter::matches(&entry.name, n)) {
+                        continue;
+                    }
                     // Compact inline metadata (size + full last-modified
                     // timestamp); the hover tooltip carries the full key and
                     // exact byte count. Object stores expose only a

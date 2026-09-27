@@ -180,7 +180,6 @@ genuinely-ambiguous cases.
 When a column is consistent with **multiple** layouts (typically
 `DD/MM/YYYY` and `MM/DD/YYYY` both pass), Octa shows a modal:
 
-<!-- SCREENSHOT: date-ambiguity-dialog.png: Modal dialog asking the user to pick between European DD/MM/YYYY and US MM/DD/YYYY for an ambiguous column, with a "Leave as text" escape hatch. Show a few sample values from the column. -->
 ![Date format ambiguity dialog](../assets/screenshots/date-ambiguity-dialog.png)
 
 You pick:

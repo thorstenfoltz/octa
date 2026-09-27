@@ -341,6 +341,7 @@ impl OctaApp {
                 all_exts.push(ext.clone());
             }
         }
+        all_exts.push(octa::data::recipe::EXTENSION.to_string());
         let all_ext_refs: Vec<&str> = all_exts.iter().map(|s| s.as_str()).collect();
         dialog = dialog.add_filter("All Supported", &all_ext_refs);
 
@@ -348,6 +349,10 @@ impl OctaApp {
             let ext_refs: Vec<&str> = exts.iter().map(|s| s.as_str()).collect();
             dialog = dialog.add_filter(&name, &ext_refs);
         }
+        dialog = dialog.add_filter(
+            octa::i18n::t("recipe.file_filter"),
+            &[octa::data::recipe::EXTENSION],
+        );
         // Surface the user's extra extensions as a labelled filter so they
         // can pick "Custom (text)" directly. Skipped when the list is empty.
         if !self.settings.text_mode_extensions.is_empty() {
@@ -456,6 +461,21 @@ impl OctaApp {
         // subdirectory and read via DuckDB; any other directory is ignored.
         if path.is_dir() {
             self.load_lakehouse_dir(path);
+            return;
+        }
+        // A recipe is a set of instructions, not data: opening one means
+        // "apply it to the table in front of me".
+        if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case(octa::data::recipe::EXTENSION))
+        {
+            self.open_apply_recipe(path);
+            return;
+        }
+        // A password-protected workbook is not a corrupt file, it is a
+        // locked one. Detection reads a signature and needs no passphrase,
+        // so a file that needs nothing is never interrupted by a prompt.
+        if self.intercept_protected_file(&path) {
             return;
         }
         // Very large files get a different treatment entirely: the rows stay
@@ -627,9 +647,18 @@ impl OctaApp {
             }
             Ok(Some(_)) => {}
             Ok(None) => {}
+            // A PDF that yields no table (scanned pages, prose, a password)
+            // gets a tab carrying the reason, which stays until dismissed and
+            // can be copied: the scanned-page advice is long, and a status-bar
+            // line vanishes before it can be read.
+            Err(e) if reader.name() == "PDF" => {
+                self.apply_loaded_table(path, DataTable::empty());
+                self.tabs[self.active_tab].parse_error_banner = Some(format!("{e:#}"));
+                return;
+            }
             Err(e) => {
                 self.status_message = Some((
-                    format!("Error inspecting file: {e}"),
+                    format!("Error inspecting file: {e:#}"),
                     std::time::Instant::now(),
                 ));
                 return;
@@ -686,6 +715,7 @@ impl OctaApp {
             Ok(result) => {
                 let pending = self.pending_load.take().unwrap();
                 self.finish_single_load(pending.path, pending.format_name, result);
+                self.restore_load_cap();
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {
                 ctx.request_repaint();
@@ -697,6 +727,7 @@ impl OctaApp {
                     pending.format_name,
                     Err(anyhow::anyhow!("file read worker stopped unexpectedly")),
                 );
+                self.restore_load_cap();
             }
         }
     }
@@ -770,6 +801,9 @@ impl OctaApp {
         // Kept for the very end of this function: `path` itself is moved into
         // the tab on the way through.
         let loaded_path = path.clone();
+        // A refresh of an open tab empties that tab so the check below
+        // reuses it.
+        self.take_reload_slot(&path.to_string_lossy());
         let current_empty = self.tabs[self.active_tab].table.col_count() == 0
             && !self.tabs[self.active_tab].is_modified();
         if !current_empty {
@@ -932,15 +966,20 @@ impl OctaApp {
 
             tab.sql_query.clear();
             tab.sql_result = None;
+            tab.sql_result_total = None;
             tab.sql_error = None;
             tab.sql_panel_open =
                 self.settings.sql_panel_default_open && tab.view_mode == ViewMode::Table;
             tab.sql_editor_focus_pending = tab.sql_panel_open;
 
-            tab.parse_error_banner = None;
+            // A PDF whose other pages are scanned images: say those pages
+            // were not read, rather than letting the table look complete.
+            tab.parse_error_banner = octa::formats::pdf_reader::scan_note(&path)
+                .or_else(|| octa::formats::log::unmatched_note(&tab.table));
             tab.json_value = None;
             tab.yaml_value = None;
             tab.json_tree_expanded.clear();
+            tab.json_nested_docs.clear();
             if matches!(
                 tab.table.format_name.as_deref(),
                 Some("JSON") | Some("JSONL")

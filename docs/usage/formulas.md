@@ -76,9 +76,8 @@ formula, so fix that one and re-evaluate to see the next one.
 
 ## Insert Column with a formula
 
-From [**Columns → Insert Column…**](editing.md#inserting-columns):
+From [**Columns → Insert column…**](editing.md#inserting-columns):
 
-<!-- SCREENSHOT: insert-column-formula.png: Insert Column dialog with Name, Type, Formula fields filled in (e.g. Name=margin, Type=Float64, Formula==B1-C1). -->
 ![Insert column dialog with a formula](../assets/screenshots/insert-column-formula.png)
 
 1. **Name**: the new column's name.

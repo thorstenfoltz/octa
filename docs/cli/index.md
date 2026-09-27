@@ -77,6 +77,15 @@ one first with `chmod 750 Octa-*-x86_64.AppImage`. See
 | `--compare-distributions FILE --dist-column COL`     | Do two columns look like one population?      | [→ `--compare-distributions`](compare-distributions.md) |
 | `--check-references PARENT --parent-column COL`      | Orphan child rows (exit 1 = orphans found)    | [→ `--check-references`](check-references.md)           |
 | `--diff A B`                                         | Row-level diff: rows unique to each file      | [→ `--diff`](diff.md)                                   |
+| `--merge FILE FILE [...]`                            | Merge versions (exit 1 = conflicts open)      | [→ `--merge`](merge.md)                                 |
+| `--recipe RECIPE FILE`                               | Replay a GUI recipe (exit 1 = step skipped)   | [→ `--recipe`](recipe.md)                               |
+| `--test-data FILE [...]`                             | Shareable test data shaped like the input     | [→ `--test-data`](test-data.md)                         |
+| `--overlaps FILE`                                    | Overlapping time spans (exit 1 = found)       | [→ `--overlaps`](overlaps.md)                           |
+| `--shapes FILE --shapes-column COL`                  | What a column's values look like              | [→ `--shapes`](shapes.md)                               |
+| `--lookups FILE [--lookups-min N]`                   | Columns that always follow another column     | [→ `--lookups`](lookups.md)                             |
+| `--cell-history FILE --history-column COL ...`       | Commits that changed one cell (Git)           | [→ `--cell-history`](cell-history.md)                   |
+| `--spatial-join FILE --spatial-layer FILE...`        | Join by location (inside / nearest)           | [→ `--spatial-join`](spatial-join.md)                   |
+| `--forecast FILE --forecast-x COL --forecast-y COL`  | Holt-Winters forecast with ranges             | [→ `--forecast`](forecast.md)                           |
 | `--describe FILE`                                    | One-shot snapshot: format + schema + sample   | [→ `--describe`](describe.md)                           |
 | `--validate-schema FILE --expect-schema SCHEMA`      | Validate against JSON Schema (exit 1 = drift) | [→ `--validate-schema`](validate-schema.md)             |
 | `--unique-columns FILE`                              | Find PK candidates (singles + combos)         | [→ `--unique-columns`](unique-columns.md)               |
@@ -111,6 +120,7 @@ one first with `chmod 750 Octa-*-x86_64.AppImage`. See
 | `--db-query SQL --db CONN`                           | Run SQL on a live database server             | [→ guide](../usage/database-connections.md)             |
 | `--db-write-table SCHEMA.TABLE --db CONN FILE`       | Write a file into a live database table       | [→ guide](../usage/database-connections.md)             |
 | `--db-copy SCHEMA.TABLE --db CONN --db-copy-to CONN` | Copy a table server to server                 | [→ guide](../usage/database-connections.md)             |
+| `--api CONNECTION`                                   | Read a saved REST/JSON API endpoint           | [→ api endpoints](api.md)                               |
 | `--list-connections`                                 | List saved cloud and database connections     | [→ man page](man-page.md)                               |
 | `--add-connection SPEC`                              | Add or replace a saved connection             | [→ man page](man-page.md)                               |
 | `--remove-connection NAME`                           | Delete a saved connection and its secret      | [→ man page](man-page.md)                               |

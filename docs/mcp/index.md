@@ -49,6 +49,15 @@ themselves. Your files stay on disk.
 | `unique_columns`          | Unique columns / key candidates                              | [→ doc](tools/unique_columns.md)               |
 | `schema_drift`            | Which files in a folder disagree about columns               | [→ doc](tools/schema_drift.md)                 |
 | `data_drift`              | How two versions of one dataset differ                       | [→ doc](tools/data_drift.md)                   |
+| `merge_tables`            | Merge several edited versions of one table                   | [→ doc](tools/merge_tables.md)                 |
+| `apply_recipe`            | Replay a recipe recorded in the GUI on a table               | [→ doc](tools/apply_recipe.md)                 |
+| `generate_test_data`      | Test data shaped like one or more real tables                | [→ doc](tools/generate_test_data.md)           |
+| `find_overlaps`           | Rows whose time spans overlap inside a lane                  | [→ doc](tools/find_overlaps.md)                |
+| `value_shapes`            | What a column's values look like, digits and letters folded  | [→ doc](tools/value_shapes.md)                 |
+| `find_lookups`            | Columns that always follow another column                    | [→ doc](tools/find_lookups.md)                 |
+| `cell_history`            | The commits that changed one cell of a file in Git           | [→ doc](tools/cell_history.md)                 |
+| `spatial_join`            | Join by location: containing polygon or nearest point        | [→ doc](tools/spatial_join.md)                 |
+| `forecast`                | Holt-Winters forecast of one column, with ranges             | [→ doc](tools/forecast.md)                     |
 | `check_rules`             | Check values against a TOML rules file                       | [→ doc](tools/check_rules.md)                  |
 | `create_report`           | Write a self-contained HTML profiling report                 | [→ doc](tools/create_report.md)                |
 | `fuzzy_join`              | Join on similarity rather than equality                      | [→ doc](tools/fuzzy_join.md)                   |

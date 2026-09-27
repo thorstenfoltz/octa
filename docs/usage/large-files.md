@@ -1,7 +1,5 @@
 # Large Files
 
-<!-- SCREENSHOT: large-file-notice.png: The "This file is very large" dialog. Body naming a file and its size, the Works and Does not work lines beneath, the "read directly, no conversion needed" note, a "Do not show this again" checkbox, and the three buttons "Open in large-file mode", "Open normally" and Cancel. -->
-
 Large-file mode opens a file **read-only**, keeping its rows on disk and
 fetching only what is on screen. That is the trade: you reach every row
 of a file far bigger than memory, and in exchange the tab cannot be
@@ -29,9 +27,6 @@ file the ordinary way instead. Tick **Do not show this again** to skip
 straight into the mode in future, or turn the question back on in
 Settings.
 
-<!-- TODO screenshot: the large-file notice with its two open buttons.
-     Listed in docs/assets/screenshots/INDEX.md. -->
-
 ## Conversion
 
 Parquet, CSV, TSV and JSON are read where they lie. Any other format
@@ -49,6 +44,11 @@ Sorting a column re-asks the file for that column in order. Typing in
 the search box becomes a condition applied to the file, once the typing
 settles: re-running a count over a file this size on every keystroke
 would lock the window.
+
+That condition honours the search bar's mode, its `Aa` and whole-word
+toggles and its column scope, so a wildcard or regex search here matches
+the same rows it would match in an ordinary tab. An expression the regex
+engine refuses matches nothing, exactly as it does in an ordinary tab.
 
 ## From the command line
 

@@ -4,25 +4,10 @@ Browse and open files directly from Amazon S3 (and S3-compatible providers
 such as IONOS, MinIO, and Cloudflare R2), Azure Blob Storage, and Google Cloud
 Storage. Saving back to the cloud is **off by default** and must be turned on.
 
-<!-- SCREENSHOT: cloud-sidebar.png: The cloud connections sidebar (File >
-Cloud connections) docked on the left. Two or three saved connections, each
-labelled with its provider in brackets (e.g. "prod (S3)", "media (Azure)",
-"open-data (GCS)"). One connection expanded showing a couple of folder rows
-and a file row with size + date, e.g. "sales.parquet  (12.4 MB, 2026-06-20)".
-Under one connection a small status line "Saved keys  reachable" ("reachable"
-in green); a "Sign in" button on a sign-in connection and a "Sign out" button
-on the saved-keys one. -->
 ![Cloud connections sidebar](../assets/screenshots/cloud-sidebar.png){ .screenshot-placeholder }
 
 ## Add a connection
 
-<!-- SCREENSHOT: cloud-settings.png: The Settings > Cloud storage section. At
-the list of
-saved connections with aligned Edit / Remove buttons. Below that the "Add
-connection" form filled in for an S3 connection: Name, Provider = "S3 /
-S3-compatible", Bucket, Region, the Path-style / Allow HTTP / Public-anonymous
-checkboxes, and the Secret section with Access key ID + Secret fields and a
-"Save secret" button. -->
 ![Settings cloud storage section](../assets/screenshots/cloud-settings.png){ .screenshot-placeholder }
 
 Open **Settings → Cloud storage** and click **Add connection**.
@@ -172,6 +157,12 @@ its bucket root, expand folders to drill in, and click a file to open it.
 - **Sort** (next to the Connections header) orders the files in every folder by
   name, last-modified date (newest / oldest), or size (largest / smallest).
   Folders always sort by name and stay at the top.
+- The **search box** under the header narrows the tree to matching names as you
+  type. **Search all** (or <kbd>Enter</kbd>) looks through every object below
+  the expanded connections, including folders you have not opened. See
+  [Sidebar Search](sidebar-search.md).
+- To read an opened object again from the bucket, right-click its tab and
+  choose **Refresh**. See [Refresh a Tab](refresh-tab.md).
 
 ## Union several objects
 
@@ -289,7 +280,7 @@ drops them, and a chat profile without **Allow writes** never sees them.
 ## Saving back
 
 By default, cloud-opened files are **read-only**: pressing **Save** shows a
-reminder and does nothing. **Save As** to a local path always works and
+reminder and does nothing. **Save as** to a local path always works and
 detaches the tab from the cloud.
 
 To save back to the object, turn on **Allow writes on this connection** for

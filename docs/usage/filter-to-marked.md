@@ -1,6 +1,6 @@
 # Filter to Marked
 
-**Edit > Filter to marked** hides everything except what you have colour-marked,
+**Data > Filter to marked** hides everything except what you have colour-marked,
 so you can drill down to the rows and columns you care about. Choose the same
 menu entry again (now labelled "Clear filter to marked") to restore the full
 view.

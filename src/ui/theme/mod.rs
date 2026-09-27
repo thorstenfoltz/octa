@@ -46,6 +46,17 @@ pub enum ThemeMode {
     /// Forest: a deep woodland dark theme. Dark forest-green backgrounds,
     /// moss / leaf-green accents, warm bark tones and pale parchment text.
     Forest,
+    /// Deep Sea with dialogs that stand out: the same water, but windows and
+    /// menus are raised on a lighter navy with a bright rim and a deep shadow.
+    DeepSeaContrast,
+    /// Solarized Light: low-glare warm paper with the Solarized accents.
+    SolarizedLight,
+    /// Phosphor: amber text on a near-black CRT screen.
+    Phosphor,
+    /// Colour-blind safe: neutral dark greys with the Okabe-Ito palette.
+    ColourBlindSafe,
+    /// Tokyo Night: deep indigo with neon blue highlights.
+    TokyoNight,
     /// Hidden easter-egg theme - not listed in `ALL`, only reachable by
     /// clicking the toolbar logo seven times in quick succession. Cycles the
     /// accent hue every frame.
@@ -65,14 +76,19 @@ impl ThemeMode {
         Self::Manga,
         Self::Gentleman,
         Self::DeepSea,
+        Self::DeepSeaContrast,
         Self::Frost,
+        Self::SolarizedLight,
+        Self::Phosphor,
+        Self::ColourBlindSafe,
+        Self::TokyoNight,
     ];
 
     /// Whether the preset has a dark background. Drives base egui visuals
     /// and any view-mode logic that wants to swap text colors per brightness.
     pub fn is_dark(self) -> bool {
         match self {
-            Self::Light | Self::Manga | Self::Frost | Self::Warm => false,
+            Self::Light | Self::Manga | Self::Frost | Self::Warm | Self::SolarizedLight => false,
             Self::Dark
             | Self::North
             | Self::Dracula
@@ -80,6 +96,10 @@ impl ThemeMode {
             | Self::HighContrast
             | Self::Gentleman
             | Self::DeepSea
+            | Self::DeepSeaContrast
+            | Self::Phosphor
+            | Self::ColourBlindSafe
+            | Self::TokyoNight
             | Self::Forest
             | Self::Rainbow => true,
         }
@@ -117,6 +137,11 @@ impl ThemeMode {
             Self::Gentleman => "Gentleman",
             Self::DeepSea => "Deep Sea",
             Self::Frost => "Frost",
+            Self::DeepSeaContrast => "Deep Sea Contrast",
+            Self::SolarizedLight => "Solarized Light",
+            Self::Phosphor => "Phosphor",
+            Self::ColourBlindSafe => "Colour-blind Safe",
+            Self::TokyoNight => "Tokyo Night",
             Self::Rainbow => "Rainbow",
         }
     }
@@ -246,6 +271,11 @@ impl ThemeColors {
             ThemeMode::Gentleman => Self::gentleman(),
             ThemeMode::DeepSea => Self::deep_sea(),
             ThemeMode::Frost => Self::frost(),
+            ThemeMode::DeepSeaContrast => Self::deep_sea_contrast(),
+            ThemeMode::SolarizedLight => Self::solarized_light(),
+            ThemeMode::Phosphor => Self::phosphor(),
+            ThemeMode::ColourBlindSafe => Self::colour_blind_safe(),
+            ThemeMode::TokyoNight => Self::tokyo_night(),
             ThemeMode::Rainbow => Self::rainbow(),
         }
     }

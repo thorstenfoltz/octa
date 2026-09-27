@@ -34,6 +34,7 @@ always open *something*.
 | **Jupyter notebook**          | `.ipynb`                                           |  ✅   |   ✅   |
 | **Markdown**                  | `.md`, `.markdown`, `.mdown`, `.mkd`               |  ✅   |   ✅   |
 | **HTML**                      | `.html`, `.htm`                                    |  ✅   |   ❌   |
+| **PDF** (tables)              | `.pdf`                                             |  ✅   |   ❌   |
 | **SQL dump**                  | `.sql` (opt-in, see below)                         |  ✅   |   ❌   |
 | **EPUB**                      | `.epub`                                            |  ✅   |   ❌   |
 | **GeoJSON**                   | `.geojson`                                         |  ✅   |   ❌   |
@@ -44,6 +45,7 @@ always open *something*.
 | **BSON**                      | `.bson`                                            |  ✅   |   ❌   |
 | **Archive (zip / tar / tgz)** | `.zip`, `.tar`, `.tgz`                             |  ✅   |   ❌   |
 | **Fixed-width (FWF)**         | `.fwf`, `.prn`                                     |  ✅   |   ❌   |
+| **Log files**                 | `.log`, `syslog`, `access.log.1`                   |  ✅   |   ❌   |
 | **Source code / config**      | `.py`, `.rs`, `.go`, `.ts`, `.js`, ... (see below) |  ✅   |   ✅   |
 | **Plain text**                | anything else                                      |  ✅   |   ✅   |
 
@@ -188,6 +190,18 @@ shape `mongodump` writes), each becoming a row. Dates, ObjectIds
 and other BSON-specific values render in MongoDB's relaxed extended
 JSON form.
 
+### PDF
+
+Read-only. Octa finds the tables in the text of a PDF (invoices, bank
+statements, reports) and lists them in the table picker as `Page 2,
+table 1` and so on; pick one and it opens as a normal tab. A table is
+text laid out in two or more aligned columns, and the lines just above
+it (titles, headings) are left out.
+
+**Scanned pages are pictures, not text.** Octa does no OCR, so a table
+on a scanned page cannot be read, and Octa says so rather than showing
+nothing. See [Tables from PDFs](../usage/pdf-tables.md).
+
 ### HTML
 
 Read-only. **Every `<table>` on the page becomes a table**, the way every
@@ -260,7 +274,7 @@ Two limits worth knowing:
   with a sentence rather than by filling the machine. Load a large dump into a
   real database and connect to that instead.
 - **Read-only.** Octa is showing you a snapshot of the dump, not editing it.
-  Save As is how you keep a table.
+  Save as is how you keep a table.
 
 Asking for a reader by name is a menu, so this is the desktop app only: the
 command line and the MCP server read a `.sql` as the text it is.
@@ -269,7 +283,7 @@ command line and the MCP server read a `.sql` as the text it is.
 
 Read-only. Octa converts each chapter's XHTML to Markdown at load
 time and renders chapter-by-chapter in the
-[EPUB Reader view](../usage/view-modes/epub-reader.md). The flat
+[EPUB reader view](../usage/view-modes/epub-reader.md). The flat
 [Table view](../usage/table-view.md) is still available with one
 row per paragraph (`chapter`, `paragraph`, `text` columns), useful
 for searching the book's text with the
@@ -362,7 +376,9 @@ extensions include:
   recognises them by name, opens them with syntax highlighting, and shows them
   in the sidebar file browser.
 - **Misc** `.tex`, `.dart`, `.ex`, `.exs`, and the plain-text /
-  config set (`.txt`, `.log`, `.ini`, `.cfg`, `.conf`, `.env`, ...)
+  config set (`.txt`, `.ini`, `.cfg`, `.conf`, `.env`, ...). A `.log` that
+  is not a log in a known format opens as plain text too; see
+  [Log files](../usage/log-files.md).
 
 Any other unknown extension still opens through the plain-text reader,
 so you can always open *something*.
@@ -516,7 +532,7 @@ octa --convert measurements.dta measurements.json
 ```
 
 Read-only formats (SAS, RDS, HDF5, NetCDF, NumPy, MessagePack, BSON,
-EPUB, GeoJSON, Shapefile, Delta Lake, Iceberg, archives) are rejected up-front as conversion targets, so Octa surfaces a
+EPUB, PDF, GeoJSON, Shapefile, Delta Lake, Iceberg, archives) are rejected up-front as conversion targets, so Octa surfaces a
 clear error rather than silently writing a malformed file.
 
 ## See also

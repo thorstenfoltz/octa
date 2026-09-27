@@ -1,7 +1,7 @@
 ---
 paths:
   - "src/sql/**"
-  - "src/app/sql_panel.rs"
+  - "src/app/sql_panel/**"
   - "src/view_modes/sql.rs"
 ---
 # SQL workspace and SQL view

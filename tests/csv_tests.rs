@@ -260,10 +260,11 @@ fn test_analyze_flags_tsv_wrong_delimiter() {
 
 #[test]
 fn test_examples_malformed_csv_triggers_repair() {
-    // The shipped demo file `examples/malformed.csv` must keep tripping the
+    // The shipped demo file `samples/features/malformed.csv` must keep tripping the
     // repair analyzer (it backs the docs walkthrough). Guards against someone
     // "tidying" it into a clean file.
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/malformed.csv");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/features/malformed.csv");
     let plan = analyze_delimited(&path, b',').expect("example should be malformed");
     // It demonstrates all three text issues at once.
     assert!(plan.options.strip_bom_controls, "BOM + control char");
@@ -292,7 +293,8 @@ fn test_examples_malformed_csv_triggers_repair() {
 fn test_preserve_ragged_keeps_extra_fields() {
     // The repair must not lose data: a row with more fields than the header
     // gets its extra value kept in a new column, not silently dropped.
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/malformed.csv");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/features/malformed.csv");
     let plan = analyze_delimited(&path, b',').expect("example should be malformed");
     assert!(
         plan.options.preserve_ragged,
@@ -318,7 +320,8 @@ fn test_preserve_ragged_keeps_extra_fields() {
 #[test]
 fn test_trim_to_header_when_not_preserving() {
     // Default (preserve_ragged off) keeps the historical trim-to-header shape.
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/malformed.csv");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/features/malformed.csv");
     let opts = ReadOptions {
         strip_bom_controls: true,
         ..Default::default()

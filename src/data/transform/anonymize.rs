@@ -147,7 +147,7 @@ pub struct AnonSpec {
 
 // Small built-in pools so no fake-data crate dependency is added. Email,
 // phone, and UUID are generated from the digest rather than drawn from a list.
-const FAKE_NAMES: &[&str] = &[
+pub(crate) const FAKE_NAMES: &[&str] = &[
     "Alex Carter",
     "Jordan Lee",
     "Taylor Brooks",
@@ -165,12 +165,13 @@ const FAKE_NAMES: &[&str] = &[
     "Rowan Frost",
     "Emerson Pike",
 ];
-const FAKE_LOCALPARTS: &[&str] = &[
+pub(crate) const FAKE_LOCALPARTS: &[&str] = &[
     "alex", "jordan", "taylor", "morgan", "casey", "riley", "jamie", "avery", "drew", "sydney",
     "cameron", "reese", "skyler", "harper", "rowan", "emerson",
 ];
-const FAKE_DOMAINS: &[&str] = &["example.com", "example.org", "example.net", "mail.example"];
-const FAKE_CITIES: &[&str] = &[
+pub(crate) const FAKE_DOMAINS: &[&str] =
+    &["example.com", "example.org", "example.net", "mail.example"];
+pub(crate) const FAKE_CITIES: &[&str] = &[
     "Springfield",
     "Riverton",
     "Fairview",
@@ -188,7 +189,7 @@ const FAKE_CITIES: &[&str] = &[
     "Elmwood",
     "Harborview",
 ];
-const FAKE_COMPANIES: &[&str] = &[
+pub(crate) const FAKE_COMPANIES: &[&str] = &[
     "Acme Industries",
     "Globex Corp",
     "Initech LLC",

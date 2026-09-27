@@ -1,17 +1,21 @@
 mod header;
+mod input;
+mod layout;
 mod rows;
+mod scrollbars;
 mod split;
 mod state;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use egui::{Color32, RichText, Sense, Ui, Vec2};
 
-use super::shortcuts::{ShortcutAction, Shortcuts};
+use super::shortcuts::Shortcuts;
 use super::status_bar::format_number;
 use super::theme::{ThemeColors, ThemeMode};
 use crate::data::{BinaryDisplayMode, DataTable, MarkColor, MarkKey};
 
+use layout::*;
 pub use split::draw_table_split;
 
 /// State for the table view (selection, editing).
@@ -109,6 +113,34 @@ pub struct TableViewState {
     /// horizontally (Excel-style freeze). 0 = nothing frozen. Set from the
     /// column-header context menu; session-only, like column widths.
     pub frozen_cols: usize,
+    /// Which column's facet popup is open, if any. Session-only, like the
+    /// column widths beside it.
+    pub facet_col: Option<usize>,
+    /// Search box inside the facet popup. Non-empty switches the frequency
+    /// pass from "top N" to the whole distinct set, which is why it is the
+    /// exception rather than what every open pays for.
+    pub facet_search: String,
+    /// Which values are ticked in the open popup. Seeded from the column's
+    /// existing filter, or from every listed value when it has none.
+    pub facet_ticked: std::collections::HashSet<String>,
+    /// One-shot: the next render seeds `facet_ticked` from the live filter.
+    /// Without it, "Select none" would be undone on the very next frame.
+    pub facet_needs_seed: bool,
+    /// Cached popup rows, the column's true distinct count, and the
+    /// `(column, search)` they describe. The frequency pass walks the whole
+    /// column, so redoing it every frame would make the popup unusable on a
+    /// big table.
+    pub facet_rows: Vec<(String, usize)>,
+    pub facet_unique: usize,
+    pub facet_cache_key: Option<(usize, String)>,
+    /// The facet popup lists shapes (`A-9999`) instead of values. Session only.
+    pub facet_shapes_mode: bool,
+    /// Shapes of the popup's column: `(shape, count, example)`, most common first.
+    pub facet_shape_rows: Vec<(String, usize, String)>,
+    /// Which column `facet_shape_rows` belongs to.
+    pub facet_shape_cache_col: Option<usize>,
+    /// Ticked shapes; turned into a value allow-set on Apply.
+    pub facet_shape_ticked: std::collections::HashSet<String>,
     /// Optional per-column hover descriptions shown on the column header.
     /// Indexed by column. An empty vec (or an empty/short entry) means no
     /// tooltip. Used by the Summary tab to explain each statistic; empty
@@ -250,199 +282,6 @@ const RESIZE_HANDLE_WIDTH: f32 = 6.0;
 /// the vertical scrollbar. Reachable via horizontal scroll, not painted over.
 const TRAILING_GAP: f32 = 12.0;
 
-/// Scroll vertically so the given display-row index stays visible.
-fn scroll_row_into_view(
-    state: &mut TableViewState,
-    display_idx: usize,
-    row_height: f32,
-    data_area_height: f32,
-    max_scroll_y: f32,
-) {
-    let (row_top, row_bottom) = if state.row_y_offsets.len() > display_idx {
-        let top = state.row_y_offsets[display_idx];
-        let bottom = if display_idx + 1 < state.row_y_offsets.len() {
-            state.row_y_offsets[display_idx + 1]
-        } else {
-            top + row_height
-        };
-        (top, bottom)
-    } else {
-        let top = display_idx as f32 * row_height;
-        (top, top + row_height)
-    };
-    if row_top < state.scroll_y {
-        state.scroll_y = row_top;
-    } else if row_bottom > state.scroll_y + data_area_height {
-        state.scroll_y = row_bottom - data_area_height;
-    }
-    state.scroll_y = state.scroll_y.clamp(0.0, max_scroll_y);
-}
-
-/// Scroll horizontally so the given column index stays visible. Frozen
-/// columns are always visible, so they never move the scroll; for the rest
-/// the visible window starts after the frozen band.
-fn scroll_col_into_view(
-    state: &mut TableViewState,
-    col_idx: usize,
-    view_width: f32,
-    max_scroll_x: f32,
-    frozen_cols: usize,
-    frozen_width: f32,
-) {
-    if col_idx < frozen_cols {
-        state.scroll_x = state.scroll_x.clamp(0.0, max_scroll_x);
-        return;
-    }
-    let col_left: f32 = state.col_widths[frozen_cols.min(col_idx)..col_idx]
-        .iter()
-        .sum();
-    let col_right = col_left
-        + state
-            .col_widths
-            .get(col_idx)
-            .copied()
-            .unwrap_or(DEFAULT_COL_WIDTH);
-    let window = view_width - state.row_number_width - frozen_width;
-    if col_left < state.scroll_x {
-        state.scroll_x = col_left;
-    } else if col_right > state.scroll_x + window {
-        state.scroll_x = col_right - window;
-    }
-    state.scroll_x = state.scroll_x.clamp(0.0, max_scroll_x);
-}
-
-/// Width of the frozen band: the effective painted widths (hidden columns
-/// count 0) of the first `frozen_cols` columns.
-fn frozen_band_width(
-    col_widths: &[f32],
-    hidden_columns: &HashSet<usize>,
-    frozen_cols: usize,
-) -> f32 {
-    col_widths
-        .iter()
-        .enumerate()
-        .take(frozen_cols)
-        .map(|(i, w)| if hidden_columns.contains(&i) { 0.0 } else { *w })
-        .sum()
-}
-
-/// Map a pointer x (relative to the data-area origin, i.e. just right of the
-/// row-number gutter) to the drag-drop target column, honouring the frozen
-/// band: frozen columns sit at fixed positions, scrolled ones shift by
-/// `scroll_x`. Uses the same midpoint rule the drag-reorder code always used;
-/// with `frozen_cols == 0` it reproduces the original arithmetic exactly.
-fn drag_target_at_x(
-    rel_x: f32,
-    col_widths: &[f32],
-    frozen_cols: usize,
-    frozen_width: f32,
-    scroll_x: f32,
-) -> usize {
-    let n = col_widths.len();
-    if n == 0 {
-        return 0;
-    }
-    let frozen_cols = frozen_cols.min(n);
-    if frozen_cols > 0 && rel_x < frozen_width {
-        let mut acc = 0.0f32;
-        let mut target = frozen_cols - 1;
-        for (i, &cw) in col_widths.iter().enumerate().take(frozen_cols) {
-            if rel_x < acc + cw / 2.0 {
-                target = i;
-                break;
-            }
-            acc += cw;
-            target = i;
-        }
-        return target;
-    }
-    // Content-space x measured from the first scrolled column's left edge.
-    let content_x = rel_x - frozen_width + scroll_x;
-    let mut acc = 0.0f32;
-    let mut target = n - 1;
-    for (i, &cw) in col_widths.iter().enumerate().skip(frozen_cols) {
-        if content_x < acc + cw / 2.0 {
-            target = i;
-            break;
-        }
-        acc += cw;
-        target = i;
-    }
-    target
-}
-
-/// Binary search in prefix-sum array to find the row containing a given scroll offset.
-fn row_at_offset(offsets: &[f32], scroll_y: f32) -> usize {
-    let mut lo = 0usize;
-    let mut hi = offsets.len().saturating_sub(2);
-    while lo < hi {
-        let mid = lo + (hi - lo).div_ceil(2);
-        if offsets[mid] <= scroll_y {
-            lo = mid;
-        } else {
-            hi = mid - 1;
-        }
-    }
-    lo
-}
-
-/// What measuring a row costs beyond the table itself. Bundled so
-/// [`ensure_row_y_offsets`] stays under clippy's argument limit; the four
-/// always travel together and all four come from the same settings block.
-#[derive(Clone, Copy)]
-struct RowHeightOpts {
-    font_size: f32,
-    base_row_height: f32,
-    binary_display_mode: BinaryDisplayMode,
-    /// Cell line breaks. With them off every unadjusted row is exactly
-    /// `base_row_height`, so no measuring pass is needed at all.
-    wrap: bool,
-}
-
-/// Rebuild the prefix-sum of row heights if the cache is stale.
-fn ensure_row_y_offsets(
-    ui: &Ui,
-    state: &mut TableViewState,
-    table: &DataTable,
-    filtered_rows: &[usize],
-    opts: RowHeightOpts,
-) {
-    if state.row_heights_cached_generation == state.row_heights_generation
-        && state.row_y_offsets.len() == filtered_rows.len() + 1
-    {
-        return;
-    }
-    let col_widths = state.col_widths.clone();
-    let overrides = state.row_heights.clone();
-    let mut offsets = Vec::with_capacity(filtered_rows.len() + 1);
-    offsets.push(0.0);
-    let mut cumulative = 0.0f32;
-    for &actual_row in filtered_rows {
-        // A height the user dragged wins outright. Otherwise measure only when
-        // wrapping is on: `compute_row_height` lays out every cell of the row,
-        // so running it with wrap off - where every unadjusted row is exactly
-        // `base_row_height` - would be an O(rows x cols) text-layout pass for
-        // an answer already known.
-        let h = match overrides.get(&actual_row) {
-            Some(&h) => h,
-            None if opts.wrap => compute_row_height(
-                ui,
-                table,
-                actual_row,
-                &col_widths,
-                opts.font_size,
-                opts.base_row_height,
-                opts.binary_display_mode,
-            ),
-            None => opts.base_row_height,
-        };
-        cumulative += h;
-        offsets.push(cumulative);
-    }
-    state.row_y_offsets = offsets;
-    state.row_heights_cached_generation = state.row_heights_generation;
-}
-
 /// Grab band for the row-resize seam, centred on a row's bottom edge. Slightly
 /// taller than the column handle's 6px because it is aimed at vertically.
 pub(super) const ROW_RESIZE_HANDLE_HEIGHT: f32 = 7.0;
@@ -482,6 +321,16 @@ pub(super) fn base_row_height(font_size: f32) -> f32 {
 pub(super) const MIN_ROW_HEIGHT: f32 = 12.0;
 
 const SORT_ARROW_SIZE: f32 = 14.0;
+/// Side of the drawn facet funnel in the column header, sized to sit beside
+/// the sort arrows without crowding them.
+const FACET_ICON_SIZE: f32 = 11.0;
+/// Width of the funnel's CLICK area, which is deliberately wider than the
+/// glyph and spans the header's content height.
+///
+/// The first version made the two the same 11px square and it was close to
+/// unhittable in practice, wedged between two sort arrows and the column
+/// resize handle. A drawn icon is a label; the target has to be a target.
+const FACET_HIT_WIDTH: f32 = 22.0;
 const COL_INDEX_HEIGHT: f32 = 12.0; // space for the column index letter at top
 
 /// Cap on how many rows to sample when computing the best-fit column width on
@@ -534,10 +383,18 @@ pub struct TableCtx<'a> {
     pub welcome_logo_texture: Option<&'a egui::TextureHandle>,
     pub shortcuts: &'a Shortcuts,
     pub readonly: bool,
+    /// `None` when the tab's file is in a Git repository (the cell menu's
+    /// **Cell history...** is enabled), else why not, for its hover.
+    pub cell_history_unavailable: Option<&'a str>,
     /// Column indices that currently have an active per-column filter. Used
     /// only to paint the header dot marker; the actual row filtering is
     /// already applied in `filtered_rows`.
-    pub filtered_columns: &'a HashSet<usize>,
+    /// Per-column allow-sets of values. The header reads it two ways: a key
+    /// means "this column is filtered" (the accent dot and a lit funnel), and
+    /// the values seed the facet popup's checkboxes so reopening it shows
+    /// what is currently kept. Carrying the map rather than a derived set of
+    /// keys means the two cannot fall out of step.
+    pub column_filters: &'a HashMap<usize, HashSet<String>>,
     /// Column indices the user has hidden via right-click -> "Hide column".
     /// Hidden columns render with width 0 and skip paint entirely. Data
     /// stays in the table (Save / Save As writes them).
@@ -581,7 +438,7 @@ pub(super) struct PaintCtx<'a> {
     pub font_size: f32,
     pub filtered_rows: &'a [usize],
     pub binary_display_mode: BinaryDisplayMode,
-    pub filtered_columns: &'a HashSet<usize>,
+    pub column_filters: &'a HashMap<usize, HashSet<String>>,
     pub hidden_columns: &'a HashSet<usize>,
     pub num_fmt: NumFmtCtx<'a>,
     pub frozen_cols: usize,
@@ -593,6 +450,9 @@ pub(super) struct PaintCtx<'a> {
     pub cell_line_breaks: bool,
     pub clickable_links: bool,
     pub readonly: bool,
+    /// `None` when the tab's file is in a Git repository (the cell menu's
+    /// **Cell history...** is enabled), else why not, for its hover.
+    pub cell_history_unavailable: Option<&'a str>,
     pub is_rainbow_theme: bool,
     pub search_matches: &'a HashSet<(usize, usize)>,
     pub current_match: Option<(usize, usize)>,
@@ -700,6 +560,66 @@ fn col_index_letter(idx: usize) -> String {
     result
 }
 
+/// How many values the facet popup lists before it asks the user to search.
+///
+/// Fifty fills a tall popup without turning a 100k-cardinality column into a
+/// scroll marathon, and the search box below covers everything else. It is
+/// also what keeps the popup cheap to open: the frequency pass is asked for
+/// the top N, not the whole distinct set.
+pub const FACET_POPUP_TOP_N: usize = 50;
+
+/// What the facet popup decided. Applied by the caller into
+/// `TabState::column_filters`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FacetPopupResult {
+    /// Which column the filter belongs to.
+    pub col: usize,
+    /// The values to keep. Empty when `cleared`.
+    pub allowed: std::collections::HashSet<String>,
+    /// Remove the column's filter entirely rather than setting one.
+    pub cleared: bool,
+}
+
+/// How many distinct values exist beyond the ones the popup is showing.
+///
+/// `unique_count` is the column's true distinct count even when `rows` was
+/// truncated to the top N, which is exactly what lets the popup say "and 900
+/// more" honestly instead of implying the list is everything.
+pub fn facet_hidden_count(vf: &crate::data::value_frequency::ValueFrequency) -> usize {
+    vf.unique_count.saturating_sub(vf.rows.len())
+}
+
+/// Turn a tick-set into a filter decision.
+///
+/// Two selections mean "no filter" rather than a filter: **everything**
+/// ticked (an allow-set of every value hides nothing, but would still light
+/// the header dot and the chip row, so the user would see a filter that does
+/// nothing), and **nothing** ticked (an empty allow-set would hide every row
+/// and leave the user staring at an empty table with no obvious way back).
+/// Both clear instead.
+///
+/// `total_distinct` is the column's TRUE distinct count, not the number of
+/// values the popup happens to be listing. Measuring against the listed rows
+/// was wrong in both directions: a truncated list would read fifty ticks as
+/// "everything" and clear a real filter, and a search that widened the list
+/// would make the same fifty ticks look like a subset again.
+pub fn facet_result(
+    col: usize,
+    ticked: std::collections::HashSet<String>,
+    total_distinct: usize,
+) -> FacetPopupResult {
+    let cleared = ticked.is_empty() || ticked.len() >= total_distinct;
+    FacetPopupResult {
+        col,
+        allowed: if cleared {
+            std::collections::HashSet::new()
+        } else {
+            ticked
+        },
+        cleared,
+    }
+}
+
 /// Signals from the table back to the app.
 #[derive(Default)]
 pub struct TableInteraction {
@@ -731,7 +651,7 @@ pub struct TableInteraction {
     /// Column rename: (col_idx, new_name).
     pub rename_column: Option<(usize, String)>,
     /// Change column data type: (col_idx, new_type).
-    pub change_col_type: Option<(usize, String)>,
+    pub change_col_type: Option<(usize, crate::data::retype::TargetType)>,
     /// Copy just the selected cell's value (not row/column selection).
     pub ctx_copy_cell: bool,
     /// Add a session bookmark for the right-clicked cell (its row + column).
@@ -755,9 +675,14 @@ pub struct TableInteraction {
     pub clear_mark: Option<Vec<MarkKey>>,
     /// Open the "Parse in new tab" modal for the selected scope.
     pub ctx_parse_in_new_tab: Option<super::toolbar::ParseScope>,
-    /// Open the Column Filter dialog pre-selected on this column index.
-    /// Fired by the column-header right-click menu's "Filter values..." entry.
-    pub ctx_filter_column: Option<usize>,
+    /// Open Cell history for this (row, col); the row indexes the table, not
+    /// the filtered view. Fired by the cell menu's **Cell history...**.
+    pub ctx_cell_history: Option<(usize, usize)>,
+    /// The facet popup was applied or cleared. Written to
+    /// `TabState::column_filters` by the caller, exactly as the Column Filter
+    /// modal writes it: this is a second door onto that state, never a second
+    /// filter mechanism.
+    pub facet_result: Option<FacetPopupResult>,
     /// Hide a column from the table view. The data is preserved on disk
     /// (Save / Save As writes hidden columns too); only the renderer omits
     /// them. Cleared via Edit -> Show hidden columns.
@@ -845,8 +770,9 @@ pub fn draw_table(
         welcome_logo_texture,
         shortcuts,
         readonly,
+        cell_history_unavailable,
         scroll_all,
-        filtered_columns,
+        column_filters,
         hidden_columns,
         thousands_separators,
         separator_style,
@@ -955,6 +881,23 @@ pub fn draw_table(
         return interaction;
     }
 
+    // A one-column table has nothing to scroll sideways to, so a column wider
+    // than the window only pushes its own text off the right edge - the shape
+    // a single JSON or log column always takes. Cap it to the window and let
+    // the cell wrap instead.
+    if table.col_count() == 1 {
+        let gutter = state.row_number_width;
+        let room =
+            (ui.available_rect_before_wrap().width() - gutter - RESIZE_HANDLE_WIDTH - TRAILING_GAP)
+                .max(MIN_COL_WIDTH);
+        if let Some(w) = state.col_widths.first_mut()
+            && *w > room
+        {
+            *w = room;
+            state.invalidate_row_heights();
+        }
+    }
+
     let total_col_width: f32 = state.row_number_width
         + state.col_widths.iter().sum::<f32>()
         + RESIZE_HANDLE_WIDTH
@@ -1047,17 +990,8 @@ pub fn draw_table(
         });
     }
 
-    // Arrow key navigation: move selected cell and auto-scroll into view.
-    //
-    // Key layout (defaults; all remappable via Settings -> Shortcuts):
-    //   Arrow           - move the selection by one cell
-    //   Shift+Arrow     - extend the row range from the anchor
-    //   Ctrl+Shift+↑/↓  - jump to first/last row
-    //   Ctrl+Shift+←/->  - jump to first/last column
-    //   Ctrl+↑/↓        - when whole row(s) are selected, grow the row
-    //                     selection by one above/below
-    //   Ctrl+←/->        - when whole column(s) are selected, grow the column
-    //                     selection by one to the left/right
+    // Keyboard navigation (see `input::handle_keyboard_nav`) stands down
+    // while a text field has focus.
     let any_text_edit_focused = ui
         .ctx()
         .memory(|m| m.focused())
@@ -1068,320 +1002,26 @@ pub fn draw_table(
         let max_scroll_x = (total_col_width + vscroll_width - view_width).max(0.0);
         let data_area_height =
             (view_height - HEADER_HEIGHT - 1.0 - horizontal_scrollbar_height).max(0.0);
-
-        let triggered = |a: ShortcutAction| ui.input(|i| shortcuts.triggered(a, i));
-        let mut jump_first_row = triggered(ShortcutAction::JumpFirstRow);
-        let mut jump_last_row = triggered(ShortcutAction::JumpLastRow);
-        // In large-file mode "first"/"last" row means the file's, not the
-        // loaded page's. Handled here rather than below because the in-page
-        // move would scroll to a page edge, which is exactly what re-arms the
-        // paging triggers - the jump would be undone in the same frame.
-        if let Some((_, file_rows)) = state.virtual_rows.filter(|&(_, n)| n > filtered_rows.len()) {
-            if jump_first_row {
-                interaction.jump_to_row = Some(0);
-            } else if jump_last_row {
-                interaction.jump_to_row = Some(file_rows.saturating_sub(1));
-            }
-            jump_first_row = false;
-            jump_last_row = false;
-        }
-        let jump_first_col = triggered(ShortcutAction::JumpFirstCol);
-        let jump_last_col = triggered(ShortcutAction::JumpLastCol);
-        let ext_up = triggered(ShortcutAction::ExtendSelectionUp);
-        let ext_down = triggered(ShortcutAction::ExtendSelectionDown);
-        let ext_left = triggered(ShortcutAction::ExtendSelectionLeft);
-        let ext_right = triggered(ShortcutAction::ExtendSelectionRight);
-        let page_up = triggered(ShortcutAction::ScrollPageUp);
-        let page_down = triggered(ShortcutAction::ScrollPageDown);
-
-        // Page scrolling: advance the selection by the number of rows
-        // currently visible and let `scroll_row_into_view` follow the
-        // selection so the new top (PageDown) / bottom (PageUp) row of
-        // the viewport is the now-selected one. Run before the per-cell
-        // nav block so the plain-arrow handler doesn't also fire.
-        if (page_up || page_down) && !filtered_rows.is_empty() {
-            let row_count = filtered_rows.len();
-            let (cur_row, cur_col) = state.selected_cell.unwrap_or((0, 0));
-            let cur_display = filtered_rows
-                .iter()
-                .position(|&r| r == cur_row)
-                .unwrap_or(0);
-            // Estimate rows per visible page from the average row height.
-            // `row_height` is the default-cell height; when cell line
-            // breaks are on, individual rows are taller than this, but
-            // approximating still gives a useful page step.
-            let rows_per_page = if row_height > 0.0 {
-                ((data_area_height / row_height).floor() as usize).max(1)
-            } else {
-                1
-            };
-            let new_display = if page_down {
-                (cur_display + rows_per_page).min(row_count.saturating_sub(1))
-            } else {
-                cur_display.saturating_sub(rows_per_page)
-            };
-            if let Some(&new_row) = filtered_rows.get(new_display) {
-                state.selected_cell = Some((new_row, cur_col));
-                state.selected_cells.clear();
-                state.selected_rows.clear();
-                state.selected_cols.clear();
-                state.selection_anchor_display = None;
-                scroll_row_into_view(
-                    state,
-                    new_display,
-                    row_height,
-                    data_area_height,
-                    max_scroll_y,
-                );
-            }
-        }
-
-        // Handle "extend row/column selection by one" first: applies when
-        // a whole row/column block is selected, or when only a single cell
-        // is selected (in which case the cell anchors a new row/column run).
-        // Returns true if consumed so the plain-arrow handler below doesn't
-        // also fire.
-        let row_block_selected = !state.selected_rows.is_empty() && state.selected_cols.is_empty();
-        let col_block_selected = !state.selected_cols.is_empty() && state.selected_rows.is_empty();
-        // Cell-extension mode: Ctrl+Arrow extends a free multi-cell selection
-        // anchored at the current selected_cell. Triggered from a single-cell
-        // selection or while a previous cell-extension run is active.
-        let cell_extend_mode = state.selected_cell.is_some()
-            && state.selected_rows.is_empty()
-            && state.selected_cols.is_empty();
-
-        let mut handled = false;
-
-        if cell_extend_mode
-            && (ext_up || ext_down)
-            && let Some((cur_row, cur_col)) = state.selected_cell
-        {
-            let cur_display = filtered_rows
-                .iter()
-                .position(|&r| r == cur_row)
-                .unwrap_or(0);
-            let new_display = if ext_up {
-                cur_display.saturating_sub(1)
-            } else {
-                (cur_display + 1).min(filtered_rows.len().saturating_sub(1))
-            };
-            if let Some(&new_row) = filtered_rows.get(new_display) {
-                state.selected_cells.insert((cur_row, cur_col));
-                state.selected_cells.insert((new_row, cur_col));
-                state.selected_cell = Some((new_row, cur_col));
-                scroll_row_into_view(
-                    state,
-                    new_display,
-                    row_height,
-                    data_area_height,
-                    max_scroll_y,
-                );
-            }
-            handled = true;
-        }
-
-        if !handled
-            && cell_extend_mode
-            && (ext_left || ext_right)
-            && let Some((cur_row, cur_col)) = state.selected_cell
-        {
-            let col_count = table.col_count();
-            let new_col = if ext_left {
-                cur_col.saturating_sub(1)
-            } else {
-                (cur_col + 1).min(col_count.saturating_sub(1))
-            };
-            state.selected_cells.insert((cur_row, cur_col));
-            state.selected_cells.insert((cur_row, new_col));
-            state.selected_cell = Some((cur_row, new_col));
-            scroll_col_into_view(
-                state,
-                new_col,
-                view_width,
+        input::handle_keyboard_nav(
+            ui,
+            state,
+            table,
+            filtered_rows,
+            shortcuts,
+            input::NavGeometry {
+                row_height,
+                data_area_height,
+                max_scroll_y,
                 max_scroll_x,
+                view_width,
                 frozen_cols,
                 frozen_width,
-            );
-            handled = true;
-        }
-
-        if row_block_selected && (ext_up || ext_down) {
-            let displays: Vec<usize> = filtered_rows
-                .iter()
-                .enumerate()
-                .filter_map(|(d, r)| {
-                    if state.selected_rows.contains(r) {
-                        Some(d)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            if !displays.is_empty() {
-                let new_display = if ext_up {
-                    displays.iter().copied().min().unwrap().saturating_sub(1)
-                } else {
-                    (displays.iter().copied().max().unwrap() + 1).min(filtered_rows.len() - 1)
-                };
-                if let Some(&new_row) = filtered_rows.get(new_display) {
-                    state.selected_rows.insert(new_row);
-                    let col = state.selected_cell.map(|(_, c)| c).unwrap_or(0);
-                    state.selected_cell = Some((new_row, col));
-                    scroll_row_into_view(
-                        state,
-                        new_display,
-                        row_height,
-                        data_area_height,
-                        max_scroll_y,
-                    );
-                }
-                handled = true;
-            }
-        }
-
-        if col_block_selected && (ext_left || ext_right) {
-            let cols: Vec<usize> = state.selected_cols.iter().copied().collect();
-            if !cols.is_empty() {
-                let col_count = table.col_count();
-                let new_col = if ext_left {
-                    cols.iter().copied().min().unwrap().saturating_sub(1)
-                } else {
-                    (cols.iter().copied().max().unwrap() + 1).min(col_count.saturating_sub(1))
-                };
-                state.selected_cols.insert(new_col);
-                let row = state.selected_cell.map(|(r, _)| r).unwrap_or(0);
-                state.selected_cell = Some((row, new_col));
-                scroll_col_into_view(
-                    state,
-                    new_col,
-                    view_width,
-                    max_scroll_x,
-                    frozen_cols,
-                    frozen_width,
-                );
-                handled = true;
-            }
-        }
-
-        if !handled {
-            let shift = ui.input(|i| i.modifiers.shift);
-            // Raw arrow keys (no modifiers, or Shift for row-range extension).
-            // Guard against Ctrl - Ctrl+Arrow is handled via the extend-row /
-            // extend-column shortcuts above; plain arrows must not also fire
-            // when Ctrl is held, otherwise we'd both grow and move the cell.
-            let no_ctrl = ui.input(|i| !(i.modifiers.ctrl || i.modifiers.mac_cmd));
-            let arrow_up = no_ctrl && ui.input(|i| i.key_pressed(egui::Key::ArrowUp));
-            let arrow_down = no_ctrl && ui.input(|i| i.key_pressed(egui::Key::ArrowDown));
-            let arrow_left = no_ctrl && ui.input(|i| i.key_pressed(egui::Key::ArrowLeft));
-            let arrow_right = no_ctrl && ui.input(|i| i.key_pressed(egui::Key::ArrowRight));
-
-            if arrow_up
-                || arrow_down
-                || arrow_left
-                || arrow_right
-                || jump_first_row
-                || jump_last_row
-                || jump_first_col
-                || jump_last_col
-            {
-                let row_count = filtered_rows.len();
-                let col_count = table.col_count();
-                let (cur_row, cur_col) = state.selected_cell.unwrap_or((0, 0));
-
-                let cur_display = filtered_rows
-                    .iter()
-                    .position(|&r| r == cur_row)
-                    .unwrap_or(0);
-
-                let mut new_display = cur_display;
-                let mut new_col = cur_col;
-
-                if jump_first_row {
-                    new_display = 0;
-                } else if jump_last_row {
-                    new_display = row_count.saturating_sub(1);
-                } else if arrow_up && cur_display > 0 {
-                    new_display = cur_display - 1;
-                } else if arrow_down && cur_display + 1 < row_count {
-                    new_display = cur_display + 1;
-                }
-                if jump_first_col {
-                    new_col = 0;
-                } else if jump_last_col {
-                    new_col = col_count.saturating_sub(1);
-                } else if arrow_left && cur_col > 0 {
-                    new_col = cur_col - 1;
-                } else if arrow_right && cur_col + 1 < col_count {
-                    new_col = cur_col + 1;
-                }
-
-                if let Some(&new_row) = filtered_rows.get(new_display) {
-                    state.selected_cell = Some((new_row, new_col));
-                    state.selected_cells.clear();
-
-                    let extending_rows = shift && (arrow_up || arrow_down);
-                    if extending_rows {
-                        let anchor = *state.selection_anchor_display.get_or_insert(cur_display);
-                        let (lo, hi) = if anchor <= new_display {
-                            (anchor, new_display)
-                        } else {
-                            (new_display, anchor)
-                        };
-                        state.selected_rows.clear();
-                        for d in lo..=hi {
-                            if let Some(&r) = filtered_rows.get(d) {
-                                state.selected_rows.insert(r);
-                            }
-                        }
-                        state.selected_cols.clear();
-                    } else {
-                        state.selection_anchor_display = None;
-                        state.selected_rows.clear();
-                        state.selected_cols.clear();
-                    }
-
-                    scroll_row_into_view(
-                        state,
-                        new_display,
-                        row_height,
-                        data_area_height,
-                        max_scroll_y,
-                    );
-                    scroll_col_into_view(
-                        state,
-                        new_col,
-                        view_width,
-                        max_scroll_x,
-                        frozen_cols,
-                        frozen_width,
-                    );
-                }
-            }
-        }
+            },
+            &mut interaction,
+        );
     }
 
-    // Ctrl+Z / Ctrl+Y are dispatched by `handle_shortcuts` via
-    // `ShortcutAction::Undo`/`Redo`, which honors user-rebound combos.
-    // Also detect paste from egui's Paste event (carries clipboard text directly)
-    let paste_from_event: Option<String> = if handles_input {
-        ui.input(|i| {
-            i.events.iter().find_map(|e| {
-                if let egui::Event::Paste(text) = e {
-                    Some(text.clone())
-                } else {
-                    None
-                }
-            })
-        })
-    } else {
-        None
-    };
-    if let Some(text) = paste_from_event
-        && state.editing_cell.is_none()
-    {
-        interaction.ctx_paste = true;
-        interaction.paste_text = Some(text);
-    }
+    input::take_paste_event(ui, state, handles_input, &mut interaction);
 
     let (panel_rect, _) =
         ui.allocate_exact_size(Vec2::new(view_width, view_height), Sense::hover());
@@ -1400,7 +1040,7 @@ pub fn draw_table(
         font_size,
         filtered_rows,
         binary_display_mode,
-        filtered_columns,
+        column_filters,
         hidden_columns,
         num_fmt: num_fmt_ctx,
         frozen_cols,
@@ -1412,6 +1052,7 @@ pub fn draw_table(
         cell_line_breaks,
         clickable_links,
         readonly,
+        cell_history_unavailable,
         is_rainbow_theme: theme_mode.is_rainbow(),
         search_matches,
         current_match,
@@ -1563,164 +1204,26 @@ pub fn draw_table(
         );
     }
 
-    // --- Vertical scrollbar ---
-    // In large-file mode the bar stands for the whole file, not for the loaded
-    // page: a 2,000-row page out of 100,000,000 gives a thumb that says nothing
-    // and a drag that reaches nowhere. `virtual_rows` swaps the arithmetic over
-    // to rows and reports the landing row instead of moving `scroll_y`.
-    if let Some((page_offset, file_rows)) = state.virtual_rows.filter(|&(_, n)| n > row_count) {
-        let scrollbar_width = 10.0;
-        let scrollbar_x = panel_rect.right() - scrollbar_width - 1.0;
-        let track_top = panel_rect.top();
-        let track_height = view_height;
-        let track_rect = egui::Rect::from_min_size(
-            egui::pos2(scrollbar_x, track_top),
-            Vec2::new(scrollbar_width, track_height),
-        );
-        painter.rect_filled(track_rect, scrollbar_width / 2.0, colors.scrollbar_track);
-
-        // Where in the file the top of the viewport sits - or, mid-drag, where
-        // the user has dragged it to, so the thumb tracks the cursor even
-        // though the page itself only moves on release.
-        let top_row = page_offset as f32 + state.scroll_y / row_height;
-        let shown_row = state.virtual_drag_row.unwrap_or(top_row);
-        let VirtualThumb {
-            height,
-            offset,
-            travel,
-            max_row,
-        } = virtual_thumb(shown_row, file_rows, view_height / row_height, track_height);
-        let thumb_rect = egui::Rect::from_min_size(
-            egui::pos2(scrollbar_x, track_top + offset),
-            Vec2::new(scrollbar_width, height),
-        );
-
-        let sb = ui.interact(thumb_rect, ui.id().with("vscroll_thumb"), Sense::drag());
-        painter.rect_filled(
-            thumb_rect,
-            scrollbar_width / 2.0,
-            if sb.dragged() || sb.hovered() {
-                colors.scrollbar_thumb_hover
-            } else {
-                colors.scrollbar_thumb
-            },
-        );
-        if sb.dragged() && travel > 0.0 {
-            let rows_per_pixel = max_row / travel;
-            let from = state.virtual_drag_row.unwrap_or(top_row);
-            state.virtual_drag_row =
-                Some((from + sb.drag_delta().y * rows_per_pixel).clamp(0.0, max_row));
-        }
-        if sb.drag_stopped() {
-            interaction.jump_to_row = state.virtual_drag_row.take().map(|r| r as usize);
-        }
-        let track_resp = ui.interact(track_rect, ui.id().with("vscroll_track"), Sense::click());
-        if track_resp.clicked()
-            && let Some(pos) = track_resp.interact_pointer_pos()
-        {
-            let fraction = ((pos.y - track_top) / track_height).clamp(0.0, 1.0);
-            interaction.jump_to_row = Some((fraction * max_row) as usize);
-        }
-    } else if total_content_height > view_height {
-        let scrollbar_width = 10.0;
-        let scrollbar_x = panel_rect.right() - scrollbar_width - 1.0;
-        let scrollbar_track_top = panel_rect.top();
-        let scrollbar_track_height = view_height;
-
-        let track_rect = egui::Rect::from_min_size(
-            egui::pos2(scrollbar_x, scrollbar_track_top),
-            Vec2::new(scrollbar_width, scrollbar_track_height),
-        );
-        painter.rect_filled(track_rect, scrollbar_width / 2.0, colors.scrollbar_track);
-
-        let thumb_fraction = view_height / total_content_height;
-        let thumb_height = (thumb_fraction * scrollbar_track_height).max(24.0);
-        let max_scroll = total_content_height - view_height;
-        let thumb_offset = if max_scroll > 0.0 {
-            (state.scroll_y / max_scroll) * (scrollbar_track_height - thumb_height)
-        } else {
-            0.0
-        };
-
-        let thumb_rect = egui::Rect::from_min_size(
-            egui::pos2(scrollbar_x, scrollbar_track_top + thumb_offset),
-            Vec2::new(scrollbar_width, thumb_height),
-        );
-
-        let sb_response = ui.interact(thumb_rect, ui.id().with("vscroll_thumb"), Sense::drag());
-        let thumb_color = if sb_response.dragged() || sb_response.hovered() {
-            colors.scrollbar_thumb_hover
-        } else {
-            colors.scrollbar_thumb
-        };
-        painter.rect_filled(thumb_rect, scrollbar_width / 2.0, thumb_color);
-
-        if sb_response.dragged() {
-            let delta_y = sb_response.drag_delta().y;
-            let scroll_per_pixel = max_scroll / (scrollbar_track_height - thumb_height);
-            state.scroll_y = (state.scroll_y + delta_y * scroll_per_pixel).clamp(0.0, max_scroll);
-        }
-
-        let track_response = ui.interact(track_rect, ui.id().with("vscroll_track"), Sense::click());
-        if track_response.clicked()
-            && let Some(pos) = track_response.interact_pointer_pos()
-        {
-            let click_fraction = (pos.y - scrollbar_track_top) / scrollbar_track_height;
-            state.scroll_y =
-                (click_fraction * total_content_height - view_height / 2.0).clamp(0.0, max_scroll);
-        }
-    }
-
-    // --- Horizontal scrollbar ---
+    let scroll_geometry = scrollbars::ScrollGeometry {
+        panel_rect,
+        view_width,
+        view_height,
+        row_height,
+        row_count,
+        total_content_height,
+        total_col_width,
+        vscroll_width,
+    };
+    scrollbars::draw_vertical_scrollbar(
+        ui,
+        &painter,
+        state,
+        &colors,
+        &scroll_geometry,
+        &mut interaction,
+    );
     if horizontal_scrollbar_visible {
-        let scrollbar_height = 10.0;
-        let scrollbar_y = panel_rect.bottom() - scrollbar_height - 1.0;
-        let scrollbar_track_left = panel_rect.left();
-        let scrollbar_track_width = view_width;
-
-        let track_rect = egui::Rect::from_min_size(
-            egui::pos2(scrollbar_track_left, scrollbar_y),
-            Vec2::new(scrollbar_track_width, scrollbar_height),
-        );
-        painter.rect_filled(track_rect, scrollbar_height / 2.0, colors.scrollbar_track);
-
-        let effective_width = view_width - vscroll_width;
-        let thumb_fraction = effective_width / total_col_width;
-        let thumb_width = (thumb_fraction * scrollbar_track_width).max(24.0);
-        let max_scroll = (total_col_width + vscroll_width - view_width).max(0.0);
-        let thumb_offset = if max_scroll > 0.0 {
-            (state.scroll_x / max_scroll) * (scrollbar_track_width - thumb_width)
-        } else {
-            0.0
-        };
-
-        let thumb_rect = egui::Rect::from_min_size(
-            egui::pos2(scrollbar_track_left + thumb_offset, scrollbar_y),
-            Vec2::new(thumb_width, scrollbar_height),
-        );
-
-        let sb_response = ui.interact(thumb_rect, ui.id().with("hscroll_thumb"), Sense::drag());
-        let thumb_color = if sb_response.dragged() || sb_response.hovered() {
-            colors.scrollbar_thumb_hover
-        } else {
-            colors.scrollbar_thumb
-        };
-        painter.rect_filled(thumb_rect, scrollbar_height / 2.0, thumb_color);
-
-        if sb_response.dragged() {
-            let delta_x = sb_response.drag_delta().x;
-            let scroll_per_pixel = max_scroll / (scrollbar_track_width - thumb_width);
-            state.scroll_x = (state.scroll_x + delta_x * scroll_per_pixel).clamp(0.0, max_scroll);
-        }
-
-        let track_response = ui.interact(track_rect, ui.id().with("hscroll_track"), Sense::click());
-        if track_response.clicked()
-            && let Some(pos) = track_response.interact_pointer_pos()
-        {
-            let click_fraction = (pos.x - scrollbar_track_left) / scrollbar_track_width;
-            state.scroll_x =
-                (click_fraction * total_col_width - view_width / 2.0).clamp(0.0, max_scroll);
-        }
+        scrollbars::draw_horizontal_scrollbar(ui, &painter, state, &colors, &scroll_geometry);
     }
 
     // Signal that more rows should be loaded when scrolled near the bottom
@@ -1731,35 +1234,6 @@ pub fn draw_table(
     }
 
     interaction
-}
-
-/// Compute the height of a row by measuring wrapped text in each cell.
-fn compute_row_height(
-    ui: &Ui,
-    table: &DataTable,
-    actual_row: usize,
-    col_widths: &[f32],
-    font_size: f32,
-    base_row_height: f32,
-    binary_display_mode: BinaryDisplayMode,
-) -> f32 {
-    let mut max_height = base_row_height;
-    let font_id = egui::FontId::new(font_size, egui::FontFamily::Monospace);
-    for col_idx in 0..table.col_count() {
-        if let Some(value) = table.get(actual_row, col_idx) {
-            let text = value.display_with_binary_mode(binary_display_mode);
-            let col_width = col_widths
-                .get(col_idx)
-                .copied()
-                .unwrap_or(DEFAULT_COL_WIDTH);
-            let wrap_width = (col_width - 12.0).max(20.0); // account for cell padding
-            let galley =
-                ui.fonts_mut(|f| f.layout(text, font_id.clone(), egui::Color32::WHITE, wrap_width));
-            let text_height = galley.size().y + 4.0; // small vertical padding
-            max_height = max_height.max(text_height);
-        }
-    }
-    max_height
 }
 
 /// Render the right-click "Mark" submenu.

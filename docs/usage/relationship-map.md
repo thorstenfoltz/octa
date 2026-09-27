@@ -1,6 +1,6 @@
 # Relationship Map
 
-<!-- SCREENSHOT: relationship-map.png: The Relationship map dialog after a scan of three tables. Three rounded boxes (orders, customers, products) each listing their column names, two lines connecting column rows, each line carrying a small score chip such as 1.00 and 0.62. Source radio at the top set to "Open tabs" with all three ticked. -->
+![The Relationship map dialog after a scan of three tables. Three rounded boxes (orders, customers, products) each listing their column names, two lines connecting column rows, each line carrying a small score chip such as 1.00 and 0.62. Source radio at the top set to "Open tabs" with all three ticked.](../assets/screenshots/relationship-map.png){ .screenshot-placeholder }
 
 **Analyse -> Relationship map...** draws how your tables connect: one
 box per table listing its columns, a line between each pair of columns
@@ -155,10 +155,6 @@ nothing to read there; map its tables as files or open tabs instead.
    have not touched leaves its line straight.
 6. Click a line to open the [Join](join-tables.md) dialog with that
    pair already filled in.
-
-<!-- TODO screenshot: the Relationship map after a scan of three tables,
-     boxes listing columns and lines carrying score chips. Listed in
-     docs/assets/screenshots/INDEX.md. -->
 
 ## Exporting the map
 

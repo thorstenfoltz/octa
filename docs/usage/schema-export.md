@@ -4,7 +4,6 @@ Export the active table's column list. Useful for bootstrapping a database table
 TypeScript interface, or a Rust struct from real data without
 re-typing every column name.
 
-<!-- SCREENSHOT: schema-export-overview.png: Schema Export dialog with the Postgres CREATE TABLE preview visible. -->
 ![Schema Export](../assets/screenshots/schema-export-overview.png){ .screenshot-placeholder }
 
 ## Opening the dialog

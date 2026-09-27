@@ -1,17 +1,16 @@
-# Raw Text View
+# Raw text View
 
-The Raw Text view shows the file's content as plain text, useful
+The Raw text view shows the file's content as plain text, useful
 when you want to inspect bytes, peek at a parser's view of a file,
 or work with formats Octa doesn't have a richer view for (source
 code, log files, custom config formats, etc.).
 
-<!-- SCREENSHOT: raw-text-view.png: Raw view of a Python file with syntect highlighting on. Show line numbers, the gutter, syntax-highlighted keywords/strings. -->
-![Raw Text view with syntect highlighting](../../assets/screenshots/raw-text-view.png){ .screenshot-placeholder }
+![Raw text view with syntect highlighting](../../assets/screenshots/raw-text-view.png){ .screenshot-placeholder }
 
 ## When the Raw view appears
 
 - Files Octa doesn't natively recognise open in Raw view by default.
-- Any file can be switched to Raw via **View → Raw Text** (or
+- Any file can be switched to Raw via **View → Raw text** (or
   pressing
   [**F4**](../../reference/shortcuts.md#view) until you cycle to it).
 - When a text-format reader (CSV, JSON, YAML, …) **fails to parse**
@@ -70,7 +69,6 @@ The theme picks `InspiredGitHub` for light UI mode and
 When the file is a `.csv` or `.tsv`, the toolbar exposes extra
 controls:
 
-<!-- SCREENSHOT: raw-text-csv-toolbar.png: Raw view of a CSV file with the toolbar showing Quote (Double/Single/Either/None), Escape (Doubled/Backslash/None), Delimiter (Comma/Semicolon/Pipe/Tab), Align Columns toggle. -->
 ![Raw view toolbar for CSV files](../../assets/screenshots/raw-text-csv-toolbar.png){ .screenshot-placeholder }
 
 - **Delimiter** dropdown picks Comma / Semicolon / Pipe / Tab. The
@@ -96,7 +94,6 @@ Toggle under
 [**Settings → File-Specific → Colour aligned columns**](../../reference/settings.md#file-specific)
 (on by default).
 
-<!-- SCREENSHOT: raw-text-csv-toolbar.png: Raw view of a CSV file with the toolbar showing Quote (Double/Single/Either/None), Escape (Doubled/Backslash/None), Delimiter (Comma/Semicolon/Pipe/Tab), Align Columns toggle. -->
 ![Raw view toolbar for CSV files](../../assets/screenshots/raw-text-csv-toolbar-colour.png)
 
 ### Large-CSV slow-file prompt
@@ -132,6 +129,23 @@ plain monospace. That is the cap doing its job, not a fault.
 
 The [JSON tree view](json-and-yaml-tree.md) is the other way to read the same
 file, with collapsible nodes instead of text.
+
+## Wrap lines
+
+The Raw view lays text out unwrapped and scrolls sideways to long lines,
+because the view exists to show a file as it is. **Wrap lines** in the
+toolbar folds them at the edge of the pane instead. It is off by default
+and remembered per tab for the session.
+
+It folds *anywhere*, not only at spaces, which is the point: a minified
+line has no spaces to fold at, and neither does a field holding a whole
+stringified JSON blob. **Format JSON** cannot break such a value either,
+and must not: a real newline inside a JSON string would corrupt the
+document. Wrapping is the only thing that reaches it.
+
+The box is unavailable while **Align Columns** is on for a CSV or TSV,
+and says why on hover: folding a padded row destroys the alignment that
+setting exists to produce.
 
 ## Parse-error fallback banner
 

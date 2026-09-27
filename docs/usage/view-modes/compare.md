@@ -6,7 +6,6 @@ set comparison, **Ordered** for positional row-by-row cell diffs, and
 **Join (by key)** for matching rows by a key column and reporting what
 changed. All work across formats, so you can compare a CSV to a Parquet.
 
-<!-- SCREENSHOT: compare-view-text-diff.png: Compare view in Text Diff mode. Two panes side-by-side with line numbers, +/-/~ markers in the gutter, added lines in green, removed in red, modified in yellow. -->
 ![Compare view: Text Diff](../../assets/screenshots/compare-view-text-diff.png){ .screenshot-placeholder }
 
 ## Three ways to start a comparison
@@ -65,12 +64,37 @@ The default sub-mode picks itself based on inputs:
   complete in time, Octa shows a *"diff too complex"* banner with a
   fallback to "first 100 lines of each."
 
+### Editing the left pane
+
+The left pane is the file you have open, so it is a real editor: type in it
+and the tab changes exactly as if you had edited it in
+[Raw text](raw-text.md). **Ctrl+S** saves, the tab shows the usual unsaved
+marker, and the diff re-computes as you type, so the markers follow the edit
+line by line. This is the point of the view: read what changed against the
+committed version and fix it without leaving the comparison.
+
+The right pane is a committed revision or a second file. There is nothing to
+write back to, so it stays read-only: you can select, scroll and copy, and
+keystrokes do nothing.
+
+It is the same editor as [Raw text](raw-text.md): **Tab** indents in place by
+the [**Tab size**](../../reference/settings.md#search-editor) setting instead
+of jumping to the next control, and dragging a selection past the edge of the
+pane scrolls it. Only the tab you type becomes spaces; tabs the file already
+contained are left alone.
+
+Two details worth knowing:
+
+- The left pane carries **blank filler rows** wherever the right side has a
+  line of its own, so the two stay aligned while you read. They are not part
+  of your file. Type on one and it becomes a real line; leave it alone and it
+  never reaches the file.
+- The pane is **read-only whenever the tab is**, which covers read-only mode
+  (**F8**), a large-file tab and a database tab without write access. Hovering
+  **Left:** in the toolbar says which of the two applies.
+
 ## Row Hash Diff
 
-<!-- SCREENSHOT: compare-view-row-hash.png: Compare view in Row Hash Diff mode.
-Three collapsible buckets visible: Left-only, Right-only, Shared. The Shared
-bucket is expanded showing actual cell content (e.g. 5 matched rows). A
-column-picker panel showing checkboxes for which columns to hash. -->
 ![Compare view: Row Hash Diff](../../assets/screenshots/compare-view-row-hash.png){ .screenshot-placeholder }
 
 Works best for tables, but also for text files.

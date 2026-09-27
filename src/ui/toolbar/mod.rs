@@ -13,7 +13,7 @@ mod search_menu;
 mod types;
 mod view_menu;
 
-pub use types::{AskControls, ParseScope, SearchControls, ToolbarAction, ToolbarCtx};
+pub use types::{AskControls, FullScanKind, ParseScope, SearchControls, ToolbarAction, ToolbarCtx};
 
 /// Formats offered by **File -> Open as...** and **View -> Reopen as...**:
 /// `(i18n label key, reader name as registered in `FormatRegistry::new`)`.
@@ -41,6 +41,7 @@ const OPEN_AS_FORMATS: &[(&str, &str)] = &[
     ("open_as.toml", "TOML"),
     ("open_as.xml", "XML"),
     ("open_as.markdown", "Markdown"),
+    ("open_as.log", "Log (any format)"),
     ("open_as.text", "Text"),
     ("open_as.sql_dump", "SQL dump"),
 ];
@@ -83,6 +84,8 @@ pub fn draw_toolbar(ui: &mut Ui, cx: ToolbarCtx<'_>, search: SearchControls<'_>)
         show_replace_bar,
         replace_text,
         bookmarks,
+        partial: search_partial,
+        full_scan,
     } = search;
 
     // Custom title bar: the toolbar background doubles as the window's drag
@@ -504,6 +507,44 @@ pub fn draw_toolbar(ui: &mut Ui, cx: ToolbarCtx<'_>, search: SearchControls<'_>)
                                 .clicked()
                             {
                                 action.find_next = true;
+                            }
+                        }
+
+                        // Say what the search actually covered. A table
+                        // holding a window of its source searched that window
+                        // and reported the hits as if they were all of them.
+                        if let Some((loaded, known_total)) = search_partial
+                            && !search_text.is_empty()
+                        {
+                            ui.add_space(6.0);
+                            ui.label(
+                                RichText::new(crate::ui::message::partial_note_text(
+                                    loaded,
+                                    known_total,
+                                ))
+                                .small()
+                                .color(crate::ui::message::PARTIAL_NOTE_COLOR),
+                            );
+                            match full_scan {
+                                Some(kind) => {
+                                    let usable = kind != FullScanKind::Unsupported;
+                                    let hint = crate::i18n::t(kind.hint_key());
+                                    if ui
+                                        .add_enabled(
+                                            usable,
+                                            egui::Button::new(crate::i18n::t(kind.label_key())),
+                                        )
+                                        .on_hover_text(&hint)
+                                        .on_disabled_hover_text(&hint)
+                                        .clicked()
+                                    {
+                                        action.search_whole_source = true;
+                                    }
+                                }
+                                // A scan is already running.
+                                None => {
+                                    ui.add(egui::Spinner::new().size(12.0));
+                                }
                             }
                         }
 

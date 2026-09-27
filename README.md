@@ -46,7 +46,7 @@ tab or write it straight to a file or a database.
 
 Parquet, CSV/TSV, JSON and JSON Lines, Excel, ODS, Arrow, Avro, ORC, SQLite,
 DuckDB, GeoPackage, SAS, SPSS, Stata, R, HDF5, NetCDF, NumPy, MessagePack, BSON,
-DBF, XML, TOML, YAML, Jupyter notebooks, Markdown, HTML, EPUB, GeoJSON,
+DBF, XML, TOML, YAML, Jupyter notebooks, Markdown, HTML, EPUB, PDF tables, log files, GeoJSON,
 Shapefile, Delta Lake, Apache Iceberg, fixed-width text, zip/tar archives, SQL
 dumps, and source code.
 Most of those can be written back, and Save As converts between them.
@@ -65,6 +65,9 @@ one small example of every one of them.
   Exasol, Trino, Amazon Athena, Snowflake, Databricks, and Google BigQuery. Browse tables, query them in their
   own dialect, join them against local files, and (when you opt in) write edits
   back.
+- **REST and JSON APIs.** Save an endpoint once, with its authentication and
+  pagination, and it opens as a table from the sidebar, `octa --api NAME` or
+  the assistant. Credentials stay in your OS keyring.
 - **MCP server.** `octa --mcp` speaks the
   [Model Context Protocol](https://modelcontextprotocol.io/) over stdio, so any
   MCP client can read and analyse your data through Octa instead of a custom

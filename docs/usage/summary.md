@@ -4,7 +4,6 @@ The Summary tab answers "what does this table look like?" in one click.
 It is the GUI counterpart of the CLI's `octa --describe` and of pandas'
 `df.describe()`: one row of statistics per column of the active table.
 
-<!-- SCREENSHOT: summary-overview.png: Summary tab showing per-column statistics (min, max, uniques, average, quartiles, null percentage) for a mixed-type table. -->
 ![Summary](../assets/screenshots/summary-overview.png)
 
 ## Opening it
@@ -86,7 +85,7 @@ clean numbers (no separators baked in).
 ## Working with the result
 
 The Summary tab is an ordinary table tab: you can sort it, filter it,
-copy cells, and export it via **File -> Save As**. It is a detached
+copy cells, and export it via **File -> Save as**. It is a detached
 snapshot with no source path, so it can never overwrite the original
 file. Re-run **Analyse -> Summary...** after further edits to get a
 fresh snapshot.

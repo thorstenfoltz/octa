@@ -147,11 +147,20 @@ fn test_reader_for_markdown() {
 #[test]
 fn test_reader_for_text() {
     let reg = FormatRegistry::new();
-    for ext in &["file.txt", "file.log", "file.cfg", "file.ini", "file.conf"] {
+    for ext in &["file.txt", "file.cfg", "file.ini", "file.conf"] {
         let reader = reg.reader_for_path(&PathBuf::from(ext));
         assert!(reader.is_some(), "No reader for {}", ext);
         assert_eq!(reader.unwrap().name(), "Text");
     }
+}
+
+/// `.log` goes to the log reader, which itself falls back to plain text when
+/// no log format fits.
+#[test]
+fn test_reader_for_log() {
+    let reg = FormatRegistry::new();
+    let reader = reg.reader_for_path(&PathBuf::from("file.log"));
+    assert_eq!(reader.map(|r| r.name()), Some("Log"));
 }
 
 #[test]

@@ -244,6 +244,51 @@ pub static CATALOG: &[ToolEntry] = &[
         "Row-level differences between two tables.",
     ),
     e(
+        "find_overlaps",
+        Quality,
+        "Rows whose time spans overlap inside a lane.",
+    ),
+    e(
+        "forecast",
+        Reshape,
+        "Holt-Winters forecast of one column over time, with ranges.",
+    ),
+    e(
+        "spatial_join",
+        Combine,
+        "Join by location: region a point lies in, or nearest point.",
+    ),
+    e(
+        "cell_history",
+        Compare,
+        "The commits that changed one cell of a file in Git.",
+    ),
+    e(
+        "find_lookups",
+        Quality,
+        "Columns that always follow another column (hidden lookup tables).",
+    ),
+    e(
+        "value_shapes",
+        Quality,
+        "What a column's values look like, digits and letters folded.",
+    ),
+    e(
+        "generate_test_data",
+        Reshape,
+        "Generating shareable test data shaped like real tables.",
+    ),
+    e(
+        "apply_recipe",
+        Reshape,
+        "Replaying a recipe recorded in the GUI on a table.",
+    ),
+    e(
+        "merge_tables",
+        Compare,
+        "Merging several edited versions of one table.",
+    ),
+    e(
         "data_drift",
         Compare,
         "Whether values have shifted between two versions.",
@@ -342,6 +387,16 @@ pub static CATALOG: &[ToolEntry] = &[
         "query_db",
         Databases,
         "Running SQL against a live database server.",
+    ),
+    e(
+        "list_api_connections",
+        Databases,
+        "Working with your saved API endpoints.",
+    ),
+    e(
+        "query_api",
+        Databases,
+        "Reading a saved REST/JSON API endpoint as a table.",
     ),
     e(
         "sync_sql",

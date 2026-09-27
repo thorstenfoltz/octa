@@ -291,6 +291,13 @@ pub struct ChartConfig {
     /// `HashMap` rather than parallel `Vec` so the entries survive Y-column
     /// reorders / removes without renumbering.
     pub series_styles: std::collections::HashMap<usize, SeriesStyle>,
+    /// Trend line drawn over each Line series.
+    pub trend: crate::data::forecast::TrendKind,
+    /// Periods to forecast ahead on a Line chart; 0 is off.
+    pub forecast_periods: usize,
+    /// Season length override for the forecast; `None` reads it from the
+    /// spacing of the x values.
+    pub forecast_season: Option<usize>,
 }
 
 impl Default for ChartConfig {
@@ -315,6 +322,9 @@ impl Default for ChartConfig {
             y_integer_only: false,
             y_log_scale: false,
             series_styles: std::collections::HashMap::new(),
+            trend: crate::data::forecast::TrendKind::None,
+            forecast_periods: 0,
+            forecast_season: None,
         }
     }
 }
@@ -956,7 +966,6 @@ fn build_box(
     })
 }
 
-/// Linear-interpolation quantile, matching numpy's default. `values` must be
 /// sorted ascending.
 fn quantile(values: &[f64], q: f64) -> f64 {
     if values.is_empty() {

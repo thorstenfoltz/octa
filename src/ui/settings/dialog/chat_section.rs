@@ -12,7 +12,7 @@ use egui;
 
 use crate::ui::settings::chat_profiles::ChatModelProfile;
 use crate::ui::settings::{
-    ChatPanelPosition, ChatProviderKind, ChatTestRequest, SecretPurge, SettingsDialog, chat_models,
+    ChatProviderKind, ChatTestRequest, PanelPosition, SecretPurge, SettingsDialog, chat_models,
     chat_tools, chat_troubleshoot, secrets,
 };
 use crate::ui::status_bar::format_number;
@@ -655,7 +655,7 @@ impl SettingsDialog {
                 egui::ComboBox::from_id_salt("settings_chat_position")
                     .selected_text(self.draft.chat_panel_position.label_t())
                     .show_ui(ui, |ui| {
-                        for option in ChatPanelPosition::ALL {
+                        for option in PanelPosition::ALL {
                             ui.selectable_value(
                                 &mut self.draft.chat_panel_position,
                                 *option,

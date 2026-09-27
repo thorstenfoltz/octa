@@ -21,6 +21,7 @@ impl OctaApp {
             .unwrap_or(0);
         tab.column_filter_picker_col = Some(col);
         tab.column_filter_value_search.clear();
+        tab.column_filter_shape_draft = None;
         // Seed the draft with the saved set. If nothing is saved, leave it
         // empty and arm the one-shot seed flag so the dialog's first render
         // populates "all values" exactly once. Without the explicit flag, an

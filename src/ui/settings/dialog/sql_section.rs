@@ -47,6 +47,44 @@ impl SettingsDialog {
                 .on_hover_text(crate::i18n::t("settings_hint.sql_row_limit"));
                 ui.end_row();
 
+                ui.label(crate::i18n::t("settings.sql_page_rows"))
+                    .on_hover_text(crate::i18n::t("settings_hint.sql_page_rows"));
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.sql_result_page_rows_buf)
+                        .desired_width(80.0)
+                        .hint_text("1000"),
+                )
+                .on_hover_text(crate::i18n::t("settings_hint.sql_page_rows"));
+                ui.end_row();
+
+                ui.label(crate::i18n::t("settings.sql_auto_register"))
+                    .on_hover_text(crate::i18n::t("settings_hint.sql_auto_register"));
+                ui.checkbox(&mut self.draft.sql_auto_register_open_tabs, "")
+                    .on_hover_text(crate::i18n::t("settings_hint.sql_auto_register"));
+                ui.end_row();
+
+                let auto_on = self.draft.sql_auto_register_open_tabs;
+                let max_hint = if auto_on {
+                    crate::i18n::t("settings_hint.sql_auto_register_max")
+                } else {
+                    crate::i18n::t("settings_hint.sql_auto_register_max_off")
+                };
+                ui.add_enabled_ui(auto_on, |ui| {
+                    ui.label(crate::i18n::t("settings.sql_auto_register_max"))
+                        .on_hover_text(&max_hint)
+                        .on_disabled_hover_text(&max_hint);
+                });
+                ui.add_enabled_ui(auto_on, |ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.sql_auto_register_max_buf)
+                            .desired_width(80.0)
+                            .hint_text("200000"),
+                    )
+                    .on_hover_text(&max_hint)
+                    .on_disabled_hover_text(&max_hint);
+                });
+                ui.end_row();
+
                 ui.label(crate::i18n::t("settings.autocomplete"))
                     .on_hover_text(crate::i18n::t("settings_hint.autocomplete"));
                 ui.checkbox(&mut self.draft.sql_autocomplete, "")

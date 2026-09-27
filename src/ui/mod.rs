@@ -1,3 +1,4 @@
+pub mod control_row;
 pub mod dialog_chrome;
 pub mod directory_tree;
 pub mod message;
@@ -12,3 +13,4 @@ pub mod table_view;
 pub mod text_selection;
 pub mod theme;
 pub mod toolbar;
+pub mod tree_filter;

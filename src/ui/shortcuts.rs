@@ -241,6 +241,7 @@ pub enum ShortcutAction {
     ExportWorkbook,
     /// Read a file straight from a web address.
     OpenUrl,
+    OpenApiEndpoint,
     ReloadFile,
     FocusSearch,
     ToggleFindReplace,
@@ -405,11 +406,16 @@ pub enum ShortcutAction {
     /// Open the Fill-missing-values (impute) dialog. Also
     /// **Edit -> Fill missing values...**.
     OpenImpute,
+    /// Columns -> Change type... (re-type one column).
+    OpenRetypeColumn,
     OpenCleanupPanel,
     OpenTimeseries,
     OpenBatchConvert,
     /// Open the Schema drift dialog. Also **File -> Schema drift...**.
     OpenSchemaDrift,
+    /// Open the Merge versions dialog. Also **File -> Merge versions...**.
+    OpenMergeVersions,
+    OpenTestData,
     /// Open the Report dialog. Also **File -> Report...**.
     OpenReport,
     /// Open the Fuzzy join dialog. Also **Data -> Fuzzy join...**.
@@ -465,6 +471,12 @@ pub enum ShortcutAction {
     RunSqlOnServer,
     /// Open the Correlation dialog. Also **Analyse -> Correlation...**.
     OpenCorrelation,
+    /// Open the Find lookup tables dialog. Also
+    /// **Analyse -> Find lookup tables...**.
+    OpenLookups,
+    /// Open Cell history for the selected cell. Also the cell right-click
+    /// **Cell history...**. Only for files inside a Git repository.
+    OpenCellHistory,
     /// Open the Compare-distributions dialog. Also
     /// **Analyse -> Compare distributions...**.
     OpenDistCompare,
@@ -513,6 +525,23 @@ pub enum ShortcutAction {
     AddSplitPane,
     /// Take one band away, down to two. Also **View -> Remove pane**.
     RemoveSplitPane,
+    /// Toggle the column navigator panel open / closed. Also **View ->
+    /// Column navigator**. Ships unbound: every clipboard-safe Ctrl+Shift
+    /// letter is already spoken for.
+    ToggleColumnNavigator,
+    /// Toggle the edit audit trail panel open / closed. Also **View -> Edit
+    /// audit trail**. Ships unbound: every clipboard-safe Ctrl+Shift letter
+    /// is already spoken for.
+    ToggleEditAudit,
+    /// Edit -> Recipe panel.
+    ToggleRecipePanel,
+    /// Edit -> Apply recipe...
+    ApplyRecipe,
+    /// The recipe panel's "Choose ID column..." (which column names a row
+    /// for recorded hand edits).
+    ChooseRecipeKey,
+    /// View -> Tab memory... (what each open tab is holding).
+    OpenTabMemory,
 }
 
 impl ShortcutAction {
@@ -525,8 +554,9 @@ impl ShortcutAction {
             Self::SaveDbSql => "Save database changes as SQL...",
             Self::ExportWorkbook => "Export workbook...",
             Self::OpenUrl => "Open URL...",
+            Self::OpenApiEndpoint => "Open API endpoint...",
             Self::SaveFileAs => "Save file as...",
-            Self::ReloadFile => "Reload file from disk",
+            Self::ReloadFile => "Refresh tab",
             Self::FocusSearch => "Focus search box",
             Self::ToggleFindReplace => "Toggle find & replace",
             Self::CloseTab => "Close current tab",
@@ -562,7 +592,7 @@ impl ShortcutAction {
             Self::Redo => "Redo last undone change",
             Self::OpenSettings => "Open settings",
             Self::OpenDocumentation => "Open documentation",
-            Self::OpenColumnFilter => "Open column filter",
+            Self::OpenColumnFilter => "Filter by value or shape...",
             Self::CycleViewMode => "Cycle view mode",
             Self::ToggleReadOnly => "Toggle read-only mode",
             Self::FitAllColumns => "Auto-fit all columns",
@@ -593,9 +623,12 @@ impl ShortcutAction {
             Self::CopyAsMarkdown => "Copy as Markdown table",
             Self::OpenDedupe => "Drop duplicate rows...",
             Self::OpenImpute => "Fill missing values...",
+            Self::OpenRetypeColumn => "Change type...",
             Self::OpenCleanupPanel => "Clean-up suggestions",
             Self::OpenTimeseries => "Time series...",
             Self::OpenCorrelation => "Correlation...",
+            Self::OpenLookups => "Find lookup tables...",
+            Self::OpenCellHistory => "Cell history...",
             Self::OpenDistCompare => "Compare distributions...",
             Self::OpenReferential => "Referential integrity...",
             Self::OpenTranspose => "Transpose...",
@@ -604,7 +637,7 @@ impl ShortcutAction {
             Self::OpenTidyUp => "Tidy up...",
             Self::OpenTimeCalc => "Date/Time calculation...",
             Self::ExportPdf => "Export to PDF...",
-            Self::OpenDirectory => "Open Directory...",
+            Self::OpenDirectory => "Open directory...",
             Self::OpenGitCompare => "Compare with git version...",
             Self::ExplainFile => "Explain this file",
             Self::OpenAiReport => "Report AI content...",
@@ -616,6 +649,8 @@ impl ShortcutAction {
             Self::RemoveSplitPane => "Remove split pane",
             Self::OpenBatchConvert => "Batch convert...",
             Self::OpenSchemaDrift => "Schema drift...",
+            Self::OpenMergeVersions => "Merge versions...",
+            Self::OpenTestData => "Generate test data...",
             Self::OpenReport => "Report...",
             Self::OpenFuzzyJoin => "Fuzzy join...",
             Self::OpenFileInternals => "File internals...",
@@ -639,6 +674,12 @@ impl ShortcutAction {
             Self::OpenTableFolder => "Open table folder",
             Self::ListCloudInventory => "Run inventory on expanded cloud connection",
             Self::RunSqlOnServer => "Run SQL on server",
+            Self::ToggleColumnNavigator => "Toggle column navigator",
+            Self::ToggleEditAudit => "Toggle edit audit trail",
+            Self::ToggleRecipePanel => "Toggle recipe panel",
+            Self::ApplyRecipe => "Apply recipe...",
+            Self::ChooseRecipeKey => "Choose recipe ID column...",
+            Self::OpenTabMemory => "Tab memory...",
         }
     }
 
@@ -653,6 +694,7 @@ impl ShortcutAction {
             Self::SaveDbSql => KeyCombo::UNBOUND,
             Self::ExportWorkbook => KeyCombo::UNBOUND,
             Self::OpenUrl => KeyCombo::UNBOUND,
+            Self::OpenApiEndpoint => KeyCombo::UNBOUND,
             Self::SaveFileAs => KeyCombo::ctrl_shift(Key::S),
             Self::ReloadFile => KeyCombo::ctrl(Key::R),
             Self::FocusSearch => KeyCombo::ctrl(Key::F),
@@ -750,6 +792,8 @@ impl ShortcutAction {
             // clipboard-event trap that rules out Ctrl+Shift+C/X/V. Union uses
             // N ("u-N-ion") because Ctrl+Alt+U is UppercaseSelection.
             Self::OpenImpute => KeyCombo::ctrl_alt(Key::I),
+            // Unbound: every clipboard-safe Ctrl+Shift letter is taken.
+            Self::OpenRetypeColumn => KeyCombo::UNBOUND,
             Self::OpenUnion => KeyCombo::ctrl_alt(Key::N),
             Self::OpenOutliers => KeyCombo::ctrl_alt(Key::O),
             Self::OpenPii => KeyCombo::ctrl_alt(Key::P),
@@ -764,6 +808,12 @@ impl ShortcutAction {
             Self::OpenTableFolder => KeyCombo::UNBOUND,
             Self::ListCloudInventory => KeyCombo::UNBOUND,
             Self::RunSqlOnServer => KeyCombo::UNBOUND,
+            Self::ToggleColumnNavigator => KeyCombo::UNBOUND,
+            Self::ToggleEditAudit => KeyCombo::UNBOUND,
+            Self::ToggleRecipePanel => KeyCombo::UNBOUND,
+            Self::ApplyRecipe => KeyCombo::UNBOUND,
+            Self::ChooseRecipeKey => KeyCombo::UNBOUND,
+            Self::OpenTabMemory => KeyCombo::UNBOUND,
             // Every Ctrl+Shift letter is taken, and Ctrl+Shift+C / X / V fire
             // egui clipboard events on the table.
             Self::OpenCleanupPanel => KeyCombo::UNBOUND,
@@ -773,6 +823,8 @@ impl ShortcutAction {
             // free default chord left to hand out, so these arrive unbound
             // and Settings -> Shortcuts is where they get one.
             Self::OpenCorrelation
+            | Self::OpenLookups
+            | Self::OpenCellHistory
             | Self::OpenDistCompare
             | Self::OpenReferential
             | Self::OpenTranspose
@@ -793,6 +845,8 @@ impl ShortcutAction {
             | Self::RemoveSplitPane => KeyCombo::UNBOUND,
             Self::OpenBatchConvert => KeyCombo::UNBOUND,
             Self::OpenSchemaDrift => KeyCombo::UNBOUND,
+            Self::OpenMergeVersions => KeyCombo::UNBOUND,
+            Self::OpenTestData => KeyCombo::UNBOUND,
             Self::OpenReport => KeyCombo::UNBOUND,
             Self::OpenFuzzyJoin => KeyCombo::UNBOUND,
             Self::OpenFileInternals => KeyCombo::UNBOUND,
@@ -881,6 +935,7 @@ impl ShortcutAction {
             | Self::SaveDbSql
             | Self::ExportWorkbook
             | Self::OpenUrl
+            | Self::OpenApiEndpoint
             | Self::ExportSchema
             | Self::SaveTableToDb
             | Self::ReloadFile
@@ -934,7 +989,13 @@ impl ShortcutAction {
             | Self::ToggleSplitView
             | Self::ToggleSplitSideBySide
             | Self::AddSplitPane
-            | Self::RemoveSplitPane => G::View,
+            | Self::RemoveSplitPane
+            | Self::ToggleColumnNavigator => G::View,
+            Self::ToggleEditAudit
+            | Self::ToggleRecipePanel
+            | Self::ApplyRecipe
+            | Self::ChooseRecipeKey => G::Editing,
+            Self::OpenTabMemory => G::Dialogs,
             Self::ExportSqlResult | Self::RunSqlOnServer => G::SqlPanel,
             Self::ListCloudInventory => G::Search,
             Self::OpenNumberFormat | Self::CopyAsMarkdown => G::Editing,
@@ -953,10 +1014,13 @@ impl ShortcutAction {
             | Self::OpenFuzzyDuplicates
             | Self::OpenDedupe
             | Self::OpenImpute
+            | Self::OpenRetypeColumn
             | Self::OpenCleanupPanel
             | Self::OpenTimeseries
             | Self::OpenBatchConvert
             | Self::OpenSchemaDrift
+            | Self::OpenMergeVersions
+            | Self::OpenTestData
             | Self::OpenReport
             | Self::OpenFuzzyJoin
             | Self::OpenFileInternals
@@ -974,6 +1038,8 @@ impl ShortcutAction {
             | Self::OpenQualityReport
             | Self::OpenRenameColumns
             | Self::OpenCorrelation
+            | Self::OpenLookups
+            | Self::OpenCellHistory
             | Self::OpenDistCompare
             | Self::OpenReferential
             | Self::OpenTranspose

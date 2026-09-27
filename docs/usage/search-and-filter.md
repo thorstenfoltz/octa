@@ -4,7 +4,6 @@ Octa's search filters the table in real time, so only rows containing
 a match stay visible. The same field doubles as the entry point for
 **Find & Replace**.
 
-<!-- SCREENSHOT: search-toolbar.png: Toolbar with the search box focused, a few characters typed, mode dropdown visible (Plain/Wildcard/Regex), table below showing filtered results. -->
 ![Search toolbar](../assets/screenshots/search-toolbar.png)
 
 ## Quick start
@@ -141,6 +140,42 @@ means:
   (Hex / Binary / UTF-8; configured under
   [**Settings → Table View**](../reference/settings.md#table-view)).
 
+### Which rows the search covered
+
+Octa does not always hold a whole file. A big file stops at the
+[initial-load row cap](large-files.md), a live database tab holds one
+page, and a search over those rows is a search over a window, not over
+the file.
+
+When that is the case the search bar says so in plain numbers, for
+example `Only 5,000,000 of 20,000,000 rows are loaded.`, and offers one
+button beside it:
+
+- **Search whole file** for a Parquet, CSV/TSV or JSON file. The count
+  comes from a query against the file where it lies, so nothing extra is
+  loaded, and the matching rows open in their own tab.
+- **Count on the server** for a tab from a
+  [live database connection](database-connections.md). The count runs on
+  the server, which is the only place that knows it, and the matching
+  rows open in their own tab.
+- **Load all rows** for any other format, which cannot be searched
+  without being read. The file is read again with the row limit lifted;
+  on a big file that costs time and memory, and the button says so.
+
+The scan asks the **same question the search box asked**: the same mode,
+the same `Aa` and whole-word toggles, the same column scope. A count that
+quietly downgraded a regex search to a substring match would be a count
+for a different question, reported in the same words.
+
+That is also why the button is sometimes **disabled**. A regex or
+whole-word search cannot be handed to a live database, because a regular
+expression means something different on each engine and some have none at
+all; the hover says so. Switch to a plain search to count on the server.
+
+The same note appears above any tab computed from a partly loaded table
+(a Summary, a quality report, a correlation and so on), and
+[saving](saving.md) such a table asks before overwriting the file.
+
 For column-scoped value filtering, see the
 [Column Filter](#column-filter) section below. For typed range or
 expression filtering, use the [SQL panel](sql.md):
@@ -186,8 +221,6 @@ opens a dialog with a column checklist and five output modes:
 | **Show only the rows that occur once** | The same filter inverted: hides every repeat and keeps what appeared exactly once.                                                   |
 | **Drop duplicate rows**                | Deletes the repeats, keeping the first or last occurrence, as one undo step. Greyed in read-only mode.                               |
 
-<!-- SCREENSHOT: duplicate-filter-chip.png: A table filtered to its duplicate rows, with the removable "Duplicates only" chip above the grid and the sequential row-number gutter showing. -->
-
 Two rows count as duplicates when every ticked column has the same
 displayed text. The key seeds itself from the current column or cell
 selection, so the common one column dedupe is two keys away:
@@ -200,26 +233,57 @@ status bar message, lives on the
 
 ## Column Filter
 
-Excel-style per-column value-set filter. Pick a column, see its
-unique values as checkboxes, uncheck the ones to hide. Multiple
-columns can be filtered at once; column filters AND with each other
-and with the text search above.
+Excel-style per-column value-set filter. Pick any column, see its
+unique values as checkboxes, uncheck the ones to hide. A **Find** field
+narrows a long list. Multiple columns can be filtered at once; column
+filters AND with each other and with the text search above.
 
-<!-- SCREENSHOT: column-filter-dialog.png: Column Filter dialog open over a table. Column combo, "Find" textbox, scrollable checkbox list with a few values unchecked, "Apply" / "Cancel" / "Clear filter on this column" buttons. -->
+The **Values / Shapes** switch at the top lists the column's
+[shapes](value-shapes.md) instead (`D-80331` is `A-99999`): tick the
+shapes to keep, and every value with those shapes stays. It is the same
+switch as in the header funnel.
+
 ![Column Filter dialog](../assets/screenshots/column-filter-dialog.png)
 
-### Three ways to open it
+### Ways to open it
 
-1. **Search → Column Filter...** in the toolbar.
+1. **Columns → Filter by value or shape...** in the toolbar.
 2. The
-   [**Open column filter** shortcut](../reference/shortcuts.md)
+   [**Filter by value or shape...** shortcut](../reference/shortcuts.md)
    (default **Ctrl+Shift+F**, remappable).
-3. **Right-click any column header → Filter values...** opens the
-   dialog pre-seeded on that column.
+
+For one column you already have in view, the **funnel** in its header
+(or **right-click the header → Filter values...**) opens the
+[value filter popup](filter-facets.md) instead. It writes the same
+filter, Shapes included; the window adds the column picker and the
+**Find** field.
+
+Each filtered column also gets a removable chip above the grid, in the
+same row as the Ask-mode comparison chips and the duplicate-filter chip:
+see [The filter chip row](#the-filter-chip-row).
 
 A status-bar **Filter** chip also appears whenever at least one
 column has an active filter; clicking it opens the dialog on the
 first filtered column.
+
+### The filter chip row
+
+Everything currently narrowing the view is listed in one wrapped row
+above the grid, so "why am I only seeing twelve rows?" has a single
+place to look:
+
+- **Comparison filters** from the search bar's Ask mode, under the
+  heading *From your question:* so their origin is obvious.
+- **The duplicate filter**, as *Duplicates only* or *Unique rows only*.
+- **One chip per filtered column**. A column keeping a single value
+  reads as `city: Aachen`; a column keeping several reads as a count
+  (`year: 2 values`), because a chip that lists fifteen values is not a
+  chip any more.
+
+Every chip has an `x` that removes that one filter. When more than one
+chip is present, a **Clear all** button removes every filter in the row
+at once. The chips are ordered by column, so the row does not reshuffle
+itself as you work.
 
 ### Using the dialog
 
@@ -252,7 +316,7 @@ first filtered column.
 
 ### Saving filtered data
 
-When a filter is active, **File → Save As** writes only the
+When a filter is active, **File → Save as** writes only the
 **currently visible** rows. The output file is a one-shot snapshot of
 the view; the in-memory table keeps the full dataset so you can keep
 working with it. The status bar message confirms the export:
@@ -266,7 +330,7 @@ from accidental data loss while you have filters on.
 
 The toolbar **Search** field is per-tab. Sometimes you want the
 opposite, to find the same string everywhere at once. **Search →
-Multi-search…** (default <kbd>F6</kbd>, remappable) opens a docked
+Multi-search** (default <kbd>F6</kbd>, remappable) opens a docked
 panel at the bottom of the window with its own query box, mode
 picker, and a scope selector:
 
@@ -275,12 +339,11 @@ picker, and a scope selector:
 | **All Open Tabs** | Every loaded tab, searched synchronously with no background thread. Cheap and instant. |
 | **Directory**     | Every readable file in a picked directory (top level only, not recursive).             |
 
-<!-- SCREENSHOT: multi-search-panel.png : Multi-search panel docked at the bottom showing scope=Directory, a query, a "Scanning 12/47 files" progress label, and a few result rows. -->
 ![Multi-search panel](../assets/screenshots/multi-search-panel.png){ .screenshot-placeholder }
 
 ### Running a search
 
-1. Open the panel (**Search → Multi-search…** or <kbd>F6</kbd>).
+1. Open the panel (**Search → Multi-search** or <kbd>F6</kbd>).
 2. Pick a scope. Directory scope also asks for a folder via the
    **Pick directory…** button. The path you pick is remembered for
    subsequent searches in the same session.

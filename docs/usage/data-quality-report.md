@@ -145,6 +145,18 @@ finding. What lands in this tab is what someone would have to go and look into.
 Capped at 200 gaps: a column with more than that is telling you one thing, and
 it is not the list.
 
+### Value shapes
+
+`shape_verdict` scores every text column's values by what they look like with
+the specifics taken out: `consistent` (one shape for every value), `mixed`
+(one shape covers almost everything and a few values stray from it) or
+`not tested:` with a reason (not text, empty, or too many shapes to call).
+Numeric, date and boolean columns are skipped outright. A **mixed** column's
+stray shapes open in their own **Mixed shapes** tab, one row per stray shape
+with the column, how often it occurs and an example. See
+[Value Shapes](value-shapes.md) for the full picture, including the same
+switch in the header funnel.
+
 ## Extra tabs for findings that are not per column
 
 Some problems do not fit a one-row-per-column table, so they open in their own

@@ -61,6 +61,37 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
     }
     // Orphan rows are a gate, not a report: a build that finds them should
     // fail, the way --validate-schema and --check do.
+    // A step that could not run is a failure: nothing was written.
+    if let Action::Recipe { recipe, input, out } = action {
+        return match recipe::run(recipe, input, out, format) {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("error: {e:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    // Open conflicts are a failure, which is what makes this usable as a git
+    // merge driver.
+    // Overlaps found are a failure, so a script can gate on them.
+    if let Action::Overlaps(args) = action {
+        return match overlaps::run(*args, format) {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("error: {e:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if let Action::Merge(args) = action {
+        return match merge::run(*args, format) {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("error: {e:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if let Action::CheckReferences(args) = action {
         return match referential::run(*args, format) {
             Ok(code) => code,
@@ -96,6 +127,7 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
     if let Action::Harmonise {
         dir,
         out_dir,
+        combine,
         target_file,
         recursive,
         ignore_case,
@@ -107,6 +139,7 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             harmonise::Args {
                 dir,
                 out_dir,
+                combine,
                 target_file,
                 recursive,
                 ignore_case,
@@ -175,8 +208,17 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             table_b,
         } => compare_schemas::run(path_a, path_b, table_a, table_b, format),
         Action::CompareDistributions(args) => distribution_compare::run(*args, format),
+        Action::TestData(args) => test_data::run(*args, format),
+        Action::Shapes(args) => shapes::run(*args, format),
+        Action::Lookups(args) => lookups::run(*args, format),
+        Action::CellHistory(args) => cell_history::run(*args, format),
+        Action::SpatialJoin(args) => spatial_join::run(*args, format),
+        Action::Forecast(args) => forecast::run(*args, format),
         // Handled above: it decides its own exit code.
         Action::CheckReferences(_) => unreachable!("returned early"),
+        Action::Merge(_) => unreachable!("returned early"),
+        Action::Overlaps(_) => unreachable!("returned early"),
+        Action::Recipe { .. } => unreachable!("returned early"),
         Action::Diff {
             path_a,
             path_b,
@@ -232,6 +274,7 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             layout,
         } => partition::run(path, col, out_dir, partition_format, layout),
         Action::DbQuery { conn, sql } => db::run_query(conn, sql, format),
+        Action::ApiFetch { conn, path } => api::run(&conn, path.as_deref(), format),
         Action::ToWorkbook { out, inputs } => workbook::run(out, inputs),
         Action::SyncSql {
             path,
