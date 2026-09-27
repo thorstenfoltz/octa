@@ -15,6 +15,7 @@ pub mod rules_file;
 use std::collections::{HashMap, HashSet};
 
 use crate::data::DataTable;
+use crate::data::id_checks::IdKind;
 
 /// A single validation check.
 #[derive(Debug, Clone, PartialEq)]
@@ -31,6 +32,9 @@ pub enum ValidationKind {
     Unique,
     /// The cell text must be at most this many characters.
     MaxLength(usize),
+    /// The cell must be a correctly built ID of this kind (check digit,
+    /// shape). Empty cells pass: emptiness is `NotNull`'s job.
+    Id(IdKind),
 }
 
 impl ValidationKind {
@@ -47,6 +51,9 @@ impl ValidationKind {
             ValidationKind::Unique,
             ValidationKind::MaxLength(0),
         ]
+        .into_iter()
+        .chain(IdKind::ALL.map(ValidationKind::Id))
+        .collect()
     }
 
     /// Stable English label (the dialog shows the localized `i18n_key`).
@@ -57,6 +64,11 @@ impl ValidationKind {
             ValidationKind::Regex(_) => "Matches pattern",
             ValidationKind::Unique => "Unique",
             ValidationKind::MaxLength(_) => "Max length",
+            ValidationKind::Id(IdKind::Iban) => "IBAN",
+            ValidationKind::Id(IdKind::CardNumber) => "Card number",
+            ValidationKind::Id(IdKind::Gtin) => "EAN / ISBN / UPC",
+            ValidationKind::Id(IdKind::VatId) => "VAT number (EU)",
+            ValidationKind::Id(IdKind::Email) => "Email address",
         }
     }
 
@@ -68,13 +80,35 @@ impl ValidationKind {
             ValidationKind::Regex(_) => "validation_kind.regex",
             ValidationKind::Unique => "validation_kind.unique",
             ValidationKind::MaxLength(_) => "validation_kind.max_length",
+            ValidationKind::Id(IdKind::Iban) => "validation_kind.iban",
+            ValidationKind::Id(IdKind::CardNumber) => "validation_kind.card_number",
+            ValidationKind::Id(IdKind::Gtin) => "validation_kind.gtin",
+            ValidationKind::Id(IdKind::VatId) => "validation_kind.vat_id",
+            ValidationKind::Id(IdKind::Email) => "validation_kind.email",
+        }
+    }
+
+    /// i18n key of the hover text, for the kinds whose name alone does not
+    /// say what passes.
+    pub fn hint_key(&self) -> Option<&'static str> {
+        match self {
+            ValidationKind::Id(IdKind::Iban) => Some("validation_kind.iban_hint"),
+            ValidationKind::Id(IdKind::CardNumber) => Some("validation_kind.card_number_hint"),
+            ValidationKind::Id(IdKind::Gtin) => Some("validation_kind.gtin_hint"),
+            ValidationKind::Id(IdKind::VatId) => Some("validation_kind.vat_id_hint"),
+            ValidationKind::Id(IdKind::Email) => Some("validation_kind.email_hint"),
+            _ => None,
         }
     }
 
     /// Whether two kinds are the same variant (ignoring their parameters),
     /// for selecting in the dropdown.
     pub fn same_variant(&self, other: &ValidationKind) -> bool {
-        std::mem::discriminant(self) == std::mem::discriminant(other)
+        match (self, other) {
+            // Each ID kind is its own entry in the dropdown.
+            (ValidationKind::Id(a), ValidationKind::Id(b)) => a == b,
+            _ => std::mem::discriminant(self) == std::mem::discriminant(other),
+        }
     }
 }
 
@@ -166,6 +200,19 @@ pub fn violations(table: &DataTable, rules: &[ValidationRule]) -> HashSet<(usize
                     for r in 0..row_count {
                         let s = table.get(r, c).map(|v| v.to_string()).unwrap_or_default();
                         if s.chars().count() > *max {
+                            out.insert((r, c));
+                        }
+                    }
+                }
+            }
+            ValidationKind::Id(kind) => {
+                for &c in &cols {
+                    for r in 0..row_count {
+                        if is_blank(table, r, c) {
+                            continue;
+                        }
+                        let s = table.get(r, c).map(|v| v.to_string()).unwrap_or_default();
+                        if !kind.check(&s) {
                             out.insert((r, c));
                         }
                     }

@@ -71,6 +71,49 @@ pub fn selectable_message_sized(
     });
 }
 
+/// Colour for a "this is only part of the data" note. Amber, not red: nothing
+/// is broken, the answer is just narrower than it looks.
+pub const PARTIAL_NOTE_COLOR: egui::Color32 = egui::Color32::from_rgb(200, 160, 50);
+
+/// The sentence every feature computing over a partly-loaded table owes the
+/// user: how many rows it actually saw, and how many there are.
+///
+/// Octa loads a window of a source - the `initial_load_rows` cap, a database
+/// page - and until this existed, every feature downstream presented a result
+/// over that window as a result over the file: Summary called the loaded count
+/// "Total Rows", the quality score scored a slice, a search reported hits in
+/// rows nobody said were only some of them. One line, one place, one wording.
+///
+/// `known_total` is `None` when the source cannot say how many rows it has
+/// without reading all of it (CSV), in which case the note says only that
+/// the source has more.
+pub fn partial_note_text(loaded: usize, known_total: Option<usize>) -> String {
+    let key = match known_total {
+        Some(_) => "partial.note_of",
+        None => "partial.note_atleast",
+    };
+    let text =
+        crate::i18n::t(key).replace("{loaded}", &crate::ui::status_bar::format_number(loaded));
+    match known_total {
+        Some(total) => text.replace("{total}", &crate::ui::status_bar::format_number(total)),
+        None => text,
+    }
+}
+
+/// Draw [`partial_note_text`] as a small amber line.
+pub fn partial_note(ui: &mut egui::Ui, loaded: usize, known_total: Option<usize>) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(
+            egui::RichText::new(format!(
+                "\u{26a0} {}",
+                partial_note_text(loaded, known_total)
+            ))
+            .small()
+            .color(PARTIAL_NOTE_COLOR),
+        );
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

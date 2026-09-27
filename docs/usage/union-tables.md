@@ -25,7 +25,7 @@ untouched.
 
 ## Saving the result back in its own format
 
-When every source shares one format, the result tab remembers it. Save As then
+When every source shares one format, the result tab remembers it. Save as then
 opens pre-filled with a matching name, so unioning forty JSON files and writing
 one JSON file back is a single click. With a mixed selection there is no single
 answer, so the picker opens with no suggestion and you choose the format.
@@ -73,6 +73,22 @@ with local files, a plain click still just opens the object.
 
 The status bar tracks both stages, so a slow bucket never looks like a freeze:
 first `Downloading files to union: 12/40`, then the reading count.
+
+Objects download **eight at a time** by default, not one after another.
+Fetching from an object store is mostly waiting for the round trip rather than
+moving bytes, so a folder of small parquet parts used to spend nearly all of
+its time idle between requests. Eight is about what a browser allows per host:
+enough to hide the latency, low enough not to trip the rate limiting S3, Azure
+and GCS apply to a burst from one client. The files are still handed to the
+reconciler in the order the folder listed them, whatever order they arrive in.
+
+Change that number under **Simultaneous downloads** in
+[Settings > Performance](../reference/settings.md#performance). The minimum is
+1, which restores the old one-at-a-time behaviour and is the setting to reach
+for if a provider or a corporate proxy starts refusing requests. Raising it
+helps most on a fast link to a distant region; pushed far enough it only earns
+rate-limit errors, since each worker is a thread holding its own request
+open.
 
 Whole folders go in one action, with no object-by-object ticking: right-click a
 folder in the cloud tree and choose **Union tables in this folder...**, or

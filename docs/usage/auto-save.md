@@ -26,7 +26,7 @@ hand. When it writes at least one file, the status bar shows a brief
 Auto-save never interrupts you with a dialog. It quietly skips:
 
 - Tabs that have never been saved to disk (they have no file yet, so use
-  **Save As** once first).
+  **Save as** once first).
 - Cloud-backed tabs while cloud writing is turned off.
 - A save that would normally ask a question first, namely a tab with a per-column
   rounding format, an `.xlsx` tab carrying colours, frozen columns or number

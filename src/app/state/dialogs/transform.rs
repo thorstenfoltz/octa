@@ -28,6 +28,8 @@ pub(crate) enum TransformOp {
     Replace,
     /// Repair text decoded with the wrong character set.
     RepairEncoding,
+    /// Write valid IDs (IBAN, VAT, ...) one standard way; invalid ones stay.
+    TidyId,
 }
 
 impl TransformOp {
@@ -39,6 +41,7 @@ impl TransformOp {
         TransformOp::Extract,
         TransformOp::Replace,
         TransformOp::RepairEncoding,
+        TransformOp::TidyId,
     ];
 
     pub(crate) fn i18n_key(self) -> &'static str {
@@ -50,6 +53,7 @@ impl TransformOp {
             TransformOp::Extract => "transform_op.extract",
             TransformOp::Replace => "transform_op.replace",
             TransformOp::RepairEncoding => "transform_op.repair_encoding",
+            TransformOp::TidyId => "transform_op.tidy_id",
         }
     }
 
@@ -110,6 +114,8 @@ pub(crate) struct TransformState {
     pub(crate) replace_query: String,
     pub(crate) replace_mode: octa::data::SearchMode,
     pub(crate) replace_with: String,
+    /// Tidy ID format: which kind of ID the column holds.
+    pub(crate) tidy_kind: octa::data::id_checks::IdKind,
     /// For column-creating ops (Split / Merge / Extract): the output column
     /// name. Empty = the op's auto default (`merged`, `<src>_extracted`,
     /// `<src>_N`). For Split it is used as the base for `<name>_N`.
@@ -129,6 +135,7 @@ impl Default for TransformState {
             op: TransformOp::Split,
             col: None,
             merge_cols: Vec::new(),
+            tidy_kind: octa::data::id_checks::IdKind::Iban,
             split_mode: SplitMode::Delimiter,
             split_delim: ",".to_string(),
             split_regex: String::new(),
@@ -165,6 +172,11 @@ pub(crate) struct ConditionalColumnState {
     pub(crate) error: Option<String>,
     /// Dialog window sizing (Normal / Maximized / Minimized).
     pub(crate) size: ui::settings::DialogSize,
+    /// The new column's type; `None` = worked out from the outputs.
+    pub(crate) output_type: Option<octa::data::retype::TargetType>,
+    /// The value picker's lists, per column index, built on first open.
+    pub(crate) value_lists:
+        std::collections::HashMap<usize, crate::app::dialogs::conditional_column::ValueList>,
 }
 
 impl Default for ConditionalColumnState {
@@ -176,6 +188,8 @@ impl Default for ConditionalColumnState {
             insert_pos_text: String::new(),
             error: None,
             size: ui::settings::DialogSize::default(),
+            output_type: None,
+            value_lists: std::collections::HashMap::new(),
         }
     }
 }
@@ -319,5 +333,62 @@ impl RenameColumnsState {
             dedupe_ignore_case: false,
             size: ui::settings::DialogSize::default(),
         }
+    }
+}
+
+/// **Columns -> Change type...**: re-type one column, showing what will not
+/// convert before anything changes.
+#[derive(Clone)]
+pub(crate) struct RetypeState {
+    /// Which column to re-type (index into the active table).
+    pub(crate) col: usize,
+    /// Which target is selected (index into [`data::retype::TargetType::ALL`]).
+    pub(crate) target_idx: usize,
+    /// Cached preview. Recomputed only when `preview_key` changes: previewing
+    /// a date target parses every value under seven layouts, which is far too
+    /// much to redo every frame. Same caching shape as `dialogs/pivot.rs`.
+    pub(crate) preview: Option<data::retype::RetypePreview>,
+    /// What the cached preview describes: column, target, row count and
+    /// pending-edit count. The last two are a cheap way to notice the table
+    /// changed under an open dialog.
+    pub(crate) preview_key: Option<(usize, usize, usize, usize)>,
+    /// Refuse the whole conversion unless every value converts.
+    pub(crate) strict: bool,
+    /// Why the last Apply did nothing, shown inline. `None` until a strict
+    /// conversion is refused.
+    pub(crate) error: Option<String>,
+    /// Dialog window sizing (Normal / Maximized / Minimized).
+    pub(crate) size: ui::settings::DialogSize,
+}
+
+impl RetypeState {
+    /// Open on `col` with `target` already chosen. The header's Change type
+    /// submenu routes here with the type the user picked when something in
+    /// the column will not convert; the menu entry passes the default.
+    pub(crate) fn new(col: usize, target: data::retype::TargetType) -> Self {
+        Self {
+            col,
+            target_idx: data::retype::TargetType::ALL
+                .iter()
+                .position(|&t| t == target)
+                .unwrap_or(0),
+            preview: None,
+            preview_key: None,
+            // On by default: a column that converts "mostly" still sorts
+            // and sums as a typed column while quietly leaving the
+            // stragglers out, and finding that out afterwards is worse than
+            // being told up front.
+            strict: true,
+            error: None,
+            size: ui::settings::DialogSize::default(),
+        }
+    }
+
+    /// The target the dialog currently points at.
+    pub(crate) fn target(&self) -> data::retype::TargetType {
+        data::retype::TargetType::ALL
+            .get(self.target_idx)
+            .copied()
+            .unwrap_or(data::retype::TargetType::Text)
     }
 }

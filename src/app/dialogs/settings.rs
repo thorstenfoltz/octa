@@ -42,6 +42,9 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     // credential included.
                     octa::ui::settings::db_secrets::delete_ssh_secret(&conn_id, &mut app.settings);
                 }
+                octa::ui::settings::SecretPurge::Api(conn_id) => {
+                    octa::ui::settings::api_secrets::delete_api_secret(&conn_id, &mut app.settings);
+                }
             }
         }
         app.settings.save();
@@ -101,6 +104,13 @@ pub(crate) fn render_settings_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         app.settings.initial_load_rows
     };
     octa::formats::set_initial_load_rows(initial_cap);
+    // Same shape for the date-layout vote in Change type: the numeric
+    // value unless the Unlimited box overrides it.
+    octa::data::retype::set_layout_sample(if app.settings.retype_layout_sample_unlimited {
+        usize::MAX
+    } else {
+        app.settings.retype_layout_sample
+    });
 
     // Apply the UI language immediately so menus / dialogs re-translate without
     // a restart.

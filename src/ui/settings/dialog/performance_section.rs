@@ -136,25 +136,6 @@ impl SettingsDialog {
                     .on_hover_text(crate::i18n::t("settings_hint.show_large_file_notice"));
                 ui.end_row();
 
-                ui.label(crate::i18n::t("settings.folder_union_cap"))
-                    .on_hover_text(crate::i18n::t("settings_hint.folder_union_cap"));
-                ui.horizontal(|ui| {
-                    ui.add_enabled(
-                        !self.draft.folder_union_max_files_unlimited,
-                        egui::TextEdit::singleline(&mut self.folder_union_max_files_buf)
-                            .desired_width(120.0)
-                            .hint_text("500"),
-                    )
-                    .on_hover_text(crate::i18n::t("settings_hint.folder_union_cap"))
-                    .on_disabled_hover_text(crate::i18n::t("settings_hint.folder_union_cap"));
-                    ui.checkbox(
-                        &mut self.draft.folder_union_max_files_unlimited,
-                        crate::i18n::t("settings.unlimited"),
-                    )
-                    .on_hover_text(crate::i18n::t("settings_hint.folder_union_unlimited"));
-                });
-                ui.end_row();
-
                 ui.label(crate::i18n::t("settings.multi_search_cap"))
                     .on_hover_text(crate::i18n::t("settings_hint.multi_search_cap"));
                 ui.horizontal(|ui| {
@@ -214,5 +195,94 @@ impl SettingsDialog {
                 .on_hover_text(crate::i18n::t("settings_hint.excel_auto_open"));
                 ui.end_row();
             });
+
+        Self::sub_section(
+            ui,
+            "settings.sub_cloud_union",
+            "settings_perf_sub_cloud_union",
+            |ui| {
+                egui::Grid::new("settings_performance_cloud_union")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label(crate::i18n::t("settings.folder_union_cap"))
+                            .on_hover_text(crate::i18n::t("settings_hint.folder_union_cap"));
+                        ui.horizontal(|ui| {
+                            ui.add_enabled(
+                                !self.draft.folder_union_max_files_unlimited,
+                                egui::TextEdit::singleline(&mut self.folder_union_max_files_buf)
+                                    .desired_width(120.0)
+                                    .hint_text("500"),
+                            )
+                            .on_hover_text(crate::i18n::t("settings_hint.folder_union_cap"))
+                            .on_disabled_hover_text(crate::i18n::t(
+                                "settings_hint.folder_union_cap",
+                            ));
+                            ui.checkbox(
+                                &mut self.draft.folder_union_max_files_unlimited,
+                                crate::i18n::t("settings.unlimited"),
+                            )
+                            .on_hover_text(crate::i18n::t("settings_hint.folder_union_unlimited"));
+                        });
+                        ui.end_row();
+
+                        // No Unlimited companion here on purpose: "as many at
+                        // once as there are files" is not a thing anyone
+                        // wants, it is a thread per object and a rate limit.
+                        ui.label(crate::i18n::t("settings.cloud_download_concurrency"))
+                            .on_hover_text(crate::i18n::t(
+                                "settings_hint.cloud_download_concurrency",
+                            ));
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.cloud_download_concurrency_buf)
+                                .desired_width(120.0)
+                                .hint_text("8"),
+                        )
+                        .on_hover_text(crate::i18n::t("settings_hint.cloud_download_concurrency"));
+                        ui.end_row();
+                    });
+            },
+        );
+
+        Self::sub_section(
+            ui,
+            "settings.sub_change_type",
+            "settings_perf_sub_change_type",
+            |ui| {
+                egui::Grid::new("settings_performance_change_type")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        // The hover spells out the trade-off in both
+                        // directions, because neither is obvious: the cost is
+                        // seven date parses per sampled value on the UI
+                        // thread, and the benefit only appears on a column
+                        // whose first values are unrepresentative.
+                        let hint = crate::i18n::t("settings_hint.retype_layout_sample");
+                        ui.label(crate::i18n::t("settings.retype_layout_sample"))
+                            .on_hover_text(&hint);
+                        ui.horizontal(|ui| {
+                            ui.add_enabled(
+                                !self.draft.retype_layout_sample_unlimited,
+                                egui::TextEdit::singleline(&mut self.retype_layout_sample_buf)
+                                    .desired_width(120.0)
+                                    .hint_text("10,000"),
+                            )
+                            .on_hover_text(&hint)
+                            .on_disabled_hover_text(crate::i18n::t(
+                                "settings_hint.retype_layout_sample_off",
+                            ));
+                            ui.checkbox(
+                                &mut self.draft.retype_layout_sample_unlimited,
+                                crate::i18n::t("settings.unlimited"),
+                            )
+                            .on_hover_text(crate::i18n::t(
+                                "settings_hint.retype_layout_sample_unlimited",
+                            ));
+                        });
+                        ui.end_row();
+                    });
+            },
+        );
     }
 }

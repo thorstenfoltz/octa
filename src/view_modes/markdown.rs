@@ -258,24 +258,16 @@ fn render_editor_pane(
                 // not capped at the lines currently on screen.
                 super::text_ops::autoscroll_while_selecting(ui, &output.response);
 
-                // Replace any inserted \t with spaces and re-anchor the cursor
-                // to account for the expansion. Skipped under read-only since
-                // `interactive(false)` blocks new insertions.
-                let had_tabs = !readonly && buffer.contains('\t');
-                if had_tabs {
-                    let cursor_idx = output.cursor_range.map_or(0, |r| r.primary.index.0);
-                    let tabs_before = super::text_ops::tabs_before_cursor(buffer, cursor_idx);
-                    let spaces = " ".repeat(tab_size);
-                    *buffer = buffer.replace('\t', &spaces);
-                    let new_idx = cursor_idx + tabs_before * tab_size.saturating_sub(1);
-                    let new_cursor = egui::text::CCursor::new(new_idx);
-                    output
-                        .state
-                        .cursor
-                        .set_char_range(Some(egui::text::CCursorRange::one(new_cursor)));
-                    // Clone before store so `output.state` stays usable below.
-                    output.state.clone().store(ui.ctx(), output.response.id);
-                }
+                // Turn the literal \t egui inserts for Tab into spaces.
+                // Skipped under read-only since `interactive(false)` blocks
+                // new insertions.
+                let had_tabs = !readonly
+                    && super::text_ops::expand_tabs_to_spaces(
+                        ui.ctx(),
+                        buffer,
+                        &mut output,
+                        tab_size,
+                    );
 
                 // Highlight-search jump: place the cursor on the current match
                 // and scroll it into view.

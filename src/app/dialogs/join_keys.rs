@@ -300,6 +300,7 @@ pub(crate) fn render_join_keys_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 right_col: rc,
             }],
             join_type: JoinType::Left,
+            spatial: None,
             error: None,
             size: DialogSize::default(),
         });

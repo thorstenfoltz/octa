@@ -1,0 +1,11 @@
+booking_id,room,title,start,end
+1,Room A,Team meeting,2026-10-05 09:00,2026-10-05 10:30
+2,Room A,Customer call,2026-10-05 10:00,2026-10-05 11:00
+3,Room A,Lunch talk,2026-10-05 11:00,2026-10-05 12:00
+4,Room B,Workshop,2026-10-05 09:00,2026-10-05 17:00
+5,Room B,Interview,2026-10-05 13:00,2026-10-05 14:00
+6,Room B,Interview,2026-10-05 13:30,2026-10-05 14:30
+7,Room C,Training,2026-10-06 08:00,2026-10-07 16:00
+8,Room C,Board meeting,2026-10-06 15:00,2026-10-06 14:00
+9,Room C,Fire drill,2026-10-08 11:00,
+10,Room A,Retro,2026-10-06 16:00,2026-10-06 17:00

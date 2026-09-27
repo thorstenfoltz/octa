@@ -66,7 +66,8 @@ fn test_empty_text_file() {
 fn test_text_reader_metadata() {
     assert_eq!(TextReader.name(), "Text");
     assert!(TextReader.extensions().contains(&"txt"));
-    assert!(TextReader.extensions().contains(&"log"));
+    // `.log` belongs to the log reader, which falls back to text itself.
+    assert!(!TextReader.extensions().contains(&"log"));
     assert!(TextReader.supports_write());
 }
 

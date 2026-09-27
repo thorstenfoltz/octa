@@ -85,6 +85,9 @@ impl OctaApp {
         if action.open_url {
             self.open_url_dialog();
         }
+        if action.open_api {
+            self.open_api_dialog();
+        }
         if action.exit {
             if self.tabs[self.active_tab].is_modified() && !self.confirmed_close {
                 self.show_close_confirm = true;
@@ -101,6 +104,9 @@ impl OctaApp {
         if action.open_schema_drift {
             self.schema_drift_dialog =
                 Some(crate::app::state::SchemaDriftState::new(String::new()));
+        }
+        if action.open_merge_versions {
+            self.open_merge_versions_dialog();
         }
         if action.open_harmonise {
             self.harmonise_dialog = Some(crate::app::state::HarmoniseState::new(String::new()));

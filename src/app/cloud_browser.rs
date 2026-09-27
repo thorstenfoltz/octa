@@ -18,6 +18,7 @@ use eframe::egui;
 
 use octa::cloud::{self, ObjectEntry};
 use octa::ui::settings::cloud_secrets::resolve_creds;
+use octa::ui::tree_filter::{self, SearchSlot, TreeSearch};
 
 use super::state::{CloudOrigin, OctaApp};
 
@@ -104,6 +105,108 @@ pub(crate) fn fetch_object_to_temp(
     let path = tmp.path().to_path_buf();
     let _ = tmp.keep();
     Ok(path)
+}
+
+/// Download several cloud objects at once instead of one after another.
+///
+/// Returns one result per input, **in input order**, so the union still sees
+/// the files in the order the folder listed them; a job whose worker died
+/// comes back as an error rather than shortening the vec. `done` ticks once
+/// per finished object, driving the status-bar progress exactly as the serial
+/// loop did.
+///
+/// Each object resolves its own credentials and builds its own provider, just
+/// as the serial version did. That is not redundant: an account-level
+/// connection binds its bucket from the key, so two jobs in one batch can
+/// legitimately target different buckets and could not share one provider.
+fn fetch_objects_parallel(
+    jobs: &[(octa::cloud::CloudConnection, String, String)],
+    settings: &octa::ui::settings::AppSettings,
+    done: &std::sync::atomic::AtomicUsize,
+) -> Vec<Result<PathBuf, String>> {
+    // How many at once is the user's call (Settings -> Performance -> Cloud
+    // union). `run_in_parallel` clamps it to at least one, so a corrupt 0
+    // cannot leave the download with no workers.
+    let results = run_in_parallel(
+        jobs,
+        settings.cloud_download_concurrency,
+        |(conn, key, name)| {
+            let result = fetch_object_to_temp(conn, key, name, settings)
+                .map_err(|e| format!("{name}: {e:#}"));
+            done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            result
+        },
+    );
+    results
+        .into_iter()
+        .enumerate()
+        .map(|(i, slot)| {
+            slot.unwrap_or_else(|| Err(format!("{}: download did not finish", jobs[i].2)))
+        })
+        .collect()
+}
+
+/// Run `work` over every job, at most `concurrency` at a time, returning the
+/// results in **input order** rather than completion order.
+///
+/// The pool shares one cursor instead of giving each worker a fixed slice:
+/// cloud objects are of wildly different sizes, so handing every worker an
+/// equal COUNT would leave most of them idle while one finished the big
+/// files.
+///
+/// A job whose worker panicked comes back as `None` rather than shortening
+/// the vec, so the caller can always line the results up with its inputs.
+fn run_in_parallel<T, R>(
+    jobs: &[T],
+    concurrency: usize,
+    work: impl Fn(&T) -> R + Sync,
+) -> Vec<Option<R>>
+where
+    T: Sync,
+    R: Send,
+{
+    use std::sync::atomic::Ordering;
+
+    if jobs.is_empty() {
+        return Vec::new();
+    }
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let collected: Vec<(usize, R)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..concurrency.clamp(1, jobs.len()))
+            .map(|_| {
+                // Move the REFERENCES into each worker, not the values: the
+                // cursor and the closure are shared by the whole pool.
+                let (next, work) = (&next, &work);
+                scope.spawn(move || {
+                    let mut mine = Vec::new();
+                    loop {
+                        // Take the index from `fetch_add` itself. Reading
+                        // `next` back afterwards would race: another worker
+                        // can claim the next job in between, and the result
+                        // would be filed under someone else's index.
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(job) = jobs.get(index) else {
+                            break;
+                        };
+                        mine.push((index, work(job)));
+                    }
+                    mine
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap_or_default())
+            .collect()
+    });
+
+    let mut slots: Vec<Option<R>> = (0..jobs.len()).map(|_| None).collect();
+    for (index, result) in collected {
+        if let Some(slot) = slots.get_mut(index) {
+            *slot = Some(result);
+        }
+    }
+    slots
 }
 
 /// Cached state of one expanded node's listing.
@@ -199,6 +302,58 @@ pub(crate) enum CloudOpenResult {
 /// keys; past this the listing stops and the tab shows a truncation notice.
 pub(crate) const INVENTORY_CAP: usize = 100_000;
 
+/// How many objects one deep search lists before it stops, across every
+/// connection it walks. A data lake can hold millions of keys.
+const SEARCH_MAX_OBJECTS: usize = 10_000;
+
+/// One object a deep search found.
+#[derive(Debug, Clone)]
+pub(crate) struct CloudHit {
+    pub(crate) conn_id: String,
+    pub(crate) conn_name: String,
+    /// Full key, bucket-qualified for an account-level connection (the same
+    /// shape the tree's node keys have, so `open_cloud_object` takes it).
+    pub(crate) key: String,
+    pub(crate) name: String,
+    /// A folder hit: its key ends with `/`, and clicking it reveals it in
+    /// the tree instead of opening it.
+    pub(crate) is_folder: bool,
+}
+
+/// Whether a deep-search entry matches: by its name, or by its whole path
+/// once the query holds a `/` (`2024/sales`).
+fn search_matches(name: &str, key: &str, needle: &str) -> bool {
+    tree_filter::matches(if needle.contains('/') { key } else { name }, needle)
+}
+
+/// Every folder key (ending in `/`) strictly below `start` that the object
+/// `keys` sit in, sorted and without repeats.
+fn folders_below<'a>(start: &str, keys: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let floor = start.trim_end_matches('/').len();
+    let mut out = std::collections::BTreeSet::new();
+    for key in keys {
+        for (i, _) in key.match_indices('/') {
+            if i > floor {
+                out.insert(key[..=i].to_string());
+            }
+        }
+    }
+    out.into_iter().collect()
+}
+
+/// The tree nodes to expand so the folder `key` shows opened: the root, then
+/// every folder from the top down to `key` itself.
+pub(crate) fn reveal_path(root: &str, key: &str) -> Vec<String> {
+    let mut out = vec![root.to_string()];
+    let floor = root.trim_end_matches('/').len();
+    out.extend(
+        key.match_indices('/')
+            .filter(|(i, _)| *i > floor)
+            .map(|(i, _)| key[..=i].to_string()),
+    );
+    out
+}
+
 /// One cloud object the user has ticked in the sidebar for a batch action.
 /// Carries the name as well as the key because the download needs the file
 /// extension to route the temp file to the right reader.
@@ -245,6 +400,10 @@ pub(crate) struct CloudBrowserState {
     pub(crate) sign_out_confirm: Option<String>,
     /// How files are ordered in every folder listing (session-only).
     pub(crate) sort: CloudSort,
+    /// The search box's text.
+    pub(crate) search_query: String,
+    /// The deep search, written by its worker.
+    pub(crate) search: Arc<Mutex<SearchSlot<CloudHit>>>,
 }
 
 impl Default for CloudBrowserState {
@@ -262,6 +421,8 @@ impl Default for CloudBrowserState {
             secret_cache: HashMap::new(),
             sign_out_confirm: None,
             sort: CloudSort::default(),
+            search_query: String::new(),
+            search: Arc::new(Mutex::new(SearchSlot::default())),
         }
     }
 }
@@ -352,6 +513,28 @@ impl OctaApp {
         }
     }
 
+    /// Expand the tree down to the folder `key` (a folder search hit),
+    /// listing each level not listed yet. Never collapses anything.
+    pub(crate) fn reveal_cloud_folder(
+        &mut self,
+        ctx: &egui::Context,
+        conn_id: String,
+        key: String,
+    ) {
+        let Some(conn) = self.find_cloud_conn(&conn_id) else {
+            return;
+        };
+        for prefix in reveal_path(&root_prefix(&conn), &key) {
+            if !self
+                .cloud_browser
+                .expanded
+                .contains(&(conn_id.clone(), prefix.clone()))
+            {
+                self.toggle_cloud_node(ctx, conn_id.clone(), prefix);
+            }
+        }
+    }
+
     /// Drop a connection's cached listings, collapse its sub-folders, and
     /// re-list its root (Refresh button). Used after a sign-in or when the
     /// bucket has changed under us.
@@ -370,6 +553,128 @@ impl OctaApp {
             .expanded
             .insert((conn_id.clone(), root.clone()));
         self.start_cloud_list(ctx, conn_id, root);
+    }
+
+    /// Search every object under the expanded connections for names that
+    /// contain the search box's text, on a worker. An account-level
+    /// connection is searched inside the buckets the user has opened: walking
+    /// every bucket of an account is not a search, it is an inventory.
+    pub(crate) fn start_cloud_search(&mut self, ctx: &egui::Context) {
+        let query = self.cloud_browser.search_query.clone();
+        let Some(needle) = tree_filter::needle(&query) else {
+            return;
+        };
+        // (connection, bucket-qualified start key) pairs to walk.
+        let mut roots: Vec<(cloud::CloudConnection, String)> = Vec::new();
+        for conn in &self.settings.cloud_connections {
+            let root = root_prefix(conn);
+            if !self
+                .cloud_browser
+                .expanded
+                .contains(&(conn.id.clone(), root.clone()))
+            {
+                continue;
+            }
+            if conn.account_level {
+                // Expanded bucket nodes are the one-segment keys "<bucket>/".
+                roots.extend(
+                    self.cloud_browser
+                        .expanded
+                        .iter()
+                        .filter(|(c, k)| {
+                            c == &conn.id && k.ends_with('/') && k.matches('/').count() == 1
+                        })
+                        .map(|(_, k)| (conn.clone(), k.clone())),
+                );
+            } else {
+                roots.push((conn.clone(), root));
+            }
+        }
+        let slot = self.cloud_browser.search.clone();
+        let Ok(mut s) = slot.lock() else {
+            return;
+        };
+        let stop = s.start(&query);
+        if roots.is_empty() {
+            s.state = TreeSearch::Failed(octa::i18n::t("treesearch.need_expand"));
+            return;
+        }
+        drop(s);
+        let settings = self.settings.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let mut hits = Vec::new();
+            let mut errors = Vec::new();
+            let mut listed = 0usize;
+            let mut stopped_at = None;
+            for (conn, start) in &roots {
+                if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
+                let room = SEARCH_MAX_OBJECTS.saturating_sub(listed);
+                if room == 0 {
+                    stopped_at = Some(listed);
+                    break;
+                }
+                let walked = (|| -> anyhow::Result<(Vec<ObjectEntry>, bool)> {
+                    let (bconn, sub) = bind_bucket(conn, start);
+                    let creds = resolve_creds(&bconn, &settings);
+                    let provider = cloud::build_provider(&bconn, &creds)?;
+                    let (mut entries, truncated) =
+                        provider.list_recursive_until(&sub, room, &stop)?;
+                    // Keys under an account-level connection carry their
+                    // bucket, like the tree's node keys do.
+                    if conn.account_level {
+                        for e in &mut entries {
+                            e.key = format!("{}/{}", bconn.bucket, e.key);
+                        }
+                    }
+                    Ok((entries, truncated))
+                })();
+                match walked {
+                    Ok((entries, truncated)) => {
+                        listed += entries.len();
+                        let hit = |key: String, is_folder: bool| {
+                            let name = key.trim_end_matches('/').rsplit('/').next()?.to_string();
+                            search_matches(&name, &key, &needle).then(|| CloudHit {
+                                conn_id: conn.id.clone(),
+                                conn_name: conn.name.clone(),
+                                key,
+                                name,
+                                is_folder,
+                            })
+                        };
+                        // A recursive listing has no folder entries: the
+                        // folders are the key prefixes below the start.
+                        let folders = folders_below(start, entries.iter().map(|e| e.key.as_str()));
+                        hits.extend(folders.into_iter().filter_map(|k| hit(k, true)));
+                        hits.extend(
+                            entries
+                                .into_iter()
+                                .filter(|e| !e.key.ends_with('/'))
+                                .filter_map(|e| hit(e.key, false)),
+                        );
+                        if truncated {
+                            stopped_at = Some(listed);
+                            break;
+                        }
+                    }
+                    Err(e) => errors.push(format!("{}: {e:#}", conn.name)),
+                }
+            }
+            // A connection that failed does not hide what the others found.
+            let state = if hits.is_empty() && !errors.is_empty() {
+                TreeSearch::Failed(
+                    octa::i18n::t("treesearch.failed").replace("{error}", &errors.join("; ")),
+                )
+            } else {
+                TreeSearch::Done { hits, stopped_at }
+            };
+            if let Ok(mut s) = slot.lock() {
+                s.finish(&stop, state);
+            }
+            ctx.request_repaint();
+        });
     }
 
     fn start_cloud_list(&mut self, ctx: &egui::Context, conn_id: String, prefix: String) {
@@ -663,13 +968,16 @@ impl OctaApp {
                     *l = octa::i18n::t("cloud.union_downloading");
                 }
                 total.store(files.len(), std::sync::atomic::Ordering::Relaxed);
+                let jobs: Vec<_> = files
+                    .iter()
+                    .map(|(key, name)| (conn.clone(), key.clone(), name.clone()))
+                    .collect();
                 let mut paths = Vec::new();
-                for (key, name) in &files {
-                    match fetch_object_to_temp(&conn, key, name, &settings) {
+                for result in fetch_objects_parallel(&jobs, &settings, &done) {
+                    match result {
                         Ok(p) => paths.push(p),
                         Err(_) => skipped += 1,
                     }
-                    done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
                 if paths.len() < 2 {
                     CloudOpenResult::Failed(octa::i18n::t("union.need_two"))
@@ -720,14 +1028,17 @@ impl OctaApp {
         let done = progress.done.clone();
         self.union_progress = Some(progress);
         std::thread::spawn(move || {
+            let fetches: Vec<_> = jobs
+                .iter()
+                .map(|(conn, sel)| (conn.clone(), sel.key.clone(), sel.name.clone()))
+                .collect();
             let mut paths = Vec::new();
             let mut failed = Vec::new();
-            for (conn, sel) in &jobs {
-                match fetch_object_to_temp(conn, &sel.key, &sel.name, &settings) {
+            for result in fetch_objects_parallel(&fetches, &settings, &done) {
+                match result {
                     Ok(p) => paths.push(p),
-                    Err(e) => failed.push(format!("{}: {e:#}", sel.name)),
+                    Err(e) => failed.push(e),
                 }
-                done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             let item = if paths.len() < 2 {
                 CloudOpenResult::Failed(format!(
@@ -892,8 +1203,14 @@ impl OctaApp {
                     conn_id,
                     key,
                 } => {
-                    self.load_file_in_new_tab(path);
-                    if let Some(tab) = self.tabs.last_mut() {
+                    // A refresh lands in the tab it came from; anything
+                    // else gets a tab of its own.
+                    if self.take_reload_slot(&super::refresh::cloud_source(&conn_id, &key)) {
+                        self.load_file(path);
+                    } else {
+                        self.load_file_in_new_tab(path);
+                    }
+                    if let Some(tab) = self.tabs.get_mut(self.active_tab) {
                         tab.cloud_origin = Some(CloudOrigin { conn_id, key });
                         tab.custom_tab_label = Some(label);
                     }
@@ -1093,5 +1410,147 @@ mod bind_bucket_tests {
         let (bound, key) = bind_bucket(&c, "data/file.csv");
         assert_eq!(bound.bucket, "fixed-bucket");
         assert_eq!(key, "data/file.csv");
+    }
+}
+
+#[cfg(test)]
+mod parallel_tests {
+    use super::run_in_parallel;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    /// The union hands the downloaded paths to the column reconciler in the
+    /// order the folder listed them, so the pool must return results in INPUT
+    /// order even though they finish in whatever order the network allows.
+    /// Reversing the work time makes completion order the opposite of input
+    /// order, so a pool that returned results as they landed would fail here.
+    #[test]
+    fn results_come_back_in_input_order_not_completion_order() {
+        let jobs: Vec<usize> = (0..24).collect();
+        let out = run_in_parallel(&jobs, 8, |n| {
+            std::thread::sleep(Duration::from_millis((24 - *n) as u64));
+            n * 2
+        });
+        let got: Vec<usize> = out
+            .into_iter()
+            .map(|o| o.expect("no worker panicked"))
+            .collect();
+        assert_eq!(got, (0..24).map(|n| n * 2).collect::<Vec<_>>());
+    }
+
+    /// Every job runs exactly once. A cursor that used `load` instead of the
+    /// value `fetch_add` returned would double-run some and skip others.
+    #[test]
+    fn every_job_runs_exactly_once() {
+        let jobs: Vec<usize> = (0..200).collect();
+        let runs: Vec<AtomicUsize> = (0..200).map(|_| AtomicUsize::new(0)).collect();
+        run_in_parallel(&jobs, 8, |n| runs[*n].fetch_add(1, Ordering::SeqCst));
+        for (i, count) in runs.iter().enumerate() {
+            assert_eq!(
+                count.load(Ordering::SeqCst),
+                1,
+                "job {i} ran the wrong number of times"
+            );
+        }
+    }
+
+    /// The whole point: jobs overlap. And they overlap no more than the limit,
+    /// because a burst of unbounded requests is what the cloud providers rate
+    /// limit.
+    #[test]
+    fn jobs_overlap_but_never_exceed_the_limit() {
+        let jobs: Vec<usize> = (0..32).collect();
+        let inflight = AtomicUsize::new(0);
+        let peak = AtomicUsize::new(0);
+        run_in_parallel(&jobs, 4, |_| {
+            let now = inflight.fetch_add(1, Ordering::SeqCst) + 1;
+            peak.fetch_max(now, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(5));
+            inflight.fetch_sub(1, Ordering::SeqCst);
+        });
+        let peak = peak.load(Ordering::SeqCst);
+        assert!(
+            peak > 1,
+            "the pool never ran two jobs at once (peak {peak})"
+        );
+        assert!(
+            peak <= 4,
+            "the pool exceeded its concurrency limit (peak {peak})"
+        );
+    }
+
+    /// Degenerate inputs: no jobs spawns nothing, and fewer jobs than workers
+    /// must not spawn idle threads or index past the end.
+    #[test]
+    fn empty_and_short_job_lists_are_handled() {
+        let none: Vec<usize> = Vec::new();
+        assert!(run_in_parallel(&none, 8, |n| *n).is_empty());
+
+        let two = vec![7usize, 9];
+        let out: Vec<usize> = run_in_parallel(&two, 8, |n| *n)
+            .into_iter()
+            .map(|o| o.expect("no worker panicked"))
+            .collect();
+        assert_eq!(out, vec![7, 9]);
+    }
+
+    /// A concurrency of zero would otherwise spawn no workers and hang the
+    /// download forever; it is clamped to one.
+    #[test]
+    fn zero_concurrency_still_runs_the_jobs() {
+        let jobs = vec![1usize, 2, 3];
+        let out: Vec<usize> = run_in_parallel(&jobs, 0, |n| n * 10)
+            .into_iter()
+            .map(|o| o.expect("no worker panicked"))
+            .collect();
+        assert_eq!(out, vec![10, 20, 30]);
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::{folders_below, reveal_path, search_matches};
+
+    #[test]
+    fn a_recursive_listing_yields_its_folders_below_the_start_only() {
+        let keys = [
+            "data/fact_hotel_price/part-0.parquet",
+            "data/fact_hotel_price/_delta_log/0.json",
+            "data/x.csv",
+        ];
+        assert_eq!(
+            folders_below("data/", keys.into_iter()),
+            [
+                "data/fact_hotel_price/",
+                "data/fact_hotel_price/_delta_log/"
+            ]
+        );
+        // A connection prefix without its trailing slash is the same floor.
+        assert_eq!(folders_below("data", keys.into_iter()).len(), 2);
+        assert_eq!(folders_below("", ["a/b/c"].into_iter()), ["a/", "a/b/"]);
+    }
+
+    #[test]
+    fn a_slash_in_the_query_matches_the_path_instead_of_the_name() {
+        assert!(search_matches(
+            "part-0.parquet",
+            "2024/sales/part-0.parquet",
+            "4/sal"
+        ));
+        assert!(!search_matches(
+            "part-0.parquet",
+            "2024/sales/part-0.parquet",
+            "sales"
+        ));
+        assert!(search_matches("sales", "2024/sales/", "sales"));
+    }
+
+    #[test]
+    fn revealing_a_folder_expands_every_level_down_to_it() {
+        assert_eq!(
+            reveal_path("", "bucket/a/b/"),
+            ["", "bucket/", "bucket/a/", "bucket/a/b/"]
+        );
+        assert_eq!(reveal_path("data/", "data/a/"), ["data/", "data/a/"]);
     }
 }

@@ -1,4 +1,4 @@
-# Rename Columns
+# Rename columns
 
 **Columns > Rename columns...** renames many columns at once, instead of editing
 each header by hand.

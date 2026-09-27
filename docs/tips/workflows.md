@@ -21,7 +21,7 @@ Parquet makes them stick.
 3. *(Optionally)* Edit a few cells via the
    [Table view](../usage/table-view.md), mark some rows with
    [Colour Marking](../usage/colour-marking.md).
-4. **File → Save As…** → name it `clean.parquet`.
+4. **File → Save as…** → name it `clean.parquet`.
 
 Octa picks the Parquet writer from the extension, applies your
 type changes, and writes a properly-typed Parquet file (see
@@ -63,6 +63,46 @@ target instead of a separate convert. See
 [MCP server](../mcp/index.md) and the
 [MCP setup guide](../mcp/setup.md) for registering the server and the
 full tool list.
+
+## Clean the same export every month
+
+The monthly export needs the same renames, type fixes and duplicate
+removal every time. Do it once, then let a
+[recipe](../usage/recipes.md) repeat it.
+
+1. Open this month's file and clean it as usual. **Edit -> Recipe
+   panel** shows every step as you go.
+2. **Save recipe...** as `sales_export.ocp`, one recipe per kind of
+   export, kept apart from the data (see
+   [Keeping recipes](../usage/recipes.md#keeping-recipes-one-file-per-job)).
+3. Next month: open the new file, **Edit -> Apply recipe...**, pick
+   `sales_export.ocp`, **Apply**.
+
+Or in a script, all or nothing:
+
+```bash
+octa --recipe sales_export.ocp sales_april.csv --recipe-out sales_april.parquet
+```
+
+## Merge copies several people edited
+
+Three colleagues each fixed their own copy of `march.csv`. **File ->
+Merge versions...**, add the three copies, mark `march.csv` as the
+**Original**, press **Merge**, and settle only the cells two of them
+changed differently. See [Merge Versions](../usage/merge-versions.md).
+
+## Get a table out of a PDF
+
+Open the PDF like any file; each table is listed by page. Pick one and
+save it as xlsx or csv. From the shell, `--convert` takes the first
+table:
+
+```bash
+octa --convert invoice.pdf invoice.csv
+```
+
+A scanned PDF has no text to read; Octa says so. See
+[Tables from PDFs](../usage/pdf-tables.md).
 
 ## Open a huge file without blowing memory
 
@@ -147,7 +187,7 @@ SQLite vs JSON. The hash sees only `CellValue::to_string` output.
 
 ## Compare two database tables
 
-Open both tables in two tabs (`File → Open Directory…` and the
+Open both tables in two tabs (`File → Open directory…` and the
 [folder sidebar](../usage/tabs-and-sidebar.md#the-folder-sidebar)
 make this fast). Then:
 
@@ -263,7 +303,7 @@ rm /tmp/dump.json
 
 Or use Octa's GUI: open the SQLite, the
 [table picker](../getting-started/supported-formats.md#multi-table-files)
-shows every table, load one, then **File → Save As…** as Parquet,
+shows every table, load one, then **File → Save as…** as Parquet,
 and repeat.
 
 Or use DuckDB directly (which is what Octa uses under the hood):
@@ -287,7 +327,7 @@ undo/redo), but you can still:
 - Sort columns.
 - Run [SQL queries](../usage/sql.md) (mutations don't
   persist anyway).
-- Save As to a different file.
+- Save as to a different file.
 
 The status bar shows `[Read-only]` while active. Toggle off with
 F8 again.

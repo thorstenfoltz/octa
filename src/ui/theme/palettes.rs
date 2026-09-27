@@ -450,6 +450,170 @@ impl ThemeColors {
         }
     }
 
+    /// Deep Sea Contrast: Deep Sea's water, with windows that surface. The
+    /// palette only lifts the muted text and the borders a little so hints and
+    /// outlines still read on a raised dialog; the raised dialog itself is
+    /// `visuals::apply_deep_sea_contrast_decoration`.
+    pub(super) fn deep_sea_contrast() -> Self {
+        Self {
+            text_muted: Color32::from_rgb(0x8f, 0xa9, 0xbf),
+            border: Color32::from_rgb(0x2c, 0x54, 0x78),
+            ..Self::deep_sea()
+        }
+    }
+
+    /// Solarized Light: Ethan Schoonover's low-glare palette. Warm paper
+    /// backgrounds, deep teal-grey text, and the eight Solarized accents for
+    /// status colours, so long daylight sessions stay easy on the eyes.
+    pub(super) fn solarized_light() -> Self {
+        Self {
+            bg_primary: Color32::from_rgb(0xfd, 0xf6, 0xe3),
+            bg_secondary: Color32::from_rgb(0xee, 0xe8, 0xd5),
+            bg_tertiary: Color32::from_rgb(0xe4, 0xdd, 0xc8),
+            bg_header: Color32::from_rgb(0xee, 0xe8, 0xd5),
+            bg_selected: Color32::from_rgba_unmultiplied(0x26, 0x8b, 0xd2, 70),
+            bg_hover: Color32::from_rgb(0xe9, 0xe2, 0xcc),
+            bg_edited: Color32::from_rgb(0xf3, 0xe7, 0xb8),
+
+            text_primary: Color32::from_rgb(0x07, 0x36, 0x42),
+            text_secondary: Color32::from_rgb(0x58, 0x6e, 0x75),
+            text_muted: Color32::from_rgb(0x93, 0xa1, 0xa1),
+            text_header: Color32::from_rgb(0x26, 0x8b, 0xd2),
+
+            accent: Color32::from_rgb(0x26, 0x8b, 0xd2),
+            accent_hover: Color32::from_rgb(0x2a, 0xa1, 0x98),
+            border: Color32::from_rgb(0xd9, 0xd2, 0xbd),
+            border_subtle: Color32::from_rgb(0xe8, 0xe1, 0xcc),
+
+            success: Color32::from_rgb(0x85, 0x99, 0x00),
+            warning: Color32::from_rgb(0xb5, 0x89, 0x00),
+            error: Color32::from_rgb(0xdc, 0x32, 0x2f),
+
+            row_even: Color32::from_rgb(0xfd, 0xf6, 0xe3),
+            row_odd: Color32::from_rgb(0xf7, 0xf0, 0xdc),
+            row_number_bg: Color32::from_rgb(0xee, 0xe8, 0xd5),
+            row_number_text: Color32::from_rgb(0x93, 0xa1, 0xa1),
+
+            scrollbar_track: Color32::from_rgb(0xee, 0xe8, 0xd5),
+            scrollbar_thumb: Color32::from_rgb(0xd3, 0xcb, 0xb3),
+            scrollbar_thumb_hover: Color32::from_rgb(0x26, 0x8b, 0xd2),
+        }
+    }
+
+    /// Phosphor: an old amber CRT terminal. Near-black glass, glowing amber
+    /// text in a few brightnesses, and phosphor green for success. The accent
+    /// is a dark amber so white text on a pressed button stays readable.
+    pub(super) fn phosphor() -> Self {
+        Self {
+            bg_primary: Color32::from_rgb(0x0b, 0x0a, 0x07),
+            bg_secondary: Color32::from_rgb(0x14, 0x12, 0x0c),
+            bg_tertiary: Color32::from_rgb(0x1e, 0x1a, 0x10),
+            bg_header: Color32::from_rgb(0x12, 0x0f, 0x09),
+            bg_selected: Color32::from_rgba_unmultiplied(0xff, 0xb0, 0x00, 70),
+            bg_hover: Color32::from_rgb(0x2a, 0x23, 0x12),
+            bg_edited: Color32::from_rgb(0x1d, 0x2a, 0x10),
+
+            text_primary: Color32::from_rgb(0xff, 0xb0, 0x00),
+            text_secondary: Color32::from_rgb(0xd9, 0x9a, 0x14),
+            text_muted: Color32::from_rgb(0x8a, 0x6a, 0x1e),
+            text_header: Color32::from_rgb(0xff, 0xcc, 0x4d),
+
+            accent: Color32::from_rgb(0x9c, 0x6a, 0x00),
+            accent_hover: Color32::from_rgb(0xff, 0xb0, 0x00),
+            border: Color32::from_rgb(0x3a, 0x30, 0x18),
+            border_subtle: Color32::from_rgb(0x22, 0x1d, 0x10),
+
+            success: Color32::from_rgb(0x7f, 0xdc, 0x4a),
+            warning: Color32::from_rgb(0xff, 0xd2, 0x4d),
+            error: Color32::from_rgb(0xff, 0x5f, 0x3a),
+
+            row_even: Color32::from_rgb(0x0b, 0x0a, 0x07),
+            row_odd: Color32::from_rgb(0x11, 0x0f, 0x0a),
+            row_number_bg: Color32::from_rgb(0x12, 0x0f, 0x09),
+            row_number_text: Color32::from_rgb(0x8a, 0x6a, 0x1e),
+
+            scrollbar_track: Color32::from_rgb(0x14, 0x12, 0x0c),
+            scrollbar_thumb: Color32::from_rgb(0x3a, 0x30, 0x18),
+            scrollbar_thumb_hover: Color32::from_rgb(0xff, 0xb0, 0x00),
+        }
+    }
+
+    /// Colour-blind safe: neutral dark greys with the Okabe-Ito palette, which
+    /// stays distinguishable under the common forms of colour blindness.
+    /// Success is bluish green and error vermillion (never red against
+    /// green), a selection is sky blue and an edited cell orange.
+    pub(super) fn colour_blind_safe() -> Self {
+        Self {
+            bg_primary: Color32::from_rgb(0x1b, 0x1d, 0x21),
+            bg_secondary: Color32::from_rgb(0x23, 0x26, 0x2b),
+            bg_tertiary: Color32::from_rgb(0x2d, 0x31, 0x37),
+            bg_header: Color32::from_rgb(0x20, 0x23, 0x28),
+            bg_selected: Color32::from_rgba_unmultiplied(0x56, 0xb4, 0xe9, 90),
+            bg_hover: Color32::from_rgb(0x33, 0x37, 0x3e),
+            bg_edited: Color32::from_rgb(0x3a, 0x2e, 0x14),
+
+            text_primary: Color32::from_rgb(0xec, 0xef, 0xf4),
+            text_secondary: Color32::from_rgb(0xc3, 0xc8, 0xd0),
+            text_muted: Color32::from_rgb(0x8a, 0x91, 0x9c),
+            text_header: Color32::from_rgb(0x56, 0xb4, 0xe9),
+
+            accent: Color32::from_rgb(0x00, 0x72, 0xb2),
+            accent_hover: Color32::from_rgb(0x56, 0xb4, 0xe9),
+            border: Color32::from_rgb(0x3a, 0x3f, 0x47),
+            border_subtle: Color32::from_rgb(0x2a, 0x2e, 0x34),
+
+            success: Color32::from_rgb(0x00, 0x9e, 0x73),
+            warning: Color32::from_rgb(0xf0, 0xe4, 0x42),
+            error: Color32::from_rgb(0xd5, 0x5e, 0x00),
+
+            row_even: Color32::from_rgb(0x1b, 0x1d, 0x21),
+            row_odd: Color32::from_rgb(0x20, 0x23, 0x28),
+            row_number_bg: Color32::from_rgb(0x20, 0x23, 0x28),
+            row_number_text: Color32::from_rgb(0x8a, 0x91, 0x9c),
+
+            scrollbar_track: Color32::from_rgb(0x23, 0x26, 0x2b),
+            scrollbar_thumb: Color32::from_rgb(0x3a, 0x3f, 0x47),
+            scrollbar_thumb_hover: Color32::from_rgb(0x56, 0xb4, 0xe9),
+        }
+    }
+
+    /// Tokyo Night: deep indigo night with neon blue highlights and soft
+    /// pastel status colours, after the editor theme of the same name.
+    pub(super) fn tokyo_night() -> Self {
+        Self {
+            bg_primary: Color32::from_rgb(0x1a, 0x1b, 0x26),
+            bg_secondary: Color32::from_rgb(0x16, 0x16, 0x1e),
+            bg_tertiary: Color32::from_rgb(0x29, 0x2e, 0x42),
+            bg_header: Color32::from_rgb(0x1f, 0x23, 0x35),
+            bg_selected: Color32::from_rgba_unmultiplied(0x7a, 0xa2, 0xf7, 80),
+            bg_hover: Color32::from_rgb(0x29, 0x2e, 0x42),
+            bg_edited: Color32::from_rgb(0x3b, 0x2f, 0x23),
+
+            text_primary: Color32::from_rgb(0xc0, 0xca, 0xf5),
+            text_secondary: Color32::from_rgb(0xa9, 0xb1, 0xd6),
+            text_muted: Color32::from_rgb(0x56, 0x5f, 0x89),
+            text_header: Color32::from_rgb(0x7a, 0xa2, 0xf7),
+
+            accent: Color32::from_rgb(0x3d, 0x59, 0xa1),
+            accent_hover: Color32::from_rgb(0x7a, 0xa2, 0xf7),
+            border: Color32::from_rgb(0x29, 0x2e, 0x42),
+            border_subtle: Color32::from_rgb(0x1f, 0x23, 0x35),
+
+            success: Color32::from_rgb(0x9e, 0xce, 0x6a),
+            warning: Color32::from_rgb(0xe0, 0xaf, 0x68),
+            error: Color32::from_rgb(0xf7, 0x76, 0x8e),
+
+            row_even: Color32::from_rgb(0x1a, 0x1b, 0x26),
+            row_odd: Color32::from_rgb(0x1e, 0x20, 0x30),
+            row_number_bg: Color32::from_rgb(0x16, 0x16, 0x1e),
+            row_number_text: Color32::from_rgb(0x56, 0x5f, 0x89),
+
+            scrollbar_track: Color32::from_rgb(0x16, 0x16, 0x1e),
+            scrollbar_thumb: Color32::from_rgb(0x41, 0x48, 0x68),
+            scrollbar_thumb_hover: Color32::from_rgb(0x7a, 0xa2, 0xf7),
+        }
+    }
+
     /// Hidden rainbow theme. Returns the Dark base palette with a placeholder
     /// accent - the live accent is rotated per-frame in
     /// [`super::apply_theme`] when the mode is `Rainbow`, so any caller that

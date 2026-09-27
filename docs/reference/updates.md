@@ -15,7 +15,7 @@ quiet. A failed check at launch is not worth a pop-up, and neither is "you are
 up to date".
 
 Turn the setting off and Octa never contacts GitHub unless you ask it to
-through **Help > Check for Updates**, which is unchanged.
+through **Help > Check for updates**, which is unchanged.
 
 Neither the setting nor the menu entry exists in a Microsoft Store copy: see
 [Microsoft Store copies](#microsoft-store-copies) below.
@@ -58,7 +58,7 @@ A copy installed from the Microsoft Store is updated by the Store itself, in the
 background, and Octa stays out of it entirely. There is **no update check at
 all** in a Store copy:
 
-- **Help > Check for Updates** is not in the menu.
+- **Help > Check for updates** is not in the menu.
 - The launch-time check never runs, so no version is ever announced in the
   status bar.
 - **Settings > Updates > Check for updates at start** is greyed out and says why.

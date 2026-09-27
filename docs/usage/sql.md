@@ -5,7 +5,6 @@ table is exposed to an in-memory **DuckDB** connection as a temp table
 called `data`. Press **Ctrl+Enter** in the editor and your query runs
 against the loaded rows.
 
-<!-- SCREENSHOT: sql-view.png: SQL panel docked at the bottom of the window. Editor on top with a multi-line SELECT query, result table below showing a few rows. Line numbers in the editor gutter, autocomplete chip row visible under the editor. -->
 ![SQL panel](../assets/screenshots/sql-view.png){ .screenshot-placeholder }
 
 ## Opening the SQL panel
@@ -24,6 +23,13 @@ The panel docks to the **bottom** by default. Change the side under
 (Bottom, Top, Left, or Right). The SQL panel is independent of the
 [Chart](chart.md) tab; the **Analyse** menu also opens a chart in a
 new tab, and the two features can be used together.
+
+Inside the panel, the workspace tree, the Inspector, the editor and the
+results are stacked panes sharing the panel's height. Drag the line
+between any two of them to move the boundary: the space comes from the
+pane next to it, the others stay where they are, and nothing is ever
+drawn over anything else. Drag the panel's outer edge to give all of
+them more room at once.
 
 ## Writing a query
 
@@ -62,7 +68,6 @@ closes. See [The workspace](#the-workspace) below.
 
 ## The workspace
 
-<!-- SCREENSHOT: sql-workspace-attachments.png: The SQL panel's Workspace section expanded. The table list shows "data (3 rows)" plus two attached connections "post_test [Postgres]" and "mariadb_test [MySQL]", one expanded to its schemas/tables. Right of the Inspector the "Attached connections" box lists both aliases with an Insert button each. In the editor below, a UNION ALL query across post_test.public.people and mariadb_test.admin.people. -->
 ![SQL workspace with two attached connections](../assets/screenshots/sql-workspace-attachments.png){ .screenshot-placeholder }
 
 The collapsible **Workspace** section above the editor lists everything
@@ -71,6 +76,19 @@ your queries can reach:
 - **`data`** - the active table. Queries see a snapshot taken when the
   workspace was built; after editing cells in the table view, click
   **refresh** next to `data` to push the edits in.
+- **Your other open tabs**, each under a SQL-safe version of its own tab
+  name. Nothing to set up: open two files and join them by name. The
+  panel says once which names it registered, and the note can be
+  dismissed. Switch it off under
+  [**Settings -> SQL -> Query other open tabs**](../reference/settings.md#sql).
+  Tabs above **Max rows to register** (200,000 by default) are listed
+  with a **Register** button instead of being copied automatically,
+  because registering a tab copies its rows into DuckDB.
+- **Tabs from a live database connection are deliberately not copied.**
+  When the query runs on the server, every table on that server is
+  already reachable by its real name, so a join between two tables of the
+  same database happens where the data lives rather than after copying
+  both into DuckDB. The panel says so above the workspace list.
 - **+ Add table...** loads additional files (any readable format) as
   extra tables for cross-file JOINs.
 - **Attach database...** ATTACHes a DuckDB or SQLite *file*; its inner
@@ -266,13 +284,24 @@ separate `egui_extras::TableBuilder` from the main
 [Table view](table-view.md) (no edit overlay, no row selection
 beyond click-to-select-text).
 
-Results honour the same **initial-load row cap** as file opens
+Results arrive **one page at a time**. A SELECT is computed once inside
+DuckDB and the first
+[**Result rows per page**](../reference/settings.md#sql) rows (1,000 by
+default) are handed to the grid; scrolling near the end fetches the next
+page. The row counter shows both numbers, `1,000 / 8,432,109 result
+rows`, and that total is an exact `count(*)` over the whole result, not
+"we stopped counting here". Set the page size to `0` to load every row at
+once.
+
+Paging is a display decision only. **Export** and **Write result to DB**
+always read the whole result, not the page on screen.
+
+Queries run **on a live database connection** are not paged: they honour
+the **initial-load row cap** as before
 ([**Settings → Performance**](../reference/settings.md#performance),
-default 5,000,000): a SELECT that would return more rows stops there
-instead of exhausting memory, and the row counter says so
-("row cap reached, result truncated"). This applies to local DuckDB
-queries and to queries run on a live database connection alike. Raise
-the cap, or narrow the query, to see more.
+default 5,000,000), and the row counter says so when a result stops
+there ("row cap reached, result truncated"). Raise the cap, or narrow
+the query, to see more.
 
 Errors render in **red** below the editor.
 
@@ -332,7 +361,7 @@ highlight is a temporary display mark and clears itself.
     a mutation persists the change. For
     [read-only formats](saving.md#read-only-formats) (SAS,
     HDF5, …) the change is in-memory-only, though you can
-    **Save As** to a writable format to export it.
+    **Save as** to a writable format to export it.
 
 ## Exporting results
 
@@ -376,9 +405,9 @@ DESCRIBE data;
 
 ## Limitations
 
-- **One table per session.** Only `data` is registered, so there is
-  no way to JOIN across two open tabs from the GUI yet (use `octa --sql`
-  with two files, or copy-paste the relevant data).
+- **Live-database results are not paged.** A query run on the server
+  still materialises up to the initial-load row cap in one go; only local
+  DuckDB results arrive page by page.
 - **No DDL persistence.** `CREATE TABLE other AS SELECT ...`
   succeeds but the new table dies with the connection on the next
   Ctrl+Enter.

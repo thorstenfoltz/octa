@@ -20,38 +20,111 @@ use octa::data::chart::{
     Aggregation, ChartData, ChartKind, ChartLimits, LegendPosition, MAX_HIST_BINS, SeriesStyle,
     XAxisKind, build_chart, format_days_as_date, format_seconds_as_datetime, has_numeric_column,
 };
+use octa::data::chart::{ChartConfig, ChartSeries};
 use octa::data::chart_export::{self, ExportOptions};
+use octa::data::forecast::{Band, TrendKind, forecast, forecast_table, overlays};
 use octa::i18n::t;
+use octa::ui::control_row::{control_row, control_text_edit};
 
 /// Public entry point. Driven by `central_panel::render_central_panel` when
 /// the active tab's `view_mode == ViewMode::Chart` (or the tab is a chart tab).
+/// Returns the tables **Forecast to table** asked for, with their tab
+/// labels, for the caller to open.
 pub fn render_chart_view(
     ui: &mut egui::Ui,
     tab: &mut TabState,
     theme_mode: ThemeMode,
     limits: ChartLimits,
-) {
+) -> Vec<(String, octa::data::DataTable)> {
     if tab.table.col_count() == 0 {
         ui.centered_and_justified(|ui| {
             ui.label(egui::RichText::new(t("chart.empty_no_columns")).weak());
         });
-        return;
+        return Vec::new();
     }
     if !has_numeric_column(&tab.table) {
         ui.centered_and_justified(|ui| {
             ui.label(egui::RichText::new(t("chart.no_numeric")).weak());
         });
-        return;
+        return Vec::new();
     }
     seed_defaults(tab);
 
     let colors = ThemeColors::for_mode(theme_mode);
     draw_controls(ui, tab, &colors);
+
     ui.separator();
 
     let cfg = tab.chart_config.clone();
     let filtered: Vec<usize> = tab.filtered_rows.clone();
-    let prep = build_chart(&tab.table, &filtered, &cfg, limits);
+    let mut prep = build_chart(&tab.table, &filtered, &cfg, limits);
+
+    // Trend and forecast: Line charts over dates or numbers only. The
+    // overlays are appended to the chart's own series, so the legend and
+    // every export carry them with no further change.
+    let mut new_tabs = Vec::new();
+    let mut bands: Vec<Band> = Vec::new();
+    if cfg.kind == ChartKind::Line {
+        let base = match &prep {
+            Ok(p) => match &p.data {
+                ChartData::Lines {
+                    categories: None,
+                    series,
+                } => Some((series.clone(), p.x_axis_kind)),
+                _ => None,
+            },
+            Err(_) => None,
+        };
+        let mut overlay_error = None;
+        if let Some((series, kind)) = &base
+            && (cfg.trend != TrendKind::None || cfg.forecast_periods > 0)
+        {
+            let key = overlay_key(&cfg, series, *kind);
+            if tab
+                .chart_overlay_cache
+                .as_ref()
+                .is_none_or(|(k, _)| *k != key)
+            {
+                let computed = overlays(
+                    series,
+                    *kind,
+                    cfg.trend,
+                    cfg.forecast_periods,
+                    cfg.forecast_season,
+                );
+                tab.chart_overlay_cache = Some((key, computed));
+            }
+            match tab.chart_overlay_cache.as_ref().map(|(_, r)| r) {
+                Some(Ok(o)) => {
+                    if let Ok(p) = prep.as_mut()
+                        && let ChartData::Lines { series, .. } = &mut p.data
+                    {
+                        series.extend(o.series.iter().cloned());
+                    }
+                    bands = o.bands.clone();
+                }
+                Some(Err(e)) => overlay_error = Some(t(e.i18n_key())),
+                None => {}
+            }
+        }
+        if forecast_controls(ui, tab, overlay_error.as_deref())
+            && let Some((series, kind)) = &base
+        {
+            let periods = tab.chart_config.forecast_periods;
+            let season = tab.chart_config.forecast_season;
+            for s in series {
+                if let Ok(f) = forecast(&s.points, *kind, periods, season) {
+                    new_tabs.push((
+                        format!("{} - {}", s.name, t("chart.forecast_tab")),
+                        forecast_table(&f, *kind),
+                    ));
+                }
+            }
+        }
+        if let Some(err) = &overlay_error {
+            ui.colored_label(colors.warning, err);
+        }
+    }
 
     match prep {
         Err(err) => {
@@ -113,7 +186,7 @@ pub fn render_chart_view(
             //  - Numeric -> leave egui_plot's default formatter alone.
             let categories = prep.data.x_axis_categories().unwrap_or_default();
             let x_axis_kind = prep.x_axis_kind;
-            let mut plot = Plot::new(plot_id)
+            let mut plot = Plot::new(&plot_id)
                 .x_axis_label(x_axis_label)
                 .y_axis_label(y_axis_label)
                 .show_grid(cfg.show_grid);
@@ -197,6 +270,21 @@ pub fn render_chart_view(
                     plot = plot.default_y_bounds(y_min, y_max);
                 }
             }
+            // egui_plot reads the default bounds only while its saved view is
+            // fresh, so an edited min / max was ignored after the first frame.
+            // Reset the saved view whenever the requested bounds change.
+            let bounds_key =
+                [cfg.x_min, cfg.x_max, cfg.y_min, cfg.y_max].map(|v| v.map(f64::to_bits));
+            let bounds_key = (bounds_key, cfg.y_log_scale);
+            let bounds_mem_id = egui::Id::new(("chart_plot_bounds", &plot_id));
+            let bounds_changed = ui.data_mut(|d| {
+                let prev = d.get_temp::<([Option<u64>; 4], bool)>(bounds_mem_id);
+                d.insert_temp(bounds_mem_id, bounds_key);
+                prev.is_some_and(|p| p != bounds_key)
+            });
+            if bounds_changed {
+                plot = plot.reset();
+            }
             // Y grid spacer: emit ticks every `step` units in the visible
             // range. Honoured by all chart kinds.
             if let Some(step) = cfg.y_step
@@ -245,11 +333,162 @@ pub fn render_chart_view(
             if cfg.legend != LegendPosition::Off {
                 plot = plot.legend(Legend::default().position(map_legend(cfg.legend)));
             }
+            let band_fill = colors.accent;
             plot.show(ui, |plot_ui| {
+                // Log scale has no place for a range that dips below zero,
+                // so the bands are left out there (the 95% lines stay).
+                if !cfg.y_log_scale {
+                    for band in &bands {
+                        let mut ring = band.lo.clone();
+                        ring.extend(band.hi.iter().rev());
+                        let alpha = if band.level == 95 { 30.0 } else { 55.0 };
+                        plot_ui.polygon(
+                            egui_plot::Polygon::new(
+                                format!("{}%", band.level),
+                                PlotPoints::from(ring),
+                            )
+                            .fill_color(band_fill.gamma_multiply(alpha / 255.0))
+                            .stroke(egui::Stroke::NONE),
+                        );
+                    }
+                }
                 draw_plot_items(plot_ui, &prep.data, &cfg);
             });
         }
     }
+    new_tabs
+}
+
+/// What the overlays depend on, for `TabState::chart_overlay_cache`.
+fn overlay_key(cfg: &ChartConfig, series: &[ChartSeries], kind: XAxisKind) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (
+        cfg.trend as u8,
+        cfg.forecast_periods,
+        cfg.forecast_season,
+        kind as u8,
+    )
+        .hash(&mut h);
+    for s in series {
+        s.name.hash(&mut h);
+        for p in &s.points {
+            p[0].to_bits().hash(&mut h);
+            p[1].to_bits().hash(&mut h);
+        }
+    }
+    h.finish()
+}
+
+fn trend_label(k: TrendKind) -> (String, String) {
+    let key = match k {
+        TrendKind::None => "chart.trend_none",
+        TrendKind::Straight => "chart.trend_straight",
+        TrendKind::MovingAverage => "chart.trend_moving",
+    };
+    (t(key), t(&format!("{key}_hint")))
+}
+
+/// The Line chart's Trend / Forecast row. Returns whether **Forecast to
+/// table** was clicked.
+fn forecast_controls(ui: &mut egui::Ui, tab: &mut TabState, overlay_error: Option<&str>) -> bool {
+    let mut to_table = false;
+    control_row(ui, |ui| {
+        ui.label(t("chart.trend"))
+            .on_hover_text(t("chart.trend_hint"));
+        let (current, current_hint) = trend_label(tab.chart_config.trend);
+        egui::ComboBox::from_id_salt("chart_trend_combo")
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                for k in [
+                    TrendKind::None,
+                    TrendKind::Straight,
+                    TrendKind::MovingAverage,
+                ] {
+                    let (label, hint) = trend_label(k);
+                    ui.selectable_value(&mut tab.chart_config.trend, k, label)
+                        .on_hover_text(hint);
+                }
+            })
+            .response
+            .on_hover_text(current_hint);
+
+        ui.separator();
+        ui.label(t("chart.forecast"))
+            .on_hover_text(t("chart.forecast_hint"));
+        let buf = &mut tab.chart_buffers.forecast_periods;
+        if buf.is_empty() && tab.chart_config.forecast_periods > 0 {
+            *buf = tab.chart_config.forecast_periods.to_string();
+        }
+        let response = control_text_edit(
+            ui,
+            60.0,
+            egui::TextEdit::singleline(buf)
+                .id_salt("chart_forecast_periods")
+                .hint_text("0"),
+        )
+        .on_hover_text(t("chart.forecast_hint"));
+        if response.changed() {
+            let trimmed = buf.trim();
+            if trimmed.is_empty() {
+                tab.chart_config.forecast_periods = 0;
+            } else if let Ok(n) = trimmed.parse::<usize>() {
+                tab.chart_config.forecast_periods = n.min(500);
+            }
+        }
+
+        let can_table = tab.chart_config.forecast_periods > 0 && overlay_error.is_none();
+        if ui
+            .add_enabled(can_table, egui::Button::new(t("chart.forecast_to_table")))
+            .on_hover_text(t("chart.forecast_to_table_hint"))
+            .on_disabled_hover_text(
+                overlay_error.map_or_else(|| t("chart.forecast_to_table_disabled"), str::to_string),
+            )
+            .clicked()
+        {
+            to_table = true;
+        }
+    });
+    egui::CollapsingHeader::new(t("chart.forecast_advanced"))
+        .id_salt("chart_forecast_advanced")
+        .default_open(false)
+        .show(ui, |ui| {
+            control_row(ui, |ui| {
+                let mut auto = tab.chart_config.forecast_season.is_none();
+                if ui
+                    .checkbox(&mut auto, t("chart.season_auto"))
+                    .on_hover_text(t("chart.season_auto_hint"))
+                    .changed()
+                {
+                    tab.chart_config.forecast_season = if auto { None } else { Some(12) };
+                    tab.chart_buffers.forecast_season = tab
+                        .chart_config
+                        .forecast_season
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+                }
+                ui.label(t("chart.season_len"))
+                    .on_hover_text(t("chart.season_len_hint"));
+                let buf = &mut tab.chart_buffers.forecast_season;
+                let response = ui
+                    .add_enabled_ui(!auto, |ui| {
+                        control_text_edit(
+                            ui,
+                            60.0,
+                            egui::TextEdit::singleline(buf).id_salt("chart_forecast_season"),
+                        )
+                    })
+                    .inner
+                    .on_hover_text(t("chart.season_len_hint"))
+                    .on_disabled_hover_text(t("chart.season_auto_hint"));
+                if response.changed()
+                    && let Ok(n) = buf.trim().parse::<usize>()
+                {
+                    tab.chart_config.forecast_season = Some(n.clamp(2, 1000));
+                }
+            });
+        });
+    to_table
 }
 
 /// On first entry: pick a sensible X column (first numeric one) and an
@@ -365,39 +604,6 @@ fn optional_f64_input(
             // finish typing and the next changed event lands.
         }
     }
-}
-
-/// The height every interactive control in the chart control bar is given.
-///
-/// Left to themselves a ComboBox, a `TextEdit` and a checkbox each take a
-/// slightly different natural height, so a row of them (and the labels between)
-/// ends up visibly out of line. Pinning them all to one height, derived from the
-/// button metrics so it follows the theme's font size, keeps every row level.
-fn control_height(ui: &egui::Ui) -> f32 {
-    ui.text_style_height(&egui::TextStyle::Button) + 2.0 * ui.spacing().button_padding.y
-}
-
-/// One row of the chart control bar: wraps when the window is narrow, and forces
-/// every interactive widget inside it to [`control_height`] so labels, combos,
-/// text fields and checkboxes all line up.
-fn control_row<R>(ui: &mut egui::Ui, body: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    let h = control_height(ui);
-    ui.horizontal_wrapped(|ui| {
-        // `interact_size` is the *minimum* size of an interactive widget, which
-        // is what ComboBox and checkbox size themselves against.
-        ui.spacing_mut().interact_size.y = h;
-        ui.set_min_height(h);
-        body(ui)
-    })
-    .inner
-}
-
-/// A text field of the control bar's uniform height. `TextEdit` sizes itself
-/// from its font and frame margin, which does not match the combos next to it,
-/// so the height is imposed rather than left to the widget.
-fn control_text_edit(ui: &mut egui::Ui, width: f32, edit: egui::TextEdit<'_>) -> egui::Response {
-    let h = control_height(ui);
-    ui.add_sized([width, h], edit)
 }
 
 fn draw_controls(ui: &mut egui::Ui, tab: &mut TabState, colors: &ThemeColors) {

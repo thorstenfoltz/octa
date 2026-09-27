@@ -6,15 +6,12 @@ hide:
 
 # Octa
 
-<!-- SCREENSHOT: hero-table-view.png: Octa's main window with a sample Parquet
-file open in Table view. Light theme. Show multiple column types (numeric, date,
-text), maybe a search bar with some filter applied. Aim for a friendly "this is
-what data exploration looks like" hero shot. -->
 ![Octa main window in Table view](assets/screenshots/hero-table-view.png)
 
 **Octa** is a native desktop application for viewing and editing tabular
 data files. It opens Parquet, CSV, JSON, SQLite, DuckDB, Excel, and
-around twenty more formats in a fast spreadsheet-like view, with
+around twenty more formats (log files among them) in a fast
+spreadsheet-like view, with
 sorting, filtering, full-text search, inline editing, SQL queries, and
 file comparison.
 
@@ -37,7 +34,7 @@ like Claude can answer questions about your local files.
     Drag a Parquet, a Stata `.dta`, a SQLite database, an Excel
     workbook, Octa figures out the format and opens it in a table.
     Multi-million-row Parquet files stream in the background while
-    you scroll.
+    you scroll. Even the tables inside a PDF open as a grid.
 
     [:octicons-arrow-right-24: Supported formats](getting-started/supported-formats.md)
 
@@ -78,8 +75,8 @@ like Claude can answer questions about your local files.
 
     ---
 
-    `octa --mcp` is a Model Context Protocol server on stdio. A
-    twenty-tool set, read_table, schema, run_sql, convert, profile,
+    `octa --mcp` is a Model Context Protocol server on stdio. Over
+    sixty tools, read_table, schema, run_sql, convert, profile,
     diff_tables, write_table, edit_table, and more, lets Claude Desktop,
     Claude Code, or any MCP client answer questions about (and edit) your
     local files. Runs in a [container](cli/docker.md) too.
@@ -96,6 +93,28 @@ like Claude can answer questions about your local files.
 
     [:octicons-arrow-right-24: Compare view](usage/view-modes/compare.md)
 
+- :material-repeat:{ .lg .middle } **Repeat the monthly clean-up**
+
+    ---
+
+    Octa records what you do to a table: renames, type changes,
+    removed duplicates, typed values. Save it as a recipe (`.ocp`)
+    and replay it on next month's file with one click, or from a
+    script.
+
+    [:octicons-arrow-right-24: Recipes](usage/recipes.md)
+
+- :material-source-merge:{ .lg .middle } **Merge edited copies**
+
+    ---
+
+    Two, three or ten people edited copies of one table. Octa puts
+    their changes back together cell by cell and asks only where two
+    of them changed the same cell differently. Works as a git merge
+    driver too.
+
+    [:octicons-arrow-right-24: Merge versions](usage/merge-versions.md)
+
 - :material-cloud-outline:{ .lg .middle } **Open files from the cloud**
 
     ---
@@ -106,6 +125,16 @@ like Claude can answer questions about your local files.
     local ones. Saving back is off by default until you opt in.
 
     [:octicons-arrow-right-24: Cloud storage](usage/cloud-storage.md)
+
+- :material-api:{ .lg .middle } **Read a REST API as a table**
+
+    ---
+
+    Save an endpoint with its authentication and pagination once, then
+    open it like a file: every page's rows in one table, ready to
+    filter, join or save. The credential stays in your OS keyring.
+
+    [:octicons-arrow-right-24: API endpoints](usage/api-endpoints.md)
 
 - :material-pencil:{ .lg .middle } **Edit and save back**
 

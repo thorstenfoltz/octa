@@ -45,6 +45,64 @@ use super::engine::{
     octopuses_easter_egg, quote_ident, register_table_into, stars_easter_egg,
 };
 
+/// Temp table a paged SELECT is materialised into. The `__octa_` prefix keeps
+/// it out of the way of user tables; it is replaced on every paged run and
+/// never registered in `tables`, so it stays out of the workspace listing and
+/// out of autocomplete.
+const RESULT_TABLE: &str = "__octa_result";
+
+/// Ordering key added to that table. Without it a page is a LIMIT/OFFSET over
+/// a parallel scan with no promised order, which can repeat or skip rows
+/// between pages.
+const RESULT_ORDER_COL: &str = "__octa_rn";
+
+/// A statement run for paged display: the first page, plus the exact total
+/// when the statement could be paged.
+pub struct PagedResult {
+    pub outcome: QueryOutcome,
+    /// Rows in the whole result. `None` when the statement was not paged (a
+    /// mutation, an easter egg, or several statements at once), in which case
+    /// `outcome.table` already holds everything there is.
+    pub total_rows: Option<usize>,
+}
+
+/// The inner query of a statement that can safely be wrapped in
+/// `SELECT * FROM (...)`, or `None` when it cannot be.
+///
+/// Refusing is always safe: the caller falls back to the unpaged path. Only
+/// single SELECT-shaped statements qualify - a mutation changes state, an
+/// easter egg is not SQL at all, and several statements separated by `;`
+/// cannot be a subquery.
+fn pageable_select(trimmed: &str) -> Option<&str> {
+    if trimmed.is_empty() || is_mutation(trimmed) {
+        return None;
+    }
+    if octopuses_easter_egg(trimmed).is_some()
+        || stars_easter_egg(trimmed).is_some()
+        || h2o_easter_egg(trimmed).is_some()
+    {
+        return None;
+    }
+    let inner = trimmed.trim_end().trim_end_matches(';').trim_end();
+    (!inner.is_empty() && !has_bare_semicolon(inner)).then_some(inner)
+}
+
+/// Is there a `;` outside a string or quoted identifier? Comments are not
+/// tracked, so a `;` inside one reads as bare and the query falls back to the
+/// unpaged path - the harmless direction to be wrong in.
+fn has_bare_semicolon(s: &str) -> bool {
+    let (mut in_single, mut in_double) = (false, false);
+    for ch in s.chars() {
+        match ch {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            ';' if !in_single && !in_double => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
 /// Origin of a registered workspace table. Recorded so the panel and the
 /// MCP / CLI surfaces can show users where each table came from.
 #[derive(Debug, Clone)]
@@ -722,6 +780,10 @@ impl SqlWorkspace {
              WHERE table_schema NOT IN ('information_schema', 'pg_catalog')",
             &mut out,
         );
+        // The paged-result temp table and its ordering key live in the same
+        // catalog, so information_schema hands them over too. They are
+        // Octa's plumbing, not something to suggest to the user.
+        out.retain(|n| !n.starts_with("__octa"));
         out.sort();
         out.dedup();
         out
@@ -940,6 +1002,81 @@ impl SqlWorkspace {
             columns,
             sample_rows: sample,
         })
+    }
+
+    /// Run `query` for paged display: materialise the whole result inside
+    /// DuckDB once, hand back the first `page_rows` rows and the **exact**
+    /// total.
+    ///
+    /// The unpaged path pulls every row into a Rust `Vec` and stops at the
+    /// file-open cap, so a bare `SELECT * FROM data` cost millions of rows of
+    /// memory and reported "5,000,000 (capped)" rather than a real count.
+    /// Here the rows stay in DuckDB and only a page crosses into Rust.
+    ///
+    /// `page_rows` of 0 means "no paging". Anything this cannot safely wrap in
+    /// a subquery (a mutation, an easter egg, several statements at once)
+    /// falls through to [`Self::execute`] with `total_rows: None`.
+    pub fn execute_paged(&mut self, query: &str, page_rows: usize) -> Result<PagedResult> {
+        let inner = match pageable_select(query.trim()) {
+            Some(inner) if page_rows > 0 => inner.to_string(),
+            _ => {
+                return Ok(PagedResult {
+                    outcome: self.execute(query)?,
+                    total_rows: None,
+                });
+            }
+        };
+        self.conn
+            .execute(&format!("DROP TABLE IF EXISTS {RESULT_TABLE}"), [])?;
+        // `row_number() OVER ()` over the already-ordered subquery, so a page
+        // boundary cannot repeat or skip a row: a plain LIMIT/OFFSET over a
+        // parallel table scan has no promised order to page through.
+        self.conn.execute(
+            &format!(
+                "CREATE TEMP TABLE {RESULT_TABLE} AS \
+                 SELECT row_number() OVER () AS {RESULT_ORDER_COL}, * FROM ({inner})"
+            ),
+            [],
+        )?;
+        let total: i64 =
+            self.conn
+                .query_row(&format!("SELECT count(*) FROM {RESULT_TABLE}"), [], |r| {
+                    r.get(0)
+                })?;
+        let table = self.result_page(0, page_rows)?;
+        Ok(PagedResult {
+            outcome: QueryOutcome {
+                kind: QueryKind::Select,
+                affected: None,
+                table,
+                created: None,
+            },
+            total_rows: Some(total.max(0) as usize),
+        })
+    }
+
+    /// One page of the result [`Self::execute_paged`] last materialised.
+    /// Errors when the last statement was not paged.
+    pub fn result_page(&self, offset: usize, len: usize) -> Result<DataTable> {
+        execute_query(
+            &self.conn,
+            &format!(
+                "SELECT * EXCLUDE ({RESULT_ORDER_COL}) FROM {RESULT_TABLE} \
+                 ORDER BY {RESULT_ORDER_COL} LIMIT {len} OFFSET {offset}"
+            ),
+        )
+    }
+
+    /// The whole materialised result, for Export and Write result to DB -
+    /// neither may ship only the page that happens to be on screen.
+    pub fn result_all(&self) -> Result<DataTable> {
+        execute_query(
+            &self.conn,
+            &format!(
+                "SELECT * EXCLUDE ({RESULT_ORDER_COL}) FROM {RESULT_TABLE} \
+                 ORDER BY {RESULT_ORDER_COL}"
+            ),
+        )
     }
 
     /// Execute a statement against the workspace's persistent connection.

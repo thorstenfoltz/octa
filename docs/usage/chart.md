@@ -12,11 +12,6 @@ Trigger via:
 The entry is hidden on string-only tables since there's nothing to
 plot.
 
-<!-- SCREENSHOT: chart-tab-overview.png: Chart tab with a Bar chart of
-country → population, the Analyse toolbar dropdown visible, "DE / US /
-JP" tick labels on the X axis, a legend in the top-right, and the
-Customise collapsible expanded showing title / axis renames / per-series
-controls. -->
 ![Chart tab](../assets/screenshots/chart-tab-overview.png)
 
 ## Chart kinds
@@ -163,6 +158,11 @@ per-series colours carry into every export.
 | Right-drag a box         | Zoom into that region.         |
 | Double-click             | Reset to auto-bounds.          |
 | Hover over a point / bar | Show coordinates in a tooltip. |
+
+## Trend and forecast
+
+Line charts over dates or numbers can draw a trend line and forecast each
+line ahead with 80% and 95% ranges; see [Trend and forecast](forecast.md).
 
 ## See also
 

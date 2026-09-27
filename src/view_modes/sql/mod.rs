@@ -1,8 +1,8 @@
 use crate::app::state::TabState;
-use crate::ui::settings::SqlPanelPosition;
 
 use eframe::egui;
 use octa::data::CellValue;
+use octa::ui::control_row::control_height;
 use octa::ui::settings::SqlEditorFont;
 use octa::ui::status_bar::format_number;
 
@@ -76,6 +76,11 @@ pub struct SqlAction {
     pub recall_query: Option<String>,
     /// User picked a saved snippet (the snippet's query text) to load.
     pub insert_snippet: Option<String>,
+    /// User dismissed the note about auto-registered open tabs.
+    pub dismiss_auto_register_notice: bool,
+    /// The result grid scrolled close enough to the end of the rows it
+    /// holds that the next page should be fetched.
+    pub load_more_rows: bool,
     /// User clicked **Save current query as snippet...**.
     pub save_snippet: bool,
     /// User deleted a saved snippet by name.
@@ -261,7 +266,6 @@ pub struct WorkspaceAttachmentTable {
 pub struct SqlViewContext<'a> {
     pub autocomplete_enabled: bool,
     pub default_row_limit: usize,
-    pub panel_position: SqlPanelPosition,
     pub partial_rows: Option<(usize, usize)>,
     pub editor_font: octa::ui::settings::SqlEditorFont,
     pub workspace_tables: &'a [WorkspaceRow],
@@ -282,6 +286,10 @@ pub struct SqlViewContext<'a> {
     pub db_connections: Vec<DbAttachEntry>,
     /// Saved cloud connections as (id, name), for the cloud attach menu.
     pub cloud_connections: Vec<(String, String)>,
+    /// Names the panel auto-registered the other open tabs under, and
+    /// whether the note explaining that has still to be shown.
+    pub auto_registered: &'a [String],
+    pub show_auto_register_notice: bool,
     /// Whether at least one chat profile is configured, so the Ask box can be
     /// offered. Passed in because the view layer does not read settings.
     pub chat_profile_available: bool,
@@ -323,20 +331,36 @@ pub enum NodeListing {
     Failed(String),
 }
 
-/// Render a split-pane SQL editor (top) and result table (bottom).
-/// The current tab's table is exposed in queries as `data`.
-/// `partial_rows` carries `(loaded, total)` when the table isn't fully loaded.
-/// Row-counter text for a result grid. Fetches stop exactly at the
-/// initial-load row cap, so a result sitting on the cap means truncation.
+/// Row-counter text for a result grid.
+///
+/// `total` is the exact size of the whole result when the statement was paged,
+/// and `rows` what has been fetched so far - so a paged result reads
+/// "1,000 of 8,432,109 result rows" and says what it is instead of reporting
+/// the page as if it were the answer. Without a total, a result sitting
+/// exactly on the initial-load cap is truncation and says so.
 ///
 /// `took_ms` appends how long the query ran. It is spelled in `ms` / `s`
 /// rather than a translated phrase: both are SI symbols, so the line needs no
 /// thirty-second locale key to say "in".
-fn result_rows_label(rows: usize, took_ms: Option<u64>) -> String {
-    let counted = if rows >= octa::formats::initial_load_rows() {
-        format!("{} {}", rows, octa::i18n::t("sql.result_rows_capped"))
-    } else {
-        format!("{} {}", rows, octa::i18n::t("sql.result_rows"))
+fn result_rows_label(rows: usize, total: Option<usize>, took_ms: Option<u64>) -> String {
+    let counted = match total {
+        Some(t) if t > rows => format!(
+            "{} / {} {}",
+            format_number(rows),
+            format_number(t),
+            octa::i18n::t("sql.result_rows")
+        ),
+        Some(t) => format!("{} {}", format_number(t), octa::i18n::t("sql.result_rows")),
+        None if rows >= octa::formats::initial_load_rows() => format!(
+            "{} {}",
+            format_number(rows),
+            octa::i18n::t("sql.result_rows_capped")
+        ),
+        None => format!(
+            "{} {}",
+            format_number(rows),
+            octa::i18n::t("sql.result_rows")
+        ),
     };
     match took_ms {
         Some(ms) => format!("{counted} ({})", format_duration(ms)),
@@ -344,26 +368,13 @@ fn result_rows_label(rows: usize, took_ms: Option<u64>) -> String {
     }
 }
 
-/// One centre line for the Ask row.
-///
-/// egui centres each widget against the row height known when that widget is
-/// added, so a row of unequal heights lands on as many baselines as it has
-/// sizes. Two things had to be equalised, both measured headlessly (box 9.5,
-/// button 13.5, combo 18.0 before this):
-///
-/// * a `TextEdit`'s margin is fixed while a button's padding comes from the
-///   theme (`button_padding.y` is 5-7px in Octa's themes, against egui's 1),
-///   so the box was 8px shorter than the button beside it. The caller gives
-///   the box `button_padding.y` as its vertical margin.
-/// * `ComboBox` lays its button out inside its own nested `horizontal`, whose
-///   band starts at `interact_size.y` (18) and is then centred inside the
-///   taller outer row, dropping the combo another 4.5px. Pinning
-///   `interact_size.y` to this height is the same trick the main toolbar
-///   already uses (`ui/toolbar/mod.rs`).
-///
-/// Returns the height of a plain button in the current style.
-fn ask_row_height(ui: &egui::Ui) -> f32 {
-    ui.text_style_height(&egui::TextStyle::Button) + 2.0 * ui.spacing().button_padding.y
+/// One pane of the SQL panel's splitter, top to bottom.
+#[derive(Clone, Copy)]
+enum Pane {
+    WorkspaceTree,
+    Inspector,
+    Editor,
+    Result,
 }
 
 /// Width for the Ask box: the row it now has to itself, less the Ask button
@@ -387,6 +398,9 @@ fn format_duration(ms: u64) -> String {
     }
 }
 
+/// Render a split-pane SQL editor (top) and result table (bottom).
+/// The current tab's table is exposed in queries as `data`.
+/// `partial_rows` carries `(loaded, total)` when the table isn't fully loaded.
 pub fn render_sql_view(
     ui: &mut egui::Ui,
     tab: &mut TabState,
@@ -395,7 +409,6 @@ pub fn render_sql_view(
     let SqlViewContext {
         autocomplete_enabled,
         default_row_limit,
-        panel_position,
         partial_rows,
         editor_font,
         workspace_tables,
@@ -406,6 +419,8 @@ pub fn render_sql_view(
         server_running,
         db_connections,
         cloud_connections,
+        auto_registered,
+        show_auto_register_notice,
         chat_profile_available,
         ask_profiles,
     } = ctx_args;
@@ -537,7 +552,11 @@ pub fn render_sql_view(
         });
         if let Some(rows) = tab.sql_result.as_ref().map(|t| t.row_count()) {
             ui.add_space(12.0);
-            ui.label(result_rows_label(rows, tab.sql_last_duration_ms));
+            ui.label(result_rows_label(
+                rows,
+                tab.sql_result_total,
+                tab.sql_last_duration_ms,
+            ));
         }
         // Close (×) button on the right - flips `sql_panel_open` to false.
         // The Analyse dropdown is two clicks away, so without an in-panel
@@ -587,7 +606,7 @@ pub fn render_sql_view(
     // is added ahead of the box here, so there is nothing left to stagger,
     // and the box may grow as the question wraps without moving anything.
     ui.horizontal(|ui| {
-        ui.spacing_mut().interact_size.y = ask_row_height(ui);
+        ui.spacing_mut().interact_size.y = control_height(ui);
         ui.add_enabled_ui(ask_enabled, |ui| {
             // Multiline, one row tall to start: a question longer than the box
             // used to scroll sideways behind itself, unreadable while typing
@@ -651,21 +670,55 @@ pub fn render_sql_view(
         });
     });
 
+    // One-time note naming what the panel registered on the user's behalf.
+    // It explains a behaviour nobody asked for, so it says what happened, what
+    // the tables are called, and where to switch it off.
+    if show_auto_register_notice && !auto_registered.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} {}",
+                    octa::i18n::t("sql.auto_reg_note"),
+                    octa::ui::message::elide_list(auto_registered, 6),
+                ))
+                .small()
+                .color(ui.visuals().weak_text_color()),
+            )
+            .on_hover_text(auto_registered.join(", "));
+            if ui
+                .small_button(octa::i18n::t("view.dismiss"))
+                .on_hover_text(octa::i18n::t("sql.auto_reg_note_hint"))
+                .clicked()
+            {
+                action.dismiss_auto_register_notice = true;
+            }
+        });
+        ui.add_space(2.0);
+    }
+
+    // A tab from a live connection queries the server directly, where its
+    // sibling tables are already joinable by their real names. Say so: the
+    // alternative people reach for is copying them into DuckDB one by one.
+    if let Some(conn) = server_conn_name.as_ref()
+        && tab.sql_run_on_server
+    {
+        ui.label(
+            egui::RichText::new(octa::i18n::t("sql.server_tables_note").replace("{conn}", conn))
+                .small()
+                .color(ui.visuals().weak_text_color()),
+        );
+        ui.add_space(2.0);
+    }
+
     ui.add_space(4.0);
 
-    render_workspace_section(
-        ui,
-        tab,
-        &WorkspaceData {
-            tables: workspace_tables,
-            attachments: workspace_attachments,
-            db_connections: &db_connections,
-            cloud_connections: &cloud_connections,
-        },
-        inspector_selection,
-        inspector_entry,
-        &mut action,
-    );
+    let workspace_data = WorkspaceData {
+        tables: workspace_tables,
+        attachments: workspace_attachments,
+        db_connections: &db_connections,
+        cloud_connections: &cloud_connections,
+    };
+    let workspace_open = render_workspace_section(ui, tab, &workspace_data);
     ui.add_space(4.0);
 
     // --- Compute autocomplete state BEFORE rendering the TextEdit so we can
@@ -749,19 +802,12 @@ pub fn render_sql_view(
         });
     }
 
-    // Editor vs. result split. For outer Bottom docking the outer panel's
-    // resize handle sits at its top edge - if the nested editor panel is also
-    // docked at the top, its frame covers the outer resize strip and the user
-    // can't drag the SQL panel taller from between the table and the box. To
-    // avoid that collision, dock the *result* panel at the bottom in that
-    // case and let the editor fill the remaining central area. For every
-    // other outer position the top-docked editor split is fine.
-    let total = ui.available_height();
-    let default_editor_h = (total * 0.4).max(160.0).min((total - 80.0).max(120.0));
-    let default_result_h = (total - default_editor_h).max(120.0);
     let mut editor_response: Option<egui::Response> = None;
 
-    let render_result_area = |ui: &mut egui::Ui, tab: &mut TabState| {
+    let mut load_more_rows = false;
+    let render_result_area = |ui: &mut egui::Ui, tab: &mut TabState, load_more_rows: &mut bool| {
+        // The splitter owns the height; the body just fills what it was given.
+        ui.set_min_height(ui.available_height());
         if let Some((loaded, total)) = partial_rows {
             ui.horizontal(|ui| {
                 ui.label(
@@ -789,6 +835,7 @@ pub fn render_sql_view(
             ui.label(
                 egui::RichText::new(result_rows_label(
                     result.row_count(),
+                    tab.sql_result_total,
                     tab.sql_last_duration_ms,
                 ))
                 .small()
@@ -796,34 +843,50 @@ pub fn render_sql_view(
             );
             // Disjoint field borrows: the result table (read) + its selection
             // (write).
-            render_result_table(ui, result, &mut tab.sql_result_selected);
+            if render_result_table(
+                ui,
+                result,
+                &mut tab.sql_result_selected,
+                tab.sql_result_total,
+            ) {
+                *load_more_rows = true;
+            }
         } else if tab.sql_error.is_none() {
             ui.label(egui::RichText::new(octa::i18n::t("sql.run_to_see")).weak());
         }
     };
 
-    if matches!(panel_position, SqlPanelPosition::Bottom) {
-        egui::Panel::bottom("sql_result_split")
-            .resizable(true)
-            .default_size(default_result_h)
-            .min_size(80.0)
-            .show(ui, |ui| {
-                render_result_area(ui, tab);
-            });
-        editor_response = Some(draw_sql_editor(
-            ui,
-            tab,
-            editor_id,
-            default_row_limit,
-            &mut action,
-            editor_font,
-        ));
-    } else {
-        egui::Panel::top("sql_editor_split")
-            .resizable(true)
-            .default_size(default_editor_h)
-            .min_size(80.0)
-            .show(ui, |ui| {
+    // Every pane the panel shows, top to bottom, sharing what is left of it.
+    // One splitter rather than a chain of nested panels: the panes add up to
+    // the space exactly, so a drag moves the boundary it grabbed and nothing
+    // else, and each pane is clipped to its slot, so a tall editor or a long
+    // result can never be drawn over its neighbour.
+    let mut panes = Vec::with_capacity(4);
+    if workspace_open {
+        panes.push(Pane::WorkspaceTree);
+        panes.push(Pane::Inspector);
+    }
+    panes.push(Pane::Editor);
+    panes.push(Pane::Result);
+    let rects = splitter::vertical_splitter(ui, ui.id().with("sql_panes"), panes.len());
+
+    for (pane, rect) in panes.into_iter().zip(rects) {
+        splitter::pane(ui, rect, |ui| match pane {
+            Pane::WorkspaceTree => workspace::render_workspace_list(
+                ui,
+                tab,
+                &workspace_data,
+                inspector_selection,
+                &mut action,
+            ),
+            Pane::Inspector => workspace::render_inspector_pane(
+                ui,
+                &workspace_data,
+                inspector_selection,
+                inspector_entry,
+                &mut action,
+            ),
+            Pane::Editor => {
                 editor_response = Some(draw_sql_editor(
                     ui,
                     tab,
@@ -832,10 +895,11 @@ pub fn render_sql_view(
                     &mut action,
                     editor_font,
                 ));
-            });
-        ui.add_space(2.0);
+            }
+            Pane::Result => render_result_area(ui, tab, &mut load_more_rows),
+        });
     }
-    let editor_response = editor_response.expect("editor panel always renders");
+    let editor_response = editor_response.expect("the editor pane always renders");
 
     // Right-click context menu on the SQL editor: selection-aware Copy +
     // whole-buffer Copy All.
@@ -919,14 +983,6 @@ pub fn render_sql_view(
             });
     }
 
-    // For Bottom docking the result already rendered inside the bottom nested
-    // panel above; for every other position the result fills whatever space
-    // remains under the editor split.
-    if !matches!(panel_position, SqlPanelPosition::Bottom) {
-        ui.separator();
-        render_result_area(ui, tab);
-    }
-
     // Ctrl+C on a selected result cell. The editor only consumes the Copy event
     // while it is focused; clicking a result cell moved focus to that cell, so
     // here the event survives - copy the cell and consume it. When the editor is
@@ -954,11 +1010,13 @@ pub fn render_sql_view(
         }
     }
 
+    action.load_more_rows = load_more_rows;
     action
 }
 
 mod editor;
 mod result;
+mod splitter;
 mod workspace;
 
 use editor::{apply_suggestion_later, draw_sql_editor};

@@ -3,6 +3,7 @@
 //! rendering, update-install flow). Lives under `src/app/` so it stays out
 //! of the public library surface.
 
+pub(crate) mod api_browser;
 pub(crate) mod archives;
 pub(crate) mod ask_filter_job;
 pub(crate) mod ask_sql_job;
@@ -16,19 +17,25 @@ pub(crate) mod cleanup_panel;
 pub(crate) mod clipboard;
 pub(crate) mod cloud_browser;
 pub(crate) mod cloud_tree;
+pub(crate) mod column_navigator;
 pub(crate) mod db_browser;
 pub(crate) mod db_conn_cache;
 pub(crate) mod db_tree;
 pub(crate) mod dialogs;
 pub(crate) mod easter_eggs;
+pub(crate) mod edit_audit;
 pub(crate) mod edit_ops;
 pub(crate) mod file_io;
 pub(crate) mod find_replace;
 pub(crate) mod flag_guard;
+pub(crate) mod full_scan;
+pub(crate) mod git_marks;
 pub(crate) mod init;
 pub(crate) mod large_file;
 pub(crate) mod mark_bookmark;
 pub(crate) mod multi_search;
+pub(crate) mod recipe;
+pub(crate) mod refresh;
 pub(crate) mod search_history;
 pub(crate) mod shortcuts_dispatch;
 pub(crate) mod sidebar;

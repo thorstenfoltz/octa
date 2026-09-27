@@ -48,6 +48,18 @@ pub trait CloudProvider: Send + Sync {
         let _ = (prefix, cap);
         anyhow::bail!("recursive listing is not supported by this provider")
     }
+    /// [`Self::list_recursive`] that also stops, reporting truncated, as soon
+    /// as `stop` is raised. The sidebar search's Cancel uses it: a big bucket
+    /// is one long stream, and waiting for it to end is not cancelling.
+    fn list_recursive_until(
+        &self,
+        prefix: &str,
+        cap: usize,
+        stop: &std::sync::atomic::AtomicBool,
+    ) -> Result<(Vec<ObjectEntry>, bool)> {
+        let _ = stop;
+        self.list_recursive(prefix, cap)
+    }
     /// Download an object's full bytes.
     fn get(&self, key: &str) -> Result<Vec<u8>>;
     /// Upload bytes to `key` (overwrites).
@@ -192,6 +204,15 @@ impl CloudProvider for ObjectStoreProvider {
     }
 
     fn list_recursive(&self, prefix: &str, cap: usize) -> Result<(Vec<ObjectEntry>, bool)> {
+        self.list_recursive_until(prefix, cap, &std::sync::atomic::AtomicBool::new(false))
+    }
+
+    fn list_recursive_until(
+        &self,
+        prefix: &str,
+        cap: usize,
+        stop: &std::sync::atomic::AtomicBool,
+    ) -> Result<(Vec<ObjectEntry>, bool)> {
         use futures_util::TryStreamExt;
         let p = if prefix.is_empty() {
             None
@@ -203,7 +224,7 @@ impl CloudProvider for ObjectStoreProvider {
                 let mut stream = self.store.list(p.as_ref());
                 let mut out: Vec<ObjectEntry> = Vec::new();
                 while let Some(meta) = stream.try_next().await.map_err(anyhow::Error::from)? {
-                    if out.len() >= cap {
+                    if out.len() >= cap || stop.load(std::sync::atomic::Ordering::Relaxed) {
                         return Ok((out, true));
                     }
                     let key = meta.location.as_ref().to_string();

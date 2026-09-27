@@ -12,7 +12,6 @@ result into a brand-new column and leaves the source columns untouched,
 the same way [Insert Column](editing.md#inserting-columns) and
 [formulas](formulas.md) do.
 
-<!-- SCREENSHOT: date-time-calculation.png: The Date/Time calculation dialog open with Operation = "Difference between two dates", two date columns picked, Result unit = Days, and a New column name filled in. -->
 ![Date/Time calculation dialog](../assets/screenshots/date-time-calculation.png)
 
 ## Operations

@@ -1,0 +1,9 @@
+order,customer,name,city,amount
+1,c1,Acme,Berlin,10
+2,c1,Acme,Berlin,20
+3,c2,Mueller,Munich,30
+4,c2,Mueller,Munich,40
+5,c2,Muller,Munich,50
+6,c3,Zeta,Hamburg,60
+7,c3,Zeta,Hamburg,70
+8,c1,Acme,Berlin,80

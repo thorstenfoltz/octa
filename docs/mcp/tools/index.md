@@ -113,12 +113,23 @@ tools exist only inside the GUI assistant and have no MCP equivalent:
 | **[`check_rules`](check_rules.md)**                         | `quality`   | Check values against a saved rules file                 | No                              |
 | **[`check_references`](check_references.md)**               | `quality`   | Whether keys in one table exist in another              | No                              |
 | **[`data_drift`](data_drift.md)**                           | `compare`   | How a dataset changed between two versions              | No                              |
+| **[`merge_tables`](merge_tables.md)**                       | `compare`   | Merge several edited versions of one table              | No                              |
+| **[`apply_recipe`](apply_recipe.md)**                       | `reshape`   | Replay a recipe recorded in the GUI on a table          | No                              |
+| **[`generate_test_data`](generate_test_data.md)**           | `reshape`   | Test data shaped like one or more real tables           | No                              |
+| **[`find_overlaps`](find_overlaps.md)**                     | `quality`   | Rows whose time spans overlap inside a lane             | No                              |
+| **[`value_shapes`](value_shapes.md)**                       | `quality`   | What a column's values look like, shapes folded         | No                              |
+| **[`find_lookups`](find_lookups.md)**                       | `quality`   | Columns that always follow another column               | No                              |
+| **[`cell_history`](cell_history.md)**                       | `compare`   | The commits that changed one cell of a file in Git      | No                              |
+| **[`spatial_join`](spatial_join.md)**                       | `combine`   | Join by location: containing polygon or nearest point   | No                              |
+| **[`forecast`](forecast.md)**                               | `reshape`   | Holt-Winters forecast of one column, with ranges        | No                              |
 | **[`sync_sql`](sync_sql.md)**                               | `databases` | SQL that would make a server table match a file         | No                              |
 | **[`write_workbook`](write_workbook.md)**                   | `write`     | Write several tables into one .xlsx workbook            | Writes the output path          |
 | **[`list_db_connections`](list_db_connections.md)** [^db]   | `databases` | List saved live-database connections                    | No                              |
 | **[`list_db_tables`](list_db_tables.md)** [^db]             | `databases` | List schemas / tables on a live connection              | No                              |
 | **[`db_relationships`](db_relationships.md)** [^db]         | `databases` | Foreign keys a live database declares                   | No                              |
 | **[`query_db`](query_db.md)** [^db]                         | `databases` | Run SQL on a live database server                       | Mutations need Allow writes     |
+| **[`list_api_connections`](list_api_connections.md)**       | `databases` | List saved REST/JSON API endpoints                      | No                              |
+| **[`query_api`](query_api.md)**                             | `databases` | Read a saved API endpoint as a table                    | No                              |
 | **[`write_db_table`](write_db_table.md)** [^db]             | `databases` | Write a table into a live database                      | Yes (server table)              |
 | **[`copy_db_table`](copy_db_table.md)** [^db]               | `databases` | Copy a table server-to-server through DuckDB            | Yes (target server table)       |
 

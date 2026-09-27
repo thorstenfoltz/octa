@@ -56,6 +56,8 @@ types and nulls.
 | `config.toml` | TOML | Nested tables and an array of tables, which a flat table has no shape for |
 | `analysis.ipynb` | Jupyter notebook | Markdown and code cells, with outputs that survive an edit |
 | `coffee.epub` | EPUB | Two chapters, converted to Markdown on load |
+| `invoice.pdf` | PDF | Two tables on one page (items, payments), so the table picker opens; the title and headings above them are not part of either |
+| `scanned.pdf` | PDF, image only | Stands in for a scanned page: opening it says the tables are pictures and need OCR first. Both PDFs come from `cargo test --lib write_pdf_samples -- --ignored` |
 | `menu-dump.sql` | SQL dump | Opens as **text** by default. **File -> Open as -> SQL dump** reads it as its tables instead |
 
 ## `geo/` - geometry
@@ -77,6 +79,31 @@ types and nulls.
 | `archives/products.csv.zst` | zstd | Same |
 | `dataset-parts/` | Dataset directory | Two parquet parts as **one** table: right-click the folder -> **Open as dataset...** |
 | `delta-table/` | Delta Lake | **File -> Open table folder...**. The first open downloads DuckDB's `delta` extension |
+
+## `features/` - small tables for trying a feature by hand
+
+Not formats but situations: each file is built so a feature has something
+to find. Plain CSV, readable in any editor.
+
+| File | For | Worth looking at |
+|---|---|---|
+| `customers.csv` + `orders.csv` | Semi / anti join, test data | Customers 2, 5, 7 and 8 never ordered (anti join finds them); order 107 names customer 9, who does not exist. The pair is also a linked parent and child for **Generate test data** |
+| `trades.csv` + `quotes.csv` | As-of join | Join on `ticker` `=` and `time` `>=`: each trade gets the last quote before it. The 08:59 trade is earlier than every quote and INITECH has no quotes, so both stay unmatched; the 09:05 trade hits a quote at exactly the same time |
+| `id_checks.csv` | ID checks, Tidy format | Rows C01, C03, C06, C07 are valid; C02 is valid but written untidily (spaces, lower case, dashes, stray blanks); C04 has the last check digit wrong in every column; C05 is one character short; C08 is not even the right shape. The `what_is_wrong` column says which |
+| `orders_flat.csv` | Find lookup tables | `customer` decides `name` and `city`. Customer c2 is spelt Mueller twice and Muller once (order 5), so `name` follows it at 88% with one breaking row |
+| `access.log` | Log files | nginx combined format: eight requests from three clients, two 404s and one 500. Opens as a table with `status`, `path`, `user_agent` and a `utc_offset` of `+02:00` |
+| `app.log` | Log files | Java-style application log. The ERROR at 10:00:07 carries a four-line stack trace that stays in its `message`; the `deploy finished by hand` line fits no entry, so it gets its own row in the `raw` column and a banner counts it |
+| `stores.csv` + `regions.geojson` | Spatial join | Six German cities with lat/lon, and two regions: North and South, where South has a hole around Frankfurt. **Inside** gives every store its region except Frankfurt, which sits in the hole |
+| `customer_locations.csv` | Spatial join, Nearest | Five customers in German towns. Joined with **Nearest** against `stores.csv`, each gets its closest store and the distance; Freiburg's is 131 km away, so `--within-km 100` leaves it empty |
+| `monthly_sales.csv` | Trend and forecast | Four years of monthly sales rising about 1 a month with a summer peak (June) and a small wobble. As a Line chart with **Forecast** 12, the forecast repeats the summer peak a level higher |
+| `postcodes.csv` | Value shapes | Ten postcodes written `A-99999` (`D-80331`) and one written bare (`80331`, customer C11). The column funnel's **Shapes** switch shows the two shapes; the Quality Report calls the column `mixed` and lists the stray one |
+| `malformed.csv` | CSV repair prompt | A byte-order mark, row 3 with one cell too many, row 4 with one too few. With **Offer repair on malformed files** ticked in Settings, opening it offers the repair. Pinned by `tests/csv_tests.rs`, so do not tidy it |
+| `room_bookings.csv` | Timeline view | Room A: bookings 1 and 2 overlap, 2 and 3 only touch (not an overlap). Room B: 5 sits inside 4 and 6 overlaps both. Room C: 7 runs over two days, 8 ends before it starts, 9 has no end (a single point) |
+
+The valid IDs are the standard published test numbers (the ISO example
+IBANs, the Visa/Mastercard/Amex test cards, the EAN and ISBN examples), none
+belongs to anyone. The generator script checked every verdict in the table
+above against its own implementation of each check digit.
 
 ## Not here
 

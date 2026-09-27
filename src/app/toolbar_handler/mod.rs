@@ -207,6 +207,7 @@ impl OctaApp {
             .show(parent_ui, |ui| {
                 self.ensure_logo_textures(ctx);
 
+                let scan_running = self.full_scan_job.is_some();
                 let tab = &mut self.tabs[self.active_tab];
                 let highlight_active =
                     super::state::effective_highlight(tab.view_mode, self.search_result_mode);
@@ -241,6 +242,14 @@ impl OctaApp {
                 // struct cannot coexist with those disjoint field borrows.
                 let can_save_in_place = tab.saves_in_place();
                 let is_db_tab = tab.db_origin.is_some();
+                // Search scope: what this table actually holds, and what
+                // reaching the rest would cost.
+                let search_partial = tab.table.partial_note();
+                let full_scan = if scan_running {
+                    None
+                } else {
+                    Some(crate::app::full_scan::full_scan_kind(tab))
+                };
                 let ask_controls = ui::toolbar::AskControls {
                     enabled: !ask_profiles.is_empty(),
                     profiles: &ask_profiles,
@@ -267,6 +276,8 @@ impl OctaApp {
                     has_epub: !tab.epub_chapters_md.is_empty(),
                     has_map: tab.table.format_name.as_deref() == Some("GeoJSON"),
                     has_record: tab.table.col_count() > 0 && !tab.is_chart_tab,
+                    has_timeline: !tab.is_chart_tab
+                        && crate::view_modes::timeline::offered(&tab.table),
                     has_json: tab.json_value.is_some(),
                     has_yaml: tab.yaml_value.is_some(),
                     chat_profile_available: !self.settings.chat_profiles.is_empty(),
@@ -304,6 +315,8 @@ impl OctaApp {
                     show_replace_bar: tab.show_replace_bar,
                     replace_text: &mut tab.replace_text,
                     bookmarks: &bookmark_tuples,
+                    partial: search_partial,
+                    full_scan,
                 };
                 let action = ui::toolbar::draw_toolbar(ui, cx, search);
                 self.search_focus_requested = false;
@@ -414,6 +427,9 @@ impl OctaApp {
         }
         if action.find_prev {
             self.tabs[self.active_tab].search_nav.pending_jump = Some(super::state::NavDir::Prev);
+        }
+        if action.search_whole_source {
+            self.start_full_scan_search(ctx);
         }
         self.dispatch_search_menu(&action);
         if action.replace_next {

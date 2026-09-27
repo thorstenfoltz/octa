@@ -44,6 +44,7 @@ fn sample_ctx() -> ToolContext {
         cloud_settings: None,
         db_connections: Vec::new(),
         read_only: false,
+        api_connections: Vec::new(),
     }
 }
 
@@ -85,6 +86,7 @@ fn multi_ctx() -> ToolContext {
         cloud_settings: None,
         db_connections: Vec::new(),
         read_only: false,
+        api_connections: Vec::new(),
     }
 }
 
@@ -220,6 +222,7 @@ fn text_ctx(lines: &[&str], source_path: Option<&str>) -> ToolContext {
         cloud_settings: None,
         db_connections: Vec::new(),
         read_only: false,
+        api_connections: Vec::new(),
     }
 }
 

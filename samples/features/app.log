@@ -1,0 +1,10 @@
+2026-09-25 10:00:01,003 INFO  [main] c.e.App - starting up
+2026-09-25 10:00:02,150 INFO  [main] c.e.Db - connected to orders
+2026-09-25 10:00:05,771 WARN  [pool-1] c.e.Cache - cache miss rate above 40%
+2026-09-25 10:00:07,420 ERROR [pool-1] c.e.OrderService - could not save order 7
+	at com.example.OrderService.save(OrderService.java:88)
+	at com.example.Api.post(Api.java:41)
+Caused by: java.sql.SQLException: disk full
+	... 12 more
+deploy finished by hand, see ticket OPS-12
+2026-09-25 10:00:09,002 INFO  [main] c.e.App - ready

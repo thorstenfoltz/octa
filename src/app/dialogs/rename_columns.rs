@@ -255,18 +255,24 @@ pub(crate) fn render_rename_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
     });
 
     if apply {
+        let mut renames: Vec<octa::data::recipe::RenamePair> = Vec::new();
         if let Some(tab) = app.tabs.get_mut(app.active_tab) {
             let start = tab.table.undo_stack.len();
-            for (index, _old, new) in &plan.matched {
+            for (index, old, new) in &plan.matched {
                 tab.table.rename_column(*index, new.clone());
+                renames.push(octa::data::recipe::RenamePair {
+                    from: old.clone(),
+                    to: new.clone(),
+                });
             }
             // Re-planned against the names the renames above just produced,
             // never against the preview's stale ones, and folded into the same
             // undo step so one Ctrl+Z takes the whole dialog back.
             if state.fix_duplicates {
                 let names: Vec<String> = tab.table.columns.iter().map(|c| c.name.clone()).collect();
-                for (index, _old, new) in plan_dedupe(&names, state.dedupe_ignore_case) {
-                    tab.table.rename_column(index, new);
+                for (index, old, new) in plan_dedupe(&names, state.dedupe_ignore_case) {
+                    tab.table.rename_column(index, new.clone());
+                    renames.push(octa::data::recipe::RenamePair { from: old, to: new });
                 }
             }
             tab.table.coalesce_undo_since(start);
@@ -276,6 +282,11 @@ pub(crate) fn render_rename_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
             resync_db_meta_baseline(tab);
             tab.filter_dirty = true;
             tab.table_state.widths_initialized = false;
+        }
+        if !renames.is_empty() {
+            app.record_step(octa::data::recipe::RecipeStep::Rename(
+                octa::data::recipe::Rename { renames },
+            ));
         }
         app.status_message = Some((
             octa::i18n::t("dialog.rename_done"),

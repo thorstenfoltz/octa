@@ -59,6 +59,7 @@ pub struct ToolbarCtx<'a> {
     pub has_epub: bool,
     pub has_map: bool,
     pub has_record: bool,
+    pub has_timeline: bool,
     pub has_json: bool,
     pub has_yaml: bool,
     /// Whether at least one chat model profile is configured, so the entries
@@ -102,6 +103,50 @@ pub struct ToolbarCtx<'a> {
 /// Not `Copy`, and not shared with the menus: it holds `&mut` borrows of the
 /// active tab's search fields, so `draw_toolbar` destructures it once and
 /// renders the bar itself.
+/// What a "search the whole source" request can actually do for the active
+/// tab, which depends on where its rows came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FullScanKind {
+    /// DuckDB can scan the file where it lies (Parquet, CSV/TSV, JSON), so the
+    /// count is a query against the file and the matches can be opened
+    /// without loading the rest of it.
+    ScanFile,
+    /// A live database: the count runs on the server, which is the only place
+    /// that knows the answer.
+    Server,
+    /// Neither. The rest of the file can only be seen by reading it, so the
+    /// button says that instead of promising a scan.
+    LoadAll,
+    /// The active search cannot be expressed on this source (a regex or
+    /// whole-word search against a live database, where twelve engines mean
+    /// twelve regex dialects, or none at all). The button is shown disabled
+    /// with the reason rather than answering a different question.
+    Unsupported,
+}
+
+impl FullScanKind {
+    /// Button label key. Naming what will happen matters more than a uniform
+    /// label: "Search whole file" and "Load all rows" cost very different
+    /// amounts and the user is the one paying.
+    pub fn label_key(self) -> &'static str {
+        match self {
+            FullScanKind::ScanFile => "search.scan_file",
+            FullScanKind::Server => "search.scan_server",
+            FullScanKind::LoadAll => "search.scan_load_all",
+            FullScanKind::Unsupported => "search.scan_server",
+        }
+    }
+
+    pub fn hint_key(self) -> &'static str {
+        match self {
+            FullScanKind::ScanFile => "search.scan_file_hint",
+            FullScanKind::Server => "search.scan_server_hint",
+            FullScanKind::LoadAll => "search.scan_load_all_hint",
+            FullScanKind::Unsupported => "search.scan_unsupported_hint",
+        }
+    }
+}
+
 pub struct SearchControls<'a> {
     pub text: &'a mut String,
     pub mode: &'a mut SearchMode,
@@ -134,6 +179,15 @@ pub struct SearchControls<'a> {
     /// than on `ToolbarCtx` because only the bar's Bookmarks dropdown iterates
     /// the list; **Data -> Add bookmark** just sets a flag.
     pub bookmarks: &'a [(String, usize, Option<usize>)],
+    /// The active table holds only part of its source: `(loaded rows, total
+    /// when the source can say)`. `None` when everything is in memory.
+    ///
+    /// Without this the search box answered a question nobody asked: it said
+    /// how many matches were in the rows that happened to be loaded, in the
+    /// same words it uses when that is the whole file.
+    pub partial: Option<(usize, Option<usize>)>,
+    /// What reaching the rest costs here, or `None` when a scan is running.
+    pub full_scan: Option<FullScanKind>,
 }
 
 /// Which slice of the active table to feed into the "Parse in new tab"
@@ -154,6 +208,9 @@ pub enum ParseScope {
 
 #[derive(Default)]
 pub struct ToolbarAction {
+    /// User asked for the search to cover the whole source, not just the
+    /// rows in memory.
+    pub search_whole_source: bool,
     pub new_file: bool,
     /// Open the New-table dialog (a blank editable grid in a new tab).
     /// Fired by **File -> New Table...**.
@@ -192,6 +249,8 @@ pub struct ToolbarAction {
     pub export_workbook: bool,
     /// Read a file straight from a web address.
     pub open_url: bool,
+    /// File > Open API endpoint...
+    pub open_api: bool,
     pub toggle_theme: bool,
     pub search_changed: bool,
     /// The search box lost focus with a non-empty query: record it in the
@@ -274,6 +333,8 @@ pub struct ToolbarAction {
     pub open_join_keys: bool,
     pub open_join_diag: bool,
     pub open_schema_drift: bool,
+    /// File -> Merge versions...
+    pub open_merge_versions: bool,
     pub open_harmonise: bool,
     pub open_report: bool,
     /// Open the "Export to PDF" dialog for the active tab's view.
@@ -344,9 +405,14 @@ pub struct ToolbarAction {
     /// Open the Anonymise-columns dialog for the active table.
     /// Fired by **Edit -> Anonymise columns...**.
     pub open_anonymize: bool,
+    pub open_test_data: bool,
     /// Open the Fill-missing-values (impute) dialog for the active table.
     /// Fired by **Edit -> Fill missing values...**.
     pub open_impute: bool,
+    /// Open the Change-type (re-type column) dialog for the active table.
+    pub open_retype: bool,
+    /// Open the Tab memory dialog.
+    pub open_tab_memory: bool,
     /// Open the Find-near-duplicates (fuzzy) dialog for the active table.
     /// Fired by **Data -> Find near-duplicates...**.
     pub open_fuzzy_duplicates: bool,
@@ -413,6 +479,9 @@ pub struct ToolbarAction {
     /// Open the Correlation-matrix dialog for the active table.
     /// Fired by **Analyse -> Correlation...**.
     pub open_correlation: bool,
+    /// Open the Find lookup tables dialog for the active table.
+    /// Fired by **Analyse -> Find lookup tables...**.
+    pub open_lookups: bool,
     pub open_dist_compare: bool,
     pub open_referential: bool,
     /// Open the **Edit -> Find duplicates...** modal for the active tab.
@@ -437,6 +506,16 @@ pub struct ToolbarAction {
     pub toggle_chat_panel: bool,
     /// Ask the assistant to explain the active tab, in the chat panel.
     pub explain_file: bool,
+    /// Toggle the docked column navigator panel. Fired by **View -> Column
+    /// navigator** and the `ToggleColumnNavigator` keyboard shortcut.
+    pub toggle_column_navigator: bool,
+    /// Toggle the docked edit audit trail panel. Fired by **View -> Edit
+    /// audit trail** and the `ToggleEditAudit` keyboard shortcut.
+    pub toggle_edit_audit: bool,
+    /// Edit -> Recipe panel (toggle).
+    pub toggle_recipe_panel: bool,
+    /// Edit -> Apply recipe...
+    pub open_apply_recipe: bool,
 }
 
 /// The search bar's "Ask" controls, bundled so `draw_toolbar` takes one

@@ -130,6 +130,62 @@ impl DbEngine {
         }
     }
 
+    /// SQL for "this value, as text" - the cast a case-insensitive contains
+    /// needs before it can compare a number or a date against a search box.
+    ///
+    /// Every engine has one; none of them spell it the same way.
+    fn as_text(self, expr: &str) -> String {
+        match self {
+            DbEngine::MySql => format!("CAST({expr} AS CHAR)"),
+            DbEngine::Mssql => format!("CAST({expr} AS NVARCHAR(MAX))"),
+            DbEngine::Oracle => format!("TO_CHAR({expr})"),
+            DbEngine::ClickHouse => format!("toString({expr})"),
+            DbEngine::BigQuery => format!("CAST({expr} AS STRING)"),
+            // Postgres, Redshift, Exasol, Trino, Athena, Snowflake, Databricks
+            _ => format!("CAST({expr} AS VARCHAR)"),
+        }
+    }
+
+    /// A `WHERE` fragment matching rows where **any** of `columns` contains
+    /// `needle`, honouring the search bar's `Aa` toggle.
+    ///
+    /// The needle becomes a single-quoted literal with its quotes doubled and
+    /// its LIKE wildcards escaped, and the identifiers are quoted by the
+    /// engine's own rule, so nothing the user typed is ever read as SQL. A
+    /// case-insensitive comparison is `UPPER(...) LIKE UPPER(...)` rather than
+    /// `ILIKE`, which only Postgres and its relatives have.
+    ///
+    /// Returns `None` when there are no columns to match against.
+    pub fn contains_predicate(
+        self,
+        columns: &[String],
+        needle: &str,
+        case_sensitive: bool,
+    ) -> Option<String> {
+        let needle = needle.trim();
+        if needle.is_empty() || columns.is_empty() {
+            return None;
+        }
+        // `\` first, or it would escape the escapes added after it.
+        let literal = needle
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+            .replace('\'', "''");
+        let clauses: Vec<String> = columns
+            .iter()
+            .map(|c| {
+                let col = self.as_text(&self.quote_ident(c));
+                if case_sensitive {
+                    format!("{col} LIKE '%{literal}%' ESCAPE '\\'")
+                } else {
+                    format!("UPPER({col}) LIKE UPPER('%{literal}%') ESCAPE '\\'")
+                }
+            })
+            .collect();
+        Some(format!("({})", clauses.join(" OR ")))
+    }
+
     /// Whether a plain `UPDATE ... WHERE` / `DELETE ... WHERE` edits one row,
     /// which is what the full-row write-back fallback needs.
     ///
@@ -247,6 +303,66 @@ impl DbEngine {
 #[cfg(test)]
 mod engine_tests {
     use super::*;
+
+    #[test]
+    fn a_contains_predicate_cannot_be_escaped_by_the_search_box() {
+        let cols = vec!["name".to_string()];
+        let p = DbEngine::Postgres
+            .contains_predicate(&cols, "o'brien'; DROP TABLE users --", false)
+            .expect("predicate");
+        // The quote is doubled, so the statement never ends early.
+        assert!(p.contains("o''brien''; DROP TABLE users --"), "{p}");
+        assert_eq!(p.matches('\'').count() % 2, 0, "unbalanced quotes: {p}");
+    }
+
+    #[test]
+    fn like_wildcards_typed_into_the_search_box_are_literal() {
+        let cols = vec!["code".to_string()];
+        let p = DbEngine::Postgres
+            .contains_predicate(&cols, "50%_off", false)
+            .expect("predicate");
+        assert!(p.contains("50\\%\\_off"), "{p}");
+        assert!(p.contains("ESCAPE"), "{p}");
+    }
+
+    #[test]
+    fn every_engine_casts_and_quotes_in_its_own_dialect() {
+        let cols = vec!["Odd Name".to_string()];
+        let mysql = DbEngine::MySql
+            .contains_predicate(&cols, "x", false)
+            .expect("p");
+        assert!(mysql.contains("CAST(`Odd Name` AS CHAR)"), "{mysql}");
+        let mssql = DbEngine::Mssql
+            .contains_predicate(&cols, "x", false)
+            .expect("p");
+        assert!(
+            mssql.contains("CAST([Odd Name] AS NVARCHAR(MAX))"),
+            "{mssql}"
+        );
+        let ch = DbEngine::ClickHouse
+            .contains_predicate(&cols, "x", false)
+            .expect("p");
+        assert!(ch.contains("toString(`Odd Name`)"), "{ch}");
+        // No engine may emit ILIKE: only Postgres and its relatives have it.
+        for engine in DbEngine::ALL {
+            let p = engine.contains_predicate(&cols, "x", false).expect("p");
+            assert!(!p.contains("ILIKE"), "{engine:?} emitted ILIKE: {p}");
+        }
+    }
+
+    #[test]
+    fn a_predicate_needs_something_to_match_against() {
+        assert!(
+            DbEngine::Postgres
+                .contains_predicate(&[], "x", false)
+                .is_none()
+        );
+        assert!(
+            DbEngine::Postgres
+                .contains_predicate(&["a".to_string()], "   ", false)
+                .is_none()
+        );
+    }
 
     #[test]
     fn all_lists_twelve_engines() {
@@ -1229,6 +1345,66 @@ pub fn table_metadata_sql(
     }
 }
 
+/// SQL finding every table in `catalog` whose name contains `needle` (any
+/// case) in one round trip, for the sidebar's deep search. Returns two
+/// columns, schema then table, over the same schemas the tree lists.
+///
+/// `None` where the engine has no such catalogue query: Athena and BigQuery
+/// list through their APIs, and a BigQuery `INFORMATION_SCHEMA` is per dataset
+/// or per region. The caller then walks schema by schema, which is also its
+/// fallback when this query fails (a Databricks `hive_metastore` catalog has
+/// no `information_schema`).
+pub fn table_search_sql(engine: DbEngine, catalog: Option<&str>, needle: &str) -> Option<String> {
+    let q = |s: &str| engine.quote_ident(s);
+    let (sch, tbl) = (q("octa_schema"), q("octa_table"));
+    let base = match engine {
+        DbEngine::Postgres => format!(
+            "SELECT table_schema AS {sch}, table_name AS {tbl} FROM information_schema.tables \
+             WHERE table_schema NOT IN ('pg_catalog', 'information_schema')"
+        ),
+        DbEngine::Redshift => format!(
+            "SELECT schema_name AS {sch}, table_name AS {tbl} FROM svv_redshift_tables \
+             WHERE schema_name NOT IN ('pg_catalog', 'information_schema')"
+        ),
+        DbEngine::MySql => format!(
+            "SELECT table_schema AS {sch}, table_name AS {tbl} FROM information_schema.tables \
+             WHERE table_schema NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')"
+        ),
+        DbEngine::Mssql => format!(
+            "SELECT s.name AS {sch}, t.name AS {tbl} FROM sys.tables t \
+             JOIN sys.schemas s ON s.schema_id = t.schema_id"
+        ),
+        DbEngine::Oracle => format!(
+            "SELECT o.owner AS {sch}, o.object_name AS {tbl} FROM all_objects o \
+             JOIN all_users u ON u.username = o.owner \
+             WHERE u.oracle_maintained = 'N' AND o.object_type IN ('TABLE', 'VIEW')"
+        ),
+        DbEngine::ClickHouse => {
+            format!("SELECT database AS {sch}, name AS {tbl} FROM system.tables")
+        }
+        DbEngine::Exasol => {
+            format!("SELECT TABLE_SCHEMA AS {sch}, TABLE_NAME AS {tbl} FROM EXA_ALL_TABLES")
+        }
+        // The catalog warehouses keep one information_schema per catalog.
+        DbEngine::Trino | DbEngine::Databricks | DbEngine::Snowflake => {
+            let info = match catalog {
+                Some(c) => format!("{}.information_schema.tables", q(c)),
+                None => "information_schema.tables".to_string(),
+            };
+            format!(
+                "SELECT table_schema AS {sch}, table_name AS {tbl} FROM {info} \
+                 WHERE LOWER(table_schema) <> 'information_schema'"
+            )
+        }
+        DbEngine::Athena | DbEngine::BigQuery => return None,
+    };
+    let pred = engine.contains_predicate(&["octa_table".to_string()], needle, false)?;
+    // No `AS` before the derived table's alias: Oracle refuses it.
+    Some(format!(
+        "SELECT {sch}, {tbl} FROM ({base}) found WHERE {pred}"
+    ))
+}
+
 /// Render one cell as a SQL literal in the engine's dialect. Strings quote
 /// with `''` doubling; booleans are `TRUE`/`FALSE` except SQL Server's BIT
 /// (`1`/`0`); NULL for null and non-finite floats.
@@ -1717,6 +1893,22 @@ mod tests {
             sql.ends_with("ORDER BY tc.constraint_type, tc.constraint_name, kcu.ordinal_position"),
             "{sql}"
         );
+    }
+
+    #[test]
+    fn table_search_is_one_query_per_catalog_and_escapes_the_needle() {
+        let pg = table_search_sql(DbEngine::Postgres, None, "o'r_1").unwrap();
+        assert!(pg.contains("information_schema.tables"), "{pg}");
+        assert!(pg.contains("o''r\\_1"), "{pg}");
+        let sf = table_search_sql(DbEngine::Snowflake, Some("D\"B"), "x").unwrap();
+        assert!(sf.contains("\"D\"\"B\".information_schema.tables"), "{sf}");
+        let dbx = table_search_sql(DbEngine::Databricks, Some("main"), "x").unwrap();
+        assert!(dbx.contains("`main`.information_schema.tables"), "{dbx}");
+        // Oracle refuses `AS` before a derived table's alias.
+        let ora = table_search_sql(DbEngine::Oracle, None, "x").unwrap();
+        assert!(ora.contains(") found WHERE"), "{ora}");
+        assert!(table_search_sql(DbEngine::BigQuery, Some("p"), "x").is_none());
+        assert!(table_search_sql(DbEngine::Postgres, None, "  ").is_none());
     }
 
     #[test]

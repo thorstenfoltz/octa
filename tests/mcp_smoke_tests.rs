@@ -820,6 +820,47 @@ fn harmonise_schemas_writes_copies_and_keeps_originals() {
     );
 }
 
+/// `combine: true` folds the folder into ONE file with a provenance column,
+/// and `out_dir` then names that file rather than a folder.
+#[test]
+fn harmonise_schemas_combines_into_one_file_with_provenance() {
+    let dir = fixture_dir();
+    let scan = dir.path().join("comb_in");
+    let out = dir.path().join("combined.csv");
+    std::fs::create_dir(&scan).unwrap();
+    std::fs::write(scan.join("a.csv"), "id,name\n1,alice\n").unwrap();
+    std::fs::write(scan.join("b.csv"), "id,name,note\n2,bob,late\n").unwrap();
+
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({
+            "name": "harmonise_schemas",
+            "arguments": {
+                "dir": scan.to_string_lossy(),
+                "out_dir": out.to_string_lossy(),
+                "combine": true
+            }
+        }),
+    ));
+    assert_eq!(payload["combined"], json!(true), "got {payload}");
+    assert_eq!(payload["files_read"], json!(2), "got {payload}");
+    assert_eq!(payload["rows"], json!(2), "got {payload}");
+    let columns = payload["columns"].as_array().expect("columns listed");
+    assert!(
+        columns.iter().any(|c| c == "source_file"),
+        "provenance column reported: {payload}"
+    );
+    assert!(
+        columns.iter().any(|c| c == "note"),
+        "union schema keeps the extra column: {payload}"
+    );
+    let written = std::fs::read_to_string(&out).expect("output exists");
+    assert_eq!(written.lines().count(), 3, "header plus two rows");
+}
+
 /// Writing into the folder being scanned would destroy the originals, which is
 /// the one thing this tool promises never to do.
 #[test]
@@ -1212,4 +1253,408 @@ fn an_unknown_group_is_refused_at_startup() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("kwality"), "{err}");
     assert!(err.contains("quality"), "the valid names are listed: {err}");
+}
+
+// --- the API-endpoint tools ------------------------------------------------
+
+/// Serve `pages` in order on a loopback port, then stop.
+fn stub_api(pages: Vec<String>) -> (u16, std::thread::JoinHandle<()>) {
+    use std::io::{BufRead, BufReader, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().unwrap().port();
+    let handle = std::thread::spawn(move || {
+        for body in pages {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            loop {
+                let mut l = String::new();
+                if reader.read_line(&mut l).unwrap_or(0) == 0 || l == "\r\n" {
+                    break;
+                }
+            }
+            let _ = stream.write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .as_bytes(),
+            );
+        }
+    });
+    (port, handle)
+}
+
+fn write_api_config(config_dir: &std::path::Path, port: u16) {
+    std::fs::create_dir_all(config_dir).unwrap();
+    std::fs::write(
+        config_dir.join("settings.toml"),
+        format!(
+            r#"
+[[api_connections]]
+id = "api-mcp"
+name = "Smoke"
+base_url = "http://127.0.0.1:{port}"
+path = "rows"
+records_pointer = ""
+timeout_secs = 5
+
+[api_connections.auth]
+kind = "None"
+
+[api_connections.paging]
+kind = "None"
+"#
+        ),
+    )
+    .unwrap();
+}
+
+#[test]
+fn api_tools_list_a_connection_and_read_it() {
+    let dir = fixture_dir();
+    let config = dir.path().join("config");
+    let (port, stub) = stub_api(vec![
+        r#"[{"id":1,"city":"Tokyo"},{"id":2,"city":"Helsinki"}]"#.to_string(),
+    ]);
+    write_api_config(&config, port);
+
+    let mut server = Server::start(&config, &[]);
+    server.handshake();
+
+    let listed = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "list_api_connections", "arguments": {} }),
+    ));
+    assert_eq!(listed["count"], json!(1));
+    assert_eq!(listed["connections"][0]["name"], json!("Smoke"));
+    assert!(
+        listed.to_string().to_lowercase().contains("127.0.0.1"),
+        "the base URL should be listed: {listed}"
+    );
+
+    let rows = call_payload(&server.ok_request(
+        3,
+        "tools/call",
+        json!({ "name": "query_api", "arguments": { "connection": "Smoke" } }),
+    ));
+    assert_eq!(rows["pages_read"], json!(1));
+    assert!(
+        rows.to_string().contains("Tokyo"),
+        "expected the endpoint's rows: {rows}"
+    );
+    let _ = stub.join();
+}
+
+/// Both tools only read, so a read-only server keeps them.
+#[test]
+fn api_tools_survive_read_only() {
+    let dir = fixture_dir();
+    let mut server = Server::start(&dir.path().join("config"), &["--mcp-read-only"]);
+    server.handshake();
+
+    let listed = server.ok_request(2, "tools/list", json!({}));
+    let names: Vec<&str> = listed["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|t| t["name"].as_str())
+        .collect();
+    for t in ["list_api_connections", "query_api"] {
+        assert!(names.contains(&t), "`{t}` should survive --mcp-read-only");
+    }
+}
+
+/// An endpoint the user never saved is not reachable, and the refusal says
+/// which names exist rather than failing blankly.
+#[test]
+fn query_api_refuses_an_unsaved_connection() {
+    let dir = fixture_dir();
+    let config = dir.path().join("config");
+    let (port, stub) = stub_api(Vec::new());
+    write_api_config(&config, port);
+
+    let mut server = Server::start(&config, &[]);
+    server.handshake();
+
+    let msg = server.request(
+        2,
+        "tools/call",
+        json!({
+            "name": "query_api",
+            "arguments": { "connection": "https://evil.example.com/steal" },
+        }),
+    );
+    let text = msg.to_string();
+    assert!(
+        text.contains("no saved API connection") || text.contains("Smoke"),
+        "a URL is not a connection name: {text}"
+    );
+    drop(stub);
+}
+
+/// `merge_tables` over the wire: three versions against an original, a
+/// conflict is reported and withholds `merged`; `prefer` settles it.
+#[test]
+fn merge_tables_reports_conflicts_and_prefer_settles_them() {
+    let dir = fixture_dir();
+    let write = |name: &str, body: &str| {
+        let p = dir.path().join(name);
+        std::fs::write(&p, body).unwrap();
+        p.to_string_lossy().into_owned()
+    };
+    let base = write("m_base.csv", "id,v\n1,x\n2,y\n");
+    let a = write("m_a.csv", "id,v\n1,a\n2,y\n");
+    let b = write("m_b.csv", "id,v\n1,b\n2,y\n");
+    let c = write("m_c.csv", "id,v\n1,x\n2,Y\n");
+
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let args = json!({
+        "versions": [{ "path": a }, { "path": b }, { "path": c }],
+        "original": { "path": base },
+        "keys": ["id"],
+    });
+    let open = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "merge_tables", "arguments": args }),
+    ));
+    assert_eq!(open["conflict_count"], 1, "unexpected shape: {open}");
+    assert!(
+        open.get("merged").is_none(),
+        "no merge while a conflict is open: {open}"
+    );
+
+    let mut settled_args = args.clone();
+    settled_args["prefer"] = json!(2);
+    let settled = call_payload(&server.ok_request(
+        3,
+        "tools/call",
+        json!({ "name": "merge_tables", "arguments": settled_args }),
+    ));
+    assert_eq!(settled["conflict_count"], 0, "unexpected shape: {settled}");
+    let rows = settled["merged"]["rows"].to_string();
+    assert!(
+        rows.contains("\"b\"") && rows.contains("\"Y\""),
+        "{settled}"
+    );
+}
+
+/// `apply_recipe` over the wire: the steps run by name and the result comes
+/// back as a table; a missing column skips its step and says so.
+#[test]
+fn apply_recipe_runs_the_steps_and_reports_skips() {
+    let dir = fixture_dir();
+    let recipe = dir.path().join("r.ocp");
+    std::fs::write(
+        &recipe,
+        "version = 1\n\n[[steps]]\nstep = \"rename\"\nrenames = [{ from = \"city\", to = \"town\" }]\n\n\
+         [[steps]]\nstep = \"delete_columns\"\ncolumns = [\"nope\"]\n",
+    )
+    .unwrap();
+    let a = dir.path().join("a.csv").to_string_lossy().into_owned();
+
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({
+            "name": "apply_recipe",
+            "arguments": { "recipe_path": recipe.to_string_lossy(), "path": a },
+        }),
+    ));
+    assert_eq!(payload["skipped"], 1, "{payload}");
+    assert_eq!(payload["steps"][0]["ran"], true, "{payload}");
+    assert!(payload["table"].to_string().contains("town"), "{payload}");
+}
+
+/// `generate_test_data` over the wire: the plan comes back with one row per
+/// column, and a table of the asked size under the source's name.
+#[test]
+fn generate_test_data_returns_a_plan_and_the_tables() {
+    let dir = fixture_dir();
+    let a = dir.path().join("a.csv").to_string_lossy().into_owned();
+
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({
+            "name": "generate_test_data",
+            "arguments": { "sources": [{ "path": a }], "rows": 7, "seed": 3 },
+        }),
+    ));
+    assert_eq!(payload["tables"]["a"]["row_count"], 7, "{payload}");
+    assert!(
+        payload["plan"]["rows"]
+            .as_array()
+            .is_some_and(|r| !r.is_empty()),
+        "{payload}"
+    );
+}
+
+/// `find_overlaps` over the wire: the first two date columns are found by
+/// themselves, and the pair comes back with its count.
+#[test]
+fn find_overlaps_detects_the_date_columns_and_reports_pairs() {
+    let dir = fixture_dir();
+    let f = dir.path().join("book.csv");
+    std::fs::write(
+        &f,
+        "room,start,end\nA,2026-01-01 09:00,2026-01-01 10:30\nA,2026-01-01 10:00,2026-01-01 11:00\n",
+    )
+    .unwrap();
+
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({
+            "name": "find_overlaps",
+            "arguments": { "path": f.to_string_lossy(), "lane": "room" },
+        }),
+    ));
+    assert_eq!(payload["overlap_count"], 1, "{payload}");
+    assert_eq!(payload["overlaps"]["row_count"], 1, "{payload}");
+}
+
+/// `value_shapes` over the wire: shapes come back most common first, with
+/// their count and an example.
+#[test]
+fn value_shapes_returns_shapes_with_counts() {
+    let dir = fixture_dir();
+    let f = dir.path().join("pc.csv");
+    std::fs::write(&f, "pc\nD-10115\nD-80331\n12345\n").unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "value_shapes", "arguments": { "path": f, "column": "pc" } }),
+    ));
+    assert_eq!(payload["shapes"][0]["shape"], "A-99999", "{payload}");
+    assert_eq!(payload["shapes"][0]["count"], 2, "{payload}");
+}
+
+/// `find_lookups` over the wire: the findings table comes back with the
+/// customer -> city lookup in it.
+#[test]
+fn find_lookups_returns_the_findings_table() {
+    let dir = fixture_dir();
+    let f = dir.path().join("flat.csv");
+    std::fs::write(
+        &f,
+        "order,customer,city\n1,c1,Berlin\n2,c1,Berlin\n3,c2,Munich\n4,c2,Munich\n",
+    )
+    .unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "find_lookups", "arguments": { "path": f } }),
+    ));
+    assert!(
+        payload["findings"]["row_count"].as_u64().unwrap() >= 1,
+        "{payload}"
+    );
+}
+
+#[path = "common/git_repo.rs"]
+mod git_repo;
+
+/// `cell_history` over the wire: the price change and the earliest version,
+/// not the rename.
+#[test]
+fn cell_history_returns_the_commits_that_changed_the_cell() {
+    let Some((_d, file)) = git_repo::git_repo_with_price_change() else {
+        return;
+    };
+    let dir = fixture_dir();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "cell_history", "arguments": {
+            "path": file, "column": "price", "key": ["id"], "key_value": ["2"]
+        } }),
+    ));
+    assert_eq!(payload["history"]["row_count"], 2, "{payload}");
+}
+
+/// `read_table` on a JSON-lines log returns the log columns, `level` among
+/// them.
+#[test]
+fn read_table_opens_a_json_lines_log_with_a_level_column() {
+    let dir = fixture_dir();
+    let f = dir.path().join("app.log");
+    std::fs::write(
+        &f,
+        "{\"ts\":\"2026-09-25T10:00:00Z\",\"level\":\"info\",\"msg\":\"up\"}\n\
+         {\"ts\":\"2026-09-25T10:00:01Z\",\"level\":\"error\",\"msg\":\"down\"}\n",
+    )
+    .unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "read_table", "arguments": { "path": f } }),
+    ));
+    assert!(
+        payload["schema"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["name"] == json!("level")),
+        "no level column: {payload}"
+    );
+}
+
+/// `spatial_join` over the wire: both points come back, with the layer's
+/// columns added.
+#[test]
+fn spatial_join_returns_the_joined_table() {
+    let dir = fixture_dir();
+    let pts = dir.path().join("pts.csv");
+    std::fs::write(&pts, "id,lat,lon\na,1,1\nb,5,5\n").unwrap();
+    let sq = dir.path().join("square.geojson");
+    std::fs::write(&sq, "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{\"name\":\"sq\"},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[[0,0],[2,0],[2,2],[0,2],[0,0]]]}}]}").unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "spatial_join", "arguments": {
+            "points": { "path": pts }, "layers": [{ "path": sq }]
+        } }),
+    ));
+    assert_eq!(payload["table"]["row_count"], 2, "{payload}");
+    assert_eq!(payload["table"]["rows"][0][3], json!("sq"), "{payload}");
+}
+
+/// `forecast` over the wire: one row per requested period.
+#[test]
+fn forecast_returns_one_row_per_period() {
+    let dir = fixture_dir();
+    let f = dir.path().join("sales.csv");
+    std::fs::write(&f, "month,sales\n2024-01-01,100\n2024-02-01,101\n2024-03-01,102\n2024-04-01,103\n2024-05-01,104\n2024-06-01,115\n2024-07-01,116\n2024-08-01,107\n2024-09-01,108\n2024-10-01,109\n2024-11-01,110\n2024-12-01,111\n2025-01-01,112\n2025-02-01,113\n2025-03-01,114\n2025-04-01,115\n2025-05-01,116\n2025-06-01,127\n2025-07-01,128\n2025-08-01,119\n2025-09-01,120\n2025-10-01,121\n2025-11-01,122\n2025-12-01,123\n").unwrap();
+    let mut server = Server::start(&dir.path().join("config"), &[]);
+    server.handshake();
+    let payload = call_payload(&server.ok_request(
+        2,
+        "tools/call",
+        json!({ "name": "forecast", "arguments": {
+            "path": f, "x": "month", "y": "sales", "periods": 3
+        } }),
+    ));
+    assert_eq!(payload["forecast"]["row_count"], 3, "{payload}");
 }

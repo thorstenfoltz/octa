@@ -42,6 +42,27 @@ octa - multi-format tabular data viewer, editor, CLI tool, and MCP server
 
 *octa* *--drift-report* _FILE_A_ _FILE_B_ [*--fail-on* _SPEC_] [*-f* _FORMAT_]
 
+*octa* *--recipe* _RECIPE_ _FILE_ [*--recipe-out* _FILE_] [*-f* _FORMAT_]
+
+*octa* *--overlaps* _FILE_ [*--overlaps-start* _COL_] [*--overlaps-end* _COL_] [*--overlaps-lane* _COL_]
+       [*--overlaps-label* _COL_] [*-f* _FORMAT_]
+
+*octa* *--shapes* _FILE_ *--shapes-column* _COL_ [*-f* _FORMAT_]
+
+*octa* *--lookups* _FILE_ [*--lookups-min* _N_] [*-f* _FORMAT_]
+
+*octa* *--cell-history* _FILE_ *--history-column* _COL_ (*--history-key* _COLS_ *--history-value* _VALUES_ | *--history-row* _N_) [*--history-depth* _N_] [*-f* _FORMAT_]
+
+*octa* *--spatial-join* _FILE_ *--spatial-layer* _FILE_... [*--spatial-op* _inside|nearest_] [*--within-km* _N_] [*-f* _FORMAT_]
+
+*octa* *--forecast* _FILE_ *--forecast-x* _COL_ *--forecast-y* _COL_ [*--forecast-periods* _N_] [*--forecast-season* _N_] [*-f* _FORMAT_]
+
+*octa* *--test-data* _FILE_... [*--test-data-rows* _N_] [*--seed* _N_] [*--test-data-out* _PATH_]
+       [*--test-data-rename-categories*] [*-f* _FORMAT_]
+
+*octa* *--merge* _FILE_ _FILE_... [*--merge-original* _FILE_] [*--merge-key* _COLS_]
+       [*--merge-prefer* _N_] [*--merge-out* _FILE_] [*--merge-format* _EXT_] [*-f* _FORMAT_]
+
 *octa* *--harmonise-schema* _DIR_ *--out-dir* _DIR_ [*--target-file* _FILE_]
        [*--recursive*] [*--ignore-case*] [*--overwrite*]
 
@@ -95,7 +116,7 @@ optionally opening the supplied _FILE_(s) in tabs. When invoked with
 one of the action flags (*--schema*, *--head*, *--tail*, *--sample*,
 *--convert*, *--sql*, *--export-schema*, *--compare-schemas*, *--diff*,
 *--describe*, *--validate-schema*, *--schema-drift*, *--harmonise-schema*,
-*--drift-report*, *--check*, *--relationships*,
+*--drift-report*, *--merge*, *--recipe*, *--test-data*, *--overlaps*, *--shapes*, *--lookups*, *--cell-history*, *--spatial-join*, *--forecast*, *--check*, *--relationships*,
 *--report*, *--fuzzy-join*,
 *--unique-columns*,
 *--anonymize*,
@@ -302,6 +323,145 @@ min = 0
   any gate. Metric names are *rows*, *null_rate*, *distinct_count*,
   *min*, *max* and *mean*.
 
+*--recipe* _RECIPE_ _FILE_::
+  Replay a recipe (a *.ocp* file, short for Octa reCiPe, recorded in
+  the GUI) on _FILE_. Every step runs by column name. When any step
+  cannot run, nothing is written, the skipped steps go to stderr and
+  the exit code is *1*.
+
+*--recipe-out* _FILE_::
+  Write the *--recipe* result to _FILE_ instead of stdout.
+
+*--overlaps* _FILE_::
+  Rows whose time spans overlap inside a lane (two bookings of one
+  room). One row per pair on stdout; *exits 1 when any is found*.
+  Spans that only touch do not overlap. Without *--overlaps-start* /
+  *--overlaps-end* the first two date columns are used.
+
+*--overlaps-start* _COL_, *--overlaps-end* _COL_::
+  Start and end columns for *--overlaps*. No end makes every row a point.
+
+*--overlaps-lane* _COL_::
+  Only rows with the same value in _COL_ can overlap.
+
+*--overlaps-label* _COL_::
+  A column shown beside each row of an *--overlaps* pair.
+
+*--shapes* _FILE_::
+  What a column's values look like, digits folded to *9*, capitals to
+  *A*, other letters to *a*, punctuation kept. One row per shape, most
+  common first, with a count and an example. Requires
+  *--shapes-column*.
+
+*--shapes-column* _COL_::
+  Column to shape for *--shapes*.
+
+*--lookups* _FILE_::
+  Hidden lookup tables: columns that always follow another column. One
+  row per key and following column, with its consistency, conflicting
+  keys and breaking rows.
+
+*--lookups-min* _N_::
+  Share of rows (0 to 1) that must agree with their key for
+  *--lookups*. Default 0.95.
+
+*--cell-history* _FILE_::
+  The commits that changed one cell of a file in a Git repository,
+  newest first, following the row by key and the file through renames.
+  Needs *--history-column* and either *--history-key* +
+  *--history-value* or *--history-row*.
+
+*--history-column* _COL_::
+  Column of the cell for *--cell-history*.
+
+*--history-key* _COLS_::
+  Comma-separated key column(s) that identify the row.
+
+*--history-value* _VALUES_::
+  Comma-separated values of the row in each key column.
+
+*--history-row* _N_::
+  1-based row number, when there is no key.
+
+*--history-depth* _N_::
+  How many commits to read, newest first. Default 50.
+
+*--spatial-join* _FILE_::
+  Join by location: each point of FILE gets the columns of the layer
+  polygon it lies in, or of the nearest layer point with its distance.
+  Needs at least one *--spatial-layer*.
+
+*--spatial-layer* _FILE_::
+  A table to join against. Repeat for several layers.
+
+*--spatial-op* _inside|nearest_::
+  The operation. Default inside.
+
+*--within-km* _N_::
+  With *--spatial-op nearest*: points farther than this stay empty.
+
+*--forecast* _FILE_::
+  Forecast one column over time (Holt-Winters) with 80% and 95%
+  ranges. Needs *--forecast-x* and *--forecast-y*.
+
+*--forecast-x* _COL_::
+  Time column: dates, date-times or numbers, evenly spaced.
+
+*--forecast-y* _COL_::
+  Column of numbers to forecast.
+
+*--forecast-periods* _N_::
+  How many periods ahead. Default 12.
+
+*--forecast-season* _N_::
+  Season length in points. Default: read from the spacing.
+
+*--test-data* _FILE_...::
+  Generate new rows shaped like each _FILE_: the same columns, numbers
+  and dates from the real spread, fake names, emails, IBANs and IDs,
+  empty cells at the real rate. Several files are generated together so
+  links between them still join. The plan goes to stderr, with a note
+  for every small category column that keeps its real values.
+
+*--test-data-rows* _N_::
+  Rows per *--test-data* table (default: as many as the real one).
+
+*--test-data-out* _PATH_::
+  Output file for one *--test-data* input, or an existing folder for
+  several (written as _name_test.ext_). Without it, one table goes to
+  stdout.
+
+*--test-data-rename-categories*::
+  Replace real category values with *value_1*, *value_2*, ...
+
+*--merge* _FILE_ _FILE_...::
+  Merge two or more versions of a table, per row and per cell. With
+  *--merge-original*, a change made in one version is taken and only
+  different changes to one cell, or a row deleted in one version and
+  edited in another, conflict; without it, every cell where the versions
+  differ conflicts. Rows are matched by *--merge-key*, or by position
+  without one. While a conflict is open nothing is written, the
+  conflicts are printed on stdout and the exit code is *1*, which makes
+  it usable as a git merge driver: `octa --merge %A %B --merge-original
+  %O --merge-key id --merge-out %A --merge-format %P`.
+
+*--merge-original* _FILE_::
+  The table every *--merge* version was edited from. Optional.
+
+*--merge-key* _COLS_::
+  Key column(s) for *--merge*, comma-separated or repeated.
+
+*--merge-prefer* _N_::
+  Settle every *--merge* conflict in favour of version _N_ (1 = the
+  first file given to *--merge*).
+
+*--merge-out* _FILE_::
+  Write the *--merge* result to _FILE_ instead of stdout.
+
+*--merge-format* _EXT_::
+  Format of the *--merge* files, for files without an extension. An
+  extension (*csv*) or a file name to take it from (git's *%P*).
+
 *--harmonise-schema* _DIR_::
   Rewrite every file in _DIR_ to one common set of columns, writing
   harmonised copies into *--out-dir* (required). The originals are
@@ -395,7 +555,7 @@ per-step report goes to stderr.
 *--join* _FILE_::
   Join the positional _FILE_(s) plus every *--join-file* _FILE_ on the
   *--join-on* _COLS_ key(s). *--join-type* is *left* (default), *inner*,
-  *right*, or *full*.
+  *right*, *full*, *semi*, *anti* or *asof*.
 
 *--partition-by* _COL_::
   Split the positional _FILE_ into one file per distinct value of _COL_,
@@ -622,7 +782,8 @@ terminal, so redirected output and CI logs are unchanged.
   Row count for *--head*, *--tail*, and *--sample*. Default *20*.
 
 *--seed* _N_::
-  Seed for *--sample*, for reproducible output. Default *0*.
+  Seed for *--sample* and *--test-data*, for reproducible output.
+  Default *0*.
 
 *-q* _QUERY_, *--query* _QUERY_::
   SQL query string for *--sql*. Always reference the file's data as
@@ -734,7 +895,10 @@ terminal, so redirected output and CI logs are unchanged.
   Key column(s) for *--join*; comma-separated or repeated. Required.
 
 *--join-type* _TYPE_::
-  Join strategy for *--join*: *left* (default), *inner*, *right*, *full*.
+  Join strategy for *--join*: *left* (default), *inner*, *right*, *full*,
+  *semi* (rows of the first file with a partner), *anti* (rows without
+  one) or *asof* (the last *--join-on* key matches the nearest earlier
+  value).
 
 *--compression* _CODEC_::
   Compression codec for the written file: *uncompressed*, *snappy*,
@@ -812,9 +976,9 @@ file-not-found, parse failure, write rejection, etc.).
 schemas differ, and *--schema-drift* exits *1* on a successful scan
 where the files disagree. *--harmonise-schema* exits *1* when any file
 was refused, *--batch-convert* when any input failed,
-*--drift-report* when a *--fail-on* gate was breached, and *--check*
-on any failing or unrunnable rule, so CI pipelines can gate on all six
-directly.
+*--drift-report* when a *--fail-on* gate was breached, *--merge*
+while a conflict is open, *--recipe* when a step could not run, and *--check* on any failing or unrunnable
+rule, so CI pipelines can gate on all eight directly.
 
 == Examples
 

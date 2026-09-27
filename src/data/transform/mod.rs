@@ -27,7 +27,9 @@ pub use anonymize::{
     AnonOutput, AnonRule, AnonSource, AnonSpec, AnonStrategy, FakeKind, HashAlgo, KeepEnd,
     RedactToken, anonymize_table,
 };
-pub use conditional_value::{CaseRule, CaseSpec, build_case_column, infer_case_column_type};
+pub use conditional_value::{
+    CaseCond, CaseRule, CaseSpec, build_case_column, infer_case_column_type,
+};
 pub use extract::extract_pattern;
 pub use fill::{fill_down, fill_up};
 pub use merge::merge_columns;

@@ -41,6 +41,11 @@ pub enum ViewMode {
     /// wide to read in the grid. Navigates `filtered_rows`, edits through the
     /// same cell overlay the grid uses.
     Record,
+    /// Rows with a start and an end as bars on a time axis, grouped into
+    /// lanes, with overlaps inside a lane outlined. Offered when the table
+    /// has a date or datetime column; built by
+    /// [`timeline::build`](super::timeline::build).
+    Timeline,
 }
 
 /// Tile-rendering mode for the Map view. `Tiles` fetches raster tiles from

@@ -1,0 +1,8 @@
+203.0.113.9 - - [10/Oct/2026:13:55:36 +0200] "GET / HTTP/1.1" 200 5120 "-" "Mozilla/5.0 (X11; Linux x86_64)"
+203.0.113.9 - - [10/Oct/2026:13:55:37 +0200] "GET /style.css HTTP/1.1" 200 1840 "https://example.org/" "Mozilla/5.0 (X11; Linux x86_64)"
+198.51.100.23 - - [10/Oct/2026:13:56:02 +0200] "GET /favicon.ico HTTP/1.1" 404 153 "-" "curl/8.9.1"
+198.51.100.23 - - [10/Oct/2026:13:56:10 +0200] "POST /api/orders HTTP/1.1" 201 88 "-" "curl/8.9.1"
+192.0.2.77 - alice [10/Oct/2026:13:57:44 +0200] "GET /admin HTTP/1.1" 500 612 "https://example.org/" "Mozilla/5.0 (Windows NT 10.0)"
+192.0.2.77 - alice [10/Oct/2026:13:57:50 +0200] "GET /old-page HTTP/1.1" 404 153 "https://example.org/" "Mozilla/5.0 (Windows NT 10.0)"
+203.0.113.9 - - [10/Oct/2026:13:58:01 +0200] "GET /report.pdf HTTP/1.1" 200 482113 "https://example.org/" "Mozilla/5.0 (X11; Linux x86_64)"
+198.51.100.23 - - [10/Oct/2026:13:59:30 +0200] "GET /api/orders/7 HTTP/1.1" 200 214 "-" "curl/8.9.1"

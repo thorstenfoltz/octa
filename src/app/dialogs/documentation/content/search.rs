@@ -32,6 +32,33 @@ Three controls beside the search box refine matching:
 
 These apply to the table filter and to the in-place highlight.
 
+## Which rows the search covered
+
+Octa does not always hold a whole file: a big one stops at the
+initial-load row cap, and a live database tab holds one page. A search
+over those rows is a search over a window, not over the file, so the
+search bar says so in plain numbers ("Only 5,000,000 of 20,000,000 rows
+are loaded.") and offers one button beside it:
+
+- **Search whole file** for a Parquet, CSV/TSV or JSON file. The count
+  comes from a query against the file where it lies, nothing extra is
+  loaded, and the matching rows open in their own tab.
+- **Count on the server** for a live database tab. The count runs on the
+  server, and the matching rows open in their own tab.
+- **Load all rows** for any other format, which cannot be searched
+  without being read. The file is read again with the limit lifted; on a
+  big file that costs time and memory.
+
+The scan asks the same question the search box asked: same mode, same Aa
+and whole-word toggles, same column scope. The button is disabled for a
+regex or whole-word search on a live database, because a regular
+expression means something different on each engine and some have none
+at all; the hover says so.
+
+The same note sits above any tab computed from a partly loaded table (a
+Summary, a quality report, a correlation), and saving such a table asks
+before it writes the loaded rows over the file.
+
 ## Search history
 
 Recent search queries are remembered across sessions. When there is
@@ -163,20 +190,83 @@ Press **Cancel** to stop a running directory scan at the next file
 boundary. Whatever hits were already collected stay in the panel.
 "#;
 
+pub const FILTER_FACETS: &str = r#"# Filter by Value (header funnel)
+
+Every column header carries a small **funnel** just left of its sort
+arrows. Clicking it opens a popup listing that column's most common
+values with their counts, each with a checkbox: tick the ones to keep,
+press Apply, done. Clicking the funnel again closes the popup.
+
+This is a faster door onto the **Column Filter** dialog's state, not a
+second kind of filter. It writes the same per-column allow-set, so the
+filter chips, the filtered row count, the status bar and every export
+of the filtered view behave exactly as they always did.
+**Right-click a column header > Filter values...** opens this same popup.
+**Columns > Filter by value or shape...** is the window version, with a
+column picker and a Find field, for when you want more room.
+
+## What the list shows
+
+The 50 most common values, by count. When the column has more distinct
+values than that, the popup adds a search box and a line saying how
+many are not shown.
+
+**Search queries the whole column, not the 50 on screen.** A value
+ranked nine hundredth is still findable by typing it. That full scan is
+why the box only appears when it is needed: an ordinary open stays
+cheap.
+
+## All, None, Apply, Clear
+
+- **All** / **None** tick or untick everything currently listed, so
+  they follow the search box rather than ignoring it.
+- **Apply** keeps only the ticked values.
+- **Clear** removes this column's filter and shows every row again.
+
+Two selections mean "no filter" rather than a filter. Ticking
+**everything** would hide nothing while still lighting the header dot
+and the chip, so it clears instead. Ticking **nothing** would hide
+every row and leave you staring at an empty table, so it clears too.
+
+## The funnel tells you the state
+
+Grey means the column is unfiltered. Accent-coloured means the column
+has a filter, the pointer is over it, or its popup is open. The small
+accent dot beside the column name means the same thing and is still
+there for columns too narrow to show the funnel.
+
+## The chip row
+
+Applying a filter adds a removable chip above the grid, in the same row
+as the Ask-mode comparison chips and the duplicate-filter chip, so
+everything narrowing the view sits in one place. One kept value reads
+as the value; several read as a count. Each chip's x removes that one
+filter, and **Clear all** removes every filter in the row.
+
+## Partly loaded files
+
+On a capped file the counts describe the rows that are loaded, not the
+whole file, and the popup says so. A window count presented as a file
+count is exactly the kind of quiet lie this app works to avoid.
+"#;
+
 pub const COLUMN_FILTER: &str = r#"# Column Filter
 
-Excel-style per-column value-set filter. Pick a column, see its unique
-values as checkboxes, uncheck the ones to hide.
+Excel-style per-column value-set filter. Pick any column, see its unique
+values as checkboxes, uncheck the ones to hide. The **Values / Shapes**
+switch lists the column's shapes instead (`D-80331` is `A-99999`): tick
+shapes to keep every value that has them.
 
 ## Opening the dialog
 
-- **Search > Column Filter...** in the toolbar.
+- **Columns > Filter by value or shape...** in the toolbar.
 - The default shortcut (remappable; check Settings > Shortcuts for the
   current binding) opens the same dialog.
-- **Right-click any column header > Filter values...** opens the dialog
-  pre-seeded on that column.
 - The status-bar **Filter** chip (visible when any column has an active
   filter) opens the dialog on the first filtered column.
+
+For a column in view, the header **funnel** or **right-click the header >
+Filter values...** opens the smaller popup version of the same filter.
 
 ## Using the dialog
 
@@ -188,8 +278,8 @@ values as checkboxes, uncheck the ones to hide.
   to narrow further with the search box.
 - **Select all** and **Select none** operate on the currently visible
   (post-search) subset, not the whole list.
-- **Apply** commits the draft. "All checked" and "none checked" are
-  both interpreted as "no filter active" for that column.
+- **Apply** commits the draft. "All checked" means no filter on that
+  column; "none checked" hides every row (see below).
 - **Clear filter on this column** removes the column's filter entirely.
 - **Cancel** discards the in-progress draft.
 
@@ -208,7 +298,7 @@ values as checkboxes, uncheck the ones to hide.
 
 ## Saving filtered data
 
-**File > Save As** writes only the **currently visible** rows when a
+**File > Save as** writes only the **currently visible** rows when a
 filter (text search or column filter) is active. The on-disk file is a
 snapshot of the view; the in-memory table is left untouched so you can
 keep working on the full dataset.
@@ -240,7 +330,7 @@ Both keys are remappable under Settings > Shortcuts (Navigation).
 
 pub const FILTER_TO_MARKED: &str = r#"# Filter to Marked
 
-**Edit > Filter to marked** hides everything except what you have colour-marked,
+**Data > Filter to marked** hides everything except what you have colour-marked,
 so you can drill down to the rows and columns you care about. Choose the same
 menu entry again (now labelled "Clear filter to marked") to restore the full
 view.

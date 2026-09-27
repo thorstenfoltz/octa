@@ -114,6 +114,107 @@ impl Cli {
                 table_b: self.table_b.clone(),
             }));
         }
+        if !self.recipe.is_empty() {
+            return Ok(Some(Action::Recipe {
+                recipe: self.recipe[0].clone(),
+                input: self.recipe[1].clone(),
+                out: self.recipe_out.clone(),
+            }));
+        }
+        if let Some(path) = &self.overlaps {
+            return Ok(Some(Action::Overlaps(Box::new(super::overlaps::Args {
+                path: path.clone(),
+                start: self.overlaps_start.clone(),
+                end: self.overlaps_end.clone(),
+                lane: self.overlaps_lane.clone(),
+                label: self.overlaps_label.clone(),
+            }))));
+        }
+        if let Some(path) = &self.shapes {
+            let column = self
+                .shapes_column
+                .clone()
+                .ok_or("--shapes needs --shapes-column")?;
+            return Ok(Some(Action::Shapes(Box::new(super::shapes::Args {
+                path: path.clone(),
+                column,
+            }))));
+        }
+        if let Some(path) = &self.forecast {
+            let x = self
+                .forecast_x
+                .clone()
+                .ok_or("--forecast needs --forecast-x")?;
+            let y = self
+                .forecast_y
+                .clone()
+                .ok_or("--forecast needs --forecast-y")?;
+            return Ok(Some(Action::Forecast(Box::new(super::forecast::Args {
+                path: path.clone(),
+                x,
+                y,
+                periods: self.forecast_periods,
+                season: self.forecast_season,
+            }))));
+        }
+        if let Some(path) = &self.spatial_join {
+            let nearest = self.spatial_op == "nearest";
+            if self.within_km.is_some() && !nearest {
+                return Err("--within-km needs --spatial-op nearest");
+            }
+            return Ok(Some(Action::SpatialJoin(Box::new(
+                super::spatial_join::Args {
+                    points: path.clone(),
+                    layers: self.spatial_layer.clone(),
+                    nearest,
+                    within_km: self.within_km,
+                },
+            ))));
+        }
+        if let Some(path) = &self.cell_history {
+            let column = self
+                .history_column
+                .clone()
+                .ok_or("--cell-history needs --history-column")?;
+            return Ok(Some(Action::CellHistory(Box::new(
+                super::cell_history::Args {
+                    path: path.clone(),
+                    column,
+                    keys: self.history_key.clone(),
+                    values: self.history_value.clone(),
+                    row: self.history_row,
+                    depth: self.history_depth,
+                },
+            ))));
+        }
+        if let Some(path) = &self.lookups {
+            return Ok(Some(Action::Lookups(Box::new(super::lookups::Args {
+                path: path.clone(),
+                min: self.lookups_min,
+            }))));
+        }
+        if !self.test_data.is_empty() {
+            return Ok(Some(Action::TestData(Box::new(super::test_data::Args {
+                inputs: self.test_data.clone(),
+                rows: self.test_data_rows,
+                seed: self.seed,
+                out: self.test_data_out.clone(),
+                rename_categories: self.test_data_rename_categories,
+            }))));
+        }
+        if !self.merge.is_empty() {
+            if self.merge.len() + usize::from(self.merge_original.is_some()) < 2 {
+                return Err("--merge needs two or more files, or one plus --merge-original");
+            }
+            return Ok(Some(Action::Merge(Box::new(super::merge::Args {
+                versions: self.merge.clone(),
+                original: self.merge_original.clone(),
+                keys: self.merge_key.clone(),
+                prefer: self.merge_prefer,
+                out: self.merge_out.clone(),
+                format: self.merge_format.clone(),
+            }))));
+        }
         if let Some(path) = &self.check_references {
             let (Some(parent_column), Some(child_column)) =
                 (self.parent_column.clone(), self.child_column.clone())
@@ -249,14 +350,25 @@ impl Cli {
             }));
         }
         if let Some(dir) = &self.harmonise_schema {
-            // --out-dir is what makes this non-destructive, so it is required
-            // rather than defaulted to something clever.
-            let Some(out_dir) = self.out_dir.clone() else {
-                return Err("--harmonise-schema requires --out-dir DIR");
+            // Writing somewhere else is what makes this non-destructive, so
+            // a destination is required rather than defaulted to something
+            // clever. Combining produces ONE file, so it takes --out; the
+            // per-file mode produces a folder, so it takes --out-dir.
+            let out_dir = if self.combine {
+                match self.out.clone() {
+                    Some(p) => p,
+                    None => return Err("--harmonise-schema --combine requires --out FILE"),
+                }
+            } else {
+                match self.out_dir.clone() {
+                    Some(p) => p,
+                    None => return Err("--harmonise-schema requires --out-dir DIR"),
+                }
             };
             return Ok(Some(Action::Harmonise {
                 dir: dir.clone(),
                 out_dir,
+                combine: self.combine,
                 target_file: self.target_file.clone(),
                 recursive: self.recursive,
                 ignore_case: self.ignore_case,
@@ -482,6 +594,12 @@ impl Cli {
                 conn,
                 table,
                 on,
+            }));
+        }
+        if let Some(conn) = &self.api {
+            return Ok(Some(Action::ApiFetch {
+                conn: conn.clone(),
+                path: self.api_path.clone(),
             }));
         }
         if let Some(sql) = &self.db_query {

@@ -1,4 +1,4 @@
-# Record View
+# Record view
 
 The Record view shows **one row at a time**, laid out vertically as a
 list of field name / value pairs. It exists for tables too wide to read
@@ -12,7 +12,7 @@ spreadsheet or database table can use it.
 
 ## Reaching it
 
-Pick **View → Record View**, or cycle to it with
+Pick **View → Record view**, or cycle to it with
 **F4** ([`CycleViewMode`](../../reference/shortcuts.md#view)).
 
 ## Moving between rows

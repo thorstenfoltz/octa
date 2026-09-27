@@ -168,7 +168,7 @@ rustls = { version = "0.23", default-features = false, features = [
 ] }
 rustls-native-certs = "0.8"
 tar = "0.4"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate", "aes-crypto"] }
 regex = "1"
 orc-rust = { version = "0.8.0", default-features = false }
 hdf5-reader = "0.9"
@@ -250,6 +250,9 @@ geojson = "1"
 # (rendering). MIT/Apache-2.0. We name it directly so the GeoJSON reader
 # can construct `geo_types::Geometry<f64>` for the side-channel.
 geo-types = "0.7"
+# Spatial index for the spatial join. Pure Rust, already in the lockfile
+# (as geo-types' optional dependency), so it adds no crate to the tree.
+rstar = "0.12"
 # Slippy-map widget for egui — used by the GeoJSON Map view. MIT license.
 # Walkers spawns its own dedicated thread with a private tokio runtime for
 # tile downloads, so the eframe app thread stays sync.
@@ -304,6 +307,7 @@ object_store = { version = "0.14", features = ["aws", "azure", "gcp"] }
 # unchanged. If no Secret Service is available at runtime the error is caught
 # and we fall back to the plaintext settings.toml store.
 keyring = "4"
+pdf-extract = "0.12"
 
 [build-dependencies]
 winresource = "0.1"

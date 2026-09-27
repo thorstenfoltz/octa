@@ -98,30 +98,44 @@ nav:
       - First Steps: getting-started/first-steps.md
       - Supported Formats: getting-started/supported-formats.md
   - Using Octa:
-      - Table View: usage/table-view.md
+      - Table view: usage/table-view.md
       - Search & Filter: usage/search-and-filter.md
       - Editing: usage/editing.md
+      - Edit Audit Trail: usage/edit-audit-trail.md
       - Formulas: usage/formulas.md
       - Date / Time Calculation: usage/date-time-calculation.md
       - Colour Marking: usage/colour-marking.md
       - Filter to Marked: usage/filter-to-marked.md
+      - Filter by value: usage/filter-facets.md
+      - Value Shapes: usage/value-shapes.md
       - Bookmarks: usage/bookmarks.md
       - Conditional Formatting: usage/conditional-formatting.md
       - Data Validation: usage/data-validation.md
       - Transform Column: usage/transform-column.md
-      - Rename Columns: usage/rename-columns.md
+      - Rename columns: usage/rename-columns.md
+      - Column Navigator: usage/column-navigator.md
+      - Tab memory: usage/tab-memory.md
+      - Password-protected files: usage/protected-files.md
+      - Change column type: usage/change-column-type.md
       - Anonymise Columns: usage/anonymize-columns.md
       - Detect PII: usage/detect-pii.md
       - Detect Outliers: usage/detect-outliers.md
       - Fill Missing Values: usage/fill-missing-values.md
       - Union Tables: usage/union-tables.md
       - Join Tables: usage/join-tables.md
+      - Spatial Join: usage/spatial-join.md
       - Fuzzy Join: usage/fuzzy-join.md
       - Join Key Finder: usage/join-key-finder.md
       - Join Diagnostics: usage/join-diagnostics.md
       - Relationship Map: usage/relationship-map.md
       - Schema Drift: usage/schema-drift.md
       - Data Drift: usage/data-drift.md
+      - Merge Versions: usage/merge-versions.md
+      - Cell History: usage/cell-history.md
+      - Test Data: usage/test-data.md
+      - Recipes: usage/recipes.md
+      - Tables from PDFs: usage/pdf-tables.md
+      - Log Files: usage/log-files.md
       - Harmonise Schemas: usage/harmonise-schemas.md
       - Partition by Column: usage/partition-by-column.md
       - Clean Headers on Load: usage/clean-headers.md
@@ -138,11 +152,13 @@ nav:
       - Time Series: usage/time-series.md
       - Pivot / Unpivot: usage/pivot.md
       - Correlation: usage/correlation.md
+      - Find Lookup Tables: usage/lookup-tables.md
       - Compare Distributions: usage/compare-distributions.md
       - Referential Integrity: usage/referential-integrity.md
       - Schema Export: usage/schema-export.md
       - Archive Viewer: usage/archive-viewer.md
       - Chart: usage/chart.md
+      - Trend and Forecast: usage/forecast.md
       - SQL Panel: usage/sql.md
       - Chat Assistant: usage/chatbot.md
       - How the Assistant Understands Your Data: usage/assistant-context.md
@@ -150,19 +166,23 @@ nav:
       - Export to PDF: usage/pdf-export.md
       - Large Files: usage/large-files.md
       - Tabs & Folder Sidebar: usage/tabs-and-sidebar.md
+      - Refresh a Tab: usage/refresh-tab.md
       - Cloud Storage: usage/cloud-storage.md
       - Cloud Inventory: usage/cloud-inventory.md
       - Database Connections: usage/database-connections.md
+      - Sidebar Search: usage/sidebar-search.md
+      - API Endpoints: usage/api-endpoints.md
       - Compare with Database or Cloud: usage/compare-with-database.md
       - View Modes:
           - Overview: usage/view-modes/overview.md
-          - Raw Text: usage/view-modes/raw-text.md
+          - Raw text: usage/view-modes/raw-text.md
           - Markdown: usage/view-modes/markdown.md
-          - JSON & YAML Tree: usage/view-modes/json-and-yaml-tree.md
+          - JSON & YAML tree: usage/view-modes/json-and-yaml-tree.md
           - Notebook: usage/view-modes/notebook.md
-          - EPUB Reader: usage/view-modes/epub-reader.md
+          - EPUB reader: usage/view-modes/epub-reader.md
           - Map: usage/view-modes/map.md
           - Record: usage/view-modes/record.md
+          - Timeline: usage/view-modes/timeline.md
           - Compare: usage/view-modes/compare.md
   - Command Line:
       - Overview: cli/index.md
@@ -172,11 +192,21 @@ nav:
       - "--sample": cli/sample.md
       - "--convert": cli/convert.md
       - "--sql": cli/sql.md
+      - "--api": cli/api.md
       - "--export-schema": cli/export-schema.md
       - "--compare-schemas": cli/compare-schemas.md
       - "--compare-distributions": cli/compare-distributions.md
       - "--check-references": cli/check-references.md
       - "--diff": cli/diff.md
+      - "--merge": cli/merge.md
+      - "--test-data": cli/test-data.md
+      - "--overlaps": cli/overlaps.md
+      - "--shapes": cli/shapes.md
+      - "--lookups": cli/lookups.md
+      - "--cell-history": cli/cell-history.md
+      - "--spatial-join": cli/spatial-join.md
+      - "--forecast": cli/forecast.md
+      - "--recipe": cli/recipe.md
       - "--describe": cli/describe.md
       - "--validate-schema": cli/validate-schema.md
       - "--schema-drift": cli/schema-drift.md
@@ -258,9 +288,20 @@ nav:
           - list_db_connections: mcp/tools/list_db_connections.md
           - list_db_tables: mcp/tools/list_db_tables.md
           - query_db: mcp/tools/query_db.md
+          - list_api_connections: mcp/tools/list_api_connections.md
+          - query_api: mcp/tools/query_api.md
           - write_db_table: mcp/tools/write_db_table.md
           - copy_db_table: mcp/tools/copy_db_table.md
           - data_drift: mcp/tools/data_drift.md
+          - merge_tables: mcp/tools/merge_tables.md
+          - generate_test_data: mcp/tools/generate_test_data.md
+          - find_overlaps: mcp/tools/find_overlaps.md
+          - value_shapes: mcp/tools/value_shapes.md
+          - find_lookups: mcp/tools/find_lookups.md
+          - cell_history: mcp/tools/cell_history.md
+          - spatial_join: mcp/tools/spatial_join.md
+          - forecast: mcp/tools/forecast.md
+          - apply_recipe: mcp/tools/apply_recipe.md
           - sync_sql: mcp/tools/sync_sql.md
           - write_workbook: mcp/tools/write_workbook.md
       - Limits & Truncation: mcp/limits-and-truncation.md
@@ -278,13 +319,9 @@ nav:
   - Tips & Recipes: tips/workflows.md
   - Troubleshooting: troubleshooting.md
 
-# `INDEX.md` under `docs/assets/screenshots/` is the screenshot shopping
-# list for the user — intentionally kept inside `docs/` so it's
-# version-controlled next to the placeholder references, but kept off
-# the rendered site nav. Listing it here silences the "exists but not
-# in nav" build warning.
+# The store-listing INDEX.md lives inside `docs/` but stays off the site nav.
+# Listing it here silences the "exists but not in nav" build warning.
 not_in_nav: |
-  /assets/screenshots/INDEX.md
   /assets/store/INDEX.md
 
 # Surface broken links + missing anchors as errors during the strict

@@ -117,6 +117,7 @@ impl eframe::App for OctaApp {
         self.drain_cloud_pending_open();
         self.drain_cloud_sign_ins(&ctx);
         self.drain_db_pending_open();
+        self.drain_api_pending_open();
         self.drain_db_load_job();
         self.drain_sql_server_job();
         self.drain_db_write_back_job();
@@ -127,6 +128,8 @@ impl eframe::App for OctaApp {
         self.drain_report();
         self.drain_fuzzy_join();
         self.drain_ask_filter();
+        self.drain_full_scan();
+        self.tick_git_marks(&ctx);
         self.drain_ask_sql();
         self.expire_sql_diff_highlights(&ctx);
         self.drive_auto_save(&ctx);
@@ -153,6 +156,10 @@ impl eframe::App for OctaApp {
         self.render_multi_search_panel(ui);
         self.render_cleanup_panel(ui);
         self.render_chat_panel(ui);
+        self.render_column_navigator(ui);
+        self.render_edit_audit(ui);
+        self.sync_hand_edits();
+        self.render_recipe_panel(ui);
         self.render_christmas_overlay(&ctx);
         self.render_central_panel(ui);
         self.render_window_resize_handles(&ctx);

@@ -14,18 +14,86 @@
 use crate::data::conditional_format::{CondOp, CondRule, rule_matches};
 use crate::data::{CellValue, DataTable, MarkColor};
 
-/// One branch of a conditional column: "if `<cond_col>` `<op>` `<value>` then
-/// `output`".
+/// One test inside a rule: "`<cond_col>` `<op>` `<values>`".
+///
+/// Several values mean "any of them" (`region equals west, east`), except
+/// for the negative operators, where they mean "none of them"
+/// (`region does not equal west, east`): the reading a person expects from
+/// the sentence, and the same as SQL's `IN` / `NOT IN`.
 #[derive(Debug, Clone)]
-pub struct CaseRule {
+pub struct CaseCond {
     /// Column whose value is tested. `None` means no column has been chosen
-    /// yet, in which case the rule never matches (it is skipped).
+    /// yet, in which case the condition is ignored.
     pub cond_col: Option<usize>,
     pub op: CondOp,
-    /// Comparison operand (ignored for `Empty` / `NotEmpty`).
-    pub value: String,
+    /// Comparison operands (ignored for `Empty` / `NotEmpty`). Blank entries
+    /// are skipped unless every entry is blank, which compares against "".
+    pub values: Vec<String>,
     /// Case-sensitive text comparison when `true`.
     pub case_sensitive: bool,
+}
+
+impl CaseCond {
+    pub fn new() -> Self {
+        Self {
+            cond_col: None,
+            op: CondOp::Eq,
+            values: vec![String::new()],
+            case_sensitive: false,
+        }
+    }
+
+    /// A condition on `col` against any of `values`, case-insensitive.
+    pub fn on(col: usize, op: CondOp, values: &[&str]) -> Self {
+        Self {
+            cond_col: Some(col),
+            op,
+            values: values.iter().map(|v| v.to_string()).collect(),
+            case_sensitive: false,
+        }
+    }
+
+    /// One predicate per value, and whether all of them must hold (the
+    /// negative operators) rather than any. `None` without a column.
+    fn compile(&self) -> Option<(Vec<CondRule>, bool)> {
+        let column = Some(self.cond_col?);
+        let filled: Vec<&String> = self
+            .values
+            .iter()
+            .filter(|v| !v.trim().is_empty())
+            .collect();
+        let values: Vec<&str> = if filled.is_empty() {
+            vec![""]
+        } else {
+            filled.into_iter().map(String::as_str).collect()
+        };
+        let preds = values
+            .into_iter()
+            .map(|value| CondRule {
+                column,
+                op: self.op,
+                value: value.to_string(),
+                color: MarkColor::Yellow,
+                case_sensitive: self.case_sensitive,
+            })
+            .collect();
+        Some((preds, matches!(self.op, CondOp::Ne | CondOp::NotContains)))
+    }
+}
+
+impl Default for CaseCond {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// One branch of a conditional column: "if `<conditions>` then `output`",
+/// where the conditions must all hold (`match_all`) or any one of them.
+#[derive(Debug, Clone)]
+pub struct CaseRule {
+    pub conditions: Vec<CaseCond>,
+    /// `true` = every condition must hold (and), `false` = any one (or).
+    pub match_all: bool,
     /// Literal value written into the new column when this rule matches.
     pub output: String,
 }
@@ -33,12 +101,16 @@ pub struct CaseRule {
 impl CaseRule {
     pub fn new() -> Self {
         Self {
-            cond_col: None,
-            op: CondOp::Eq,
-            value: String::new(),
-            case_sensitive: false,
+            conditions: vec![CaseCond::new()],
+            match_all: true,
             output: String::new(),
         }
+    }
+
+    /// Whether any condition has a column chosen; a rule without one is
+    /// skipped.
+    pub fn is_usable(&self) -> bool {
+        self.conditions.iter().any(|c| c.cond_col.is_some())
     }
 }
 
@@ -63,41 +135,46 @@ pub struct CaseSpec {
 /// Numeric-looking outputs become `Int` / `Float` cells; an empty output is
 /// `Null`.
 pub fn build_case_column(table: &DataTable, spec: &CaseSpec) -> Vec<CellValue> {
-    // Compile the valid rules once (drop rules with no column chosen), pairing
-    // each predicate with its output. The colour field is unused here.
-    let compiled: Vec<(CondRule, &str)> = spec
+    // Compile the usable rules once, dropping conditions without a column.
+    type Compiled<'a> = (Vec<(Vec<CondRule>, bool)>, bool, &'a str);
+    let compiled: Vec<Compiled> = spec
         .rules
         .iter()
-        .filter(|r| r.cond_col.is_some())
+        .filter(|r| r.is_usable())
         .map(|r| {
-            (
-                CondRule {
-                    column: r.cond_col,
-                    op: r.op,
-                    value: r.value.clone(),
-                    color: MarkColor::Yellow,
-                    case_sensitive: r.case_sensitive,
-                },
-                r.output.as_str(),
-            )
+            let conds = r.conditions.iter().filter_map(CaseCond::compile).collect();
+            (conds, r.match_all, r.output.as_str())
         })
         .collect();
 
     let row_count = table.row_count();
     let mut out = Vec::with_capacity(row_count);
     for row in 0..row_count {
-        let mut chosen: Option<&str> = None;
-        for (cond, output) in &compiled {
-            let col = cond.column.expect("compiled rules always carry a column");
+        let pred = |p: &CondRule| {
+            let col = p.column.expect("compiled predicates always carry a column");
             let cell = table
                 .get(row, col)
                 .map(|v| v.to_string())
                 .unwrap_or_default();
-            if rule_matches(cond, &cell) {
-                chosen = Some(output);
-                break;
+            rule_matches(p, &cell)
+        };
+        let holds = |(preds, all): &(Vec<CondRule>, bool)| {
+            if *all {
+                preds.iter().all(pred)
+            } else {
+                preds.iter().any(pred)
             }
-        }
+        };
+        let chosen = compiled
+            .iter()
+            .find(|(conds, all, _)| {
+                if *all {
+                    conds.iter().all(holds)
+                } else {
+                    conds.iter().any(holds)
+                }
+            })
+            .map(|(_, _, output)| *output);
         out.push(literal_to_cell(chosen.unwrap_or(spec.else_output.as_str())));
     }
     out
@@ -182,24 +259,85 @@ mod tests {
         }
     }
 
+    fn rule(conditions: Vec<CaseCond>, match_all: bool, output: &str) -> CaseRule {
+        CaseRule {
+            conditions,
+            match_all,
+            output: output.into(),
+        }
+    }
+
+    #[test]
+    fn several_conditions_combine_with_and_or_or() {
+        // amount > 50 AND region = west: only row 0 (150, west).
+        let both = vec![
+            CaseCond::on(0, CondOp::Gt, &["50"]),
+            CaseCond::on(1, CondOp::Eq, &["west"]),
+        ];
+        let spec = CaseSpec {
+            rules: vec![rule(both.clone(), true, "yes")],
+            else_output: "no".into(),
+        };
+        let yes = CellValue::String("yes".into());
+        let no = CellValue::String("no".into());
+        assert_eq!(
+            build_case_column(&table(), &spec),
+            vec![yes.clone(), no.clone(), no.clone()]
+        );
+        // OR: rows 0 (both), 1 (amount), 2 (region).
+        let spec = CaseSpec {
+            rules: vec![rule(both, false, "yes")],
+            else_output: "no".into(),
+        };
+        assert_eq!(
+            build_case_column(&table(), &spec),
+            vec![yes.clone(), yes.clone(), yes]
+        );
+        // A condition without a column is ignored, not a failed test.
+        let spec = CaseSpec {
+            rules: vec![rule(
+                vec![CaseCond::on(1, CondOp::Eq, &["east"]), CaseCond::new()],
+                true,
+                "e",
+            )],
+            else_output: "no".into(),
+        };
+        assert_eq!(
+            build_case_column(&table(), &spec),
+            vec![no.clone(), CellValue::String("e".into()), no]
+        );
+    }
+
+    #[test]
+    fn several_values_mean_any_of_them_and_none_of_them_when_negated() {
+        let x = CellValue::String("x".into());
+        let no = CellValue::String("no".into());
+        let run = |op, values: &[&str]| {
+            let spec = CaseSpec {
+                rules: vec![rule(vec![CaseCond::on(0, op, values)], true, "x")],
+                else_output: "no".into(),
+            };
+            build_case_column(&table(), &spec)
+        };
+        // amount is 150, 60, 10.
+        assert_eq!(
+            run(CondOp::Eq, &["150", "", "10"]),
+            vec![x.clone(), no.clone(), x.clone()]
+        );
+        assert_eq!(
+            run(CondOp::Ne, &["150", "10"]),
+            vec![no.clone(), x.clone(), no.clone()]
+        );
+        // Every entry blank still compares against "", as a single blank did.
+        assert_eq!(run(CondOp::Eq, &["", ""]), vec![no.clone(), no.clone(), no]);
+    }
+
     #[test]
     fn numeric_if_elseif_else() {
         let spec = CaseSpec {
             rules: vec![
-                CaseRule {
-                    cond_col: Some(0),
-                    op: CondOp::Gt,
-                    value: "100".into(),
-                    case_sensitive: false,
-                    output: "high".into(),
-                },
-                CaseRule {
-                    cond_col: Some(0),
-                    op: CondOp::Gt,
-                    value: "50".into(),
-                    case_sensitive: false,
-                    output: "medium".into(),
-                },
+                rule(vec![CaseCond::on(0, CondOp::Gt, &["100"])], true, "high"),
+                rule(vec![CaseCond::on(0, CondOp::Gt, &["50"])], true, "medium"),
             ],
             else_output: "low".into(),
         };
@@ -217,13 +355,11 @@ mod tests {
     #[test]
     fn string_condition_and_numeric_output() {
         let spec = CaseSpec {
-            rules: vec![CaseRule {
-                cond_col: Some(1),
-                op: CondOp::Eq,
-                value: "west".into(),
-                case_sensitive: false,
-                output: "1".into(),
-            }],
+            rules: vec![rule(
+                vec![CaseCond::on(1, CondOp::Eq, &["west"])],
+                true,
+                "1",
+            )],
             else_output: "0".into(),
         };
         let col = build_case_column(&table(), &spec);
@@ -237,13 +373,7 @@ mod tests {
     #[test]
     fn rules_without_a_column_are_skipped() {
         let spec = CaseSpec {
-            rules: vec![CaseRule {
-                cond_col: None,
-                op: CondOp::Eq,
-                value: "west".into(),
-                case_sensitive: false,
-                output: "x".into(),
-            }],
+            rules: vec![rule(vec![CaseCond::new()], true, "x")],
             else_output: "fallback".into(),
         };
         let col = build_case_column(&table(), &spec);

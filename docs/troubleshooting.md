@@ -368,7 +368,7 @@ If your top-level JSON is a single non-array object, Octa wraps it
 in a one-row table; that usually works but can surprise. Files
 with nested objects deeper than 2 levels get stringified into
 `Nested` cells; expand them via the
-[**JSON Tree** view](usage/view-modes/json-and-yaml-tree.md).
+[**JSON tree** view](usage/view-modes/json-and-yaml-tree.md).
 
 ## The GUI feels slow
 
@@ -433,7 +433,7 @@ To do a schema change:
 ### Format does not support writing
 
 The error reads *"format X does not support writing"*, meaning
-you're trying to **Save As** into a read-only format (SAS, RDS,
+you're trying to **Save as** into a read-only format (SAS, RDS,
 HDF5, NetCDF, EPUB, GeoJSON). Pick a writable format instead (CSV,
 Parquet, JSON, SQLite, etc.). The
 [supported-formats matrix](getting-started/supported-formats.md)
@@ -464,15 +464,15 @@ reopens the most recently closed tab.
 ### Tabs disappear after restart
 
 Octa doesn't persist open tabs across sessions yet. Workaround:
-re-open them from **File → Recent Files** (the entry count is
+re-open them from **File → Recent files** (the entry count is
 configurable in
 [Settings → Files](reference/settings.md#files)).
 
 ### Folder sidebar shows the wrong directory
 
-**File → Close Directory** hides the
+**File → Close directory** hides the
 [folder sidebar](usage/tabs-and-sidebar.md#the-folder-sidebar)
-without closing any tabs. Then **File → Open Directory…** to point
+without closing any tabs. Then **File → Open directory…** to point
 at a different folder.
 
 ## Keyboard shortcuts not working

@@ -42,6 +42,12 @@ pub struct Params {
     /// Replace files that already exist in `out_dir`. Default false.
     #[serde(default)]
     pub overwrite: Option<bool>,
+
+    /// Fold the folder into ONE file instead of writing a harmonised copy of
+    /// each, adding a `source_file` column saying where every row came from.
+    /// `out_dir` then names that single output FILE. Default false.
+    #[serde(default)]
+    pub combine: Option<bool>,
 }
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
@@ -51,6 +57,14 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let out_dir = ctx.resolve_write_path(&p.out_dir)?;
     if !p.dir.is_dir() {
         anyhow::bail!("{} is not a directory", p.dir.display());
+    }
+    if p.combine.unwrap_or(false) {
+        return run_combine(
+            &p.dir,
+            &out_dir,
+            p.recursive.unwrap_or(false),
+            p.ignore_case.unwrap_or(false),
+        );
     }
     // The whole safety story rests on the originals being untouched, so this
     // is a refusal rather than a warning.
@@ -147,4 +161,54 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))
+}
+
+/// `combine: true`: fold the folder into one table with a provenance column
+/// and write it to `out_dir`, which names a FILE in this mode.
+///
+/// Shares `normalise_folder::combine_folder` with the CLI and the GUI, so an
+/// agent, a script and a person all get the same union schema from the same
+/// folder.
+fn run_combine(
+    dir: &std::path::Path,
+    out: &std::path::Path,
+    recursive: bool,
+    ignore_case: bool,
+) -> anyhow::Result<Value> {
+    use octa::data::normalise_folder::{CombineOptions, DEFAULT_SOURCE_COLUMN, combine_folder};
+
+    if out.is_dir() {
+        anyhow::bail!(
+            "with combine, out_dir names the output FILE, but {} is a directory",
+            out.display()
+        );
+    }
+    let opts = CombineOptions {
+        root: dir.to_path_buf(),
+        recursive,
+        ignore_case,
+        source_column: DEFAULT_SOURCE_COLUMN.to_string(),
+    };
+    let report = combine_folder(
+        &opts,
+        &|_, _| {},
+        &std::sync::atomic::AtomicBool::new(false),
+    )?;
+    let registry = octa::formats::FormatRegistry::new();
+    let writer = registry
+        .reader_for_path(out)
+        .ok_or_else(|| anyhow::anyhow!("no writer for {}", out.display()))?;
+    writer.write_file_with_options(
+        out,
+        &report.table,
+        &octa::formats::write_options::WriteOptions::default(),
+    )?;
+    Ok(serde_json::json!({
+        "combined": true,
+        "out": out.display().to_string(),
+        "files_read": report.files_read,
+        "rows": report.table.row_count(),
+        "columns": report.table.columns.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+        "skipped": report.skipped.iter().map(|(f, r)| serde_json::json!({"file": f, "reason": r})).collect::<Vec<_>>(),
+    }))
 }

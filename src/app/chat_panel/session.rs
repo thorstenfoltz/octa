@@ -43,6 +43,9 @@ impl OctaApp {
         )));
         self.chat.last_saved_len = 0;
         self.chat.focus_input = true;
+        // A plan belongs to the conversation that proposed it, and it is not
+        // persisted, so it cannot outlive the session (see `chat::plan`).
+        self.chat.plan_offer = false;
     }
 
     /// Save the current session to disk if it has any messages.
@@ -263,7 +266,11 @@ impl OctaApp {
         // The profile's own write switch governs the whole chat surface: it
         // gates the tool list, the tool context, and the live-tab edit drain
         // (the global Write protection switch no longer applies here).
-        let allow_writes = profile.allow_writes && !self.chat.plain_mode;
+        let mode = self.chat.mode;
+        // Plan mode gates the whole turn, so nothing is allowed to run: no
+        // tools go out, exactly as in "Just answer". The difference is the
+        // prompt, and the Approve button the reply gets underneath it.
+        let allow_writes = profile.allow_writes && mode.runs_tools();
         // The context is still built in plain mode, because `TurnRequest` owns
         // one either way - but with no tools advertised nothing can reach it,
         // and `allow_writes` is forced off above so the edit drain stays shut.
@@ -275,17 +282,34 @@ impl OctaApp {
         // "Just answer": no tools at all, and a prompt that does not describe
         // capabilities this turn has not got. Also the cheapest request the
         // panel can make - the tool payload is most of a normal one.
-        let tool_defs = if self.chat.plain_mode {
-            Vec::new()
-        } else {
+        let tool_defs = if mode.runs_tools() {
             tools::initial_tool_defs(allow_writes, &disabled)
+        } else {
+            Vec::new()
         };
         let has_tool_menu = tool_defs.iter().any(|d| d.name == tools::ENABLE_TOOLS);
-        let system = if self.chat.plain_mode {
+        let system = if mode.is_plain() {
             crate::app::chat::build_plain_system_prompt()
         } else {
-            build_system_prompt(&tool_ctx.open_tab_summaries(), allow_writes, has_tool_menu)
+            build_system_prompt(
+                &tool_ctx.open_tab_summaries(),
+                allow_writes,
+                has_tool_menu,
+                mode.is_plan(),
+            )
         };
+
+        // What this turn is actually shaped like. Plan mode is invisible from
+        // the outside when it fails - a turn that quietly ran as Data mode
+        // looks exactly like one that was never put in Plan mode - so the
+        // facts that decide it go in the log.
+        tracing::info!(
+            mode = ?mode,
+            profile_allow_writes = profile.allow_writes,
+            allow_writes,
+            tools = tool_defs.len(),
+            "chat turn"
+        );
 
         let fallback_base_url = match provider_kind {
             ChatProviderKind::Ollama => self.settings.chat_ollama_url.clone(),
@@ -329,6 +353,10 @@ impl OctaApp {
             guard.cancel = cancel.clone();
             guard.running = running.clone();
         }
+
+        // A plan turn's reply is an offer, not work: the transcript puts
+        // Approve / Discard under it.
+        self.chat.plan_offer = mode.is_plan();
 
         agent::spawn_turn(
             session,

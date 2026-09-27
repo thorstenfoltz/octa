@@ -611,3 +611,142 @@ fn a_workspace_table_can_be_renamed_and_keeps_its_rows() {
         3
     );
 }
+
+// --- Paged results -------------------------------------------------------
+
+/// A table of `n` rows whose `i` column counts 0..n, so a page can be checked
+/// against the exact rows it should hold.
+fn counting_table(n: usize) -> DataTable {
+    table_with(
+        &[("i", "Int64")],
+        (0..n).map(|i| vec![CellValue::Int(i as i64)]).collect(),
+    )
+}
+
+fn page_values(ws: &SqlWorkspace, offset: usize, len: usize) -> Vec<String> {
+    let page = ws.result_page(offset, len).expect("page");
+    (0..page.row_count())
+        .map(|r| page.get(r, 0).expect("cell").to_string())
+        .collect()
+}
+
+#[test]
+fn a_paged_select_reports_the_exact_total_and_hands_back_one_page() {
+    let mut ws = SqlWorkspace::new().expect("workspace");
+    ws.set_active_table(&counting_table(2500))
+        .expect("register");
+
+    let paged = ws.execute_paged("SELECT * FROM data", 1000).expect("run");
+
+    assert_eq!(
+        paged.total_rows,
+        Some(2500),
+        "count must be exact, not capped"
+    );
+    assert_eq!(
+        paged.outcome.table.row_count(),
+        1000,
+        "one page, not all rows"
+    );
+    assert!(matches!(paged.outcome.kind, QueryKind::Select));
+    assert_eq!(
+        paged.outcome.table.columns.len(),
+        1,
+        "the ordering key must not reach the caller: {:?}",
+        paged
+            .outcome
+            .table
+            .columns
+            .iter()
+            .map(|c| &c.name)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn pages_tile_the_result_without_repeating_or_skipping_a_row() {
+    let mut ws = SqlWorkspace::new().expect("workspace");
+    ws.set_active_table(&counting_table(2500))
+        .expect("register");
+    ws.execute_paged("SELECT * FROM data", 1000).expect("run");
+
+    let mut seen: Vec<String> = Vec::new();
+    for offset in (0..2500).step_by(1000) {
+        seen.extend(page_values(&ws, offset, 1000));
+    }
+    assert_eq!(seen.len(), 2500, "every row exactly once");
+    let expected: Vec<String> = (0..2500).map(|i| i.to_string()).collect();
+    assert_eq!(seen, expected, "pages must tile in order");
+}
+
+#[test]
+fn paging_follows_the_querys_own_order_by() {
+    let mut ws = SqlWorkspace::new().expect("workspace");
+    ws.set_active_table(&counting_table(300)).expect("register");
+    ws.execute_paged("SELECT * FROM data ORDER BY i DESC", 100)
+        .expect("run");
+
+    assert_eq!(
+        page_values(&ws, 0, 3),
+        vec!["299", "298", "297"],
+        "the first page must be the query's own first rows"
+    );
+    assert_eq!(
+        page_values(&ws, 299, 1),
+        vec!["0"],
+        "and the last page its last row"
+    );
+}
+
+#[test]
+fn result_all_returns_every_row_while_only_one_page_is_loaded() {
+    let mut ws = SqlWorkspace::new().expect("workspace");
+    ws.set_active_table(&counting_table(2500))
+        .expect("register");
+    let paged = ws.execute_paged("SELECT * FROM data", 10).expect("run");
+
+    assert_eq!(paged.outcome.table.row_count(), 10);
+    // Export and write-back read this, not the loaded page.
+    assert_eq!(ws.result_all().expect("all").row_count(), 2500);
+}
+
+#[test]
+fn a_mutation_is_not_paged_and_still_reports_its_effect() {
+    let mut ws = SqlWorkspace::new().expect("workspace");
+    ws.set_active_table(&counting_table(10)).expect("register");
+
+    let paged = ws
+        .execute_paged("UPDATE data SET i = i + 1", 1000)
+        .expect("run");
+
+    assert_eq!(paged.total_rows, None, "mutations take the unpaged path");
+    assert!(matches!(paged.outcome.kind, QueryKind::Mutation));
+    assert_eq!(paged.outcome.affected, Some(10));
+}
+
+#[test]
+fn a_cte_still_pages() {
+    let mut ws = SqlWorkspace::new().expect("workspace");
+    ws.set_active_table(&counting_table(500)).expect("register");
+
+    let paged = ws
+        .execute_paged(
+            "WITH big AS (SELECT * FROM data WHERE i >= 400) SELECT * FROM big",
+            10,
+        )
+        .expect("run");
+
+    assert_eq!(paged.total_rows, Some(100));
+    assert_eq!(paged.outcome.table.row_count(), 10);
+}
+
+#[test]
+fn a_trailing_semicolon_does_not_defeat_paging() {
+    let mut ws = SqlWorkspace::new().expect("workspace");
+    ws.set_active_table(&counting_table(50)).expect("register");
+
+    let paged = ws.execute_paged("SELECT * FROM data;  ", 10).expect("run");
+
+    assert_eq!(paged.total_rows, Some(50));
+    assert_eq!(paged.outcome.table.row_count(), 10);
+}

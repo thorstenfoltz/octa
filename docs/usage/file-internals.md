@@ -1,6 +1,6 @@
 # File Internals
 
-<!-- SCREENSHOT: file-internals-overview.png: File internals tab on a Parquet file with several row groups. The facts strip is visible above the grid (format, rows, row_groups, created_by, compressed/uncompressed bytes) with a hint line beneath it, and the grid below shows one row per column per row group with the compression and min/max columns in view. -->
+![File internals tab on a Parquet file with several row groups. The facts strip is visible above the grid (format, rows, row_groups, created_by, compressed/uncompressed bytes) with a hint line beneath it, and the grid below shows one row per column per row group with the compression and min/max columns in view.](../assets/screenshots/file-internals-overview.png){ .screenshot-placeholder }
 
 **Analyse → File internals...** opens a read-only tab describing how the
 active file is *physically written*, as opposed to what is in it.
@@ -70,6 +70,3 @@ The same information is available without the GUI:
 - MCP: [`describe_file`](../mcp/tools/describe_file.md) with
   `deep: true`, which adds an `internals` object carrying `facts` and
   `hints`.
-
-<!-- TODO screenshot: File internals tab on a multi-row-group Parquet
-     file, banner visible. Listed in docs/assets/screenshots/INDEX.md. -->

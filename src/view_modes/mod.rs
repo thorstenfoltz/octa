@@ -1,4 +1,4 @@
-mod chart;
+pub(crate) mod chart;
 pub mod compare;
 mod epub_reader;
 mod json_tree;
@@ -12,6 +12,7 @@ pub mod raw_text;
 mod record;
 pub(crate) mod sql;
 pub mod text_ops;
+pub(crate) mod timeline;
 
 pub use chart::render_chart_view;
 pub use compare::render_compare_view;
@@ -23,3 +24,4 @@ pub use notebook::render_notebook_view;
 pub use raw_text::render_raw_view;
 pub use record::render_record_view;
 pub use sql::{SqlAction, SqlViewContext, editor_id as sql_editor_id, render_sql_view};
+pub use timeline::render_timeline_view;

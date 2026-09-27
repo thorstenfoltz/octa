@@ -17,7 +17,7 @@ pub const GETTING_STARTED: &str = r#"# Getting Started
 > reference, the MCP tool pages and the settings reference.
 
 Open a file from **File > Open** (or **Ctrl+O**), pick one or more from the
-**File > Recent Files** submenu, or pass paths on the command line:
+**File > Recent files** submenu, or pass paths on the command line:
 
 ```
 octa path/to/file.parquet other.csv
@@ -203,7 +203,7 @@ cell by `R5:C3`, `R5`, `C3`, a row number, or a column name.
   and **Ctrl+Shift+W** fits every column at once.
 - **Drag a row's bottom edge** in the row-number gutter to give that row its
   own height; **double-click that seam** to fit the row to its content, and
-  **Edit > Auto-fit All Rows** fits every row at once (unbound by default;
+  **Edit > Auto-fit all rows** fits every row at once (unbound by default;
   give it a key under Settings > Shortcuts).
 - **Drag the bottom edge of the `#` corner** to set the height of every row
   at once; double-click it to fit them all, hand-dragged rows included.
@@ -269,24 +269,24 @@ pub const EDITING: &str = r#"# Editing & Undo/Redo
 
 Structural edits:
 
-- **Edit > Insert Row** adds a new empty row below the selected cell.
-- **Columns > Insert Column** opens a dialog to add a column (name + type).
-- **Edit > Delete Row** and **Columns > Delete Column** remove the selected one(s).
-- **Edit > Move Row Up/Down** and **Columns > Move Column Left/Right** reorder data.
-- **Edit > Discard All Edits** reverts all unsaved changes.
+- **Edit > Insert row** adds a new empty row below the selected cell.
+- **Columns > Insert column** opens a dialog to add a column (name + type).
+- **Edit > Delete row** and **Columns > Delete column** remove the selected one(s).
+- **Edit > Move row up/Down** and **Columns > Move column left/Right** reorder data.
+- **Edit > Discard all edits** reverts all unsaved changes.
 - **Drag a column header** to reorder columns.
 - **Double-click a column header** to rename it inline.
 - **Right-click a column header** to change the column data type.
 
 ## Starting from nothing
 
-- **File > New Table...** asks how many columns and rows to start with
+- **File > New table...** asks how many columns and rows to start with
   (3 x 1 by default) and opens a blank, editable grid in a new tab, the
   way a spreadsheet opens a blank sheet. Columns are named `col1`, `col2`,
   ... ; rename them, add rows or columns with the tools above, then
   **Save** to any writable format. Nothing exists on disk until you save.
   Unbound by default; give it a key under **Settings > Shortcuts**.
-- **File > New File...** opens an empty text tab instead: type or paste
+- **File > New file...** opens an empty text tab instead: type or paste
   CSV, JSON, Markdown or any text, then save it as a file.
 - In the SQL panel, `CREATE TABLE` does the same from a statement; see
   **SQL View**.
@@ -339,7 +339,7 @@ file. A `.tsv` is always written tab-separated whatever the setting says,
 since that is what the format means; set a different delimiter and save
 as `.csv` if you want it.
 
-Save As uses these settings, since it is the operating system's file
+Save as uses these settings, since it is the operating system's file
 picker and has nowhere to put controls; the Batch convert dialog shows
 the same controls in a **Write options** expander that applies to that
 run only. On the command line the two Parquet knobs are `--compression`
@@ -381,6 +381,45 @@ Groups after the first must be exactly three digits, which is why
 Saving an edited file is described under **Saving**.
 "#;
 
+pub const EDIT_AUDIT_TRAIL: &str = r#"# Edit Audit Trail
+
+A docked panel listing every pending (unsaved) cell edit in the active
+table: which row and column, the value before and the value after. Open
+it via **View > Edit audit trail**.
+
+Pending cell edits only - structural changes (rows or columns added or
+removed) are not listed, since the trail follows the same overlay of
+edited cells that Save writes out and Discard all edits clears.
+
+## Controls
+
+- **Jump** - select that cell in the table and scroll it into view. If
+  the row is currently hidden by a filter, the cell is still selected,
+  it just cannot be scrolled to since there is nowhere on screen to put
+  it.
+- **Revert** - undo just that one edit, back to its original value,
+  without touching any other pending edit. This goes through the same
+  path as any other edit, so it is itself undoable/redoable with
+  Ctrl+Z/Ctrl+Y. Disabled in read-only mode, with a tooltip explaining
+  why; viewing the trail is never gated.
+- **Copy as SQL** - copy every pending edit to the clipboard as UPDATE
+  statements, one per edited row, addressed by the row's key. Only the
+  columns you actually changed are written, and the WHERE clause uses
+  the key's ORIGINAL value, so an edit to a key cell still finds the
+  row where the server still has it. Copying changes no data, so it
+  works in read-only mode too.
+
+For a tab read from a live database, the statements carry that
+connection's dialect, schema and table name and are ready to run. For a
+file, there is no key to target rows with, so the statements match on
+the first column's original value and are named after the file: the
+panel says so above the button, and the result is a starting point to
+edit, not a script to run as-is.
+
+**Settings > Table > Edit audit trail position** picks which edge of
+the window the panel docks to.
+"#;
+
 pub const FORMULAS: &str = r#"# Formulas
 
 Cells support simple Excel-like formulas starting with **=**.
@@ -391,7 +430,7 @@ Cells support simple Excel-like formulas starting with **=**.
 - **Parentheses**: `(A1 + B1) * 2`.
 - **Numeric literals**: `=A1 * 1.5`.
 
-When inserting a column via **Columns > Insert Column**, you can type a formula
+When inserting a column via **Columns > Insert column**, you can type a formula
 into the **Formula** field. The formula is treated as a row-1 template and
 applied to every row (e.g. `=A1+B1` becomes `=A3+B3` on row 3).
 
@@ -425,9 +464,9 @@ Ctrl+Alt+T) to give it any label you like. This changes only what the tab shows;
 file path and the name on disk are unchanged, and hovering the tab still reveals
 the full path. Clear the name to go back to the file name.
 
-**File > Open Directory...** opens a folder browser docked as a sidebar (left
+**File > Open directory...** opens a folder browser docked as a sidebar (left
 by default; switch to the right under **Settings > Directory Tree**). Click
-any file in the tree to open it in a new tab. **File > Close Directory**
+any file in the tree to open it in a new tab. **File > Close directory**
 hides the sidebar without touching the open tabs.
 
 By default the sidebar lists only sub-folders and files Octa can open, so a
@@ -435,8 +474,81 @@ folder full of unrelated files stays readable. Turn off **Show only openable
 files** under **Settings > Directory Tree** to list every file instead.
 Files without an extension are hidden while the filter is on.
 
+## Git marks
+
+When the folder, or a folder beneath it, is a git repository, the sidebar
+colours what git knows about. **Uncommitted changes** show in the warning
+colour with a letter after the name (M modified, A added, D deleted, R
+renamed, U untracked; ignored files are never marked). **Changes on this
+branch** show in the accent colour with a `*`: files committed on the
+current branch since it forked from the base branch. A file with both keeps
+the warning colour and shows `M*`. Folders take the colour of anything
+beneath them, without a letter. Hover a marked row for the state in words.
+
+The base branch is `master` unless changed under **Settings > Directory
+Tree**; a repository without it is compared against `main`, and without
+that too the branch mark is absent and the root folder's hover says so.
+Either mark can be switched off on its own. Marks refresh on open, on save,
+on window focus and every ten seconds while the sidebar is visible (a
+setting; 0 leaves only open and save), always on a worker thread.
+
 For multi-table databases (SQLite, DuckDB), a picker dialog lists tables and
 their row counts before any data loads.
+"#;
+
+pub const REFRESH_TAB: &str = r#"# Refresh a Tab
+
+**Refresh** reads a tab's source again: the file on disk, the database table,
+the cloud object or the API endpoint the tab came from. Press Ctrl+R for the
+active tab, or right-click any tab and choose **Refresh**.
+
+By default Octa asks where the fresh data goes:
+
+- **Refresh this tab** replaces the tab's contents. The tab keeps its place,
+  its pin and its name.
+- **Open in new tab** leaves the tab alone and opens the fresh read beside it.
+
+Tick **Don't ask again** and the button you click next becomes the rule. To be
+asked again, set **Settings > Files > On refresh** back to **Ask each time**.
+A tab with unsaved changes always asks, because refreshing it in place throws
+those changes away.
+
+A tab with one sheet of a workbook, or one table of a database file, reads just
+that sheet or table. A cloud tab downloads the object again rather than
+rereading the old copy. Result tabs worked out inside Octa (SQL results,
+summaries) have no source, so **Refresh** is greyed out for them.
+
+The read runs in the background; the tab only changes once the data has
+arrived, and keeps what it had if the read fails.
+"#;
+
+pub const SIDEBAR_SEARCH: &str = r#"# Sidebar Search
+
+The **Databases** and **Cloud** sections of the sidebar have a search box
+under their header.
+
+**Filter as you type.** The tree narrows to names that contain the text, in
+any case. A schema or folder with a match below it opens by itself; one whose
+own name matches shows everything inside it. Connections always stay listed.
+This only covers what the tree has already loaded, so it is instant.
+
+**Search all.** Press Enter or click **Search all** to look through the parts
+you have not opened yet, in the background:
+
+- Databases: every table of every expanded connection. Most engines answer
+  this with one catalogue query per connection (or per catalog), so it takes
+  seconds. BigQuery, Athena and catalogs without an `information_schema`
+  are walked schema by schema instead, stopping after 500 schemas.
+- Cloud: every file and folder below every expanded connection (inside the
+  opened buckets, for a whole-account connection), stopping after 10,000
+  objects. Type a `/` to match the whole path instead of the name, for
+  example `2024/sales`.
+
+**Cancel**, next to the spinner while it runs, stops the search at once and
+drops what it had found so far. The matches appear as a list under the box,
+each with where it lives. Click a table or file to open it; click a folder to
+open the tree down to it. Only expanded connections are searched, because
+opening a connection is what connects to it and may ask you to sign in.
 "#;
 
 pub const PINNED_TABS: &str = r#"# Pinned Tabs
@@ -464,7 +576,7 @@ application or closing the tab with unsaved changes still runs the
 standard Save / Don't Save / Cancel dialog. The pinned tab reopens
 on next launch with whatever is on disk - any unsaved edits from
 the previous session are gone if you didn't save them. Save with
-Ctrl+S (or Save As) before quitting.
+Ctrl+S (or Save as) before quitting.
 "#;
 
 pub const PDF_EXPORT: &str = r#"# Export to PDF
@@ -524,16 +636,16 @@ pub const SAVING: &str = r#"# Saving
 
 - **File > Save** writes back to the original file (preserves format and
   settings).
-- **File > Save As** lets you save to a new file, optionally in a different
+- **File > Save as** lets you save to a new file, optionally in a different
   format.
 - Closing a tab or quitting with unsaved changes prompts a confirmation
   dialog (**Save / Don't Save / Cancel**).
 - **If something else changed the file** after you opened it, Save stops and
   asks instead of overwriting it: **Save anyway** writes your version over
   it, **Reload** rereads the file and drops your unsaved edits (as Ctrl+R
-  does), **Cancel** touches nothing so you can Save As elsewhere and compare.
+  does), **Cancel** touches nothing so you can Save as elsewhere and compare.
   Octa notices by remembering the file's modification time and size. Only
-  Save is guarded; Save As writes where you point it. Auto-save skips such a
+  Save is guarded; Save as writes where you point it. Auto-save skips such a
   tab rather than raising the prompt.
 - For SQLite / DuckDB sources, saves are diff-based: only changed rows are
   updated, deleted rows are DELETEd, new rows are INSERTed. Schema changes

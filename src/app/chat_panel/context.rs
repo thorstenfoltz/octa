@@ -86,8 +86,23 @@ impl OctaApp {
             // lazily on the worker thread).
             cloud_settings: Some(self.settings.clone()),
             db_connections: self.settings.db_connections.clone(),
+            api_connections: self.settings.api_connections.clone(),
             read_only: !allow_writes,
         }
+    }
+
+    /// Map a tool-facing tab handle (`#1`, ...) to an index into `tabs`.
+    ///
+    /// The numbering is `build_tool_context`'s: chart tabs are skipped, so the
+    /// handle a tool was given and the tab it lands on cannot drift apart.
+    pub(crate) fn tab_index_for_handle(&self, handle: &str) -> Option<usize> {
+        self.tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| !t.is_chart_tab)
+            .enumerate()
+            .find(|(pos, _)| format!("#{}", pos + 1) == handle)
+            .map(|(_, (i, _))| i)
     }
 
     /// Apply any live-tab edits the chat agent queued. Each batch is applied on
@@ -105,16 +120,17 @@ impl OctaApp {
         };
 
         for batch in batches {
+            // Plan mode: hold the batch for review instead of applying it. The
+            // flag rides on the batch, so flipping the panel's mode mid-turn
+            // cannot send an already-computed batch down the wrong path.
+            tracing::info!(
+                tab = %batch.tab_handle,
+                ops = batch.ops.len(),
+                "assistant tab-edit batch drained"
+            );
             // Map the handle (#N) to a live non-chart tab, same numbering as
             // build_tool_context.
-            let tab_idx = self
-                .tabs
-                .iter()
-                .enumerate()
-                .filter(|(_, t)| !t.is_chart_tab)
-                .enumerate()
-                .find(|(pos, _)| format!("#{}", pos + 1) == batch.tab_handle)
-                .map(|(_, (i, _))| i);
+            let tab_idx = self.tab_index_for_handle(&batch.tab_handle);
             let Some(tab_idx) = tab_idx else {
                 self.status_message = Some((
                     format!(
@@ -144,65 +160,7 @@ impl OctaApp {
 
             let start = tab.table.undo_stack.len();
             for op in &batch.ops {
-                match op {
-                    crate::mcp::tools::ResolvedOp::AddColumn {
-                        name,
-                        type_name,
-                        values,
-                    } => {
-                        let idx = tab.table.col_count();
-                        tab.table
-                            .insert_column(idx, name.clone(), type_name.clone());
-                        for (r, v) in values.iter().enumerate() {
-                            if r < tab.table.row_count() {
-                                tab.table.set(r, idx, v.clone());
-                            }
-                        }
-                    }
-                    crate::mcp::tools::ResolvedOp::InsertRows { at, rows } => {
-                        for row in rows {
-                            let at_i = at
-                                .unwrap_or_else(|| tab.table.row_count())
-                                .min(tab.table.row_count());
-                            tab.table.insert_row(at_i);
-                            for (c, v) in row.iter().enumerate() {
-                                tab.table.set(at_i, c, v.clone());
-                            }
-                        }
-                    }
-                    crate::mcp::tools::ResolvedOp::SetCells(cells) => {
-                        for (r, c, v) in cells {
-                            tab.table.set(*r, *c, v.clone());
-                        }
-                    }
-                    crate::mcp::tools::ResolvedOp::DeleteRows(idxs) => {
-                        let mut sorted = idxs.clone();
-                        sorted.sort_unstable();
-                        sorted.dedup();
-                        for &i in sorted.iter().rev() {
-                            if i < tab.table.row_count() {
-                                tab.table.delete_row(i);
-                            }
-                        }
-                    }
-                    crate::mcp::tools::ResolvedOp::DropColumns(idxs) => {
-                        let mut sorted = idxs.clone();
-                        sorted.sort_unstable();
-                        sorted.dedup();
-                        for &c in sorted.iter().rev() {
-                            if c < tab.table.col_count() {
-                                tab.table.delete_column(c);
-                            }
-                        }
-                    }
-                    crate::mcp::tools::ResolvedOp::SortRows(keys) => {
-                        // The same call the Ask filter's sort makes, so a sort
-                        // asked for in prose and one asked for in chat land in
-                        // the same place. Marks and row tags travel with their
-                        // rows; `edit_open_tab` queues this last.
-                        tab.table.sort_rows_by_columns(keys);
-                    }
-                }
+                op.apply_to(&mut tab.table);
             }
             tab.table.coalesce_undo_since(start);
             // Remember the assistant touched this tab, so the next manual save

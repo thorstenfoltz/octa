@@ -1,11 +1,10 @@
-# Markdown View
+# Markdown view
 
 For `.md` (and `.markdown`, `.mdown`, `.mkd`) files Octa renders a
 proper CommonMark preview with bold / italic / strong / headings /
 lists / code blocks / blockquotes, plus a live-editing layout so
 you can author Markdown right in Octa.
 
-<!-- SCREENSHOT: markdown-view-split.png: Markdown view in Split mode: a TextEdit on the left with raw Markdown, a rendered preview on the right showing headings, bold text, a list, an inline code span. -->
 ![Markdown view in Split layout](../../assets/screenshots/markdown-view-split.png){ .screenshot-placeholder }
 
 ## Layout: Preview / Split / Edit
@@ -49,7 +48,8 @@ the disk content matches the editor pane.
 Pressing **Tab** in the editor inserts spaces (it indents in place
 rather than jumping to the next control), using the
 [**Tab size**](../../reference/settings.md#search-editor) setting, the
-same as the Raw text editor.
+same as the Raw text editor. Only the tab you type is converted: tabs the
+file already contained stay as they are.
 
 ## Limitations
 
@@ -67,5 +67,5 @@ Octa's Markdown view is intentionally light.
 
 - [Notebook view](notebook.md) for `.ipynb`, which also uses the
   same Markdown renderer for text cells.
-- [EPUB Reader](epub-reader.md) reuses `render_pulldown` for
+- [EPUB reader](epub-reader.md) reuses `render_pulldown` for
   chapter rendering after converting XHTML to Markdown.

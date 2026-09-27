@@ -680,6 +680,7 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 right_col: e.right_col,
             }],
             join_type: JoinType::Left,
+            spatial: None,
             error: None,
             size: DialogSize::default(),
         });

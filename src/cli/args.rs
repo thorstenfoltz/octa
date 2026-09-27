@@ -364,6 +364,194 @@ pub struct Cli {
     #[arg(long = "child-column", value_name = "COL")]
     pub child_column: Option<String>,
 
+    /// Replay a saved recipe (`.ocp`, made in the GUI) on FILE.
+    ///
+    /// Every step runs by column name. Output goes to stdout in the `-f`
+    /// format, or to `--recipe-out`. When any step cannot run, nothing is
+    /// written, the skipped steps are listed on stderr and the exit code is 1.
+    #[arg(
+        long = "recipe",
+        value_names = ["RECIPE", "FILE"],
+        num_args = 2,
+        group = "action"
+    )]
+    pub recipe: Vec<PathBuf>,
+
+    /// Write the `--recipe` result to this file instead of stdout.
+    #[arg(long = "recipe-out", value_name = "FILE")]
+    pub recipe_out: Option<PathBuf>,
+
+    /// Merge two or more versions of a table.
+    ///
+    /// Rows are matched by `--merge-key` (by position without one). With
+    /// `--merge-original`, a change made in one version is taken and only
+    /// different changes to the same cell conflict; without it, every cell
+    /// where the versions differ conflicts. Exits 1 and writes nothing while
+    /// conflicts remain, printing them on stdout, which is what a git merge
+    /// driver needs. Resolve them in the GUI or with `--merge-prefer`.
+    #[arg(long = "merge", value_name = "FILE", num_args = 1.., group = "action")]
+    pub merge: Vec<PathBuf>,
+
+    /// The original the `--merge` versions were edited from. Optional.
+    #[arg(long = "merge-original", value_name = "FILE")]
+    pub merge_original: Option<PathBuf>,
+
+    /// Key column(s) for `--merge` (comma-separated or repeated).
+    #[arg(long = "merge-key", value_name = "COLS", value_delimiter = ',')]
+    pub merge_key: Vec<String>,
+
+    /// Settle every `--merge` conflict in favour of version N (1 = the first
+    /// file given to `--merge`).
+    #[arg(long = "merge-prefer", value_name = "N")]
+    pub merge_prefer: Option<usize>,
+
+    /// Write the `--merge` result to this file instead of stdout.
+    #[arg(long = "merge-out", value_name = "FILE")]
+    pub merge_out: Option<PathBuf>,
+
+    /// Rows whose time spans overlap inside a lane (two bookings of one room).
+    ///
+    /// Prints one row per overlapping pair and **exits 1 when any is found**.
+    /// Without `--overlaps-start` / `--overlaps-end` the first two date
+    /// columns are used.
+    #[arg(long = "overlaps", value_name = "FILE", group = "action")]
+    pub overlaps: Option<PathBuf>,
+
+    /// Start column for `--overlaps`.
+    #[arg(long = "overlaps-start", value_name = "COL")]
+    pub overlaps_start: Option<String>,
+
+    /// End column for `--overlaps` (none: every row is a point).
+    #[arg(long = "overlaps-end", value_name = "COL")]
+    pub overlaps_end: Option<String>,
+
+    /// Lane column for `--overlaps`: overlaps are only looked for among rows
+    /// with the same value (a room, a person).
+    #[arg(long = "overlaps-lane", value_name = "COL")]
+    pub overlaps_lane: Option<String>,
+
+    /// Label column for `--overlaps`, shown beside each row of a pair.
+    #[arg(long = "overlaps-label", value_name = "COL")]
+    pub overlaps_label: Option<String>,
+
+    /// What a column's values look like: digits become 9, capitals A, other
+    /// letters a. One row per shape with its count and an example.
+    #[arg(long = "shapes", value_name = "FILE", group = "action")]
+    pub shapes: Option<PathBuf>,
+
+    /// Column for `--shapes`.
+    #[arg(long = "shapes-column", value_name = "COL")]
+    pub shapes_column: Option<String>,
+
+    /// Hidden lookup tables: columns that always follow another column (a
+    /// customer's name and city following its ID). One row per key and
+    /// following column, with how consistently it follows.
+    #[arg(long = "lookups", value_name = "FILE", group = "action")]
+    pub lookups: Option<PathBuf>,
+
+    /// Minimum share of rows that must follow the key, 0 to 1. Default 0.95.
+    #[arg(long = "lookups-min", value_name = "N")]
+    pub lookups_min: Option<f64>,
+
+    /// The commits that changed one cell of a file in a Git repository,
+    /// newest first. Needs `--history-column` and either `--history-key` +
+    /// `--history-value` or `--history-row`.
+    #[arg(long = "cell-history", value_name = "FILE", group = "action")]
+    pub cell_history: Option<PathBuf>,
+
+    /// Column of the cell for `--cell-history`.
+    #[arg(long = "history-column", value_name = "COL")]
+    pub history_column: Option<String>,
+
+    /// Key column(s) that identify the row for `--cell-history`,
+    /// comma-separated. Followed through re-sorts.
+    #[arg(long = "history-key", value_name = "COLS", value_delimiter = ',')]
+    pub history_key: Vec<String>,
+
+    /// The row's value in each `--history-key` column, comma-separated.
+    #[arg(long = "history-value", value_name = "VALUES", value_delimiter = ',')]
+    pub history_value: Vec<String>,
+
+    /// 1-based row number for `--cell-history`, when there is no key.
+    #[arg(long = "history-row", value_name = "N")]
+    pub history_row: Option<usize>,
+
+    /// How many commits `--cell-history` reads, newest first.
+    #[arg(long = "history-depth", value_name = "N", default_value_t = 50)]
+    pub history_depth: usize,
+
+    /// Join by location: each point of FILE gets the columns of the layer
+    /// polygon it lies in, or of the nearest layer point with its distance.
+    /// Needs at least one `--spatial-layer`.
+    #[arg(long = "spatial-join", value_name = "FILE", group = "action")]
+    pub spatial_join: Option<PathBuf>,
+
+    /// A table to join against for `--spatial-join`. Repeat for several.
+    #[arg(long = "spatial-layer", value_name = "FILE")]
+    pub spatial_layer: Vec<PathBuf>,
+
+    /// `inside` (the polygon each point lies in) or `nearest` (the closest
+    /// point, with its distance in km).
+    #[arg(long = "spatial-op", value_name = "OP", value_parser = ["inside", "nearest"], default_value = "inside")]
+    pub spatial_op: String,
+
+    /// With `--spatial-op nearest`: points farther than this many km stay
+    /// empty.
+    #[arg(long = "within-km", value_name = "N")]
+    pub within_km: Option<f64>,
+
+    /// Forecast one column over time (Holt-Winters, with 80% and 95%
+    /// ranges). Needs `--forecast-x` and `--forecast-y`.
+    #[arg(long = "forecast", value_name = "FILE", group = "action")]
+    pub forecast: Option<PathBuf>,
+
+    /// Time column for `--forecast`: dates, date-times or numbers, evenly
+    /// spaced.
+    #[arg(long = "forecast-x", value_name = "COL")]
+    pub forecast_x: Option<String>,
+
+    /// Column of numbers to forecast.
+    #[arg(long = "forecast-y", value_name = "COL")]
+    pub forecast_y: Option<String>,
+
+    /// How many periods ahead to forecast.
+    #[arg(long = "forecast-periods", value_name = "N", default_value_t = 12)]
+    pub forecast_periods: usize,
+
+    /// Season length in points; without it the season is read from the
+    /// spacing (12 for monthly data, 7 for daily, ...).
+    #[arg(long = "forecast-season", value_name = "N")]
+    pub forecast_season: Option<usize>,
+
+    /// Generate test data: new rows shaped like FILE's (same columns, similar
+    /// spread, fake names and IDs, the same share of empty cells).
+    ///
+    /// Several files are generated together so links between them keep
+    /// joining. The plan goes to stderr. Repeatable with `--seed`.
+    #[arg(long = "test-data", value_name = "FILE", num_args = 1.., group = "action")]
+    pub test_data: Vec<PathBuf>,
+
+    /// Rows to generate per table for `--test-data` (default: as many as the
+    /// real table has).
+    #[arg(long = "test-data-rows", value_name = "N")]
+    pub test_data_rows: Option<usize>,
+
+    /// Where `--test-data` writes: a file for one input, an existing folder
+    /// for several. Without it, one table goes to stdout.
+    #[arg(long = "test-data-out", value_name = "PATH")]
+    pub test_data_out: Option<PathBuf>,
+
+    /// Replace the real values of small category columns with `value_1`,
+    /// `value_2`, ... in `--test-data`.
+    #[arg(long = "test-data-rename-categories")]
+    pub test_data_rename_categories: bool,
+
+    /// Format of the `--merge` inputs and output, for files without an
+    /// extension (git's merge driver temp files). An extension (`csv`) or a
+    /// file name to take it from (git's `%P`).
+    #[arg(long = "merge-format", value_name = "EXT")]
+    pub merge_format: Option<String>,
+
     /// Row-level diff of two files.
     ///
     /// Prints rows present in only one side (`status` = `only_in_a` /
@@ -528,8 +716,10 @@ pub struct Cli {
     #[arg(long = "join-on", value_name = "COL[,COL,...]")]
     pub join_on: Option<String>,
 
-    /// Join strategy for `--join`: `left` (default), `inner`, `right`, or
-    /// `full`.
+    /// Join strategy for `--join`: `left` (default), `inner`, `right`,
+    /// `full`, `semi` (left rows with a partner), `anti` (left rows without
+    /// one) or `asof` (the last `--join-on` key matches the nearest earlier
+    /// value, e.g. a time).
     #[arg(long = "join-type", value_name = "TYPE")]
     pub join_type: Option<String>,
 
@@ -701,6 +891,17 @@ pub struct Cli {
     #[arg(long = "db", value_name = "CONNECTION")]
     pub db: Option<String>,
 
+    /// Read a saved REST/JSON API endpoint (Settings -> API endpoints) as a table.
+    ///
+    /// Takes the connection's name, never a URL: the host and its credential
+    /// were chosen when the connection was saved.
+    #[arg(long = "api", value_name = "CONNECTION", group = "action")]
+    pub api: Option<String>,
+
+    /// Path under the endpoint's base URL, overriding the connection's own.
+    #[arg(long = "api-path", value_name = "PATH", requires = "api")]
+    pub api_path: Option<String>,
+
     /// Write mode for --db-write-table.
     #[arg(long = "db-write-mode", value_enum, default_value_t = SqlWriteModeArg::Create)]
     pub db_write_mode: SqlWriteModeArg,
@@ -778,7 +979,7 @@ pub struct Cli {
     #[arg(short = 'n', long = "lines", default_value_t = 20, value_name = "N")]
     pub lines: usize,
 
-    /// Seed for --sample, for reproducible output. Default 0.
+    /// Seed for --sample and --test-data, for reproducible output. Default 0.
     #[arg(long = "seed", default_value_t = 0, value_name = "N")]
     pub seed: u64,
 
@@ -921,7 +1122,7 @@ pub struct Cli {
     #[arg(long = "to", value_name = "URL|EXT")]
     pub to: Option<String>,
 
-    /// Output file for --cloud-get.
+    /// Output file for --cloud-get and for --harmonise-schema --combine.
     #[arg(long = "out", value_name = "FILE")]
     pub out: Option<PathBuf>,
 
@@ -975,6 +1176,12 @@ pub struct Cli {
     /// was refused.
     #[arg(long = "harmonise-schema", value_name = "DIR", group = "action")]
     pub harmonise_schema: Option<PathBuf>,
+
+    /// Fold the folder into ONE file instead of writing a harmonised copy of
+    /// each, adding a `source_file` column saying where every row came from.
+    /// Requires --out FILE rather than --out-dir DIR (--harmonise-schema).
+    #[arg(long = "combine")]
+    pub combine: bool,
 
     /// Take the target schema from this file instead of the shape most files
     /// in the folder already have (--harmonise-schema).

@@ -29,6 +29,11 @@ impl OctaApp {
                 size: octa::ui::settings::DialogSize::default(),
             });
         }
+        if action.open_lookups && self.tabs[self.active_tab].table.col_count() > 0 {
+            let mut st = crate::app::state::LookupsState::new(self.active_tab);
+            crate::app::dialogs::lookups::start_scan(self, &mut st);
+            self.lookups_dialog = Some(st);
+        }
         if action.open_referential && self.tabs[self.active_tab].table.col_count() > 0 {
             self.referential_dialog = Some(crate::app::state::ReferentialState {
                 parent_tab: self.active_tab,

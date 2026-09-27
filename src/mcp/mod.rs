@@ -64,6 +64,8 @@ pub struct OctaMcpServer {
     pub read_only: bool,
     /// Saved live-database connections, read once at startup.
     pub db_connections: Vec<octa::db::DbConnection>,
+    /// Saved API endpoints, read once at startup.
+    pub api_connections: Vec<octa::api::ApiConnection>,
     /// rmcp tool routing table (populated by `#[tool_router]`).
     pub tool_router: ToolRouter<OctaMcpServer>,
 }
@@ -74,7 +76,7 @@ impl OctaMcpServer {
     /// in-GUI chat agent builds a context with tab snapshots instead. Sharing
     /// the type lets both surfaces call the same `tools::<name>::run`.
     pub fn tool_context(&self) -> tools::ToolContext {
-        tools::ToolContext::for_mcp(
+        let mut ctx = tools::ToolContext::for_mcp(
             self.default_row_limit,
             self.cell_byte_cap,
             self.allow_schema_changes,
@@ -82,7 +84,9 @@ impl OctaMcpServer {
             self.db_connections.clone(),
             self.read_only,
             self.large_file_min_bytes,
-        )
+        );
+        ctx.api_connections = self.api_connections.clone();
+        ctx
     }
 }
 
@@ -123,6 +127,7 @@ impl OctaMcpServer {
             read_only,
             // Settings are read once at server startup, like the caps above.
             db_connections: octa::ui::settings::AppSettings::load().db_connections,
+            api_connections: octa::ui::settings::AppSettings::load().api_connections,
             tool_router,
         }
     }
@@ -323,6 +328,33 @@ your own LIMIT/TOP for large tables - the whole result is fetched from the serve
         Parameters(p): Parameters<tools::query_db::Params>,
     ) -> Result<CallToolResult, McpError> {
         tools::query_db::handle(self, p).await
+    }
+
+    #[tool(
+        description = "List the saved REST/JSON API endpoints (Settings -> API endpoints): \
+name, base URL, default path, how it authenticates and how it pages. Use a connection's `name` \
+with `query_api`. You cannot add an endpoint or call an arbitrary URL - only the endpoints the \
+user saved are reachable. Read-only; does not contact any server."
+    )]
+    async fn list_api_connections(
+        &self,
+        Parameters(p): Parameters<tools::list_api_connections::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::list_api_connections::handle(self, p).await
+    }
+
+    #[tool(description = "Read a saved REST/JSON API endpoint as a table (see \
+`list_api_connections` for the names). Handles the endpoint's authentication and walks its \
+pagination, so you get every page's rows, not just the first. `path` is optional and is joined \
+under the saved base URL - you cannot point this at an arbitrary address, only at a path of an \
+endpoint the user already saved. Use `records_path` only to override which array in the \
+response holds the rows (a JSON pointer like `/data/items`); leaving it out uses the \
+connection's own setting.")]
+    async fn query_api(
+        &self,
+        Parameters(p): Parameters<tools::query_api::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::query_api::handle(self, p).await
     }
 
     #[tool(
@@ -880,6 +912,143 @@ orphan_values, orphans: [{value, rows}], sentence}`."
     }
 
     #[tool(
+        description = "Replay a saved recipe (`.ocp`, recorded in the Octa GUI: renames, type \
+changes, sorts, dropped duplicates, filled gaps, split/merged columns and more, all by column \
+name) on a table and return the result. `recipe_path` is the recipe; `path` / `open_tab` the \
+table. Returns `{steps: [{step, ran, error}], skipped, table}`. A step whose column is missing is \
+skipped and reported, the rest still run. Nothing is written; pass `table` to `write_table` to \
+keep it."
+    )]
+    async fn apply_recipe(
+        &self,
+        Parameters(p): Parameters<tools::apply_recipe::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::apply_recipe::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Merge two or more versions of a table (`versions`, each a `path` or an \
+`open_tab`), per row and per cell. With an `original` (the table they were all edited from) a \
+change made in one version is taken and only different changes to one cell, or a row deleted in \
+one version and edited in another, conflict. Without it, every cell where the versions differ \
+conflicts and rows from any version are kept. Rows are matched by `keys`, or by position when \
+empty (`suggest_join_keys` finds one). `prefer` (1-based version number) settles every conflict. \
+Returns `{merged, conflicts, conflict_count, status_counts}`; `merged` is present only once no \
+conflict is open."
+    )]
+    async fn merge_tables(
+        &self,
+        Parameters(p): Parameters<tools::merge_tables::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::merge_tables::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Find rows whose time spans overlap: two bookings of one room, one person on \
+two shifts. Each row runs from `start` to `end` (column names; default: the first two date columns, \
+and no `end` makes every row a point). With `lane`, overlaps are only looked for among rows with the \
+same value there. Spans that only touch (one ends as the next starts) do not overlap. Returns \
+`{overlap_count, lanes_with_overlaps, backwards_rows, overlaps}`; `overlaps` has one row per pair \
+with the lane and each side's 1-based row, label, start and end."
+    )]
+    async fn find_overlaps(
+        &self,
+        Parameters(p): Parameters<tools::find_overlaps::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::find_overlaps::handle(self, p).await
+    }
+
+    #[tool(
+        description = "What a column's values look like, with the specifics taken out: digits \
+become 9, capital letters A, other letters a, punctuation stays (`D-80331` is `A-99999`). Returns \
+`{column, empty, shape_count, shapes: [{shape, count, example}]}`, most common shape first. A \
+column where one shape dominates and a few values differ usually holds typos or a second format. \
+Values longer than 24 characters shorten runs as `a(12)`."
+    )]
+    async fn value_shapes(
+        &self,
+        Parameters(p): Parameters<tools::value_shapes::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::value_shapes::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Forecast a column over time with Holt-Winters (trend plus a season read \
+from the date spacing: 24 hourly, 7 daily, 52 weekly, 12 monthly, 4 quarterly; `season` overrides \
+it). `x` is a date, date-time or number column with evenly spaced values (bucket uneven data first \
+with `resample_timeseries`), `y` the numbers to forecast, `periods` how far ahead (default 12). \
+Returns `{season, forecast}`; `forecast` has `x, forecast, lo80, hi80, lo95, hi95` per period."
+    )]
+    async fn forecast(
+        &self,
+        Parameters(p): Parameters<tools::forecast::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::forecast::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Join by location. `points` is a table with latitude/longitude columns or \
+point geometry; `layers` are one or more tables. `op` `inside` (default): each point gets the \
+columns of the layer polygon it lies in (GeoJSON or shapefile). `op` `nearest`: each \
+point gets the columns of the closest layer point and `<layer>_distance_km` (great-circle); \
+`within_km` leaves farther points empty. Layer columns are prefixed with the layer's file name. \
+Coordinates must be latitude/longitude. Returns `{multi_match, no_point, table}`."
+    )]
+    async fn spatial_join(
+        &self,
+        Parameters(p): Parameters<tools::spatial_join::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::spatial_join::handle(self, p).await
+    }
+
+    #[tool(
+        description = "The Git history of one cell in a file inside a Git repository: the \
+commits that changed it, newest first, with date, author, subject, the value, and `change` \
+(changed, row_added, row_removed, column_added, column_removed, earliest). Name the row with `key` \
++ `key_value` (column names and their values, followed through re-sorts) or `row` (1-based \
+position). Renames are followed. Uncommitted changes on disk come first. `depth` commits are read \
+(default 50). Returns `{history, positional_commits, unreadable, more}`."
+    )]
+    async fn cell_history(
+        &self,
+        Parameters(p): Parameters<tools::cell_history::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::cell_history::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Find hidden lookup tables: columns that always have the same value for the \
+same key (a customer's name and city following customer_id), which means a flat export really \
+holds two tables. Only keys that repeat are considered. `min_consistency` (0 to 1, default 0.95) \
+is the share of rows that must agree with their key's most common value. Returns `{findings}`, \
+one row per key and following column with `consistency_percent`, `conflicting_keys` and \
+`breaking_rows`. Breaking rows are often typos."
+    )]
+    async fn find_lookups(
+        &self,
+        Parameters(p): Parameters<tools::find_lookups::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::find_lookups::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Generate test data shaped like one or more real tables (`sources`, each a \
+`path` or an `open_tab`): the same columns, numbers and dates drawn from the real spread, fake \
+names, emails, IBANs and IDs, code-like text in the same shape, empty cells at the real rate. \
+Several sources are generated together so links between them (an `orders.customer_id` pointing \
+at `customers.id`) still join. `rows` per table (default: as many as the real one), `seed` for a \
+repeatable result. Small category columns keep their real values unless `rename_categories` is \
+true; the `plan` lists every column's generator and which ones kept real values. Returns \
+`{plan, tables: {name: table}}`; pass a table to `write_table` to keep it."
+    )]
+    async fn generate_test_data(
+        &self,
+        Parameters(p): Parameters<tools::generate_test_data::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::generate_test_data::handle(self, p).await
+    }
+
+    #[tool(
         description = "Search every tabular file in a directory (one level deep) for a value, \
 like grep across files. `query` + `mode` (`plain` default / `wildcard` / `regex`), with optional \
 `case_sensitive` and `whole_word`. Skips files larger than `max_file_size_mb` (default 50) and \
@@ -943,7 +1112,9 @@ file-loader cap. Requires at least two sources."
 in `sources` has a `path` (file) or `open_tab` (GUI tab name / `@active`), plus an optional \
 `table` for multi-table sources. Sources are assigned names `t0`, `t1`, ... and joined in \
 order using a SQL `USING (on)` clause. `how` sets the join type: `left` (default), `inner`, \
-`right`, or `full`. Duplicate key columns are collapsed into one in the output. Requires at \
+`right`, `full`, `semi` (left rows with a partner, left columns only), `anti` (left rows \
+without one) or `asof` (the last key is matched to the nearest earlier value, e.g. a time). \
+Duplicate key columns are collapsed into one in the output. Requires at \
 least two sources and at least one key column in `on`. `limit` caps response rows (0 = \
 unlimited); `unlimited: true` lifts the 5,000,000-row file-loader cap."
     )]

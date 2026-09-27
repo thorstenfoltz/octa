@@ -14,7 +14,7 @@ pub const COLUMN_TOOLS: &str = r#"# Column Tools
 
 Right-click any column header and pick **Hide column** to remove it
 from the view. Hidden columns are still part of the table on disk:
-Save and Save As both write them out. Use **Columns > Show hidden
+Save and Save as both write them out. Use **Columns > Show hidden
 columns** to bring everything back at once. This is a per-tab,
 session-only setting; closing the tab or reopening the file clears
 the hidden set.
@@ -41,6 +41,114 @@ The freeze is per tab and session-only, like column widths. If the
 window gets too narrow to keep the whole frozen band and still scroll,
 Octa temporarily pins fewer columns and restores the full band when
 there is room again.
+"#;
+
+pub const COLUMN_NAVIGATOR: &str = r#"# Column Navigator
+
+The Column Navigator is a docked panel listing every column of the active
+table, with a search box and per-column show/hide, freeze and reorder
+controls. Open it via **View > Column navigator**.
+
+It is a second way in to the same show/hide, freeze and column-order state
+the Columns menu and the header right-click menu already drive - toggling a
+column here or there always agrees, since there is only one place any of it
+is actually stored.
+
+## Controls
+
+- **Search box** - type to narrow the list to columns whose name contains
+  the text, case-insensitive.
+- **Show all** / **Hide all** - show every hidden column at once, or hide
+  every column except one, so the table is never left with nothing to show.
+- **Eye checkbox** - show or hide that one column, same as the header's
+  right-click "Hide column".
+- **Freeze** - freeze that column and every column before it, exactly like
+  the header's "Freeze columns up to here". Click it again on the last
+  frozen column to unfreeze everything.
+- **Drag handle** - drag a row to reorder that column in the table.
+  Disabled in read-only mode; showing, hiding and freezing stay available
+  even then, since only reordering changes the table's structure.
+
+**Settings > Table > Column navigator position** picks which edge of the
+window the panel docks to.
+"#;
+
+pub const CHANGE_TYPE: &str = r#"# Change Column Type
+
+Every reader guesses a column's type when it opens the file, and a
+single stray value is enough to make it guess "text". **Change type**
+fixes that after the fact, which is the whole point: load-time problems
+get fixed once the file is open, never behind a gate before it.
+
+## Two doors, one set of rules
+
+- **Right-click a column header -> Change type** is the fast one. Pick a
+  type and it converts on the spot, with no dialog to answer. If some
+  values in the column would not convert, it opens the dialog below
+  instead of half-converting a column you clicked through in one
+  gesture.
+- **Columns -> Change type...** opens that dialog directly, for when you
+  want to look before you leap.
+
+Both run exactly the same conversion, so they can never disagree.
+
+## What happens to values that do not convert
+
+They keep their original text. They are never blanked and the
+conversion is never refused because of them: a column declared as a
+number can still hold the one cell that reads `n/a`, and that is a far
+more useful answer than either losing the value or being told "no".
+
+Those cells are flagged as problem cells, so <kbd>F10</kbd> walks
+through them the same way it walks validation failures and outliers.
+
+## Dates
+
+Dates go through the same seven layouts the loader itself uses, and the
+layout is chosen for the whole column: whichever one reads the most
+values wins, and every value is then read that way. So a German column
+of `18.09.2026` converts and comes out as `2026-09-18`, instead of
+being refused for not already looking like ISO. An ambiguous column
+(`01/02/2020` reads as both DD/MM and MM/DD) is read as DD/MM.
+
+The vote reads the first 10,000 values rather than the whole column,
+because it parses each one under all seven layouts: seven parses per
+value, in one go, on the thread that draws the window. Uncapped on a
+five-million-row column that is thirty-five million parses and a
+multi-second freeze on a single click. It never changes a reported
+count, since every loaded row is classified under whichever layout
+wins.
+
+**Settings > Performance > Change type > Date layout sample** raises or
+removes that limit. It is only worth raising when a column's first
+values are not representative of the rest, such as a file sorted so
+every ISO-formatted row comes first.
+
+## Strict or mixed
+
+By default the conversion is **mixed**: what parses is converted, what
+does not keeps its text. That is what makes it useful on a real column,
+where one `n/a` should not cost you the other 999 numbers.
+
+Sometimes that is the wrong outcome: a column of "mostly numbers" sorts
+and sums as a number column while quietly leaving the stragglers out.
+Tick **Only convert if every value converts** and the conversion is
+refused whenever anything would fail, changing nothing at all - not the
+values, not the type, nothing on the undo stack. The dialog says how
+many values blocked it so you can fix them or untick the box.
+
+## The types
+
+Text, Whole number, Decimal number, Boolean, Date, Date and time.
+Converting to **Text** can never fail, so it is always available as a
+way out.
+
+The whole conversion is one entry on the undo stack: a single
+<kbd>Ctrl</kbd>+<kbd>Z</kbd> puts the column back exactly as it was,
+including the values that kept their text.
+
+On a partly loaded file the counts describe the rows that are loaded,
+and the dialog says so.
 "#;
 
 pub const TRANSFORMS: &str = r#"# Transform Column
@@ -74,9 +182,14 @@ save, and respects read-only mode.
   the byte round-trip; anything it cannot prove is left exactly as it is,
   because a wrong "repair" is worse than the corruption. The same check drives
   the Clean-up suggestions panel, which finds these columns for you.
+- **Tidy ID format** - write every valid IBAN, card number, barcode, VAT
+  number or email address in a column one standard way (IBAN in capitals and
+  groups of four, VAT without spaces, email domain in lower case). The dialog
+  says how many values change and how many are not valid; invalid values are
+  never touched. See Data Validation for what "valid" means.
 
-Split, Merge, and Extract create new columns; Fill, Replace and Repair
-garbled characters rewrite the chosen column in place. For the column-creating operations you can set the
+Split, Merge, and Extract create new columns; Fill, Replace, Repair
+garbled characters and Tidy ID format rewrite the chosen column in place. For the column-creating operations you can set the
 new column name and the insert position (leave either blank for the default
 shown as the field hint); for Split the name is used as a base, so the parts
 become name_1, name_2, and so on. None of them change column types beyond
@@ -84,17 +197,33 @@ producing text, and all changes can be undone before you save.
 
 ## Conditional column (if / else-if / else)
 
-**Data > Conditional column...** builds a new column whose value depends on
-conditions, like a spreadsheet IF/IFS or a SQL CASE. Add an ordered list of
+**Columns > Conditional column...** builds a new column whose value depends
+on conditions, like a spreadsheet IF/IFS or a SQL CASE. Add an ordered list of
 rules such as "if amount > 100 then high, else if amount > 50 then medium,
-else low". Each rule tests one column with an operator (equals, contains,
-greater than, is empty, ...) and writes its output value when it matches.
+else low". Each condition tests one column with an operator (equals, contains,
+greater than, is empty, ...), and a rule writes its Then value when it
+matches.
+
+A rule can hold several conditions: click **Add condition** and choose **and**
+(every condition must hold, for example amount > 100 and region = west) or
+**or** (one of them is enough).
+
+A condition can compare against several values, one per line: click **+**
+for another line, or open the drop-down under the values to pick them from the
+values that occur in that column (most common first, with how often each
+appears; click one again to take it out). The condition holds when the cell
+matches any of the values, for example region equals west or east. For
+"does not equal" and "does not contain" it holds when the cell matches none
+of them.
 
 Rules are checked top to bottom and the first match wins (that is the
 "else if" behaviour); reorder them with the ^ / v buttons. If no rule
-matches, the Else value is used. Outputs that look like numbers become
-numeric cells; everything else is text. The result is a new column (name
-and position configurable) and is undoable with Ctrl+Z.
+matches, the Else value is used. With **Column type** on Automatic, outputs
+that look like numbers become numeric cells and everything else is text.
+Pick a type there (Text, Whole number, Decimal number, Boolean, Date, Date
+and time) to choose it yourself; values that do not fit keep their text and
+are flagged, so F10 walks them. The result is a new column (name and
+position configurable) and is undoable with Ctrl+Z.
 
 This shares its operators with Conditional formatting; the difference is
 that conditional formatting colours matching cells, while a conditional
@@ -178,6 +307,10 @@ default).
 
 Mark precedence: cell > row > column. To clear a mark, right-click and choose
 **Clear Mark**.
+
+Marking works in **read-only mode** and on a read-only database tab. A
+colour mark is a way of reading a table, not an edit of it: nothing is
+written to the file or the server.
 "#;
 
 pub const CONDITIONAL_FORMAT: &str = r#"# Conditional Formatting
@@ -239,8 +372,31 @@ column, or `(any column)` to check every cell) and a kind:
   cells fail.
 - **Max length** - the cell text must be at most the given number of
   characters.
+- **IBAN**, **Card number**, **EAN / ISBN / UPC**, **VAT number (EU)**,
+  **Email address** - the cell must be a correctly built ID of that kind:
+  country, length and check digits for an IBAN, the check digit of a card
+  number or barcode, the country's shape and (where published) check digit
+  for a VAT number, the spelling of an email address. Spaces and dashes are
+  fine; empty cells pass.
 
 The footer shows a live count of how many cells currently fail.
+
+## Checking IDs
+
+**Valid means correctly built, not that it exists.** Every check is arithmetic
+on the value itself: nothing is looked up and nothing leaves your computer. A
+correct IBAN can belong to a closed account; whether a VAT number is registered
+only the EU's online VIES service knows, and asking it would send your data out.
+Phone numbers are not checked: that needs every country's numbering plan, and a
+half-right check would paint good numbers red.
+
+**A red cell never stops you.** It is a flag, not a gate. You can edit, save and
+share the table as it is; what to do about it is your call.
+
+Keep code columns as text: a barcode like 036000291452 read as a number loses
+its leading zero and then fails. **Transform column > Tidy ID format** writes
+every valid ID one standard way (IBAN in capitals and groups of four, and so
+on) and leaves invalid ones exactly as they are.
 
 ## How it behaves
 
@@ -285,7 +441,7 @@ changes nothing. Also available as `octa --impute` and the `fill_missing`
 assistant/MCP tool.
 "#;
 
-pub const RENAME_COLUMNS: &str = r#"# Rename Columns
+pub const RENAME_COLUMNS: &str = r#"# Rename columns
 
 **Columns > Rename columns...** renames many columns at once, instead of editing
 each header by hand.

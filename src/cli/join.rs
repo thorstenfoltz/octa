@@ -47,7 +47,7 @@ pub fn run(
         .zip(tables.iter())
         .collect();
 
-    let how = parse_join_type(join_type.as_deref())?;
+    let how = JoinType::parse(join_type.as_deref().unwrap_or("left"))?;
     let out = join_tables(&named, &join_on, how)?;
 
     eprintln!(
@@ -59,16 +59,4 @@ pub fn run(
     );
 
     write_table(&out, format)
-}
-
-fn parse_join_type(s: Option<&str>) -> anyhow::Result<JoinType> {
-    match s.unwrap_or("left").to_ascii_lowercase().as_str() {
-        "left" => Ok(JoinType::Left),
-        "inner" => Ok(JoinType::Inner),
-        "right" => Ok(JoinType::Right),
-        "full" => Ok(JoinType::Full),
-        other => {
-            anyhow::bail!("--join-type must be one of: left, inner, right, full (got \"{other}\")")
-        }
-    }
 }

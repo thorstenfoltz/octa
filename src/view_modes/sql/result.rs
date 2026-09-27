@@ -4,24 +4,43 @@
 
 use super::*;
 
+/// How close to the end of the loaded rows the grid has to scroll before the
+/// next page is fetched. One page-ish of lead time, so the fetch lands before
+/// the user reaches the gap.
+const PREFETCH_ROWS: usize = 200;
+
+/// Render the result grid. Returns whether the view has scrolled close enough
+/// to the end of the rows it holds that the next page should be fetched.
+///
+/// `total` is the exact row count of the whole result; `table` holds only the
+/// pages loaded so far.
 pub(super) fn render_result_table(
     ui: &mut egui::Ui,
     table: &octa::data::DataTable,
     selected: &mut Option<(usize, usize)>,
-) {
+    total: Option<usize>,
+) -> bool {
     use egui_extras::{Column, TableBuilder};
 
     if table.col_count() == 0 {
         ui.label(egui::RichText::new(octa::i18n::t("sql.no_columns")).weak());
-        return;
+        return false;
     }
+    let loaded = table.row_count();
+    let has_more = total.is_some_and(|t| loaded < t);
+    let mut want_more = false;
 
+    // `auto_shrink` off on both: the grid sits in a resizable pane, and
+    // `egui::Panel` persists the rect its content produced. A grid that
+    // shrinks to a short result rewrites the pane height the user dragged to.
     egui::ScrollArea::horizontal()
         .id_salt("sql_result_scroll")
+        .auto_shrink([false, false])
         .show(ui, |ui| {
             let mut builder = TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
+                .auto_shrink([false, false])
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center));
             for _ in &table.columns {
                 builder = builder.column(Column::auto().at_least(80.0).resizable(true));
@@ -34,9 +53,15 @@ pub(super) fn render_result_table(
                         });
                     }
                 })
-                .body(|mut body| {
-                    for r in 0..table.row_count() {
-                        body.row(20.0, |mut row| {
+                .body(|body| {
+                    // Virtualised: the old `for r in 0..row_count()` laid out
+                    // every row of every result on every frame.
+                    body.rows(20.0, loaded, |mut row| {
+                        let r = row.index();
+                        if has_more && r + PREFETCH_ROWS >= loaded {
+                            want_more = true;
+                        }
+                        {
                             for c in 0..table.col_count() {
                                 row.col(|ui| {
                                     let v = table.get(r, c).cloned().unwrap_or(CellValue::Null);
@@ -65,10 +90,11 @@ pub(super) fn render_result_table(
                                     });
                                 });
                             }
-                        });
-                    }
+                        }
+                    });
                 });
         });
+    want_more
 }
 
 /// Serialise a result table to TSV (header row + one row per record, cells

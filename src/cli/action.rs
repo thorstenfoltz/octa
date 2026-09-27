@@ -62,6 +62,18 @@ pub enum Action {
     },
     CompareDistributions(Box<super::distribution_compare::Args>),
     CheckReferences(Box<super::referential::Args>),
+    /// Replay a recipe on a file. `--recipe`.
+    Recipe {
+        recipe: PathBuf,
+        input: PathBuf,
+        out: Option<PathBuf>,
+    },
+    /// Overlapping time spans; exits 1 when any. `--overlaps`.
+    Overlaps(Box<super::overlaps::Args>),
+    /// Generate test data shaped like the inputs. `--test-data`.
+    TestData(Box<super::test_data::Args>),
+    /// Merge versions of a table. `--merge`.
+    Merge(Box<super::merge::Args>),
     Diff {
         path_a: PathBuf,
         /// `None` when the B side is a database table rather than a file.
@@ -116,7 +128,12 @@ pub enum Action {
     /// `--harmonise-schema DIR --out-dir DIR`. Exits 1 if any file was refused.
     Harmonise {
         dir: PathBuf,
+        /// Where the output goes: a folder of harmonised copies, or, with
+        /// `combine`, the single file they are folded into.
         out_dir: PathBuf,
+        /// Fold every file into one table with a provenance column instead
+        /// of writing one harmonised copy per input.
+        combine: bool,
         target_file: Option<PathBuf>,
         recursive: bool,
         ignore_case: bool,
@@ -203,6 +220,10 @@ pub enum Action {
         conn: String,
         sql: String,
     },
+    ApiFetch {
+        conn: String,
+        path: Option<String>,
+    },
     ToWorkbook {
         out: PathBuf,
         inputs: Vec<PathBuf>,
@@ -263,6 +284,16 @@ pub enum Action {
         secret_env: Option<String>,
     },
     RemoveConnection(String),
+    /// What a column's values look like. `--shapes FILE --shapes-column COL`.
+    Shapes(Box<super::shapes::Args>),
+    /// Columns that always follow another column. `--lookups FILE`.
+    Lookups(Box<super::lookups::Args>),
+    /// The commits that changed one cell. `--cell-history FILE`.
+    CellHistory(Box<super::cell_history::Args>),
+    /// Join by location. `--spatial-join POINTS --spatial-layer FILE...`.
+    SpatialJoin(Box<super::spatial_join::Args>),
+    /// Holt-Winters forecast of one column. `--forecast FILE`.
+    Forecast(Box<super::forecast::Args>),
     Mcp,
 }
 

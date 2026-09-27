@@ -32,7 +32,10 @@ kind = "not_null"
 
 Kinds are `not_null`, `unique`, `range` (with `min` and `max`, either
 optional), `regex` (with `pattern`) and `max_length` (with
-`max_length`). A rule without a `column` applies to every column.
+`max_length`), plus the ID checks `iban`, `card_number`, `gtin`,
+`vat_id` and `email` (see
+[Data Validation](../usage/data-validation.md#checking-ids-iban-card-numbers-barcodes-vat-email)).
+A rule without a `column` applies to every column.
 
 The same file is written and read by the **Data -> Data validation...**
 dialog's Save rules and Load rules buttons, so a rule set you built by

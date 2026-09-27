@@ -13,12 +13,11 @@ applicable to the current file are enabled. Hovering an entry shows a
 one-line description of what that mode does.
 
 A few file types open in a non-Table view that suits them better: a
-`.json` file opens in the [JSON Tree](json-and-yaml-tree.md), and a
-`.yml` / `.yaml` file opens in [Raw Text](raw-text.md). You can always
+`.json` file opens in the [JSON tree](json-and-yaml-tree.md), and a
+`.yml` / `.yaml` file opens in [Raw text](raw-text.md). You can always
 switch from the View menu; this just picks a sensible starting point.
 JSONL and every other format still open in Table view.
 
-<!-- SCREENSHOT: view-menu.png: View menu open in the toolbar, showing the radio buttons for Table / Raw Text / Markdown / Notebook / EPUB Reader / Map / JSON Tree / YAML Tree / Compare / Read-only mode. -->
 ![View menu](../../assets/screenshots/view-menu.png){ .screenshot-placeholder }
 
 ## All view modes at a glance
@@ -26,21 +25,22 @@ JSONL and every other format still open in Table view.
 | View mode                              | Available for                        | Read-only?                    |
 |----------------------------------------|--------------------------------------|-------------------------------|
 | [**Table**](../table-view.md)          | Every format                         | No (editing fully supported)  |
-| [**Raw Text**](raw-text.md)            | Anything Octa can read as UTF-8 text | No                            |
+| [**Raw text**](raw-text.md)            | Anything Octa can read as UTF-8 text | No                            |
 | [**Markdown**](markdown.md)            | `.md`, `.markdown`, `.mdown`, `.mkd` | No (edit + preview)           |
 | [**Notebook**](notebook.md)            | `.ipynb`                             | Yes                           |
-| [**JSON Tree**](json-and-yaml-tree.md) | `.json`, `.jsonl`                    | Edit keys + values in place   |
-| [**YAML Tree**](json-and-yaml-tree.md) | `.yaml`, `.yml`                      | Same as JSON Tree             |
-| [**EPUB Reader**](epub-reader.md)      | `.epub`                              | Yes                           |
+| [**JSON tree**](json-and-yaml-tree.md) | `.json`, `.jsonl`                    | Edit keys + values in place   |
+| [**YAML tree**](json-and-yaml-tree.md) | `.yaml`, `.yml`                      | Same as JSON tree             |
+| [**EPUB reader**](epub-reader.md)      | `.epub`                              | Yes                           |
 | [**Map**](map.md)                      | `.geojson`                           | Yes (geometry rendering only) |
 | [**Record**](record.md)                | Any table with columns               | No (click a value to edit)    |
+| [**Timeline**](timeline.md)            | Any table with a date column         | Yes                           |
 | [**Compare**](compare.md)              | Any file (compared against another)  | Yes (it's a diff viewer)      |
 
 ## Open as... (files with a misleading extension)
 
 Which view modes a file offers depends on how it was parsed, and Octa
 parses by extension. A `.log` file that actually holds JSON is read as
-plain text, so the JSON Tree never appears in the View menu.
+plain text, so the JSON tree never appears in the View menu.
 
 Two menu entries fix that, depending on whether the file is open yet:
 
@@ -80,7 +80,7 @@ tab is left exactly as it was, with the error shown in the status bar.
 ([`CycleViewMode`](../../reference/shortcuts.md#view)) advances through the modes available for the current tab in this order:
 
 ```
-Table → Raw → Markdown → Notebook → EpubReader → Map → Record → JsonTree → YamlTree → Compare
+Table → Raw → Markdown → Notebook → EpubReader → Map → Record → Timeline → JsonTree → YamlTree → Compare
 ```
 
 > **Note**: Neither [Chart](../chart.md) nor the [SQL panel](../sql.md)
@@ -112,24 +112,26 @@ Octa.
 
 ## Per-mode references
 
-- [Raw Text](raw-text.md) shows the file contents as plain text,
+- [Raw text](raw-text.md) shows the file contents as plain text,
   with syntax highlighting for source languages and column
   alignment for CSV/TSV.
 - [Markdown](markdown.md) renders CommonMark with a Preview /
   Split / Edit toggle.
-- [JSON & YAML Tree](json-and-yaml-tree.md) is a collapsible tree
+- [JSON & YAML tree](json-and-yaml-tree.md) is a collapsible tree
   view with in-place key + value editing.
 - [Notebook](notebook.md) renders Jupyter notebooks with cell
   outputs.
-- [EPUB Reader](epub-reader.md) is a chapter-by-chapter reading
+- [EPUB reader](epub-reader.md) is a chapter-by-chapter reading
   view with embedded images.
 - [Map](map.md) is a slippy-map view for GeoJSON feature geometries.
 - [Record](record.md) shows one row at a time as a vertical field
   list, for tables too wide to read in the grid.
+- [Timeline](timeline.md) draws rows with a start and an end as bars
+  on a time axis, with overlaps outlined.
 - [Compare](compare.md) is a side-by-side diff of two files (text
   or row hash).
 
-The Table view itself is covered under [Usage → Table View](../table-view.md).
+The Table view itself is covered under [Usage → Table view](../table-view.md).
 The [SQL panel](../sql.md) and the [Chart](../chart.md) tab live
 under the **Analyse** menu and are documented on their own pages.
 

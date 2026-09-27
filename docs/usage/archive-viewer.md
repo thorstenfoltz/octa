@@ -4,7 +4,6 @@ Open `.zip`, `.tar`, and `.tgz` archives to see their contents as a
 plain octa table. The view is read-only, so you extract one entry at a time into a
 new tab for actual viewing.
 
-<!-- SCREENSHOT: archive-viewer-overview.png: Archive table showing path / size / mtime columns with a "Open selected entry" action bar above. -->
 ![Archive Viewer](../assets/screenshots/archive-viewer-overview.png)
 
 ## What gets shown

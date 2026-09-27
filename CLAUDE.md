@@ -55,6 +55,7 @@ These hold everywhere. Subsystem detail lives in `.claude/rules/`.
 - **Documentation is dual.** Every user-facing feature is documented in BOTH the in-app Help (`src/app/dialogs/documentation/content.rs` + the `sections()` list in `documentation/mod.rs`) AND the mkdocs site (`docs/` + a `mkdocs.yml` nav entry). One without the other is an incomplete feature.
 - **Every new control gets a hover tooltip**, backed by an i18n `_hint` key present in all 32 locales. Attach it to the CONTROL, not only to its row label - a tooltip on the label does not answer a hover over the widget beside it. Disabled controls explain why they are disabled.
 - **i18n is add-then-use**: add the key to *every* `locales/*.toml`, then call `t("key")`. `every_language_covers_every_english_key` enforces parity; `t()` falls back to English for a missing key. Locales are written natively and informally, never transliterated.
+- **Rows of controls go through `octa::ui::control_row`** (`control_row` for a wrapping row, `control_grid` for label/control pairs, `control_text_edit` for a text field). A bare `ui.horizontal` holding a label + ComboBox + button is ragged under Octa's themes (the combo sinks below the button's centre line; egui's default style hides it, so eyeballing a toy repro proves nothing). Reported as "fields not in line" in the SQL ask row, chart bar, timeline and join dialog; guarded by `control_row_tests.rs`.
 - **GUI glyphs are ASCII-only**: egui's bundled font renders `—`/`→`/`…`/`·` as tofu. Keep UI strings and prose ASCII (including `\u{2014}`-style escapes). This covers typographic punctuation only - never alphabets; Roboto covers Latin/Greek/Cyrillic and the bundled Noto subset covers CJK.
 - **Menu ellipsis means "something opens"**: a menu entry ends in `...` **iff** clicking it opens a new tab or window (dialog, file picker, or a result tab like Summary/Chart/Transpose). Entries that just execute in place get none - including panel toggles (SQL, Assistant, Multi-search) and in-place re-reads (View -> Reopen as). Enforced across all 32 locales by `i18n_tests::menu_ellipsis_means_something_opens`, which checks for the ellipsis *anywhere* in the string, not at the end: zh word order puts it mid-label. Add new menu entries to one of its two lists.
 - **British English in prose** (colour, serialise). Prose only, never identifiers. No em-dashes or stylistic hyphens; use commas, periods, colons.
@@ -84,7 +85,7 @@ read. Read one directly when planning work that has not touched those files yet.
 | `mcp.md` | the `--mcp` stdio server and its tools | `src/mcp/**`, `docs/mcp/**` |
 | `database.md` | the nine live DB engines, write-back, server copy | `src/db/**`, the SQLite/DuckDB readers |
 | `chat.md` | the in-GUI assistant, providers, profiles, sandbox | `src/app/chat/**`, `src/app/chat_panel/**` |
-| `sql.md` | `SqlWorkspace` and the SQL panel | `src/sql/**`, `src/app/sql_panel.rs` |
+| `sql.md` | `SqlWorkspace` and the SQL panel | `src/sql/**`, `src/app/sql_panel/**` |
 | `formats.md` | readers, registry, loading passes, write options | `src/formats/**`, `src/app/file_io/**` |
 | `data-engines.md` | the pure analysis engines and their four surfaces | `src/data/**` |
 | `ui.md` | table view, chrome, view modes, dialogs, settings | `src/ui/**`, `src/view_modes/**`, `src/app/dialogs/**` |

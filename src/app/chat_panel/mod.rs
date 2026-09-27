@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 
-use crate::ui::settings::{AppSettings, ChatPanelPosition, ChatProviderKind, chat_profiles};
+use crate::ui::settings::{AppSettings, ChatProviderKind, PanelPosition, chat_profiles};
 use octa::i18n::t;
 
 use super::chat::session::{ChatSessionState, TurnPhase};
@@ -19,6 +19,7 @@ use super::state::OctaApp;
 mod context;
 mod controls;
 pub(crate) mod helpers;
+mod plan_ui;
 mod session;
 mod windows;
 
@@ -110,11 +111,46 @@ pub(crate) struct ChatPanelState {
     pub last_saved_len: usize,
     /// Local-Ollama discovery state (model list, running flag).
     pub ollama: OllamaUi,
-    /// "Just answer" mode: send no tools and a plain assistant system prompt,
-    /// so the panel answers a general question instead of driving Octa.
-    /// Session-only (not persisted) - it is a mode for the question being
-    /// asked, not a preference.
-    pub plain_mode: bool,
+    /// What the panel is for this turn. Session-only (not persisted) - it is a
+    /// mode for the question being asked, not a preference.
+    pub mode: ChatTurnMode,
+    /// The last reply was a plan, so it carries an Approve / Discard bar.
+    /// Session-only, like the mode itself.
+    pub plan_offer: bool,
+}
+
+/// What a turn is for. Three named states rather than two bools, so
+/// "plain and plan at once" cannot be represented.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ChatTurnMode {
+    /// The normal assistant: tools, tab context, edits applied as they land.
+    #[default]
+    Data,
+    /// "Just answer": no tools, no tab list, a plain assistant prompt.
+    Plain,
+    /// Propose edits as a reviewable plan; nothing is applied until accepted.
+    Plan,
+}
+
+impl ChatTurnMode {
+    pub fn is_plain(self) -> bool {
+        matches!(self, ChatTurnMode::Plain)
+    }
+
+    pub fn is_plan(self) -> bool {
+        matches!(self, ChatTurnMode::Plan)
+    }
+
+    /// Whether the assistant may call tools at all this turn.
+    ///
+    /// Both non-default modes say no, for different reasons: "Just answer"
+    /// has no business touching the data, and Plan must not act before the
+    /// user has approved what it intends to do. Plan mode that still ran
+    /// tools would be indistinguishable from the normal mode, which is
+    /// exactly what it looked like before this was a single question.
+    pub fn runs_tools(self) -> bool {
+        matches!(self, ChatTurnMode::Data)
+    }
 }
 
 impl ChatPanelState {
@@ -136,7 +172,8 @@ impl ChatPanelState {
             prompts_window_size: octa::ui::settings::DialogSize::default(),
             last_saved_len: 0,
             ollama: OllamaUi::default(),
-            plain_mode: false,
+            mode: ChatTurnMode::default(),
+            plan_offer: false,
         }
     }
 }
@@ -179,7 +216,7 @@ impl OctaApp {
         // height, and either way it must leave the table something to live in
         // once the window is small. `panel_fit::clamp` hands back the same
         // numbers on a normal window.
-        let side = matches!(position, ChatPanelPosition::Left | ChatPanelPosition::Right);
+        let side = matches!(position, PanelPosition::Left | PanelPosition::Right);
         let (available, want_default, want_min) = if side {
             (parent_ui.available_width(), 720.0, 380.0)
         } else {
@@ -188,10 +225,10 @@ impl OctaApp {
         let (default_size, min_size) =
             octa::ui::panel_fit::clamp(available, want_default, want_min);
         match position {
-            ChatPanelPosition::Right => egui::Panel::right("octa_chat_panel"),
-            ChatPanelPosition::Left => egui::Panel::left("octa_chat_panel"),
-            ChatPanelPosition::Bottom => egui::Panel::bottom("octa_chat_panel"),
-            ChatPanelPosition::Top => egui::Panel::top("octa_chat_panel"),
+            PanelPosition::Right => egui::Panel::right("octa_chat_panel"),
+            PanelPosition::Left => egui::Panel::left("octa_chat_panel"),
+            PanelPosition::Bottom => egui::Panel::bottom("octa_chat_panel"),
+            PanelPosition::Top => egui::Panel::top("octa_chat_panel"),
         }
         .resizable(true)
         .default_size(default_size)
@@ -317,24 +354,34 @@ impl OctaApp {
                 profile_changed = true;
             }
 
-            // What the panel is for right now. Two mutually exclusive labels
-            // rather than a checkbox, so both states are named: the same shape
-            // the SQL panel uses for its "run on server | local" pair. Session
-            // only - it is a mode for the question being asked.
+            // What the panel is for right now. Mutually exclusive labels rather
+            // than a checkbox, so every state is named: the same shape the SQL
+            // panel uses for its "run on server | local" pair. Session only -
+            // it is a mode for the question being asked.
             ui.separator();
+            let mode = self.chat.mode;
             if ui
-                .selectable_label(!self.chat.plain_mode, t("chat.mode_data"))
+                .selectable_label(mode == ChatTurnMode::Data, t("chat.mode_data"))
                 .on_hover_text(t("chat.mode_data_hint"))
                 .clicked()
             {
-                self.chat.plain_mode = false;
+                self.chat.mode = ChatTurnMode::Data;
             }
             if ui
-                .selectable_label(self.chat.plain_mode, t("chat.mode_plain"))
+                .selectable_label(mode == ChatTurnMode::Plain, t("chat.mode_plain"))
                 .on_hover_text(t("chat.mode_plain_hint"))
                 .clicked()
             {
-                self.chat.plain_mode = true;
+                self.chat.mode = ChatTurnMode::Plain;
+            }
+            // Always available: planning is talking, not editing, so it needs
+            // no write permission.
+            if ui
+                .selectable_label(mode == ChatTurnMode::Plan, t("chat.mode_plan"))
+                .on_hover_text(t("chat.mode_plan_hint"))
+                .clicked()
+            {
+                self.chat.mode = ChatTurnMode::Plan;
             }
         });
 
@@ -400,6 +447,7 @@ impl OctaApp {
             ui.separator();
         }
 
+        let mut plan_action = None;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .stick_to_bottom(true)
@@ -433,7 +481,22 @@ impl OctaApp {
                             .request_repaint_after(std::time::Duration::from_secs(1));
                     });
                 }
+                // The parked plan sits at the end of the transcript, where the
+                // assistant proposed it.
+                // Only once the turn is over: a half-written plan is not
+                // something to approve.
+                if !guard.is_running() {
+                    plan_action = self.render_pending_plan(ui);
+                }
             });
+
+        // Only now: `guard` holds the session lock, and approving sends a
+        // message, which takes that lock again.
+        drop(guard);
+        if let Some(action) = plan_action {
+            let ctx = ui.ctx().clone();
+            self.apply_plan_action(action, &ctx);
+        }
     }
 
     fn render_chat_input(&mut self, ui: &mut egui::Ui) {

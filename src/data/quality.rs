@@ -58,6 +58,7 @@ pub fn quality_column_ids() -> &'static [&'static str] {
         "type_consistency",
         "benford_verdict",
         "calendar_verdict",
+        "shape_verdict",
         "score",
     ]
 }
@@ -76,6 +77,7 @@ pub fn quality_column_hint_keys() -> &'static [&'static str] {
         "quality.hint_type_consistency",
         "quality.hint_benford_verdict",
         "quality.hint_calendar_verdict",
+        "quality.hint_shape_verdict",
         "quality.hint_score",
     ]
 }
@@ -99,6 +101,7 @@ pub fn quality_column_value_hint_keys() -> &'static [&'static [(&'static str, &'
         &[], // type_consistency
         crate::data::benford::VALUE_HINTS,
         crate::data::calendar_coverage::VALUE_HINTS,
+        crate::data::shapes::VALUE_HINTS,
         &[], // score
     ]
 }
@@ -269,6 +272,14 @@ pub fn build_quality_report(table: &DataTable) -> anyhow::Result<QualityReport> 
         // a cell, so they go to a section.
         let calendar = crate::data::calendar_coverage::analyse(&non_null, &info.data_type);
 
+        // Value shapes: text columns only, since `5` and `12345` are both
+        // fine numbers with different shapes.
+        let shape = if crate::data::shapes::is_text_type(&info.data_type) {
+            crate::data::shapes::verdict(&crate::data::shapes::shape_frequency(table, col))
+        } else {
+            crate::data::shapes::ShapeVerdict::NotApplicable
+        };
+
         // score (0-100): weighted completeness + uniqueness + type consistency,
         // minus an outlier penalty capped at 10.
         const W_NULL: f64 = 0.4;
@@ -295,6 +306,7 @@ pub fn build_quality_report(table: &DataTable) -> anyhow::Result<QualityReport> 
             num_cell(type_consistency),
             CellValue::String(benford.id().to_string()),
             CellValue::String(calendar.id().to_string()),
+            CellValue::String(shape.id().to_string()),
             num_cell(score),
         ]);
     }
@@ -371,6 +383,22 @@ pub fn build_quality_report(table: &DataTable) -> anyhow::Result<QualityReport> 
                 "quality.hint_gap_before",
                 "quality.hint_gap_missing_steps",
                 "quality.hint_gap_kind",
+            ]
+            .iter()
+            .map(|k| (*k).to_string())
+            .collect(),
+            table: t,
+        });
+    }
+    if let Some(t) = crate::data::shapes::section_table(table) {
+        sections.push(QualitySection {
+            title_key: "quality.section_shapes".to_string(),
+            intro_key: "quality.section_shapes_intro".to_string(),
+            hint_keys: [
+                "quality.hint_shape_column",
+                "quality.hint_shape_shape",
+                "quality.hint_shape_count",
+                "quality.hint_shape_example",
             ]
             .iter()
             .map(|k| (*k).to_string())

@@ -93,8 +93,8 @@ pub(crate) fn render_harmonise_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
                     // Run needs a plan AND an output folder. Both disabled
                     // reasons are spelled out rather than leaving a dead button.
-                    let has_plan = st.plan.is_some();
-                    let has_out = !st.out_dir.trim().is_empty();
+                    let has_plan = st.plan.is_some() || st.combine;
+                    let has_out = !st.out_dir.trim().is_empty() || st.combine;
                     let can_run = !running && has_plan && has_out;
                     let r = ui.add_enabled(can_run, egui::Button::new(t("harmonise.run")));
                     if r.clicked() {
@@ -161,6 +161,8 @@ pub(crate) fn render_harmonise_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 {
                     st.plan = None;
                 }
+                ui.checkbox(&mut st.combine, t("harmonise.combine"))
+                    .on_hover_text(t("harmonise.combine_hint"));
                 ui.checkbox(&mut st.overwrite, t("harmonise.overwrite"))
                     .on_hover_text(t("harmonise.overwrite_hint"));
             });
@@ -320,6 +322,9 @@ fn spawn_plan(st: &mut HarmoniseState, ctx: &egui::Context) {
 
 /// Execute the plan, off the UI thread.
 fn spawn_run(st: &mut HarmoniseState, ctx: &egui::Context) {
+    if st.combine {
+        return spawn_combine(st, ctx);
+    }
     let Some(plan) = st.plan.clone() else {
         return;
     };
@@ -379,6 +384,32 @@ impl OctaApp {
             }
         }
 
+        // A finished combine opens the combined table as a tab.
+        let combined = st.combine_slot.lock().ok().and_then(|mut s| s.take());
+        if let Some(outcome) = combined {
+            self.harmonise_dialog = None;
+            match outcome {
+                Ok(report) => {
+                    let note = t("harmonise.combined")
+                        .replace("{files}", &report.files_read.to_string())
+                        .replace("{rows}", &report.table.row_count().to_string())
+                        .replace("{skipped}", &report.skipped.len().to_string());
+                    let mut tab =
+                        super::super::state::TabState::new(self.settings.default_search_mode);
+                    tab.table = report.table;
+                    tab.custom_tab_label = Some(t("harmonise.combined_tab"));
+                    tab.filter_dirty = true;
+                    self.tabs.push(tab);
+                    self.active_tab = self.tabs.len() - 1;
+                    self.status_message = Some((note, std::time::Instant::now()));
+                }
+                Err(reason) => {
+                    self.status_message = Some((reason, std::time::Instant::now()));
+                }
+            }
+            return;
+        }
+
         // A finished run opens the report and closes the dialog.
         let done = st.result.lock().ok().and_then(|mut s| s.take());
         let Some(outcome) = done else {
@@ -411,4 +442,45 @@ impl OctaApp {
 /// Open prefilled with `dir` (the drift dialog's Harmonise button).
 pub(crate) fn open_for_folder(app: &mut OctaApp, dir: &std::path::Path) {
     app.harmonise_dialog = Some(HarmoniseState::new(dir.display().to_string()));
+}
+
+/// Fold the folder into one table, off the UI thread.
+///
+/// No plan step: combining casts nothing, so there is no per-file refusal to
+/// read before committing. The result opens as a tab rather than being
+/// written to disk, because a combined folder is usually something you want
+/// to look at before deciding where it belongs.
+fn spawn_combine(st: &mut HarmoniseState, ctx: &egui::Context) {
+    use octa::data::normalise_folder::{CombineOptions, DEFAULT_SOURCE_COLUMN, combine_folder};
+
+    let opts = CombineOptions {
+        root: std::path::PathBuf::from(st.folder.trim()),
+        recursive: st.recursive,
+        ignore_case: st.ignore_case,
+        source_column: DEFAULT_SOURCE_COLUMN.to_string(),
+    };
+    st.running.store(true, Ordering::Relaxed);
+    let running = std::sync::Arc::clone(&st.running);
+    let slot = std::sync::Arc::clone(&st.combine_slot);
+    let progress = std::sync::Arc::clone(&st.progress);
+    let ctx = ctx.clone();
+
+    std::thread::spawn(move || {
+        let _running = crate::app::flag_guard::FlagOnDrop::new(running, false);
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let outcome = combine_folder(
+            &opts,
+            &|done, total| {
+                if let Ok(mut p) = progress.lock() {
+                    *p = (done, total);
+                }
+            },
+            &cancel,
+        )
+        .map_err(|e| format!("{e:#}"));
+        if let Ok(mut s) = slot.lock() {
+            *s = Some(outcome);
+        }
+        ctx.request_repaint();
+    });
 }

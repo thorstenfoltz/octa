@@ -430,19 +430,32 @@ impl OctaApp {
         let tab = &mut self.tabs[self.active_tab];
         let planned = octa::data::trim::planned_header_names(&tab.table);
         let start = tab.table.undo_stack.len();
+        let mut renames = Vec::new();
         for (idx, name) in planned.into_iter().enumerate() {
-            if tab.table.columns.get(idx).is_some_and(|c| c.name != name) {
-                tab.table.rename_column(idx, name);
+            if let Some(old) = tab.table.columns.get(idx).map(|c| c.name.clone())
+                && old != name
+            {
+                tab.table.rename_column(idx, name.clone());
+                renames.push(octa::data::recipe::RenamePair {
+                    from: old,
+                    to: name,
+                });
             }
         }
         tab.table.coalesce_undo_since(start);
         resync_db_meta_baseline(tab);
         tab.table_state.widths_initialized = false;
+        if !renames.is_empty() {
+            self.record_step(octa::data::recipe::RecipeStep::Rename(
+                octa::data::recipe::Rename { renames },
+            ));
+        }
     }
 
     /// Drop one all-empty column, keeping the selection valid afterwards the
     /// same way the Delete columns dialog does.
     fn cleanup_apply_drop_column(&mut self, col: usize) {
+        let columns = self.column_names(&[col]);
         let tab = &mut self.tabs[self.active_tab];
         tab.table.delete_column(col);
         tab.table_state.editing_cell = None;
@@ -453,6 +466,9 @@ impl OctaApp {
         }
         tab.table_state.widths_initialized = false;
         resync_db_meta_baseline(tab);
+        self.record_step(octa::data::recipe::RecipeStep::DeleteColumns(
+            octa::data::recipe::DeleteColumns { columns },
+        ));
     }
 
     /// Cast one column. `convert_column` pushes its own undo entry and refuses

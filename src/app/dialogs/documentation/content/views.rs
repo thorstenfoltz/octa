@@ -13,9 +13,9 @@ pub const VIEW_MODES: &str = r#"# View Modes
 Switch via the **View** menu. Only modes applicable to the current file are
 enabled.
 
-- **Table View** (default): structured tabular display with sorting,
+- **Table view** (default): structured tabular display with sorting,
   filtering, and editing.
-- **Raw Text**: shows the file content as plain text. For CSV/TSV the toolbar
+- **Raw text**: shows the file content as plain text. For CSV/TSV the toolbar
   exposes Quote / Escape / Delimiter combos and an **Align Columns** toggle
   with per-column colouring. For JSON it exposes a **Format JSON** toggle that
   breaks a minified file into indented lines: only the whitespace between
@@ -27,21 +27,32 @@ enabled.
   JSON, YAML, XML and TOML files; the size cap is configurable under
   **Settings -> Performance**. Dragging a selection to the edge of the view
   keeps scrolling, so a selection can run past the lines on screen (the
-  Markdown and SQL editors do the same).
-- **Markdown View**: rendered markdown for `.md` files. Files open in
+  Markdown and SQL editors do the same). A **Wrap lines** tick box folds
+  long lines at the edge of the pane instead of scrolling sideways to
+  them. It is off by default and folds anywhere, not only at spaces,
+  which is what reaches a minified line or a field holding a whole
+  stringified JSON blob (Format JSON cannot break such a value: a real
+  newline inside a JSON string would corrupt the document). It is
+  unavailable while Align Columns is on, because folding a padded row
+  destroys the alignment.
+- **Markdown view**: rendered markdown for `.md` files. Files open in
   **Preview** mode by default (rendered output only). A toolbar toggle
   switches between Preview / Split / Edit. Split places a TextEdit beside the
   preview for live editing. Links in the preview open in your system browser.
   The preview follows the app's body text size, so the **Font size** setting
   and Ctrl+Plus / Ctrl+Minus zoom scale the rendered document too.
-- **Notebook View**: rendered Jupyter notebook with cell outputs. Code cells
+- **Notebook view**: rendered Jupyter notebook with cell outputs. Code cells
   use syntect highlighting.
-- **JSON Tree** / **YAML Tree**: collapsible tree view for JSON / JSONL /
+- **JSON tree** / **YAML tree**: collapsible tree view for JSON / JSONL /
   YAML. Keys are renamable, values editable, and you can add keys to objects
-  in place.
-- **EPUB Reader**: chapter-by-chapter reading view for `.epub` files. See
-  the **EPUB Reader** section for details.
-- **Map View**: slippy-map view for `.geojson` files. See the **Map View**
+  in place. A field whose *string* holds a whole JSON document gets a
+  small `[+]`: click it to unfold that string into a tree of its own,
+  keys and all, with every level opened. Display only, so the value
+  itself is untouched and the unfolded rows cannot be edited, but they do
+  take part in search.
+- **EPUB reader**: chapter-by-chapter reading view for `.epub` files. See
+  the **EPUB reader** section for details.
+- **Map view**: slippy-map view for `.geojson` files. See the **Map view**
   section for details.
 - **Compare View**: side-by-side comparison of two files. See the
   **Compare View** section for details.
@@ -54,16 +65,16 @@ and Save-As.
 ## Default view per file type
 
 Some files open in a non-Table view that suits them better: a `.json`
-file opens in the JSON Tree, and a `.yml` / `.yaml` file opens in Raw
+file opens in the JSON tree, and a `.yml` / `.yaml` file opens in Raw
 Text. You can always switch to another mode from the View menu; this
 just picks a sensible starting point. JSONL and every other format
-still open in Table View.
+still open in Table view.
 
 ## Open as... (a file with a misleading extension)
 
 Which views a file offers depends on how it was parsed, and Octa parses it
 by extension. A `.log` file that actually contains JSON is read as plain
-text, so the JSON Tree is not on offer.
+text, so the JSON tree is not on offer.
 
 Two entries fix that, depending on whether the file is open yet:
 
@@ -131,6 +142,30 @@ result is shown as one table: a **status** column (`only_in_a`,
 the data columns. Cross-format comparison works throughout because only the
 textual representation of each cell is compared.
 
+## Editing in Text Diff
+
+The left pane is the file you have open, so it is a real editor: type in it
+and the tab changes exactly as if you had edited it in Raw text. **Ctrl+S**
+saves, the tab shows the usual unsaved marker, and the diff re-computes as
+you type. Read what changed against the committed version and fix it without
+leaving the comparison.
+
+The right pane is a committed revision or a second file, with nothing to
+write back to, so it stays read-only: selectable and copyable, and
+keystrokes do nothing.
+
+It is the same editor as Raw text: **Tab** indents in place by the **Tab
+size** setting instead of jumping to the next control, and dragging a
+selection past the edge of the pane scrolls it. Only the tab you type
+becomes spaces; tabs the file already contained are left alone.
+
+The left pane carries blank filler rows wherever the right side has a line
+of its own, so the two stay aligned while you read. They are not part of
+your file: type on one and it becomes a real line, leave it alone and it
+never reaches the file. The pane is read-only whenever the tab is, which
+covers read-only mode (**F8**), a large-file tab and a database tab without
+write access; hovering **Left:** in the toolbar says which applies.
+
 ## Copying
 
 In **Text Diff** the text is selectable: drag to mark, double-click a word,
@@ -144,9 +179,9 @@ Row Hash Diff, Ordered, and Join offer **Copy table** (Ctrl+C or right-click)
 for the visible result.
 "#;
 
-pub const EPUB_VIEW: &str = r#"# EPUB Reader
+pub const EPUB_VIEW: &str = r#"# EPUB reader
 
-When you open a `.epub` file, the EPUB Reader is the default view. The
+When you open a `.epub` file, the EPUB reader is the default view. The
 top toolbar shows:
 
 - The **book title** (from `<dc:title>`).
@@ -164,7 +199,7 @@ The flat **Table** view is still available (one row per paragraph with
 like any other tabular file.
 "#;
 
-pub const MAP_VIEW: &str = r#"# Map View
+pub const MAP_VIEW: &str = r#"# Map view
 
 For `.geojson` and `.shp` (Shapefile) files. The Map view is the
 default; the Table view is still available with one row per feature, a
@@ -200,13 +235,13 @@ deployments please honour the
 or point at a self-hosted or commercial tile provider.
 "#;
 
-pub const RECORD_VIEW: &str = r#"# Record View
+pub const RECORD_VIEW: &str = r#"# Record view
 
 One row at a time, shown vertically as a list of field name / value
 pairs. For tables too wide to read in the grid, where reading a single
 row means scrolling sideways past forty columns.
 
-Reach it via **View -> Record View**, or cycle to it with **F4**. It is
+Reach it via **View -> Record view**, or cycle to it with **F4**. It is
 offered for any tab that has columns.
 
 - The `<` and `>` buttons step to the previous / next row, and grey out
@@ -224,6 +259,62 @@ offered for any tab that has columns.
 
 The record view and the table view share one selection, so switching
 between them keeps your place in both directions.
+"#;
+
+pub const TIMELINE_VIEW: &str = r#"# Timeline
+
+Room bookings, shifts, holidays, projects: any table where a row has a start
+and an end. **View -> Timeline** draws each row as a bar on a time axis and
+outlines the bars that overlap. Offered for any table with a date or date and
+time column; **F4** cycles to it.
+
+**Columns.** **Start** and **End** pick the first two date columns by
+themselves; End **(none)** turns every row into a point. **Label** is the text
+shown when you hover a bar. **Lane** groups the bars into bands, one per value
+(a room, a person); overlaps are only looked for inside a lane.
+
+**Overlaps.** Bars in the same lane that share time are outlined in the
+warning colour and stacked on their own track so neither hides the other. Bars
+that only touch (one ends at 11:00, the next starts at 11:00) do not overlap. A
+point overlaps a bar it falls strictly inside. **Open overlaps...** opens a new
+tab with one row per pair: the lane, and the row, label, start and end of both,
+named after your columns. `_a` is the row that starts first, `_b` the one that
+starts while `_a` is still running; hover a header for what it holds.
+
+**Rows not drawn.** A row that ends before it starts is counted in the line
+above the timeline (hover it for the row numbers); a row without a start is
+left out and counted.
+
+**Moving around.** Drag or scroll to move (Shift scrolls sideways), Ctrl and
+scroll to zoom, double-click to see
+everything. Click a bar to select its row, then switch to Table or Record view
+to land on it. The timeline follows the search and column filters.
+
+**Elsewhere.** `octa --overlaps FILE --overlaps-lane room` prints the same
+pairs and exits 1 when there are any; the `find_overlaps` MCP tool does the
+same for the Assistant.
+"#;
+
+pub const FORECAST: &str = r#"# Trend and Forecast
+
+On a **Line** chart over dates or numbers, the row above the plot adds:
+
+- **Trend**: a straight line through the points, or a moving average (one
+  season when the dates show one, else 5 points).
+- **Forecast**: how many periods to forecast ahead; 0 is off. Each line gets
+  a continuation with an 80% range (darker) and a 95% range (lighter), both
+  widening further out.
+
+The model is Holt-Winters: level, trend and a season read from the spacing
+(24 hourly, 7 daily, 52 weekly, 12 monthly, 4 quarterly), used once there are
+two full cycles of history. **Advanced** lets you set the season length
+yourself.
+
+The points must be evenly spaced and at least 4. Bucket uneven data first
+with **Analyse > Time series**.
+
+**Forecast to table** opens the forecast values and ranges in a new tab.
+Exports include the lines; the bands are drawn there as two 95% lines.
 "#;
 
 pub const CHART_VIEW: &str = r#"# Chart
@@ -330,10 +421,24 @@ query under the cursor.
   (84 ms)`, seconds past one second; a failed query is timed too)
   (display-only; it is never part of the data or an export); errors render
   in red.
-- Results honour the initial-load row cap (**Settings > Performance**,
-  default 5,000,000): a bigger SELECT stops there instead of exhausting
-  memory, and the counter notes "row cap reached". Applies to local DuckDB
-  and to queries run on a live database connection alike.
+- Results arrive **one page at a time**. A SELECT is computed once inside
+  DuckDB and the first **Settings > SQL > Result rows per page** rows
+  (1,000 by default) go to the grid; scrolling near the end fetches the
+  next page. The counter shows `1,000 / 8,432,109 result rows`, and the
+  total is an exact count over the whole result. Set the page size to 0
+  to load everything at once. Export and Write result to DB always cover
+  the whole result, never just the page on screen.
+- Queries run **on a live database connection** are not paged: they
+  honour the initial-load row cap (**Settings > Performance**, default
+  5,000,000) and the counter notes "row cap reached" when a result stops
+  there.
+- **Your other open tabs are queryable** under a SQL-safe version of
+  their own tab names, so joining two open files needs no attach step.
+  The panel names them once; switch it off under **Settings > SQL >
+  Query other open tabs**. Tabs above **Max rows to register** get a
+  Register button instead, because registering copies their rows.
+  A tab from a live database connection is never copied: on the server
+  its sibling tables already join by their real names.
 - **Ctrl+Shift+E** (default) exports the current SQL result.
 - The panel can be docked Bottom (default), Top, Left, or Right via
   **Settings > SQL > Panel position**.
@@ -389,6 +494,12 @@ The search bar has a sibling Ask toggle that produces filters rather than
 a query, under the same one-request rule.
 
 ## Workspace
+
+The workspace tree, the Inspector, the editor and the results are
+stacked panes sharing the panel's height. Drag the line between two of
+them to move that boundary: the space comes from the pane beside it, the
+others keep theirs, and no pane is ever drawn over another. The panel's
+own outer edge gives all of them more room at once.
 
 Each tab owns a persistent SQL **workspace** that outlives individual
 runs. The collapsible Workspace section above the editor lists what is
@@ -562,6 +673,104 @@ Raw view with a banner saying so, rather than showing nothing. That is
 usually the fastest way to see which line is malformed.
 "#;
 
+pub const PROTECTED_FILES: &str = r#"# Password-Protected Files
+
+A protected file is not a corrupt file, it is a locked one. Octa opens
+**encrypted zips**. It also recognises password-protected workbooks but
+cannot open one yet: see the end of this page.
+
+## Detection comes first
+
+Whether a file is protected is readable WITHOUT the passphrase: a flag in
+a zip's central directory, the first eight bytes of a workbook. So a file
+that needs nothing is never interrupted by a prompt.
+
+## The prompt
+
+Opening a protected file raises a small window naming the file, with a
+passphrase field, a **Remember this passphrase** box, and Open and
+Cancel. Enter opens it.
+
+A rejected passphrase clears the field, says so in text you can select
+and copy, and asks again. The message never repeats what you tried.
+
+## Remembering
+
+Ticking the box stores the passphrase in your operating system's keyring,
+keyed by the file's full path, so two files with the same name in
+different folders are different secrets. It is never written to
+settings.toml. A stored passphrase that stops working falls through to
+the prompt rather than failing with a message about a secret you had
+forgotten existed.
+
+## Where a passphrase is never written
+
+- Not in settings.toml, only the OS keyring, and only if you asked.
+- Not in any error. The decryption paths report THAT a passphrase was
+  rejected, never what was tried.
+- Not in a debug report: the redactor masks anything after a password or
+  passphrase label, as a second lock on the same door.
+
+## Protected workbooks
+
+Opening one says it is password-protected rather than reporting a
+corrupt file, but Octa cannot decrypt it.
+
+That is a dependency problem, not a feature one. The one maintained
+pure-Rust crate for ECMA-376 agile encryption pins a version of its XML
+parser that carries two advisories, and the vulnerable code runs on XML
+read out of the workbook being opened, which is a file someone else sent
+you. Shipping a known denial of service to read a locked spreadsheet is
+a bad trade, so the dependency was dropped. It returns when that pin
+moves.
+
+To read one now, open it in Excel or LibreOffice and save an
+unprotected copy.
+
+## Limits
+
+Encrypted zips only, and reading only, so a passphrase never silently
+travels with a copy you save. The first readable table in the archive is
+opened; an archive of several tables is not yet offered as a listing.
+"#;
+
+pub const TAB_MEMORY: &str = r#"# Tab Memory
+
+Octa keeps every open tab's rows in memory, and nothing on screen says
+which of eleven tabs is the one holding two gigabytes.
+
+**Data > Tab memory...** lists every open tab with its row count and an
+estimated size, plus a total. The shortcut ships unbound; bind one under
+**Settings > Shortcuts**.
+
+## The numbers are estimates
+
+An exact figure is not observable from inside the process: a string may
+hold more capacity than its length, the allocator pads, and a hash map
+keeps spare buckets it does not publish. A precise-looking total would
+be a lie with decimals on it.
+
+They are good for comparison, which is the question being asked. The
+estimate counts the cells and their text, the pending-edit overlay, the
+marks, the column metadata and **both undo stacks**. The undo stacks
+matter: a column type conversion snapshots the whole column twice, so a
+tab that feels idle can hold two extra copies of a column.
+
+## Unloading
+
+**Unload** drops that tab's rows. The tab stays, keeping its name, its
+file, its view mode and its view state, and the file is read again the
+moment you select the tab.
+
+Unloading is refused, not warned about, when it would lose data:
+
+- The tab has **unsaved changes** - edits live only in memory.
+- The tab has **no file behind it** - a new table, a SQL result, a chart
+  tab or a paste has nothing to read back.
+
+The button is disabled in both cases and explains which one applies.
+"#;
+
 pub const LARGE_FILES: &str = r#"# Large Files
 
 Large-file mode opens a file read-only, keeps its rows on disk and fetches only
@@ -634,7 +843,7 @@ the GUI, the folder sidebar, the CLI actions, and the MCP tools.
 - The inner format comes from the middle extension (`.csv.gz` -> CSV,
   `.json.zst` -> JSON, and so on).
 - **Saving** a compressed file recompresses it back to the original
-  path with the same codec. Save As to a plain extension writes
+  path with the same codec. Save as to a plain extension writes
   uncompressed.
 - A decompression size cap guards against decompression bombs:
   **Settings > Files > Max decompressed size** (default 4 GB, with an

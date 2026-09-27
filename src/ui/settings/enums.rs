@@ -8,6 +8,31 @@
 
 use serde::{Deserialize, Serialize};
 
+/// What Ctrl+R and the tab menu's Refresh do with a tab.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum RefreshBehaviour {
+    /// Ask each time: this tab or a new one.
+    #[default]
+    Ask,
+    /// Read the source again into the same tab.
+    InPlace,
+    /// Leave the tab alone and open a fresh copy beside it.
+    NewTab,
+}
+
+impl RefreshBehaviour {
+    pub const ALL: [Self; 3] = [Self::Ask, Self::InPlace, Self::NewTab];
+
+    /// i18n key of the Settings label.
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Self::Ask => "refresh.setting_ask",
+            Self::InPlace => "refresh.setting_in_place",
+            Self::NewTab => "refresh.setting_new_tab",
+        }
+    }
+}
+
 /// Layout for Jupyter notebook output cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum NotebookOutputLayout {
@@ -286,23 +311,25 @@ impl ChatProviderKind {
     }
 }
 
-/// Where to dock the chat panel relative to the table view. Mirrors
-/// [`SqlPanelPosition`]; kept separate so the two panels can diverge.
+/// Where a dockable panel sits relative to the table. Shared by the chat
+/// panel, the column navigator and the edit audit trail; the variant names
+/// are what serialise into `settings.toml`, so they must not be renamed.
+/// Mirrors [`SqlPanelPosition`]; kept separate so the panels can diverge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum ChatPanelPosition {
-    /// To the right of the table (full height). The chat default.
+pub enum PanelPosition {
+    /// To the right of the table (full height). The chat panel's default.
     #[default]
     Right,
-    /// To the left of the table (full height).
+    /// To the left of the table (full height). The column navigator's default.
     Left,
-    /// Below the table (full width).
+    /// Below the table (full width). The edit audit trail's default.
     Bottom,
     /// Above the table (full width).
     Top,
 }
 
-impl ChatPanelPosition {
-    pub const ALL: &[ChatPanelPosition] = &[Self::Right, Self::Left, Self::Bottom, Self::Top];
+impl PanelPosition {
+    pub const ALL: &[PanelPosition] = &[Self::Right, Self::Left, Self::Bottom, Self::Top];
 
     pub fn label_t(self) -> String {
         crate::i18n::t(match self {

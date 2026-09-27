@@ -27,6 +27,7 @@ pub(super) fn view_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
         has_epub,
         has_map,
         has_record,
+        has_timeline,
         has_json,
         has_yaml,
         readonly_mode,
@@ -121,6 +122,16 @@ pub(super) fn view_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                     .on_hover_text(crate::i18n::t("view_menu.record_hint"));
                 if record_btn.clicked() {
                     action.view_mode_changed = Some(ViewMode::Record);
+                    ui.close();
+                }
+            }
+            if has_timeline {
+                let is_timeline = current_view_mode == ViewMode::Timeline;
+                let btn = ui
+                    .radio(is_timeline, crate::i18n::t("view_menu.timeline"))
+                    .on_hover_text(crate::i18n::t("view_menu.timeline_hint"));
+                if btn.clicked() {
+                    action.view_mode_changed = Some(ViewMode::Timeline);
                     ui.close();
                 }
             }
@@ -263,6 +274,15 @@ pub(super) fn view_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 .clicked()
             {
                 action.toggle_readonly = true;
+                ui.close();
+            }
+
+            if ui
+                .button(crate::i18n::t("view_menu.column_navigator"))
+                .on_hover_text(crate::i18n::t("view_menu.column_navigator_hint"))
+                .clicked()
+            {
+                action.toggle_column_navigator = true;
                 ui.close();
             }
 

@@ -23,9 +23,15 @@ pub struct ReportMeta {
     pub timestamp: String,
 }
 
-/// Mask the user's home directory (-> `~`), username (-> `%USER%`), and any
-/// API-key-shaped token. Defence in depth: the settings key map is also blanked
-/// separately before this runs.
+/// Mask the user's home directory (-> `~`), username (-> `%USER%`), any
+/// API-key-shaped token, and anything following a passphrase or password
+/// label. Defence in depth: the settings key map is also blanked separately
+/// before this runs.
+///
+/// The passphrase rule exists because a debug report is a file people paste
+/// into an issue tracker. The decryption paths are written never to put a
+/// passphrase in an error in the first place, so this is the second lock on
+/// the same door, not the only one.
 pub fn redact(text: &str, home: Option<&str>, user: Option<&str>) -> String {
     let mut out = text.to_string();
     if let Some(h) = home
@@ -39,7 +45,11 @@ pub fn redact(text: &str, home: Option<&str>, user: Option<&str>) -> String {
         out = out.replace(u, "%USER%");
     }
     let key_re = Regex::new(r"(?i)sk-[a-z0-9_-]{20,}").unwrap();
-    key_re.replace_all(&out, "sk-REDACTED").into_owned()
+    out = key_re.replace_all(&out, "sk-REDACTED").into_owned();
+    // `passphrase hunter2`, `password: hunter2`, `passphrase=hunter2`: the
+    // label plus whatever follows it on the line.
+    let pass_re = Regex::new(r"(?i)\b(passphrase|password)\b\s*[:=]?\s*\S+").unwrap();
+    pass_re.replace_all(&out, "$1 REDACTED").into_owned()
 }
 
 /// Assemble the report text from already-redacted parts.

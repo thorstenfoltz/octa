@@ -188,6 +188,20 @@ fn every_file_action_runs_and_prints_its_header() {
             vec!["--join", &a, "--join-file", &b, "--join-on", "id"],
             "id\tcity\tamount\tcity\tamount",
         ),
+        // Anti: a's rows with no partner in b, a's columns only; id 3 is the one.
+        (
+            vec![
+                "--join",
+                &a,
+                "--join-file",
+                &b,
+                "--join-on",
+                "id",
+                "--join-type",
+                "anti",
+            ],
+            "id\tcity\tamount",
+        ),
         (vec!["--outliers", &a], "row\tcolumn\tvalue"),
         (vec!["--impute", "amount=mean", &a], "id\tcity\tamount"),
         (
@@ -1393,4 +1407,538 @@ fn completions_reject_an_unknown_shell() {
     let run = fx.run(&["--completions", "tcsh"]);
     assert_eq!(run.code, Some(2), "stderr:\n{}", run.stderr);
     assert!(run.stderr.contains("zsh"), "stderr:\n{}", run.stderr);
+}
+
+/// `--harmonise-schema --combine` folds a drifted folder into ONE file with
+/// a provenance column, instead of writing a harmonised copy of each input.
+#[test]
+fn harmonise_combine_writes_one_file_with_provenance() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // A config dir of its own: octa writes settings.toml on first run, and
+    // pointing it at the folder being scanned would put that file INTO the
+    // combine. The scan reads every format it knows, TOML included.
+    let cfg = tempfile::tempdir().expect("config tempdir");
+    std::fs::write(dir.path().join("jan.csv"), "id,amount\n1,10\n").expect("written");
+    std::fs::write(dir.path().join("feb.csv"), "id,amount,note\n2,20,late\n").expect("written");
+    let out = dir.path().join("combined.csv");
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_octa"))
+        .arg("--harmonise-schema")
+        .arg(dir.path())
+        .arg("--combine")
+        .arg("--out")
+        .arg(&out)
+        .env("OCTA_CONFIG_DIR", cfg.path())
+        .output()
+        .expect("octa runs");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let written = std::fs::read_to_string(&out).expect("output exists");
+    let header = written.lines().next().expect("header");
+    assert!(header.contains("source_file"), "header: {header}");
+    assert!(
+        header.contains("note"),
+        "union schema keeps the extra column"
+    );
+    assert_eq!(written.lines().count(), 3, "header plus two rows");
+}
+
+/// Combining produces one file, so pointing it at a folder is a refusal
+/// rather than a surprise.
+#[test]
+fn harmonise_combine_without_an_out_file_is_refused() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cfg = tempfile::tempdir().expect("config tempdir");
+    std::fs::write(dir.path().join("a.csv"), "id\n1\n").expect("written");
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_octa"))
+        .arg("--harmonise-schema")
+        .arg(dir.path())
+        .arg("--combine")
+        .env("OCTA_CONFIG_DIR", cfg.path())
+        .output()
+        .expect("octa runs");
+
+    assert!(!output.status.success(), "a missing --out must not succeed");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--out"),
+        "the message names the flag: {stderr}"
+    );
+}
+
+// --- `--api`: a saved REST endpoint ---------------------------------------
+//
+// The only action whose source is a socket rather than a path, so it needs a
+// server. A std-only stub keeps it in this file instead of behind an env gate
+// like the live-database tests.
+
+/// Serve `pages` in order on a loopback port, then stop.
+fn stub_api(pages: Vec<String>) -> (u16, std::thread::JoinHandle<()>) {
+    use std::io::{BufRead, BufReader};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().unwrap().port();
+    let handle = std::thread::spawn(move || {
+        for body in pages {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            loop {
+                let mut l = String::new();
+                if reader.read_line(&mut l).unwrap_or(0) == 0 || l == "\r\n" {
+                    break;
+                }
+            }
+            let _ = stream.write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .as_bytes(),
+            );
+        }
+    });
+    (port, handle)
+}
+
+/// Write a settings file holding one saved endpoint pointing at `port`.
+fn config_with_api(fx: &Fx, port: u16) {
+    let cfg = fx.dir.path().join("config");
+    std::fs::create_dir_all(&cfg).unwrap();
+    std::fs::write(
+        cfg.join("settings.toml"),
+        format!(
+            r#"
+[[api_connections]]
+id = "api-smoke"
+name = "Smoke"
+base_url = "http://127.0.0.1:{port}"
+path = "rows"
+records_pointer = ""
+timeout_secs = 5
+
+[api_connections.auth]
+kind = "None"
+
+[api_connections.paging]
+kind = "None"
+"#
+        ),
+    )
+    .unwrap();
+}
+
+#[test]
+fn api_reads_a_saved_endpoint() {
+    let fx = Fx::new();
+    let (port, server) = stub_api(vec![
+        r#"[{"id":1,"city":"Tokyo"},{"id":2,"city":"Helsinki"}]"#.to_string(),
+    ]);
+    config_with_api(&fx, port);
+
+    let out = fx.run(&["--api", "Smoke"]);
+    out.ok("--api");
+    assert!(
+        out.first_line().contains("id") && out.first_line().contains("city"),
+        "expected the endpoint's columns, got: {}",
+        out.stdout
+    );
+    assert!(out.stdout.contains("Tokyo"), "{}", out.stdout);
+    let _ = server.join();
+}
+
+#[test]
+fn api_honours_the_output_format() {
+    let fx = Fx::new();
+    let (port, server) = stub_api(vec![r#"[{"id":1,"city":"Tokyo"}]"#.to_string()]);
+    config_with_api(&fx, port);
+
+    let out = fx.run(&["--api", "Smoke", "-f", "csv"]);
+    out.ok("--api -f csv");
+    assert_eq!(out.first_line(), "id,city");
+    let _ = server.join();
+}
+
+/// A name that is not saved must fail with a list of what is, not a panic and
+/// not a silent empty table.
+#[test]
+fn api_names_the_connections_it_knows() {
+    let fx = Fx::new();
+    let (port, server) = stub_api(Vec::new());
+    config_with_api(&fx, port);
+
+    let out = fx.run(&["--api", "Nope"]);
+    assert_eq!(
+        out.code,
+        Some(1),
+        "stdout:{}\nstderr:{}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        out.stderr.contains("Smoke"),
+        "the error should list what exists: {}",
+        out.stderr
+    );
+    drop(server);
+}
+
+/// `--api-path` is joined under the saved base URL. An absolute URL passed
+/// there must not become the address: the host is the user's decision.
+#[test]
+fn api_path_cannot_redirect_to_another_host() {
+    let fx = Fx::new();
+    let (port, server) = stub_api(vec![r#"[{"id":1}]"#.to_string()]);
+    config_with_api(&fx, port);
+
+    let out = fx.run(&["--api", "Smoke", "--api-path", "http://127.0.0.1:1/evil"]);
+    // It reached the stub (which serves any path), not port 1.
+    out.ok("--api with an absolute --api-path");
+    assert!(out.stdout.contains("id"), "{}", out.stdout);
+    let _ = server.join();
+}
+
+/// `--merge` with an original takes each version's own change and exits 0;
+/// a real clash exits 1 and writes nothing (the git merge-driver contract);
+/// `--merge-prefer` settles it. Without an original any difference clashes,
+/// and more than two versions work. `--merge-format` reads files without an
+/// extension, as git hands them to a driver.
+#[test]
+fn merge_takes_n_versions_gates_on_conflicts_and_reads_extensionless_files() {
+    let fx = Fx::new();
+    write(fx.dir.path(), "base", "id,v,w\n1,x,p\n2,y,q\n");
+    write(fx.dir.path(), "v1", "id,v,w\n1,X,p\n2,y,q\n");
+    write(fx.dir.path(), "v2", "id,v,w\n1,x,p\n2,Y,q\n");
+    write(fx.dir.path(), "v3", "id,v,w\n1,x,P\n2,y,q\n");
+    write(fx.dir.path(), "clash", "id,v,w\n1,other,p\n2,y,q\n");
+    let p = |n: &str| fx.path(n);
+    let fmt = ["--merge-key", "id", "--merge-format", "csv"];
+
+    let clean = fx.run(
+        &[
+            &[
+                "--merge",
+                &p("v1"),
+                &p("v2"),
+                &p("v3"),
+                "--merge-original",
+                &p("base"),
+            ][..],
+            &fmt,
+        ]
+        .concat(),
+    );
+    clean.ok("--merge with an original");
+    assert_eq!(clean.first_line(), "id\tv\tw");
+    assert!(
+        clean.stdout.contains("1\tX\tP") && clean.stdout.contains("2\tY\tq"),
+        "{}",
+        clean.stdout
+    );
+
+    let out = p("merged.csv");
+    let conflict = fx.run(
+        &[
+            &[
+                "--merge",
+                &p("v1"),
+                &p("clash"),
+                "--merge-original",
+                &p("base"),
+                "--merge-out",
+                &out,
+            ][..],
+            &fmt,
+        ]
+        .concat(),
+    );
+    assert_eq!(
+        conflict.code,
+        Some(1),
+        "a conflict must exit 1\n{}",
+        conflict.stderr
+    );
+    assert_eq!(
+        conflict.first_line(),
+        "row\tcolumn\toriginal\tversion_1\tversion_2"
+    );
+    assert!(
+        !std::path::Path::new(&out).exists(),
+        "nothing may be written on a conflict"
+    );
+
+    let prefer = fx.run(
+        &[
+            &[
+                "--merge",
+                &p("v1"),
+                &p("clash"),
+                "--merge-original",
+                &p("base"),
+                "--merge-out",
+                &out,
+                "--merge-prefer",
+                "2",
+            ][..],
+            &fmt,
+        ]
+        .concat(),
+    );
+    prefer.ok("--merge --merge-prefer 2");
+    assert_eq!(
+        std::fs::read_to_string(&out).unwrap(),
+        "id,v,w\n1,other,p\n2,y,q\n"
+    );
+
+    // No original: v1 and v2 differ in two cells, so both ask.
+    let no_base = fx.run(&[&["--merge", &p("v1"), &p("v2")][..], &fmt].concat());
+    assert_eq!(no_base.code, Some(1));
+    assert_eq!(no_base.stdout.lines().count(), 3, "{}", no_base.stdout);
+}
+
+/// `--recipe` replays a saved recipe by column name; a step whose column is
+/// gone means nothing is written and exit 1, so a pipeline never picks up a
+/// half-applied table.
+#[test]
+fn recipe_replays_by_name_and_refuses_a_partial_run() {
+    let fx = Fx::new();
+    write(
+        fx.dir.path(),
+        "clean.ocp",
+        "version = 1\n\n[[steps]]\nstep = \"rename\"\nrenames = [{ from = \"city\", to = \"town\" }]\n\n\
+         [[steps]]\nstep = \"sort\"\nby = [{ column = \"id\", descending = true }]\n",
+    );
+    let recipe = fx.path("clean.ocp");
+    let out = fx.run(&["--recipe", &recipe, &fx.path("a.csv")]);
+    out.ok("--recipe");
+    assert_eq!(out.first_line(), "id\ttown\tamount");
+    assert!(
+        out.stdout.lines().nth(1).unwrap().starts_with("3\t"),
+        "{}",
+        out.stdout
+    );
+
+    // No `city` column, so the rename cannot run.
+    write(fx.dir.path(), "nocity.csv", "id,other\n1,x\n");
+    let dest = fx.path("never.csv");
+    let failed = fx.run(&[
+        "--recipe",
+        &recipe,
+        &fx.path("nocity.csv"),
+        "--recipe-out",
+        &dest,
+    ]);
+    assert_eq!(
+        failed.code,
+        Some(1),
+        "a skipped step must exit 1\n{}",
+        failed.stderr
+    );
+    assert!(
+        failed.stderr.contains("`city` not found"),
+        "{}",
+        failed.stderr
+    );
+    assert!(!std::path::Path::new(&dest).exists());
+}
+
+/// `--test-data`: the asked number of rows, the same header, repeatable with
+/// `--seed`; several inputs write one file each into a folder.
+#[test]
+fn test_data_generates_repeatable_rows_and_writes_several_into_a_folder() {
+    let fx = Fx::new();
+    let a = fx.path("a.csv");
+    let run = |seed: &str| {
+        let out = fx.run(&["--test-data", &a, "--test-data-rows", "5", "--seed", seed]);
+        out.ok("--test-data");
+        out.stdout
+    };
+    let first = run("1");
+    assert_eq!(first.lines().next(), Some("id\tcity\tamount"));
+    assert_eq!(first.lines().count(), 6);
+    assert_eq!(first, run("1"), "the same seed must give the same rows");
+
+    let dir = fx.dir.path().join("td");
+    std::fs::create_dir(&dir).unwrap();
+    let b = fx.path("b.csv");
+    fx.run(&[
+        "--test-data",
+        &a,
+        &b,
+        "--test-data-out",
+        &dir.to_string_lossy(),
+    ])
+    .ok("--test-data with two inputs");
+    assert!(dir.join("a_test.csv").exists() && dir.join("b_test.csv").exists());
+
+    let refused = fx.run(&["--test-data", &a, &b]);
+    assert_eq!(refused.code, Some(1), "two inputs need a folder");
+}
+
+/// `--overlaps`: pairs on stdout, exit 1 when any; exit 0 when the lanes
+/// keep them apart.
+#[test]
+fn overlaps_gates_on_overlapping_spans_per_lane() {
+    let fx = Fx::new();
+    write(
+        fx.dir.path(),
+        "book.csv",
+        "room,start,end\nA,2026-01-01 09:00,2026-01-01 10:30\nA,2026-01-01 10:00,2026-01-01 11:00\n\
+         B,2026-01-01 10:15,2026-01-01 10:45\n",
+    );
+    let f = fx.path("book.csv");
+    let hit = fx.run(&["--overlaps", &f, "--overlaps-lane", "room"]);
+    assert_eq!(hit.code, Some(1), "an overlap must exit 1\n{}", hit.stderr);
+    assert_eq!(
+        hit.first_line(),
+        "room\trow_a\tlabel_a\tstart_a\tend_a\trow_b\tlabel_b\tstart_b\tend_b"
+    );
+    assert_eq!(hit.stdout.lines().count(), 2, "{}", hit.stdout);
+
+    // Without lanes all three share time: three pairs.
+    let all = fx.run(&["--overlaps", &f]);
+    assert_eq!(all.stdout.lines().count(), 4, "{}", all.stdout);
+
+    write(
+        fx.dir.path(),
+        "apart.csv",
+        "start,end\n2026-01-01 09:00,2026-01-01 10:00\n2026-01-01 10:00,2026-01-01 11:00\n",
+    );
+    fx.run(&["--overlaps", &fx.path("apart.csv")])
+        .ok("touching spans do not overlap");
+}
+
+/// `--shapes`: one row per shape, most common first, header first.
+#[test]
+fn shapes_lists_the_column_shapes_most_common_first() {
+    let fx = Fx::new();
+    write(fx.dir.path(), "pc.csv", "pc\nD-10115\nD-80331\n12345\n");
+    let out = fx.run(&["--shapes", &fx.path("pc.csv"), "--shapes-column", "pc"]);
+    out.ok("--shapes");
+    assert_eq!(out.first_line(), "shape\tcount\texample");
+    assert_eq!(out.stdout.lines().nth(1), Some("A-99999\t2\tD-10115"));
+}
+
+/// `--lookups`: one row per key and following column, header first.
+#[test]
+fn lookups_reports_the_columns_a_key_decides() {
+    let fx = Fx::new();
+    write(
+        fx.dir.path(),
+        "flat.csv",
+        "order,customer,city\n1,c1,Berlin\n2,c1,Berlin\n3,c2,Munich\n4,c2,Munich\n",
+    );
+    let out = fx.run(&["--lookups", &fx.path("flat.csv")]);
+    out.ok("--lookups");
+    assert_eq!(
+        out.first_line(),
+        "key\tfollows\tconsistency_percent\tconflicting_keys\tbreaking_rows"
+    );
+    assert!(out.stdout.contains("customer\tcity\t100"), "{}", out.stdout);
+}
+
+#[path = "common/git_repo.rs"]
+mod git_repo;
+
+/// `--cell-history`: the commit that raised the price is listed, the rename
+/// is not (the value did not change there).
+#[test]
+fn cell_history_lists_the_commit_that_changed_the_price() {
+    let Some((_d, file)) = git_repo::git_repo_with_price_change() else {
+        return;
+    };
+    let f = file.to_string_lossy().into_owned();
+    let fx = Fx::new();
+    let out = fx.run(&[
+        "--cell-history",
+        &f,
+        "--history-column",
+        "price",
+        "--history-key",
+        "id",
+        "--history-value",
+        "2",
+    ]);
+    out.ok("--cell-history");
+    assert_eq!(
+        out.first_line(),
+        "commit\tdate\tauthor\tsubject\tvalue\tchange"
+    );
+    assert!(
+        out.stdout.contains("raise price\t25\tchanged"),
+        "{}",
+        out.stdout
+    );
+}
+
+/// A log file opens as a table through every file action; `--head` shows
+/// the log columns.
+#[test]
+fn head_reads_an_nginx_log_as_a_table() {
+    let fx = Fx::new();
+    write(
+        fx.dir.path(),
+        "access.log",
+        "1.2.3.4 - - [10/Oct/2026:13:55:36 +0000] \"GET / HTTP/1.1\" 200 12 \"-\" \"curl\"\n",
+    );
+    let out = fx.run(&["--head", &fx.path("access.log")]);
+    out.ok("--head on a log");
+    assert_eq!(
+        out.first_line(),
+        "timestamp\tutc_offset\tclient\tuser\tmethod\tpath\tprotocol\tstatus\tbytes\treferer\tuser_agent"
+    );
+}
+
+/// `--spatial-join`: a point inside the square gets its name, one outside
+/// stays empty.
+#[test]
+fn spatial_join_gives_each_point_its_polygon() {
+    let fx = Fx::new();
+    write(fx.dir.path(), "pts.csv", "id,lat,lon\na,1,1\nb,5,5\n");
+    write(
+        fx.dir.path(),
+        "square.geojson",
+        "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{\"name\":\"sq\"},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[[0,0],[2,0],[2,2],[0,2],[0,0]]]}}]}",
+    );
+    let out = fx.run(&[
+        "--spatial-join",
+        &fx.path("pts.csv"),
+        "--spatial-layer",
+        &fx.path("square.geojson"),
+    ]);
+    out.ok("--spatial-join");
+    assert_eq!(out.first_line(), "id\tlat\tlon\tsquare_name");
+    let lines: Vec<&str> = out.stdout.lines().collect();
+    assert!(lines[1].ends_with("\tsq"), "{}", out.stdout);
+    assert!(lines[2].ends_with('\t'), "{}", out.stdout);
+}
+
+/// `--forecast`: the forecast table's header, then one row per period.
+#[test]
+fn forecast_prints_one_row_per_period() {
+    let fx = Fx::new();
+    write(
+        fx.dir.path(),
+        "sales.csv",
+        "month,sales\n2024-01-01,100\n2024-02-01,101\n2024-03-01,102\n2024-04-01,103\n2024-05-01,104\n2024-06-01,115\n2024-07-01,116\n2024-08-01,107\n2024-09-01,108\n2024-10-01,109\n2024-11-01,110\n2024-12-01,111\n2025-01-01,112\n2025-02-01,113\n2025-03-01,114\n2025-04-01,115\n2025-05-01,116\n2025-06-01,127\n2025-07-01,128\n2025-08-01,119\n2025-09-01,120\n2025-10-01,121\n2025-11-01,122\n2025-12-01,123\n",
+    );
+    let out = fx.run(&[
+        "--forecast",
+        &fx.path("sales.csv"),
+        "--forecast-x",
+        "month",
+        "--forecast-y",
+        "sales",
+        "--forecast-periods",
+        "3",
+    ]);
+    out.ok("--forecast");
+    assert_eq!(out.first_line(), "x\tforecast\tlo80\thi80\tlo95\thi95");
+    assert_eq!(out.stdout.lines().count(), 4, "{}", out.stdout);
 }

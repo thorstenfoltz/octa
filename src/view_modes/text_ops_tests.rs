@@ -35,27 +35,41 @@ fn byte_range_clamped_at_end() {
 }
 
 #[test]
-fn tabs_before_cursor_counts_ascii() {
-    assert_eq!(tabs_before_cursor("\ta\tb", 4), 2);
-    assert_eq!(tabs_before_cursor("\ta\tb", 2), 1);
-    assert_eq!(tabs_before_cursor("\ta\tb", 0), 0);
+fn a_typed_tab_becomes_spaces_and_the_cursor_follows() {
+    // Cursor sits just after the tab egui inserted at index 1.
+    let (text, cursor) = expand_tabs_at_cursor("a\tb", 2, 4).unwrap();
+    assert_eq!(text, "a    b");
+    assert_eq!(cursor, 5);
 }
 
 #[test]
-fn tabs_before_cursor_counts_chars_not_bytes() {
-    // "ä" is 2 bytes but 1 char. The cursor sits after the tab at char 2, so
-    // exactly one tab precedes it. Byte-slicing `s[..2]` would have cut the
-    // string mid-"ä" and panicked; a byte-length comparison would have missed
-    // the tab entirely.
-    let s = "ä\tx";
-    assert_eq!(tabs_before_cursor(s, 2), 1);
-    assert_eq!(tabs_before_cursor(s, 1), 0);
+fn tabs_the_file_already_had_are_left_alone() {
+    // The cursor is at the end, nowhere near the file's own tabs: nothing to
+    // do. Expanding here would rewrite the file just for being drawn.
+    assert!(expand_tabs_at_cursor("\ta\tb", 4, 4).is_none());
+    assert!(expand_tabs_at_cursor("\tindented", 9, 4).is_none());
 }
 
 #[test]
-fn tabs_before_cursor_saturates_past_end() {
-    // egui can hand back a cursor beyond the buffer after an external edit;
-    // `take` clamps rather than panicking.
-    assert_eq!(tabs_before_cursor("\t", 999), 1);
-    assert_eq!(tabs_before_cursor("", 5), 0);
+fn a_run_of_tabs_before_the_cursor_expands_together() {
+    let (text, cursor) = expand_tabs_at_cursor("x\t\ty", 3, 2).unwrap();
+    assert_eq!(text, "x    y");
+    assert_eq!(cursor, 5);
+}
+
+#[test]
+fn expansion_counts_characters_not_bytes() {
+    // The leading character is multi-byte; a byte-based index would land
+    // inside it and either miscount or panic.
+    let (text, cursor) = expand_tabs_at_cursor("\u{e4}\tz", 2, 3).unwrap();
+    assert_eq!(text, "\u{e4}   z");
+    assert_eq!(cursor, 4);
+}
+
+#[test]
+fn a_cursor_past_the_end_is_clamped() {
+    assert!(expand_tabs_at_cursor("ab", 99, 4).is_none());
+    let (text, cursor) = expand_tabs_at_cursor("a\t", 99, 2).unwrap();
+    assert_eq!(text, "a  ");
+    assert_eq!(cursor, 3);
 }

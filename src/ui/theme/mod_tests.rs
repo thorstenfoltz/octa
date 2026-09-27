@@ -49,3 +49,34 @@ fn os_dark_theme_does_not_override_a_light_octa_theme() {
         ThemeColors::for_mode(ThemeMode::Light).bg_primary
     );
 }
+
+/// Every listed theme applies, and paints the panel in its own colour.
+#[test]
+fn every_listed_theme_applies_its_own_panel_colour() {
+    for &mode in ThemeMode::ALL {
+        let ctx = egui::Context::default();
+        apply_theme(&ctx, mode, font());
+        assert_eq!(
+            ctx.global_style().visuals.panel_fill,
+            ThemeColors::for_mode(mode).bg_primary,
+            "{}",
+            mode.label()
+        );
+    }
+}
+
+/// The point of Deep Sea Contrast: a dialog does not share the panel's
+/// colour, while plain Deep Sea keeps its look.
+#[test]
+fn deep_sea_contrast_raises_windows_off_the_panel() {
+    let visuals = |mode| {
+        let ctx = egui::Context::default();
+        apply_theme(&ctx, mode, font());
+        ctx.global_style().visuals.clone()
+    };
+    let plain = visuals(ThemeMode::DeepSea);
+    let contrast = visuals(ThemeMode::DeepSeaContrast);
+    assert_eq!(plain.window_fill, plain.panel_fill);
+    assert_ne!(contrast.window_fill, contrast.panel_fill);
+    assert_eq!(contrast.panel_fill, plain.panel_fill);
+}

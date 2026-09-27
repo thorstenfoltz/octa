@@ -188,25 +188,28 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                         });
 
                                     // Kind picker.
-                                    egui::ComboBox::from_id_salt(("val_kind", i))
+                                    let kind_combo = egui::ComboBox::from_id_salt(("val_kind", i))
                                         .selected_text(octa::i18n::t(rule.kind.i18n_key()))
                                         .width(150.0)
                                         .show_ui(ui, |ui| {
                                             for kind in ValidationKind::all() {
                                                 let selected = rule.kind.same_variant(&kind);
-                                                if ui
-                                                    .selectable_label(
-                                                        selected,
-                                                        octa::i18n::t(kind.i18n_key()),
-                                                    )
-                                                    .clicked()
-                                                    && !selected
-                                                {
+                                                let mut item = ui.selectable_label(
+                                                    selected,
+                                                    octa::i18n::t(kind.i18n_key()),
+                                                );
+                                                if let Some(h) = kind.hint_key() {
+                                                    item = item.on_hover_text(octa::i18n::t(h));
+                                                }
+                                                if item.clicked() && !selected {
                                                     rule.kind = kind;
                                                     changed = true;
                                                 }
                                             }
                                         });
+                                    if let Some(h) = rule.kind.hint_key() {
+                                        kind_combo.response.on_hover_text(octa::i18n::t(h));
+                                    }
 
                                     // Per-kind parameter widgets, kept in one grid
                                     // cell so a rule with two of them (Range) does not
@@ -326,7 +329,7 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 fn kind_params(ui: &mut egui::Ui, idx: usize, kind: &mut ValidationKind) -> bool {
     let mut changed = false;
     match kind {
-        ValidationKind::NotNull | ValidationKind::Unique => {
+        ValidationKind::NotNull | ValidationKind::Unique | ValidationKind::Id(_) => {
             // No parameters.
         }
         ValidationKind::Range { min, max } => {

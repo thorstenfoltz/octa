@@ -68,6 +68,23 @@ pub(super) fn file_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             .response
             .on_hover_text(crate::i18n::t("file_menu.open_as_hint"));
             if ui
+                .button(crate::i18n::t("file_menu.open_directory"))
+                .on_hover_text(crate::i18n::t("file_menu.open_directory_hint"))
+                .clicked()
+            {
+                action.open_directory = true;
+                ui.close();
+            }
+            if directory_tree_open
+                && ui
+                    .button(crate::i18n::t("file_menu.close_directory"))
+                    .on_hover_text(crate::i18n::t("file_menu.close_directory_hint"))
+                    .clicked()
+            {
+                action.close_directory = true;
+                ui.close();
+            }
+            if ui
                 .button(crate::i18n::t("file_menu.open_table_folder"))
                 .on_hover_text(crate::i18n::t("file_menu.open_table_folder_hint"))
                 .clicked()
@@ -89,6 +106,14 @@ pub(super) fn file_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 ui.close();
             }
             if ui
+                .button(crate::i18n::t("file_menu.open_api"))
+                .on_hover_text(crate::i18n::t("file_menu.open_api_hint"))
+                .clicked()
+            {
+                action.open_api = true;
+                ui.close();
+            }
+            if ui
                 .button(crate::i18n::t("file_menu.batch_convert"))
                 .on_hover_text(crate::i18n::t("file_menu.batch_convert_hint"))
                 .clicked()
@@ -105,28 +130,19 @@ pub(super) fn file_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 ui.close();
             }
             if ui
+                .button(crate::i18n::t("file_menu.merge_versions"))
+                .on_hover_text(crate::i18n::t("file_menu.merge_versions_hint"))
+                .clicked()
+            {
+                action.open_merge_versions = true;
+                ui.close();
+            }
+            if ui
                 .button(crate::i18n::t("file_menu.harmonise"))
                 .on_hover_text(crate::i18n::t("file_menu.harmonise_hint"))
                 .clicked()
             {
                 action.open_harmonise = true;
-                ui.close();
-            }
-            if ui
-                .button(crate::i18n::t("file_menu.open_directory"))
-                .on_hover_text(crate::i18n::t("file_menu.open_directory_hint"))
-                .clicked()
-            {
-                action.open_directory = true;
-                ui.close();
-            }
-            if directory_tree_open
-                && ui
-                    .button(crate::i18n::t("file_menu.close_directory"))
-                    .on_hover_text(crate::i18n::t("file_menu.close_directory_hint"))
-                    .clicked()
-            {
-                action.close_directory = true;
                 ui.close();
             }
             if ui

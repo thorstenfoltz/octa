@@ -257,10 +257,20 @@ pub(crate) struct JoinState {
     pub(crate) conds: Vec<JoinCondDraft>,
     /// How unmatched rows are handled.
     pub(crate) join_type: octa::data::join::JoinType,
+    /// `Some` when the Spatial type is picked; it replaces `join_type` and
+    /// the conditions.
+    pub(crate) spatial: Option<SpatialDraft>,
     /// Last error from Apply, shown inline (None = no error yet).
     pub(crate) error: Option<String>,
     /// Dialog window sizing (Normal / Maximized / Minimized).
     pub(crate) size: ui::settings::DialogSize,
+}
+
+/// The Join dialog's Spatial type: which operation and which tabs are layers.
+pub(crate) struct SpatialDraft {
+    pub(crate) nearest: bool,
+    pub(crate) within_km_text: String,
+    pub(crate) layers: std::collections::BTreeSet<usize>,
 }
 
 /// Whether the fuzzy-duplicate finder highlights rows in place or opens a

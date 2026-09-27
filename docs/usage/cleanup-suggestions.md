@@ -5,15 +5,6 @@ offers a fix for each one. It answers "what is wrong with this file?"
 in a single pass, instead of making you run six separate checks by hand
 and remember which ones you have already done.
 
-<!-- SCREENSHOT: cleanup-panel.png:
-The clean-up suggestions panel docked at the bottom of the window over a CSV.
-The header shows the title and a greyed "Scanned the first 100000 rows." note;
-below it a list of rows, each with a severity word (High / Medium / Low), a
-column name in bold, a plain-language sentence such as "12 cells have leading
-or trailing spaces.", and Show / Apply / Ignore buttons on the right. Indented
-under each row a greyed line states what Apply would do, e.g. "Apply: remove
-the spaces around 12 values in 'city'. Undo with Ctrl+Z." One row is expanded
-further, showing three quoted example values. -->
 ![Clean-up suggestions panel](../assets/screenshots/cleanup-panel.png)
 
 ## Opening it

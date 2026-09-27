@@ -7,6 +7,54 @@ pub enum JoinType {
     Left,
     Right,
     Full,
+    /// Left rows that have a partner, left columns only.
+    Semi,
+    /// Left rows that have no partner, left columns only.
+    Anti,
+    /// Each left row gets the nearest right row under exactly one inequality
+    /// (`>=` nearest earlier, `<=` nearest later) after the equality
+    /// conditions; unmatched left rows are kept.
+    AsOf,
+}
+
+impl JoinType {
+    pub const ALL: [JoinType; 7] = [
+        JoinType::Inner,
+        JoinType::Left,
+        JoinType::Right,
+        JoinType::Full,
+        JoinType::Semi,
+        JoinType::Anti,
+        JoinType::AsOf,
+    ];
+
+    /// The CLI / MCP spelling.
+    pub fn id(self) -> &'static str {
+        match self {
+            JoinType::Inner => "inner",
+            JoinType::Left => "left",
+            JoinType::Right => "right",
+            JoinType::Full => "full",
+            JoinType::Semi => "semi",
+            JoinType::Anti => "anti",
+            JoinType::AsOf => "asof",
+        }
+    }
+
+    /// Parse the CLI / MCP spelling, case-insensitively.
+    pub fn parse(s: &str) -> anyhow::Result<Self> {
+        let s = s.to_ascii_lowercase();
+        Self::ALL
+            .into_iter()
+            .find(|t| t.id() == s || (s == "as-of" && *t == JoinType::AsOf))
+            .ok_or_else(|| {
+                let all: Vec<&str> = Self::ALL.iter().map(|t| t.id()).collect();
+                anyhow::anyhow!(
+                    "unknown join type \"{s}\"; expected one of: {}",
+                    all.join(", ")
+                )
+            })
+    }
 }
 
 /// Comparison operator for a join condition.
@@ -48,6 +96,9 @@ fn keyword(how: JoinType) -> &'static str {
         JoinType::Left => "LEFT JOIN",
         JoinType::Right => "RIGHT JOIN",
         JoinType::Full => "FULL JOIN",
+        JoinType::Semi => "SEMI JOIN",
+        JoinType::Anti => "ANTI JOIN",
+        JoinType::AsOf => "ASOF LEFT JOIN",
     }
 }
 
@@ -58,6 +109,14 @@ fn is_numeric_type(t: &str) -> bool {
         || t.contains("double")
         || t.contains("decimal")
         || t.contains("real")
+}
+
+/// Dates and datetimes compare as `TIMESTAMP`, so `2024-09-01` sorts before
+/// `2024-10-01` whatever text form either side came in. Matters for as-of,
+/// where the nearest row is found by ordering.
+fn is_temporal_type(t: &str) -> bool {
+    let t = t.to_ascii_lowercase();
+    t.contains("date") || t.contains("timestamp")
 }
 
 fn col_type<'a>(table: &'a DataTable, name: &str) -> Option<&'a str> {
@@ -81,6 +140,15 @@ pub fn join_two(
     if conds.is_empty() {
         anyhow::bail!("join needs at least one condition");
     }
+    if how == JoinType::AsOf {
+        let inequalities = conds.iter().filter(|c| c.op != JoinOp::Eq).count();
+        if inequalities != 1 {
+            anyhow::bail!(
+                "an as-of join needs exactly one condition with >=, >, <= or < (the column \
+                 to find the nearest row by) and any number of = conditions; this one has {inequalities}"
+            );
+        }
+    }
     let (lname, lt) = left;
     let (rname, rt) = right;
 
@@ -96,6 +164,8 @@ pub fn join_two(
             .ok_or_else(|| anyhow::anyhow!("right table has no column \"{}\"", c.right_col))?;
         let cast = if is_numeric_type(l_ty) && is_numeric_type(r_ty) {
             "DOUBLE"
+        } else if is_temporal_type(l_ty) && is_temporal_type(r_ty) {
+            "TIMESTAMP"
         } else {
             "VARCHAR"
         };
@@ -230,5 +300,106 @@ mod tests {
         }];
         let out = join_two(("l", &a), ("r", &b), &conds, JoinType::Inner).unwrap();
         assert_eq!(out.row_count(), 1);
+    }
+
+    fn ints(name: &str, v: &[i64]) -> DataTable {
+        tbl(
+            &[(name, "Int64")],
+            v.iter().map(|&n| vec![CellValue::Int(n)]).collect(),
+        )
+    }
+
+    fn eq(l: &str, r: &str) -> JoinCond {
+        JoinCond {
+            left_col: l.into(),
+            op: JoinOp::Eq,
+            right_col: r.into(),
+        }
+    }
+
+    #[test]
+    fn semi_keeps_matched_left_rows_once_and_left_columns_only() {
+        let a = ints("id", &[1, 2, 3]);
+        // id 1 twice on the right: a semi join still yields it once.
+        let b = tbl(
+            &[("id", "Int64"), ("x", "Int64")],
+            vec![
+                vec![CellValue::Int(1), CellValue::Int(9)],
+                vec![CellValue::Int(1), CellValue::Int(8)],
+                vec![CellValue::Int(3), CellValue::Int(7)],
+            ],
+        );
+        let out = join_two(("l", &a), ("r", &b), &[eq("id", "id")], JoinType::Semi).unwrap();
+        assert_eq!(out.row_count(), 2);
+        assert_eq!(out.col_count(), 1);
+    }
+
+    #[test]
+    fn anti_keeps_unmatched_left_rows() {
+        let a = ints("id", &[1, 2, 3]);
+        let b = ints("id", &[1, 3]);
+        let out = join_two(("l", &a), ("r", &b), &[eq("id", "id")], JoinType::Anti).unwrap();
+        assert_eq!(out.row_count(), 1);
+        assert_eq!(out.rows[0][0].to_string(), "2");
+        let many = join_tables(&[("t0", &a), ("t1", &b)], &["id".into()], JoinType::Anti).unwrap();
+        assert_eq!(many.row_count(), 1);
+    }
+
+    #[test]
+    fn asof_takes_the_nearest_earlier_row_per_key_and_keeps_the_unmatched() {
+        let dt = |s: &str| CellValue::DateTime(s.into());
+        let text = |s: &str| CellValue::String(s.into());
+        let trades = tbl(
+            &[("t", "Timestamp(Microsecond, None)"), ("sym", "Utf8")],
+            vec![
+                vec![dt("2026-09-24 08:59:00"), text("A")],
+                vec![dt("2026-09-24 09:03:00"), text("A")],
+                vec![dt("2026-09-24 09:03:00"), text("B")],
+            ],
+        );
+        let quotes = tbl(
+            &[
+                ("qt", "Timestamp(Microsecond, None)"),
+                ("sym", "Utf8"),
+                ("bid", "Int64"),
+            ],
+            vec![
+                vec![dt("2026-09-24 09:00:00"), text("A"), CellValue::Int(10)],
+                vec![dt("2026-09-24 09:02:00"), text("A"), CellValue::Int(11)],
+                vec![dt("2026-09-24 09:05:00"), text("A"), CellValue::Int(12)],
+                vec![dt("2026-09-24 09:01:00"), text("B"), CellValue::Int(50)],
+            ],
+        );
+        let conds = vec![
+            eq("sym", "sym"),
+            JoinCond {
+                left_col: "t".into(),
+                op: JoinOp::Ge,
+                right_col: "qt".into(),
+            },
+        ];
+        let out = join_two(("l", &trades), ("r", &quotes), &conds, JoinType::AsOf).unwrap();
+        assert_eq!(out.row_count(), 3);
+        let bid = out.columns.iter().position(|c| c.name == "bid").unwrap();
+        let mut bids: Vec<String> = out.rows.iter().map(|r| r[bid].to_string()).collect();
+        bids.sort();
+        // 08:59 has no earlier quote (kept, empty); 09:03 A -> 09:02; B -> 09:01.
+        assert_eq!(bids, ["", "11", "50"]);
+    }
+
+    #[test]
+    fn asof_without_exactly_one_inequality_is_refused_plainly() {
+        let a = ints("id", &[1]);
+        let err = join_two(("l", &a), ("r", &a), &[eq("id", "id")], JoinType::AsOf).unwrap_err();
+        assert!(format!("{err:#}").contains("exactly one condition"));
+    }
+
+    #[test]
+    fn join_type_parses_every_spelling_it_prints() {
+        for t in JoinType::ALL {
+            assert_eq!(JoinType::parse(t.id()).unwrap(), t);
+        }
+        assert_eq!(JoinType::parse("As-Of").unwrap(), JoinType::AsOf);
+        assert!(JoinType::parse("cross").is_err());
     }
 }

@@ -17,7 +17,6 @@ For how the assistant works out what your columns mean before it writes a
 query, and what does and does not reach your model provider, see
 [How the Assistant Understands Your Data](assistant-context.md).
 
-<!-- SCREENSHOT: chat-panel.png: The chat assistant docked on the right of the table view. -->
 ![Chat Assistant](../assets/screenshots/chatbot.png)
 
 ## Opening and closing the panel
@@ -33,20 +32,78 @@ There are three ways to open it, and it stays where it is across tabs:
 You can dock the panel to the right (the default), left, bottom, or top of the
 window from Settings.
 
-### Data mode and "Just answer"
+### Data, "Just answer" and Plan
 
-<!-- SCREENSHOT: chat-mode-toggle.png: The chat panel header with the profile dropdown and the Data / Just answer pair beside it, Just answer selected. -->
-
-Beside the profile dropdown in the panel header sit two labels:
+Beside the profile dropdown in the panel header sit three labels:
 
 - **Data** is the normal mode. The assistant gets Octa's tools and can read
   what you have open, run SQL, and (with writes on) edit the live tab.
 - **Just answer** asks a general question. No tools are sent and none of your
   data goes with the request, so the assistant simply answers, and the request
   costs a fraction of the tokens a Data-mode turn does.
+- **Plan** proposes changes instead of making them. See below.
 
 The choice is a mode for the question you are asking, not a saved preference:
 it lives for the session and starts on **Data** each time.
+
+### Plan mode
+
+![A plan in the chat transcript: three numbered steps with tick boxes, one expanded showing before and after values, and the Apply / Ask for a revision / Discard buttons underneath.](../assets/screenshots/chat-plan-mode.png){ .screenshot-placeholder }
+
+In **Data** mode the assistant's edits land in the tab as soon as it makes
+them. They are undoable, but you see them only after the fact. **Plan** mode
+puts a review step in front of that.
+
+Ask for something broad, the way you would anyway: *clean this file up*, *make
+these dates consistent*, *fix the country column*. Instead of changing
+anything, the assistant comes back with a numbered plan at the end of the
+conversation:
+
+```text
+Plan: 3 steps on #1 sales.csv
+
+ [x] 1. Add column net (Float64)
+ [x] 2. Set 47 cells in country
+ [ ] 3. Delete 6 rows
+
+ [Apply 2 accepted]  [Ask for a revision]  [Discard]
+```
+
+Click a step to unfold what it would actually do: the values a new column
+would hold, the `before -> after` of every cell it would set, the rows it
+would delete. Untick anything you do not want.
+
+**Apply** then makes the ticked steps happen, all at once. One
+<kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes the whole plan, not one step of it. If any
+step cannot be applied, nothing is: the table is left exactly as it was and
+the message says which step failed.
+
+**Ask for a revision** sends the steps you unticked back and asks for a new
+plan. It is capped at three in a row, after which saying what you want in your
+own words is the better move. **Discard** throws the plan away; since nothing
+was applied, there is nothing to undo.
+
+A few things worth knowing:
+
+- In Plan mode the assistant has exactly **one** way to change anything: the
+  live-tab edit tool, whose steps you review. The other write tools
+  (transform, anonymise, fill missing, convert, write to a file or a database)
+  are refused, because those take effect the instant they run and there would
+  be nothing left to accept. The assistant expresses the whole change as edit
+  steps instead. If something genuinely cannot be expressed that way, it says
+  so and asks you to switch back to Data mode.
+- Reading is unaffected: the assistant still inspects your data, runs SQL and
+  works out the numbers. That is how it arrives at a plan.
+- Plan mode needs the profile's **Allow writes** switch on, because planning
+  means proposing edits. With it off the Plan label is greyed out and says so.
+- A plan belongs to the conversation that proposed it. Starting a new session
+  or closing Octa drops it; it is not saved.
+- If the table changes while the plan is sitting there (you edit a cell, or
+  sort it), the plan refuses to apply and asks for a revision. Its steps
+  address rows by position, and those positions have moved.
+- A step that sorts rows cannot be applied while you have unsaved cell edits
+  pending, because sorting commits them first. Apply or revert them in the
+  [edit audit trail](edit-audit-trail.md) and try again.
 
 ### Markdown in replies
 
@@ -599,8 +656,6 @@ This keeps it from quietly reaching into arbitrary files on your disk.
   the clouds you configured. It can also **write** to those buckets once
   the connection's **Allow writes** is on. See
   [Cloud Storage](cloud-storage.md).
-
-<!-- SCREENSHOT: chat-tab-chips.png: The chat panel header with two open tabs shown as chips ("#1 sales.csv" highlighted as active, "#2 returns.csv"), illustrating how the assistant addresses multiple open tables. -->
 
 ### Your data is data, not orders
 

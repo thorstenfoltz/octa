@@ -43,20 +43,6 @@ pub(super) fn search_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarA
                 ui.close();
             }
             ui.separator();
-            // Excel-style per-column value filter. Deliberately *not*
-            // suffixed with the shortcut combo (Ctrl+Shift+F by default)
-            // - same convention as the F8 read-only menu entry.
-            let filter_btn = ui
-                .add_enabled(
-                    has_data,
-                    egui::Button::new(crate::i18n::t("search_menu.column_filter")),
-                )
-                .on_hover_text(crate::i18n::t("search_menu.column_filter_hint"));
-            if filter_btn.clicked() {
-                action.show_column_filter = Some(None);
-                ui.close();
-            }
-            ui.separator();
             if ui
                 .button(crate::i18n::t("search_menu.multi_search"))
                 .on_hover_text(crate::i18n::t("search_menu.multi_search_hint"))

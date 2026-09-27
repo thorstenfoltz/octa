@@ -14,8 +14,9 @@ failed. Read-only, so it stays available under `--mcp-read-only`.
 
 The rules file is the same one the **Data -> Data validation...** dialog
 saves and loads, and the same one `octa --check` reads. Kinds are
-`not_null`, `unique`, `range`, `regex` and `max_length`; a rule without
-a `column` applies to every column.
+`not_null`, `unique`, `range`, `regex`, `max_length`, and the ID checks
+`iban`, `card_number`, `gtin`, `vat_id` and `email` (correctly built, not
+looked up); a rule without a `column` applies to every column.
 
 ## Response
 

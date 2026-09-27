@@ -97,13 +97,26 @@ pub struct ArchiveEntry {
     pub is_dir: bool,
 }
 
+/// List a zip's entries without decrypting anything.
+///
+/// Public because the passphrase prompt has to know what is inside an
+/// encrypted archive before it can decrypt any of it: the names live in the
+/// central directory and need no key.
+pub fn list_zip_entries(path: &Path) -> Result<Vec<ArchiveEntry>> {
+    read_zip_entries(path)
+}
+
 fn read_zip_entries(path: &Path) -> Result<Vec<ArchiveEntry>> {
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut archive =
         zip::ZipArchive::new(BufReader::new(file)).context("reading zip central directory")?;
     let mut out = Vec::with_capacity(archive.len());
     for i in 0..archive.len() {
-        let entry = archive.by_index(i).context("reading zip entry header")?;
+        // `by_index_raw` reads the header without decrypting, so an
+        // encrypted archive still lists.
+        let entry = archive
+            .by_index_raw(i)
+            .context("reading zip entry header")?;
         let name = entry.name().to_string();
         let is_dir = entry.is_dir() || name.ends_with('/');
         let mtime = entry.last_modified().and_then(|d| {

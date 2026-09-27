@@ -24,7 +24,52 @@ impl RowMatcher {
             },
         }
     }
+}
 
+/// The RE2 pattern that matches exactly what [`RowMatcher::with_options`]
+/// would match, for handing the same search to an engine that speaks regex
+/// (DuckDB's `regexp_matches`, and through it the whole-file scan).
+///
+/// This exists so a scan over the file answers the *same question* the search
+/// box asked. Built separately, a scan would quietly ignore the mode, the
+/// `Aa` toggle and whole-word, and then report its count in the same words -
+/// a confidently wrong number, which is the whole failure this feature is
+/// meant to prevent.
+///
+/// Returns `None` for a pattern the regex engine refuses, matching
+/// `RowMatcher::Invalid`'s "matches nothing" rather than sending broken SQL.
+/// DuckDB's regex is RE2, the same family as the `regex` crate, so a pattern
+/// that builds here behaves the same there.
+pub fn sql_regex_pattern(
+    query: &str,
+    mode: SearchMode,
+    case_sensitive: bool,
+    whole_word: bool,
+) -> Option<String> {
+    let base = match mode {
+        SearchMode::Plain => regex::escape(query),
+        SearchMode::Wildcard => {
+            let p = super::wildcard_to_regex(query);
+            p.strip_prefix("(?i)").map(str::to_string).unwrap_or(p)
+        }
+        SearchMode::Regex => query.to_string(),
+    };
+    let pattern = if whole_word {
+        format!(r"\b(?:{base})\b")
+    } else {
+        base
+    };
+    // Case folding as an inline flag rather than a builder option, because the
+    // pattern has to travel to another engine as text.
+    let pattern = if case_sensitive {
+        pattern
+    } else {
+        format!("(?i){pattern}")
+    };
+    regex::Regex::new(&pattern).ok().map(|_| pattern)
+}
+
+impl RowMatcher {
     /// Like [`new`](Self::new) but with explicit **case-sensitive** and
     /// **whole-word** toggles (the GUI search bar's `Aa` / whole-word
     /// buttons). When both are off this matches `new`'s case-insensitive

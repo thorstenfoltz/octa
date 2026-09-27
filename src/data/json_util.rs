@@ -15,6 +15,14 @@ pub fn collect_json_paths(value: &Value, max_depth: Option<usize>) -> HashSet<St
     paths
 }
 
+/// Every expandable path inside `value`, written under `prefix`. Used for the
+/// JSON document a string leaf holds: its paths hang off the leaf's own.
+pub fn collect_json_paths_under(value: &Value, prefix: &str) -> HashSet<String> {
+    let mut paths = HashSet::new();
+    collect_paths_recursive(value, prefix, 0, None, &mut paths);
+    paths
+}
+
 fn collect_paths_recursive(
     value: &Value,
     path: &str,

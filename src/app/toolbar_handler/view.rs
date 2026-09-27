@@ -68,6 +68,21 @@ impl OctaApp {
         if let Some(reader_name) = action.open_as {
             self.reopen_active_as(reader_name);
         }
+        if action.toggle_column_navigator {
+            self.toggle_column_navigator();
+        }
+        if action.open_tab_memory {
+            self.open_tab_memory();
+        }
+        if action.toggle_edit_audit {
+            self.toggle_edit_audit();
+        }
+        if action.toggle_recipe_panel {
+            self.toggle_recipe_panel();
+        }
+        if action.open_apply_recipe {
+            self.pick_and_apply_recipe();
+        }
     }
 
     /// One more band, or one fewer, within the 2..=`MAX_SPLIT_PANES` range.

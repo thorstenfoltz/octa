@@ -13,14 +13,15 @@ tells you the folder disagrees with itself, this one fixes it.
 
 ## Parameters
 
-| Name          | Type    | Required | Default | Description                                                          |
-|---------------|---------|----------|---------|----------------------------------------------------------------------|
-| `dir`         | string  | yes      | -       | Folder to scan.                                                      |
-| `out_dir`     | string  | yes      | -       | Folder to write harmonised copies into. Must differ from `dir`.      |
-| `target_file` | string  | no       | -       | Take the target schema from this file instead of the majority shape. |
-| `recursive`   | boolean | no       | `false` | Walk subfolders.                                                     |
-| `ignore_case` | boolean | no       | `false` | Treat column names differing only in case as one column.             |
-| `overwrite`   | boolean | no       | `false` | Replace files that already exist in `out_dir`.                       |
+| Name          | Type    | Required | Default | Description                                                                                                                         |
+|---------------|---------|----------|---------|-------------------------------------------------------------------------------------------------------------------------------------|
+| `dir`         | string  | yes      | -       | Folder to scan.                                                                                                                     |
+| `out_dir`     | string  | yes      | -       | Folder to write harmonised copies into. Must differ from `dir`.                                                                     |
+| `target_file` | string  | no       | -       | Take the target schema from this file instead of the majority shape.                                                                |
+| `recursive`   | boolean | no       | `false` | Walk subfolders.                                                                                                                    |
+| `ignore_case` | boolean | no       | `false` | Treat column names differing only in case as one column.                                                                            |
+| `overwrite`   | boolean | no       | `false` | Replace files that already exist in `out_dir`.                                                                                      |
+| `combine`     | boolean | no       | `false` | Fold the folder into ONE file with a `source_file` column instead of writing a copy of each. `out_dir` then names that output FILE. |
 
 ## Response
 
@@ -71,6 +72,26 @@ tells you the folder disagrees with itself, this one fixes it.
 - Two inputs colliding on one output name refuse **both**, deliberately
   unlike [`batch_convert`](batch_convert.md)'s `_2` suffix, which would
   paper over exactly the ambiguity that matters here.
+
+## Combining
+
+With `"combine": true` the response is a different shape, because the work
+was: one table written once, rather than a copy per input.
+
+```json
+{
+  "combined": true,
+  "out": "/data/all-parts.csv",
+  "files_read": 12,
+  "rows": 48211,
+  "columns": ["order_id", "amount", "note", "source_file"],
+  "skipped": [{ "file": "broken.parquet", "reason": "invalid footer" }]
+}
+```
+
+`source_file` records which input each row came from. A column of that name
+already in the data is not overwritten; the provenance column is suffixed
+instead, once across every input.
 
 ## Notes
 

@@ -113,18 +113,30 @@ impl OctaApp {
     }
 
     /// Jump to the bookmark at `index` in the active tab: select the target
-    /// cell and scroll it into view. Mirrors the status-bar navigation scroll.
+    /// cell and scroll it into view.
     pub(crate) fn jump_to_bookmark(&mut self, index: usize) {
-        let row_height =
-            (self.settings.font_size * self.zoom_percent as f32 / 100.0 * 2.0).max(26.0);
-        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+        let Some(tab) = self.tabs.get(self.active_tab) else {
             return;
         };
         let Some(bm) = tab.bookmarks.get(index) else {
             return;
         };
-        let row = bm.row;
-        let col = bm.col.unwrap_or(0);
+        self.jump_to_cell(bm.row, bm.col.unwrap_or(0));
+    }
+
+    /// Select `(row, col)` in the active tab and scroll it into view. Shared
+    /// by bookmark jump and the edit audit trail's jump button.
+    ///
+    /// The vertical scroll goes through `TableViewState::scroll_to_row`
+    /// rather than a guessed pixel offset: the row height is only known
+    /// inside `draw_table`, so a guess here would land the viewport short on
+    /// a large page. If the row is currently filtered out of view
+    /// (`display_idx` not found), the cell is still selected but the
+    /// viewport is left alone - there is nowhere on screen to scroll it to.
+    pub(crate) fn jump_to_cell(&mut self, row: usize, col: usize) {
+        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+            return;
+        };
         if row >= tab.table.row_count() {
             return;
         }
@@ -132,7 +144,9 @@ impl OctaApp {
         tab.table_state.selected_rows.clear();
         tab.table_state.selected_cols.clear();
         tab.table_state.selected_cells.clear();
-        tab.table_state.set_scroll_y(row as f32 * row_height);
+        if let Some(display_idx) = tab.filtered_rows.iter().position(|&r| r == row) {
+            tab.table_state.scroll_to_row(display_idx);
+        }
         if col < tab.table_state.col_widths.len() {
             let col_left: f32 = tab.table_state.col_widths[..col].iter().sum();
             tab.table_state.set_scroll_x(col_left);

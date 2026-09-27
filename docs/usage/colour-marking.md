@@ -4,7 +4,6 @@ Octa lets you highlight cells, rows, and columns with colours,
 useful for flagging interesting values during exploration, marking
 rows that need attention, or grouping columns visually.
 
-<!-- SCREENSHOT: colour-marking-example.png: Table with a few cells marked Yellow, an entire row marked Red, and a column marked Blue. Show how the precedence works visually. -->
 ![Colour marks in action](../assets/screenshots/colour-marking-example.png)
 
 ## Available colours
@@ -50,6 +49,13 @@ default to Red, etc.
 
 The **Edit → Mark** submenu lets you pick the colour explicitly
 as well.
+
+## Marking is not an edit
+
+Marking works in [read-only mode](table-view.md) and on a read-only
+database tab, through every route: the context menu, **Edit → Mark**, and
+the keyboard shortcut alike. A colour mark is a way of reading a table,
+not a change to it, and nothing is written to the file or the server.
 
 ## Clearing a mark
 

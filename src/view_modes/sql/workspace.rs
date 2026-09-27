@@ -18,10 +18,7 @@ pub(super) fn render_workspace_section(
     ui: &mut egui::Ui,
     tab: &mut TabState,
     data: &WorkspaceData<'_>,
-    inspector_selection: Option<&crate::app::sql_panel::InspectorTarget>,
-    inspector_entry: Option<&crate::app::state::InspectorCacheEntry>,
-    action: &mut SqlAction,
-) {
+) -> bool {
     let extras = data.tables.iter().filter(|t| !t.is_active).count();
     let attached = data.attachments.len();
     let summary = if extras == 0 && attached == 0 {
@@ -36,65 +33,47 @@ pub(super) fn render_workspace_section(
             octa::i18n::t("sql.attached_dbs"),
         )
     };
-    // `CollapsingHeader` paints its own triangle via egui's drawing primitives,
-    // so the glyph always renders even when the bundled font lacks the
-    // geometric-shapes block (where `\u{25be}` / `\u{25b8}` live).
+    // The header carries the toggle and nothing else. The tree and the
+    // inspector are two panes of the panel's splitter, which the caller lays
+    // out with the editor and the result pane: they share one height between
+    // the four of them, so growing the tree takes the space from a neighbour
+    // instead of pushing the editor off the bottom of the panel.
+    //
+    // `CollapsingHeader` paints its own triangle via egui's drawing
+    // primitives, so the glyph always renders even when the bundled font
+    // lacks the geometric-shapes block (where `\u{25be}` / `\u{25b8}` live).
     let resp = egui::CollapsingHeader::new(egui::RichText::new(summary).strong())
         .id_salt("sql_workspace_section")
         .default_open(tab.sql_workspace_open)
-        .show(ui, |ui| {
-            // Two independent Resize widgets stacked vertically. Each gets its
-            // own bottom-edge handle, so the user can grow the tree without
-            // touching the inspector or the editor, and vice versa. The
-            // editor's existing top-split handle stays independent of both.
-            egui::Resize::default()
-                .id_salt("sql_workspace_tree_resize")
-                .resizable([false, true])
-                .min_height(80.0)
-                .default_height(140.0)
-                .show(ui, |ui| {
-                    render_workspace_list(ui, tab, data, inspector_selection, action);
-                });
-            ui.add_space(2.0);
-            ui.separator();
-            ui.add_space(2.0);
-            egui::Resize::default()
-                .id_salt("sql_workspace_inspector_resize")
-                .resizable([false, true])
-                .min_height(120.0)
-                .default_height(240.0)
-                .show(ui, |ui| {
-                    if data.attachments.is_empty() {
-                        render_workspace_inspector(
-                            ui,
-                            inspector_selection,
-                            inspector_entry,
-                            action,
-                        );
-                    } else {
-                        // With servers attached, the spare width next to the
-                        // Inspector carries a cheat-sheet of the attachments:
-                        // the alias to type (connection names get sanitised,
-                        // which is not obvious) and a ready-made query per
-                        // connection.
-                        ui.columns(2, |cols| {
-                            render_workspace_inspector(
-                                &mut cols[0],
-                                inspector_selection,
-                                inspector_entry,
-                                action,
-                            );
-                            render_attachment_info(&mut cols[1], data.attachments, action);
-                        });
-                    }
-                });
-        });
+        .show(ui, |_| {});
     tab.sql_workspace_open = resp.openness > 0.5;
     ui.add_space(2.0);
     ui.separator();
+    tab.sql_workspace_open
 }
 
-fn render_workspace_list(
+/// The Inspector pane: the selected table's columns, plus - when servers are
+/// attached - a cheat-sheet of the attachments in the spare width beside it
+/// (the alias to type, since connection names get sanitised, and a ready-made
+/// query per connection).
+pub(super) fn render_inspector_pane(
+    ui: &mut egui::Ui,
+    data: &WorkspaceData<'_>,
+    inspector_selection: Option<&crate::app::sql_panel::InspectorTarget>,
+    inspector_entry: Option<&crate::app::state::InspectorCacheEntry>,
+    action: &mut SqlAction,
+) {
+    if data.attachments.is_empty() {
+        render_workspace_inspector(ui, inspector_selection, inspector_entry, action);
+    } else {
+        ui.columns(2, |cols| {
+            render_workspace_inspector(&mut cols[0], inspector_selection, inspector_entry, action);
+            render_attachment_info(&mut cols[1], data.attachments, action);
+        });
+    }
+}
+
+pub(super) fn render_workspace_list(
     ui: &mut egui::Ui,
     tab: &mut TabState,
     data: &WorkspaceData<'_>,
@@ -111,6 +90,7 @@ fn render_workspace_list(
     egui::ScrollArea::vertical()
         .id_salt("sql_workspace_list_scroll")
         .auto_shrink([false, false])
+        .min_scrolled_height(0.0)
         .show(ui, |ui| {
             for row in tables {
                 let target = crate::app::sql_panel::InspectorTarget::RegisteredTable {
@@ -550,6 +530,7 @@ fn render_attachment_info(
     egui::ScrollArea::vertical()
         .id_salt("sql_att_info_scroll")
         .auto_shrink([false, false])
+        .min_scrolled_height(0.0)
         .show(ui, |ui| {
             for att in attachments {
                 ui.horizontal(|ui| {
@@ -731,6 +712,7 @@ fn render_workspace_inspector(
             egui::ScrollArea::vertical()
                 .id_salt("sql_inspector_scroll")
                 .auto_shrink([false, false])
+                .min_scrolled_height(0.0)
                 .show(ui, |ui| {
                     egui::Grid::new("sql_inspector_columns")
                         .num_columns(2)

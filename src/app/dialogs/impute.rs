@@ -242,6 +242,9 @@ fn apply_impute(app: &mut OctaApp, st: &ImputeState) -> Result<(), String> {
         .get(col)
         .map(|c| c.name.clone())
         .unwrap_or_default();
+    app.record_step(octa::data::recipe::RecipeStep::FillMissing(
+        octa::data::recipe::FillMissing::new(col_name.clone(), &strategy),
+    ));
     app.status_message = Some((
         format!("{} \"{}\"", octa::i18n::t("impute.title"), col_name),
         std::time::Instant::now(),

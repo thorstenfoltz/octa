@@ -1,20 +1,15 @@
-# EPUB Reader
+# EPUB reader
 
 For `.epub` files Octa renders the book chapter-by-chapter as flowing
 text, using the same Markdown renderer the Markdown view uses. Each
 chapter's XHTML is converted to Markdown once at load time and
 cached on the tab, so there's no per-frame conversion overhead.
 
-<!-- SCREENSHOT: epub-reader-view.png: EPUB Reader view of a chapter. Show the
-toolbar at top (book title, Previous / Next buttons, chapter combo with the
-current chapter highlighted, position N/M), and a chapter body rendered as
-paragraphs of flowing text. If possible, include an embedded image (e.g. a
-cover) in the thumbnail strip below the text. -->
-![EPUB Reader view](../../assets/screenshots/epub-reader-view.png){ .screenshot-placeholder }
+![EPUB reader view](../../assets/screenshots/epub-reader-view.png){ .screenshot-placeholder }
 
-## When the EPUB Reader appears
+## When the EPUB reader appears
 
-The EPUB Reader is the **default view** for `.epub` files. The
+The EPUB reader is the **default view** for `.epub` files. The
 [Table view](../table-view.md) is still available: every chapter's
 paragraphs become rows with `chapter`, `paragraph`, `text` columns,
 which is useful for full-text searching the book via the
@@ -65,7 +60,7 @@ images on the tab so you don't re-decode on every page flip.
 
     EPUB chapters use HTML `<img>` tags to position images mid-text.
     The egui `pulldown_cmark` walker doesn't expose a clean way to
-    weave widgets into paragraph layout, so v1 of the EPUB Reader
+    weave widgets into paragraph layout, so v1 of the EPUB reader
     collects all chapter images into a strip below the body. This
     is a known v1 trade-off; inline-in-paragraph positioning is
     deferred.

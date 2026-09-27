@@ -160,3 +160,30 @@ fn invalid_regex_disables_rule() {
     );
     assert!(v.is_empty());
 }
+
+#[test]
+fn id_rules_flag_badly_built_ids_and_let_empty_cells_pass() {
+    let s = |v: &str| CellValue::String(v.into());
+    let t = table(
+        &["iban"],
+        vec![
+            vec![s("DE89 3704 0044 0532 0130 00")],
+            vec![s("DE89370400440532013001")],
+            vec![CellValue::Null],
+        ],
+    );
+    let rules = vec![ValidationRule {
+        column: Some(0),
+        kind: ValidationKind::Id(IdKind::Iban),
+    }];
+    let bad = violations(&t, &rules);
+    assert_eq!(bad, HashSet::from([(1, 0)]));
+}
+
+#[test]
+fn every_id_kind_is_its_own_dropdown_entry() {
+    let all = ValidationKind::all();
+    for kind in &all {
+        assert_eq!(all.iter().filter(|k| k.same_variant(kind)).count(), 1);
+    }
+}

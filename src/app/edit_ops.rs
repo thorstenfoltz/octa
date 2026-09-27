@@ -144,6 +144,7 @@ impl OctaApp {
     pub(crate) fn do_undo(&mut self) {
         let tab = &mut self.tabs[self.active_tab];
         if tab.table.undo() {
+            tab.recipe_after_undo();
             tab.filter_dirty = true;
             tab.table_state.widths_initialized = false;
         }
@@ -153,6 +154,7 @@ impl OctaApp {
     pub(crate) fn do_redo(&mut self) {
         let tab = &mut self.tabs[self.active_tab];
         if tab.table.redo() {
+            tab.recipe_after_redo();
             tab.filter_dirty = true;
             tab.table_state.widths_initialized = false;
         }
@@ -186,15 +188,35 @@ impl OctaApp {
         }
     }
 
+    /// Read the active tab's file again into the same tab, dropping its edits.
     pub(crate) fn reload_active_file(&mut self) {
         let Some(path) = self.tabs[self.active_tab].table.source_path.clone() else {
             return;
         };
+        // Back into this tab, not a new one beside it.
+        self.reload_target = Some(super::refresh::ReloadTarget {
+            tab: self.active_tab,
+            source: path.clone(),
+        });
         let tab = &mut self.tabs[self.active_tab];
         tab.table.discard_edits();
         tab.table.clear_modified();
         tab.raw_content_modified = false;
-        self.load_file(std::path::PathBuf::from(path));
+        self.reread_file(self.active_tab, std::path::PathBuf::from(path));
+    }
+
+    /// Read tab `idx`'s file again. A tab holding one sheet of a workbook or
+    /// one table of a database file reads just that table: reading the whole
+    /// file would reopen every sheet, and the first one would land in this tab.
+    pub(crate) fn reread_file(&mut self, idx: usize, path: std::path::PathBuf) {
+        let tab = &self.tabs[idx];
+        match tab.sheet_name.clone() {
+            Some(name) => {
+                let format = tab.table.format_name.clone();
+                self.load_table(path, name, format.as_deref());
+            }
+            None => self.load_file(path),
+        }
     }
 
     /// Open the "Delete Columns" dialog, initializing checkboxes.
@@ -255,6 +277,7 @@ impl OctaApp {
         };
         let mut problems = tab.validation_violations.clone();
         problems.extend(tab.outlier_cells.iter().copied());
+        problems.extend(tab.retype_kept_as_text.iter().copied());
         if problems.is_empty() {
             self.status_message = Some((
                 octa::i18n::t("problems.none_flagged"),

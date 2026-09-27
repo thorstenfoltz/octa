@@ -22,7 +22,9 @@ pub const DESCRIPTION: &str = "Join N tabular sources left-to-right on shared ke
      `sources` has a `path` (file) or `open_tab` (GUI tab name / `@active`), plus an \
      optional `table` for multi-table sources. Sources are assigned names `t0`, `t1`, \
      ... and joined in order using a SQL `USING (on)` clause. `how` sets the join \
-     type: `left` (default), `inner`, `right`, or `full`. Duplicate key columns are \
+     type: `left` (default), `inner`, `right`, `full`, `semi` (left rows with a \
+     partner, left columns only), `anti` (left rows without one) or `asof` (the last \
+     key is matched to the nearest earlier value, e.g. a time). Duplicate key columns are \
      collapsed into one in the output. Requires at least two sources and at least one \
      key column in `on`.";
 
@@ -55,7 +57,9 @@ pub struct Params {
     /// sources. At least one key is required.
     pub on: Vec<String>,
 
-    /// Join type: `left` (default), `inner`, `right`, or `full`.
+    /// Join type: `left` (default), `inner`, `right`, `full`, `semi` (left
+    /// rows with a partner), `anti` (left rows without one) or `asof` (the
+    /// last key is matched to the nearest earlier value).
     #[serde(default)]
     pub how: Option<String>,
 
@@ -68,18 +72,6 @@ pub struct Params {
     /// is read from disk. Default `false`.
     #[serde(default)]
     pub unlimited: bool,
-}
-
-fn parse_join_type(how: Option<&str>) -> anyhow::Result<JoinType> {
-    match how.unwrap_or("left").to_ascii_lowercase().as_str() {
-        "left" => Ok(JoinType::Left),
-        "inner" => Ok(JoinType::Inner),
-        "right" => Ok(JoinType::Right),
-        "full" => Ok(JoinType::Full),
-        other => {
-            anyhow::bail!("unknown join type \"{other}\"; expected left, inner, right, or full")
-        }
-    }
 }
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
@@ -105,7 +97,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let named: Vec<(&str, &octa::data::DataTable)> =
         names.iter().map(String::as_str).zip(snaps.iter()).collect();
 
-    let how = parse_join_type(p.how.as_deref())?;
+    let how = JoinType::parse(p.how.as_deref().unwrap_or("left"))?;
     let out = join_tables(&named, &p.on, how)?;
 
     let row_cap = ctx.resolve_row_cap(p.limit);

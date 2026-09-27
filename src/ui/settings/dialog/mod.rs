@@ -11,6 +11,7 @@ use crate::ui::dialog_chrome::{
 };
 use crate::ui::shortcuts::ShortcutAction;
 
+mod api_section;
 mod appearance_section;
 mod chat_section;
 mod cloud_section;
@@ -21,6 +22,7 @@ mod files_section;
 mod format_section;
 mod map_section;
 mod mcp_section;
+mod panels_section;
 mod performance_section;
 mod search_editor_section;
 mod shortcuts_grid;
@@ -69,6 +71,7 @@ pub enum SecretPurge {
     Chat(String),
     Cloud(String),
     Db(String),
+    Api(String),
 }
 
 /// A recorded combo that another action already owns, plus who owns it, so the
@@ -103,6 +106,9 @@ pub struct SettingsDialog {
     /// Buffer backing the SQL row-limit text input. Parsed into the draft
     /// on Apply so the user can type freely without drag widgets fighting them.
     sql_row_limit_buf: String,
+    sql_result_page_rows_buf: String,
+    sql_auto_register_max_buf: String,
+    git_marks_refresh_secs_buf: String,
     /// Text buffer behind the default Parquet row-group size. Empty means
     /// "leave it to the writer".
     write_row_group_buf: String,
@@ -124,6 +130,12 @@ pub struct SettingsDialog {
     /// Buffer backing the live-database page-size input. Comma-separated
     /// integer, parsed on Apply.
     db_page_rows_buf: String,
+    /// Buffer backing the Change-type date-layout sample input. Comma-
+    /// separated integer, parsed on Apply.
+    retype_layout_sample_buf: String,
+    /// Buffer backing the cloud-download concurrency input. Comma-separated
+    /// integer, parsed on Apply and refused below 1.
+    cloud_download_concurrency_buf: String,
     /// Buffer backing the raw-view size cap input, in whole MB (the stored
     /// value is bytes; converted on open / Apply). Parsed on Apply.
     raw_view_max_mb_buf: String,
@@ -395,6 +407,41 @@ pub struct SettingsDialog {
     db_signin_result: Option<DbTestSlot>,
     /// Last finished browser sign-in outcome (ok flag + message).
     db_signin_msg: Option<(bool, String)>,
+    /// Open the API-endpoints section when Settings opens.
+    pub focus_api_section: bool,
+    /// Id of the API connection being edited (empty = new); keeps the stable
+    /// id across the form so its keyring secret stays addressable.
+    api_form_id: String,
+    api_form_name: String,
+    api_form_base_url: String,
+    api_form_path: String,
+    api_form_auth: crate::api::ApiAuthKind,
+    /// Header or query-parameter name, for the two keyed auth modes.
+    api_form_auth_param: String,
+    /// Username, for basic auth.
+    api_form_username: String,
+    api_form_secret: String,
+    api_form_records: String,
+    api_form_paging: crate::api::ApiPagingKind,
+    /// Query parameter the pagination mode drives (`page`, `offset`, cursor).
+    api_form_page_param: String,
+    /// Second parameter, where the mode takes one (`limit`).
+    api_form_limit_param: String,
+    /// JSON pointer at the cursor in the response body.
+    api_form_cursor_pointer: String,
+    api_form_page_size: String,
+    api_form_timeout: String,
+    /// Extra headers, one `Name: value` per line. A textarea rather than a
+    /// row-per-header grid: it is a rare field, and pasting what an API's docs
+    /// print is the common way to fill it.
+    api_form_headers: String,
+    /// In-flight "Test endpoint" slot, drained per frame like the DB one.
+    api_test_result: Option<ApiTestSlot>,
+    /// Last finished endpoint-test outcome (ok flag + message).
+    api_test_msg: Option<(bool, String)>,
+    /// Record-array paths the last Test found, so the records pointer is
+    /// picked from what the endpoint actually returned rather than typed.
+    api_last_candidates: Vec<String>,
     /// Window-size mode for the dialog (Normal / Maximized / Minimized).
     /// Persists across re-opens within the same app session - closing and
     /// reopening Settings keeps the size choice the user last picked.
@@ -486,6 +533,9 @@ impl SettingsDialog {
     fn seed_buffers(&mut self) {
         let d = &self.draft;
         self.sql_row_limit_buf = d.sql_default_row_limit.to_string();
+        self.sql_result_page_rows_buf = d.sql_result_page_rows.to_string();
+        self.sql_auto_register_max_buf = d.sql_auto_register_max_rows.to_string();
+        self.git_marks_refresh_secs_buf = d.git_marks_refresh_secs.to_string();
         self.write_row_group_buf = d
             .write_options
             .parquet
@@ -506,6 +556,10 @@ impl SettingsDialog {
             d.large_file_min_bytes / self.large_file_size_unit.factor(),
         );
         self.initial_load_rows_buf = crate::ui::status_bar::format_number(d.initial_load_rows);
+        self.retype_layout_sample_buf =
+            crate::ui::status_bar::format_number(d.retype_layout_sample);
+        self.cloud_download_concurrency_buf =
+            crate::ui::status_bar::format_number(d.cloud_download_concurrency);
         self.db_page_rows_buf = crate::ui::status_bar::format_number(d.db_page_rows);
         self.raw_view_max_mb_buf =
             crate::ui::status_bar::format_number(d.raw_view_max_bytes / 1_000_000);
@@ -573,6 +627,8 @@ impl SettingsDialog {
         keep_live!(chat_profiles);
         // "Do not show this again" on the read-only notice.
         keep_live!(show_readonly_notice);
+        // "Don't ask again" on the refresh dialog.
+        keep_live!(refresh_behaviour);
         // Remembered answer to the .xlsx formatting-export prompt.
         keep_live!(write_options.xlsx.include_formatting);
         // Ticked away on the release-notes window.
@@ -665,6 +721,18 @@ impl SettingsDialog {
                             {
                                 self.draft.sql_default_row_limit = n;
                             }
+                            // 0 is valid here and means "no paging".
+                            if let Ok(n) = parse_comma_number(&self.sql_result_page_rows_buf) {
+                                self.draft.sql_result_page_rows = n;
+                            }
+                            if let Ok(n) = parse_comma_number(&self.sql_auto_register_max_buf) {
+                                self.draft.sql_auto_register_max_rows = n;
+                            }
+                            // 0 is valid and means "no timer".
+                            if let Ok(n) = parse_comma_number(&self.git_marks_refresh_secs_buf) {
+                                self.draft.git_marks_refresh_secs =
+                                    u32::try_from(n).unwrap_or(u32::MAX);
+                            }
                             if let Ok(n) = parse_comma_number(&self.syntax_highlight_max_bytes_buf)
                             {
                                 // 0 is a valid input meaning "disable highlighting"
@@ -686,6 +754,18 @@ impl SettingsDialog {
                                 && n >= 1
                             {
                                 self.draft.db_page_rows = n;
+                            }
+                            if let Ok(n) = parse_comma_number(&self.retype_layout_sample_buf)
+                                && n >= 1
+                            {
+                                self.draft.retype_layout_sample = n;
+                            }
+                            // Minimum 1: zero workers would mean no download
+                            // at all, so a 0 is ignored rather than stored.
+                            if let Ok(n) = parse_comma_number(&self.cloud_download_concurrency_buf)
+                                && n >= 1
+                            {
+                                self.draft.cloud_download_concurrency = n;
                             }
                             // Raw-view size cap, entered in whole MB, stored
                             // in bytes. 0 is valid ("never load raw text").
@@ -1024,6 +1104,27 @@ impl SettingsDialog {
     }
 
     /// Render the collapsible setting groups inside the scroll area.
+    /// One sub-category inside a settings section.
+    ///
+    /// Sections that grew into a grab-bag group their controls under these,
+    /// so a setting is found by what it affects rather than by scrolling past
+    /// the ones that happened to be added before it. Open by default: the
+    /// parent section is already collapsed, and expanding it should show
+    /// everything it holds, not a second row of closed headers.
+    ///
+    /// Same nesting Chat has used since it grew profiles.
+    fn sub_section(
+        ui: &mut egui::Ui,
+        label_key: &str,
+        salt: &str,
+        body: impl FnOnce(&mut egui::Ui),
+    ) {
+        egui::CollapsingHeader::new(egui::RichText::new(crate::i18n::t(label_key)).strong())
+            .id_salt(salt)
+            .default_open(true)
+            .show(ui, body);
+    }
+
     fn draw_sections(&mut self, ui: &mut egui::Ui) {
         // ── Appearance ──
         egui::CollapsingHeader::new(
@@ -1071,6 +1172,18 @@ impl SettingsDialog {
         .default_open(false)
         .show(ui, |ui| {
             self.table_section_body(ui);
+        });
+
+        // ── Panels ──
+        egui::CollapsingHeader::new(
+            egui::RichText::new(crate::i18n::t("settings.sec_panels"))
+                .strong()
+                .size(13.0),
+        )
+        .id_salt("settings_section_panels")
+        .default_open(false)
+        .show(ui, |ui| {
+            self.panels_section_body(ui);
         });
 
         // ── Summary ──
@@ -1199,6 +1312,18 @@ impl SettingsDialog {
         .default_open(std::mem::take(&mut self.focus_db_section))
         .show(ui, |ui| {
             self.db_section_body(ui);
+        });
+
+        // ── API endpoints ──
+        egui::CollapsingHeader::new(
+            egui::RichText::new(crate::i18n::t("settings.sec_api"))
+                .strong()
+                .size(13.0),
+        )
+        .id_salt("settings_section_api")
+        .default_open(std::mem::take(&mut self.focus_api_section))
+        .show(ui, |ui| {
+            self.api_section_body(ui);
         });
 
         // ── Map ──

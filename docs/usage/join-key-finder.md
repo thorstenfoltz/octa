@@ -1,7 +1,5 @@
 # Join Key Finder
 
-<!-- SCREENSHOT: join-key-finder.png: The Join key finder with three tables ticked in the Tables row, the sample-size field showing 10000, and a ranked result list below where the top entry reads `orders.cust_id -> customers.id  98% overlap, 100% distinct` with a Use in Join button. -->
-
 **Analyse → Join key finder...** ranks the column pairs that would
 actually join the tables you have open.
 
@@ -271,6 +269,3 @@ available under `--mcp-read-only`.
 - Values are compared as trimmed text, so `1` matches `1` across a
   numeric and a text column. That is usually what you want when the two
   sides came from different systems.
-
-<!-- TODO screenshot: the Join key finder with three tables ticked and a
-     ranked result list. Listed in docs/assets/screenshots/INDEX.md. -->

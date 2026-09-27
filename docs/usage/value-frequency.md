@@ -4,7 +4,6 @@ The Value Frequency dialog answers "what are the most common values in
 this column?". It is a one-click equivalent of pandas'
 `df['x'].value_counts()` for the active table.
 
-<!-- SCREENSHOT: value-frequency-overview.png: Value Frequency dialog showing top 50 values in a categorical column with counts and percentages. -->
 ![Value Frequency](../assets/screenshots/value-frequency-overview.png)
 
 ## Opening the dialog

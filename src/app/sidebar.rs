@@ -38,6 +38,8 @@ impl OctaApp {
             for e in &self.settings.text_mode_extensions {
                 set.insert(e.trim_start_matches('.').to_ascii_lowercase());
             }
+            // Recipes open the Apply recipe dialog, so they belong in the tree.
+            set.insert(octa::data::recipe::EXTENSION.to_string());
             Some(set)
         } else {
             None
@@ -79,15 +81,24 @@ impl OctaApp {
             self.cloud_browser.listings.clone();
         let signin_arc: Arc<Mutex<HashMap<String, SignInState>>> =
             self.cloud_browser.sign_in_status.clone();
+        let mut cloud_query = self.cloud_browser.search_query.clone();
+        let cloud_search_arc = self.cloud_browser.search.clone();
 
         // Database-browser data the body closure reads (same borrow dance).
         let db_connections: Vec<octa::db::DbConnection> = self.settings.db_connections.clone();
         let db_expanded: HashSet<ConnSchema> = self.db_browser.expanded.clone();
         let db_listings_arc: Arc<Mutex<HashMap<ConnSchema, DbListState>>> =
             self.db_browser.listings.clone();
+        let mut db_query = self.db_browser.search_query.clone();
+        let db_search_arc = self.db_browser.search.clone();
 
         let position = self.settings.directory_tree_position;
         let allowed_ref = allowed_exts.as_ref();
+        // Read-only view of the marks cache: the tree body closure holds a
+        // mutable borrow of `directory_tree`, and these are disjoint fields.
+        let git_marks_lookup: Option<&dyn octa::git::marks::MarksLookup> =
+            (self.settings.git_marks_uncommitted || self.settings.git_marks_branch)
+                .then_some(&self.git_marks as &dyn octa::git::marks::MarksLookup);
         let mut dir_state = self.directory_tree.as_mut();
 
         let content_rect = parent_ui.ctx().content_rect();
@@ -105,7 +116,11 @@ impl OctaApp {
 
         let mut body = |ui: &mut egui::Ui| {
             if cloud_visible {
-                if let (Ok(listings), Ok(signin)) = (listings_arc.lock(), signin_arc.lock()) {
+                if let (Ok(listings), Ok(signin), Ok(search)) = (
+                    listings_arc.lock(),
+                    signin_arc.lock(),
+                    cloud_search_arc.lock(),
+                ) {
                     let tree_ctx = TreeCtx {
                         listings: &listings,
                         expanded: &expanded,
@@ -115,11 +130,13 @@ impl OctaApp {
                         sign_out_confirm: sign_out_confirm.as_deref(),
                         sort: cloud_sort,
                         selected: &cloud_selected,
+                        search: &search.state,
                     };
                     cloud_action = cloud_tree::render_cloud_tree(
                         ui,
                         &connections,
                         &tree_ctx,
+                        &mut cloud_query,
                         dir_open || db_visible,
                     );
                 }
@@ -128,12 +145,16 @@ impl OctaApp {
                 }
             }
             if db_visible {
-                if let Ok(listings) = db_listings_arc.lock() {
+                if let (Ok(listings), Ok(search)) = (db_listings_arc.lock(), db_search_arc.lock()) {
                     db_action = db_tree::render_db_tree(
                         ui,
                         &db_connections,
                         &listings,
                         &db_expanded,
+                        db_tree::DbTreeSearch {
+                            query: &mut db_query,
+                            results: &search.state,
+                        },
                         dir_open,
                     );
                 }
@@ -142,7 +163,12 @@ impl OctaApp {
                 }
             }
             if let Some(state) = dir_state.as_deref_mut() {
-                tree_action = ui::directory_tree::render_directory_tree(ui, state, allowed_ref);
+                tree_action = ui::directory_tree::render_directory_tree(
+                    ui,
+                    state,
+                    allowed_ref,
+                    git_marks_lookup,
+                );
             }
         };
 
@@ -178,6 +204,20 @@ impl OctaApp {
         }
 
         // Dispatch cloud actions.
+        if cloud_query != self.cloud_browser.search_query {
+            if let Ok(mut s) = self.cloud_browser.search.lock() {
+                s.forget_unless(&cloud_query);
+            }
+            self.cloud_browser.search_query = cloud_query;
+        }
+        if cloud_action.search_all {
+            self.start_cloud_search(&ctx);
+        }
+        if cloud_action.cancel_search
+            && let Ok(mut s) = self.cloud_browser.search.lock()
+        {
+            s.cancel();
+        }
         if cloud_action.close {
             self.cloud_browser.visible = false;
         }
@@ -208,6 +248,9 @@ impl OctaApp {
         if let Some((conn_id, prefix)) = cloud_action.toggle {
             self.toggle_cloud_node(&ctx, conn_id, prefix);
         }
+        if let Some((conn_id, key)) = cloud_action.reveal {
+            self.reveal_cloud_folder(&ctx, conn_id, key);
+        }
         if let Some((conn_id, key, name)) = cloud_action.open {
             self.open_cloud_object(&ctx, conn_id, key, name);
         }
@@ -237,6 +280,20 @@ impl OctaApp {
         }
 
         // Dispatch database-tree actions.
+        if db_query != self.db_browser.search_query {
+            if let Ok(mut s) = self.db_browser.search.lock() {
+                s.forget_unless(&db_query);
+            }
+            self.db_browser.search_query = db_query;
+        }
+        if db_action.search_all {
+            self.start_db_search(&ctx);
+        }
+        if db_action.cancel_search
+            && let Ok(mut s) = self.db_browser.search.lock()
+        {
+            s.cancel();
+        }
         if db_action.close {
             self.db_browser.visible = false;
         }
@@ -258,6 +315,14 @@ impl OctaApp {
         }
         if let Some(conn_id) = db_action.refresh {
             self.refresh_db_conn(&ctx, conn_id);
+        }
+
+        // Folders the tree drew for the first time: resolve their repository
+        // (and collect it) after the frame, never during it.
+        if !tree_action.unprobed_dirs.is_empty() {
+            let options = self.settings.git_marks_options();
+            let dirs = std::mem::take(&mut tree_action.unprobed_dirs);
+            self.git_marks.probe_and_refresh(dirs, &options, &ctx);
         }
 
         // Dispatch directory-tree actions.

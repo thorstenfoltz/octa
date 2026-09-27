@@ -23,7 +23,11 @@ use super::{ThemeColors, ThemeMode};
 /// fg_stroke - otherwise strong text everywhere becomes invisible.
 pub(super) fn apply_theme_decoration(style: &mut Style, mode: ThemeMode, colors: &ThemeColors) {
     match mode {
-        ThemeMode::Light | ThemeMode::Dark | ThemeMode::Rainbow => {}
+        ThemeMode::Light
+        | ThemeMode::Dark
+        | ThemeMode::Rainbow
+        | ThemeMode::Phosphor
+        | ThemeMode::ColourBlindSafe => {}
         ThemeMode::Manga => apply_manga_decoration(style, colors),
         ThemeMode::North => apply_north_decoration(style, colors),
         ThemeMode::Dracula => apply_dracula_decoration(style, colors),
@@ -31,10 +35,13 @@ pub(super) fn apply_theme_decoration(style: &mut Style, mode: ThemeMode, colors:
         ThemeMode::HighContrast => apply_high_contrast_decoration(style, colors),
         ThemeMode::Gentleman => apply_gentleman_decoration(style, colors),
         ThemeMode::DeepSea => apply_deep_sea_decoration(style, colors),
+        ThemeMode::DeepSeaContrast => apply_deep_sea_contrast_decoration(style, colors),
         ThemeMode::Frost => apply_frost_decoration(style, colors),
         // The Warm and Forest presets share one understated "soft" treatment:
         // gentle rounding and hairline borders, palette does the rest.
-        ThemeMode::Warm | ThemeMode::Forest => apply_soft_decoration(style, colors),
+        ThemeMode::Warm | ThemeMode::Forest | ThemeMode::SolarizedLight | ThemeMode::TokyoNight => {
+            apply_soft_decoration(style, colors)
+        }
     }
 }
 
@@ -402,6 +409,33 @@ fn apply_deep_sea_decoration(style: &mut Style, colors: &ThemeColors) {
     style.spacing.button_padding = egui::vec2(10.0, 5.0);
 }
 
+/// Deep Sea, with every window, dialog and menu raised off the water. In
+/// plain Deep Sea a dialog shares the panel's navy, so it only reads as a
+/// separate surface by its thin rim. Here it sits on a lighter navy, behind a
+/// bright lagoon rim and a deep shadow, so it is told apart at a glance. Text
+/// fields inside keep the darker `extreme_bg_color`, which now reads as a well
+/// in the raised surface.
+fn apply_deep_sea_contrast_decoration(style: &mut Style, colors: &ThemeColors) {
+    apply_deep_sea_decoration(style, colors);
+    let raised = Color32::from_rgb(0x1f, 0x44, 0x66);
+    let v = &mut style.visuals;
+    v.window_fill = raised;
+    v.window_stroke = Stroke::new(1.5_f32, colors.accent_hover);
+    let shadow = egui::Shadow {
+        offset: [0, 10],
+        blur: 28,
+        spread: 2,
+        color: Color32::from_black_alpha(180),
+    };
+    v.window_shadow = shadow;
+    v.popup_shadow = egui::Shadow {
+        offset: [0, 6],
+        blur: 16,
+        spread: 1,
+        color: Color32::from_black_alpha(160),
+    };
+}
+
 fn apply_frost_decoration(style: &mut Style, colors: &ThemeColors) {
     // Crisp, near-monochrome ice palette. Slightly larger corners, very thin
     // borders, and almost no hover expansion - keep it pristine.
@@ -460,7 +494,7 @@ pub fn paint_background_decoration(painter: &egui::Painter, rect: egui::Rect, mo
         ThemeMode::Dracula => paint_dracula_background(painter, rect),
         ThemeMode::GruvboxDark => paint_gruvbox_background(painter, rect),
         ThemeMode::Gentleman => paint_gentleman_background(painter, rect),
-        ThemeMode::DeepSea => paint_deep_sea_background(painter, rect),
+        ThemeMode::DeepSea | ThemeMode::DeepSeaContrast => paint_deep_sea_background(painter, rect),
         ThemeMode::Frost => paint_frost_background(painter, rect),
         // Warm and Forest stay clean: no background art, palette only.
         ThemeMode::Light
@@ -468,6 +502,10 @@ pub fn paint_background_decoration(painter: &egui::Painter, rect: egui::Rect, mo
         | ThemeMode::HighContrast
         | ThemeMode::Warm
         | ThemeMode::Forest
+        | ThemeMode::SolarizedLight
+        | ThemeMode::Phosphor
+        | ThemeMode::ColourBlindSafe
+        | ThemeMode::TokyoNight
         | ThemeMode::Rainbow => {}
     }
 }

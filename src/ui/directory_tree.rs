@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use eframe::egui;
 
+use crate::git::marks::{DirMark, FileMark, MarksLookup};
+
 /// Persistent state for the directory tree sidebar.
 pub struct DirectoryTreeState {
     /// Root path the user opened.
@@ -69,11 +71,76 @@ pub struct TreeAction {
     pub open_dataset: Option<PathBuf>,
     /// Folder whose files should be compared for schema drift.
     pub scan_schemas: Option<PathBuf>,
+    /// Directories drawn this frame whose git repository the app has not
+    /// resolved yet. The app resolves them after the frame; a directory only
+    /// appears here until it has been resolved once.
+    pub unprobed_dirs: Vec<PathBuf>,
 }
 
 const INDENT_PER_LEVEL: f32 = 14.0;
 const ARROW_WIDTH: f32 = 16.0;
 const ROW_PADDING_X: f32 = 4.0;
+
+/// What a marked row shows: its name colour, the badge after the name, and
+/// the i18n keys of the words for the hover.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RowMark {
+    pub color: egui::Color32,
+    pub badge: String,
+    pub hint_keys: Vec<&'static str>,
+}
+
+/// Resolve a row's git marks into what to paint. Uncommitted wins the colour
+/// when both apply; the badge carries both, so nothing is hidden. Folders get
+/// no badge: their mark is an aggregate, and the hover says which kind.
+pub fn row_mark(
+    file: Option<FileMark>,
+    dir: Option<DirMark>,
+    warn: egui::Color32,
+    accent: egui::Color32,
+) -> Option<RowMark> {
+    if let Some(f) = file {
+        let mut badge = String::new();
+        let mut hint_keys = Vec::new();
+        if let Some(status) = f.uncommitted {
+            badge.push_str(status.badge());
+            hint_keys.push(status.hint_key());
+        }
+        if f.branch_changed {
+            badge.push('*');
+            hint_keys.push("git_marks.branch");
+        }
+        if hint_keys.is_empty() {
+            return None;
+        }
+        let color = if f.uncommitted.is_some() {
+            warn
+        } else {
+            accent
+        };
+        return Some(RowMark {
+            color,
+            badge,
+            hint_keys,
+        });
+    }
+    let d = dir?;
+    let mut hint_keys = Vec::new();
+    if d.uncommitted {
+        hint_keys.push("git_marks.dir_uncommitted");
+    }
+    if d.branch_changed {
+        hint_keys.push("git_marks.dir_branch");
+    }
+    if hint_keys.is_empty() {
+        return None;
+    }
+    Some(RowMark {
+        color: if d.uncommitted { warn } else { accent },
+        badge: String::new(),
+        hint_keys,
+    })
+}
 
 /// Indices of rows whose vertical centre lies strictly within the band
 /// between `a` and `b` (inclusive of the bounds, exclusive of a zero-height
@@ -239,6 +306,7 @@ pub fn render_directory_tree(
     ui: &mut egui::Ui,
     state: &mut DirectoryTreeState,
     allowed_exts: Option<&HashSet<String>>,
+    marks: Option<&dyn MarksLookup>,
 ) -> TreeAction {
     let mut action = TreeAction::default();
     ui.horizontal(|ui| {
@@ -261,7 +329,14 @@ pub fn render_directory_tree(
             .size(11.0)
             .color(ui.visuals().weak_text_color()),
     )
-    .on_hover_text(state.root.to_string_lossy().as_ref());
+    .on_hover_text({
+        let mut hover = state.root.to_string_lossy().to_string();
+        if let Some(note) = marks.and_then(|m| m.base_missing_note(&state.root)) {
+            hover.push('\n');
+            hover.push_str(&note);
+        }
+        hover
+    });
 
     // Selection bar: only present while the user has files Ctrl/Shift-selected.
     // The Union action also lives in the row context menu, but a context menu
@@ -328,7 +403,11 @@ pub fn render_directory_tree(
 
             let root = state.root.clone();
             let mut rows: Vec<(egui::Rect, PathBuf)> = Vec::new();
-            draw_dir(ui, &root, state, &mut action, 0, allowed_exts, &mut rows);
+            let ctx = DrawCtx {
+                allowed_exts,
+                marks,
+            };
+            draw_dir(ui, &root, state, &mut action, 0, &ctx, &mut rows);
 
             apply_marquee(ui, state, viewport, &rows);
         });
@@ -384,6 +463,7 @@ fn draw_row(
     is_open: bool,
     name: &str,
     selected: bool,
+    mark: Option<&RowMark>,
 ) -> egui::Response {
     let text_style = egui::TextStyle::Body;
     let font_id = text_style.resolve(ui.style());
@@ -407,6 +487,9 @@ fn draw_row(
 
     let painter = ui.painter();
     let text_color = ui.visuals().text_color();
+    // A marked row paints its name in the mark's colour; the caret keeps the
+    // plain colour so the indentation guide reads the same down the list.
+    let name_color = mark.map_or(text_color, |m| m.color);
 
     // Draw caret (for directories) and name.
     let mut x = rect.left() + ROW_PADDING_X + depth as f32 * INDENT_PER_LEVEL;
@@ -422,9 +505,19 @@ fn draw_row(
     }
     x += ARROW_WIDTH;
 
+    // The badge is laid out first so the name knows how much room is left.
+    let badge_color = ui.visuals().weak_text_color();
+    let badge_galley = mark.filter(|m| !m.badge.is_empty()).map(|m| {
+        let badge_font = egui::FontId::new(font_id.size * 0.85, font_id.family.clone());
+        painter.layout_no_wrap(m.badge.clone(), badge_font, badge_color)
+    });
+    let badge_width = badge_galley
+        .as_ref()
+        .map_or(0.0, |g| g.size().x + ROW_PADDING_X);
+
     // Name: truncate if it would exceed the row.
-    let max_name_width = (rect.right() - x - ROW_PADDING_X).max(0.0);
-    let mut galley = painter.layout_no_wrap(name.to_string(), font_id.clone(), text_color);
+    let max_name_width = (rect.right() - x - ROW_PADDING_X - badge_width).max(0.0);
+    let mut galley = painter.layout_no_wrap(name.to_string(), font_id.clone(), name_color);
     if galley.size().x > max_name_width {
         let ellipsis = "...";
         // Cheap character-based truncation (not perfect for variable-width fonts
@@ -433,19 +526,36 @@ fn draw_row(
         while !truncated.is_empty() {
             truncated.pop();
             let candidate = format!("{truncated}{ellipsis}");
-            galley = painter.layout_no_wrap(candidate, font_id.clone(), text_color);
+            galley = painter.layout_no_wrap(candidate, font_id.clone(), name_color);
             if galley.size().x <= max_name_width {
                 break;
             }
         }
     }
+    let name_width = galley.size().x;
     painter.galley(
         egui::pos2(x, rect.center().y - galley.size().y * 0.5),
         galley,
-        text_color,
+        name_color,
     );
+    if let Some(badge) = badge_galley {
+        painter.galley(
+            egui::pos2(
+                x + name_width + ROW_PADDING_X,
+                rect.center().y - badge.size().y * 0.5,
+            ),
+            badge,
+            badge_color,
+        );
+    }
 
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// What every level of one render shares and no recursion step changes.
+struct DrawCtx<'a> {
+    allowed_exts: Option<&'a HashSet<String>>,
+    marks: Option<&'a dyn MarksLookup>,
 }
 
 fn draw_dir(
@@ -454,9 +564,16 @@ fn draw_dir(
     state: &mut DirectoryTreeState,
     action: &mut TreeAction,
     depth: usize,
-    allowed_exts: Option<&HashSet<String>>,
+    ctx: &DrawCtx<'_>,
     rows: &mut Vec<(egui::Rect, PathBuf)>,
 ) {
+    // Report this folder back once, so the app can find out which repository
+    // it belongs to off the frame path.
+    if let Some(m) = ctx.marks
+        && !m.is_probed(dir)
+    {
+        action.unprobed_dirs.push(dir.to_path_buf());
+    }
     let entries = match read_sorted_dir(dir) {
         Ok(e) => e,
         Err(err) => {
@@ -480,13 +597,36 @@ fn draw_dir(
         }
         // Hide files Octa can't open when the filter is on. Directories are
         // always shown so the user can still navigate into them.
-        if !is_dir && !file_is_listed(&entry, allowed_exts) {
+        if !is_dir && !file_is_listed(&entry, ctx.allowed_exts) {
             continue;
         }
         let is_open = is_dir && state.expanded.contains(&entry);
         let is_selected = !is_dir && state.selected.contains(&entry);
-        let resp = draw_row(ui, depth, is_dir, is_open, &name, is_selected)
-            .on_hover_text(entry.to_string_lossy().as_ref());
+        let mark = ctx.marks.and_then(|m| {
+            let (warn, accent) = (ui.visuals().warn_fg_color, ui.visuals().hyperlink_color);
+            if is_dir {
+                row_mark(None, m.dir(&entry), warn, accent)
+            } else {
+                row_mark(m.file(&entry), None, warn, accent)
+            }
+        });
+        let hover = match &mark {
+            Some(mk) => {
+                let words: Vec<String> = mk.hint_keys.iter().map(|k| crate::i18n::t(k)).collect();
+                format!("{}\n{}", entry.to_string_lossy(), words.join("\n"))
+            }
+            None => entry.to_string_lossy().to_string(),
+        };
+        let resp = draw_row(
+            ui,
+            depth,
+            is_dir,
+            is_open,
+            &name,
+            is_selected,
+            mark.as_ref(),
+        )
+        .on_hover_text(hover);
         if !is_dir {
             rows.push((resp.rect, entry.clone()));
         }
@@ -621,7 +761,7 @@ fn draw_dir(
                                 (idx, from)
                             };
                             for e in &entries[lo..=hi] {
-                                if file_row_visible(e, allowed_exts) {
+                                if file_row_visible(e, ctx.allowed_exts) {
                                     state.selected.insert(e.clone());
                                 }
                             }
@@ -641,7 +781,7 @@ fn draw_dir(
         }
 
         if is_dir && state.expanded.contains(&entry) {
-            draw_dir(ui, &entry, state, action, depth + 1, allowed_exts, rows);
+            draw_dir(ui, &entry, state, action, depth + 1, ctx, rows);
         }
     }
 }

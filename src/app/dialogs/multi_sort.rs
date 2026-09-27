@@ -115,6 +115,7 @@ pub(crate) fn render_multi_sort_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         let tab = &mut app.tabs[app.active_tab];
         tab.table.sort_rows_by_columns(&keys);
         tab.filter_dirty = true;
+        app.record_sort_keys(&keys);
         return; // dialog dropped
     }
     if !close {

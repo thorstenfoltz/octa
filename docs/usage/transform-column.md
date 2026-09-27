@@ -18,6 +18,7 @@ press **Apply**.
 | **Extract pattern**           | Pull the first regular-expression match out of each cell into a new column (for example `#(\d+)` to grab an order number). Non-matching cells are left empty.                                                         |
 | **Replace in column**         | Find and replace within a single column's cells, using Plain, Wildcard, or Regex matching (the same modes as the search bar).                                                                                         |
 | **Repair garbled characters** | Fix text read with the wrong character set and saved that way, so `MÃ¼ller` becomes `Müller`. Only cells whose repair can be proven are changed; anything else is left untouched.                                     |
+| **Tidy ID format**            | Write every valid IBAN, card number, barcode, VAT number or email address one standard way. Values that are not valid stay untouched. See [Data Validation](data-validation.md#tidy-id-format).                       |
 
 ### Repair garbled characters
 
@@ -41,7 +42,8 @@ this to fix one deliberately.
 
 - **Split**, **Merge**, and **Extract** create **new columns** (Split and
   Extract insert them next to the source; Merge appends one at the end).
-  **Fill** and **Replace** rewrite the chosen column **in place**.
+  **Fill**, **Replace**, **Repair garbled characters** and **Tidy ID
+  format** rewrite the chosen column **in place**.
 - For the column-creating operations you can set the **new column name** and
   the **insert position** (1-based, like the Insert-column dialog). Leave
   either blank to accept the default shown as the field's hint. For **Split**
@@ -55,23 +57,39 @@ this to fix one deliberately.
 
 ## Conditional column (if / else-if / else)
 
-**Data -> Conditional column...** builds a new column whose value depends on
-conditions, like a spreadsheet `IF`/`IFS` or a SQL `CASE`. You add an ordered
-list of rules:
+**Columns -> Conditional column...** builds a new column whose value depends
+on conditions, like a spreadsheet `IF`/`IFS` or a SQL `CASE`. You add an
+ordered list of rules:
 
 ```
-IF   amount  >  100   -> "high"
-ELIF amount  >   50   -> "medium"
-ELSE                  -> "low"
+If       amount  >  100
+  and    region  =  west
+Then     "high west"
+Else if  amount  >   50
+Then     "medium"
+Else     "low"
 ```
 
-- Each rule tests one column with an operator (equals, contains, greater than,
-  is empty, ...) and writes its **output value** when it matches.
+- Each condition tests one column with an operator (equals, contains, greater
+  than, is empty, ...). A rule writes its **Then** value when it matches.
+- A rule can hold several conditions: click **Add condition**, then choose
+  **and** (every condition must hold) or **or** (one of them is enough).
+- A condition can compare against **several values**, one per line. Click
+  **+** for another line, or open the drop-down under the values to pick them
+  from the values that occur in that column, most common first, each with how
+  often it appears (up to 1,000 are listed; click one again to take it out).
+  The condition holds when the cell matches **any** of the values, so
+  `region equals west / east` catches both. For *does not equal* and
+  *does not contain* it holds when the cell matches **none** of them.
 - Rules are checked **top to bottom**; the **first** one that matches wins
   (that is the "else if" behaviour). Reorder them with the up/down arrows.
 - If no rule matches, the **Else** value is used.
-- Outputs that look like numbers become numeric cells (so the new column can be
-  summed or sorted as numbers); everything else is text.
+- **Column type** sets the new column's type. On *Automatic*, outputs that
+  look like numbers become numeric cells (so the new column can be summed or
+  sorted as numbers) and everything else is text. Pick Text, Whole number,
+  Decimal number, Boolean, Date or Date and time to choose it yourself; this
+  works exactly like [Change column type](change-column-type.md), so values
+  that do not fit keep their text and are flagged for <kbd>F10</kbd>.
 - The result is a brand-new column (name and position configurable) and is
   **undoable** with Ctrl+Z. Shortcut: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>J</kbd>.
 

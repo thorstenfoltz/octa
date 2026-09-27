@@ -1,3 +1,4 @@
+pub mod api;
 pub mod auth;
 pub mod cloud;
 pub mod data;

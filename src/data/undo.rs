@@ -52,6 +52,11 @@ pub enum UndoAction {
     ReorderColumns {
         order: Vec<usize>,
     },
+    /// Bulk row reorder (a sort) via permutation: `order[new_pos] = old_pos`.
+    /// Same forward-mapping convention as [`Self::ReorderColumns`].
+    ReorderRows {
+        order: Vec<usize>,
+    },
     SetMark {
         key: MarkKey,
         old_color: Option<MarkColor>,
@@ -202,6 +207,11 @@ impl DataTable {
                 UndoAction::ReorderColumns { ref order } => {
                     let inv = Self::invert_order(order);
                     self.apply_order(&inv);
+                    self.structural_changes = true;
+                }
+                UndoAction::ReorderRows { ref order } => {
+                    let inv = Self::invert_order(order);
+                    self.apply_row_order(&inv);
                     self.structural_changes = true;
                 }
                 UndoAction::SetMark { key, old_color, .. } => match old_color {
@@ -368,6 +378,10 @@ impl DataTable {
                 }
                 UndoAction::ReorderColumns { ref order } => {
                     self.apply_order(order);
+                    self.structural_changes = true;
+                }
+                UndoAction::ReorderRows { ref order } => {
+                    self.apply_row_order(order);
                     self.structural_changes = true;
                 }
                 UndoAction::SetMark { key, new_color, .. } => match new_color {

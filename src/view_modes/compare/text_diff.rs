@@ -5,6 +5,11 @@
 //! of three states - Equal, Insert, Delete (Replace is split into Insert +
 //! Delete by the line-diff algorithm) - and painted with a small marker
 //! column and a background tint so the visual reads like a `git diff`.
+//!
+//! The left pane is the working file and is a real editor: what is typed
+//! there lands in `tab.raw_content` and saves like any other edit. The right
+//! pane is a committed revision or a second file, so it is selectable and
+//! copyable but never writable.
 
 use eframe::egui;
 use egui::Color32;
@@ -83,21 +88,50 @@ pub(crate) fn pair_changes(changes: &[(char, String)]) -> (Vec<DiffRow>, Vec<Dif
 /// share a vertical scroll so left and right line up while reading.
 pub fn render(
     ui: &mut egui::Ui,
-    tab: &TabState,
+    tab: &mut TabState,
     theme_mode: ThemeMode,
     _syntax_highlight_max_bytes: usize,
+    readonly: bool,
+    tab_size: usize,
 ) {
     let colors = ui::theme::ThemeColors::for_mode(theme_mode);
 
-    let left_text = tab.raw_content.as_deref().unwrap_or("");
-    let right_text = tab.compare_right_raw.as_deref().unwrap_or("");
+    // The left pane writes back into `raw_content`, so there has to be one.
+    let editable = !readonly && tab.raw_content.is_some();
+    // The diff strips every line terminator, so the file's last one has to be
+    // remembered separately or a save would quietly drop it.
+    let trailing_newline = tab
+        .raw_content
+        .as_deref()
+        .is_some_and(|c| c.ends_with('\n'));
 
-    // similar's `TextDiff` over lines is O(n²) in worst-case but ships with
-    // a `timeout` knob. We cap the work at 500ms so a pathological pair
-    // doesn't hang the UI thread.
-    let diff = TextDiff::configure()
-        .timeout(std::time::Duration::from_millis(500))
-        .diff_lines(left_text, right_text);
+    // Scoped so nothing borrows `tab` once the rows are built: the write-back
+    // at the end of this function needs `tab` mutably.
+    let (left_kind_rows, right_kind_rows) = {
+        let left_text = tab.raw_content.as_deref().unwrap_or("");
+        let right_text = tab.compare_right_raw.as_deref().unwrap_or("");
+
+        // similar's `TextDiff` over lines is O(n²) in worst-case but ships with
+        // a `timeout` knob. We cap the work at 500ms so a pathological pair
+        // doesn't hang the UI thread.
+        let diff = TextDiff::configure()
+            .timeout(std::time::Duration::from_millis(500))
+            .diff_lines(left_text, right_text);
+
+        // Map similar's tags to our compact (tag, text) form, then pair.
+        let changes: Vec<(char, String)> = diff
+            .iter_all_changes()
+            .map(|c| {
+                let tag = match c.tag() {
+                    ChangeTag::Equal => 'e',
+                    ChangeTag::Delete => 'd', // left-only (current) -> +
+                    ChangeTag::Insert => 'i', // right-only (compared) -> -
+                };
+                (tag, strip_trailing_newline(&c.to_string()))
+            })
+            .collect();
+        pair_changes(&changes)
+    };
 
     let add_bg = if theme_mode.is_dark() {
         Color32::from_rgb(20, 60, 32)
@@ -109,20 +143,6 @@ pub fn render(
     } else {
         Color32::from_rgb(255, 220, 220)
     };
-
-    // Map similar's tags to our compact (tag, text) form, then pair.
-    let changes: Vec<(char, String)> = diff
-        .iter_all_changes()
-        .map(|c| {
-            let tag = match c.tag() {
-                ChangeTag::Equal => 'e',
-                ChangeTag::Delete => 'd', // left-only (current) -> +
-                ChangeTag::Insert => 'i', // right-only (compared) -> -
-            };
-            (tag, strip_trailing_newline(&c.to_string()))
-        })
-        .collect();
-    let (left_kind_rows, right_kind_rows) = pair_changes(&changes);
 
     // Plain text for the whole-side copy actions. Left = current file, Right
     // = compared file.
@@ -186,10 +206,15 @@ pub fn render(
     };
     let left_gutter = gutter(&left_kind_rows);
     let right_gutter = gutter(&right_kind_rows);
-    let left_content = left_text_full.join("\n");
+    let mut left_content = left_text_full.join("\n");
     let right_content = right_text_full.join("\n");
+    // The padded pane as it was handed to the editor, plus which of its rows
+    // are padding: together they map an edit back onto the file.
+    let left_before = left_content.clone();
+    let left_padding: Vec<bool> = left_kinds.iter().map(|k| *k == RowKind::Blank).collect();
 
     let mono = egui::FontId::new(12.0, egui::FontFamily::Monospace);
+    let mut left_changed = false;
 
     egui::ScrollArea::vertical()
         .id_salt("compare_text_diff_scroll")
@@ -198,14 +223,23 @@ pub fn render(
             let total_w = ui.available_width();
             let pane_w = ((total_w - 8.0) / 2.0).max(160.0);
             ui.horizontal_top(|ui| {
-                render_pane(
+                // A read-only left pane hands the editor a `&str`, which egui
+                // treats as immutable: same selection and copy, no writes.
+                let mut left_locked: &str = &left_before;
+                let left_buf: &mut dyn egui::TextBuffer = if editable {
+                    &mut left_content
+                } else {
+                    &mut left_locked
+                };
+                left_changed = render_pane(
                     ui,
                     Pane {
                         tag: "left",
                         gutter_text: &left_gutter,
-                        content_text: &left_content,
+                        content: left_buf,
                         kinds: &left_kinds,
                         changed_bg: add_bg,
+                        tab_size: editable.then_some(tab_size),
                     },
                     pane_w,
                     &mono,
@@ -213,14 +247,18 @@ pub fn render(
                     &full_copies,
                 );
                 ui.add_space(8.0);
+                // The right side is a committed revision or a second file:
+                // there is nothing to write back to, so it is never writable.
+                let mut right_locked: &str = &right_content;
                 render_pane(
                     ui,
                     Pane {
                         tag: "right",
                         gutter_text: &right_gutter,
-                        content_text: &right_content,
+                        content: &mut right_locked,
                         kinds: &right_kinds,
                         changed_bg: del_bg,
+                        tab_size: None,
                     },
                     pane_w,
                     &mono,
@@ -229,6 +267,19 @@ pub fn render(
                 );
             });
         });
+
+    // `editable` as well as `changed`: egui reports a change for any mutating
+    // key event, even when the buffer it was handed refuses to mutate, so a
+    // read-only tab would otherwise be marked dirty by a stray keystroke.
+    if editable && left_changed {
+        tab.raw_content = Some(strip_padding(
+            &left_before,
+            &left_padding,
+            &left_content,
+            trailing_newline,
+        ));
+        tab.raw_content_modified = true;
+    }
 }
 
 /// Plain-text payloads for the whole-side copy actions in the context menu.
@@ -256,11 +307,18 @@ const GUTTER_W: f32 = 54.0;
 struct Pane<'a> {
     tag: &'a str,
     gutter_text: &'a str,
-    content_text: &'a str,
+    /// The pane's text. A `&mut String` is a real editor; a `&mut &str` is
+    /// egui's immutable buffer, which still selects, scrolls and copies but
+    /// swallows nothing: keystrokes simply do not apply.
+    content: &'a mut dyn egui::TextBuffer,
     kinds: &'a [RowKind],
     changed_bg: Color32,
+    /// Tab width for an editable pane, `None` for a read-only one. Drives
+    /// both the Tab handling and whether Tab is caught at all.
+    tab_size: Option<usize>,
 }
 
+/// Returns true when the user changed an editable pane this frame.
 fn render_pane(
     ui: &mut egui::Ui,
     pane: Pane<'_>,
@@ -268,14 +326,16 @@ fn render_pane(
     mono: &egui::FontId,
     colors: &ui::theme::ThemeColors,
     copies: &FullCopies,
-) {
+) -> bool {
     let Pane {
         tag,
         gutter_text,
-        content_text,
+        content,
         kinds,
         changed_bg,
+        tab_size,
     } = pane;
+    let mut changed = false;
     ui.scope(|ui| {
         ui.set_width(pane_w);
         ui.horizontal_top(|ui| {
@@ -379,15 +439,35 @@ fn render_pane(
                 .max_width((pane_w - GUTTER_W).max(40.0))
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    // ponytail: `&mut owned clone` = selectable-but-read-only.
-                    // Edits land in the throwaway and vanish next frame (the
-                    // pane is rebuilt from the diff), so it behaves read-only.
-                    let out = egui::TextEdit::multiline(&mut content_text.to_owned())
+                    // `lock_focus` only on the editable side: catching Tab in a
+                    // pane that cannot take it would just trap the focus.
+                    let mut out = egui::TextEdit::multiline(content)
                         .font(mono.clone())
                         .desired_width(f32::INFINITY)
                         .frame(egui::Frame::NONE)
+                        .lock_focus(tab_size.is_some())
                         .layouter(&mut content_layouter)
                         .show(ui);
+
+                    // Same Tab handling as the Raw and Markdown editors.
+                    let expanded = match tab_size {
+                        Some(n) => crate::view_modes::text_ops::expand_tabs_to_spaces(
+                            ui.ctx(),
+                            content,
+                            &mut out,
+                            n,
+                        ),
+                        None => false,
+                    };
+                    changed = expanded || out.response.changed();
+
+                    // Drag a selection past the edge of the pane and the view
+                    // follows, so it is not capped at the lines on screen.
+                    crate::view_modes::text_ops::autoscroll_while_selecting(ui, &out.response);
+
+                    // Read back after the edit so a selection made on the same
+                    // frame indexes the text the user is actually looking at.
+                    let content_text = content.as_str();
 
                     // Stash the current non-empty selection so the right-click
                     // menu can copy it (a right-click collapses the live one).
@@ -426,6 +506,59 @@ fn render_pane(
                 });
         });
     });
+    changed
+}
+
+/// Map the edited left pane back onto the file text it was built from.
+///
+/// The pane the user types in carries blank rows that exist only to keep the
+/// two sides aligned; they are not in the file. `was_padding` marks those rows
+/// in `old_padded`, the text as it was handed to the editor. Diffing the two
+/// versions rather than counting lines is what makes this survive Enter,
+/// backspace and paste: a padding row is dropped only where the diff still
+/// recognises it as that untouched row, and anything the user put there is a
+/// real line of the file.
+///
+/// `trailing_newline` restores the file's final line terminator, which the
+/// line diff strips and the pane never shows.
+///
+/// ponytail: when the user adds a blank line right beside a padding row the
+/// two are indistinguishable and the diff picks one arbitrarily. The line
+/// count comes out right either way, which is all the file sees.
+fn strip_padding(
+    old_padded: &str,
+    was_padding: &[bool],
+    new_padded: &str,
+    trailing_newline: bool,
+) -> String {
+    let old_lines: Vec<&str> = old_padded.split('\n').collect();
+    let new_lines: Vec<&str> = new_padded.split('\n').collect();
+    let diff = TextDiff::from_slices(&old_lines, &new_lines);
+    let mut out: Vec<&str> = Vec::new();
+    for change in diff.iter_all_changes() {
+        match change.tag() {
+            // Gone from the pane, so gone from the file.
+            ChangeTag::Delete => {}
+            // Survived untouched: keep it unless it was only ever padding.
+            ChangeTag::Equal => {
+                let is_pad = change
+                    .old_index()
+                    .and_then(|i| was_padding.get(i))
+                    .copied()
+                    .unwrap_or(false);
+                if !is_pad {
+                    out.push(change.value());
+                }
+            }
+            // Typed by the user, wherever it landed.
+            ChangeTag::Insert => out.push(change.value()),
+        }
+    }
+    let mut text = out.join("\n");
+    if trailing_newline && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text
 }
 
 fn strip_trailing_newline(s: &str) -> String {
@@ -468,5 +601,72 @@ mod tests {
         assert_eq!(right.len(), 2);
         assert_eq!(left[1].2, RowKind::Blank);
         assert_eq!(right[1].1, "y");
+    }
+}
+
+#[cfg(test)]
+mod edit_tests {
+    use super::*;
+
+    /// The pane as the user sees it: `file` padded with a blank row wherever
+    /// the right side had a line of its own. Returns (padded text, flags).
+    fn pane(rows: &[Option<&str>]) -> (String, Vec<bool>) {
+        let text = rows
+            .iter()
+            .map(|r| r.unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join("\n");
+        (text, rows.iter().map(|r| r.is_none()).collect())
+    }
+
+    #[test]
+    fn an_untouched_pane_maps_back_to_the_file_it_came_from() {
+        let (padded, pad) = pane(&[Some("a"), None, Some("b"), None, Some("c")]);
+        assert_eq!(strip_padding(&padded, &pad, &padded, false), "a\nb\nc");
+    }
+
+    #[test]
+    fn editing_a_real_line_keeps_the_edit_and_drops_the_padding() {
+        let (padded, pad) = pane(&[Some("a"), None, Some("b"), Some("c")]);
+        let edited = padded.replace("b", "bZ");
+        assert_eq!(strip_padding(&padded, &pad, &edited, false), "a\nbZ\nc");
+    }
+
+    #[test]
+    fn typing_on_a_padding_row_turns_it_into_a_real_line() {
+        let (padded, pad) = pane(&[Some("a"), None, Some("b")]);
+        let edited = "a\nNEW\nb";
+        assert_eq!(strip_padding(&padded, &pad, edited, false), "a\nNEW\nb");
+    }
+
+    #[test]
+    fn deleting_a_real_line_removes_it_from_the_file() {
+        let (padded, pad) = pane(&[Some("a"), None, Some("b"), Some("c")]);
+        let edited = "a\n\nc";
+        assert_eq!(strip_padding(&padded, &pad, edited, false), "a\nc");
+    }
+
+    #[test]
+    fn a_blank_line_the_user_adds_survives_next_to_a_padding_row() {
+        // The file legitimately gains an empty line right where padding sits;
+        // the count must come out right even though both lines read "".
+        let (padded, pad) = pane(&[Some("a"), None, Some("b")]);
+        let edited = "a\n\n\nb";
+        assert_eq!(strip_padding(&padded, &pad, edited, false), "a\n\nb");
+    }
+
+    #[test]
+    fn a_file_that_ended_in_a_newline_still_does() {
+        // The pane never shows the final terminator, so an edit must not be
+        // the thing that removes it.
+        let (padded, pad) = pane(&[Some("a"), None, Some("b")]);
+        let edited = padded.replace("b", "bZ");
+        assert_eq!(strip_padding(&padded, &pad, &edited, true), "a\nbZ\n");
+    }
+
+    #[test]
+    fn a_pane_with_no_padding_is_returned_unchanged() {
+        let (padded, pad) = pane(&[Some("a"), Some("b")]);
+        assert_eq!(strip_padding(&padded, &pad, "a\nbb", false), "a\nbb");
     }
 }

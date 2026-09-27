@@ -351,24 +351,51 @@ fn non_empty(s: &str) -> Option<&str> {
     (!s.trim().is_empty()).then_some(s)
 }
 
-/// Turn the search box's text into a SQL fragment matching any column.
+/// Turn the search box into a SQL fragment matching the same rows the
+/// in-memory search would match: same mode, same `Aa`, same whole-word, same
+/// column scope.
 ///
-/// The needle goes into a single-quoted literal with its quotes doubled, and
+/// It goes through [`octa::data::search::sql_regex_pattern`] rather than
+/// building a `LIKE` of its own, because the in-memory search reduces every
+/// mode to one regex. A hand-rolled `ILIKE '%needle%'` answered a *plain
+/// substring* question no matter what the user had selected, so a regex or
+/// whole-word search quietly matched the wrong rows here while the same
+/// search in an ordinary tab matched the right ones.
+///
+/// The pattern goes into a single-quoted literal with its quotes doubled and
 /// the column names are quoted from the table's own schema, so nothing the
 /// user typed is ever interpreted as SQL.
+///
+/// Returns an empty string for an empty search (no filter at all) and the
+/// constant-false `"1 = 0"` for a pattern the regex engine refuses, which is
+/// what the in-memory search shows for one: nothing.
 pub(crate) fn search_filter(tab: &TabState, search: &str) -> String {
-    let needle = search.trim();
-    if needle.is_empty() {
+    if search.trim().is_empty() {
         return String::new();
     }
-    let literal = needle.replace('\'', "''");
-    let clauses: Vec<String> = tab
-        .table
-        .columns
+    let Some(pattern) = octa::data::search::sql_regex_pattern(
+        search,
+        tab.search_mode,
+        tab.search_case_sensitive,
+        tab.search_whole_word,
+    ) else {
+        return "1 = 0".to_string();
+    };
+    let literal = pattern.replace('\'', "''");
+    let columns: Vec<&str> = match tab.search_scope_col {
+        Some(i) => tab
+            .table
+            .columns
+            .get(i)
+            .map(|c| vec![c.name.as_str()])
+            .unwrap_or_default(),
+        None => tab.table.columns.iter().map(|c| c.name.as_str()).collect(),
+    };
+    let clauses: Vec<String> = columns
         .iter()
-        .map(|c| {
-            let name = c.name.replace('"', "\"\"");
-            format!("CAST(\"{name}\" AS VARCHAR) ILIKE '%{literal}%'")
+        .map(|name| {
+            let col = name.replace('"', "\"\"");
+            format!("regexp_matches(CAST(\"{col}\" AS VARCHAR), '{literal}')")
         })
         .collect();
     if clauses.is_empty() {

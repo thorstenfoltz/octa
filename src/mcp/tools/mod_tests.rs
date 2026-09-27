@@ -22,6 +22,7 @@ fn sandbox_ctx(restrict: bool, allowed: &[&str], export: Option<&str>) -> ToolCo
         cloud_settings: None,
         db_connections: Vec::new(),
         read_only: false,
+        api_connections: Vec::new(),
     }
 }
 

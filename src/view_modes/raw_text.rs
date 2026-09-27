@@ -57,6 +57,10 @@ pub struct RawViewOpts {
     pub syntax_highlight_max_bytes: usize,
 }
 
+/// Narrowest the wrapped editor is allowed to get, so a deep zoom or a very
+/// narrow window cannot fold every line to one character.
+const MIN_WRAPPED_EDITOR_WIDTH: f32 = 120.0;
+
 /// Render the raw text editor view with line numbers and optional column alignment.
 pub fn render_raw_view(
     ui: &mut egui::Ui,
@@ -238,6 +242,34 @@ pub fn render_raw_view(
             ui.add_space(2.0);
         }
 
+        let use_col_colors = tab.raw_view_formatted
+            && color_aligned_columns
+            && tab.raw_color_enabled
+            && (is_csv || is_tsv);
+        // Folding a padded CSV row destroys the column alignment that Align
+        // Columns exists to produce, so wrapping is refused while it is on -
+        // and says so rather than going quietly grey.
+        let wrap_lines = tab.raw_view_wrap && !use_col_colors;
+
+        // Wrap: the one thing that reaches a line no reformatting can break.
+        // `pretty_print` cannot insert a newline inside a JSON string without
+        // corrupting the document, so a field holding a whole stringified JSON
+        // blob stays one endless line however it is formatted.
+        ui.horizontal(|ui| {
+            let blocked = use_col_colors;
+            let hint = if blocked {
+                octa::i18n::t("view.rt_wrap_blocked_hint")
+            } else {
+                octa::i18n::t("view.rt_wrap_hint")
+            };
+            ui.add_enabled_ui(!blocked, |ui| {
+                ui.checkbox(&mut tab.raw_view_wrap, octa::i18n::t("view.rt_wrap"))
+                    .on_hover_text(&hint)
+                    .on_disabled_hover_text(&hint);
+            });
+        });
+        ui.add_space(2.0);
+
         // Line numbers + text editor side by side. Only the gutter column is
         // reserved here; the numbers are painted from the laid-out galley after
         // the editor, so a wrapped line still gets exactly one number.
@@ -247,10 +279,6 @@ pub fn render_raw_view(
         let mono_font = egui::FontId::new(13.0, egui::FontFamily::Monospace);
         let gutter_font = mono_font.clone();
 
-        let use_col_colors = tab.raw_view_formatted
-            && color_aligned_columns
-            && tab.raw_color_enabled
-            && (is_csv || is_tsv);
         let col_colors = column_colors(theme_mode);
         let delimiter = tab.csv_delimiter as char;
         let layouter_quote = tab.raw_csv_quote;
@@ -300,18 +328,21 @@ pub fn render_raw_view(
         let plain_hl_current = current_range.clone();
         let plain_text_color = colors.text_primary;
         let plain_highlight_layouter =
-            // `_wrap_width` is the pane width egui offers for wrapping. All three
-            // layouters ignore it by design: the view lays out unwrapped and the
-            // enclosing ScrollArea::both scrolls to long lines instead of folding
-            // them. The parameter cannot be dropped, egui fixes the signature.
-            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap_width: f32| {
+            // `wrap_width` is the pane width egui offers for wrapping. By
+            // default all three layouters ignore it: the view lays out
+            // unwrapped and the enclosing ScrollArea::both scrolls to long
+            // lines instead of folding them. The Wrap lines box opts in, and
+            // takes `break_anywhere` with it - a minified JSON line has no
+            // whitespace to break at, so word wrapping alone would not fold it.
+            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
                 let mut job = egui::text::LayoutJob::simple(
                     text.as_str().to_owned(),
                     egui::FontId::new(13.0, egui::FontFamily::Monospace),
                     plain_text_color,
                     f32::INFINITY,
                 );
-                job.wrap.max_width = f32::INFINITY;
+                job.wrap.max_width = if wrap_lines { wrap_width } else { f32::INFINITY };
+                job.wrap.break_anywhere = wrap_lines;
                 ui::search_highlight::apply_highlight(
                     &mut job,
                     &plain_hl_ranges,
@@ -355,15 +386,20 @@ pub fn render_raw_view(
         let syntect_hl_ranges = match_ranges.clone();
         let syntect_hl_current = current_range.clone();
         let syntect_layouter =
-            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap_width: f32| {
+            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
                 let mut job = octa::ui::syntax::highlight_layout_job(
                     text.as_str(),
                     syntect_syntax.expect("syntect_layouter only used when syntax is Some"),
                     syntect_theme,
                     egui::FontId::new(13.0, egui::FontFamily::Monospace),
                 );
-                // Never wrap; see the plain layouter above.
-                job.wrap.max_width = f32::INFINITY;
+                // Unwrapped unless Wrap lines is on; see the plain layouter.
+                job.wrap.max_width = if wrap_lines {
+                    wrap_width
+                } else {
+                    f32::INFINITY
+                };
+                job.wrap.break_anywhere = wrap_lines;
                 ui::search_highlight::apply_highlight(
                     &mut job,
                     &syntect_hl_ranges,
@@ -457,6 +493,15 @@ pub fn render_raw_view(
         // can scroll, so reading it inside would hand `desired_width` an
         // infinite value.
         let pane_width = ui.available_width();
+        // Wrapping folds at `desired_width`, so it has to be the room the
+        // editor actually gets: the pane less the gutter, its separator and
+        // the two gaps around it. Unwrapped, the full pane is right - the
+        // editor should still fill it when the file is short.
+        let editor_width = if wrap_lines {
+            (pane_width - line_num_width - 7.0).max(MIN_WRAPPED_EDITOR_WIDTH)
+        } else {
+            pane_width
+        };
         egui::ScrollArea::both()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -481,7 +526,7 @@ pub fn render_raw_view(
                         egui::TextEdit::multiline(content)
                             .id(editor_id)
                             .font(mono_font)
-                            .desired_width(pane_width)
+                            .desired_width(editor_width)
                             .lock_focus(true)
                             .interactive(!readonly)
                             .layouter(&mut colored_layouter.clone())
@@ -490,7 +535,7 @@ pub fn render_raw_view(
                         egui::TextEdit::multiline(content)
                             .id(editor_id)
                             .font(mono_font)
-                            .desired_width(pane_width)
+                            .desired_width(editor_width)
                             .lock_focus(true)
                             .interactive(!readonly)
                             .layouter(&mut syntect_layouter.clone())
@@ -499,7 +544,7 @@ pub fn render_raw_view(
                         egui::TextEdit::multiline(content)
                             .id(editor_id)
                             .font(mono_font)
-                            .desired_width(pane_width)
+                            .desired_width(editor_width)
                             .lock_focus(true)
                             .interactive(!readonly)
                             .text_color(colors.text_primary)
@@ -516,30 +561,17 @@ pub fn render_raw_view(
                         colors.text_muted,
                     );
 
-                    // Replace any literal \t egui may have inserted with spaces,
-                    // then manually insert spaces at the cursor for our Tab handling.
-                    // We must do the \t replacement first so we can adjust the cursor
-                    // position to account for any expansion. Skipped under read-only
-                    // - `interactive(false)` already prevents new tab insertions.
-                    let had_tabs = !readonly && content.contains('\t');
-                    if had_tabs {
-                        // Track cursor so we can restore it after replacement
-                        let cursor_idx = output.cursor_range.map_or(0, |r| r.primary.index.0);
-                        // Count \t chars before cursor to compute offset shift
-                        let tabs_before = super::text_ops::tabs_before_cursor(content, cursor_idx);
-                        let spaces = " ".repeat(tab_size);
-                        *content = content.replace('\t', &spaces);
-                        // Adjust cursor for expanded tabs
-                        let new_idx = cursor_idx + tabs_before * tab_size.saturating_sub(1);
-                        let new_cursor = egui::text::CCursor::new(new_idx);
-                        let new_range = egui::text::CCursorRange::one(new_cursor);
-                        output.state.cursor.set_char_range(Some(new_range));
-                        // Clone before storing so `output.state` stays available
-                        // for the highlight-search jump handling below.
-                        output.state.clone().store(ui.ctx(), output.response.id);
-                        tab.raw_content_modified = true;
-                    }
-                    if output.response.changed() && !had_tabs && !readonly {
+                    // Turn the literal \t egui inserts for Tab into spaces.
+                    // Skipped under read-only - `interactive(false)` already
+                    // prevents new tab insertions.
+                    let had_tabs = !readonly
+                        && super::text_ops::expand_tabs_to_spaces(
+                            ui.ctx(),
+                            content,
+                            &mut output,
+                            tab_size,
+                        );
+                    if had_tabs || (output.response.changed() && !readonly) {
                         tab.raw_content_modified = true;
                     }
 

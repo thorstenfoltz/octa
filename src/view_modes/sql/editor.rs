@@ -36,6 +36,10 @@ pub(super) fn draw_sql_editor(
     egui::ScrollArea::vertical()
         .id_salt("sql_editor_scroll")
         .auto_shrink([false; 2])
+        // Shrink into the slot it is handed, all the way. egui's default
+        // floor is 64px, and a slot shorter than that had the editor drawn
+        // over the result pane below it.
+        .min_scrolled_height(0.0)
         .show(ui, |ui| {
             let line_count = tab.sql_query.lines().count().max(1);
             let trailing = tab.sql_query.ends_with('\n');

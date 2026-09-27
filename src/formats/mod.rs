@@ -5,6 +5,7 @@ pub mod bson_reader;
 pub mod compression;
 pub mod csv_reader;
 pub mod dbf_reader;
+pub mod decrypt;
 pub mod duckdb_reader;
 pub mod epub_reader;
 pub mod excel_reader;
@@ -17,6 +18,7 @@ pub mod json_reader;
 pub mod jupyter_reader;
 pub mod lakehouse_reader;
 pub mod large;
+pub mod log;
 pub mod markdown_reader;
 pub mod msgpack_reader;
 pub mod netcdf_reader;
@@ -24,6 +26,7 @@ pub mod numpy_reader;
 pub mod ods_reader;
 pub mod orc_reader;
 pub mod parquet_reader;
+pub mod pdf_reader;
 pub mod rds_reader;
 pub mod sas_reader;
 pub mod shapefile_reader;
@@ -356,9 +359,12 @@ pub trait FormatReader: Send + Sync {
 /// the part before the first `.` (case-insensitive), so `Dockerfile`,
 /// `Dockerfile.dev`, `Containerfile`, and `Containerfile.prod` all match.
 pub fn filename_reader_name(file_name: &str) -> Option<&'static str> {
-    let stem = file_name.split('.').next().unwrap_or(file_name);
-    match stem.to_ascii_lowercase().as_str() {
+    let lower = file_name.to_ascii_lowercase();
+    let stem = lower.split('.').next().unwrap_or(&lower);
+    match stem {
         "dockerfile" | "containerfile" => Some("Text"),
+        "syslog" | "messages" | "access_log" | "error_log" => Some(log::LOG_READER),
+        _ if lower.contains(".log.") => Some(log::LOG_READER),
         _ => None,
     }
 }
@@ -390,6 +396,7 @@ impl FormatRegistry {
         registry.register(Box::new(yaml_reader::YamlReader));
         registry.register(Box::new(jupyter_reader::JupyterReader));
         registry.register(Box::new(orc_reader::OrcReader));
+        registry.register(Box::new(pdf_reader::PdfReader));
         registry.register(Box::new(hdf5_reader::Hdf5Reader));
         registry.register(Box::new(markdown_reader::MarkdownReader));
         registry.register(Box::new(html_reader::HtmlReader));
@@ -413,6 +420,8 @@ impl FormatRegistry {
         // Reached by name only (`extensions()` is empty): a `.sql` file
         // still opens as text unless the user asks for the dump reader.
         registry.register(Box::new(sql_dump_reader::SqlDumpReader));
+        registry.register(Box::new(log::LogReader { forced: true }));
+        registry.register(Box::new(log::LogReader { forced: false }));
         registry.register(Box::new(text_reader::TextReader));
         registry
     }
@@ -574,5 +583,7 @@ mod filename_reader_tests {
         assert_eq!(filename_reader_name("dockerfile"), Some("Text"));
         assert_eq!(filename_reader_name("Dockerfile.prod"), Some("Text"));
         assert_eq!(filename_reader_name("notes.txt"), None);
+        assert_eq!(filename_reader_name("access.log.1"), Some("Log"));
+        assert_eq!(filename_reader_name("syslog"), Some("Log"));
     }
 }
