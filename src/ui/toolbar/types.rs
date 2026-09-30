@@ -66,6 +66,8 @@ pub struct ToolbarCtx<'a> {
     /// that talk to the assistant can grey themselves out with a reason.
     pub chat_profile_available: bool,
     pub readonly_mode: bool,
+    /// Whether **View -> Show invisible characters** is ticked.
+    pub show_invisibles: bool,
     /// Whether the active tab's table is split into two scrolling panes.
     pub split_view: bool,
     /// Which way that split runs: `true` = side by side, `false` = stacked.
@@ -356,6 +358,8 @@ pub struct ToolbarAction {
     /// Copy the current selection to the clipboard as a Markdown table.
     /// Fired by **Edit -> Copy as Markdown table**.
     pub copy_as_markdown: bool,
+    /// **Edit -> Copy as IN list**.
+    pub copy_as_in_list: bool,
     /// Open the per-column Number-format dialog for the selected column.
     /// Fired by **Edit -> Number format...**.
     pub open_column_format: bool,
@@ -446,6 +450,8 @@ pub struct ToolbarAction {
     pub logo_clicked: bool,
     /// Toggle session-only read-only mode (also bound to F8 by default).
     pub toggle_readonly: bool,
+    /// Flip **View -> Show invisible characters**.
+    pub toggle_invisibles: bool,
     /// Toggle the stacked split view of the active tab's table.
     pub toggle_split_view: bool,
     /// Toggle the side-by-side split view of the active tab's table.

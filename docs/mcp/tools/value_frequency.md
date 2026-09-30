@@ -18,7 +18,7 @@ This is a `value_counts()` equivalent. Results are ordered most-frequent first.
 | `table`     | string  | no        | (no default) | Specific table for multi-table sources                                             |
 | `top_n`     | integer | no        | (all)        | Return only the N most frequent values / bins                                      |
 | `bin`       | boolean | no        | `false`      | Group a numeric column into Sturges bins instead of raw values                     |
-| `unlimited` | boolean | no        | `false`      | Lift the 5,000,000-row file-loader cap so the counts include every row in the file |
+| `unlimited` | boolean | no        | `false`      | Lift the 2,000,000-row file-loader cap so the counts include every row in the file |
 
 ## Response shape
 

@@ -1,6 +1,7 @@
 pub mod control_row;
 pub mod dialog_chrome;
 pub mod directory_tree;
+pub mod invisibles;
 pub mod message;
 pub mod panel_fit;
 pub mod search_highlight;

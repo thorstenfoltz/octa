@@ -43,6 +43,10 @@ impl OctaApp {
         if action.toggle_readonly {
             self.toggle_readonly();
         }
+        if action.toggle_invisibles {
+            self.settings.show_invisible_chars = !self.settings.show_invisible_chars;
+            self.settings.save();
+        }
         // Each entry owns one orientation: clicking it turns the split on in
         // that orientation, or off again when it is already the one showing.
         if action.toggle_split_view {

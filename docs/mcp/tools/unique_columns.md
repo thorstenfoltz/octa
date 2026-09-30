@@ -21,7 +21,7 @@ CLI mirror: [`octa --unique-columns`](../../cli/unique-columns.md).
 | `path`           | string  | yes       | (no default) | Path to the file.                                         |
 | `table`          | string  | no        | (no default) | Specific table for multi-table sources.                   |
 | `max_combo_size` | integer | no        | `1`          | Max combo size (clamped to `[1, 3]`). `1` = singles only. |
-| `unlimited`      | boolean | no        | `false`      | Lift the 5,000,000-row file-loader cap.                   |
+| `unlimited`      | boolean | no        | `false`      | Lift the 2,000,000-row file-loader cap.                   |
 
 ## Uniqueness rule
 

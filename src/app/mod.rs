@@ -37,6 +37,7 @@ pub(crate) mod multi_search;
 pub(crate) mod recipe;
 pub(crate) mod refresh;
 pub(crate) mod search_history;
+pub(crate) mod session;
 pub(crate) mod shortcuts_dispatch;
 pub(crate) mod sidebar;
 pub(crate) mod sql_panel;

@@ -159,12 +159,16 @@ impl OctaApp {
         // would write the page and call it the answer, so pull the whole
         // materialised result back out of DuckDB first.
         let tab = &self.tabs[self.active_tab];
-        let partial = match (tab.sql_result_total, tab.sql_result.as_ref()) {
+        let partial = match (tab.sql.result_total, tab.sql.result.as_ref()) {
             (Some(total), Some(loaded)) => loaded.row_count() < total,
             _ => false,
         };
         let result = if partial {
-            match tab.sql_workspace.as_ref().map(|ws| ws.result_all()) {
+            match tab
+                .sql_workspace
+                .as_ref()
+                .map(|ws| ws.result_all(tab.sql.id))
+            {
                 Some(Ok(all)) => all,
                 Some(Err(e)) => {
                     self.status_message =
@@ -174,7 +178,7 @@ impl OctaApp {
                 None => return,
             }
         } else {
-            let Some(result) = tab.sql_result.clone() else {
+            let Some(result) = tab.sql.result.clone() else {
                 return;
             };
             result

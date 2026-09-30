@@ -1209,3 +1209,20 @@ fn postgres_numeric_round_trip_live() {
         got.get(0, 5)
     );
 }
+
+/// A statement that keeps the server silent for longer than 30 s still
+/// returns. tiberius 0.13 added a 30 s `command_timeout` by default; the
+/// connector turns it off, because a big sort or aggregate routinely goes
+/// that long without a token and the user already has Cancel.
+#[test]
+fn mssql_long_query_no_timeout_live() {
+    let Some((conn, pass)) = conn_from_env("OCTA_TEST_MSSQL_URL", DbEngine::Mssql) else {
+        eprintln!("skipped: OCTA_TEST_MSSQL_URL not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
+    let t = c
+        .query("WAITFOR DELAY '00:00:35'; SELECT 1 AS one")
+        .expect("a 35 s statement must not time out");
+    assert_eq!(t.row_count(), 1);
+}

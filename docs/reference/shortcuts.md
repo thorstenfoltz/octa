@@ -97,12 +97,13 @@ same precedence Ctrl+M uses from the keyboard.
 
 ## Clipboard
 
-| Action                 | Default                                       | Notes                                             |
-|------------------------|-----------------------------------------------|---------------------------------------------------|
-| Copy selection         | <kbd>Ctrl</kbd>+<kbd>C</kbd>                  | TSV format on the clipboard.                      |
-| Cut selection          | <kbd>Ctrl</kbd>+<kbd>X</kbd>                  | Copies, then clears the cells.                    |
-| Paste                  | <kbd>Ctrl</kbd>+<kbd>V</kbd>                  | Splits on tabs + newlines.                        |
-| Copy as Markdown table | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | GitHub-flavoured Markdown table of the selection. |
+| Action                 | Default                                       | Notes                                                                                                   |
+|------------------------|-----------------------------------------------|---------------------------------------------------------------------------------------------------------|
+| Copy selection         | <kbd>Ctrl</kbd>+<kbd>C</kbd>                  | TSV format on the clipboard.                                                                            |
+| Cut selection          | <kbd>Ctrl</kbd>+<kbd>X</kbd>                  | Copies, then clears the cells.                                                                          |
+| Paste                  | <kbd>Ctrl</kbd>+<kbd>V</kbd>                  | Splits on tabs + newlines.                                                                              |
+| Copy as Markdown table | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | GitHub-flavoured Markdown table of the selection.                                                       |
+| Copy as IN list        | *(unbound)*                                   | Copies the selected values as a SQL list, `('A-17', 'B-22')`. See [Table View](../usage/table-view.md). |
 
 ## Marking
 
@@ -147,10 +148,13 @@ same precedence Ctrl+M uses from the keyboard.
 
 ## SQL panel
 
-| Action            | Default                                       | Notes                                                                                                                                             |
-|-------------------|-----------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
-| Export SQL result | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> | Save the current SQL result to a file. No-op when no result yet.                                                                                  |
-| Run SQL on server | *(unbound)*                                   | Runs the editor statement on the tab's database connection instead of local DuckDB. See [Database Connections](../usage/database-connections.md). |
+| Action                        | Default                                       | Notes                                                                                                                                                                      |
+|-------------------------------|-----------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Export SQL result             | <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> | Save the current SQL result to a file. No-op when no result yet.                                                                                                           |
+| Run SQL on server             | *(unbound)*                                   | Runs the editor statement on the tab's database connection instead of local DuckDB. See [Database Connections](../usage/database-connections.md).                          |
+| Comment / uncomment SQL lines | <kbd>F12</kbd>                                | Comments or uncomments the lines the editor selection touches. See [SQL](../usage/sql.md#writing-a-query).                                                                 |
+| Format SQL                    | *(unbound)*                                   | Lays out the SQL editor's query, or the marked part, in the style set under Settings -> SQL. See [SQL](../usage/sql.md#formatting-a-query).                                |
+| New SQL editor                | <kbd>Ctrl</kbd>+<kbd>T</kbd>                  | Opens another SQL editor beside the others, or the SQL panel when it is closed. Works while typing in the editor. See [SQL](../usage/sql.md#several-editors-side-by-side). |
 
 ## Dialogs
 

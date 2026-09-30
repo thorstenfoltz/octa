@@ -41,6 +41,7 @@ pub(super) fn draw_data_row_direct(
         negative_numbers_red,
         highlight_edits,
         cell_line_breaks,
+        show_invisibles,
         clickable_links,
         readonly,
         cell_history_unavailable,
@@ -391,7 +392,26 @@ pub(super) fn draw_data_row_direct(
                     )
                     .intersect(col_clip);
 
-                    let galley = if cell_link.is_some() {
+                    let galley = if show_invisibles
+                        && matches!(value, crate::data::CellValue::String(_))
+                        && crate::ui::invisibles::has_invisibles(&display_text)
+                    {
+                        // Show invisible characters: every space, tab and
+                        // zero-width character drawn as an ASCII marker, the
+                        // suspicious ones on the warning colour.
+                        let mut job = crate::ui::invisibles::invisibles_job(
+                            &display_text,
+                            egui::FontId::new(font_size, egui::FontFamily::Monospace),
+                            text_color,
+                            colors.text_muted,
+                            colors.warning.gamma_multiply(0.35),
+                        );
+                        if cell_line_breaks {
+                            job.wrap.max_width = text_rect.width();
+                            job.wrap.break_anywhere = true;
+                        }
+                        painter.layout_job(job)
+                    } else if cell_link.is_some() {
                         // Underline link cells so the hyperlink affordance is
                         // visible. Built as a LayoutJob because the plain
                         // painter.layout helpers cannot carry an underline.
@@ -559,13 +579,19 @@ pub(super) fn draw_data_row_direct(
                         interaction.ctx_copy_markdown = true;
                         ui.close();
                     }
+                    if ui
+                        .button(crate::i18n::t("context_menu.copy_in_list"))
+                        .on_hover_text(crate::i18n::t("context_menu.copy_in_list_hint"))
+                        .clicked()
+                    {
+                        interaction.ctx_copy_in_list = true;
+                        ui.close();
+                    }
                     if ui.button(crate::i18n::t("header.cut")).clicked() {
                         interaction.ctx_cut = true;
                         ui.close();
                     }
-                    if (state.clipboard.is_some() || state.os_clipboard_has_text)
-                        && ui.button(crate::i18n::t("header.paste")).clicked()
-                    {
+                    if ui.button(crate::i18n::t("header.paste")).clicked() {
                         interaction.ctx_paste = true;
                         ui.close();
                     }
@@ -874,13 +900,19 @@ pub(super) fn draw_data_row_direct(
                 interaction.ctx_copy_markdown = true;
                 ui.close();
             }
+            if ui
+                .button(crate::i18n::t("context_menu.copy_in_list"))
+                .on_hover_text(crate::i18n::t("context_menu.copy_in_list_hint"))
+                .clicked()
+            {
+                interaction.ctx_copy_in_list = true;
+                ui.close();
+            }
             if ui.button(crate::i18n::t("header.cut")).clicked() {
                 interaction.ctx_cut = true;
                 ui.close();
             }
-            if (state.clipboard.is_some() || state.os_clipboard_has_text)
-                && ui.button(crate::i18n::t("header.paste")).clicked()
-            {
+            if ui.button(crate::i18n::t("header.paste")).clicked() {
                 interaction.ctx_paste = true;
                 ui.close();
             }

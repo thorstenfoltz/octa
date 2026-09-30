@@ -149,7 +149,7 @@ impl OctaApp {
             Err(e) => {
                 // `{e:#}`, not `{e}`: the outermost context alone would say
                 // "ATTACHing ..." and drop the server's own reason.
-                tab.sql_error = Some(format!("{e:#}"));
+                tab.sql.error = Some(format!("{e:#}"));
             }
         }
         Self::prune_inspector_cache(&mut self.tabs[self.active_tab]);
@@ -225,7 +225,7 @@ impl OctaApp {
         skipped: usize,
     ) {
         if files.is_empty() {
-            self.tabs[self.active_tab].sql_error = Some(octa::i18n::t("sql.cloud_pick_all_failed"));
+            self.tabs[self.active_tab].sql.error = Some(octa::i18n::t("sql.cloud_pick_all_failed"));
             return;
         }
         let tab = &mut self.tabs[self.active_tab];
@@ -260,7 +260,7 @@ impl OctaApp {
         }
         tab.sql_workspace_open = true;
         if !errors.is_empty() {
-            tab.sql_error = Some(errors.join("\n"));
+            tab.sql.error = Some(errors.join("\n"));
         }
         let mut msg = octa::i18n::t("sql.cloud_pick_added")
             .replace("{n}", &added.len().to_string())
@@ -350,7 +350,7 @@ impl OctaApp {
             ));
         }
         if !errors.is_empty() {
-            self.tabs[self.active_tab].sql_error = Some(errors.join("\n"));
+            self.tabs[self.active_tab].sql.error = Some(errors.join("\n"));
         }
     }
 
@@ -389,7 +389,7 @@ impl OctaApp {
                 ));
             }
             Err(e) => {
-                tab.sql_error = Some(e.to_string());
+                tab.sql.error = Some(e.to_string());
             }
         }
         Self::prune_inspector_cache(tab);
@@ -400,7 +400,7 @@ impl OctaApp {
         if let Some(ws) = tab.sql_workspace.as_mut()
             && let Err(e) = ws.remove_table(sql_name)
         {
-            tab.sql_error = Some(e.to_string());
+            tab.sql.error = Some(e.to_string());
         }
         Self::prune_inspector_cache(tab);
     }
@@ -411,7 +411,7 @@ impl OctaApp {
             && let Err(e) = ws.rename_table(from, to)
         {
             // `{e:#}`: the reason (name taken, empty) is the inner context.
-            tab.sql_error = Some(format!("{e:#}"));
+            tab.sql.error = Some(format!("{e:#}"));
         }
         Self::prune_inspector_cache(tab);
     }
@@ -421,7 +421,7 @@ impl OctaApp {
         if let Some(ws) = tab.sql_workspace.as_mut()
             && let Err(e) = ws.detach(alias)
         {
-            tab.sql_error = Some(e.to_string());
+            tab.sql.error = Some(e.to_string());
         }
         Self::prune_inspector_cache(tab);
     }

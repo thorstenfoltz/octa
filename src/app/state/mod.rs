@@ -13,7 +13,10 @@ use ui::table_view::TableViewState;
 use ui::theme::ThemeMode;
 
 mod dialogs;
+mod sql_pane;
+
 pub(crate) use dialogs::*;
+pub(crate) use sql_pane::SqlPane;
 
 /// Maximum number of recently-closed tabs Octa remembers for the
 /// `ReopenLastClosedTab` shortcut. Matches the convention browsers use.
@@ -180,58 +183,35 @@ pub(crate) struct TabState {
     pub(crate) delete_col_selection: Vec<bool>,
     /// Active "Date/Time calculation" dialog state, or `None` when closed.
     pub(crate) time_calc: Option<TimeCalcDialog>,
-    pub(crate) sql_query: String,
+    /// The active SQL editor. The others wait in `sql_panes`; see
+    /// `sql_pane.rs` for why the active one lives out here.
+    pub(crate) sql: SqlPane,
+    /// Every SQL editor, left to right. The slot at `sql_active_pane` holds
+    /// a placeholder while its pane is out in `sql`. Never empty.
+    pub(crate) sql_panes: Vec<SqlPane>,
+    pub(crate) sql_active_pane: usize,
+    /// The SQL panel fills the window instead of docking beside the table.
+    pub(crate) sql_maximised: bool,
     /// Text in the SQL panel's plain-language Ask box (session only).
     pub(crate) sql_ask_input: String,
-    pub(crate) sql_result: Option<DataTable>,
-    pub(crate) sql_error: Option<String>,
-    /// Clicked cell in the SQL result grid (row, col), highlighted and used as
-    /// the Ctrl+C copy target - mirrors the main table's click-to-select-cell
-    /// behaviour so copy is predictable from the result view.
-    pub(crate) sql_result_selected: Option<(usize, usize)>,
     /// Whether the SQL panel is currently visible alongside the table view.
     pub(crate) sql_panel_open: bool,
-    /// SQL panel target for a live-database tab: `true` runs the query on
-    /// the server (native dialect), `false` on the local DuckDB snapshot.
-    /// Meaningless while `db_origin` is None.
-    pub(crate) sql_run_on_server: bool,
-    /// Rows the last SQL result has in total, exact, from a `count(*)`
-    /// over the materialised result. `sql_result` holds only the pages
-    /// scrolled to so far; `None` means the statement was not paged and
-    /// `sql_result` is already everything.
-    pub(crate) sql_result_total: Option<usize>,
-    /// Set to `true` when the SQL panel is opened so the editor grabs keyboard
-    /// focus on the next frame (the user can start typing immediately without
-    /// clicking). Consumed (cleared) by `draw_sql_editor`.
-    pub(crate) sql_editor_focus_pending: bool,
-    /// Autocomplete popup: currently highlighted suggestion index (clamped
-    /// to the live suggestion list each frame).
-    pub(crate) sql_ac_selected: usize,
-    /// Autocomplete popup: set to `false` by Escape to hide the popup until
-    /// the user types again. Reset to `true` on any text change.
-    pub(crate) sql_ac_visible: bool,
+    /// Where the SQL panel runs a query: `Some(conn_id)` sends it straight to
+    /// that saved connection's server (native dialect), `None` runs it in the
+    /// local DuckDB workspace. A tab opened from a database starts on its own
+    /// connection; any tab can pick any connection.
+    pub(crate) sql_target: Option<String>,
     /// Per-tab multi-table SQL workspace. Lazily constructed on the first
     /// SQL action (panel open or query run). Carries the tab's `data`
     /// table plus any extras the user has added and any ATTACH-ed DBs.
     /// `None` until then so opening a tab doesn't pay the DuckDB
     /// connection cost up front.
     pub(crate) sql_workspace: Option<octa::sql::SqlWorkspace>,
-    /// Last successfully executed SELECT, kept verbatim so the write-back
-    /// dialog has a source query to compose `CREATE TABLE AS ...` from.
-    pub(crate) sql_last_query: String,
     /// The source file's modification time and size when this tab last read
     /// or wrote it. Compared before an in-place Save so another program's
     /// changes are not silently overwritten. `None` for a tab with no file
     /// (a query result, an unsaved new table) and for a file that vanished.
     pub(crate) file_stamp: Option<(std::time::SystemTime, u64)>,
-    /// How long the last query in this tab took. Shown beside the result row
-    /// count, because "is this slow?" is the first question a big query
-    /// raises and the answer otherwise needs a stopwatch.
-    pub(crate) sql_last_duration_ms: Option<u64>,
-    /// Queries run in this tab's workspace, most recent first. Loaded from the
-    /// persisted per-connection history on first use and written back on every
-    /// run, so it survives closing the tab.
-    pub(crate) sql_history: Vec<octa::sql::history::SqlHistoryEntry>,
     /// Cells/rows temporarily marked to show what the last SQL mutation
     /// changed; cleared once `sql_diff_highlight_until` passes.
     pub(crate) sql_diff_marks: Vec<data::MarkKey>,
@@ -690,7 +670,6 @@ pub(crate) struct OctaApp {
     /// Whether we already decided to quit (skip further confirm)
     pub(crate) confirmed_close: bool,
     /// System clipboard handle (shared, lazily initialized)
-    pub(crate) os_clipboard: Option<Arc<Mutex<arboard::Clipboard>>>,
     /// Logo texture for toolbar (small, native SVG size)
     pub(crate) logo_texture: Option<egui::TextureHandle>,
     /// Logo texture for welcome screen (large, rendered from SVG at high resolution)
@@ -1105,6 +1084,12 @@ pub(crate) struct OctaApp {
     pub(crate) db_conn_cache: super::db_conn_cache::DbConnCache,
     /// In-flight "Run on server" SQL query, if any (one at a time).
     pub(crate) sql_server_job: Option<super::sql_panel::SqlServerJob>,
+    /// Every query run in any SQL editor, most recent first, each tagged with
+    /// where it ran. Loaded once at start-up, written back on every run.
+    pub(crate) sql_history: Vec<octa::sql::history::SqlHistoryEntry>,
+    /// Column names of live-server tables, fetched on demand for the SQL
+    /// editor's autocomplete. Keyed by `(conn_id, schema, table)`.
+    pub(crate) server_columns: super::sql_panel::ServerColumns,
     /// The database read currently in flight, if any: opening a table from
     /// the sidebar, or fetching the next page of one already open. Exists so
     /// the status bar can show a spinner and a Cancel for it; both were

@@ -374,7 +374,7 @@ under Octa's GUI ([**Settings → MCP**](../reference/settings.md#mcp)):
 
 The streaming file-loader cap lives under
 [**Settings → Performance → Initial-load row cap**](../reference/settings.md#performance)
-and defaults to 5,000,000 rows; an Unlimited checkbox next to
+and defaults to 2,000,000 rows; an Unlimited checkbox next to
 the input disables it entirely. Per-MCP-call, pass `unlimited: true`
 to any read-bearing tool to lift this cap for that call only.
 

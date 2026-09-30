@@ -282,6 +282,7 @@ impl OctaApp {
                     has_yaml: tab.yaml_value.is_some(),
                     chat_profile_available: !self.settings.chat_profiles.is_empty(),
                     readonly_mode: self.readonly_mode,
+                    show_invisibles: self.settings.show_invisible_chars,
                     split_view: tab.table_state.is_split(),
                     split_side_by_side: tab.table_state.split_side_by_side,
                     split_panes: tab.table_state.split_panes(),

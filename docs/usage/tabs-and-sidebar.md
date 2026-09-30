@@ -76,7 +76,9 @@ proceeds.
 sidebar showing the folder's tree. It's a resizable panel docked
 on the **left** by default; dock it on the right, top or bottom under
 [**Settings → Directory Tree → Sidebar position**](../reference/settings.md#directory-tree)
-(the same setting also positions the cloud-connections browser).
+(the cloud and database connections browsers have their own positions
+under [**Settings → Panels**](../reference/settings.md#panels), left by
+default; browsers on the same edge share one panel).
 
 Left/right docks resize by width, top/bottom by height. The sidebar
 takes up part of the window on first open; drag the splitter to resize

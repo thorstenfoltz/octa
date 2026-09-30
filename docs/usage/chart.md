@@ -124,8 +124,8 @@ the maths.
 
 Histogram, Line, and Scatter are subject to
 [`chart_max_points`](../reference/settings.md#performance)
-(default 100,000). Above the cap the chart evenly-spaces samples
-and a pill above the plot reads `Sampled 100,000 of 5,000,000 rows`.
+(default 25,000). Above the cap the chart evenly-spaces samples
+and a pill above the plot reads `Sampled 25,000 of 2,000,000 rows`.
 
 Bar and Box always work off the full input. Bar can afford to because
 it aggregates per category anyway, and Box because the 5-number

@@ -22,7 +22,7 @@ column. The same engine that backs the GUI Time series dialog and CLI
 | `agg`        | string   | no        | `sum`          | `sum`/`mean`/`min`/`max`/`count`/`first`/`last`                       |
 | `group_by`   | string[] | no        | `[]`           | One series per combination of these columns                           |
 | `limit`      | integer  | no        | server default | Cap response rows (`0` = unlimited)                                   |
-| `unlimited`  | bool     | no        | `false`        | Lift the 5,000,000-row file-loader cap so the resample sees every row |
+| `unlimited`  | bool     | no        | `false`        | Lift the 2,000,000-row file-loader cap so the resample sees every row |
 
 The bucket lands in a column named `bucket`, or `bucket_2` if the source
 already has a column called `bucket`.

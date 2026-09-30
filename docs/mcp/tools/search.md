@@ -18,7 +18,7 @@ the matching cells with their location and a context snippet.
 | `mode`      | string  | no        | `plain`        | `plain`, `wildcard`, or `regex`                                                  |
 | `table`     | string  | no        | (no default)   | Specific table for multi-table sources                                           |
 | `limit`     | integer | no        | server default | Max hits to return in the response. `0` = unlimited.                             |
-| `unlimited` | bool    | no        | `false`        | Lift the 5,000,000-row file-loader cap so the search scans every row in the file |
+| `unlimited` | bool    | no        | `false`        | Lift the 2,000,000-row file-loader cap so the search scans every row in the file |
 
 ### Modes
 

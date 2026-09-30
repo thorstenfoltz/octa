@@ -9,13 +9,15 @@ against the loaded rows.
 
 ## Opening the SQL panel
 
-Three ways:
+Four ways:
 
 1. **Analyse → SQL** in the toolbar (visible when the active tab is
    on a tabular file in Table view).
 2. The [`ToggleSqlPanel`](../reference/shortcuts.md#view) shortcut
    (default <kbd>Ctrl</kbd>+<kbd>J</kbd>).
-3. Auto-open on file load via
+3. **New SQL editor** (default <kbd>Ctrl</kbd>+<kbd>T</kbd>) opens the
+   panel when it is closed, and another editor when it is open.
+4. Auto-open on file load via
    [**Settings → SQL → Open SQL panel by default**](../reference/settings.md#sql).
 
 The panel docks to the **bottom** by default. Change the side under
@@ -23,6 +25,18 @@ The panel docks to the **bottom** by default. Change the side under
 (Bottom, Top, Left, or Right). The SQL panel is independent of the
 [Chart](chart.md) tab; the **Analyse** menu also opens a chart in a
 new tab, and the two features can be used together.
+
+**Maximise** in the panel header lets the panel fill the window;
+**Restore** docks it again. Opened on an empty tab (no file yet) the
+panel starts maximised, since there is no table for it to sit beside.
+Opening a file into that tab docks it.
+
+The editor stays open when you close its tab or open a file into it.
+The tab that becomes active opens the editor and, when its own editors
+are empty, takes over your queries, so closing the last tab does not
+throw away an unsaved query. Switch this off under
+[**Settings → SQL → Keep the SQL editor open**](../reference/settings.md#sql);
+the editor then belongs to its tab and closes with it.
 
 Inside the panel, the workspace tree, the Inspector, the editor and the
 results are stacked panes sharing the panel's height. Drag the line
@@ -41,12 +55,72 @@ The editor is a multi-line `TextEdit` with:
   under
   [**Settings → SQL → Editor font**](../reference/settings.md#sql).
 - **Right-click menu** for Copy
+- **Faded comments**: everything after `--` on a line is drawn faded,
+  so what runs stands out from what does not. A `--` inside a quoted
+  string is text, not a comment.
+- **Comment / uncomment with F12**: mark one or more lines (or just put
+  the caret on one) and press <kbd>F12</kbd>. Each marked line gets `--`
+  in front of its first character; if every marked line already starts
+  with `--` (leading blanks ignored), that first `--` is removed instead,
+  so pressing twice gets you back. With a mix, everything is commented.
+  Blank lines are left alone, and only the first `--` goes, so
+  `-- -- x` becomes `-- x`. A `--` after code (`SELECT a -- note`)
+  does not count, unless the selection lies only inside that comment:
+  then just that `--` is removed. Rebind it under
+  [**Settings -> Shortcuts**](../reference/shortcuts.md).
+
+### Formatting a query
+
+**Format** in the toolbar lays the query out one clause per line,
+indented, so a long one-liner pasted from a log becomes readable:
+
+```sql
+SELECT
+    c.name,
+    count(*) AS orders
+FROM
+    customers c
+    JOIN orders o ON o.customer_id = c.id
+GROUP BY
+    c.name
+```
+
+With part of the editor marked, only that part is formatted; otherwise
+the whole editor is. Comments are kept, and only whitespace, keyword case
+and comma placement change, so the query means the same afterwards.
+When **Run on** points at a SQL Server connection, `[bracketed names]`
+are kept whole.
+
+The style is yours to choose under
+[**Settings -> SQL**](../reference/settings.md#sql), with a live preview:
+keywords in upper case, lower case or as written, indentation of 2
+spaces, 4 spaces or a tab, commas at the end of a line or at the start
+of the next (`, b`), `JOIN` level with `FROM` or indented under it, how
+long a list may be and still stay on one line, how long a clause may be
+and stay on its keyword's line (`GROUP BY c.name`), how long a bracket
+may be and stay on one line (`coalesce(a, 0)`), how many blank lines
+separate two statements, and whether the text ends with a semicolon.
+**Whole query on one line** only tidies spacing and keyword case and
+breaks nothing, for pasting into a log or a program. **Format SQL** can also be put on a key under
+[**Settings -> Shortcuts**](../reference/shortcuts.md).
 
 ### Autocomplete
 
 When the caret sits at the end of a word token, Octa shows a row of
 chip-style suggestions beneath the editor, listing matching column
-names and SQL keywords. Click a chip to insert, or drive the popup from
+names, table, schema and catalog names, and SQL keywords. Each part of
+a dotted name completes on its own, so `wh.sales.orders` completes at
+`wh`, at `sales` and at `orders`. On a tab opened from a live database
+connection and running on the server, the server's catalogs, schemas
+and tables are offered as well: the tab's own catalog and schema are
+listed in the background when the panel opens, and anything you have
+expanded in the Databases sidebar joins them. The same works on any tab
+whose **Run on** points at a connection. Typing `sales.` lists that
+schema's tables, and every server table the query names has its columns
+fetched once in the background, so `SELECT o.` offers the columns of
+`orders` a moment after you wrote `FROM sales.orders o`. Column names
+with accents or umlauts complete like any other. The list scrolls when
+more names match than fit. Click a chip to insert, or drive the popup from
 the keyboard: **Up / Down** move the highlight, **Enter** or **Tab**
 accept the highlighted suggestion, **Esc** dismisses it. These keys are
 only intercepted while the popup is open, so with no suggestions
@@ -54,13 +128,52 @@ showing Enter and the arrows behave normally. Disable under
 [**Settings → SQL → Autocomplete**](../reference/settings.md#sql).
 
 The editor also takes keyboard focus the moment the panel opens, so you
-can start typing immediately without clicking into it first.
+can start typing immediately without clicking into it first. The faded
+line an empty editor shows (`SELECT * FROM data LIMIT 1000`, or the
+server table on a database tab) is a template: press **Tab** and it
+becomes real text, ready for **Ctrl+Enter**.
 
 ## Running a query
 
 - **Ctrl+Enter** runs the entire query.
-- A **Run** button in the toolbar does the same as Ctrl+Enter.
+- **Mark part of the editor** and Ctrl+Enter runs only the marked part.
+  Keep several statements in one editor and run them one at a time.
+- A **Run** button in the toolbar does the same as Ctrl+Enter, marked
+  part included.
 - A **Clear** button empties the editor.
+- **Run on** picks where the query runs: **local DuckDB** (the
+  workspace below), or any saved database connection. Picking a
+  connection sends the query straight to that server in its own SQL
+  dialect, where every table is queryable by its real name. Nothing is
+  attached or copied, so this is the fast way to query a database from
+  an empty SQL editor. A tab opened from a database starts on its own
+  connection. Attach connection (below) is still there for the one thing
+  direct mode cannot do: joining a server's tables with local files.
+- **While a query runs**, the result area shows a spinner and how long
+  it has been running, in place of the previous result. A query on a
+  server can be cancelled right there. A local query keeps the window
+  busy until DuckDB returns, so it has no Cancel button.
+
+### Several editors side by side
+
+**+** in the toolbar (or <kbd>Ctrl</kbd>+<kbd>T</kbd>, also while typing)
+opens another editor next to the others, each with
+its own query and its own result underneath. Click into an editor (or
+its result) to make it the active one: Run, Ctrl+Enter, Format,
+History, Export and Open result as tab all act on it, and it gets a thin
+outline. The small **×** above an editor closes it and its result; the
+last one stays. The workspace, **Run on** and Ask are shared by all of
+them.
+
+### Copying from the result
+
+Click a cell to select it. **Ctrl+click** adds or removes more cells,
+**Shift+click** adds the rectangle from the last clicked cell, a **column
+header** selects the whole column and a **row number** the whole row
+(Ctrl+click adds more of either). **Ctrl+C** copies the selection as
+tab-separated text, one line per row, ready to paste into a spreadsheet.
+Right-click a cell for Copy cell, Copy row, Copy column, Copy selection
+and Copy all.
 
 Each tab owns a **persistent DuckDB workspace**: added tables and
 attached databases survive across runs and are dropped when the tab
@@ -182,18 +295,20 @@ there is simply no `data` table until you open a file.
 The SQL toolbar has two ways to reuse queries:
 
 - **History** is a dropdown listing the queries you have actually run, most
-  recent first, each with how long it took and how many rows it returned. Pick
-  one to load it back into the editor, or use **Clear history** at the bottom to
-  forget the lot.
+  recent first, each with **where it ran** (the connection, the cloud object
+  or the file), how long it took and how many rows it returned. Hover an entry
+  to see the whole query with its line breaks and when it ran. Pick one to
+  load it into the editor (where the query runs stays as it is), or use
+  **Clear history** at the bottom to forget the lot.
 
-    History is **scoped and kept between sessions**: a database tab records
-    against its connection, a file-backed workspace against its file, so the
-    queries you ran on production do not turn up while you are poking at a CSV.
-    It lives in `sql_history.json` in the
-    [config directory](../reference/settings.md).
+    History is **one list, kept between sessions**: every SQL editor, whatever
+    tab or connection, shows the same queries. It lives in `sql_history.json`
+    in the [config directory](../reference/settings.md); a file written by an
+    earlier version, which kept one list per connection, is merged into the
+    single list on first start.
 
-    **Settings -> Databases -> Query history** controls it: *Keep the queries I
-    run* is on by default and keeps the last **20** per connection (0 keeps them
+    **Settings -> SQL -> Query history** controls it: *Keep the queries I
+    run* is on by default and keeps the last **20** in total (0 keeps them
     all). Turning it off stops recording **and deletes what was kept**, because
     a query can carry values out of your data and a switch that leaves the old
     file behind would be a poor kind of off. Re-running a query moves it back to
@@ -299,7 +414,7 @@ always read the whole result, not the page on screen.
 Queries run **on a live database connection** are not paged: they honour
 the **initial-load row cap** as before
 ([**Settings → Performance**](../reference/settings.md#performance),
-default 5,000,000), and the row counter says so when a result stops
+default 2,000,000), and the row counter says so when a result stops
 there ("row cap reached, result truncated"). Raise the cap, or narrow
 the query, to see more.
 
@@ -362,6 +477,14 @@ highlight is a temporary display mark and clears itself.
     [read-only formats](saving.md#read-only-formats) (SAS,
     HDF5, …) the change is in-memory-only, though you can
     **Save as** to a writable format to export it.
+
+## Opening a result as a tab
+
+**Open result as tab...** in the toolbar opens the whole result as a
+new tab of its own, named "SQL result". Every row goes in, not only the
+page on screen, and the tab behaves like any other table: edit it,
+filter it, chart it or save it. The SQL panel's own tab and its
+workspace stay as they were.
 
 ## Exporting results
 

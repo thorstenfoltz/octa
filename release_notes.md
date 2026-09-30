@@ -1,264 +1,183 @@
-A big release. Octa now reads REST APIs and the tables inside PDFs, replays
-your clean-up steps on next month's file, merges copies of a table that
-several people edited, and draws rows with a start and an end on a timeline
-that shows where they overlap. Around that: a proper dialog for changing a
-column's type, checks for IBANs, card numbers and VAT numbers, a test data
-generator, three new join types, git marks in the folder sidebar, and five new
-themes. It also opens log files as tables, forecasts a chart line ahead, joins
-by location, follows a cell back through its Git history, and finds the lookup
-tables hiding inside flat exports and the stray formats hiding inside columns.
-Octa also got more honest about partly loaded data: a search, a SQL result or a
-save that only sees part of the table now says so.
+A release for the SQL editor, and for computers less powerful than the one
+Octa is built on. The SQL panel can now run a query on any saved database
+connection from any tab, runs only the part you marked, comments lines out with
+F12, formats queries in the style you pick, shares one query history across
+every tab, and copies any selection out of its result grid. Several editors can
+sit side by side, the editor stays open when its tab closes, and a running query
+is plain to see. The table can copy a selection as a SQL IN list and show
+invisible characters, and Octa can reopen your last session. Copy and paste now
+work on Wayland. The default limits are lower, so a big file no longer fills the
+memory of an ordinary laptop.
 
 ## What's new
 
-### Read a REST API as a table
+### Run on any connection
 
-**Settings -> API endpoints** saves an endpoint once: base URL, path,
-authentication (bearer token, API key, username and password) and pagination
-(page number, offset, cursor or `Link` header). Opening it walks every page and
-gives you one table. **Test** fetches the first page and lists the arrays it
-found, so you can pick where the rows are instead of typing it. The credential
-stays in your OS keyring. The same endpoints work from the command line
-(`octa --api NAME`) and for the assistant (`list_api_connections`,
-`query_api`), which can only reach the hosts you saved.
+The SQL panel has a **Run on** picker on every tab: **local DuckDB**, or any
+saved database connection. Picking a connection sends the query straight to
+that server in its own SQL dialect, where every table can be queried by its
+real name. Nothing is attached or copied, so an empty SQL editor is now the
+quickest way to query a database. A tab opened from a database starts on its
+own connection. **Attach connection** is still there for the one thing this
+cannot do: joining a server's tables with local files.
 
-### Tables from PDFs
+### Run the marked part
 
-Open an invoice, a bank statement or a report and Octa finds the tables inside.
-One table opens straight away; with several, a picker lists them by page. A
-page that is only a scanned image cannot be read without OCR, and Octa says so
-instead of opening an empty table.
+Mark part of the editor and Ctrl+Enter runs only that part, so several
+statements can live in one editor and run one at a time. A **Run** button in
+the toolbar does the same.
 
-### Recipes: do the monthly clean-up once
+### Comments
 
-Octa records what you do to a table: renames, type changes, removed
-duplicates, filled gaps, transforms, even values you typed by hand (found again
-by an ID column, so they land on the right row next time). **Save recipe...**
-writes it as an `.ocp` file (Octa reCiPe, plain text) and **Apply recipe...**
-replays it on next month's file. Steps refer to columns by name, so a file with
-its columns in a new order still works, and a step that no longer fits stops
-the replay rather than half-applying it. Recipes also run from the command line
-(`--recipe`) and through the assistant (`apply_recipe`). An optional Settings
-switch saves a recipe automatically.
+- Everything after `--` on a line is drawn faded, so what runs stands out from
+  what does not. A `--` inside a quoted string is text, not a comment.
+- **F12** comments the marked lines out, or back in when they all already
+  start with `--`. Press it twice and you are back where you started. Rebind
+  it under **Settings -> Shortcuts**.
 
-### Merge versions
+### One query history
 
-**File -> Merge versions...** puts copies of one table back together after
-several people edited them: two versions or ten. Rows are matched by key
-columns (Octa suggests them) and changes are merged cell by cell. It asks only
-where two people changed the same cell differently. With the original the
-copies came from, everything that only one person changed merges on its own;
-without it, every difference asks. Also on the command line (`--merge`), for
-the assistant (`merge_tables`), and as a git merge driver for data files.
+Every SQL editor now shows the same history, whatever the tab or connection,
+and it is kept between sessions. Each entry says where it ran (the
+connection, the cloud object or the file), how long it took and how many rows
+it returned. Picking an entry loads the text into the editor and leaves where
+it runs alone. The per-connection lists from earlier versions are merged into
+the one list on first start.
 
-### Timeline and overlaps
+### Copying from the result
 
-**View -> Timeline** draws every row with a start and an end as a bar,
-grouped into lanes (a room, a person). Bars that overlap inside a lane are
-outlined: a room booked twice, someone on two shifts at once. **Open
-overlaps...** opens a tab with one row per overlapping pair, its columns named
-after yours (`room`, `row_a`, `check_in_a`, ...) and explained when you hover
-the header. Click a bar to select its row. `octa --overlaps` prints the same
-pairs and exits 1 when there are any, so a nightly job can catch a double
-booking; the assistant has `find_overlaps`.
+Click a cell to select it, Ctrl+click to add more, Shift+click for a
+rectangle, a column header for the whole column and a row number for the
+whole row. **Ctrl+C** copies the selection as tab-separated text, ready to
+paste into a spreadsheet. Right-click a cell for Copy cell, row, column,
+selection or all.
 
-### Change column type, without losing values
+### Better autocomplete
 
-**Columns -> Change type...** shows what a conversion would do before it does
-it: how many values convert, which ones do not, and which date format it
-detected. Values that do not fit are kept as they were and flagged, never
-blanked, and F10 / Shift+F10 step through them. A strict mode refuses
-instead. The header's quick **Change type** menu still converts in one click
-when everything fits, and now opens the preview instead of greying out when
-one value does not.
+- Catalog and schema names are offered, and each part of a dotted name
+  (`wh.sales.orders`) completes on its own.
+- On a server connection, the server's catalogs, schemas and tables are
+  offered, and the columns of every table the query names are fetched in the
+  background, so `SELECT o.` lists the columns of `orders`.
+- Names with accents or umlauts complete like any other, and the list scrolls
+  when more names match than fit.
+- The faded line in an empty editor is a template: press **Tab** and it
+  becomes real text, ready for Ctrl+Enter.
 
-### Check IDs: IBAN, card numbers, barcodes, VAT, email
+### Format SQL, in your style
 
-**Data validation** has new kinds that check the check digits: IBAN (length and
-mod 97 per country), payment card numbers, EAN, UPC and ISBN barcodes, EU VAT
-numbers and email addresses. Everything runs locally. A failed check only turns
-the cell red, it never blocks anything. **Tidy ID format** removes the spaces
-and dashes people type into IDs, and recipes record it.
+**Format** in the SQL toolbar lays a query out one clause per line, indented,
+so a long one-liner becomes readable. With part of the editor marked, only that
+part is formatted. **Settings -> SQL -> Format SQL** decides the style, with a
+live preview:
 
-### Generate test data
+- keywords in upper case, lower case or as written
+- 2 spaces, 4 spaces or a tab
+- commas at the end of a line or at the start of the next
+- JOIN level with FROM or under it
+- how long a list, a clause (`GROUP BY c.name`) and a bracket
+  (`coalesce(a, 0)`) may be and still stay on one line, each explained with an
+  example right under its field
+- blank lines between statements
+- a closing semicolon
+- the whole query on one line, which only tidies spacing and keyword case
 
-**Data -> Generate test data...** makes new rows shaped like the real ones:
-same columns, similar distributions and null rates, IDs that stay unique, and
-links between tables that still join. Nothing real is copied, so you can send
-it to a supplier or attach it to a bug report. The same seed gives the same
-rows. Also `octa --test-data` and the assistant's `generate_test_data`.
+### SQL settings in groups
 
-### Semi, anti and as-of joins
+**Settings -> SQL** is no longer one long list. Its settings sit in six groups
+you open when you need them: Panel, Editor, Results, Other open tabs, Query
+history and Format SQL.
 
-**Join tables** gained three types. **Semi** keeps left rows that have a
-partner ("which customers have ordered?"), **Anti** the ones that do not
-("which never have?"), and **As-of** gives every left row the nearest right
-row in time, such as the price valid at the moment of a trade. Hover a join
-type in the list for what it keeps. Also on the command line and for the
-assistant.
+### Open result as tab
 
-### Log files as tables
+**Open result as tab...** now puts every row of the result into the new tab,
+not only the page on screen, and always opens a new tab, so the SQL panel's
+own tab is never replaced.
 
-Open an nginx or Apache access log, a syslog, JSON or logfmt lines, or a Java
-or Python application log, and Octa reads it as a table: a sortable
-timestamp, a level that means the same thing everywhere (`warning`, `warn` and
-`W` all become `WARN`), and the format's own fields as columns. A stack trace
-stays with the error it belongs to, and a line that fits nothing keeps its own
-row instead of disappearing. A `.log` that is not a log still opens as text.
+### Several SQL editors side by side
 
-### Trend and forecast
+**+** in the SQL toolbar, or **Ctrl+T** (also while typing), opens another
+editor next to the others, each with its own query and its own result. Click
+into one to make it the one Run, Format and Export act on; the small x above an
+editor closes it.
 
-A Line chart over dates can draw a trend line and forecast each line ahead,
-with an 80% and a 95% range that widen the further out you look. The season
-is read from the dates (7 for daily data, 12 for monthly, and so on), so there
-is nothing to tune. **Forecast to table** opens the numbers in a tab, and the
-command line (`--forecast`) and the assistant (`forecast`) use the same model.
+### The SQL editor stays open
 
-### Spatial join
+Closing a tab or opening a file no longer closes the SQL editor: the next tab
+opens it and takes over your queries when its own editor is empty, so closing
+the last tab does not lose an unsaved query. **Settings -> SQL -> Keep the SQL
+editor open** switches back to the old behaviour.
 
-The Join dialog has a new **Spatial** type: give every customer the sales
-region they are in, or the nearest store and how far away it is, measured over
-the earth's surface. Several layers can be joined at once. A layer in a
-coordinate system other than latitude/longitude is refused with a message
-rather than matching nothing. Picking **Spatial** puts the tab with the points
-on the left for you, even when the regions file was the last one you opened.
-Also `--spatial-join` and `spatial_join`.
+Opened on an empty window, the editor fills it. **Maximise** and **Restore** in
+its header switch between the whole window and docked beside the table.
 
-### Cell history
+### You can see a query running
 
-For a file kept in Git, right-click a cell and choose **Cell history...** to
-see every commit that changed it, with who and when. The row is followed by a
-key, so a re-sorted file does not look as if every row changed, and renames are
-followed. Drag the line under the column list to give it more room. When the
-entry is greyed out, hovering it shows why, including git's own message. Also
-`--cell-history` and `cell_history`.
+A running query clears the previous result and error at once and shows a large
+spinner with the time so far, with **Cancel** for a query on a database server.
+Before, the old result stayed on screen until the new one arrived, which looked
+like the answer to the new query.
 
-### Find lookup tables
+### Sidebars where you want them
 
-**Analyse -> Find lookup tables...** finds columns that always follow another
-one, like a customer's name and city next to the customer ID on every order,
-shows the rows that break the pattern (usually typos), and can split the
-lookup back out into its own table without touching yours. Also `--lookups`
-and the assistant's `find_lookups`.
+The Cloud and Databases browsers each have their own dock position under
+**Settings -> Panels**, left by default. Browsers on the same edge share one
+panel.
 
-### Value shapes
+### Copy as IN list
 
-The column funnel has a **Shapes** switch that shows what the values look like
-with the specifics taken out: `D-80331` is `A-99999`. A postcode column with
-three values typed in another format now shows them at a glance, and ticking a
-shape filters to it. The Data quality report flags columns with mixed shapes.
-Also `--shapes` and the assistant's `value_shapes`.
+Mark some cells, right-click, **Copy as IN list**, and you get
+`('A-17', 'B-22', 'C-09')`, ready to paste after `WHERE id IN` in any database
+tool. Empty cells and repeats are left out, quotes are escaped, and numbers stay
+bare only when every value is a number, so `007` keeps its leading zero.
 
-### Finding your way around a table
+### Show invisible characters
 
-- **Column navigator**: a docked panel listing every column with a search box,
-  to show, hide, freeze and reorder columns without scrolling for them.
-- **Filter by value**: every header has a funnel that lists the column's most
-  common values with counts; tick the ones to keep. Right-clicking the header
-  and choosing **Filter values...** opens the same popup. Active filters show
-  as chips above the table, each with an `x`.
-- **Filter by value or shape** moved from the Search menu to **Columns**. It is
-  the same filter as the funnel, in a window with a column picker and a
-  **Find** field, and it has the **Values / Shapes** switch too.
-- **Edit audit trail**: a docked panel listing every unsaved cell edit, before
-  and after, so you can check what a save will change.
-- **Tab memory** (Data menu): how much memory each open tab holds, with an
-  **Unload** button that frees a tab's rows until you need them again.
-- **Refresh a tab** (Ctrl+R) reads its file, database table, cloud object or
-  API endpoint again, in the same tab. A Settings choice decides whether it
-  asks, refreshes in place or opens a new tab.
-- **Search in the Databases and Cloud sidebars**: a search box under each
-  header narrows the tree, and **Search all** looks through every expanded
-  connection for tables, objects and folders.
-- **Git marks in the folder sidebar**: files with uncommitted changes and files
-  changed on the current branch are coloured and marked (`M`, `A`, `D`, `U`,
-  `*`), with the state spelled out on hover.
+**View -> Show invisible characters** marks the whitespace inside cells: `.`
+for a space, `->` for a tab, `_` for a non-breaking or other unusual space, `|`
+for a zero-width character. Spaces at the start or end of a value and the
+unusual characters get a coloured background, which explains why `Berlin` and
+`Berlin` did not match, and you can see at a glance whether a gap is spaces or
+a tab.
 
-### Files and folders
+### Reopen last session
 
-- **Encrypted zips open**: Octa asks for the passphrase and can keep it in your
-  OS keyring if you tick the box. A password-protected workbook is recognised
-  as locked, not reported as damaged.
-- **Combine a folder into one table**: Harmonise schemas can now fold a folder
-  of files into a single table, with a `source_file` column saying where each
-  row came from (`--combine` on the command line).
-- **Cloud folders download in parallel**, with the number of simultaneous
-  downloads under Settings -> Performance.
+**Settings -> Files -> Reopen last session** opens the files again that were
+open when you closed Octa, the way a browser restores its tabs. Cloud objects
+and database or API tabs stay closed unless you switch them on separately,
+since reopening them downloads or queries at every start.
 
-### Honest about partly loaded data
+## Changed defaults
 
-- **Search the whole file.** When only part of a big file or a live database
-  table is loaded, the search bar says it is searching the loaded rows, and
-  offers a search over the whole source with the same options (match mode,
-  case, whole word).
-- **SQL results are paged**, with the exact row total, instead of stopping at
-  the row cap. Export still writes every row.
-- **Every open tab is a SQL table**: open tabs are registered in the SQL
-  workspace automatically, so you can join them without attaching each one.
-- **Saving a partly loaded file warns you** before it overwrites the rest of
-  the file with the part that was loaded.
-- Result tabs built from partly loaded data (summary, transpose, sample,
-  quality report and the like) say so.
+Octa was tuned on a fast machine. These defaults suit an ordinary laptop
+better. Only new installs get them: if you already saved your settings, your
+values stay as they are, and every one of them can be changed under
+**Settings -> Performance**.
 
-### Views
-
-- **Compare view**: the left pane of a text diff is a real editor now, so you
-  can fix the working file right next to the committed version.
-- **Raw view** can wrap long lines instead of scrolling sideways.
-- **JSON inside JSON**: a string holding JSON unfolds into real tree rows in
-  the JSON view.
-- **Colour marks work on read-only tabs**, since marking is not an edit.
-- **Five new themes**: Deep Sea Contrast (dialogs stand out from the panels
-  behind them), Solarized Light, Tokyo Night, Phosphor, and Colour-blind Safe.
-
-### Assistant: Plan mode
-
-In **Plan** mode the assistant does not change your table while it works.
-Ask for something broad, such as "clean this file up", and it comes back with
-a numbered plan. Untick the steps you do not want, see each step's before and
-after, then **Apply**, ask for a revision, or discard it. Sorting rows through
-the assistant is now undoable too.
+- **Rows loaded when a file opens**: 2,000,000 instead of 5,000,000. The same
+  limit applies to SQL results, database tables, the command line and the
+  assistant. `--rows all` and Unlimited still load everything.
+- **Large-file mode** starts at 2 GB instead of 10 GB, so a big CSV, JSON or
+  Parquet file is read from disk instead of being loaded into memory.
+- **Raw view** reads files up to 50 MB instead of 500 MB.
+- **Charts** plot up to 25,000 points before sampling, instead of 100,000.
+  The shape of the data stays the same, and the chart redraws much faster.
 
 ## Fixes
 
-- **Ctrl+R opened a second tab** instead of refreshing, and did nothing on
-  database tabs. It now reloads in place, and a failed read leaves the tab as
-  it was.
-- **Ctrl+M did nothing on database tabs** while the menu entry worked.
-- **The git compare view could not be edited.** Both panes accepted typing and
-  threw it away on the next frame.
-- **The SQL panel's panes overlapped** and a dragged pane snapped back to its
-  old size. They are one splitter now.
-- **Change type greyed out** on a column with a single bad value, and refused
-  dates that were not written in ISO format.
-- **Transform column** made one undo step per cell; it is one per transform
-  now. Renaming a column in its header could not be undone; now it can.
-- **Code colouring in light themes** other than Light used the dark palette.
-- **Controls out of line**: in several dialogs and bars (join, timeline, SQL,
-  chart) a drop-down sat a few pixels lower than the button beside it.
-- **Timeline**: the chart could not be scrolled, the hover text of the top
-  bars was cut off, and some lane names went missing with many lanes.
-- **Chart axis min and max were ignored** once the chart was on screen: typing
-  new values, or clearing them back to auto, kept the old range. The chart now
-  follows every change.
-- **Git features missed files in a repository** when the file was opened
-  through a symlinked folder or by a relative path (`octa data.csv` from a
-  terminal). Compare with Git revision, the merge-conflict check and Cell
-  history now find them.
+- **Copy and paste on Wayland**: copying from Octa and pasting into another
+  program (or the other way round) did not work, because Octa used the X11
+  clipboard. Octa now uses the same clipboard as its text fields, on Wayland
+  and on X11 alike. Paste also no longer lands in the table while you are
+  typing in a text field.
+- **The SQL result grid twitched** while scrolling, as its columns kept
+  resizing to fit the rows on screen. Column widths now stay put.
 
 ## Under the hood
 
-- **Rows of controls share one helper** that gives every widget in a row the
-  same height, with a test that measures a real row. The mismatch between a
-  drop-down and a themed button had caused the "out of line" reports in four
-  features.
-- **Large modules were split** (tabs, central panel, table view, SQL panel)
-  into files with one job each. No behaviour changed.
-- **Menu labels use sentence case** in English.
-- **The documentation** covers every new feature in both the in-app Help and
-  the website, and `samples/features/` holds small files for trying the new
-  joins, ID checks, test data, the timeline, lookup tables (`orders_flat.csv`),
-  value shapes (`postcodes.csv`), log files (`access.log`, `app.log`), the
-  spatial join (`stores.csv`, `regions.geojson`) and the forecast
-  (`monthly_sales.csv`).
+- SQL Server connections use tiberius 0.13 from crates.io instead of Octa's
+  own patched copy. Long queries on SQL Server are not cut off: 0.13 would
+  stop any query after 30 seconds of silence from the server, and Octa turns
+  that off.
+- The documentation covers the new SQL features and the new defaults in both
+  the in-app Help and the website.

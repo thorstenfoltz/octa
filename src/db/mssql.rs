@@ -39,6 +39,9 @@ impl MssqlConnector {
         config.host(&conn.host);
         config.port(conn.port);
         config.database(&conn.database);
+        // tiberius 0.13 fails any round trip that stalls 30 s; an analytic
+        // query sorting a big table easily does, and the user can cancel.
+        config.command_timeout(None);
         match conn.auth {
             DbAuth::AzureAd => {
                 config.authentication(AuthMethod::aad_token(secret));

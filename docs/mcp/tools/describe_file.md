@@ -22,7 +22,7 @@ CLI mirror: [`octa --describe`](../../cli/describe.md).
 | `path`        | string  | yes       | (no default) | Path to the file.                                                                                                                                       |
 | `table`       | string  | no        | (no default) | Specific table for multi-table sources.                                                                                                                 |
 | `sample_rows` | integer | no        | `5`          | Sample-row count. Clamped to `[0, 100]`.                                                                                                                |
-| `unlimited`   | boolean | no        | `false`      | Lift the 5,000,000-row file-loader cap so the row count is exact.                                                                                       |
+| `unlimited`   | boolean | no        | `false`      | Lift the 2,000,000-row file-loader cap so the row count is exact.                                                                                       |
 | `deep`        | boolean | no        | `false`      | Also report the file's physical layout: row groups, compression, encodings, column statistics, plus layout hints. Parquet only; ignored for `open_tab`. |
 
 For multi-table sources called without `table`, the reader's default
@@ -38,7 +38,7 @@ behaviour applies, so call `list_tables` first if you're unsure.
   "table": null,
   "row_count": 47832,
   "initial_load_capped": false,
-  "initial_load_cap": 5000000,
+  "initial_load_cap": 2000000,
   "columns": [
     { "name": "id", "type": "Int64" },
     { "name": "region", "type": "Utf8" },

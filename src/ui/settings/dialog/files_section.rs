@@ -117,6 +117,43 @@ impl SettingsDialog {
                 ui.checkbox(&mut self.draft.recipe_autosave, "")
                     .on_hover_text(crate::i18n::t("settings_hint.recipe_autosave"));
                 ui.end_row();
+
+                ui.label(crate::i18n::t("settings.restore_session"))
+                    .on_hover_text(crate::i18n::t("settings_hint.restore_session"));
+                ui.checkbox(&mut self.draft.restore_session, "")
+                    .on_hover_text(crate::i18n::t("settings_hint.restore_session"));
+                ui.end_row();
+
+                // Cloud objects and connections are extra switches on top of
+                // the main one, never implied by it: reopening them downloads
+                // or queries at every start.
+                let on = self.draft.restore_session;
+                let off = crate::i18n::t("settings_hint.restore_session_needs_main");
+                for (label, hint, value) in [
+                    (
+                        "settings.restore_session_cloud",
+                        "settings_hint.restore_session_cloud",
+                        &mut self.draft.restore_session_cloud,
+                    ),
+                    (
+                        "settings.restore_session_connections",
+                        "settings_hint.restore_session_connections",
+                        &mut self.draft.restore_session_connections,
+                    ),
+                ] {
+                    let hint = crate::i18n::t(hint);
+                    ui.add_enabled_ui(on, |ui| {
+                        ui.label(crate::i18n::t(label))
+                            .on_hover_text(&hint)
+                            .on_disabled_hover_text(&off);
+                    });
+                    ui.add_enabled_ui(on, |ui| {
+                        ui.checkbox(value, "")
+                            .on_hover_text(&hint)
+                            .on_disabled_hover_text(&off);
+                    });
+                    ui.end_row();
+                }
             });
 
         // The write-option defaults are a group rather than a row pair, so

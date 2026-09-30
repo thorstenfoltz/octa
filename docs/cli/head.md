@@ -77,7 +77,7 @@ they keep their JSON-native types (`number`, `boolean`, etc.).
 ## Performance
 
 For streaming formats (Parquet, CSV, TSV), Octa loads the standard
-**initial-load row cap** (5 Million rows by default, override with
+**initial-load row cap** (2 Million rows by default, override with
 `--rows N|all`), then truncates to N. So `octa --head huge.parquet
 -n 10` is fast because the reader itself stops early via the cap;
 the actual truncation is just a vector chop. Parquet files with

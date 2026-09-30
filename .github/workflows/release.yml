@@ -25,7 +25,13 @@ env:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    # Pinned to the OLDEST supported runner, not ubuntu-latest: a Linux binary
+    # runs only where glibc is at least as new as the one it was linked
+    # against. Built on 24.04 (glibc 2.39), 0.20.0 refused to start on Ubuntu
+    # 22.04, Linux Mint 21 and Debian 12 ("GLIBC_2.39 not found"), which the
+    # AppImage catalogue's test caught. 22.04 (glibc 2.35) covers those and
+    # every newer system. Move it forward only when 22.04 leaves GitHub.
+    runs-on: ubuntu-22.04
     steps:
       # lfs: true is mandatory: assets/ (octa.png, the .ttf/.otf fonts that
       # src/ui/theme embeds via include_bytes!) is tracked in git LFS. Without
@@ -36,7 +42,7 @@ jobs:
         with:
           lfs: true
 
-      # ubuntu-latest ships ~20 GB of preinstalled toolchains (dotnet/android/
+      # The hosted Ubuntu images ship ~20 GB of preinstalled toolchains (dotnet/android/
       # ghc) this build never touches, leaving only ~21 GB on /. `cargo build
       # --release` (bundled DuckDB C++ + two Arrow versions) plus the AppImage
       # bundling below overrun it and crash the runner with "No space left on
@@ -137,9 +143,9 @@ jobs:
           # default runtime.
           LDAI_RUNTIME_FILE: ${{ runner.temp }}/appimage-runtime
         # APPIMAGE_EXTRACT_AND_RUN sidesteps FUSE for the *tooling* on this
-        # runner: ubuntu-latest (24.04) no longer ships libfuse2 by default, and
-        # running the linuxdeploy AppImage without it fails with "dlopen():
-        # error loading libfuse.so.2". Unrelated to LDAI_RUNTIME_FILE above,
+        # runner: newer images no longer ship libfuse2 by default, and running
+        # the linuxdeploy AppImage without it fails with "dlopen(): error
+        # loading libfuse.so.2". Kept on 22.04 so a runner bump cannot break it. Unrelated to LDAI_RUNTIME_FILE above,
         # which fixes the same class of failure on the *user's* machine.
         run: |
           rm -rf AppDir

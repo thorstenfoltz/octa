@@ -41,7 +41,7 @@ whole rows are unique to a side.
 | `table_a`   | string   | no              | (no default)          | Specific table to read from A (multi-table sources)                                                                                                  |
 | `table_b`   | string   | no              | (no default)          | Specific table to read from B (multi-table sources)                                                                                                  |
 | `limit`     | int      | no              | server default (1000) | Max rows returned *per side*. `0` = unlimited                                                                                                        |
-| `unlimited` | bool     | no              | `false`               | Lift the 5,000,000-row file-loader cap for both files                                                                                                |
+| `unlimited` | bool     | no              | `false`               | Lift the 2,000,000-row file-loader cap for both files                                                                                                |
 | `b_db`      | object   | no              | -                     | Compare against a live database table instead of a second file: `{"connection": "NAME", "table": "SCHEMA.TABLE"}`. Replaces `path_b` / `open_tab_b`. |
 
 ## Response shape

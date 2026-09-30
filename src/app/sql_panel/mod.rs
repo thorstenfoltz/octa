@@ -63,9 +63,11 @@ pub(crate) enum ServerQueryDone {
 
 /// One in-flight "Run on server" query (at most one at a time, app-wide).
 pub(crate) struct SqlServerJob {
-    /// Tab index the query was started from; the drain re-checks the tab
-    /// still shows the same connection before applying the result.
-    pub(crate) tab_idx: usize,
+    /// The editor pane (`SqlPane.id`) the query was started from. Pane ids
+    /// are unique across tabs, so the result finds its pane after tabs were
+    /// reordered or other panes closed; the drain also re-checks that the
+    /// pane's tab still targets the same connection.
+    pub(crate) pane_id: u64,
     pub(crate) conn_id: String,
     pub(crate) query: String,
     /// When the query was sent, so the history can record what it cost. The
@@ -78,6 +80,35 @@ pub(crate) struct SqlServerJob {
 
 /// Shared slot for a connector's thread-safe cancel closure.
 pub(crate) type SharedCancel = std::sync::Arc<std::sync::Mutex<Option<Box<dyn Fn() + Send>>>>;
+
+impl OctaApp {
+    /// Analyse -> SQL and its shortcut: hide the panel, or open it the way
+    /// [`Self::open_sql_panel`] does.
+    pub(crate) fn toggle_sql_panel(&mut self, idx: usize) {
+        let tab = &mut self.tabs[idx];
+        if tab.sql_panel_open {
+            tab.sql_panel_open = false;
+            tab.sql_maximised = false;
+        } else {
+            self.open_sql_panel(idx);
+        }
+    }
+
+    /// Show the SQL panel on tab `idx`, editor focused. An empty tab has no
+    /// table for the panel to sit beside, so there it fills the window; the
+    /// header's Restore button docks it again.
+    pub(crate) fn open_sql_panel(&mut self, idx: usize) {
+        let tab = &mut self.tabs[idx];
+        tab.sql_panel_open = true;
+        tab.sql.focus_pending = true;
+        let blank = tab.table.col_count() == 0
+            && tab.table.source_path.is_none()
+            && tab.raw_content.as_deref().is_none_or(str::is_empty);
+        if blank {
+            tab.sql_maximised = true;
+        }
+    }
+}
 
 /// One sidebar listing as the attach menu needs it. Which level the names
 /// belong to is the node path's depth, exactly as the sidebar's worker
@@ -188,44 +219,97 @@ pub(super) fn workspace_snapshot(tab: &TabState) -> (Vec<WorkspaceRow>, Vec<Work
 
 /// Construct the per-tab SQL workspace on first use, registering the tab's
 /// current table as `data`. Errors leave `tab.sql_workspace` as None and
-/// surface through `tab.sql_error`.
-/// Which stored history a tab's queries belong to: the connection for a
-/// database tab, the file for a file-backed workspace, and one shared scratch
-/// list for a tab that has neither.
+/// surface through `tab.sql.error`.
+/// Where a tab's queries run, as the history records it: the connection the
+/// editor targets, else the database, cloud object or file the tab was opened
+/// from, else one shared scratch source.
 pub(crate) fn sql_history_scope(tab: &TabState) -> String {
+    use octa::sql::history;
+    if let Some(conn_id) = tab.sql_target.as_deref() {
+        return history::db_scope(conn_id);
+    }
     if let Some(origin) = tab.db_origin.as_ref() {
-        return octa::sql::history::db_scope(&origin.conn_id);
+        return history::db_scope(&origin.conn_id);
+    }
+    if let Some(origin) = tab.cloud_origin.as_ref() {
+        return history::cloud_scope(&origin.conn_id, &origin.key);
     }
     match tab.table.source_path.as_deref() {
-        Some(path) => octa::sql::history::file_scope(path),
+        Some(path) => history::file_scope(path),
         None => "scratch".to_string(),
     }
 }
 
-/// Record an executed query, in the tab's list and in the persisted history.
+/// The table a tab was opened from, but only while the editor targets that
+/// same connection: the table name the hint, the autocomplete and Ask SQL
+/// address. A tab pointed at some other connection has no table there.
+impl OctaApp {
+    /// **Format** (button or shortcut) on the active tab's SQL editor, in the
+    /// dialect of wherever the query runs: DuckDB reads like Postgres, and
+    /// SQL Server needs `[bracketed names]` kept whole.
+    pub(crate) fn format_sql_editor(&mut self, ctx: &egui::Context) {
+        use octa::db::DbEngine;
+        use octa::sql::format::FormatDialect;
+        let tab = &self.tabs[self.active_tab];
+        let dialect = match tab
+            .sql_target
+            .as_deref()
+            .and_then(|id| self.find_db_conn(id))
+        {
+            None => FormatDialect::Postgres,
+            Some(c) => match c.engine {
+                DbEngine::Postgres | DbEngine::Redshift => FormatDialect::Postgres,
+                DbEngine::Mssql => FormatDialect::SqlServer,
+                _ => FormatDialect::Generic,
+            },
+        };
+        let opts = self.settings.sql_format.clone();
+        let tab = &mut self.tabs[self.active_tab];
+        crate::view_modes::sql::format_in_editor(ctx, &mut tab.sql, &opts, dialect);
+    }
+}
+
+pub(crate) fn server_origin(tab: &TabState) -> Option<&super::state::DbOrigin> {
+    tab.db_origin
+        .as_ref()
+        .filter(|o| tab.sql_target.as_deref() == Some(o.conn_id.as_str()))
+}
+
+/// Column names of live-server tables for the editor's autocomplete, keyed by
+/// `(conn_id, schema, table)`. `None` while the fetch runs or after it failed,
+/// so a table is asked about once per session.
+pub(crate) type ServerColumns = std::sync::Arc<
+    std::sync::Mutex<std::collections::HashMap<(String, String, String), Option<Vec<String>>>>,
+>;
+
+/// Record an executed query, in the app's list and in the persisted history.
 /// Skips blank queries; a no-op when the user has history switched off.
 ///
 /// `enabled` and `limit` are read from settings by the caller, because every
 /// call site already holds the tab mutably.
 pub(super) fn record_sql_history(
-    tab: &mut TabState,
+    history: &mut Vec<octa::sql::history::SqlHistoryEntry>,
+    tab: &TabState,
     query: &str,
     started: std::time::Instant,
     rows: usize,
     enabled: bool,
     limit: usize,
 ) {
+    if !enabled {
+        return;
+    }
     let entry = octa::sql::history::SqlHistoryEntry {
         query: query.trim().to_string(),
         at_unix: octa::sql::history::now_unix(),
         duration_ms: started.elapsed().as_millis() as u64,
         rows,
+        source: sql_history_scope(tab),
     };
-    let scope = sql_history_scope(tab);
-    // The tab's copy is what the History menu draws; the store is what survives
-    // closing it. Same fold, so the two never diverge.
-    octa::sql::history::fold(&mut tab.sql_history, entry.clone(), limit);
-    octa::sql::history::record(&scope, entry, enabled, limit);
+    // The in-memory copy is what the History menu draws; the store is what
+    // survives a restart. Same fold, so the two never diverge.
+    octa::sql::history::fold(history, entry.clone(), limit);
+    octa::sql::history::record(entry, enabled, limit);
 }
 
 /// Mark the cells/rows that a SQL mutation changed (positional diff of the
@@ -276,12 +360,6 @@ pub(super) fn ensure_workspace(tab: &mut TabState) {
     if tab.sql_workspace.is_some() {
         return;
     }
-    // First use of this tab's workspace: pull in whatever was recorded against
-    // its connection or file previously, so the History menu is useful from the
-    // moment the panel opens rather than only after this session's first run.
-    if tab.sql_history.is_empty() {
-        tab.sql_history = octa::sql::history::load(&sql_history_scope(tab));
-    }
     match octa::sql::SqlWorkspace::new() {
         Ok(mut ws) => {
             let mut snapshot = tab.table.clone();
@@ -292,13 +370,13 @@ pub(super) fn ensure_workspace(tab: &mut TabState) {
             if snapshot.col_count() > 0
                 && let Err(e) = ws.set_active_table(&snapshot)
             {
-                tab.sql_error = Some(e.to_string());
+                tab.sql.error = Some(e.to_string());
                 return;
             }
             tab.sql_workspace = Some(ws);
         }
         Err(e) => {
-            tab.sql_error = Some(format!("failed to start SQL workspace: {e}"));
+            tab.sql.error = Some(format!("failed to start SQL workspace: {e}"));
         }
     }
 }

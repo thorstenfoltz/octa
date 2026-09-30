@@ -86,6 +86,12 @@ fn sniff_x_axis_kind(table: &DataTable, x_col: usize, rows: &[usize]) -> XAxisKi
 /// [`build_chart`]; this constant only seeds the default.
 pub const DEFAULT_MAX_BAR_CATEGORIES: usize = 200;
 
+/// Default cap on the rows Histogram / Line / Scatter plot before evenly
+/// spaced sampling. egui tessellates every point each frame on the CPU, so
+/// this is sized for an ordinary laptop, not a workstation; 25,000 points
+/// still draw the full shape of the data. Seeds `AppSettings.chart_max_points`.
+pub const DEFAULT_MAX_POINTS: usize = 25_000;
+
 /// Hard ceiling on the number of histogram bins. Sturges' formula caps out
 /// well below this for any realistic dataset; the constant exists so a user
 /// who manually sets `hist_bins` to something silly still gets a usable plot.
@@ -562,7 +568,7 @@ pub struct ChartLimits {
 impl Default for ChartLimits {
     fn default() -> Self {
         Self {
-            max_points: 100_000,
+            max_points: DEFAULT_MAX_POINTS,
             max_categories: DEFAULT_MAX_BAR_CATEGORIES,
         }
     }

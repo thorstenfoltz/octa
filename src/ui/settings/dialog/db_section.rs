@@ -69,38 +69,6 @@ impl SettingsDialog {
             .show(ui, |ui| {
                 self.db_connection_form(ui);
             });
-        ui.separator();
-        self.db_history_settings(ui);
-    }
-
-    /// Query-history settings: whether to keep the queries you run, and how
-    /// many. Lives with the connections because the history is scoped to them.
-    fn db_history_settings(&mut self, ui: &mut egui::Ui) {
-        ui.label(egui::RichText::new(t("db.history_title")).strong());
-        let was_on = self.draft.sql_history_enabled;
-        ui.checkbox(&mut self.draft.sql_history_enabled, t("db.history_enabled"))
-            .on_hover_text(t("db.history_enabled_hint"));
-        if was_on && !self.draft.sql_history_enabled {
-            // Switching it off means "do not keep my queries", not merely
-            // "stop adding to the pile". Queries can carry literals out of the
-            // data, so leaving the old file behind would be a nasty surprise.
-            crate::sql::history::forget_everything();
-        }
-        ui.add_enabled_ui(self.draft.sql_history_enabled, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(t("db.history_limit"))
-                    .on_hover_text(t("db.history_limit_hint"));
-                let mut buf = self.draft.sql_history_limit.to_string();
-                if ui
-                    .add(egui::TextEdit::singleline(&mut buf).desired_width(60.0))
-                    .on_hover_text(t("db.history_limit_hint"))
-                    .changed()
-                    && let Ok(v) = buf.trim().parse::<usize>()
-                {
-                    self.draft.sql_history_limit = v;
-                }
-            });
-        });
     }
 
     /// The saved-connection list with per-row Edit / Remove.

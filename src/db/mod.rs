@@ -1345,6 +1345,29 @@ pub fn table_metadata_sql(
     }
 }
 
+/// The column names out of a [`table_metadata_sql`] result, for the SQL
+/// editor's autocomplete. The engines disagree on what the name column is
+/// called (`column_name`, Databricks' `col_name`, Snowflake's and
+/// ClickHouse's `name`), so it is found by name. Stops at the first blank or
+/// `#` row: Databricks appends partition and table detail sections below the
+/// column list.
+pub fn column_names_from_metadata(t: &DataTable) -> Vec<String> {
+    let Some(c) = t.columns.iter().position(|c| {
+        matches!(
+            c.name.to_ascii_lowercase().as_str(),
+            "column_name" | "col_name" | "name"
+        )
+    }) else {
+        return Vec::new();
+    };
+    t.rows
+        .iter()
+        .map(|r| r.get(c).map(|v| v.to_string()).unwrap_or_default())
+        .take_while(|v| !v.trim().is_empty() && !v.trim_start().starts_with('#'))
+        .map(|v| v.trim().to_string())
+        .collect()
+}
+
 /// SQL finding every table in `catalog` whose name contains `needle` (any
 /// case) in one round trip, for the sidebar's deep search. Returns two
 /// columns, schema then table, over the same schemas the tree lists.
@@ -1936,6 +1959,46 @@ mod tests {
         assert!(pg.contains("FROM information_schema.columns"), "{pg}");
         assert!(pg.contains("table_schema = 'pub''lic'"), "{pg}");
         assert!(pg.contains("table_name = 'orders'"), "{pg}");
+    }
+
+    #[test]
+    fn metadata_column_names_across_engine_shapes() {
+        use crate::data::{CellValue, ColumnInfo};
+        let table = |col: &str, vals: &[&str]| {
+            let mut t = DataTable::empty();
+            t.columns = vec![
+                ColumnInfo {
+                    name: "ordinal".into(),
+                    data_type: "Int64".into(),
+                },
+                ColumnInfo {
+                    name: col.into(),
+                    data_type: "Utf8".into(),
+                },
+            ];
+            t.rows = vals
+                .iter()
+                .map(|v| vec![CellValue::Int(0), CellValue::String((*v).into())])
+                .collect();
+            t
+        };
+        // information_schema (Postgres, MySQL, MSSQL, Oracle upper-cased).
+        assert_eq!(
+            column_names_from_metadata(&table("COLUMN_NAME", &["id", "Gr\u{f6}\u{df}e"])),
+            ["id", "Gr\u{f6}\u{df}e"]
+        );
+        // Snowflake / ClickHouse DESCRIBE.
+        assert_eq!(column_names_from_metadata(&table("name", &["a"])), ["a"]);
+        // Databricks DESCRIBE EXTENDED: the detail sections are not columns.
+        assert_eq!(
+            column_names_from_metadata(&table(
+                "col_name",
+                &["a", "b", "", "# Detailed Table Information", "Owner"]
+            )),
+            ["a", "b"]
+        );
+        // No recognisable name column: nothing rather than garbage.
+        assert!(column_names_from_metadata(&table("other", &["a"])).is_empty());
     }
 
     #[test]

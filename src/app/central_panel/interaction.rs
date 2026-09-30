@@ -29,8 +29,8 @@ impl OctaApp {
         // Marked text owns Ctrl+C, wherever it is: a chat bubble, tool output,
         // a message in a dialog, the focused text box. Stand down entirely -
         // the events stay in the queue for egui's own copy, and `do_copy`
-        // never runs, so the direct OS-clipboard write cannot race the one
-        // egui queues at the end of the pass. Clicking outside the text clears
+        // never runs, so the cells cannot replace the marked text on the
+        // clipboard. Clicking outside the text clears
         // the selection and hands the shortcut straight back to the table.
         if octa::ui::text_selection::has_active_selection(ctx) {
             return;
@@ -100,13 +100,13 @@ impl OctaApp {
         }
 
         if do_copy {
-            self.do_copy();
+            self.do_copy(ctx);
         }
         if do_cut {
-            self.do_cut();
+            self.do_cut(ctx);
         }
         if had_paste_event {
-            self.do_paste(paste_text);
+            self.do_paste(ctx, paste_text);
         }
     }
 
@@ -281,24 +281,22 @@ impl OctaApp {
                 .get(row, col)
                 .map(|v| v.to_string())
                 .unwrap_or_default();
-            tab.table_state.clipboard = Some(text.clone());
-            if let Some(ref cb) = self.os_clipboard
-                && let Ok(mut cb) = cb.lock()
-            {
-                let _ = cb.set_text(&text);
-            }
+            ctx.copy_text(text);
         }
         if interaction.ctx_copy {
-            self.do_copy();
+            self.do_copy(ctx);
         }
         if interaction.ctx_copy_markdown {
-            self.do_copy_markdown();
+            self.do_copy_markdown(ctx);
+        }
+        if interaction.ctx_copy_in_list {
+            self.do_copy_in_list(ctx);
         }
         if interaction.ctx_cut {
-            self.do_cut();
+            self.do_cut(ctx);
         }
         if interaction.ctx_paste {
-            self.do_paste(interaction.paste_text);
+            self.do_paste(ctx, interaction.paste_text);
         }
         // --- Add bookmark (cell right-click "Add bookmark...") ---
         // The context menu sets `selected_cell` to the clicked cell, so

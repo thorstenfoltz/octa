@@ -14,7 +14,7 @@ replace. Scrolling, sorting, filtering, search, [Summary](summary.md),
 
 Octa decides for you, when you open the file normally. There is no
 separate command for it: the mode kicks in when a file is at least
-**10 GB**, or when it states more rows than Octa would load anyway
+**2 GB**, or when it states more rows than Octa would load anyway
 without being read (Parquet says so in its footer; a CSV cannot).
 
 That row threshold is the **maximum rows loaded on open** setting you

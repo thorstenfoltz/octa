@@ -14,7 +14,7 @@ octa --tail FILE [-n N] [-f tsv|json|csv] [--rows N|all]
 |---------------------|---------|-----------------------------------------------------------------|
 | `-n N`, `--lines N` | `20`    | Number of trailing rows to print. Must be ≥ 0.                  |
 | `-f`, `--format`    | `tsv`   | Output format (see [CLI overview](index.md#output-formatting)). |
-| `--rows N\|all`     | 5 M     | Initial-load row cap for streaming formats (see Performance).   |
+| `--rows N\|all`     | 2 M     | Initial-load row cap for streaming formats (see Performance).   |
 
 ## Examples
 
@@ -40,7 +40,7 @@ octa --tail sales.parquet -n 3 -f json
 ## Performance
 
 For streaming formats (Parquet, CSV, TSV), Octa loads the standard
-**initial-load row cap** (5 million rows by default), then keeps the
+**initial-load row cap** (2 million rows by default), then keeps the
 last N rows of that loaded window. This means that on a file larger
 than the cap, `--tail` reflects the end of the *loaded window*, not
 necessarily the true end of the file. To tail the genuine end of a

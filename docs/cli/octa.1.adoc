@@ -856,7 +856,7 @@ terminal, so redirected output and CI logs are unchanged.
 *--rows* _N_|*all*::
   Override the initial-load row cap for this invocation. Streaming
   formats (Parquet, CSV, TSV) honour a process-wide cap (default
-  *5,000,000* rows). Pass a number (commas/underscores allowed) to
+  *2,000,000* rows). Pass a number (commas/underscores allowed) to
   raise it or *all* to disable the cap entirely. Applies to
   *--schema*, *--head*, *--convert*, and *--sql*.
 
@@ -1325,7 +1325,7 @@ The file-writing tools (*convert*, *write_table*, *edit_table*,
 *transform_columns*, *anonymize*) are dropped under *--mcp-read-only*.
 
 The defaults (response row cap of 1000 rows, per-cell byte cap of 64 KiB,
-and file-loader cap of 5,000,000 rows) are configurable under Octa's
+and file-loader cap of 2,000,000 rows) are configurable under Octa's
 Settings → MCP and Settings → Performance. They are read once at
 server startup; changes require a restart. Per-call, pass *limit: 0*
 to lift the response cap and *unlimited: true* to lift the file-loader

@@ -57,23 +57,35 @@ impl OctaApp {
         // Where the answer goes. Same `load_state` read the autocomplete uses,
         // and the same fall back to the end of the text when the editor has
         // never held the cursor.
-        let editor_id = crate::view_modes::sql::editor_id();
+        let editor_id = crate::view_modes::sql::editor_id(tab.sql.id);
         let insert_at = eframe::egui::TextEdit::load_state(ctx, editor_id)
             .and_then(|s| s.cursor.char_range())
             .map(|r| {
                 let char_idx = r.primary.index.0;
-                tab.sql_query
+                tab.sql
+                    .query
                     .char_indices()
                     .nth(char_idx)
                     .map(|(i, _)| i)
-                    .unwrap_or(tab.sql_query.len())
+                    .unwrap_or(tab.sql.query.len())
             })
-            .unwrap_or(tab.sql_query.len());
+            .unwrap_or(tab.sql.query.len());
 
         // Where the query will run decides how it must be spelled. Same
         // columns either way; only the address and the dialect change.
-        let (table_name, dialect) = match (&tab.db_origin, tab.sql_run_on_server) {
-            (Some(origin), true) => {
+        // A tab pointed at some other connection has no table of its own
+        // there to describe; the button is disabled for it, this catches a
+        // shortcut.
+        let origin = crate::app::sql_panel::server_origin(tab);
+        if tab.sql_target.is_some() && origin.is_none() {
+            self.status_message = Some((
+                octa::i18n::t("sql.ask_needs_table"),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        let (table_name, dialect) = match origin {
+            Some(origin) => {
                 let engine = self
                     .settings
                     .db_connections
@@ -100,8 +112,8 @@ impl OctaApp {
         // foreign keys at all: `scan` reads the columns first and only then
         // discovers it has no keys to read, which would be a wasted catalog
         // sweep on every question asked against ClickHouse, Trino or Athena.
-        let rel_scan = match (&tab.db_origin, tab.sql_run_on_server) {
-            (Some(origin), true) if !origin.schema.is_empty() => self
+        let rel_scan = match crate::app::sql_panel::server_origin(tab) {
+            Some(origin) if !origin.schema.is_empty() => self
                 .settings
                 .db_connections
                 .iter()
@@ -258,8 +270,8 @@ impl OctaApp {
                 let Some(tab) = self.tabs.get_mut(tab_idx) else {
                     return;
                 };
-                tab.sql_query = ask_sql::splice_at(&tab.sql_query, insert_at, &sql);
-                tab.sql_editor_focus_pending = true;
+                tab.sql.query = ask_sql::splice_at(&tab.sql.query, insert_at, &sql);
+                tab.sql.focus_pending = true;
                 tab.sql_ask_input.clear();
             }
             Err(e) => {

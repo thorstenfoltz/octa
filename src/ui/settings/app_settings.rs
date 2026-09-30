@@ -136,6 +136,11 @@ pub struct AppSettings {
     /// loaded.
     #[serde(default)]
     pub sql_panel_default_open: bool,
+    /// The open SQL editor stays open, with its queries, when its tab closes
+    /// or a file opens into its tab. Off: the editor belongs to its tab and
+    /// goes with it, as it always used to.
+    #[serde(default = "default_true")]
+    pub sql_keep_open: bool,
     /// Where to dock the SQL panel (Bottom or Right of the table view).
     #[serde(default)]
     pub sql_panel_position: SqlPanelPosition,
@@ -250,7 +255,7 @@ pub struct AppSettings {
     pub syntax_highlight_max_bytes: usize,
     /// Files at least this big open in large-file mode, which keeps the rows
     /// on disk and pages them in instead of loading them into memory.
-    /// Default 10 GB.
+    /// Default 2 GB.
     #[serde(default = "default_large_file_min_bytes")]
     pub large_file_min_bytes: usize,
     /// Explain what large-file mode can and cannot do, and ask, before opening
@@ -260,7 +265,7 @@ pub struct AppSettings {
     /// Maximum number of rows loaded into the active `DataTable` on first
     /// open for streaming formats (Parquet, CSV, TSV). Additional rows
     /// load in the background as the user scrolls toward the bottom.
-    /// Default 5,000,000. Setting this very high improves first-paint
+    /// Default 2,000,000. Setting this very high improves first-paint
     /// completeness but uses more memory; setting it lower makes the
     /// initial open faster but means the background loader has to do
     /// more work as you scroll. Ignored when
@@ -298,7 +303,7 @@ pub struct AppSettings {
     ///
     /// Deliberately its own knob rather than
     /// [`initial_load_rows`](Self::initial_load_rows): that cap sizes a local
-    /// streaming reader, where five million rows is a few seconds of disk. The
+    /// streaming reader, where two million rows is a few seconds of disk. The
     /// same number sent to a warehouse is megabytes of JSON over HTTP, and
     /// Databricks refuses a result over 25 MiB outright. The sidebar loads one
     /// page, then the background loader fetches the next as you scroll, the
@@ -308,7 +313,7 @@ pub struct AppSettings {
     /// Maximum file size (in bytes) for which Octa reads the full file text
     /// into the Raw view editor. Also gates the parse-error raw fallback and
     /// the Compare view's raw right side. Past this ceiling raw text is
-    /// skipped to protect memory. Default 500 MB. Overridden by
+    /// skipped to protect memory. Default 50 MB. Overridden by
     /// [`raw_view_max_bytes_unlimited`](Self::raw_view_max_bytes_unlimited).
     #[serde(default = "default_raw_view_max_bytes")]
     pub raw_view_max_bytes: usize,
@@ -444,7 +449,7 @@ pub struct AppSettings {
     /// Maximum number of input rows the Chart tab will plot before
     /// evenly-spaced downsampling kicks in. Histogram, Line, and Scatter
     /// all honour this; Bar always aggregates the full input and is
-    /// bounded by `chart_max_categories` instead. Default 100,000.
+    /// bounded by `chart_max_categories` instead. Default 25,000.
     /// `0` disables sampling - at your own risk for very large tables.
     #[serde(default = "default_chart_max_points")]
     pub chart_max_points: usize,
@@ -558,6 +563,13 @@ pub struct AppSettings {
     /// short list and it must not fight the navigator for horizontal space.
     #[serde(default = "default_edit_audit_position")]
     pub edit_audit_position: PanelPosition,
+    /// Where the cloud connections browser docks. Left by default, beside the
+    /// folder browser, whose own position is `directory_tree_position`.
+    #[serde(default = "default_connections_position")]
+    pub cloud_sidebar_position: PanelPosition,
+    /// Where the database connections browser docks. Left by default.
+    #[serde(default = "default_connections_position")]
+    pub db_sidebar_position: PanelPosition,
     /// Sampling temperature passed to the provider. Default 0.7.
     #[serde(default = "default_chat_temperature")]
     pub chat_temperature: f32,
@@ -589,6 +601,24 @@ pub struct AppSettings {
     /// convention `chat_result_row_limit` uses.
     #[serde(default = "default_sql_history_limit")]
     pub sql_history_limit: usize,
+    /// Style for the SQL panel's **Format** button: keyword case, indent,
+    /// comma placement and line breaking.
+    #[serde(default)]
+    pub sql_format: crate::sql::format::SqlFormatOptions,
+    /// Reopen the files that were open when Octa last closed. Off by default.
+    #[serde(default)]
+    pub restore_session: bool,
+    /// Also reopen cloud objects. Separate because each one is downloaded
+    /// again at start-up, which takes time and can cost money.
+    #[serde(default)]
+    pub restore_session_cloud: bool,
+    /// Also reopen database tables and API endpoints. Separate because each
+    /// one queries its server at start-up.
+    #[serde(default)]
+    pub restore_session_connections: bool,
+    /// Mark spaces, tabs and invisible characters inside table cells.
+    #[serde(default)]
+    pub show_invisible_chars: bool,
     /// When `true`, tool results are not row-capped (the numeric limit above is
     /// ignored). Mirrors `chat_max_tokens_unlimited`.
     #[serde(default)]
@@ -707,6 +737,10 @@ fn default_column_navigator_position() -> PanelPosition {
     PanelPosition::Left
 }
 
+fn default_connections_position() -> PanelPosition {
+    PanelPosition::Left
+}
+
 fn default_edit_audit_position() -> PanelPosition {
     PanelPosition::Bottom
 }
@@ -798,11 +832,11 @@ fn default_syntax_highlight_max_bytes() -> usize {
 }
 
 fn default_large_file_min_bytes() -> usize {
-    10 * 1024 * 1024 * 1024
+    2 * 1024 * 1024 * 1024
 }
 
 fn default_initial_load_rows() -> usize {
-    5_000_000
+    2_000_000
 }
 
 /// Defers to the engine's own constant rather than repeating the literal,
@@ -816,7 +850,7 @@ fn default_db_page_rows() -> usize {
 }
 
 fn default_raw_view_max_bytes() -> usize {
-    500_000_000
+    50_000_000
 }
 
 fn default_max_decompressed_bytes() -> u64 {
@@ -865,7 +899,7 @@ fn default_grep_max_file_size_mb() -> u32 {
 }
 
 fn default_chart_max_points() -> usize {
-    100_000
+    crate::data::chart::DEFAULT_MAX_POINTS
 }
 
 /// Shortest status-message lifetime the UI will honour.
@@ -937,6 +971,7 @@ impl Default for AppSettings {
             custom_font_path: String::new(),
             default_mark_color: default_mark_color(),
             sql_panel_default_open: false,
+            sql_keep_open: true,
             sql_panel_position: SqlPanelPosition::default(),
             sql_default_row_limit: 100,
             sql_result_page_rows: default_sql_result_page_rows(),
@@ -1006,6 +1041,8 @@ impl Default for AppSettings {
             chat_panel_position: PanelPosition::default(),
             column_navigator_position: default_column_navigator_position(),
             edit_audit_position: default_edit_audit_position(),
+            cloud_sidebar_position: default_connections_position(),
+            db_sidebar_position: default_connections_position(),
             chat_temperature: default_chat_temperature(),
             chat_max_tool_iterations: default_chat_max_tool_iterations(),
             chat_max_tokens: default_chat_max_tokens(),
@@ -1014,6 +1051,11 @@ impl Default for AppSettings {
             chat_result_row_limit: default_chat_result_row_limit(),
             sql_history_enabled: true,
             sql_history_limit: default_sql_history_limit(),
+            sql_format: Default::default(),
+            restore_session: false,
+            restore_session_cloud: false,
+            restore_session_connections: false,
+            show_invisible_chars: false,
             chat_result_row_limit_unlimited: false,
             chat_export_dir: default_chat_export_dir(),
             chat_render_markdown: true,

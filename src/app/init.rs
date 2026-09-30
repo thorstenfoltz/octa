@@ -136,9 +136,6 @@ impl OctaApp {
             search_focus_requested: false,
             show_close_confirm: false,
             confirmed_close: false,
-            os_clipboard: arboard::Clipboard::new()
-                .ok()
-                .map(|c| Arc::new(Mutex::new(c))),
             logo_texture: None,
             welcome_logo_texture: None,
             initial_files,
@@ -279,6 +276,8 @@ impl OctaApp {
             db_browser: super::db_browser::DbBrowserState::default(),
             db_conn_cache: super::db_conn_cache::DbConnCache::default(),
             sql_server_job: None,
+            sql_history: octa::sql::history::load(),
+            server_columns: Default::default(),
             db_load_job: None,
         }
     }

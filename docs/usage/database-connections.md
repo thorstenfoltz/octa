@@ -712,9 +712,11 @@ the same via the `copy_db_table` MCP / Assistant tool.
 
 ## SQL: server or local
 
-On a database tab the [SQL panel](sql.md) gains a **Run on** toggle:
+The [SQL panel](sql.md) has a **Run on** picker, on every tab. A
+database tab starts on its own connection; any other tab can pick any
+saved connection to query that server directly, no attach needed:
 
-- **The connection name** (default): the query runs on the server, in
+- **A connection name** (default on a database tab): the query runs on the server, in
   the engine's native SQL dialect, on a background thread. A Cancel
   button appears while it runs, and it works on every engine (see
   [Cancelling a running query](#cancelling-a-running-query)).
@@ -725,7 +727,7 @@ Mutations run on the server report rows affected; they are refused
 unless the connection allows writes.
 
 Query results are **streamed and capped** at the initial-load row limit
-(Settings > Performance, default 5,000,000), so a `SELECT *` on a huge
+(Settings > Performance, default 2,000,000), so a `SELECT *` on a huge
 table cannot exhaust memory; the row counter notes when the cap was
 reached. The CLI lifts it with `--rows N|all`, agents with
 `unlimited: true`.

@@ -16,7 +16,7 @@ open tab. Read-only analytics (stays available under `--mcp-read-only`).
 | `open_tab`  | string | no        | (no default) | Operate on an open GUI tab (`@active` or a tab name)        |
 | `table`     | string | no        | (no default) | Specific table for multi-table sources                      |
 | `method`    | string | no        | `pearson`    | `pearson` (linear) or `spearman` (monotonic, rank-based)    |
-| `unlimited` | bool   | no        | `false`      | Lift the 5,000,000-row file-loader cap so every row is used |
+| `unlimited` | bool   | no        | `false`      | Lift the 2,000,000-row file-loader cap so every row is used |
 
 Non-numeric columns are ignored. For each pair, only rows where **both** values
 are present are used.

@@ -173,7 +173,6 @@ impl OctaApp {
         // scroll to the current match before drawing.
         self.apply_table_search_jump();
 
-        let os_has_clipboard = self.os_clipboard_has_text();
         let readonly = self.is_readonly();
         // Why Cell history is greyed out, if it is: the generic line plus
         // git's own reason, so "it is in a repo" can be checked against it.
@@ -216,11 +215,9 @@ impl OctaApp {
         let cond_format_rules = tab.conditional_format_rules.clone();
         let validation_violations = tab.validation_violations.clone();
         let outlier_cells = tab.outlier_cells.clone();
-        let os_has_clip = tab.table_state.clipboard.is_some() || os_has_clipboard;
         let table_cx = ui::table_view::TableCtx {
             theme_mode: self.theme_mode,
             filtered_rows: &filtered,
-            os_clipboard_has_content: os_has_clip,
             show_row_numbers: self.settings.show_row_numbers,
             show_sequential_numbers: show_sequential,
             alternating_row_colors: self.settings.alternating_row_colors,
@@ -228,6 +225,7 @@ impl OctaApp {
             highlight_edits: self.settings.highlight_edits,
             font_size: self.settings.font_size * self.zoom_percent as f32 / 100.0,
             cell_line_breaks: self.settings.cell_line_breaks,
+            show_invisibles: self.settings.show_invisible_chars,
             clickable_links: self.settings.clickable_links,
             binary_display_mode: self.settings.binary_display_mode,
             welcome_logo_texture: self.welcome_logo_texture.as_ref(),

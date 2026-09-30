@@ -469,6 +469,18 @@ pub enum ShortcutAction {
     /// Run the SQL editor's query on the active tab's live database server
     /// (only meaningful on a tab opened from the Databases tree).
     RunSqlOnServer,
+    /// Comment or uncomment the SQL editor lines touched by the selection
+    /// (`--` after any leading blanks). See `view_modes::sql::toggle_line_comments`.
+    ToggleSqlComment,
+    /// Lay out the SQL editor's query (the marked part, or all of it) in the
+    /// style set under Settings -> SQL. Also the SQL panel's **Format**.
+    FormatSql,
+    /// Open another SQL editor beside the others (the panel's **+**), or
+    /// open the panel when it is closed.
+    AddSqlEditor,
+    /// Copy the selected cells as a SQL `IN` list, `('a', 'b')`. Also the
+    /// cell right-click **Copy as IN list** and **Edit -> Copy as IN list**.
+    CopyAsInList,
     /// Open the Correlation dialog. Also **Analyse -> Correlation...**.
     OpenCorrelation,
     /// Open the Find lookup tables dialog. Also
@@ -674,6 +686,10 @@ impl ShortcutAction {
             Self::OpenTableFolder => "Open table folder",
             Self::ListCloudInventory => "Run inventory on expanded cloud connection",
             Self::RunSqlOnServer => "Run SQL on server",
+            Self::ToggleSqlComment => "Comment / uncomment SQL lines",
+            Self::FormatSql => "Format SQL",
+            Self::AddSqlEditor => "New SQL editor",
+            Self::CopyAsInList => "Copy as IN list",
             Self::ToggleColumnNavigator => "Toggle column navigator",
             Self::ToggleEditAudit => "Toggle edit audit trail",
             Self::ToggleRecipePanel => "Toggle recipe panel",
@@ -808,6 +824,13 @@ impl ShortcutAction {
             Self::OpenTableFolder => KeyCombo::UNBOUND,
             Self::ListCloudInventory => KeyCombo::UNBOUND,
             Self::RunSqlOnServer => KeyCombo::UNBOUND,
+            // Asked for on an F key; F12 was the free one (F11 is fullscreen
+            // on many window managers).
+            Self::ToggleSqlComment => KeyCombo::plain(Key::F12),
+            // Ctrl+T, "new tab", for a new editor. Not Ctrl+Alt+letter: on
+            // German and Polish layouts that is AltGr and types a character
+            // (Ctrl+Alt+E is the euro sign) into the very editor.
+            Self::AddSqlEditor => KeyCombo::ctrl(Key::T),
             Self::ToggleColumnNavigator => KeyCombo::UNBOUND,
             Self::ToggleEditAudit => KeyCombo::UNBOUND,
             Self::ToggleRecipePanel => KeyCombo::UNBOUND,
@@ -842,7 +865,9 @@ impl ShortcutAction {
             | Self::ToggleSplitView
             | Self::ToggleSplitSideBySide
             | Self::AddSplitPane
-            | Self::RemoveSplitPane => KeyCombo::UNBOUND,
+            | Self::RemoveSplitPane
+            | Self::FormatSql
+            | Self::CopyAsInList => KeyCombo::UNBOUND,
             Self::OpenBatchConvert => KeyCombo::UNBOUND,
             Self::OpenSchemaDrift => KeyCombo::UNBOUND,
             Self::OpenMergeVersions => KeyCombo::UNBOUND,
@@ -996,9 +1021,13 @@ impl ShortcutAction {
             | Self::ApplyRecipe
             | Self::ChooseRecipeKey => G::Editing,
             Self::OpenTabMemory => G::Dialogs,
-            Self::ExportSqlResult | Self::RunSqlOnServer => G::SqlPanel,
+            Self::ExportSqlResult
+            | Self::RunSqlOnServer
+            | Self::ToggleSqlComment
+            | Self::FormatSql
+            | Self::AddSqlEditor => G::SqlPanel,
             Self::ListCloudInventory => G::Search,
-            Self::OpenNumberFormat | Self::CopyAsMarkdown => G::Editing,
+            Self::OpenNumberFormat | Self::CopyAsMarkdown | Self::CopyAsInList => G::Editing,
             Self::OpenDocumentation
             | Self::OpenSettings
             | Self::ColumnValueFrequency

@@ -37,7 +37,7 @@ These apply to the table filter and to the in-place highlight.
 Octa does not always hold a whole file: a big one stops at the
 initial-load row cap, and a live database tab holds one page. A search
 over those rows is a search over a window, not over the file, so the
-search bar says so in plain numbers ("Only 5,000,000 of 20,000,000 rows
+search bar says so in plain numbers ("Only 2,000,000 of 20,000,000 rows
 are loaded.") and offers one button beside it:
 
 - **Search whole file** for a Parquet, CSV/TSV or JSON file. The count

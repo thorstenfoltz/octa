@@ -16,7 +16,7 @@ count.
 |-------------|--------|-----------|--------------|------------------------------------------------------------------------------------|
 | `path`      | string | yes       | (no default) | Path to the file                                                                   |
 | `table`     | string | no        | (no default) | Specific table for multi-table sources                                             |
-| `unlimited` | bool   | no        | `false`      | Lift the 5,000,000-row file-loader cap so the count reflects every row in the file |
+| `unlimited` | bool   | no        | `false`      | Lift the 2,000,000-row file-loader cap so the count reflects every row in the file |
 
 ## Response shape
 
@@ -31,7 +31,7 @@ count.
 ### `initial_load_capped`
 
 For streaming formats (Parquet, CSV, TSV), Octa applies an
-**initial-load row cap** (default 5,000,000) at load time, after
+**initial-load row cap** (default 2,000,000) at load time, after
 which [`read_table`](read_table.md) and friends stop pulling more rows.
 
 `count_rows` works on the same loaded table, so on those streaming
@@ -62,7 +62,7 @@ Response (small file, exact count):
 {
   "row_count": 4823,
   "initial_load_capped": false,
-  "initial_load_cap": 5000000
+  "initial_load_cap": 2000000
 }
 ```
 
@@ -84,7 +84,7 @@ Response:
 {
   "row_count": 4891002,
   "initial_load_capped": false,
-  "initial_load_cap": 5000000
+  "initial_load_cap": 2000000
 }
 ```
 
@@ -104,9 +104,9 @@ Response (cap was hit):
 
 ```json
 {
-  "row_count": 5000000,
+  "row_count": 2000000,
   "initial_load_capped": true,
-  "initial_load_cap": 5000000
+  "initial_load_cap": 2000000
 }
 ```
 

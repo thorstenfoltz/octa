@@ -22,7 +22,7 @@ that backs the GUI Time series dialog and CLI `--rolling`. Read-only analytics
 | `agg`          | string   | no        | `mean`         | `sum`/`mean`/`min`/`max`/`count`/`first`/`last`                     |
 | `partition_by` | string[] | no        | `[]`           | Restarts the frame per combination of these columns                 |
 | `limit`        | integer  | no        | server default | Cap response rows (`0` = unlimited)                                 |
-| `unlimited`    | bool     | no        | `false`        | Lift the 5,000,000-row file-loader cap so the window sees every row |
+| `unlimited`    | bool     | no        | `false`        | Lift the 2,000,000-row file-loader cap so the window sees every row |
 
 `order_col` is required by design: a rolling aggregate over unordered rows is
 meaningless, so there is no way to omit it.

@@ -160,7 +160,8 @@ impl OctaApp {
 
         if action_fired(SA::ExportSqlResult)
             && self.tabs[self.active_tab]
-                .sql_result
+                .sql
+                .result
                 .as_ref()
                 .is_some_and(|t| t.col_count() > 0)
         {
@@ -224,12 +225,12 @@ impl OctaApp {
                 };
                 ctx.input_mut(|i| i.consume_key(modifiers, key));
             }
-            let sql_id = view_modes::sql_editor_id();
+            let sql_id = view_modes::sql_editor_id(self.tabs[self.active_tab].sql.id);
             let raw_id = egui::Id::new("raw_text_editor");
             let focused = ctx.memory(|m| m.focused());
             if focused == Some(sql_id) {
                 let tab = &mut self.tabs[self.active_tab];
-                view_modes::text_ops::apply_case_to_selection(ctx, sql_id, &mut tab.sql_query, op);
+                view_modes::text_ops::apply_case_to_selection(ctx, sql_id, &mut tab.sql.query, op);
             } else if focused == Some(raw_id) {
                 let tab = &mut self.tabs[self.active_tab];
                 if let Some(ref mut content) = tab.raw_content
@@ -295,10 +296,30 @@ impl OctaApp {
         if action_fired(SA::ToggleSqlPanel)
             && self.tabs[self.active_tab].view_mode == ViewMode::Table
         {
+            self.toggle_sql_panel(self.active_tab);
+        }
+        // Outside the TextEdit guard below on purpose: the SQL editor having
+        // focus is exactly when this is pressed. Acts on the editor's stored
+        // selection, which survives focus moving elsewhere, like Run does.
+        if action_fired(SA::ToggleSqlComment) {
             let tab = &mut self.tabs[self.active_tab];
-            tab.sql_panel_open = !tab.sql_panel_open;
-            if tab.sql_panel_open {
-                tab.sql_editor_focus_pending = true;
+            if tab.sql_panel_open && tab.view_mode == ViewMode::Table {
+                view_modes::sql::toggle_comment_in_editor(ctx, &mut tab.sql);
+            }
+        }
+        // Works from inside the editor too, which is where it gets pressed.
+        if action_fired(SA::AddSqlEditor) && self.tabs[self.active_tab].view_mode == ViewMode::Table
+        {
+            if self.tabs[self.active_tab].sql_panel_open {
+                self.tabs[self.active_tab].add_sql_pane();
+            } else {
+                self.open_sql_panel(self.active_tab);
+            }
+        }
+        if action_fired(SA::FormatSql) {
+            let tab = &self.tabs[self.active_tab];
+            if tab.sql_panel_open && tab.view_mode == ViewMode::Table {
+                self.format_sql_editor(ctx);
             }
         }
 
@@ -501,7 +522,10 @@ impl OctaApp {
                 self.open_column_format_for_selection();
             }
             if action_fired(SA::CopyAsMarkdown) {
-                self.do_copy_markdown();
+                self.do_copy_markdown(ctx);
+            }
+            if action_fired(SA::CopyAsInList) {
+                self.do_copy_in_list(ctx);
             }
             if action_fired(SA::OpenDedupe) && !self.is_readonly() {
                 let tab = &mut self.tabs[self.active_tab];
@@ -724,8 +748,9 @@ impl OctaApp {
             }
             if action_fired(SA::RunSqlOnServer) {
                 let tab = &self.tabs[self.active_tab];
-                if tab.sql_panel_open && tab.db_origin.is_some() && tab.sql_run_on_server {
-                    self.run_server_query(ctx);
+                if tab.sql_panel_open && tab.sql_target.is_some() {
+                    let query = view_modes::sql::query_to_run(ctx, &tab.sql);
+                    self.run_server_query(ctx, query);
                 }
             }
 

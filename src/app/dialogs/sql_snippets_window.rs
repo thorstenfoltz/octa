@@ -20,7 +20,7 @@ pub(crate) fn render_sql_snippets_window(app: &mut OctaApp, ctx: &egui::Context)
     let mut save_snippet = false;
     let mut insert_snippet: Option<String> = None;
     let mut delete_snippet: Option<String> = None;
-    let can_save = !app.tabs[app.active_tab].sql_query.trim().is_empty();
+    let can_save = !app.tabs[app.active_tab].sql.query.trim().is_empty();
 
     let dialog_id = egui::Id::new("octa_sql_snippets_window_v1");
     let window = egui::Window::new(octa::i18n::t("sql.snippets"))
@@ -121,7 +121,7 @@ pub(crate) fn render_sql_snippets_window(app: &mut OctaApp, ctx: &egui::Context)
     app.sql_snippets_window_size = size;
 
     if save_snippet {
-        let query = app.tabs[app.active_tab].sql_query.trim().to_string();
+        let query = app.tabs[app.active_tab].sql.query.trim().to_string();
         if !query.is_empty() {
             app.sql_snippet_save = Some(super::super::state::SqlSnippetDraft {
                 name: String::new(),
@@ -131,8 +131,8 @@ pub(crate) fn render_sql_snippets_window(app: &mut OctaApp, ctx: &egui::Context)
         }
     }
     if let Some(q) = insert_snippet {
-        app.tabs[app.active_tab].sql_query = q;
-        app.tabs[app.active_tab].sql_editor_focus_pending = true;
+        app.tabs[app.active_tab].sql.query = q;
+        app.tabs[app.active_tab].sql.focus_pending = true;
     }
     if let Some(name) = delete_snippet {
         app.sql_snippets.retain(|s| s.name != name);

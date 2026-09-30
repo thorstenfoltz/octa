@@ -97,7 +97,7 @@ Every tool that returns rows respects a configurable response
 row limit (default 1000) and cell byte cap (default 64 KiB),
 so Claude doesn't accidentally pull a 100 GB file's worth of bytes
 through the JSON-RPC channel. Streaming formats (Parquet, CSV, TSV)
-additionally honour a file-loader cap (default 5,000,000 rows).
+additionally honour a file-loader cap (default 2,000,000 rows).
 Per-call, `limit: 0` lifts the response cap and `unlimited: true`
 lifts the file-loader cap. Parquet files
 with very many row groups fall back to a DuckDB-backed reader
@@ -197,7 +197,7 @@ the CLI, and MCP.
 
 Four tools answer from the file itself rather than loading it, when the
 path is a local Parquet, CSV, TSV or JSON file at least
-`large_file_min_bytes` (**Settings -> Performance**, 10 GB by default):
+`large_file_min_bytes` (**Settings -> Performance**, 2 GB by default):
 
 | Tool         | What changes                                                       |
 |--------------|--------------------------------------------------------------------|

@@ -145,7 +145,7 @@ impl OctaApp {
         self.db_browser.visible = !self.db_browser.visible;
     }
 
-    fn find_db_conn(&self, conn_id: &str) -> Option<DbConnection> {
+    pub(crate) fn find_db_conn(&self, conn_id: &str) -> Option<DbConnection> {
         self.settings
             .db_connections
             .iter()
@@ -670,7 +670,7 @@ impl OctaApp {
                     new_tab.table = *table;
                     new_tab.custom_tab_label = Some(label);
                     // SQL on this tab targets the server by default.
-                    new_tab.sql_run_on_server = true;
+                    new_tab.sql_target = Some(conn_id.clone());
                     let origin = DbOrigin {
                         conn_id,
                         catalog,

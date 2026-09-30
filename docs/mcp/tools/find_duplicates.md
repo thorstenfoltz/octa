@@ -18,7 +18,7 @@ with at least one other row is returned.
 | `key_columns` | string[] | yes       | (no default)   | Column names whose combined value is the duplicate key                                    |
 | `table`       | string   | no        | (no default)   | Specific table for multi-table sources                                                    |
 | `limit`       | integer  | no        | server default | Max duplicate rows to return in the response. `0` = unlimited.                            |
-| `unlimited`   | bool     | no        | `false`        | Lift the 5,000,000-row file-loader cap so duplicate detection scans every row in the file |
+| `unlimited`   | bool     | no        | `false`        | Lift the 2,000,000-row file-loader cap so duplicate detection scans every row in the file |
 
 Keys are compared on the cells' string representation, so `int(1)` and
 `float(1.0)` are **not** treated as equal.

@@ -269,7 +269,7 @@ This is the same execution path as the GUI's SQL view, so:
 ## Performance
 
 - For streaming formats (Parquet, CSV, TSV), the initial-load row
-  cap (5,000,000 rows by default) is applied before the query runs.
+  cap (2,000,000 rows by default) is applied before the query runs.
   `octa --sql huge.parquet -q 'SELECT count(*) FROM data'` counts
   the cap, not the full file. Override per-call with `--rows N|all`:
 

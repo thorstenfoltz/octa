@@ -19,7 +19,7 @@ are left alone.
 | `strategy`  | string  | yes       | (no default)   | `mean`, `median`, `mode`, `ffill`, `bfill`, or `const`      |
 | `value`     | string  | no        | (no default)   | Fill value for `const` (ignored otherwise)                  |
 | `limit`     | integer | no        | server default | Max rows to return. `0` = unlimited                         |
-| `unlimited` | bool    | no        | `false`        | Lift the 5,000,000-row file-loader cap so every row is read |
+| `unlimited` | bool    | no        | `false`        | Lift the 2,000,000-row file-loader cap so every row is read |
 
 \* `path` or `open_tab` is required. `mean`/`median` require a numeric column.
 

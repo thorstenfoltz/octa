@@ -105,6 +105,14 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 action.copy_as_markdown = true;
                 ui.close();
             }
+            if ui
+                .button(crate::i18n::t("edit_menu.copy_in_list"))
+                .on_hover_text(crate::i18n::t("edit_menu.copy_in_list_hint"))
+                .clicked()
+            {
+                action.copy_as_in_list = true;
+                ui.close();
+            }
             ui.separator();
 
             // Row operations

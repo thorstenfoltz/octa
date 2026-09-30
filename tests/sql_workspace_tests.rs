@@ -178,7 +178,8 @@ fn collect_autocomplete_identifiers_spans_workspace_and_attachments() {
     let conn = duckdb::Connection::open(&path).unwrap();
     conn.execute_batch(
         "CREATE TABLE products (cid BIGINT, sku TEXT); \
-         INSERT INTO products VALUES (1, 'A');",
+         INSERT INTO products VALUES (1, 'A'); \
+         CREATE SCHEMA ledger; CREATE TABLE ledger.entries (x INT);",
     )
     .unwrap();
     drop(conn);
@@ -197,6 +198,9 @@ fn collect_autocomplete_identifiers_spans_workspace_and_attachments() {
     assert!(idents.iter().any(|i| i == "wh"));
     // Attached table name surfaces.
     assert!(idents.iter().any(|i| i == "products"));
+    // Schemas of attached databases surface, so `wh.ledger.entries`
+    // completes at every part.
+    assert!(idents.iter().any(|i| i == "ledger"));
     // Columns from every workspace + attached table surface.
     assert!(idents.iter().any(|i| i == "cid"));
     assert!(idents.iter().any(|i| i == "amount"));
@@ -624,7 +628,7 @@ fn counting_table(n: usize) -> DataTable {
 }
 
 fn page_values(ws: &SqlWorkspace, offset: usize, len: usize) -> Vec<String> {
-    let page = ws.result_page(offset, len).expect("page");
+    let page = ws.result_page(0, offset, len).expect("page");
     (0..page.row_count())
         .map(|r| page.get(r, 0).expect("cell").to_string())
         .collect()
@@ -636,7 +640,9 @@ fn a_paged_select_reports_the_exact_total_and_hands_back_one_page() {
     ws.set_active_table(&counting_table(2500))
         .expect("register");
 
-    let paged = ws.execute_paged("SELECT * FROM data", 1000).expect("run");
+    let paged = ws
+        .execute_paged("SELECT * FROM data", 1000, 0)
+        .expect("run");
 
     assert_eq!(
         paged.total_rows,
@@ -668,7 +674,8 @@ fn pages_tile_the_result_without_repeating_or_skipping_a_row() {
     let mut ws = SqlWorkspace::new().expect("workspace");
     ws.set_active_table(&counting_table(2500))
         .expect("register");
-    ws.execute_paged("SELECT * FROM data", 1000).expect("run");
+    ws.execute_paged("SELECT * FROM data", 1000, 0)
+        .expect("run");
 
     let mut seen: Vec<String> = Vec::new();
     for offset in (0..2500).step_by(1000) {
@@ -683,7 +690,7 @@ fn pages_tile_the_result_without_repeating_or_skipping_a_row() {
 fn paging_follows_the_querys_own_order_by() {
     let mut ws = SqlWorkspace::new().expect("workspace");
     ws.set_active_table(&counting_table(300)).expect("register");
-    ws.execute_paged("SELECT * FROM data ORDER BY i DESC", 100)
+    ws.execute_paged("SELECT * FROM data ORDER BY i DESC", 100, 0)
         .expect("run");
 
     assert_eq!(
@@ -703,11 +710,11 @@ fn result_all_returns_every_row_while_only_one_page_is_loaded() {
     let mut ws = SqlWorkspace::new().expect("workspace");
     ws.set_active_table(&counting_table(2500))
         .expect("register");
-    let paged = ws.execute_paged("SELECT * FROM data", 10).expect("run");
+    let paged = ws.execute_paged("SELECT * FROM data", 10, 0).expect("run");
 
     assert_eq!(paged.outcome.table.row_count(), 10);
     // Export and write-back read this, not the loaded page.
-    assert_eq!(ws.result_all().expect("all").row_count(), 2500);
+    assert_eq!(ws.result_all(0).expect("all").row_count(), 2500);
 }
 
 #[test]
@@ -716,7 +723,7 @@ fn a_mutation_is_not_paged_and_still_reports_its_effect() {
     ws.set_active_table(&counting_table(10)).expect("register");
 
     let paged = ws
-        .execute_paged("UPDATE data SET i = i + 1", 1000)
+        .execute_paged("UPDATE data SET i = i + 1", 1000, 0)
         .expect("run");
 
     assert_eq!(paged.total_rows, None, "mutations take the unpaged path");
@@ -733,6 +740,7 @@ fn a_cte_still_pages() {
         .execute_paged(
             "WITH big AS (SELECT * FROM data WHERE i >= 400) SELECT * FROM big",
             10,
+            0,
         )
         .expect("run");
 
@@ -745,8 +753,42 @@ fn a_trailing_semicolon_does_not_defeat_paging() {
     let mut ws = SqlWorkspace::new().expect("workspace");
     ws.set_active_table(&counting_table(50)).expect("register");
 
-    let paged = ws.execute_paged("SELECT * FROM data;  ", 10).expect("run");
+    let paged = ws
+        .execute_paged("SELECT * FROM data;  ", 10, 0)
+        .expect("run");
 
     assert_eq!(paged.total_rows, Some(50));
     assert_eq!(paged.outcome.table.row_count(), 10);
+}
+
+/// Side-by-side editors page through their own results: a second run in
+/// another slot must not replace the first slot's materialised rows, which
+/// Load more and Export read back later.
+#[test]
+fn paged_results_in_different_slots_stay_apart() {
+    let mut ws = SqlWorkspace::new().expect("workspace");
+    ws.set_active_table(&counting_table(300)).expect("register");
+    ws.execute_paged("SELECT * FROM data WHERE i < 50", 10, 1)
+        .expect("slot 1");
+    ws.execute_paged("SELECT * FROM data WHERE i >= 250", 10, 2)
+        .expect("slot 2");
+    assert_eq!(ws.result_all(1).expect("slot 1 all").row_count(), 50);
+    assert_eq!(
+        ws.result_page(1, 10, 1)
+            .expect("page")
+            .get(0, 0)
+            .expect("cell")
+            .to_string(),
+        "10"
+    );
+    assert_eq!(
+        ws.result_page(2, 0, 1)
+            .expect("page")
+            .get(0, 0)
+            .expect("cell")
+            .to_string(),
+        "250"
+    );
+    ws.drop_result(1);
+    assert!(ws.result_all(1).is_err(), "a dropped slot is gone");
 }

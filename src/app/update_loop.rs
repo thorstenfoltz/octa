@@ -56,6 +56,13 @@ impl eframe::App for OctaApp {
             if pruned {
                 self.settings.save();
             }
+            // Last session's tabs join the queue after the command line and
+            // the pinned ones; the same path is opened once.
+            for path in self.restore_session(&ctx) {
+                if !to_enqueue.contains(&path) {
+                    to_enqueue.push(path);
+                }
+            }
             if !to_enqueue.is_empty() {
                 self.enqueue_open_files(to_enqueue);
             }
@@ -120,6 +127,7 @@ impl eframe::App for OctaApp {
         self.drain_api_pending_open();
         self.drain_db_load_job();
         self.drain_sql_server_job();
+        self.run_pending_sql(&ctx);
         self.drain_db_write_back_job();
         self.drain_batch_convert();
         self.drain_open_url(&ctx);
@@ -181,6 +189,7 @@ impl eframe::App for OctaApp {
     /// textures), so it is ignored.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.persist_current_session();
+        self.save_session();
         self.chat.ollama.stop_server();
         octa::diagnostics::crash::clear_running();
     }

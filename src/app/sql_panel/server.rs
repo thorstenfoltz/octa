@@ -8,15 +8,18 @@ impl OctaApp {
     /// Called when the result grid scrolls near the end of what it holds. The
     /// rows never left DuckDB, so this is a `LIMIT/OFFSET` over a temp table,
     /// not a re-run of the user's query.
-    pub(super) fn load_more_sql_result_rows(&mut self) {
+    pub(super) fn load_more_sql_result_rows(&mut self, pane_id: u64) {
         let page_rows = self.settings.sql_result_page_rows;
         if page_rows == 0 {
             return;
         }
         let tab = &mut self.tabs[self.active_tab];
+        let Some(pane) = tab.sql_pane_by_id_mut(pane_id) else {
+            return;
+        };
         let (Some(total), Some(loaded)) = (
-            tab.sql_result_total,
-            tab.sql_result.as_ref().map(|r| r.row_count()),
+            pane.result_total,
+            pane.result.as_ref().map(|r| r.row_count()),
         ) else {
             return;
         };
@@ -24,12 +27,15 @@ impl OctaApp {
             return;
         }
         let page = match tab.sql_workspace.as_ref() {
-            Some(ws) => ws.result_page(loaded, page_rows),
+            Some(ws) => ws.result_page(pane_id, loaded, page_rows),
             None => return,
+        };
+        let Some(pane) = tab.sql_pane_by_id_mut(pane_id) else {
+            return;
         };
         match page {
             Ok(page) => {
-                if let Some(result) = tab.sql_result.as_mut() {
+                if let Some(result) = pane.result.as_mut() {
                     result.rows.extend(page.rows);
                 }
             }
@@ -37,24 +43,23 @@ impl OctaApp {
             // Clearing the total stops the grid asking again next frame,
             // which would otherwise re-raise the same error forever.
             Err(e) => {
-                tab.sql_error = Some(format!("{e:#}"));
-                tab.sql_result_total = None;
+                pane.error = Some(format!("{e:#}"));
+                pane.result_total = None;
             }
         }
     }
 
-    /// Run the editor's query on the live database server the active tab was
-    /// opened from, on a worker thread (network). One in-flight query at a
+    /// Run the editor's query on the live database server the active tab's
+    /// editor targets (`sql_target`), on a worker thread (network). One in-flight query at a
     /// time; the result lands via `drain_sql_server_job`.
-    pub(crate) fn run_server_query(&mut self, ctx: &egui::Context) {
+    pub(crate) fn run_server_query(&mut self, ctx: &egui::Context, query: String) {
         if self.sql_server_job.is_some() {
             return;
         }
         let tab_idx = self.active_tab;
-        let Some(origin) = self.tabs[tab_idx].db_origin.clone() else {
+        let Some(conn_id) = self.tabs[tab_idx].sql_target.clone() else {
             return;
         };
-        let query = self.tabs[tab_idx].sql_query.clone();
         if query.trim().is_empty() {
             return;
         }
@@ -62,18 +67,19 @@ impl OctaApp {
             .settings
             .db_connections
             .iter()
-            .find(|c| c.id == origin.conn_id)
+            .find(|c| c.id == conn_id)
             .cloned()
         else {
-            self.tabs[tab_idx].sql_error = Some(octa::i18n::t("sql.server_conn_gone"));
+            self.tabs[tab_idx].sql.error = Some(octa::i18n::t("sql.server_conn_gone"));
             return;
         };
-        self.tabs[tab_idx].sql_error = None;
+        self.tabs[tab_idx].sql.start_run();
+        let pane_id = self.tabs[tab_idx].sql.id;
         let result = std::sync::Arc::new(std::sync::Mutex::new(None));
         let cancel = std::sync::Arc::new(std::sync::Mutex::new(None));
         self.sql_server_job = Some(SqlServerJob {
             started: std::time::Instant::now(),
-            tab_idx,
+            pane_id,
             conn_id: conn.id.clone(),
             query: query.clone(),
             result: result.clone(),
@@ -153,55 +159,67 @@ impl OctaApp {
         // is held mutably.
         let history_on = self.settings.sql_history_enabled;
         let history_limit = self.settings.sql_history_limit;
-        // Only apply if the originating tab still shows the same connection
-        // (tabs may have been closed/reordered while the query ran).
-        let Some(tab) = self.tabs.get_mut(job.tab_idx).filter(|t| {
-            t.db_origin
-                .as_ref()
-                .is_some_and(|o| o.conn_id == job.conn_id)
-        }) else {
+        // The pane may be gone (its editor or its tab closed); its tab may
+        // now target another connection. Either way the result has nowhere
+        // honest to go.
+        let pane_id = job.pane_id;
+        let Some(tab) = self.tabs.iter_mut().find(|t| t.has_sql_pane(pane_id)) else {
             self.status_message = Some((
                 octa::i18n::t("sql.server_tab_gone"),
                 std::time::Instant::now(),
             ));
             return;
         };
-        tab.sql_last_duration_ms = Some(job.started.elapsed().as_millis() as u64);
+        if tab.sql_target.as_deref() != Some(job.conn_id.as_str()) {
+            if let Some(pane) = tab.sql_pane_by_id_mut(pane_id) {
+                pane.running_since = None;
+            }
+            self.status_message = Some((
+                octa::i18n::t("sql.server_tab_gone"),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        // History first: it reads the tab (for the scope) while the pane
+        // below is borrowed out of it.
+        let recorded_rows = match &done {
+            ServerQueryDone::Rows(t) => Some(t.row_count()),
+            ServerQueryDone::Affected(n) => Some(*n as usize),
+            ServerQueryDone::Failed(_) => None,
+        };
+        if let Some(rows) = recorded_rows {
+            record_sql_history(
+                &mut self.sql_history,
+                tab,
+                &job.query,
+                job.started,
+                rows,
+                history_on,
+                history_limit,
+            );
+        }
+        let pane = tab.sql_pane_by_id_mut(pane_id).expect("found above");
+        pane.running_since = None;
+        pane.last_duration_ms = Some(job.started.elapsed().as_millis() as u64);
         match done {
             ServerQueryDone::Rows(t) => {
-                let rows = t.row_count();
-                tab.sql_result = Some(*t);
-                tab.sql_result_total = None;
-                tab.sql_error = None;
-                record_sql_history(
-                    tab,
-                    &job.query,
-                    job.started,
-                    rows,
-                    history_on,
-                    history_limit,
-                );
-                tab.sql_last_query = job.query;
+                pane.result = Some(*t);
+                pane.result_sel = Default::default();
+                pane.result_total = None;
+                pane.error = None;
+                pane.last_query = job.query;
             }
             ServerQueryDone::Affected(n) => {
-                record_sql_history(
-                    tab,
-                    &job.query,
-                    job.started,
-                    n as usize,
-                    history_on,
-                    history_limit,
-                );
-                tab.sql_result = None;
-                tab.sql_result_total = None;
-                tab.sql_error = None;
+                pane.result = None;
+                pane.result_total = None;
+                pane.error = None;
                 self.status_message = Some((
                     format!("SQL applied on server: {n} row(s) affected"),
                     std::time::Instant::now(),
                 ));
             }
             ServerQueryDone::Failed(msg) => {
-                tab.sql_error = Some(msg);
+                pane.error = Some(msg);
             }
         }
     }

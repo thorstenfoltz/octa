@@ -18,6 +18,14 @@ impl OctaApp {
     pub(crate) fn render_central_panel(&mut self, parent_ui: &mut egui::Ui) {
         let ctx = parent_ui.ctx().clone();
         let ctx = &ctx;
+        // A maximised SQL panel takes this area instead of the table.
+        if self.sql_panel_visible() && self.tabs[self.active_tab].sql_maximised {
+            egui::CentralPanel::default().show(parent_ui, |ui| {
+                self.render_status_message(ui);
+                self.draw_sql_panel(ui, true);
+            });
+            return;
+        }
         egui::CentralPanel::default().show(parent_ui, |ui| {
             // Per-theme background decoration (e.g. Manga's halftone field).
             // Painted before any content so widgets sit on top.

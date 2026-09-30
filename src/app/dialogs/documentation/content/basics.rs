@@ -301,6 +301,23 @@ table** entry in the cell / row right-click menu. Pipes and line breaks in
 cells are escaped so the table stays well-formed - handy for pasting into a
 pull request or Markdown document.
 
+**Copy as IN list** (same right-click menu, and **Edit > Copy as IN list**)
+copies the selected values as a SQL list such as `('A-17', 'B-22')`, ready
+to paste after `WHERE id IN`. Empty cells and repeats are left out. Text is
+quoted with inner `'` doubled; numbers stay bare only when every value is a
+number, so a code column holding `007` keeps its leading zero. A whole
+selected column copies only the rows the current filter shows.
+
+## Invisible characters
+
+**View > Show invisible characters** marks the whitespace inside text cells:
+`.` a space, `->` a tab, `_` an unusual space (non-breaking, narrow, em or en
+space), `|` a character with no width (zero-width space or joiner, byte order
+mark), `CR` a carriage return. Spaces at the start or end of a value and all
+unusual characters get a coloured background, since they are the usual reason
+two values that look equal do not match. A space between words and a tab are
+only marked, so you can tell which one made a gap. The data is not changed.
+
 ## Number display
 
 Numeric columns show **thousand separators** by default
@@ -577,6 +594,20 @@ standard Save / Don't Save / Cancel dialog. The pinned tab reopens
 on next launch with whatever is on disk - any unsaved edits from
 the previous session are gone if you didn't save them. Save with
 Ctrl+S (or Save as) before quitting.
+
+## Reopen last session
+
+**Settings > Files > Reopen last session** (off by default) opens the files
+again that were open when you closed Octa, like a browser restoring its tabs.
+Moved or deleted files are skipped, and tabs without a file behind them
+(results, charts) are not reopened. Unsaved changes are not kept.
+
+Cloud objects and database / API tabs need their own switch on top:
+**Also reopen cloud objects** downloads each object again at every start
+(time, and possibly data transfer costs), and **Also reopen database and API
+tabs** queries each server again at every start, which can wake a warehouse
+and cost money, or ask you to sign in again. The list is kept in
+`session.toml` in the settings folder; turning the setting off deletes it.
 "#;
 
 pub const PDF_EXPORT: &str = r#"# Export to PDF

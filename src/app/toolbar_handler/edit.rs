@@ -129,7 +129,10 @@ impl OctaApp {
             self.fit_all_rows();
         }
         if action.copy_as_markdown {
-            self.do_copy_markdown();
+            self.do_copy_markdown(ctx);
+        }
+        if action.copy_as_in_list {
+            self.do_copy_in_list(ctx);
         }
     }
 }

@@ -9,6 +9,7 @@ fn entry(query: &str, rows: usize) -> SqlHistoryEntry {
         at_unix: 1_700_000_000,
         duration_ms: 12,
         rows,
+        source: "scratch".to_string(),
     }
 }
 
@@ -74,11 +75,41 @@ fn a_query_is_stored_trimmed_so_whitespace_is_not_a_new_entry() {
 }
 
 #[test]
-fn scopes_are_distinct_per_connection_and_per_file() {
-    // Queries run against production must not show up in a CSV's workspace.
-    assert_ne!(db_scope("db-1"), db_scope("db-2"));
-    assert_ne!(db_scope("x"), file_scope("x"));
-    assert_eq!(db_scope("db-1"), db_scope("db-1"));
+fn the_same_query_on_two_sources_is_two_entries() {
+    // One shared list, but "SELECT 1 on prod" and "SELECT 1 on a CSV" are
+    // different things to have run.
+    let mut e = Vec::new();
+    fold(&mut e, entry("SELECT 1", 1), 20);
+    let mut other = entry("SELECT 1", 1);
+    other.source = db_scope("prod");
+    fold(&mut e, other, 20);
+    assert_eq!(e.len(), 2);
+    assert_eq!(e[0].source, "db:prod");
+}
+
+#[test]
+fn a_per_source_history_file_is_flattened_newest_first() {
+    // The file an earlier build wrote: one list per source.
+    let old = r#"{
+        "db:prod": [{"query":"SELECT a","at_unix":10}],
+        "file:/x.csv": [{"query":"SELECT b","at_unix":30},{"query":"SELECT c","at_unix":5}]
+    }"#;
+    let e = parse(old);
+    let got: Vec<(&str, &str)> = e
+        .iter()
+        .map(|e| (e.query.as_str(), e.source.as_str()))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("SELECT b", "file:/x.csv"),
+            ("SELECT a", "db:prod"),
+            ("SELECT c", "file:/x.csv")
+        ]
+    );
+    // And the new shape reads back as written.
+    let text = serde_json::to_string(&e).unwrap();
+    assert_eq!(parse(&text), e);
 }
 
 #[test]
