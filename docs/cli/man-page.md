@@ -123,7 +123,7 @@ output still goes to a local path.
 `--schema FILE`
 :   Print the column schema of *FILE* as a two-column table
     (column name, data type). For streaming formats (Parquet, CSV,
-    TSV) the reader loads the initial-row batch (**5,000,000 rows**
+    TSV) the reader loads the initial-row batch (**2,000,000 rows**
     by default) and projects the schema from that. See
     [`octa --schema`](schema.md) for the dedicated page.
 
@@ -150,7 +150,7 @@ output still goes to a local path.
     path's extension and routed through the shared format registry.
     Read-only output formats (SAS, R datasets, HDF5, NetCDF, EPUB,
     GeoJSON) are rejected with a clear error. Conversion is bounded
-    by the initial-load cap (5 M rows by default); pass `--rows all`
+    by the initial-load cap (2 M rows by default); pass `--rows all`
     to convert the full file. See [`octa --convert`](convert.md).
 
 `--sql FILE`
@@ -825,7 +825,7 @@ stderr is a terminal, so redirected output and CI logs are unchanged.
 `--rows N|all`
 :   Override the initial-load row cap for this invocation. Streaming
     formats (Parquet, CSV, TSV) honour a process-wide cap (default
-    5,000,000 rows); `--rows 10,000,000` raises it, `--rows all`
+    2,000,000 rows); `--rows 10,000,000` raises it, `--rows all`
     disables it entirely. Applies to `--schema`, `--head`,
     `--convert`, and `--sql`. Commas / underscores in the number
     are allowed for readability.
@@ -1191,7 +1191,7 @@ The file-writing tools (`convert`, `write_table`, `edit_table`,
 `--mcp-read-only`.
 
 Defaults (the response row cap of 1000 rows, per-cell byte cap of
-64 KiB, and file-loader cap of 5,000,000 rows) are configurable
+64 KiB, and file-loader cap of 2,000,000 rows) are configurable
 under [Settings → MCP](../reference/settings.md#mcp) and
 Settings → Performance. They are read once at server startup;
 changes require a restart. Per-call, pass `limit: 0` to lift the

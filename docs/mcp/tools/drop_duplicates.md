@@ -19,7 +19,7 @@ first or last occurrence of each key survives.
 | `on`        | string[] | no        | all columns    | Key columns; omit or pass `[]` for whole-row equality       |
 | `keep`      | string   | no        | `first`        | `first` or `last`                                           |
 | `limit`     | integer  | no        | server default | Max rows to return. `0` = unlimited                         |
-| `unlimited` | bool     | no        | `false`        | Lift the 5,000,000-row file-loader cap so every row is read |
+| `unlimited` | bool     | no        | `false`        | Lift the 2,000,000-row file-loader cap so every row is read |
 
 \* `path` or `open_tab` is required.
 

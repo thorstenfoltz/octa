@@ -3,7 +3,90 @@
 use super::*;
 
 impl OctaApp {
-    pub(super) fn run_workspace_query(&mut self, ctx: &egui::Context) {
+    /// Open `table` as a new tab labelled `name` and switch to it. Always a
+    /// new tab, never `push_result_tab`'s blank-tab reuse: the active tab
+    /// owns the SQL workspace, attachments included.
+    fn push_sql_table_tab(
+        &mut self,
+        ctx: &egui::Context,
+        table: octa::data::DataTable,
+        name: String,
+    ) {
+        let rows = table.row_count();
+        let mut new_tab = TabState::new(self.settings.default_search_mode);
+        new_tab.table = table;
+        new_tab.table.structural_changes = true;
+        new_tab.filter_dirty = true;
+        new_tab.custom_tab_label = Some(name.clone());
+        if rows > 0 {
+            new_tab.table_state.selected_cell = Some((0, 0));
+        }
+        self.tabs.push(new_tab);
+        self.active_tab = self.tabs.len() - 1;
+        self.status_message = Some((
+            octa::i18n::t("sql.created_tab")
+                .replace("{name}", &name)
+                .replace("{n}", &rows.to_string()),
+            std::time::Instant::now(),
+        ));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+            self.tabs[self.active_tab].title_display(),
+        ));
+    }
+
+    /// **Open result as tab...**: the current result, every row of it, as a
+    /// new tab. A paged result holds only the pages scrolled so far, so the
+    /// rest is fetched first.
+    pub(super) fn open_sql_result_as_tab(&mut self, ctx: &egui::Context) {
+        let tab = &mut self.tabs[self.active_tab];
+        let Some(mut table) = tab.sql.result.clone() else {
+            return;
+        };
+        if let (Some(total), Some(ws)) = (tab.sql.result_total, tab.sql_workspace.as_ref()) {
+            let loaded = table.row_count();
+            if loaded < total {
+                match ws.result_page(tab.sql.id, loaded, total - loaded) {
+                    Ok(page) => table.rows.extend(page.rows),
+                    Err(e) => {
+                        tab.sql.error = Some(format!("{e:#}"));
+                        return;
+                    }
+                }
+            }
+        }
+        self.push_sql_table_tab(ctx, table, octa::i18n::t("sql.result_tab_name"));
+    }
+
+    /// Run `query` in the active tab's local workspace, showing the running
+    /// state first. A local query blocks this thread until DuckDB returns, so
+    /// it is parked and started by [`Self::run_pending_sql`] only once a frame
+    /// with the running state has been painted; otherwise the last result sat
+    /// there frozen and looked like the answer.
+    pub(super) fn queue_local_query(&mut self, ctx: &egui::Context, query: String) {
+        if query.trim().is_empty() {
+            return;
+        }
+        let pane = &mut self.tabs[self.active_tab].sql;
+        pane.start_run();
+        pane.pending_run = Some((query, ctx.cumulative_frame_nr()));
+        ctx.request_repaint();
+    }
+
+    /// Per frame: start the active pane's parked local query once the frame
+    /// after it was parked (the one showing the running state) is on screen.
+    pub(crate) fn run_pending_sql(&mut self, ctx: &egui::Context) {
+        let pane = &mut self.tabs[self.active_tab].sql;
+        match pane.pending_run {
+            Some((_, parked)) if ctx.cumulative_frame_nr() >= parked + 2 => {
+                let (query, _) = pane.pending_run.take().expect("matched above");
+                self.run_workspace_query(ctx, query);
+            }
+            Some(_) => ctx.request_repaint(),
+            None => {}
+        }
+    }
+
+    pub(super) fn run_workspace_query(&mut self, ctx: &egui::Context, query: String) {
         // Captured before the `tab` borrow; used by the post-mutation row-diff
         // highlight below.
         let diff_enabled = self.settings.sql_row_diff_highlight_enabled;
@@ -13,7 +96,9 @@ impl OctaApp {
         let history_limit = self.settings.sql_history_limit;
         let page_rows = self.settings.sql_result_page_rows;
         let tab = &mut self.tabs[self.active_tab];
-        let query = tab.sql_query.clone();
+        // Synchronous from here on: nothing is painted until it returns, so
+        // the running state can end now and every exit below is covered.
+        tab.sql.running_since = None;
         // Refresh `data` from the live edited table on every run so the
         // user's in-memory edits are visible to the next query.
         let mut snapshot = tab.table.clone();
@@ -27,11 +112,11 @@ impl OctaApp {
             if snapshot.col_count() > 0
                 && let Err(e) = ws.set_active_table(&snapshot)
             {
-                tab.sql_error = Some(e.to_string());
+                tab.sql.error = Some(e.to_string());
                 return;
             }
             started = std::time::Instant::now();
-            ws.execute_paged(&query, page_rows)
+            ws.execute_paged(&query, page_rows, tab.sql.id)
         };
         // Split the page count off so every arm below keeps working on a
         // plain `QueryOutcome`.
@@ -42,7 +127,7 @@ impl OctaApp {
         });
         // Before the match, so a failed query is timed too: the interesting
         // case is the one that ran for a minute and then errored.
-        tab.sql_last_duration_ms = Some(started.elapsed().as_millis() as u64);
+        tab.sql.last_duration_ms = Some(started.elapsed().as_millis() as u64);
         match outcome {
             // CREATE TABLE / VIEW: the statement's table becomes a new tab,
             // named after it. Nothing folds back into this tab, so no
@@ -51,44 +136,43 @@ impl OctaApp {
             Ok(qo) if qo.created.is_some() => {
                 let name = qo.created.clone().unwrap_or_default();
                 let rows = qo.table.row_count();
-                record_sql_history(tab, &query, started, rows, history_on, history_limit);
-                tab.sql_error = None;
-                tab.sql_last_query = query;
-                let mut new_tab = TabState::new(self.settings.default_search_mode);
-                new_tab.table = qo.table;
-                new_tab.table.structural_changes = true;
-                new_tab.filter_dirty = true;
-                new_tab.custom_tab_label = Some(name.clone());
-                if rows > 0 {
-                    new_tab.table_state.selected_cell = Some((0, 0));
-                }
-                self.tabs.push(new_tab);
-                self.active_tab = self.tabs.len() - 1;
-                self.status_message = Some((
-                    octa::i18n::t("sql.created_tab")
-                        .replace("{name}", &name)
-                        .replace("{n}", &rows.to_string()),
-                    std::time::Instant::now(),
-                ));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Title(
-                    self.tabs[self.active_tab].title_display(),
-                ));
+                record_sql_history(
+                    &mut self.sql_history,
+                    tab,
+                    &query,
+                    started,
+                    rows,
+                    history_on,
+                    history_limit,
+                );
+                tab.sql.error = None;
+                tab.sql.last_query = query;
+                self.push_sql_table_tab(ctx, qo.table, name);
             }
             Ok(qo) => match qo.kind {
                 octa::sql::QueryKind::Select => {
                     let rows = result_total.unwrap_or_else(|| qo.table.row_count());
-                    tab.sql_result = Some(qo.table);
-                    tab.sql_result_total = result_total;
-                    tab.sql_error = None;
-                    record_sql_history(tab, &query, started, rows, history_on, history_limit);
-                    tab.sql_last_query = query;
+                    tab.sql.result = Some(qo.table);
+                    tab.sql.result_sel = Default::default();
+                    tab.sql.result_total = result_total;
+                    tab.sql.error = None;
+                    record_sql_history(
+                        &mut self.sql_history,
+                        tab,
+                        &query,
+                        started,
+                        rows,
+                        history_on,
+                        history_limit,
+                    );
+                    tab.sql.last_query = query;
                 }
                 octa::sql::QueryKind::Mutation => {
                     // Read-only (mode or a live-database tab): the mutation
                     // ran against the workspace temp table only; refuse to
                     // fold it back into the tab.
                     if readonly {
-                        tab.sql_error = Some(octa::i18n::t("db.tab_readonly_note"));
+                        tab.sql.error = Some(octa::i18n::t("db.tab_readonly_note"));
                         return;
                     }
                     // Apply the mutation to the base table directly so
@@ -120,6 +204,7 @@ impl OctaApp {
                         });
                     }
                     record_sql_history(
+                        &mut self.sql_history,
                         tab,
                         &query,
                         started,
@@ -132,10 +217,10 @@ impl OctaApp {
                     tab.table = mutated;
                     tab.table_state = TableViewState::default();
                     tab.filter_dirty = true;
-                    tab.sql_result = None;
-                    tab.sql_result_total = None;
-                    tab.sql_error = None;
-                    tab.sql_last_query = String::new();
+                    tab.sql.result = None;
+                    tab.sql.result_total = None;
+                    tab.sql.error = None;
+                    tab.sql.last_query = String::new();
                     let rows = tab.table.row_count();
                     let affected = qo.affected.unwrap_or(0);
                     self.status_message = Some((
@@ -150,7 +235,7 @@ impl OctaApp {
                 }
             },
             Err(e) => {
-                tab.sql_error = Some(e.to_string());
+                tab.sql.error = Some(e.to_string());
             }
         }
     }
@@ -164,11 +249,11 @@ impl OctaApp {
             // Remote table lists can drift; refresh re-queries them too.
             ws.invalidate_attached_cache();
             if snapshot.col_count() == 0 {
-                tab.sql_error = None;
+                tab.sql.error = None;
             } else if let Err(e) = ws.set_active_table(&snapshot) {
-                tab.sql_error = Some(e.to_string());
+                tab.sql.error = Some(e.to_string());
             } else {
-                tab.sql_error = None;
+                tab.sql.error = None;
             }
         }
         Self::invalidate_inspector_for_data(tab);

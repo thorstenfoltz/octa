@@ -49,7 +49,7 @@ impl WriteBackKind {
 /// source of the rows differs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteBackSource {
-    /// The SQL panel's last result (`tab.sql_result`).
+    /// The SQL panel's last result (`tab.sql.result`).
     SqlResult,
     /// The open table itself (`tab.table`, with pending cell edits applied).
     ActiveTable,
@@ -128,11 +128,11 @@ impl OctaApp {
     pub(crate) fn open_sql_write_back_dialog(&mut self) {
         let tab = &mut self.tabs[self.active_tab];
         // Require a successful prior SELECT so we have a source query.
-        if tab.sql_last_query.trim().is_empty() {
-            tab.sql_error = Some(octa::i18n::t("dialog.swb_run_select_first"));
+        if tab.sql.last_query.trim().is_empty() {
+            tab.sql.error = Some(octa::i18n::t("dialog.swb_run_select_first"));
             return;
         }
-        let hint = default_table_name_hint(&tab.sql_query);
+        let hint = default_table_name_hint(&tab.sql.query);
         let source = tab.table.source_path.clone();
         tab.sql_write_back = Some(SqlWriteBackState::for_active_tab(source.as_deref(), &hint));
     }
@@ -180,7 +180,7 @@ impl OctaApp {
     fn write_back_rows(&self, state: &SqlWriteBackState) -> Option<octa::data::DataTable> {
         let tab = &self.tabs[self.active_tab];
         match state.source {
-            WriteBackSource::SqlResult => tab.sql_result.clone(),
+            WriteBackSource::SqlResult => tab.sql.result.clone(),
             WriteBackSource::ActiveTable => {
                 let mut snap = tab.table.clone();
                 snap.apply_edits();
@@ -205,7 +205,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
         // DuckDB SQL shown for file targets.
         octa::i18n::t("dialog.swb_db_preview")
     } else {
-        compose_preview(&state, &app.tabs[app.active_tab].sql_last_query)
+        compose_preview(&state, &app.tabs[app.active_tab].sql.last_query)
     };
 
     let dialog_id = egui::Id::new("octa_sql_write_back_dialog");
@@ -512,7 +512,7 @@ pub(crate) fn render_sql_write_back_dialog(app: &mut OctaApp, ctx: &egui::Contex
     }
 
     if do_write {
-        let last_query = app.tabs[app.active_tab].sql_last_query.clone();
+        let last_query = app.tabs[app.active_tab].sql.last_query.clone();
         let schema = if state.kind == WriteBackKind::DuckDb && !state.schema.trim().is_empty() {
             Some(state.schema.trim().to_string())
         } else {

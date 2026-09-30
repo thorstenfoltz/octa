@@ -21,7 +21,7 @@ impl SettingsDialog {
                         !self.draft.initial_load_rows_unlimited,
                         egui::TextEdit::singleline(&mut self.initial_load_rows_buf)
                             .desired_width(120.0)
-                            .hint_text("5,000,000"),
+                            .hint_text("2,000,000"),
                     )
                     .on_hover_text(crate::i18n::t("settings_hint.initial_load_cap"))
                     .on_disabled_hover_text(crate::i18n::t("settings_hint.initial_load_cap"));
@@ -160,7 +160,7 @@ impl SettingsDialog {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.chart_max_points_buf)
                         .desired_width(120.0)
-                        .hint_text("100,000"),
+                        .hint_text("25,000"),
                 )
                 .on_hover_text(crate::i18n::t("settings_hint.chart_max_points"));
                 ui.end_row();

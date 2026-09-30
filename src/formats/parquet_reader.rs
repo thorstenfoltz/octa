@@ -149,7 +149,7 @@ fn read_via_arrow(path: &Path) -> Result<DataTable> {
         .sum();
 
     // First-load cap: respects the user-configurable `initial_load_rows`
-    // (default 5 M). Remaining rows stream in the background as the user
+    // (default 2 M). Remaining rows stream in the background as the user
     // scrolls toward the bottom.
     let max_rows = super::initial_load_rows();
     let truncated = total_file_rows > max_rows;

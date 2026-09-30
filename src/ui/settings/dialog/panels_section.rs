@@ -48,6 +48,36 @@ impl SettingsDialog {
                     .response
                     .on_hover_text(crate::i18n::t("settings_hint.edit_audit_position"));
                 ui.end_row();
+
+                // The two connection browsers, each on its own edge if wanted.
+                // Sharing an edge with each other or the folder browser stacks
+                // them in one panel, as before.
+                for (label, hint, id, value) in [
+                    (
+                        crate::i18n::t("settings.cloud_sidebar_position"),
+                        crate::i18n::t("settings_hint.cloud_sidebar_position"),
+                        "settings_cloud_sidebar_position",
+                        &mut self.draft.cloud_sidebar_position,
+                    ),
+                    (
+                        crate::i18n::t("settings.db_sidebar_position"),
+                        crate::i18n::t("settings_hint.db_sidebar_position"),
+                        "settings_db_sidebar_position",
+                        &mut self.draft.db_sidebar_position,
+                    ),
+                ] {
+                    ui.label(label).on_hover_text(&hint);
+                    egui::ComboBox::from_id_salt(id)
+                        .selected_text(value.label_t())
+                        .show_ui(ui, |ui| {
+                            for &pos in PanelPosition::ALL {
+                                ui.selectable_value(&mut *value, pos, pos.label_t());
+                            }
+                        })
+                        .response
+                        .on_hover_text(&hint);
+                    ui.end_row();
+                }
             });
     }
 }

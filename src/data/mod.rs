@@ -28,6 +28,7 @@ pub mod geo_detect;
 pub mod harmonise;
 pub mod id_checks;
 pub mod impute;
+pub mod in_list;
 pub mod inventory;
 pub mod join;
 pub mod join_diag;

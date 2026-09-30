@@ -92,7 +92,17 @@ impl OctaApp {
         let mut db_query = self.db_browser.search_query.clone();
         let db_search_arc = self.db_browser.search.clone();
 
-        let position = self.settings.directory_tree_position;
+        // Each browser has its own edge. Browsers on the same edge share one
+        // panel, stacked cloud, databases, folders as before.
+        use ui::settings::{DirectoryTreePosition as Dir, PanelPosition as Pos};
+        let dir_pos = match self.settings.directory_tree_position {
+            Dir::Left => Pos::Left,
+            Dir::Right => Pos::Right,
+            Dir::Top => Pos::Top,
+            Dir::Bottom => Pos::Bottom,
+        };
+        let cloud_pos = self.settings.cloud_sidebar_position;
+        let db_pos = self.settings.db_sidebar_position;
         let allowed_ref = allowed_exts.as_ref();
         // Read-only view of the marks cache: the tree body closure holds a
         // mutable borrow of `directory_tree`, and these are disjoint fields.
@@ -114,8 +124,11 @@ impl OctaApp {
         let mut db_action = DbTreeAction::default();
         let mut tree_action = ui::directory_tree::TreeAction::default();
 
-        let mut body = |ui: &mut egui::Ui| {
-            if cloud_visible {
+        let mut body = |ui: &mut egui::Ui, pos: Pos| {
+            let cloud_here = cloud_visible && cloud_pos == pos;
+            let db_here = db_visible && db_pos == pos;
+            let dir_here = dir_open && dir_pos == pos;
+            if cloud_here {
                 if let (Ok(listings), Ok(signin), Ok(search)) = (
                     listings_arc.lock(),
                     signin_arc.lock(),
@@ -137,14 +150,14 @@ impl OctaApp {
                         &connections,
                         &tree_ctx,
                         &mut cloud_query,
-                        dir_open || db_visible,
+                        dir_here || db_here,
                     );
                 }
-                if dir_open || db_visible {
+                if dir_here || db_here {
                     ui.separator();
                 }
             }
-            if db_visible {
+            if db_here {
                 if let (Ok(listings), Ok(search)) = (db_listings_arc.lock(), db_search_arc.lock()) {
                     db_action = db_tree::render_db_tree(
                         ui,
@@ -155,14 +168,14 @@ impl OctaApp {
                             query: &mut db_query,
                             results: &search.state,
                         },
-                        dir_open,
+                        dir_here,
                     );
                 }
-                if dir_open {
+                if dir_here {
                     ui.separator();
                 }
             }
-            if let Some(state) = dir_state.as_deref_mut() {
+            if dir_here && let Some(state) = dir_state.as_deref_mut() {
                 tree_action = ui::directory_tree::render_directory_tree(
                     ui,
                     state,
@@ -172,35 +185,31 @@ impl OctaApp {
             }
         };
 
-        match position {
-            ui::settings::DirectoryTreePosition::Left => {
-                egui::Panel::left("directory_tree_panel")
-                    .resizable(true)
-                    .default_size(default_w)
-                    .size_range(80.0..=max_w)
-                    .show(parent_ui, &mut body);
+        for &pos in Pos::ALL {
+            let used = (cloud_visible && cloud_pos == pos)
+                || (db_visible && db_pos == pos)
+                || (dir_open && dir_pos == pos);
+            if !used {
+                continue;
             }
-            ui::settings::DirectoryTreePosition::Right => {
-                egui::Panel::right("directory_tree_panel")
-                    .resizable(true)
-                    .default_size(default_w)
-                    .size_range(80.0..=max_w)
-                    .show(parent_ui, &mut body);
-            }
-            ui::settings::DirectoryTreePosition::Top => {
-                egui::Panel::top("directory_tree_panel")
-                    .resizable(true)
-                    .default_size(default_h)
-                    .size_range(80.0..=max_h)
-                    .show(parent_ui, &mut body);
-            }
-            ui::settings::DirectoryTreePosition::Bottom => {
-                egui::Panel::bottom("directory_tree_panel")
-                    .resizable(true)
-                    .default_size(default_h)
-                    .size_range(80.0..=max_h)
-                    .show(parent_ui, &mut body);
-            }
+            // The folder browser's edge keeps the old id, so the width a user
+            // dragged it to survives the split.
+            let id = if pos == dir_pos {
+                egui::Id::new("directory_tree_panel")
+            } else {
+                egui::Id::new(("sidebar_panel", pos as u8))
+            };
+            let (panel, default, max) = match pos {
+                Pos::Left => (egui::Panel::left(id), default_w, max_w),
+                Pos::Right => (egui::Panel::right(id), default_w, max_w),
+                Pos::Top => (egui::Panel::top(id), default_h, max_h),
+                Pos::Bottom => (egui::Panel::bottom(id), default_h, max_h),
+            };
+            panel
+                .resizable(true)
+                .default_size(default)
+                .size_range(80.0..=max)
+                .show(parent_ui, |ui| body(ui, pos));
         }
 
         // Dispatch cloud actions.

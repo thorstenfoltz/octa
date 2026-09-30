@@ -32,7 +32,7 @@ pub mod tools;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
+    CallToolResult, Implementation, ProtocolVersion, ServerCapabilities, ServerConfig,
 };
 use rmcp::transport::stdio;
 use rmcp::{ErrorData as McpError, ServerHandler, ServiceExt, tool, tool_handler, tool_router};
@@ -143,7 +143,7 @@ SPSS, Stata, RDS, HDF5, NetCDF, DBF, plus text formats (XML, TOML, YAML, Markdow
 Parquet files with very many row groups fall back to a DuckDB-backed reader. \
 Returns JSON with `schema`, `rows`, `row_count`, `truncated`, `total_rows_available`, \
 `cell_truncated`. Pass `limit: 0` for unlimited response rows; pass `unlimited: true` to \
-also lift the 5,000,000-row file-loader cap so every row is read from disk. Use both together \
+also lift the 2,000,000-row file-loader cap so every row is read from disk. Use both together \
 to truly return every row."
     )]
     async fn read_table(
@@ -157,7 +157,7 @@ to truly return every row."
         description = "Read a tabular data file and return its LAST N rows (the tail), same \
 response shape as `read_table`: `{schema, rows, row_count, ...}`. `limit` sets N (default the \
 server's configured row limit; 0 = the whole loaded window). For multi-table sources pass \
-`table`. Streaming readers load with the 5,000,000-row cap, so the tail reflects the end of \
+`table`. Streaming readers load with the 2,000,000-row cap, so the tail reflects the end of \
 that window; pass `unlimited: true` to reach the true end of a very large file."
     )]
     async fn tail(
@@ -419,7 +419,7 @@ to the source's. Returns `{rows_copied, created}`."
 
     #[tool(
         description = "Count rows in a tabular file. Loads the table and reports its row count. \
-For streaming formats (Parquet, CSV, TSV) the count is bounded by Octa's 5,000,000-row \
+For streaming formats (Parquet, CSV, TSV) the count is bounded by Octa's 2,000,000-row \
 initial-load cap; the response flags `initial_load_capped: true` when the count may not \
 reflect every row in the source. Pass `unlimited: true` to lift the cap and get the true \
 total. A large Parquet, CSV or JSON file is counted exactly straight from the file without \
@@ -443,7 +443,7 @@ the SELECT result back into a DuckDB or SQLite file (target schema + table + mod
 created_schema, target }`. For row-returning queries the response is `{ kind: 'select' | \
 'mutation', result, affected? }` carrying the same `truncated` / `cell_truncated` flags as \
 `read_table`. Pass `limit: 0` for unlimited response rows; pass `unlimited: true` to also \
-lift the 5,000,000-row file-loader cap so every loaded file is read in full."
+lift the 2,000,000-row file-loader cap so every loaded file is read in full."
     )]
     async fn run_sql(
         &self,
@@ -456,7 +456,7 @@ lift the 5,000,000-row file-loader cap so every loaded file is read in full."
         description = "Convert a file from one tabular format to another. Both ends are \
 resolved by file extension. The output extension must map to a writable format - read-only \
 formats (SAS, RDS, HDF5, NetCDF) cannot be a target. The input is read with the streaming \
-initial-load cap (5,000,000 rows by default); pass `unlimited: true` to convert the entire \
+initial-load cap (2,000,000 rows by default); pass `unlimited: true` to convert the entire \
 source. Returns the row/column count and the output path on success."
     )]
     async fn convert(
@@ -486,7 +486,7 @@ JSON Schema document, or a Rust struct. Pick the output with the `target` parame
 - data type, min, max, approximate distinct count, mean, standard deviation, q25/q50/q75, \
 row count, and null percentage. Returns `columns` as an array of per-column stat objects. \
 The fastest way to understand an unfamiliar dataset before reading rows or writing SQL. \
-Stats reflect at most the first 5,000,000 rows by default; pass `unlimited: true` to \
+Stats reflect at most the first 2,000,000 rows by default; pass `unlimited: true` to \
 profile the full file."
     )]
     async fn profile(
@@ -501,7 +501,7 @@ profile the full file."
 names whose combined value forms the duplicate key; every row sharing its key with at least \
 one other row is returned. The response carries `duplicate_row_count` and `result` (schema \
 + the duplicate rows, honouring the row/cell caps). Pass `limit: 0` for unlimited response \
-rows; pass `unlimited: true` to also lift the 5,000,000-row file-loader cap so duplicate \
+rows; pass `unlimited: true` to also lift the 2,000,000-row file-loader cap so duplicate \
 detection considers every row in the file."
     )]
     async fn find_duplicates(
@@ -530,7 +530,7 @@ edit_ratio / jaro_winkler / token_set; `threshold` 0.0..=1.0 (default 0.85). Opt
 a `value_counts()` equivalent. Returns `rows` (label + count, most frequent first) plus \
 `nulls`, `total_non_null`, and `unique_count`. Set `bin: true` to group a numeric column \
 into Sturges bins instead of counting raw values; use `top_n` to cap the returned rows. \
-Counts reflect at most the first 5,000,000 rows by default; pass `unlimited: true` to \
+Counts reflect at most the first 2,000,000 rows by default; pass `unlimited: true` to \
 scan the full file."
     )]
     async fn value_frequency(
@@ -545,7 +545,7 @@ scan the full file."
 selects `plain` (case-insensitive substring, default), `wildcard` (`*` / `?`), or `regex`. \
 Returns `hits` as `{row, col, column_name, snippet}` objects plus `hit_count` and \
 `truncated`. Pass `limit: 0` for unlimited hits; pass `unlimited: true` to also lift the \
-5,000,000-row file-loader cap so the search scans every row in the file."
+2,000,000-row file-loader cap so the search scans every row in the file."
     )]
     async fn search(
         &self,
@@ -577,7 +577,7 @@ column order for a meaningful result. Returns `only_in_a` and `only_in_b` (each 
 payload of the rows unique to that side: `{schema, rows, row_count, truncated, ...}`), plus \
 `only_in_a_count`, `only_in_b_count`, and `shared_keys` (distinct row keys present in both). \
 For multi-table sources pass `table_a` / `table_b`. `limit` caps rows returned per side (0 = \
-unlimited); `unlimited: true` also lifts the 5,000,000-row file-loader cap. Use \
+unlimited); `unlimited: true` also lifts the 2,000,000-row file-loader cap. Use \
 `compare_schemas` first if the column layouts might differ."
     )]
     async fn diff_tables(
@@ -612,7 +612,7 @@ locking in a schema with `export_schema`."
 `sample_row_count`, `cell_truncated`. Use this as the first call when meeting an unfamiliar \
 file. `sample_rows` defaults to 5 (max 100). For multi-table sources pass `table`; without \
 it the reader's default table behaviour applies. Pass `unlimited: true` to lift the \
-5,000,000-row file-loader cap if you need an accurate row count for a very large file."
+2,000,000-row file-loader cap if you need an accurate row count for a very large file."
     )]
     async fn describe_file(
         &self,
@@ -1097,7 +1097,7 @@ plus an optional `table` for multi-table sources. By default takes the union of 
 (missing cells become null) and widens conflicting numeric types (int+float -> float, any other \
 disagreement -> text). Use `drop` to omit column names from the output, and `cast` \
 (`[{\"column\": \"name\", \"type\": \"Float64\"}, ...]`) to override a column's target Arrow \
-type. `limit` caps response rows (0 = unlimited); `unlimited: true` lifts the 5,000,000-row \
+type. `limit` caps response rows (0 = unlimited); `unlimited: true` lifts the 2,000,000-row \
 file-loader cap. Requires at least two sources."
     )]
     async fn union_tables(
@@ -1116,7 +1116,7 @@ order using a SQL `USING (on)` clause. `how` sets the join type: `left` (default
 without one) or `asof` (the last key is matched to the nearest earlier value, e.g. a time). \
 Duplicate key columns are collapsed into one in the output. Requires at \
 least two sources and at least one key column in `on`. `limit` caps response rows (0 = \
-unlimited); `unlimited: true` lifts the 5,000,000-row file-loader cap."
+unlimited); `unlimited: true` lifts the 2,000,000-row file-loader cap."
     )]
     async fn join_tables(
         &self,
@@ -1132,7 +1132,7 @@ deduplicate on all columns (whole-row equality). `keep` controls which occurrenc
 `first` (default) keeps the earliest, `last` keeps the latest. Surviving rows are returned in \
 original order. Returns the same `{schema, rows, row_count, truncated, ...}` shape as \
 `read_table`. `limit` caps response rows (0 = unlimited); `unlimited: true` lifts the \
-5,000,000-row file-loader cap."
+2,000,000-row file-loader cap."
     )]
     async fn drop_duplicates(
         &self,
@@ -1148,7 +1148,7 @@ tab. `column` is the column name to impute; `strategy` chooses the fill method: 
 previous non-null row), `bfill` (backward-fill from the next non-null row), or `const` (fill \
 with the literal string in `value`). Returns the table with the imputed column, in the same \
 `{schema, rows, row_count, truncated, ...}` shape as `read_table`. `limit` caps response rows \
-(0 = unlimited); `unlimited: true` lifts the 5,000,000-row file-loader cap."
+(0 = unlimited); `unlimited: true` lifts the 2,000,000-row file-loader cap."
     )]
     async fn fill_missing(
         &self,
@@ -1206,7 +1206,7 @@ tool and is unavailable in read-only mode."
 // (which would rebuild the route table on every tool call).
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for OctaMcpServer {
-    fn get_info(&self) -> ServerInfo {
+    fn get_info(&self) -> ServerConfig {
         let row_limit_str = self
             .default_row_limit
             .map_or_else(|| "unlimited".to_string(), |n| n.to_string());
@@ -1232,7 +1232,7 @@ impl ServerHandler for OctaMcpServer {
              Excel, ORC, Arrow, Avro, SAS, SPSS, Stata, RDS, HDF5, NetCDF, DBF, GeoPackage, and \
              text formats) and run DuckDB SQL against them.\n\n\
              Default response row limit: {row_limit_str}. Default cell-size cap: {cell_cap_str}.\n\
-             Streaming formats (Parquet, CSV, TSV) load up to 5,000,000 rows by default.\n\
+             Streaming formats (Parquet, CSV, TSV) load up to 2,000,000 rows by default.\n\
              Parquet files with very many row groups fall back to a DuckDB-backed reader.\n\n\
              Every result-bearing tool exposes:\n\
              - `limit` - caps how many rows the *response* carries (pass 0 for unlimited).\n\
@@ -1244,7 +1244,7 @@ impl ServerHandler for OctaMcpServer {
         // NOT `Implementation::from_build_env()`: its `env!` macros expand
         // inside the rmcp crate, so it reports the server as `rmcp` at
         // rmcp's version. Clients show this name to the user.
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("octa", env!("CARGO_PKG_VERSION")))
             .with_protocol_version(ProtocolVersion::V_2024_11_05)
             .with_instructions(instructions)

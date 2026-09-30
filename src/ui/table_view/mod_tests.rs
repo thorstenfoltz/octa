@@ -346,7 +346,6 @@ fn run_frame(
         let cx = TableCtx {
             theme_mode: ThemeMode::Dark,
             filtered_rows: &filtered,
-            os_clipboard_has_content: false,
             show_row_numbers: true,
             show_sequential_numbers: false,
             alternating_row_colors: false,
@@ -354,6 +353,7 @@ fn run_frame(
             highlight_edits: false,
             font_size: 13.0,
             cell_line_breaks: false,
+            show_invisibles: false,
             clickable_links: false,
             binary_display_mode: crate::data::BinaryDisplayMode::default(),
             welcome_logo_texture: None,

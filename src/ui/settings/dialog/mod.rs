@@ -108,6 +108,11 @@ pub struct SettingsDialog {
     sql_row_limit_buf: String,
     sql_result_page_rows_buf: String,
     sql_auto_register_max_buf: String,
+    /// Text fields behind the Format SQL widths and blank lines, in that
+    /// order: list, clause (empty = follow the list width), bracket, blank
+    /// lines. Text, not `DragValue`, like every number here; parsed as you
+    /// type rather than on Apply, because the preview beside them is live.
+    sql_fmt_bufs: [String; 4],
     git_marks_refresh_secs_buf: String,
     /// Text buffer behind the default Parquet row-group size. Empty means
     /// "leave it to the writer".
@@ -535,6 +540,13 @@ impl SettingsDialog {
         self.sql_row_limit_buf = d.sql_default_row_limit.to_string();
         self.sql_result_page_rows_buf = d.sql_result_page_rows.to_string();
         self.sql_auto_register_max_buf = d.sql_auto_register_max_rows.to_string();
+        let f = &d.sql_format;
+        self.sql_fmt_bufs = [
+            f.inline_width.to_string(),
+            f.clause_width.map(|w| w.to_string()).unwrap_or_default(),
+            f.bracket_width.to_string(),
+            f.blank_lines_between.to_string(),
+        ];
         self.git_marks_refresh_secs_buf = d.git_marks_refresh_secs.to_string();
         self.write_row_group_buf = d
             .write_options
@@ -1119,9 +1131,22 @@ impl SettingsDialog {
         salt: &str,
         body: impl FnOnce(&mut egui::Ui),
     ) {
+        Self::sub_section_open(ui, label_key, salt, true, body);
+    }
+
+    /// [`Self::sub_section`] with the first-time open state chosen: for a
+    /// section with so many groups that showing all of them open would be
+    /// the grab-bag again.
+    fn sub_section_open(
+        ui: &mut egui::Ui,
+        label_key: &str,
+        salt: &str,
+        open: bool,
+        body: impl FnOnce(&mut egui::Ui),
+    ) {
         egui::CollapsingHeader::new(egui::RichText::new(crate::i18n::t(label_key)).strong())
             .id_salt(salt)
-            .default_open(true)
+            .default_open(open)
             .show(ui, body);
     }
 

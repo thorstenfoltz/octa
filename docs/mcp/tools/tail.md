@@ -17,7 +17,7 @@ table.
 | `path`      | string | yes       | (no default)          | Absolute or working-directory-relative path to the file           |
 | `limit`     | int    | no        | server default (1000) | Number of trailing rows to return. `0` = the whole loaded window  |
 | `table`     | string | no        | (no default)          | Specific table to read for multi-table sources                    |
-| `unlimited` | bool   | no        | `false`               | Lift the 5,000,000-row file-loader cap so the true end is reached |
+| `unlimited` | bool   | no        | `false`               | Lift the 2,000,000-row file-loader cap so the true end is reached |
 
 ## Response shape
 
@@ -27,7 +27,7 @@ row_count, truncated, total_rows_available, cell_truncated }`. The
 
 ## Notes
 
-- For streaming formats the file loads with the 5 M-row cap, so the
+- For streaming formats the file loads with the 2 M-row cap, so the
   tail reflects the end of that window. Pass `unlimited: true` to tail
   the genuine end of a very large file.
 - For multi-table sources pass `table`.

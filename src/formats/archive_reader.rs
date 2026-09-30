@@ -269,8 +269,8 @@ fn classify_path(path: &str, is_dir: bool) -> String {
 /// Hard ceiling for a single extracted entry. Archive headers are
 /// attacker-controlled (a zip can claim any size; a tiny gzip stream can
 /// inflate without bound), so extraction is capped rather than trusted.
-/// 512 MiB matches the app's existing large-file scale (the raw-text
-/// fallback already refuses files over 500 MB).
+/// 512 MiB sits well above the raw-text fallback, whose default cap is
+/// 50 MB.
 const MAX_EXTRACT_BYTES: u64 = 512 * 1024 * 1024;
 
 /// Cap for the pre-allocation hint taken from the (untrusted) zip header:

@@ -25,7 +25,7 @@ The same engine that backs the GUI Pivot / Unpivot dialog. Read-only analytics
 | `name_col`  | string   | no           | `name`         | Unpivot: name of the generated key column                            |
 | `value_col` | string   | no           | `value`        | Unpivot: name of the generated value column                          |
 | `limit`     | integer  | no           | server default | Cap response rows (`0` = unlimited)                                  |
-| `unlimited` | bool     | no           | `false`        | Lift the 5,000,000-row file-loader cap so the reshape sees every row |
+| `unlimited` | bool     | no           | `false`        | Lift the 2,000,000-row file-loader cap so the reshape sees every row |
 
 ## Response shape
 

@@ -3,17 +3,32 @@
 use super::*;
 
 impl OctaApp {
+    /// Whether the active tab shows the SQL panel at all.
+    pub(crate) fn sql_panel_visible(&self) -> bool {
+        let tab = &self.tabs[self.active_tab];
+        // No col_count gate: an empty tab can still ATTACH saved connections
+        // and query servers directly (no `data` table then).
+        tab.sql_panel_open && tab.view_mode == ViewMode::Table
+    }
+
+    /// The docked panel. A maximised one is drawn by the central panel
+    /// instead ([`Self::draw_sql_panel`] with `maximised`), so the chat and
+    /// side panels rendered after this still get their space.
     pub(crate) fn render_sql_panel(&mut self, parent_ui: &mut egui::Ui) {
+        if !self.sql_panel_visible() || self.tabs[self.active_tab].sql_maximised {
+            return;
+        }
+        self.draw_sql_panel(parent_ui, false);
+    }
+
+    /// Draw the panel: docked at the configured edge, or straight into
+    /// `parent_ui` (the central area) when `maximised`.
+    pub(crate) fn draw_sql_panel(&mut self, parent_ui: &mut egui::Ui, maximised: bool) {
         let ctx = parent_ui.ctx().clone();
         let ctx = &ctx;
-        let sql_panel_visible = {
-            let tab = &self.tabs[self.active_tab];
-            // No col_count gate: an empty tab can still ATTACH saved
-            // connections and query servers directly (no `data` table then).
-            tab.sql_panel_open && tab.view_mode == ViewMode::Table
-        };
-        if !sql_panel_visible {
-            return;
+        // Switched off in Settings: the file is already gone, the menu follows.
+        if !self.settings.sql_history_enabled {
+            self.sql_history.clear();
         }
         let position = self.settings.sql_panel_position;
         let mut sql_action = view_modes::SqlAction::default();
@@ -33,17 +48,6 @@ impl OctaApp {
             workspace_snapshot(tab)
         };
 
-        // Server-mode context: the connection name behind the active tab's
-        // db_origin (if it still exists), whether a server query is running,
-        // and the saved connections for the attach menu.
-        let server_conn_name: Option<String> =
-            self.tabs[self.active_tab].db_origin.as_ref().and_then(|o| {
-                self.settings
-                    .db_connections
-                    .iter()
-                    .find(|c| c.id == o.conn_id)
-                    .map(|c| c.name.clone())
-            });
         let server_running = self.sql_server_job.is_some();
         let chat_profile_available = !self.settings.chat_profiles.is_empty();
         let ask_profiles: Vec<(String, String)> = self
@@ -106,6 +110,7 @@ impl OctaApp {
                 }),
             })
             .collect();
+        let server_identifiers = self.server_autocomplete_identifiers(ctx);
         let cloud_connections: Vec<(String, String)> = self
             .settings
             .cloud_connections
@@ -154,7 +159,7 @@ impl OctaApp {
                     workspace_attachments: &workspace_attachments,
                     inspector_selection: inspector_selection_owned.as_ref(),
                     inspector_entry: inspector_entry_owned.as_ref(),
-                    server_conn_name: server_conn_name.clone(),
+                    history: &self.sql_history,
                     server_running,
                     db_connections: db_connections.clone(),
                     cloud_connections: cloud_connections.clone(),
@@ -162,6 +167,7 @@ impl OctaApp {
                     show_auto_register_notice,
                     chat_profile_available,
                     ask_profiles: ask_profiles.clone(),
+                    extra_identifiers: &server_identifiers,
                 },
             )
         };
@@ -186,29 +192,50 @@ impl OctaApp {
         // stores a Rect, so a single shared "sql_panel" meant the width
         // dragged while docked Left came back as the height when docked
         // Bottom.
-        match position {
-            ui::settings::SqlPanelPosition::Bottom => egui::Panel::bottom("sql_panel_bottom"),
-            ui::settings::SqlPanelPosition::Top => egui::Panel::top("sql_panel_top"),
-            ui::settings::SqlPanelPosition::Left => egui::Panel::left("sql_panel_left"),
-            ui::settings::SqlPanelPosition::Right => egui::Panel::right("sql_panel_right"),
+        if maximised {
+            body(parent_ui);
+        } else {
+            match position {
+                ui::settings::SqlPanelPosition::Bottom => egui::Panel::bottom("sql_panel_bottom"),
+                ui::settings::SqlPanelPosition::Top => egui::Panel::top("sql_panel_top"),
+                ui::settings::SqlPanelPosition::Left => egui::Panel::left("sql_panel_left"),
+                ui::settings::SqlPanelPosition::Right => egui::Panel::right("sql_panel_right"),
+            }
+            .resizable(true)
+            .default_size(default_size)
+            .min_size(min_size)
+            .show(parent_ui, &mut body);
         }
-        .resizable(true)
-        .default_size(default_size)
-        .min_size(min_size)
-        .show(parent_ui, &mut body);
+        if sql_action.format {
+            self.format_sql_editor(ctx);
+        }
         if sql_action.clear {
             let tab = &mut self.tabs[self.active_tab];
-            tab.sql_result = None;
-            tab.sql_result_total = None;
-            tab.sql_error = None;
+            tab.sql.result = None;
+            tab.sql.result_total = None;
+            tab.sql.error = None;
         }
         if sql_action.run {
             let tab = &self.tabs[self.active_tab];
-            if tab.db_origin.is_some() && tab.sql_run_on_server {
-                self.run_server_query(ctx);
+            let query = view_modes::sql::query_to_run(ctx, &tab.sql);
+            if tab.sql_target.is_some() {
+                self.run_server_query(ctx, query);
             } else {
-                self.run_workspace_query(ctx);
+                self.queue_local_query(ctx, query);
             }
+        }
+        if sql_action.add_pane {
+            self.tabs[self.active_tab].add_sql_pane();
+        }
+        if let Some(i) = sql_action.close_pane {
+            self.tabs[self.active_tab].close_sql_pane(i);
+        }
+        if sql_action.toggle_maximise {
+            let tab = &mut self.tabs[self.active_tab];
+            tab.sql_maximised = !tab.sql_maximised;
+        }
+        if sql_action.result_to_tab {
+            self.open_sql_result_as_tab(ctx);
         }
         if sql_action.cancel_server {
             self.cancel_server_query();
@@ -216,8 +243,8 @@ impl OctaApp {
         if sql_action.export {
             self.export_sql_result();
         }
-        if sql_action.load_more_rows {
-            self.load_more_sql_result_rows();
+        if let Some(pane_id) = sql_action.load_more_rows {
+            self.load_more_sql_result_rows(pane_id);
         }
         if sql_action.dismiss_auto_register_notice {
             self.settings.show_sql_auto_register_notice = false;
@@ -226,6 +253,7 @@ impl OctaApp {
         if sql_action.close {
             let tab = &mut self.tabs[self.active_tab];
             tab.sql_panel_open = false;
+            tab.sql_maximised = false;
         }
         if sql_action.refresh_active {
             self.refresh_active_table_in_workspace();
@@ -274,7 +302,7 @@ impl OctaApp {
             self.workspace_refill_inspector_cache();
         }
         if let Some(q) = sql_action.copy_qualified {
-            self.copy_to_clipboard(q);
+            self.copy_to_clipboard(ctx, q);
         }
         if let Some(q) = sql_action.insert_qualified {
             self.insert_select_into_editor(&q);
@@ -283,18 +311,18 @@ impl OctaApp {
             self.run_select_for_inspector(&q, ctx);
         }
         if let Some(q) = sql_action.recall_query {
-            self.tabs[self.active_tab].sql_query = q;
-            self.tabs[self.active_tab].sql_editor_focus_pending = true;
+            self.tabs[self.active_tab].sql.query = q;
+            self.tabs[self.active_tab].sql.focus_pending = true;
         }
         if let Some(question) = sql_action.ask {
             self.start_ask_sql(ctx, question);
         }
         if let Some(q) = sql_action.insert_snippet {
-            self.tabs[self.active_tab].sql_query = q;
-            self.tabs[self.active_tab].sql_editor_focus_pending = true;
+            self.tabs[self.active_tab].sql.query = q;
+            self.tabs[self.active_tab].sql.focus_pending = true;
         }
         if sql_action.save_snippet {
-            let query = self.tabs[self.active_tab].sql_query.trim().to_string();
+            let query = self.tabs[self.active_tab].sql.query.trim().to_string();
             if !query.is_empty() {
                 self.sql_snippet_save = Some(crate::app::state::SqlSnippetDraft {
                     name: String::new(),
@@ -313,14 +341,169 @@ impl OctaApp {
             crate::app::sql_snippets::save(&self.sql_snippets);
         }
         if sql_action.clear_history {
-            let tab = &mut self.tabs[self.active_tab];
-            let scope = sql_history_scope(tab);
-            tab.sql_history.clear();
-            octa::sql::history::clear(&scope);
+            self.sql_history.clear();
+            octa::sql::history::forget_everything();
         }
         if sql_action.open_snippets_window {
             self.sql_snippets_window_open = !self.sql_snippets_window_open;
         }
+    }
+
+    /// Catalog, schema, table and column names on the live server the editor
+    /// targets, for its autocomplete. Read from the sidebar's listing cache
+    /// and [`ServerColumns`]; whatever is missing is fetched in the background,
+    /// so the names arrive a moment later rather than the interface waiting on
+    /// the network.
+    ///
+    /// What gets fetched follows the query text: every dotted name whose
+    /// parts are known (`sales.` lists the `sales` schema), and the columns of
+    /// every listed table the query mentions. A table the query does not name
+    /// costs nothing.
+    fn server_autocomplete_identifiers(&mut self, ctx: &egui::Context) -> Vec<String> {
+        use crate::app::db_browser::{DbListState, join_path};
+        let tab = &self.tabs[self.active_tab];
+        let Some(conn) = tab
+            .sql_target
+            .as_deref()
+            .and_then(|id| self.find_db_conn(id))
+        else {
+            return Vec::new();
+        };
+        let origin = server_origin(tab).cloned();
+        // Quotes stripped first, so `"sales"."orders"` reads as one dotted
+        // name rather than three fragments.
+        let text: String = tab
+            .sql
+            .query
+            .chars()
+            .filter(|c| !matches!(c, '"' | '`' | '[' | ']'))
+            .collect();
+        let dotted: Vec<Vec<&str>> = text
+            .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.'))
+            .map(|t| t.split('.').filter(|p| !p.is_empty()).collect::<Vec<_>>())
+            .filter(|p: &Vec<&str>| !p.is_empty())
+            .collect();
+        let words: std::collections::HashSet<String> =
+            dotted.iter().flatten().map(|w| w.to_lowercase()).collect();
+
+        // Ready listings of this connection, path -> (names, holds tables).
+        let listed: std::collections::HashMap<String, (Vec<String>, bool)> = self
+            .db_browser
+            .listings
+            .lock()
+            .map(|m| {
+                m.iter()
+                    .filter(|((id, _), _)| *id == conn.id)
+                    .filter_map(|((_, path), state)| match state {
+                        DbListState::Catalogs(v) | DbListState::Schemas(v) => {
+                            Some((path.clone(), (v.clone(), false)))
+                        }
+                        DbListState::Tables(v) => Some((path.clone(), (v.clone(), true))),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let mut want = vec![String::new()];
+        if let Some(o) = &origin {
+            let mut parts: Vec<&str> = o.catalog.iter().map(String::as_str).collect();
+            if !parts.is_empty() {
+                want.push(join_path(&parts));
+            }
+            parts.push(&o.schema);
+            want.push(join_path(&parts));
+        }
+        // Parts a table path has: catalog + schema, or just schema.
+        let depth = if conn.engine.has_catalogs() { 2 } else { 1 };
+        for parts in &dotted {
+            let mut path: Vec<String> = Vec::new();
+            for part in parts.iter().take(depth) {
+                let parent = join_path(&path.iter().map(String::as_str).collect::<Vec<_>>());
+                let Some(name) = listed.get(&parent).and_then(|(names, _)| {
+                    names.iter().find(|n| n.eq_ignore_ascii_case(part)).cloned()
+                }) else {
+                    break;
+                };
+                path.push(name);
+                want.push(join_path(
+                    &path.iter().map(String::as_str).collect::<Vec<_>>(),
+                ));
+            }
+        }
+        for path in want {
+            self.ensure_db_listing(ctx, conn.id.clone(), path);
+        }
+
+        let mut out: Vec<String> = Vec::new();
+        if let Some(o) = &origin {
+            out.push(o.schema.clone());
+            out.push(o.table.clone());
+            out.extend(o.catalog.clone());
+        }
+        for (path, (names, tables)) in &listed {
+            out.extend(names.iter().cloned());
+            if !tables {
+                continue;
+            }
+            for table in names.iter().filter(|n| words.contains(&n.to_lowercase())) {
+                let key = (conn.id.clone(), path.clone(), table.clone());
+                let cached = self
+                    .server_columns
+                    .lock()
+                    .ok()
+                    .map(|m| m.get(&key).cloned());
+                match cached {
+                    Some(Some(Some(cols))) => out.extend(cols),
+                    Some(Some(None)) | None => {}
+                    Some(None) => self.start_server_columns(ctx, &conn, key),
+                }
+            }
+        }
+        out
+    }
+
+    /// Fetch one server table's column names on a worker, into
+    /// [`ServerColumns`]. The slot is claimed first (`None`), so a table is
+    /// asked about once; a failure leaves it at `None` for the session rather
+    /// than retrying every frame.
+    fn start_server_columns(
+        &self,
+        ctx: &egui::Context,
+        conn: &octa::db::DbConnection,
+        key: (String, String, String),
+    ) {
+        if let Ok(mut m) = self.server_columns.lock() {
+            m.insert(key.clone(), None);
+        } else {
+            return;
+        }
+        let conn = conn.clone();
+        let settings = self.settings.clone();
+        let cache = self.db_conn_cache.clone();
+        let slot = self.server_columns.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let (_, path, table) = &key;
+            let parts = crate::app::db_browser::split_path(path);
+            let (catalog, schema) = match parts.as_slice() {
+                [cat, sch] => (Some(*cat), *sch),
+                [sch] => (None, *sch),
+                _ => return,
+            };
+            let sql = octa::db::table_metadata_sql(conn.engine, catalog, schema, table);
+            let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
+            let ssh = octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &settings);
+            let cols = cache
+                .with_conn(&conn, secret.as_deref(), ssh.as_deref(), |c| c.query(&sql))
+                .map(|t| octa::db::column_names_from_metadata(&t));
+            if let Ok(cols) = cols
+                && let Ok(mut m) = slot.lock()
+            {
+                m.insert(key, Some(cols));
+            }
+            ctx.request_repaint();
+        });
     }
 
     pub(super) fn workspace_select_inspector(&mut self, sel: Option<InspectorTarget>) {
@@ -363,10 +546,8 @@ impl OctaApp {
         );
     }
 
-    pub(super) fn copy_to_clipboard(&mut self, text: String) {
-        if let Ok(mut cb) = arboard::Clipboard::new() {
-            let _ = cb.set_text(text.clone());
-        }
+    pub(super) fn copy_to_clipboard(&mut self, ctx: &egui::Context, text: String) {
+        ctx.copy_text(text.clone());
         self.status_message = Some((format!("Copied `{text}`"), std::time::Instant::now()));
     }
 
@@ -376,20 +557,21 @@ impl OctaApp {
         let limit = self.settings.sql_default_row_limit;
         let tab = &mut self.tabs[self.active_tab];
         let snippet = format!("SELECT * FROM {qualified} LIMIT {limit};");
-        if tab.sql_query.is_empty() {
-            tab.sql_query = snippet;
+        if tab.sql.query.is_empty() {
+            tab.sql.query = snippet;
         } else {
-            if !tab.sql_query.ends_with('\n') {
-                tab.sql_query.push('\n');
+            if !tab.sql.query.ends_with('\n') {
+                tab.sql.query.push('\n');
             }
-            tab.sql_query.push_str(&snippet);
+            tab.sql.query.push_str(&snippet);
         }
     }
 
     pub(super) fn run_select_for_inspector(&mut self, qualified: &str, ctx: &egui::Context) {
         let limit = self.settings.sql_default_row_limit;
-        self.tabs[self.active_tab].sql_query = format!("SELECT * FROM {qualified} LIMIT {limit}");
-        self.run_workspace_query(ctx);
+        let query = format!("SELECT * FROM {qualified} LIMIT {limit}");
+        self.tabs[self.active_tab].sql.query = query.clone();
+        self.queue_local_query(ctx, query);
     }
 
     /// Per-frame: clear any post-mutation row-diff highlight whose timer has

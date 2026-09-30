@@ -31,6 +31,7 @@ pub(super) fn view_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
         has_json,
         has_yaml,
         readonly_mode,
+        show_invisibles,
         split_view,
         split_side_by_side,
         split_panes,
@@ -274,6 +275,17 @@ pub(super) fn view_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 .clicked()
             {
                 action.toggle_readonly = true;
+                ui.close();
+            }
+            if ui
+                .checkbox(
+                    &mut show_invisibles.clone(),
+                    crate::i18n::t("view_menu.show_invisibles"),
+                )
+                .on_hover_text(crate::i18n::t("view_menu.show_invisibles_hint"))
+                .clicked()
+            {
+                action.toggle_invisibles = true;
                 ui.close();
             }
 

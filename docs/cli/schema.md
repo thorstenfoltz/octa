@@ -82,7 +82,7 @@ order_id,Int64
   MCP server's [`list_tables`](../mcp/tools/list_tables.md) tool
   covers that case.
 - **Streaming formats** (Parquet, CSV, TSV) load the standard
-  initial-row batch (5 Million rows by default, override with
+  initial-row batch (2 Million rows by default, override with
   `--rows N|all`) and then project the schema out, so the cost is
   the read cost of the cap, not the whole file. For schema-only
   inspection on multi-GB files, this is usually still sub-second on

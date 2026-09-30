@@ -17,7 +17,7 @@ file extension, both routed through Octa's `FormatRegistry`.
 | `input`     | string | yes       | (no default) | Source file path. Format inferred from extension                              |
 | `output`    | string | yes       | (no default) | Destination file path. Format inferred from extension                         |
 | `table`     | string | no        | (no default) | For multi-table input sources, which table to export                          |
-| `unlimited` | bool   | no        | `false`      | Lift the 5,000,000-row file-loader cap so the entire source file is converted |
+| `unlimited` | bool   | no        | `false`      | Lift the 2,000,000-row file-loader cap so the entire source file is converted |
 
 ## Response shape
 
@@ -105,7 +105,7 @@ input.sas7bdat output.csv` is valid.
 
 - The input is loaded fully into memory before writing. Streaming
   formats (Parquet, CSV, TSV) honour the initial-load cap during
-  the read step (5,000,000 rows by default). For larger
+  the read step (2,000,000 rows by default). For larger
   conversions, pass `unlimited: true`. Parquet files with very many
   row groups fall back to a DuckDB-backed reader automatically.
 - `convert` overwrites the output path without prompting, so

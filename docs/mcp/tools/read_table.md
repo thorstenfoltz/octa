@@ -21,7 +21,7 @@ then pass `table` here.
 | `path`      | string | yes       | (no default)          | Absolute or working-directory-relative path to the file                                    |
 | `limit`     | int    | no        | server default (1000) | Maximum rows to return in the response. `0` means unlimited                                |
 | `table`     | string | no        | (no default)          | Specific table to read for multi-table sources                                             |
-| `unlimited` | bool   | no        | `false`               | Lift the 5,000,000-row file-loader cap so every row is read from disk. Use with `limit: 0` |
+| `unlimited` | bool   | no        | `false`               | Lift the 2,000,000-row file-loader cap so every row is read from disk. Use with `limit: 0` |
 
 ## Response shape
 
@@ -103,9 +103,9 @@ There are two caps to lift, in two different places:
 - `limit` controls how many rows the *response* JSON carries
   (default 1000). `limit: 0` removes that ceiling.
 - `unlimited: true` controls how many rows the *file loader* reads
-  off disk (default 5,000,000 for streaming formats). Without it,
+  off disk (default 2,000,000 for streaming formats). Without it,
   the response can never contain more rows than the file loader
-  actually loaded, so `limit: 0` alone tops out at 5 Million.
+  actually loaded, so `limit: 0` alone tops out at 2 Million.
 
 Combine both to truly read every row, after checking the file isn't
 multi-GB:
@@ -129,7 +129,7 @@ out only when the user has a real need.
 
 | Format                                 | Notes                                                                                                                                                                                         |
 |----------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Parquet, CSV, TSV                      | Streaming readers: load the first 5 M rows (the server's initial-load cap, lifted by `unlimited: true`), then truncate to `limit`. Parquet files with > 32,767 row groups fall back to DuckDB |
+| Parquet, CSV, TSV                      | Streaming readers: load the first 2 M rows (the server's initial-load cap, lifted by `unlimited: true`), then truncate to `limit`. Parquet files with > 32,767 row groups fall back to DuckDB |
 | SQLite / DuckDB / GeoPackage           | Multi-table: pass `table` to pick. Default reads the first table                                                                                                                              |
 | Excel / SPSS / Stata / SAS / RDS / DBF | Full file load; `limit` truncates after the read                                                                                                                                              |
 | HDF5 / NetCDF                          | Same; full load + truncate                                                                                                                                                                    |

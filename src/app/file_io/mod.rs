@@ -964,13 +964,20 @@ impl OctaApp {
                 tab.view_mode = ViewMode::Table;
             }
 
-            tab.sql_query.clear();
-            tab.sql_result = None;
-            tab.sql_result_total = None;
-            tab.sql_error = None;
-            tab.sql_panel_open =
-                self.settings.sql_panel_default_open && tab.view_mode == ViewMode::Table;
-            tab.sql_editor_focus_pending = tab.sql_panel_open;
+            // An open editor stays open over the new file, queries and all
+            // (Settings -> SQL), rather than vanishing with the empty tab it
+            // was opened on. It docks: there is a table to see now.
+            let keep_sql = self.settings.sql_keep_open && tab.sql_panel_open;
+            if !keep_sql {
+                tab.sql.query.clear();
+            }
+            tab.sql.result = None;
+            tab.sql.result_total = None;
+            tab.sql.error = None;
+            tab.sql_maximised = false;
+            tab.sql_panel_open = (keep_sql || self.settings.sql_panel_default_open)
+                && tab.view_mode == ViewMode::Table;
+            tab.sql.focus_pending = tab.sql_panel_open;
 
             // A PDF whose other pages are scanned images: say those pages
             // were not read, rather than letting the table look complete.
@@ -1003,14 +1010,14 @@ impl OctaApp {
             if tab.table.format_name.as_deref() == Some("JSON") && tab.json_value.is_some() {
                 tab.view_mode = ViewMode::JsonTree;
                 tab.sql_panel_open = false;
-                tab.sql_editor_focus_pending = false;
+                tab.sql.focus_pending = false;
             } else if matches!(
                 tab.table.format_name.as_deref(),
                 Some("YAML") | Some("TOML") | Some("XML")
             ) {
                 tab.view_mode = ViewMode::Raw;
                 tab.sql_panel_open = false;
-                tab.sql_editor_focus_pending = false;
+                tab.sql.focus_pending = false;
             }
             // Both trees share the depth+expand tracking fields, since only
             // one tree view is shown per tab at a time.

@@ -1065,9 +1065,11 @@ the `copy_db_table` tool.
 
 ## SQL: server or local
 
-On a database tab the SQL panel gains a **Run on** toggle: the
-connection name runs the query on the server, in the engine's own SQL
-dialect; **local DuckDB** queries the loaded snapshot as usual. Server
+The SQL panel has a **Run on** picker on every tab: a connection name
+runs the query on that server, in the engine's own SQL dialect, with
+every table there queryable by its real name and no attach needed;
+**local DuckDB** queries the loaded snapshot as usual. A database tab
+starts on its own connection. Server
 queries run in the background with a Cancel button that works on every
 engine (see "Cancelling a running query" below).
 
@@ -1518,9 +1520,22 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
   un-aligning" guard, "warn on date format change" banner, "trim
   whitespace on load" + "warn on whitespace trim" toggles, "read-only
   mode notice" toggle, notebook output layout.
-- **SQL**: panel position, default row limit, autocomplete, editor font,
-  mutation-change highlight (on/off + duration)
-  (JetBrains Mono / Match UI / System Monospace).
+- **SQL**, in six groups you open as needed:
+  - **Panel**: open the SQL panel by default, **Keep the SQL editor open**
+    (closing a tab or opening a file keeps the editor and your queries;
+    on by default), panel position (Bottom / Top / Left / Right).
+  - **Editor**: autocomplete, editor font (JetBrains Mono / Match UI /
+    System Monospace), default row limit of the template query.
+  - **Results**: result rows per page, mutation-change highlight (on/off +
+    duration).
+  - **Other open tabs**: query other open tabs, and the row limit above
+    which a tab gets a Register button instead.
+  - **Query history**: keep the queries you run, and how many.
+  - **Format SQL**: keyword case, whole query on one line, indent, commas,
+    JOIN level, how long a list, a clause and a bracket may stay on one
+    line (each explained with an example under its field; an empty clause
+    width uses the list width), blank lines between statements, a closing
+    semicolon. A live preview shows the result.
 - **MCP**: default row limit (with **Unlimited** toggle) and per-cell
   byte cap for the `octa --mcp` server. Read at server startup, so
   changes require a restart.
@@ -1537,16 +1552,19 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
   the **Cloud Storage** section.
 - **Map**: default mode (Tiles / Geometry only), tile URL template,
   fall-back-to-geometry toggle for offline / blocked tile fetches.
-- **Directory Tree**: sidebar position (left / right / top / bottom, for
-  both the folder browser and the cloud-connections browser), and "show
-  only openable files" (on by default) to hide files Octa can't open.
+- **Directory Tree**: sidebar position of the folder browser (left /
+  right / top / bottom), and "show only openable files" (on by default)
+  to hide files Octa can't open.
+- **Panels**: where each dockable panel sits, including the cloud and the
+  database connections browsers (left by default, or right / top /
+  bottom). Browsers on the same edge share one panel.
 - **Shortcuts**: rebind any keyboard shortcut. Conflicting bindings are
   flagged.
 - **Performance**: initial-load row cap (streaming readers), the live
   database page size (how many rows one request to a database connection
   fetches, default 100,000), syntax-highlight size cap (raw editor
   fallback), the raw view size cap (largest file read fully into the raw
-  editor, default 500 MB, with an Unlimited toggle), a user-extensible
+  editor, default 50 MB, with an Unlimited toggle), a user-extensible
   list of file extensions to open as plain text, and how many Excel
   sheets to auto-open.
 - **Window**: initial size, start maximised. The initial size is the

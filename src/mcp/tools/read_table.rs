@@ -36,7 +36,7 @@ pub struct Params {
     /// Maximum rows to return. Omit to use the configured default; pass 0 for
     /// unlimited.
     /// Note: this only slices the *response*. The file is still read with
-    /// the streaming initial-load cap (5 M rows by default). Set `unlimited`
+    /// the streaming initial-load cap (2 M rows by default). Set `unlimited`
     /// to lift the file-loader cap as well.
     #[serde(default)]
     pub limit: Option<usize>,
@@ -59,7 +59,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let source = source_from(&p.open_tab, &p.path, &p.table);
     let cap = ctx.resolve_row_cap(p.limit);
     // A big file is paged rather than loaded: returning a hundred rows should
-    // not cost five million. `unlimited` is refused here rather than honoured,
+    // not cost two million. `unlimited` is refused here rather than honoured,
     // because the whole point is that this file does not fit.
     if let Some(scan) = ctx.scan_for(&source) {
         let want = match cap {

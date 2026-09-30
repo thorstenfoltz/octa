@@ -67,10 +67,6 @@ pub struct TableViewState {
     /// Ctrl+Arrow extension starting from a single cell. Cleared on plain
     /// click or plain-arrow navigation.
     pub selected_cells: HashSet<(usize, usize)>,
-    /// Clipboard content (tab-separated values, rows separated by newlines).
-    pub clipboard: Option<String>,
-    /// Whether the OS clipboard currently has text content (set each frame by the app).
-    pub os_clipboard_has_text: bool,
     /// Column header being renamed: (col_idx, current_buffer).
     pub editing_col_name: Option<(usize, String)>,
     /// Whether the column name edit widget needs initial focus.
@@ -367,7 +363,6 @@ pub(crate) struct NumFmtCtx<'a> {
 pub struct TableCtx<'a> {
     pub theme_mode: ThemeMode,
     pub filtered_rows: &'a [usize],
-    pub os_clipboard_has_content: bool,
     pub show_row_numbers: bool,
     /// When true (filter active + setting on), draw a second row-number column
     /// counting the visible rows from 1, beside the original row numbers.
@@ -377,6 +372,8 @@ pub struct TableCtx<'a> {
     pub highlight_edits: bool,
     pub font_size: f32,
     pub cell_line_breaks: bool,
+    /// Draw spaces, tabs and invisible characters inside cells as markers.
+    pub show_invisibles: bool,
     /// Style cells that hold a web URL as a hyperlink and open on Ctrl+click.
     pub clickable_links: bool,
     pub binary_display_mode: BinaryDisplayMode,
@@ -448,6 +445,7 @@ pub(super) struct PaintCtx<'a> {
     pub negative_numbers_red: bool,
     pub highlight_edits: bool,
     pub cell_line_breaks: bool,
+    pub show_invisibles: bool,
     pub clickable_links: bool,
     pub readonly: bool,
     /// `None` when the tab's file is in a Git repository (the cell menu's
@@ -644,6 +642,8 @@ pub struct TableInteraction {
     pub ctx_copy: bool,
     /// Copy the current selection to the clipboard as a Markdown table.
     pub ctx_copy_markdown: bool,
+    /// Right-click **Copy as IN list**: the selection as `('a', 'b')`.
+    pub ctx_copy_in_list: bool,
     pub ctx_cut: bool,
     pub ctx_paste: bool,
     /// Text received from OS clipboard via Ctrl+V / Paste event
@@ -757,7 +757,6 @@ pub fn draw_table(
     let TableCtx {
         theme_mode,
         filtered_rows,
-        os_clipboard_has_content,
         show_row_numbers,
         show_sequential_numbers,
         alternating_row_colors,
@@ -765,6 +764,7 @@ pub fn draw_table(
         highlight_edits,
         font_size,
         cell_line_breaks,
+        show_invisibles,
         clickable_links,
         binary_display_mode,
         welcome_logo_texture,
@@ -789,7 +789,6 @@ pub fn draw_table(
         .uniform_row_height
         .unwrap_or_else(|| base_row_height(font_size));
     state.ensure_widths(table);
-    state.os_clipboard_has_text = os_clipboard_has_content;
 
     // Numeric-display context shared by autofit measurement (Ctrl+Shift+W and
     // the header-seam double-click), so widths match the painted cell text.
@@ -1021,7 +1020,14 @@ pub fn draw_table(
         );
     }
 
-    input::take_paste_event(ui, state, handles_input, &mut interaction);
+    // A focused text box (the SQL editor, the search bar) already took the
+    // paste; the table taking it as well pasted into the cells behind it.
+    input::take_paste_event(
+        ui,
+        state,
+        handles_input && !any_text_edit_focused,
+        &mut interaction,
+    );
 
     let (panel_rect, _) =
         ui.allocate_exact_size(Vec2::new(view_width, view_height), Sense::hover());
@@ -1050,6 +1056,7 @@ pub fn draw_table(
         negative_numbers_red,
         highlight_edits,
         cell_line_breaks,
+        show_invisibles,
         clickable_links,
         readonly,
         cell_history_unavailable,

@@ -16,7 +16,7 @@ like a SQL JOIN or a spreadsheet VLOOKUP. Runs through DuckDB.
 | `on`        | string[] | yes       | (no default)   | Key column name(s); must exist in every source. At least one required                                       |
 | `how`       | string   | no        | `left`         | `left`, `inner`, `right`, `full`, `semi`, `anti`, or `asof` (last `on` key = nearest earlier value)         |
 | `limit`     | integer  | no        | server default | Max rows to return. `0` = unlimited                                                                         |
-| `unlimited` | bool     | no        | `false`        | Lift the 5,000,000-row file-loader cap so every source row is read                                          |
+| `unlimited` | bool     | no        | `false`        | Lift the 2,000,000-row file-loader cap so every source row is read                                          |
 
 ## Response shape
 

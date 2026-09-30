@@ -184,7 +184,7 @@ Notes:
   * Action flags are mutually exclusive - pick one. Without any, Octa
     launches its GUI.
   * --rows overrides the initial-load row cap for this invocation
-    (default 5,000,000). Pass `all` to load every row. Useful for
+    (default 2,000,000). Pass `all` to load every row. Useful for
     --sql / --head / --convert against very large Parquet/CSV files.
 ";
 
@@ -1065,7 +1065,7 @@ pub struct Cli {
     /// Override the initial-load row cap for streaming formats (Parquet, CSV, TSV) for this single invocation.
     ///
     /// Accepts a number (commas allowed, e.g. `5,000,000`) or `all` to load every
-    /// row. Defaults to the compiled-in cap (5 million rows).
+    /// row. Defaults to the compiled-in cap (2 million rows).
     #[arg(long, value_name = "N|all")]
     pub rows: Option<String>,
 

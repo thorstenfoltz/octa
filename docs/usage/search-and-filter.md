@@ -148,7 +148,7 @@ page, and a search over those rows is a search over a window, not over
 the file.
 
 When that is the case the search bar says so in plain numbers, for
-example `Only 5,000,000 of 20,000,000 rows are loaded.`, and offers one
+example `Only 2,000,000 of 20,000,000 rows are loaded.`, and offers one
 button beside it:
 
 - **Search whole file** for a Parquet, CSV/TSV or JSON file. The count

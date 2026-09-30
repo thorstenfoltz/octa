@@ -318,6 +318,9 @@ const JUST_EXECUTES: &[&str] = &[
     "edit_menu.recipe_panel", // toggles the panel
     "retype.menu",            // opens a submenu, not a window
     "edit_menu.copy_markdown",
+    "edit_menu.copy_in_list",
+    "context_menu.copy_in_list",
+    "view_menu.show_invisibles",
     "edit_menu.insert_row",
     "edit_menu.clear_all_marks",
     "edit_menu.discard_all_edits",

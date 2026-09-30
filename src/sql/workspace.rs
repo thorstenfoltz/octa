@@ -49,7 +49,13 @@ use super::engine::{
 /// it out of the way of user tables; it is replaced on every paged run and
 /// never registered in `tables`, so it stays out of the workspace listing and
 /// out of autocomplete.
-const RESULT_TABLE: &str = "__octa_result";
+/// Where a paged result is materialised, one table per result slot: the GUI
+/// passes its editor pane's id, so side-by-side editors each keep their own
+/// result to page through and export. A single shared table meant the second
+/// editor's run replaced the first editor's rows behind its back.
+fn result_table(slot: u64) -> String {
+    format!("__octa_result_{slot}")
+}
 
 /// Ordering key added to that table. Without it a page is a LIMIT/OFFSET over
 /// a parallel scan with no promised order, which can repeat or skip rows
@@ -768,9 +774,15 @@ impl SqlWorkspace {
         for name in self.tables.keys() {
             out.push(name.clone());
         }
+        // Catalogs and schemas too, so `alias.schema.table` completes at
+        // every part. One statement, one round trip to an attached server.
         Self::push_first_column(
             &self.conn,
-            "SELECT table_name FROM information_schema.tables \
+            "SELECT table_catalog FROM information_schema.tables \
+             WHERE table_schema NOT IN ('information_schema', 'pg_catalog') \
+             UNION SELECT table_schema FROM information_schema.tables \
+             WHERE table_schema NOT IN ('information_schema', 'pg_catalog') \
+             UNION SELECT table_name FROM information_schema.tables \
              WHERE table_schema NOT IN ('information_schema', 'pg_catalog')",
             &mut out,
         );
@@ -1010,13 +1022,18 @@ impl SqlWorkspace {
     ///
     /// The unpaged path pulls every row into a Rust `Vec` and stops at the
     /// file-open cap, so a bare `SELECT * FROM data` cost millions of rows of
-    /// memory and reported "5,000,000 (capped)" rather than a real count.
+    /// memory and reported "2,000,000 (capped)" rather than a real count.
     /// Here the rows stay in DuckDB and only a page crosses into Rust.
     ///
     /// `page_rows` of 0 means "no paging". Anything this cannot safely wrap in
     /// a subquery (a mutation, an easter egg, several statements at once)
     /// falls through to [`Self::execute`] with `total_rows: None`.
-    pub fn execute_paged(&mut self, query: &str, page_rows: usize) -> Result<PagedResult> {
+    pub fn execute_paged(
+        &mut self,
+        query: &str,
+        page_rows: usize,
+        slot: u64,
+    ) -> Result<PagedResult> {
         let inner = match pageable_select(query.trim()) {
             Some(inner) if page_rows > 0 => inner.to_string(),
             _ => {
@@ -1026,24 +1043,25 @@ impl SqlWorkspace {
                 });
             }
         };
+        let result_table = result_table(slot);
         self.conn
-            .execute(&format!("DROP TABLE IF EXISTS {RESULT_TABLE}"), [])?;
+            .execute(&format!("DROP TABLE IF EXISTS {result_table}"), [])?;
         // `row_number() OVER ()` over the already-ordered subquery, so a page
         // boundary cannot repeat or skip a row: a plain LIMIT/OFFSET over a
         // parallel table scan has no promised order to page through.
         self.conn.execute(
             &format!(
-                "CREATE TEMP TABLE {RESULT_TABLE} AS \
+                "CREATE TEMP TABLE {result_table} AS \
                  SELECT row_number() OVER () AS {RESULT_ORDER_COL}, * FROM ({inner})"
             ),
             [],
         )?;
         let total: i64 =
             self.conn
-                .query_row(&format!("SELECT count(*) FROM {RESULT_TABLE}"), [], |r| {
+                .query_row(&format!("SELECT count(*) FROM {result_table}"), [], |r| {
                     r.get(0)
                 })?;
-        let table = self.result_page(0, page_rows)?;
+        let table = self.result_page(slot, 0, page_rows)?;
         Ok(PagedResult {
             outcome: QueryOutcome {
                 kind: QueryKind::Select,
@@ -1057,11 +1075,12 @@ impl SqlWorkspace {
 
     /// One page of the result [`Self::execute_paged`] last materialised.
     /// Errors when the last statement was not paged.
-    pub fn result_page(&self, offset: usize, len: usize) -> Result<DataTable> {
+    pub fn result_page(&self, slot: u64, offset: usize, len: usize) -> Result<DataTable> {
+        let result_table = result_table(slot);
         execute_query(
             &self.conn,
             &format!(
-                "SELECT * EXCLUDE ({RESULT_ORDER_COL}) FROM {RESULT_TABLE} \
+                "SELECT * EXCLUDE ({RESULT_ORDER_COL}) FROM {result_table} \
                  ORDER BY {RESULT_ORDER_COL} LIMIT {len} OFFSET {offset}"
             ),
         )
@@ -1069,14 +1088,22 @@ impl SqlWorkspace {
 
     /// The whole materialised result, for Export and Write result to DB -
     /// neither may ship only the page that happens to be on screen.
-    pub fn result_all(&self) -> Result<DataTable> {
+    pub fn result_all(&self, slot: u64) -> Result<DataTable> {
+        let result_table = result_table(slot);
         execute_query(
             &self.conn,
             &format!(
-                "SELECT * EXCLUDE ({RESULT_ORDER_COL}) FROM {RESULT_TABLE} \
+                "SELECT * EXCLUDE ({RESULT_ORDER_COL}) FROM {result_table} \
                  ORDER BY {RESULT_ORDER_COL}"
             ),
         )
+    }
+
+    /// Free a slot's materialised result (its editor was closed).
+    pub fn drop_result(&self, slot: u64) {
+        let _ = self
+            .conn
+            .execute(&format!("DROP TABLE IF EXISTS {}", result_table(slot)), []);
     }
 
     /// Execute a statement against the workspace's persistent connection.

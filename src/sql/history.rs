@@ -2,10 +2,10 @@
 //!
 //! Snippets are for a query you decided to keep. History is for the one you ran
 //! twenty minutes ago and did not, which until now was thrown away when the tab
-//! closed. Persisted to `<config_dir>/sql_history.json` and **scoped**, so the
-//! queries you ran against the production server are not mixed in with the ones
-//! you ran against a CSV: a database tab keys on the connection id, a
-//! file-backed workspace on its path.
+//! closed. Persisted to `<config_dir>/sql_history.json` as **one list** shared
+//! by every editor, newest first. Each entry remembers where it ran (`source`:
+//! a connection id, a cloud object or a file path), so the menu can say so.
+//! Earlier builds kept one list per source; those files are flattened on load.
 //!
 //! Each entry carries the timing and row count the panel already had in hand,
 //! which is what makes the list worth reading rather than just re-runnable.
@@ -33,6 +33,11 @@ pub struct SqlHistoryEntry {
     pub duration_ms: u64,
     #[serde(default)]
     pub rows: usize,
+    /// Where the query ran: `db:<conn_id>`, `cloud:<conn_id>:<key>`,
+    /// `file:<path>` or `scratch`. Ids rather than names, so a renamed
+    /// connection still resolves when the menu draws it.
+    #[serde(default)]
+    pub source: String,
 }
 
 /// Which workspace a query was run in. A connection id survives a rename, so
@@ -46,24 +51,48 @@ pub fn file_scope(path: &str) -> String {
     format!("file:{path}")
 }
 
-/// The whole history file: scope -> entries, most recent first.
-type History = BTreeMap<String, Vec<SqlHistoryEntry>>;
+pub fn cloud_scope(conn_id: &str, key: &str) -> String {
+    format!("cloud:{conn_id}:{key}")
+}
+
+/// Parse the history file. Takes the current flat list, or the older
+/// `scope -> entries` map, which is flattened (the scope becomes each entry's
+/// `source`) and re-sorted newest first so nobody loses their history.
+pub fn parse(text: &str) -> Vec<SqlHistoryEntry> {
+    if let Ok(v) = serde_json::from_str::<Vec<SqlHistoryEntry>>(text) {
+        return v;
+    }
+    let Ok(old) = serde_json::from_str::<BTreeMap<String, Vec<SqlHistoryEntry>>>(text) else {
+        return Vec::new();
+    };
+    let mut out: Vec<SqlHistoryEntry> = old
+        .into_iter()
+        .flat_map(|(scope, entries)| {
+            entries.into_iter().map(move |e| SqlHistoryEntry {
+                source: scope.clone(),
+                ..e
+            })
+        })
+        .collect();
+    out.sort_by_key(|e| std::cmp::Reverse(e.at_unix));
+    out
+}
 
 fn history_path() -> Option<PathBuf> {
     AppSettings::config_dir().map(|d| d.join("sql_history.json"))
 }
 
-fn load_all() -> History {
+/// Every recorded query, most recent first.
+pub fn load() -> Vec<SqlHistoryEntry> {
     let Some(path) = history_path() else {
-        return History::new();
+        return Vec::new();
     };
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return History::new();
-    };
-    serde_json::from_str(&text).unwrap_or_default()
+    std::fs::read_to_string(&path)
+        .map(|t| parse(&t))
+        .unwrap_or_default()
 }
 
-fn save_all(history: &History) {
+fn save_all(history: &[SqlHistoryEntry]) {
     let Some(path) = history_path() else {
         return;
     };
@@ -75,18 +104,14 @@ fn save_all(history: &History) {
     }
 }
 
-/// The recorded queries for one scope, most recent first.
-pub fn load(scope: &str) -> Vec<SqlHistoryEntry> {
-    load_all().remove(scope).unwrap_or_default()
-}
-
 /// Fold one executed query into `entries`, newest first, de-duplicated and
 /// capped. Pure, so the ordering and capping rules are testable without
 /// touching the disk.
 ///
 /// `limit` of 0 means unlimited, the same convention `chat_result_row_limit`
 /// uses. Re-running a query moves it to the top with its new timing rather than
-/// leaving a second copy: the list is "what have I run", not "how often".
+/// leaving a second copy: the list is "what have I run", not "how often". The
+/// same text run against two sources is two entries.
 pub fn fold(entries: &mut Vec<SqlHistoryEntry>, entry: SqlHistoryEntry, limit: usize) -> bool {
     let trimmed = entry.query.trim();
     if trimmed.is_empty() {
@@ -96,7 +121,7 @@ pub fn fold(entries: &mut Vec<SqlHistoryEntry>, entry: SqlHistoryEntry, limit: u
         query: trimmed.to_string(),
         ..entry
     };
-    entries.retain(|e| e.query != entry.query);
+    entries.retain(|e| e.query != entry.query || e.source != entry.source);
     entries.insert(0, entry);
     if limit > 0 {
         entries.truncate(limit);
@@ -104,26 +129,18 @@ pub fn fold(entries: &mut Vec<SqlHistoryEntry>, entry: SqlHistoryEntry, limit: u
     true
 }
 
-/// Record one executed query against a scope. A no-op when history is switched
-/// off, so the caller need not check first.
+/// Record one executed query. A no-op when history is switched off, so the
+/// caller need not check first. Re-reads the file rather than trusting the
+/// in-memory copy, so a second Octa window's queries are not overwritten.
 ///
 /// Takes the two settings values rather than `AppSettings` so it can be called
 /// while a tab is mutably borrowed, which is the whole of the SQL panel.
-pub fn record(scope: &str, entry: SqlHistoryEntry, enabled: bool, limit: usize) {
+pub fn record(entry: SqlHistoryEntry, enabled: bool, limit: usize) {
     if !enabled {
         return;
     }
-    let mut all = load_all();
-    let entries = all.entry(scope.to_string()).or_default();
-    if fold(entries, entry, limit) {
-        save_all(&all);
-    }
-}
-
-/// Forget one scope's history (the panel's Clear history action).
-pub fn clear(scope: &str) {
-    let mut all = load_all();
-    if all.remove(scope).is_some() {
+    let mut all = load();
+    if fold(&mut all, entry, limit) {
         save_all(&all);
     }
 }

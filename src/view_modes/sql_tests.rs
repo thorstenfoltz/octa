@@ -22,6 +22,18 @@ fn prefix_is_empty_after_whitespace() {
 }
 
 #[test]
+fn prefix_takes_non_ascii_letters() {
+    // `Gr\u{f6}` used to stop at the umlaut and offer nothing for `Gr\u{f6}\u{df}e`.
+    let s = "SELECT Gr\u{f6}";
+    let (start, pfx) = current_prefix_at(s, s.len());
+    assert_eq!(pfx, "Gr\u{f6}");
+    assert_eq!(start, 7);
+    // A cursor inside a multi-byte char must not panic.
+    let (_, pfx) = current_prefix_at(s, s.len() - 1);
+    assert_eq!(pfx, "Gr");
+}
+
+#[test]
 fn suggestions_match_columns_and_keywords() {
     let cols = vec!["name".to_string(), "age".to_string()];
     let out = collect_suggestions("n", &cols, 8);
@@ -244,7 +256,7 @@ fn run_sql_panel(
 
     let ctx = egui::Context::default();
     let mut tab = TabState::new(octa::data::SearchMode::Plain);
-    tab.sql_query = (0..editor_lines)
+    tab.sql.query = (0..editor_lines)
         .map(|i| format!("SELECT {i} FROM data"))
         .collect::<Vec<_>>()
         .join("\n");
@@ -276,7 +288,7 @@ fn run_sql_panel(
                         workspace_attachments: &[],
                         inspector_selection: None,
                         inspector_entry: None,
-                        server_conn_name: None,
+                        history: &[],
                         server_running: false,
                         db_connections: Vec::new(),
                         cloud_connections: Vec::new(),
@@ -284,6 +296,7 @@ fn run_sql_panel(
                         show_auto_register_notice: false,
                         chat_profile_available: false,
                         ask_profiles: Vec::new(),
+                        extra_identifiers: &[],
                     },
                 );
             };
@@ -429,4 +442,288 @@ fn every_sql_handle_moves_its_boundary() {
             );
         }
     }
+}
+
+#[test]
+fn line_comments_run_to_end_of_line_and_skip_strings() {
+    let s = "SELECT 1 -- one\nSELECT '--x' -- two";
+    let got: Vec<&str> = line_comment_ranges(s).into_iter().map(|r| &s[r]).collect();
+    assert_eq!(got, vec!["-- one", "-- two"]);
+    assert!(line_comment_ranges("SELECT 'it''s -- no'").is_empty());
+}
+
+/// Paste and copy reach the SQL editor through the real view, on a tab that
+/// holds a table and has a selected result cell (the Ctrl+C hijack beside it).
+#[test]
+fn editor_takes_paste_and_copy_with_a_table_open() {
+    use crate::app::state::TabState;
+
+    let ctx = egui::Context::default();
+    let mut tab = TabState::new(octa::data::SearchMode::Plain);
+    tab.table = octa::data::DataTable::empty();
+    tab.table.columns.push(octa::data::ColumnInfo {
+        name: "a".into(),
+        data_type: "Utf8".into(),
+    });
+    tab.sql.query = "SELECT 1".into();
+    tab.sql.focus_pending = true;
+    let frame = |events: Vec<egui::Event>, tab: &mut TabState| {
+        let input = egui::RawInput {
+            events,
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(1000.0, 700.0),
+            )),
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| {
+            egui::Panel::bottom("sql_panel_bottom")
+                .default_size(500.0)
+                .show(ui, |ui| {
+                    render_sql_view(
+                        ui,
+                        tab,
+                        SqlViewContext {
+                            autocomplete_enabled: true,
+                            default_row_limit: 1000,
+                            partial_rows: None,
+                            editor_font: octa::ui::settings::SqlEditorFont::SystemMonospace,
+                            workspace_tables: &[],
+                            workspace_attachments: &[],
+                            inspector_selection: None,
+                            inspector_entry: None,
+                            history: &[],
+                            server_running: false,
+                            db_connections: Vec::new(),
+                            cloud_connections: Vec::new(),
+                            auto_registered: &[],
+                            show_auto_register_notice: false,
+                            chat_profile_available: false,
+                            ask_profiles: Vec::new(),
+                            extra_identifiers: &[],
+                        },
+                    );
+                });
+        });
+        out.textures_delta.clear();
+        out
+    };
+    for _ in 0..3 {
+        frame(Vec::new(), &mut tab);
+    }
+    frame(vec![egui::Event::Paste(" -- x".into())], &mut tab);
+    assert_eq!(tab.sql.query, "SELECT 1 -- x");
+
+    // Mark "SELECT" and copy it.
+    let id = editor_id(tab.sql.id);
+    let mut state = egui::TextEdit::load_state(&ctx, id).expect("editor state");
+    state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::new(0),
+            egui::text::CCursor::new(6),
+        )));
+    state.store(&ctx, id);
+    assert_eq!(query_to_run(&ctx, &tab.sql), "SELECT");
+    let out = frame(vec![egui::Event::Copy], &mut tab);
+    let copied = out
+        .platform_output
+        .commands
+        .iter()
+        .any(|c| matches!(c, egui::OutputCommand::CopyText(t) if t == "SELECT"));
+    assert!(copied, "{:?}", out.platform_output.commands);
+}
+
+fn grid() -> octa::data::DataTable {
+    let mut t = octa::data::DataTable::empty();
+    t.columns = ["a", "b", "c"]
+        .iter()
+        .map(|n| octa::data::ColumnInfo {
+            name: (*n).into(),
+            data_type: "Utf8".into(),
+        })
+        .collect();
+    t.rows = (0..3)
+        .map(|r| {
+            (0..3)
+                .map(|c| CellValue::String(format!("{r}{c}")))
+                .collect()
+        })
+        .collect();
+    t
+}
+
+#[test]
+fn result_selection_copies_cells_rows_and_columns() {
+    let t = grid();
+    let none = egui::Modifiers::NONE;
+    let ctrl = egui::Modifiers::COMMAND;
+    let mut sel = SqlResultSelection::default();
+    // Ctrl+click scattered cells: one line per row, left to right.
+    sel.click_cell(2, 2, none);
+    sel.click_cell(0, 1, ctrl);
+    sel.click_cell(2, 0, ctrl);
+    assert_eq!(selection_to_tsv(&t, &sel), "01\n20\t22\n");
+    // Ctrl+click again takes a cell back out.
+    sel.click_cell(2, 0, ctrl);
+    assert_eq!(selection_to_tsv(&t, &sel), "01\n22\n");
+    // A row header replaces the selection with the whole row.
+    sel.click_line(1, true, none);
+    assert_eq!(selection_to_tsv(&t, &sel), "10\t11\t12\n");
+    // A column added with Ctrl: every row, only the selected columns.
+    sel.click_line(0, false, ctrl);
+    assert_eq!(selection_to_tsv(&t, &sel), "00\n10\t11\t12\n20\n");
+}
+
+#[test]
+fn result_selection_shift_click_takes_the_rectangle() {
+    let t = grid();
+    let mut sel = SqlResultSelection::default();
+    sel.click_cell(0, 1, egui::Modifiers::NONE);
+    sel.click_cell(1, 2, egui::Modifiers::SHIFT);
+    assert_eq!(selection_to_tsv(&t, &sel), "01\t02\n11\t12\n");
+}
+
+#[test]
+fn history_sources_resolve_to_names() {
+    let dbs = vec![DbAttachEntry {
+        id: "c1".into(),
+        name: "prod".into(),
+        drill: None,
+    }];
+    let clouds = vec![("s3".to_string(), "bucket".to_string())];
+    assert_eq!(history_source_label("db:c1", &dbs, &clouds).0, "prod");
+    assert_eq!(
+        history_source_label("cloud:s3:dir/x.csv", &dbs, &clouds),
+        ("bucket: x.csv".to_string(), "bucket: dir/x.csv".to_string())
+    );
+    assert_eq!(
+        history_source_label("file:/tmp/sales.csv", &dbs, &clouds).0,
+        "sales.csv"
+    );
+}
+
+/// `[` and `]` mark the selection in these cases; `toggle` returns the text
+/// after one press with the new selection marked the same way.
+fn toggle(marked: &str) -> String {
+    let start = marked.find('[').unwrap();
+    let end = marked.find(']').unwrap() - 1;
+    let text = marked.replace(['[', ']'], "");
+    let (out, sel) = toggle_line_comments(&text, start..end);
+    let mut shown = out.clone();
+    shown.insert(sel.end, ']');
+    shown.insert(sel.start, '[');
+    shown
+}
+
+#[test]
+fn comment_toggle_adds_after_leading_blanks_and_skips_blank_lines() {
+    assert_eq!(
+        toggle("[SELECT a\n\n  FROM t]"),
+        "[--SELECT a\n\n  --FROM t]"
+    );
+    // The caret alone counts as its line.
+    assert_eq!(toggle("SELECT a\nFR[]OM t"), "SELECT a\n--FR[]OM t");
+}
+
+#[test]
+fn comment_toggle_removes_only_the_first_marker() {
+    assert_eq!(toggle("[  --SELECT a\n-- -- b]"), "[  SELECT a\n -- b]");
+}
+
+#[test]
+fn comment_toggle_comments_all_when_lines_are_mixed() {
+    // Pressing twice gets back where you started.
+    let once = toggle("[--a\nb]");
+    assert_eq!(once, "[----a\n--b]");
+    assert_eq!(toggle(&once), "[--a\nb]");
+}
+
+#[test]
+fn comment_toggle_treats_a_trailing_comment_as_code_unless_it_is_marked() {
+    // Selection over the code: the line gets commented at its start.
+    assert_eq!(toggle("[SELECT] a -- note"), "[--SELECT] a -- note");
+    // Selection only inside the trailing comment: that `--` goes.
+    assert_eq!(toggle("SELECT a -- [note]"), "SELECT a  [note]");
+    // A `--` inside a string is text, not a comment.
+    assert_eq!(toggle("[SELECT '--x']"), "[--SELECT '--x']");
+}
+
+#[test]
+fn comment_toggle_leaves_the_line_after_a_full_line_selection_alone() {
+    assert_eq!(toggle("[a\n]b"), "[--a\n]b");
+}
+
+/// Several editors through the real view: each draws its own editor, side
+/// by side left to right without overlap, and typing into one lands in that
+/// one and makes it the active pane (the one Run and Format act on).
+#[test]
+fn side_by_side_editors_each_take_their_own_input() {
+    use crate::app::state::TabState;
+
+    let ctx = egui::Context::default();
+    let mut tab = TabState::new(octa::data::SearchMode::Plain);
+    tab.set_sql_queries(vec!["a".into(), "b".into(), "c".into()]);
+    let frame = |events: Vec<egui::Event>, tab: &mut TabState| {
+        let input = egui::RawInput {
+            events,
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(1200.0, 700.0),
+            )),
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                render_sql_view(
+                    ui,
+                    tab,
+                    SqlViewContext {
+                        autocomplete_enabled: false,
+                        default_row_limit: 1000,
+                        partial_rows: None,
+                        editor_font: octa::ui::settings::SqlEditorFont::SystemMonospace,
+                        workspace_tables: &[],
+                        workspace_attachments: &[],
+                        inspector_selection: None,
+                        inspector_entry: None,
+                        history: &[],
+                        server_running: false,
+                        db_connections: Vec::new(),
+                        cloud_connections: Vec::new(),
+                        auto_registered: &[],
+                        show_auto_register_notice: false,
+                        chat_profile_available: false,
+                        ask_profiles: Vec::new(),
+                        extra_identifiers: &[],
+                    },
+                );
+            });
+        });
+        out.textures_delta.clear();
+    };
+    for _ in 0..3 {
+        frame(Vec::new(), &mut tab);
+    }
+    let ids: Vec<u64> = (0..3).map(|i| tab.sql_pane_id(i)).collect();
+    let rects: Vec<egui::Rect> = ids
+        .iter()
+        .map(|&id| ctx.read_response(editor_id(id)).expect("editor drawn").rect)
+        .collect();
+    for w in rects.windows(2) {
+        assert!(w[0].right() <= w[1].left(), "editors overlap: {rects:?}");
+    }
+
+    ctx.memory_mut(|m| m.request_focus(editor_id(ids[1])));
+    frame(Vec::new(), &mut tab);
+    frame(vec![egui::Event::Text("X".into())], &mut tab);
+    frame(Vec::new(), &mut tab);
+    let queries = tab.sql_queries();
+    assert_eq!(queries[0], "a");
+    assert!(queries[1].contains('X'), "typed into pane 2: {queries:?}");
+    assert_eq!(queries[2], "c");
+    assert_eq!(
+        tab.sql_active_pane, 1,
+        "the focused editor is the active one"
+    );
 }

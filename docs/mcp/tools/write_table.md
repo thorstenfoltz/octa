@@ -23,7 +23,7 @@ use [`run_sql`](run_sql.md) with `write_to`.
 | `columns`   | array  | yes       | (no default) | Column definitions, in order. Each is `{ "name": string, "type"?: string }`           |
 | `rows`      | array  | no        | `[]`         | Array-of-arrays. Each inner array is one row, lined up positionally with `columns`    |
 | `mode`      | string | no        | `create`     | `create` (error if file exists), `overwrite` (replace), or `append` (add to existing) |
-| `unlimited` | bool   | no        | `false`      | Lift the 5,000,000-row file-loader cap when reading the existing file for `append`    |
+| `unlimited` | bool   | no        | `false`      | Lift the 2,000,000-row file-loader cap when reading the existing file for `append`    |
 
 `type` is an Arrow type name (e.g. `Int64`, `Float64`, `Boolean`,
 `Date32`, `Timestamp(Microsecond, None)`, `Utf8`) and defaults to `Utf8`.

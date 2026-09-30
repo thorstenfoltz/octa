@@ -17,11 +17,7 @@ impl OctaApp {
         action: &ui::toolbar::ToolbarAction,
     ) {
         if action.toggle_sql_panel {
-            let tab = &mut self.tabs[self.active_tab];
-            tab.sql_panel_open = !tab.sql_panel_open;
-            if tab.sql_panel_open {
-                tab.sql_editor_focus_pending = true;
-            }
+            self.toggle_sql_panel(self.active_tab);
         }
         if action.open_correlation && self.tabs[self.active_tab].table.col_count() > 0 {
             self.correlation_dialog = Some(crate::app::state::CorrelationState {

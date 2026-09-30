@@ -40,7 +40,7 @@ ceiling. If it stopped on a limit, a note goes to **stderr** naming the page
 and row count, so a pipeline reading stdout is unaffected but a person sees it:
 
 ```text
-note: stopped after 100 pages / 5000000 rows; pass --rows to raise the limit
+note: stopped after 100 pages / 2000000 rows; pass --rows to raise the limit
 ```
 
 A next-page link pointing at a different host stops the read with an error

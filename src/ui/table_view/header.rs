@@ -511,9 +511,7 @@ pub(super) fn draw_header_direct(
                     interaction.ctx_cut = true;
                     ui.close();
                 }
-                if (state.clipboard.is_some() || state.os_clipboard_has_text)
-                    && ui.button(crate::i18n::t("header.paste")).clicked()
-                {
+                if ui.button(crate::i18n::t("header.paste")).clicked() {
                     interaction.ctx_paste = true;
                     ui.close();
                 }

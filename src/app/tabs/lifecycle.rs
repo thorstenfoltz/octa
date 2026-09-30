@@ -44,6 +44,16 @@ impl OctaApp {
             }
         }
 
+        // The SQL editor outlives its tab (Settings -> SQL): the tab that
+        // becomes active opens it, and takes the queries when its own
+        // editors are empty, so closing the last tab does not throw away the
+        // unsaved query. Only the active tab's editor is on screen, so only
+        // closing that one carries anything over.
+        let carry_sql = (idx == self.active_tab
+            && self.settings.sql_keep_open
+            && self.tabs[idx].sql_panel_open)
+            .then(|| self.tabs[idx].sql_queries());
+
         self.tabs.remove(idx);
         self.shift_refresh_indices(idx);
         if self.tabs.is_empty() {
@@ -52,6 +62,11 @@ impl OctaApp {
         }
         if self.active_tab >= self.tabs.len() {
             self.active_tab = self.tabs.len() - 1;
+        }
+        if let Some(queries) = carry_sql {
+            let active = self.active_tab;
+            self.tabs[active].adopt_sql_queries(queries);
+            self.open_sql_panel(active);
         }
     }
 

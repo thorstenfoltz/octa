@@ -39,7 +39,7 @@ mcp_default_cell_bytes = 262144
 
 # How many rows the streaming readers load from the file in the first
 # place. The MCP row limit can never return more than this.
-initial_load_rows = 5000000
+initial_load_rows = 2000000
 ```
 
 **To remove the caps completely**, set them to `0` — the same thing a
@@ -48,7 +48,7 @@ per-call `limit: 0` means:
 ```toml
 mcp_default_row_limit  = 0     # no default row cap
 mcp_default_cell_bytes = 0     # no per-cell byte cap
-initial_load_rows_unlimited = true   # load whole files, not just 5M rows
+initial_load_rows_unlimited = true   # load whole files, not just 2M rows
 ```
 
 These three are what the **Unlimited** checkboxes in the GUI write. Note
@@ -213,17 +213,17 @@ columns then travel uncapped.
 ## Streaming format caveat
 
 For Parquet, CSV, and TSV, Octa reads only the first
-`initial_load_rows` (default 5,000,000) into memory at file-open
+`initial_load_rows` (default 2,000,000) into memory at file-open
 time. This is the same row cap the GUI uses, configurable under
 [Settings → Performance](../reference/settings.md#performance)
 (including an "Unlimited" checkbox).
 
 For the MCP server, this means:
 
-- A `count_rows` call against a 100M-row Parquet returns 5,000,000
+- A `count_rows` call against a 100M-row Parquet returns 2,000,000
   with `initial_load_capped: true`.
 - A `read_table` call against the same file with `limit: 0`
-  returns 5,000,000 rows, not 100M.
+  returns 2,000,000 rows, not 100M.
 - A `run_sql` call (including `SELECT count(*) FROM data`) runs
   against the same in-memory snapshot; DuckDB doesn't re-open
   the file, so the cap applies there too.

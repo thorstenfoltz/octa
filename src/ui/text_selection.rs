@@ -1,7 +1,7 @@
 //! Who owns Ctrl+C this frame.
 //!
 //! Octa's table takes over the clipboard shortcut so Ctrl+C copies the marked
-//! cells, and it writes the OS clipboard directly (`app::clipboard::do_copy`).
+//! cells (`app::clipboard::do_copy`, through egui's `copy_text`).
 //! That is right when the table is what the user marked, and wrong the moment
 //! the marked thing is *text*: a chat bubble, tool output, a message in a
 //! dialog, the contents of a focused text box. Those are ordinary egui
@@ -9,8 +9,8 @@
 //!
 //! So every clipboard-hijacking site asks this first. When it answers true the
 //! hijacker must stand down completely: no draining of `Event::Copy` (egui's
-//! own copy still needs it), and no clipboard write of its own (which would
-//! race egui's). Clicking anywhere outside the text clears the selection, so
+//! own copy still needs it), and no clipboard write of its own (the last
+//! `copy_text` of a pass wins, so the cells would replace the marked text). Clicking anywhere outside the text clears the selection, so
 //! the table gets its shortcut back with the same gesture that stops the text
 //! looking selected.
 

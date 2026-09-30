@@ -160,13 +160,54 @@ impl OctaApp {
     }
 
     /// Copy the current selection to the OS clipboard as a Markdown table.
-    pub(crate) fn do_copy_markdown(&mut self) {
+    pub(crate) fn do_copy_markdown(&self, ctx: &egui::Context) {
         if let Some(text) = self.copy_selection_as_markdown() {
-            self.tabs[self.active_tab].table_state.clipboard = Some(text.clone());
-            if let Some(ref cb) = self.os_clipboard
-                && let Ok(mut cb) = cb.lock()
-            {
-                let _ = cb.set_text(&text);
+            ctx.copy_text(text);
+        }
+    }
+
+    /// Copy the selected cells as a SQL `IN` list. A whole column counts the
+    /// rows the current filter shows, not the hidden ones, since those are
+    /// what the user is looking at when they pick it.
+    pub(crate) fn do_copy_in_list(&mut self, ctx: &egui::Context) {
+        let tab = &self.tabs[self.active_tab];
+        let state = &tab.table_state;
+        let table = &tab.table;
+        let cells: Vec<(usize, usize)> = if !state.selected_rows.is_empty() {
+            let mut rows: Vec<usize> = state.selected_rows.iter().copied().collect();
+            rows.sort();
+            rows.iter()
+                .flat_map(|&r| (0..table.col_count()).map(move |c| (r, c)))
+                .collect()
+        } else if !state.selected_cols.is_empty() {
+            let mut cols: Vec<usize> = state.selected_cols.iter().copied().collect();
+            cols.sort();
+            tab.filtered_rows
+                .iter()
+                .flat_map(|&r| cols.iter().map(move |&c| (r, c)))
+                .collect()
+        } else if !state.selected_cells.is_empty() {
+            let mut cells: Vec<(usize, usize)> = state.selected_cells.iter().copied().collect();
+            cells.sort();
+            cells
+        } else if let Some(cell) = state.selected_cell {
+            vec![cell]
+        } else {
+            return;
+        };
+        match data::in_list::sql_in_list(cells.iter().filter_map(|&(r, c)| table.get(r, c))) {
+            Some(text) => {
+                ctx.copy_text(text);
+                self.status_message = Some((
+                    octa::i18n::t("context_menu.copied_in_list"),
+                    std::time::Instant::now(),
+                ));
+            }
+            None => {
+                self.status_message = Some((
+                    octa::i18n::t("context_menu.copy_in_list_empty"),
+                    std::time::Instant::now(),
+                ));
             }
         }
     }
@@ -204,8 +245,8 @@ impl OctaApp {
     }
 
     /// Cut: copy selection then clear the underlying cells.
-    pub(crate) fn do_cut(&mut self) {
-        self.do_copy();
+    pub(crate) fn do_cut(&mut self, ctx: &egui::Context) {
+        self.do_copy(ctx);
         let tab = &mut self.tabs[self.active_tab];
         let row_count = tab.table.row_count();
         let col_count = tab.table.col_count();
@@ -236,43 +277,29 @@ impl OctaApp {
         tab.filter_dirty = true;
     }
 
-    /// Copy selection to both internal and OS clipboard.
-    pub(crate) fn do_copy(&mut self) {
+    /// Copy the selection to the OS clipboard.
+    ///
+    /// Every clipboard write goes through egui (`ctx.copy_text`), never a
+    /// clipboard library of our own: egui's windowing layer talks Wayland on
+    /// Wayland and X11 on X11, and it is the same clipboard every text box
+    /// pastes from. A separate `arboard` handle used to write the X11
+    /// clipboard even on Wayland, so a copied cell never reached the SQL
+    /// editor.
+    pub(crate) fn do_copy(&self, ctx: &egui::Context) {
         if let Some(text) = self.copy_selection_to_string() {
-            self.tabs[self.active_tab].table_state.clipboard = Some(text.clone());
-            if let Some(ref cb) = self.os_clipboard
-                && let Ok(mut cb) = cb.lock()
-            {
-                let _ = cb.set_text(&text);
-            }
+            ctx.copy_text(text);
         }
     }
 
-    /// Paste from OS clipboard (preferred) or internal clipboard.
-    pub(crate) fn do_paste(&mut self, paste_event_text: Option<String>) {
-        let text = if let Some(t) = paste_event_text {
-            Some(t)
-        } else if let Some(ref cb) = self.os_clipboard {
-            cb.lock().ok().and_then(|mut cb| cb.get_text().ok())
-        } else {
-            self.tabs[self.active_tab].table_state.clipboard.clone()
-        };
-
-        if let Some(text) = text
-            && !text.is_empty()
-        {
-            self.paste_text_into_table(&text);
+    /// Paste `text` into the table. `None` (a menu click, a remapped Paste
+    /// key) carries no text yet: ask the windowing layer for the clipboard,
+    /// which comes back next frame as an ordinary `Event::Paste`.
+    pub(crate) fn do_paste(&mut self, ctx: &egui::Context, text: Option<String>) {
+        match text {
+            Some(text) if !text.is_empty() => self.paste_text_into_table(&text),
+            Some(_) => {}
+            None => ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste),
         }
-    }
-
-    /// Check if the OS clipboard has text content.
-    pub(crate) fn os_clipboard_has_text(&self) -> bool {
-        if let Some(ref cb) = self.os_clipboard
-            && let Ok(mut cb) = cb.lock()
-        {
-            return cb.get_text().map(|t| !t.is_empty()).unwrap_or(false);
-        }
-        false
     }
 
     pub(crate) fn apply_zoom(&self, ctx: &egui::Context) {

@@ -393,7 +393,7 @@ regardless of window size or DPI.
 
 ## Sampling
 
-Above **Settings > Performance > Chart max points** (default 100,000),
+Above **Settings > Performance > Chart max points** (default 25,000),
 Histogram / Line / Scatter evenly-spaced downsample. Bar and Box
 always work off the full input.
 
@@ -412,10 +412,44 @@ The **SQL Query** view exposes the active table to an in-memory DuckDB
 connection as a temp table named `data`. Press **Ctrl+Enter** to run the
 query under the cursor.
 
+- **Mark part of the editor** and Ctrl+Enter (or Run) runs only the marked
+  part, so one editor can hold several statements.
+- Everything after `--` on a line is a comment and is drawn faded.
+- **F12** comments or uncomments the marked lines (or the caret's line):
+  `--` goes in front of each line's first character, or, when every
+  marked line already starts with `--`, that first `--` is removed.
+  Mixed lines all get commented. A `--` after code only goes when the
+  selection lies inside that comment.
+- **Format** lays the query (or the marked part) out one clause per line,
+  indented. Comments are kept and the meaning does not change. The style is
+  set under **Settings > SQL**, with a live preview: keywords upper, lower or
+  as written; 2 spaces, 4 spaces or a tab; commas at the end of a line or at
+  the start of the next; `JOIN` level with `FROM` or under it; how long a
+  list, a clause or a bracket may be and stay on one line; blank lines
+  between statements; a closing semicolon. **Whole query on one line**
+  only tidies spacing and keyword case. **Format
+  SQL** can be bound to a key under **Settings > Shortcuts**.
 - The editor has line numbers, syntax-aware case conversion (UPPER / lower)
   via right-click, and a chip-style autocomplete row showing matching column
-  names and SQL keywords. Disable autocomplete in
+  names, table, schema and catalog names and SQL keywords. On a live
+  database tab running on the server, the server's catalogs, schemas and
+  tables are offered too, and on any tab whose **Run on** points at a
+  connection the columns of every server table the query names are
+  fetched in the background. Disable autocomplete in
   **Settings > SQL > Autocomplete** (on by default).
+- The faded template in an empty editor becomes real text on **Tab**,
+  ready for Ctrl+Enter.
+- **Run on** picks where the query runs: **local DuckDB**, or any saved
+  database connection. A connection runs the query straight on that
+  server, where every table is queryable by its real name without
+  attaching anything. A database tab starts on its own connection.
+- **Copying results**: click a cell, **Ctrl+click** more cells,
+  **Shift+click** a rectangle, click a **column header** or a **row
+  number** for the whole column or row. **Ctrl+C** copies the selection
+  as tab-separated text; right-click offers Copy cell, row, column,
+  selection and all.
+- **Open result as tab...** opens the whole result as a new tab of its
+  own, to edit, filter or save like any other table.
 - Results render under the editor with a **row counter** above the grid,
   followed by how long the query took in brackets (`1234 result rows
   (84 ms)`, seconds past one second; a failed query is timed too)
@@ -430,7 +464,7 @@ query under the cursor.
   the whole result, never just the page on screen.
 - Queries run **on a live database connection** are not paged: they
   honour the initial-load row cap (**Settings > Performance**, default
-  5,000,000) and the counter notes "row cap reached" when a result stops
+  2,000,000) and the counter notes "row cap reached" when a result stops
   there.
 - **Your other open tabs are queryable** under a SQL-safe version of
   their own tab names, so joining two open files needs no attach step.
@@ -442,6 +476,20 @@ query under the cursor.
 - **Ctrl+Shift+E** (default) exports the current SQL result.
 - The panel can be docked Bottom (default), Top, Left, or Right via
   **Settings > SQL > Panel position**.
+- **Maximise** in the panel header lets the panel fill the window,
+  **Restore** docks it again. Opened on an empty tab the panel starts
+  maximised; opening a file into that tab docks it.
+- **Several editors**: **+** in the toolbar (or **Ctrl+T**) opens another editor beside
+  the others, each with its own query and result. Click into one (or its
+  result) to make it the one Run, Format, History and Export act on; it
+  gets an outline. The small x above an editor closes it.
+- **While a query runs** the result area shows a spinner and the time so
+  far instead of the previous result. A server query can be cancelled
+  there; a local one keeps the window busy until DuckDB returns.
+- **The editor stays open** when you close its tab or open a file into
+  it: the next tab opens it and takes over your queries when its own
+  editors are empty. Switch it off under **Settings > SQL > Keep the SQL
+  editor open**.
 
 ## Ask
 
@@ -560,13 +608,12 @@ opening a file - there is just no `data` table then.
 The SQL toolbar offers two ways to reuse queries:
 
 - **History** lists the queries you have actually run, most recent first,
-  each with how long it took and how many rows came back. Pick one to load
-  it into the editor, or use **Clear history** to forget the lot. It is
-  scoped and kept between sessions: a database tab records against its
-  connection and a file workspace against its file, so production queries
-  do not turn up while you are poking at a CSV. **Settings > Databases >
-  Query history** switches it off or changes how many are kept (20 by
-  default, 0 keeps all). Turning it off also deletes what was kept, since
+  each with where it ran (connection, cloud object or file), how long it
+  took and how many rows came back. Hover one to see the whole query. Pick
+  one to load it into the editor, or use **Clear history** to forget the
+  lot. It is one list for every SQL editor, kept between sessions.
+  **Settings > SQL > Query history** switches it off or changes how
+  many are kept (20 in total by default, 0 keeps all). Turning it off also deletes what was kept, since
   a query can carry values out of your data.
 - **Snippets** opens a manager window for a saved library of named queries
   that persists across sessions. Use **Save current query as snippet...**
@@ -782,7 +829,7 @@ the SQL panel, export and convert all work.
 
 **When it happens.** Octa decides for you, when you open the file the ordinary
 way. There is no separate command for it. The mode kicks in for files of at
-least 10 GB, or for files that state more rows than Octa would load anyway
+least 2 GB, or for files that state more rows than Octa would load anyway
 without being read (Parquet says so in its footer; a CSV cannot). That row
 threshold is the **maximum rows loaded on open** setting you already have, not
 a second one to keep in step: set it to unlimited and only the file size

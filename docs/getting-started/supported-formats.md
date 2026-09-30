@@ -105,7 +105,7 @@ arranged around them, open it, look, and save it somewhere else.
 ### Streaming readers (large files OK)
 
 Parquet, CSV, and TSV all stream. Octa loads the first
-`AppSettings.initial_load_rows` (default 5,000,000) rows and
+`AppSettings.initial_load_rows` (default 2,000,000) rows and
 continues loading the rest in the background as you scroll. You
 can change the cap (or tick the **Unlimited** checkbox to load
 every row up front) under

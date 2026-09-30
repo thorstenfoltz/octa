@@ -12,7 +12,7 @@ use crate::mcp::OctaMcpServer;
 use super::{ToolContext, source_from};
 
 pub const DESCRIPTION: &str = "Count the rows in a tabular file or open tab. For streaming formats the count is bounded by \
-Octa's 5,000,000-row initial-load cap; `initial_load_capped` flags when it may be short. Pass \
+Octa's 2,000,000-row initial-load cap; `initial_load_capped` flags when it may be short. Pass \
 `unlimited: true` for the true total. A large Parquet, CSV or JSON file is counted exactly \
 straight from the file without reading it, and the response then carries `streamed: true`.";
 

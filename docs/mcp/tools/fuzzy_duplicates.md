@@ -26,7 +26,7 @@ with a similarity score. The fuzzy counterpart of
 | `strip_punct`  | bool     | no        | `true`       | Strip punctuation before comparing                                                |
 | `block_column` | string   | no        | (no default) | Only compare rows sharing this column's exact value (makes large tables feasible) |
 | `max_rows`     | integer  | no        | `20000`      | Cap on rows scanned                                                               |
-| `unlimited`    | bool     | no        | `false`      | Lift the 5,000,000-row file-loader cap so every row is loaded from disk           |
+| `unlimited`    | bool     | no        | `false`      | Lift the 2,000,000-row file-loader cap so every row is loaded from disk           |
 
 This is **read-only** analytics: it returns clusters and writes nothing, so it
 stays available under `--mcp-read-only`.

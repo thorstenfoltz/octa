@@ -22,7 +22,7 @@ This is a **write** tool, so it is removed under `--mcp-read-only` (alongside
 | `salt`        | string   | no        | `""`             | Shared salt for all rules; makes output non-guessable                           |
 | `output`      | string   | no        | `in_place`       | `in_place` overwrites the columns; `new_columns` keeps originals and appends    |
 | `output_path` | string   | no        | overwrite `path` | Where to write the result; format follows its extension                         |
-| `unlimited`   | bool     | no        | `false`          | Lift the 5,000,000-row file-loader cap so every row is rewritten                |
+| `unlimited`   | bool     | no        | `false`          | Lift the 2,000,000-row file-loader cap so every row is rewritten                |
 
 `columns` is one column name or an array of names. With a **hash** strategy and
 two or more names, the values are combined into one new column named

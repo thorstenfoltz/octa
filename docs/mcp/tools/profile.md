@@ -21,7 +21,7 @@ numeric columns get real numeric statistics rather than lexical ones.
 |-------------|--------|-----------|--------------|--------------------------------------------------------------------|
 | `path`      | string | yes       | (no default) | Path to the file                                                   |
 | `table`     | string | no        | (no default) | Specific table for multi-table sources                             |
-| `unlimited` | bool   | no        | `false`      | Lift the 5,000,000-row file-loader cap so SUMMARIZE sees every row |
+| `unlimited` | bool   | no        | `false`      | Lift the 2,000,000-row file-loader cap so SUMMARIZE sees every row |
 
 ## Response shape
 
@@ -62,7 +62,7 @@ output columns. Exact keys can vary slightly with DuckDB versions.
 ## Notes
 
 - For streaming formats (Parquet, CSV, TSV) the statistics are
-  computed over the server's initial-load row cap (5 Million rows by
+  computed over the server's initial-load row cap (2 Million rows by
   default), not necessarily the entire file. Pass
   `unlimited: true` to profile every row.
 - Columns a reader leaves as `Utf8` are summarised lexically (string

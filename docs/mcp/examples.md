@@ -401,17 +401,17 @@ the cheap default; pass `max_combo_size: 2` to also test pairs:
 ```json
 { "path": "~/data/events.parquet" }
 // →
-{ "row_count": 5000000, "initial_load_capped": true, "initial_load_cap": 5000000 }
+{ "row_count": 2000000, "initial_load_capped": true, "initial_load_cap": 2000000 }
 ```
 
 The capped flag tells the model the count may be an underestimate.
-`run_sql` runs against the same 5 Million-rows in-memory snapshot, so
+`run_sql` runs against the same 2 Million-rows in-memory snapshot, so
 `SELECT count(*) FROM data` returns the same capped value unless
 also called with `unlimited: true`.
 
 **Model response**:
 
-> The file contains at least 5,000,000 rows, but that's Octa's
+> The file contains at least 2,000,000 rows, but that's Octa's
 > initial-load cap. Want me to call `count_rows` again with
 > `unlimited: true` so we get the true total? (That reads the
 > entire file from disk.)

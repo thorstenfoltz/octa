@@ -53,6 +53,40 @@ right-click menu. Pipe characters and line breaks in cell values are
 escaped so the table stays well-formed. This is handy for pasting a
 slice of data straight into a pull request, issue, or Markdown doc.
 
+**Copy as IN list** (in the same right-click menu and under **Edit**)
+copies the selected values as a SQL list, ready to paste after
+`WHERE id IN` in any database tool:
+
+```sql
+('A-17', 'B-22', 'C-09')
+```
+
+Empty cells are left out and a value that appears twice is listed once.
+Text is quoted, with any `'` inside it doubled. Numbers stay bare, but
+only when every value is a number: one text value quotes them all, so a
+code column holding `007` keeps its leading zero. When a whole column is
+selected, only the rows the current filter shows are copied.
+
+## Invisible characters
+
+**View -> Show invisible characters** marks the whitespace inside text
+cells, so a value that looks right but does not match can be explained
+at a glance:
+
+| Marker | Stands for                                                                          |
+|--------|-------------------------------------------------------------------------------------|
+| `.`    | a space                                                                             |
+| `->`   | a tab                                                                               |
+| `_`    | an unusual space: non-breaking, narrow, em or en space, ideographic space           |
+| `\|`   | a character with no width: zero-width space or joiner, byte order mark, word joiner |
+| `CR`   | a carriage return                                                                   |
+
+Spaces at the start or end of a value, and every unusual character, get
+a coloured background: those are the usual reasons why `Berlin` and
+`Berlin` count as two cities. A space between words and a tab are only
+marked, so you can tell whether a gap was made with spaces or with a tab.
+The switch is remembered between sessions and changes nothing in the data.
+
 ## Sorting
 
 Click a column header to sort by that column **ascending**. Click
@@ -183,11 +217,11 @@ originals - see [Saving](saving.md#rounding-on-save).
 ## Lazy row loading (large files)
 
 For streaming formats (Parquet, CSV, TSV), Octa loads the first
-**5,000,000 rows** at open and keeps loading the rest in the
+**2,000,000 rows** at open and keeps loading the rest in the
 background as you scroll. The status bar shows a busy spinner during
 background load.
 
-The 5 M default is the **initial-load row cap**, configurable under
+The 2 M default is the **initial-load row cap**, configurable under
 [**Settings → Performance → Initial-load row cap**](../reference/settings.md#performance).
 Raising it improves first-paint completeness on giant files at the
 cost of more memory; lowering it makes the initial open faster. Tick
@@ -347,6 +381,29 @@ path) cannot be pinned; the menu entry is greyed out for them.
     reopens on next launch with whatever is on disk. Any unsaved
     edits from the previous session are lost if you didn't save
     them. Save with **Ctrl+S** (or **Save as**) before quitting.
+
+## Reopen last session
+
+**Settings -> Files -> Reopen last session** (off by default) opens the
+files again that were open when you closed Octa, the way a browser
+restores its tabs. A file that has been moved or deleted is skipped.
+Result tabs, charts and other tabs without a file behind them are not
+reopened, and like pinned tabs, unsaved changes are not kept: what
+reopens is what is on disk.
+
+Two kinds of tab stay closed unless you switch them on separately,
+because reopening them does more than read a file:
+
+- **Also reopen cloud objects** downloads every cloud object again at
+  each start, which takes time and can cost money for data transfer.
+- **Also reopen database and API tabs** sends each table's query to its
+  server again at each start. On a warehouse (Snowflake, BigQuery,
+  Databricks) that can wake it up and cost money, and an expired sign-in
+  asks you to log in before the tab opens.
+
+The list of tabs is written to `session.toml` in the
+[config directory](../reference/settings.md) when Octa closes. Turning
+the setting off deletes that file.
 
 ## See also
 

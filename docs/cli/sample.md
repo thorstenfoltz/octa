@@ -15,7 +15,7 @@ octa --sample FILE [-n N] [--seed S] [-f tsv|json|csv] [--rows N|all]
 | `-n N`, `--lines N` | `20`    | Sample size. When N ≥ row count, every row is returned.         |
 | `--seed S`          | `0`     | RNG seed. The same seed + file yields the same sample.          |
 | `-f`, `--format`    | `tsv`   | Output format (see [CLI overview](index.md#output-formatting)). |
-| `--rows N\|all`     | 5 M     | Initial-load row cap for streaming formats (see Performance).   |
+| `--rows N\|all`     | 2 M     | Initial-load row cap for streaming formats (see Performance).   |
 
 ## Examples
 
@@ -42,7 +42,7 @@ octa --sample sales.parquet -n 5 --seed 2   # a different set of 5 rows
 ## Performance
 
 For streaming formats the sample is drawn from the rows within the
-**initial-load cap** (5 million by default). To sample from the whole
+**initial-load cap** (2 million by default). To sample from the whole
 of a very large file, raise the cap with `--rows all`:
 
 ```bash
