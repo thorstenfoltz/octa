@@ -13,6 +13,11 @@ use crate::app::chat::ask_sql;
 use crate::app::chat::providers;
 use crate::app::state::{AskSqlJob, OctaApp};
 
+/// Schemas described when nothing of the connection is open in the sidebar.
+/// A Postgres server rarely has more; a warehouse would, which is what the
+/// sidebar route is for.
+const MAX_FALLBACK_SCHEMAS: usize = 20;
+
 impl OctaApp {
     /// Fire one request for the SQL panel's question box.
     pub(crate) fn start_ask_sql(&mut self, ctx: &eframe::egui::Context, question: String) {
@@ -77,13 +82,42 @@ impl OctaApp {
         // there to describe; the button is disabled for it, this catches a
         // shortcut.
         let origin = crate::app::sql_panel::server_origin(tab);
-        if tab.sql_target.is_some() && origin.is_none() {
-            self.status_message = Some((
-                octa::i18n::t("sql.ask_needs_table"),
-                std::time::Instant::now(),
-            ));
-            return;
-        }
+        // Pointed at a connection the tab has no table on: describe that
+        // server instead, from the schemas the user has opened in the
+        // Databases sidebar. The listing is already cached, so choosing them
+        // costs nothing; the columns are read on the worker.
+        let server_scan = match (origin, tab.sql_target.as_deref()) {
+            (None, Some(id)) => {
+                let Some(conn) = self.find_db_conn(id) else {
+                    self.status_message = Some((
+                        octa::i18n::t("sql.ask_needs_table"),
+                        std::time::Instant::now(),
+                    ));
+                    return;
+                };
+                let mut by_catalog: std::collections::BTreeMap<Option<String>, Vec<String>> =
+                    Default::default();
+                if let Ok(m) = self.db_browser.listings.lock() {
+                    for ((cid, path), state) in m.iter() {
+                        if cid != &conn.id
+                            || !matches!(state, crate::app::db_browser::DbListState::Tables(_))
+                        {
+                            continue;
+                        }
+                        match crate::app::db_browser::split_path(path).as_slice() {
+                            [cat, sch] => by_catalog
+                                .entry(Some(cat.to_string()))
+                                .or_default()
+                                .push(sch.to_string()),
+                            [sch] => by_catalog.entry(None).or_default().push(sch.to_string()),
+                            _ => {}
+                        }
+                    }
+                }
+                Some((conn, by_catalog))
+            }
+            _ => None,
+        };
         let (table_name, dialect) = match origin {
             Some(origin) => {
                 let engine = self
@@ -100,7 +134,10 @@ impl OctaApp {
                 };
                 (name, engine.to_string())
             }
-            _ => ("data".to_string(), "DuckDB".to_string()),
+            None => match &server_scan {
+                Some((conn, _)) => (String::new(), conn.engine.label().to_string()),
+                None => ("data".to_string(), "DuckDB".to_string()),
+            },
         };
 
         // Whether the neighbours can be asked about at all. Only a
@@ -174,12 +211,20 @@ impl OctaApp {
         // size; `row_count()` is whatever is loaded, which for a live database
         // tab is one page. Sending a page size as a table size told the model
         // a 40-million-row table had 100,000 rows, so send nothing instead.
-        let columns = tab.table.columns.clone();
-        let row_count = tab.table.total_rows.or(if tab.db_origin.is_some() {
-            None
+        // A tab aimed at another connection has no table there; its own
+        // columns would describe the wrong database.
+        let (columns, row_count) = if server_scan.is_some() {
+            (Vec::new(), None)
         } else {
-            Some(tab.table.row_count())
-        });
+            (
+                tab.table.columns.clone(),
+                tab.table.total_rows.or(if tab.db_origin.is_some() {
+                    None
+                } else {
+                    Some(tab.table.row_count())
+                }),
+            )
+        };
 
         let slot: Arc<Mutex<Option<Result<String, String>>>> = Arc::new(Mutex::new(None));
         self.ask_sql_job = Some(AskSqlJob {
@@ -222,6 +267,66 @@ impl OctaApp {
                     }
                 })
                 .unwrap_or_default();
+            // The server's tables, for a tab aimed at a connection it has no
+            // table on. Unlike the neighbours above this one is not optional:
+            // without it the prompt names no table, and a model told nothing
+            // invents one, so an empty read refuses the question instead.
+            let server_block = server_scan.map(|(conn, mut by_catalog)| {
+                let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
+                let ssh = octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &settings);
+                cache
+                    .with_conn(&conn, secret.as_deref(), ssh.as_deref(), |c| {
+                        // Nothing opened in the sidebar: a two-level engine
+                        // can list its own schemas; a catalog engine cannot
+                        // know which catalog is meant.
+                        if by_catalog.is_empty() && !conn.engine.has_catalogs() {
+                            let mut s = c.list_schemas(None)?;
+                            s.truncate(MAX_FALLBACK_SCHEMAS);
+                            by_catalog.insert(None, s);
+                        }
+                        let mut blocks = String::new();
+                        for (cat, schemas) in &by_catalog {
+                            let (cols, fks) = if conn.engine.has_foreign_keys() {
+                                octa::db::relationships::scan(c, cat.as_deref(), schemas)?
+                            } else {
+                                (
+                                    octa::db::relationships::scan_columns(
+                                        c,
+                                        cat.as_deref(),
+                                        schemas,
+                                    )?,
+                                    Vec::new(),
+                                )
+                            };
+                            blocks.push_str(&ask_sql::server_tables_block(
+                                cat.as_deref(),
+                                &cols,
+                                &fks,
+                                &question,
+                            ));
+                        }
+                        Ok(blocks)
+                    })
+                    .map_err(|e| format!("{e:#}"))
+            });
+            let workspace = match server_block {
+                None => ask_sql::workspace_block(&workspace_tables),
+                Some(Ok(b)) if !b.trim().is_empty() => b,
+                Some(Ok(_)) => {
+                    if let Ok(mut g) = slot.lock() {
+                        *g = Some(Err(octa::i18n::t("sql.ask_needs_table")));
+                    }
+                    ctx.request_repaint();
+                    return;
+                }
+                Some(Err(e)) => {
+                    if let Ok(mut g) = slot.lock() {
+                        *g = Some(Err(e));
+                    }
+                    ctx.request_repaint();
+                    return;
+                }
+            };
             let provider = providers::make_provider(provider_kind);
             let cancel = AtomicBool::new(false);
             let facts = ask_sql::AskSqlFacts {
@@ -230,7 +335,7 @@ impl OctaApp {
                 columns,
                 row_count,
                 related,
-                workspace: ask_sql::workspace_block(&workspace_tables),
+                workspace,
             };
             let system = ask_sql::build_prompt(&facts, &question);
             let mut usage = (0u32, 0u32);

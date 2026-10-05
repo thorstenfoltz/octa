@@ -28,6 +28,42 @@ impl TabState {
         self.db_origin.is_some() || self.table.source_path.is_some()
     }
 
+    /// Does the source hold rows this tab does not?
+    ///
+    /// Files say so through `is_partial`. A live-database tab says so by
+    /// keeping `total_rows` set at all: there its value is only a "more may
+    /// exist" flag (`db_browser` stores the loaded count), which `is_partial`
+    /// reads as complete. Ask this, not `is_partial`, wherever a database tab
+    /// counts.
+    pub(crate) fn source_has_more(&self) -> bool {
+        self.table.is_partial() || (self.db_origin.is_some() && self.table.total_rows.is_some())
+    }
+
+    /// `(loaded rows, total when known)` when the source holds rows this tab
+    /// does not, for the note a result computed from it carries.
+    ///
+    /// `DataTable::partial_note` alone misses a live-database tab, whose
+    /// `total_rows` is a "more may exist" flag, so a Summary of 200 loaded
+    /// rows used to arrive with no note at all.
+    pub(crate) fn partial_note(&self) -> Option<(usize, Option<usize>)> {
+        self.source_has_more()
+            .then(|| (self.table.rows.len(), self.table.known_total()))
+    }
+
+    /// The name a result tab built from this one carries: the file name, or
+    /// the tab title when there is no file (a database table, a result).
+    pub(crate) fn result_source_label(&self) -> String {
+        self.table
+            .source_path
+            .as_ref()
+            .and_then(|p| {
+                std::path::Path::new(p)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+            })
+            .unwrap_or_else(|| self.title_display())
+    }
+
     /// Build the [`RowMatcher`](octa::data::search::RowMatcher) for this tab's
     /// current search text honouring the case-sensitive / whole-word toggles.
     pub(crate) fn search_matcher(&self) -> octa::data::search::RowMatcher {
@@ -70,6 +106,17 @@ impl TabState {
             .filter_map(|(old, name)| current.iter().position(|n| n == name).map(|new| (old, new)))
             .collect();
         self.column_key_names = current;
+        // A hash column renamed or deleted stops being the database's: it
+        // leaves what the tab asks for and what it holds alike, so no
+        // re-query follows.
+        let names = &self.column_key_names;
+        self.server_hashes.retain(|h| names.contains(&h.name));
+        if let Some(v) = self.server_view.as_mut() {
+            v.derived.retain(|h| names.contains(&h.name));
+            if v.is_empty() {
+                self.server_view = None;
+            }
+        }
 
         self.column_filters = std::mem::take(&mut self.column_filters)
             .into_iter()
@@ -98,6 +145,11 @@ impl TabState {
                 }
                 None => false,
             });
+        // A scope on a deleted column searches every column again.
+        self.search_scope_col = self.search_scope_col.and_then(|c| remap.get(&c).copied());
+        if let Some(snap) = self.view_ui.as_mut() {
+            snap.remap(&remap);
+        }
         true
     }
 
@@ -121,6 +173,8 @@ impl TabState {
             raw_content: None,
             raw_content_modified: false,
             raw_content_original: None,
+            synced_view: (ViewMode::Table, data::CompareMode::default()),
+            text_sync_hash: None,
             raw_color_enabled: true,
             raw_file_size: None,
             raw_perf_prompt_resolved: false,
@@ -133,6 +187,7 @@ impl TabState {
             bg_row_buffer: None,
             bg_loading_done: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             bg_can_load_more: false,
+            loading_all: false,
             bg_file_exhausted: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             markdown_scroll_target: None,
             markdown_layout: data::MarkdownLayout::default(),
@@ -181,6 +236,7 @@ impl TabState {
             sql_write_back: None,
             first_row_is_header: true,
             value_frequency_col: None,
+            vf_server: None,
             value_frequency_top_n: Some(50),
             value_frequency_bin_numeric: true,
             value_frequency_bins: None,
@@ -220,6 +276,19 @@ impl TabState {
             chart_tab_label: None,
             custom_tab_label: None,
             partial_source_note: None,
+            loaded_rows_note: None,
+            pushdown_note: None,
+            server_sort: Vec::new(),
+            server_hashes: Vec::new(),
+            server_hash_seen: Vec::new(),
+            server_view: None,
+            view_task: None,
+            view_hold: None,
+            view_error: None,
+            view_ui: None,
+            view_settle: None,
+            facet_values: None,
+            filter_window_values: None,
             tab_hint: None,
             user_tab_name: None,
             column_filters: std::collections::HashMap::new(),
@@ -260,6 +329,7 @@ impl TabState {
             chart_config: data::chart::ChartConfig::default(),
             chart_buffers: super::state::ChartInputBuffers::default(),
             chart_overlay_cache: None,
+            chart_server: None,
             cloud_origin: None,
             api_origin: None,
             db_origin: None,
@@ -460,6 +530,54 @@ mod tests {
             .collect();
         assert!(tab.sync_column_keys(), "first sync records the names");
         tab
+    }
+
+    fn rows(n: usize) -> Vec<Vec<data::CellValue>> {
+        vec![vec![data::CellValue::Int(1)]; n]
+    }
+
+    fn db_tab() -> TabState {
+        let mut tab = TabState::new(data::SearchMode::Plain);
+        tab.db_origin = Some(crate::app::state::DbOrigin {
+            conn_id: "c".into(),
+            catalog: None,
+            schema: "s".into(),
+            table: "t".into(),
+            identity: None,
+        });
+        tab.table.rows = rows(100);
+        tab
+    }
+
+    /// A database tab marks "more may exist" with `total_rows` equal to the
+    /// rows it holds, which `is_partial` reads as complete.
+    #[test]
+    fn a_database_tab_with_more_pages_has_more() {
+        let mut tab = db_tab();
+        tab.table.total_rows = Some(100);
+        assert!(!tab.table.is_partial());
+        assert!(tab.source_has_more());
+    }
+
+    #[test]
+    fn a_database_tab_read_to_the_end_has_no_more() {
+        let mut tab = db_tab();
+        tab.table.total_rows = None;
+        assert!(!tab.source_has_more());
+    }
+
+    #[test]
+    fn a_capped_file_has_more_and_a_whole_one_does_not() {
+        let mut tab = TabState::new(data::SearchMode::Plain);
+        tab.table.rows = rows(100);
+        tab.table.total_rows = Some(110);
+        assert!(tab.source_has_more());
+        tab.table.total_rows = None;
+        assert!(!tab.source_has_more());
+        // A file tab whose count equals its rows is complete; only a database
+        // tab reads that as a flag.
+        tab.table.total_rows = Some(100);
+        assert!(!tab.source_has_more());
     }
 
     #[test]

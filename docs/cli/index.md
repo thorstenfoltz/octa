@@ -92,6 +92,7 @@ one first with `chmod 750 Octa-*-x86_64.AppImage`. See
 | `--anonymize SPEC FILE`                              | Mask / scramble columns per a JSON spec       | [→ `--anonymize`](anonymize.md)                         |
 | `--dedupe FILE`                                      | Remove duplicate rows                         | [→ `--dedupe`](dedupe.md)                               |
 | `--impute COL=STRATEGY FILE`                         | Fill missing cells in a column                | [→ `--impute`](impute.md)                               |
+| `--hash-columns COL,COL FILE`                        | Add a hash column (MD5 / SHA)                 | [→ `--hash-columns`](hash-columns.md)                   |
 | `--outliers FILE`                                    | Flag numeric outlier cells                    | [→ `--outliers`](outliers.md)                           |
 | `--detect-pii FILE`                                  | Find likely personal-data columns             | [→ `--detect-pii`](pii.md)                              |
 | `--union FILE --union-file FILE`                     | Stack files into one table                    | [→ `--union`](union.md)                                 |

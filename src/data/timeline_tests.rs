@@ -140,3 +140,32 @@ fn overlaps_columns_fall_back_to_generic_names() {
     assert_eq!(overlaps_columns(&tl)[3], "start_a");
     assert_eq!(overlaps_columns(&tl)[0], "lane");
 }
+
+#[test]
+fn time_ticks_follow_the_calendar() {
+    let secs = |s: &str| to_secs(&CellValue::String(s.into())).unwrap();
+    let (lo, hi) = (secs("2025-01-10"), secs("2025-12-20"));
+    // A year at roughly a month per tick: first of each month.
+    let (step, ticks) = time_ticks(lo, hi, 20.0 * 86_400.0);
+    let labels: Vec<String> = ticks.iter().map(|&t| format_tick(t, step)).collect();
+    assert_eq!(labels.first().unwrap(), "2025-02");
+    assert_eq!(labels.last().unwrap(), "2025-12");
+    assert_eq!(labels.len(), 11);
+    // Quarters stay on quarter starts.
+    let (step, ticks) = time_ticks(lo, hi, 60.0 * 86_400.0);
+    let labels: Vec<String> = ticks.iter().map(|&t| format_tick(t, step)).collect();
+    assert_eq!(labels, ["2025-04", "2025-07", "2025-10"]);
+    // Weeks land on Mondays.
+    let (step, ticks) = time_ticks(lo, lo + 30.0 * 86_400.0, 5.0 * 86_400.0);
+    assert_eq!(step, 7.0 * 86_400.0);
+    assert_eq!(format_tick(ticks[0], step), "2025-01-13");
+    // Decades: steps keep growing, never an endless loop.
+    let (step, ticks) = time_ticks(
+        secs("1900-01-01"),
+        secs("2100-01-01"),
+        15.0 * 365.0 * 86_400.0,
+    );
+    assert!(step >= 15.0 * 365.0 * 86_400.0);
+    assert!(!ticks.is_empty() && ticks.len() < 20);
+    assert!(time_ticks(1.0, 1.0, 1.0).1.is_empty());
+}

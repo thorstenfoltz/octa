@@ -149,6 +149,107 @@ pub fn workspace_block(tables: &[(String, Vec<(String, String)>)]) -> String {
     out
 }
 
+/// Cap on table names listed without columns. Names are cheap, but a
+/// warehouse schema can hold thousands.
+const MAX_SERVER_TABLE_NAMES: usize = 200;
+
+/// The tables of a live server the SQL editor runs against, as prompt text,
+/// for a tab that has no table of its own there.
+///
+/// Tables the question names come first and get their columns, the rest fill
+/// the column budget in catalog order and are then listed by name only.
+/// Declared keys between listed tables become `join:` lines. Meant for
+/// [`AskSqlFacts::workspace`], so [`build_prompt`] applies its "only the tables
+/// listed above" rules. Names are `catalog.schema.table` on the three-level
+/// engines, which is how the query has to spell them.
+pub fn server_tables_block(
+    catalog: Option<&str>,
+    columns: &[ColumnRow],
+    fks: &[ForeignKey],
+    question: &str,
+) -> String {
+    let prefix = catalog
+        .filter(|c| !c.is_empty())
+        .map(|c| format!("{c}."))
+        .unwrap_or_default();
+    let mut order: Vec<String> = Vec::new();
+    let mut cols: HashMap<String, Vec<&str>> = HashMap::new();
+    for (s, t, c) in columns {
+        let label = format!("{s}.{t}");
+        cols.entry(label.clone())
+            .or_insert_with(|| {
+                order.push(label.clone());
+                Vec::new()
+            })
+            .push(c.as_str());
+    }
+    if order.is_empty() {
+        return String::new();
+    }
+    // Whole words, so a table called `s` is not "named" by every question
+    // containing the letter.
+    let words: std::collections::HashSet<String> = question
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|w| !w.is_empty())
+        .map(str::to_lowercase)
+        .collect();
+    // Stable sort: named tables keep their catalog order among themselves.
+    order.sort_by_key(|l| {
+        let table = l.rsplit('.').next().unwrap_or(l).to_lowercase();
+        !words.contains(&table)
+    });
+
+    let mut out = String::from("The database has these tables:\n");
+    for label in order.iter().take(MAX_WORKSPACE_TABLES) {
+        out.push_str(&format!("- {prefix}{label}\n"));
+        let all = &cols[label];
+        for c in all.iter().take(MAX_RELATED_COLUMNS) {
+            out.push_str(&format!("  - {c}\n"));
+        }
+        if all.len() > MAX_RELATED_COLUMNS {
+            out.push_str(&format!(
+                "  - ... and {} more columns\n",
+                all.len() - MAX_RELATED_COLUMNS
+            ));
+        }
+    }
+    let shown = MAX_WORKSPACE_TABLES + MAX_SERVER_TABLE_NAMES;
+    let rest = &order[order.len().min(MAX_WORKSPACE_TABLES)..order.len().min(shown)];
+    if !rest.is_empty() {
+        out.push_str("Other tables (columns not listed):\n");
+        for l in rest {
+            out.push_str(&format!("- {prefix}{l}\n"));
+        }
+    }
+    if order.len() > shown {
+        out.push_str(&format!(
+            "- ... and {} more tables (not listed)\n",
+            order.len() - shown
+        ));
+    }
+
+    let listed: std::collections::HashSet<&str> =
+        order.iter().take(shown).map(String::as_str).collect();
+    let joins: Vec<String> = fks
+        .iter()
+        .filter(|f| listed.contains(f.child().as_str()) && listed.contains(f.parent().as_str()))
+        .map(|f| {
+            format!(
+                "  join: {prefix}{}.{} = {prefix}{}.{}\n",
+                f.child(),
+                f.child_column,
+                f.parent(),
+                f.parent_column
+            )
+        })
+        .collect();
+    if !joins.is_empty() {
+        out.push_str("Declared foreign keys:\n");
+        out.extend(joins);
+    }
+    out
+}
+
 /// Everything the prompt says about the data, gathered on the UI thread and
 /// moved to the worker.
 ///
@@ -704,5 +805,60 @@ mod tests {
     #[test]
     fn an_empty_workspace_leaves_the_prompt_exactly_as_it_was() {
         assert_eq!(workspace_block(&[]), "");
+    }
+
+    #[test]
+    fn server_block_lists_question_tables_with_columns_first() {
+        let mut columns = Vec::new();
+        for t in 0..MAX_WORKSPACE_TABLES + 3 {
+            columns.push(("s".to_string(), format!("t{t:02}"), "id".to_string()));
+        }
+        columns.push(("s".to_string(), "orders".to_string(), "total".to_string()));
+        let b = server_tables_block(None, &columns, &[], "biggest Orders this year");
+        // Named in the question, so it gets its columns even past the cap.
+        assert!(b.contains("- s.orders\n  - total\n"), "{b}");
+        assert!(b.contains("Other tables (columns not listed):"), "{b}");
+        assert!(b.contains("- s.t14\n"), "{b}");
+    }
+
+    #[test]
+    fn server_block_qualifies_with_the_catalog_and_lists_declared_joins() {
+        let columns = col_rows(&[("s", "orders", "customer_id"), ("s", "customers", "id")]);
+        let fks = [fk("s.orders", "customer_id", "s.customers", "id")];
+        let b = server_tables_block(Some("main"), &columns, &fks, "x");
+        assert!(b.contains("- main.s.orders"), "{b}");
+        assert!(
+            b.contains("join: main.s.orders.customer_id = main.s.customers.id"),
+            "{b}"
+        );
+    }
+
+    #[test]
+    fn server_block_is_empty_without_tables() {
+        assert_eq!(server_tables_block(None, &[], &[], "x"), "");
+    }
+
+    /// Fed through `workspace`, the block brings the "only these tables" rules
+    /// and no single-table sentence about a table the tab does not have.
+    #[test]
+    fn server_block_in_the_prompt_uses_the_workspace_rules() {
+        let f = AskSqlFacts {
+            table_name: String::new(),
+            dialect: "PostgreSQL".to_string(),
+            columns: Vec::new(),
+            row_count: None,
+            related: String::new(),
+            workspace: server_tables_block(
+                None,
+                &col_rows(&[("public", "users", "email")]),
+                &[],
+                "how many users",
+            ),
+        };
+        let p = build_prompt(&f, "how many users");
+        assert!(p.contains("PostgreSQL"), "{p}");
+        assert!(p.contains("- public.users"), "{p}");
+        assert!(p.contains("Do not invent tables or columns"), "{p}");
+        assert!(!p.contains("The table is named"), "{p}");
     }
 }

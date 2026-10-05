@@ -305,14 +305,23 @@ fn exercise_write_back(engine: DbEngine, env_var: &str, schema: &str) {
     c.execute(&format!("DROP TABLE {target}")).expect("drop");
 }
 
+/// Held while `query_row_cap_live` lowers the process-wide row cap to 5,
+/// which would otherwise truncate a parallel test's results.
+static ROW_CAP: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn row_cap_lock() -> std::sync::MutexGuard<'static, ()> {
+    ROW_CAP.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// A huge SELECT must stop collecting at the initial-load row cap instead
 /// of materialising every row (used to OOM-crash the app), and the
 /// connection must stay usable afterwards (MySQL/MSSQL drain the remaining
 /// wire packets after the early stop). One test fn for all three engines so
-/// the process-wide guard is held once; cap 5 stays above every row count
-/// the other live tests read in parallel.
+/// the process-wide guard is held once. The cap is process-wide, so tests
+/// that read more than 5 rows in one query take [`ROW_CAP`] too.
 #[test]
 fn query_row_cap_live() {
+    let _cap = row_cap_lock();
     let cases = [
         (
             DbEngine::Postgres,
@@ -1225,4 +1234,1218 @@ fn mssql_long_query_no_timeout_live() {
         .query("WAITFOR DELAY '00:00:35'; SELECT 1 AS one")
         .expect("a 35 s statement must not time out");
     assert_eq!(t.row_count(), 1);
+}
+
+/// 30 rows covering what the server path special-cases: an id, a float, a
+/// Boolean (correlated as 1/0), a nullable integer with one far outlier, and
+/// nullable lowercase text (no collation differences, one clear mode).
+fn pushdown_table() -> DataTable {
+    let mut t = DataTable::empty();
+    t.columns = [
+        ("id", "Int64"),
+        ("price", "Float64"),
+        ("flag", "Boolean"),
+        ("qty", "Int64"),
+        ("name", "Utf8"),
+    ]
+    .iter()
+    .map(|(n, d)| ColumnInfo {
+        name: (*n).into(),
+        data_type: (*d).into(),
+    })
+    .collect();
+    let names = ["ada", "bob", "cy", "dee", "ada", "eve"];
+    t.rows = (0..30i64)
+        .map(|i| {
+            vec![
+                CellValue::Int(i),
+                CellValue::Float((i * 37 % 23) as f64 * 1.25 + 0.5),
+                CellValue::Bool(i % 3 != 0),
+                match i {
+                    _ if i % 7 == 2 => CellValue::Null,
+                    29 => CellValue::Int(10_000),
+                    _ => CellValue::Int(i % 5 + i / 4),
+                },
+                if i % 9 == 4 {
+                    CellValue::Null
+                } else {
+                    CellValue::String(names[(i % 6) as usize].into())
+                },
+            ]
+        })
+        .collect();
+    t
+}
+
+fn assert_cells_match(what: &str, a: &CellValue, b: &CellValue) {
+    let f = |v: &CellValue| v.to_string().trim().parse::<f64>().ok();
+    match (f(a), f(b)) {
+        (Some(x), Some(y)) => assert!(
+            (x - y).abs() <= 1e-9 * x.abs().max(1.0),
+            "{what}: {x} vs {y}"
+        ),
+        _ => assert_eq!(a.to_string(), b.to_string(), "{what}"),
+    }
+}
+
+/// Server Summary, Data quality, Value frequency and Correlation against
+/// the in-memory engines over the same seeded rows. Runs in the db-live CI
+/// job for Postgres and MySQL; a no-op without the env var.
+fn pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
+    use octa::data::summary::SummaryStat;
+    use octa::db::pushdown as p;
+    let _cap = row_cap_lock();
+
+    let Some((conn, secret)) = conn_from_env(env_var, engine) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    let data = pushdown_table();
+    let target = format!(
+        "{}.{}",
+        engine.quote_ident(schema),
+        engine.quote_ident("octa_pushdown")
+    );
+    c.execute(&format!("DROP TABLE IF EXISTS {target}")).ok();
+    c.write_table(None, schema, "octa_pushdown", DbWriteMode::Create, &data)
+        .expect("seed");
+    let src = p::ServerSource {
+        conn: conn.clone(),
+        catalog: None,
+        schema: schema.into(),
+        table: "octa_pushdown".into(),
+        filter: None,
+        derived: Vec::new(),
+    };
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let total = p::count_rows(c.as_mut(), &src, &stop).unwrap();
+    assert_eq!(total, data.row_count());
+    let flag = 2;
+
+    // Summary: every statistic both paths compute exactly. The Boolean's
+    // value statistics are text on the server ("true" on Postgres, "1" on
+    // MySQL), so only its counts are compared.
+    let exact = [
+        SummaryStat::Min,
+        SummaryStat::Max,
+        SummaryStat::Sum,
+        SummaryStat::Mean,
+        SummaryStat::Std,
+        SummaryStat::Median,
+        SummaryStat::Q25,
+        SummaryStat::Q75,
+        SummaryStat::Mode,
+        SummaryStat::ModeCount,
+        SummaryStat::NotNullCount,
+        SummaryStat::NullCount,
+        SummaryStat::NullPercent,
+        SummaryStat::UniqueCount,
+        SummaryStat::DistinctRatio,
+        SummaryStat::TextLenMin,
+        SummaryStat::TextLenMax,
+        SummaryStat::TotalRows,
+    ];
+    let counts_only = [
+        "not_null",
+        "null_count",
+        "null_percent",
+        "unique_count",
+        "distinct_ratio",
+        "total_rows",
+    ];
+    let local = octa::data::summary::build_summary_table(&data, &exact).unwrap();
+    let (server, _) = p::summary::run(c.as_mut(), &src, &data, total, &exact, &stop).unwrap();
+    assert_eq!(server.columns.len(), local.columns.len());
+    for r in 0..local.row_count() {
+        // Column 0 is the name, 1 the type (BIGINT in memory, Int64 here).
+        for col in 2..local.col_count() {
+            let id = local.columns[col].name.as_str();
+            // The in-memory quartiles are approximate; the server's
+            // interpolate (`quartiles_interpolate_on_the_server` pins them).
+            if matches!(id, "median" | "q25" | "q75") || (r == flag && !counts_only.contains(&id)) {
+                continue;
+            }
+            assert_cells_match(
+                &format!("summary {} {id}", local.get(r, 0).unwrap()),
+                local.get(r, col).unwrap(),
+                server.get(r, col).unwrap(),
+            );
+        }
+    }
+
+    // Data quality: the server-counted columns.
+    let want = octa::data::quality::build_quality_report(&data).unwrap();
+    let (got, local_parts) = p::quality::run(c.as_mut(), &src, &data, total, &stop).unwrap();
+    assert!(!local_parts.by_design.is_empty());
+    let ids = octa::data::quality::quality_column_ids();
+    for id in [
+        "null_percentage",
+        "distinct_ratio",
+        "outlier_count",
+        "score",
+    ] {
+        let k = ids.iter().position(|x| *x == id).unwrap();
+        for r in 0..data.col_count() {
+            assert_cells_match(
+                &format!("quality {} {id}", data.columns[r].name),
+                want.table.get(r, k).unwrap(),
+                got.table.get(r, k).unwrap(),
+            );
+        }
+    }
+
+    for col in 0..data.col_count() {
+        let local = octa::data::value_frequency::compute_value_frequency(
+            &data,
+            col,
+            None,
+            Default::default(),
+        )
+        .unwrap();
+        let server = p::value_frequency::run(
+            c.as_mut(),
+            &src,
+            &data.columns[col],
+            None,
+            Default::default(),
+            &stop,
+        )
+        .unwrap();
+        assert_eq!(
+            (local.nulls, local.total_non_null, local.unique_count),
+            (server.nulls, server.total_non_null, server.unique_count),
+            "column {col}"
+        );
+    }
+
+    // Correlation over the columns the app picks (the text one stays out:
+    // Postgres refuses CAST('ada' AS DOUBLE PRECISION)), Boolean included.
+    let cols: Vec<ColumnInfo> = octa::data::correlation::numeric_columns(&data)
+        .into_iter()
+        .map(|i| data.columns[i].clone())
+        .collect();
+    assert_eq!(cols.len(), 4);
+    for method in [
+        octa::data::correlation::CorrMethod::Pearson,
+        octa::data::correlation::CorrMethod::Spearman,
+    ] {
+        let want = octa::data::correlation::correlation_matrix(&data, method);
+        let m = p::correlation::run(c.as_mut(), &src, &cols, method, &stop).unwrap();
+        assert_eq!(m.columns, want.columns);
+        for i in 0..cols.len() {
+            for j in 0..cols.len() {
+                match (want.matrix[i][j], m.matrix[i][j]) {
+                    (Some(x), Some(y)) => {
+                        assert!((x - y).abs() < 1e-9, "{method:?} [{i}][{j}] {x} vs {y}")
+                    }
+                    (x, y) => assert_eq!(x, y, "{method:?} [{i}][{j}]"),
+                }
+            }
+        }
+    }
+    c.execute(&format!("DROP TABLE {target}")).ok();
+}
+
+#[test]
+fn postgres_pushdown_parity_live() {
+    pushdown_parity(DbEngine::Postgres, "OCTA_TEST_POSTGRES_URL", "public");
+}
+
+#[test]
+fn mysql_pushdown_parity_live() {
+    // MySQL "schemas" are databases: create a real one, as mysql_live does.
+    let Some((conn, pass)) = conn_from_env("OCTA_TEST_MYSQL_URL", DbEngine::MySql) else {
+        eprintln!("skipped: OCTA_TEST_MYSQL_URL not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
+    c.execute("CREATE DATABASE IF NOT EXISTS octa_pushdown_db")
+        .expect("create db");
+    drop(c);
+    pushdown_parity(DbEngine::MySql, "OCTA_TEST_MYSQL_URL", "octa_pushdown_db");
+    let mut c = connect(&conn, Some(&pass), None).expect("reconnect");
+    c.execute("DROP DATABASE octa_pushdown_db")
+        .expect("drop db");
+}
+
+/// Join key finder, relationship Measure, Join diagnostics (regex fixes
+/// included), Find lookup tables and its row fetch, and the row count, on
+/// the server against the in-memory engines, over the same rows.
+/// Keys are lowercase with no padding, so MySQL's case-insensitive
+/// collation cannot make the two paths disagree.
+fn key_pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
+    use octa::db::pushdown as p;
+    let _cap = row_cap_lock();
+    let Some((conn, secret)) = conn_from_env(env_var, engine) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    let text_col = |n: &str| ColumnInfo {
+        name: n.into(),
+        data_type: "Utf8".into(),
+    };
+    let s = |v: &str| CellValue::String(v.into());
+    let mut customers = DataTable::empty();
+    customers.columns = vec![text_col("id"), text_col("city")];
+    customers.rows = (1..=6)
+        .map(|i| vec![s(&format!("{i:03}")), s(["x", "y"][i % 2])])
+        .collect();
+    let mut orders = DataTable::empty();
+    orders.columns = vec![text_col("cust"), text_col("city"), text_col("note")];
+    orders.rows = (0..40)
+        .map(|i| {
+            let cust = 1 + i % 8; // 7 and 8 have no customer
+            // 3 and 6 only ever appear unpadded, so ignoring leading zeros
+            // is a fix; the last row gives 008 a second city, so it breaks
+            // the cust -> city lookup.
+            vec![
+                s(&if cust % 3 == 0 {
+                    cust.to_string()
+                } else {
+                    format!("{cust:03}")
+                }),
+                s(if i == 39 { "z" } else { ["x", "y"][cust % 2] }),
+                s(&format!("n{}", i % 3)),
+            ]
+        })
+        .collect();
+    let src = |t: &str| p::ServerSource {
+        conn: conn.clone(),
+        catalog: None,
+        schema: schema.into(),
+        table: t.into(),
+        filter: None,
+        derived: Vec::new(),
+    };
+    for (name, t) in [
+        ("octa_pd_customers", &customers),
+        ("octa_pd_orders", &orders),
+    ] {
+        c.execute(&format!(
+            "DROP TABLE IF EXISTS {}.{}",
+            engine.quote_ident(schema),
+            engine.quote_ident(name)
+        ))
+        .ok();
+        c.write_table(None, schema, name, DbWriteMode::Create, t)
+            .expect("seed");
+    }
+    let stop = std::sync::atomic::AtomicBool::new(false);
+
+    let want = octa::data::join_keys::suggest_keys(&[&orders, &customers], usize::MAX);
+    assert!(!want.is_empty(), "the fixture must yield key candidates");
+    let tables = vec![
+        (src("octa_pd_orders"), orders.columns.clone()),
+        (src("octa_pd_customers"), customers.columns.clone()),
+    ];
+    assert_eq!(p::join_keys::run(c.as_mut(), &tables, &stop).unwrap(), want);
+
+    let named = vec![
+        ("orders".to_string(), orders.clone()),
+        ("customers".to_string(), customers.clone()),
+    ];
+    let refs: Vec<(String, &DataTable)> = named.iter().map(|(n, t)| (n.clone(), t)).collect();
+    let mut want_map = octa::data::rel_map::build_map(
+        &refs,
+        &octa::data::rel_map::RelMapOptions {
+            min_score: 0.0,
+            ..Default::default()
+        },
+    );
+    assert!(
+        !want_map.edges.is_empty(),
+        "the map must have lines to measure"
+    );
+    let mut got_map = want_map.clone();
+    octa::data::rel_map::score_edges(&named, &mut want_map, usize::MAX);
+    let froms = vec![
+        src("octa_pd_orders").from_sql(),
+        src("octa_pd_customers").from_sql(),
+    ];
+    p::rel_measure::run(c.as_mut(), engine, &froms, &mut got_map, &stop).unwrap();
+    assert_eq!(got_map, want_map);
+
+    let mut want_diag = octa::data::join_diag::diagnose(&orders, 0, &customers, 0, usize::MAX);
+    let (got_diag, not_checked) = p::join_diag::run(
+        c.as_mut(),
+        &src("octa_pd_orders"),
+        "cust",
+        &src("octa_pd_customers"),
+        "id",
+        &stop,
+    )
+    .unwrap();
+    want_diag.fixes.retain(|f| !not_checked.contains(&f.kind));
+    assert!(!want_diag.fixes.is_empty(), "leading zeros must be a fix");
+    assert_eq!(got_diag, want_diag);
+
+    let want_lk = octa::data::lookups::find_lookups(&orders, 0.95, &stop);
+    assert!(!want_lk.is_empty(), "cust -> city must be a lookup");
+    let got_lk = p::lookups::run(
+        c.as_mut(),
+        &src("octa_pd_orders"),
+        &orders.columns,
+        orders.row_count(),
+        0.95,
+        &stop,
+    )
+    .unwrap();
+    assert_eq!(got_lk, want_lk);
+
+    let deps = ["city".to_string()];
+    let (got_b, _) = p::lookups::breaking_rows(
+        c.as_mut(),
+        &src("octa_pd_orders"),
+        "cust",
+        &deps,
+        usize::MAX,
+        &stop,
+    )
+    .unwrap();
+    let want_b = octa::data::lookups::breaking_rows(&orders, 0, &[1]).len();
+    assert!(want_b > 0, "008 has two cities");
+    assert_eq!(got_b.row_count(), want_b);
+
+    // A fresh table may have no statistics yet; then it is counted exactly.
+    let rc = p::row_estimate::row_count(c.as_mut(), &src("octa_pd_orders"), &stop).unwrap();
+    assert!(rc.estimate || rc.rows == orders.row_count(), "{rc:?}");
+
+    for name in ["octa_pd_customers", "octa_pd_orders"] {
+        c.execute(&format!(
+            "DROP TABLE {}.{}",
+            engine.quote_ident(schema),
+            engine.quote_ident(name)
+        ))
+        .ok();
+    }
+}
+
+#[test]
+fn postgres_key_pushdown_parity_live() {
+    key_pushdown_parity(DbEngine::Postgres, "OCTA_TEST_POSTGRES_URL", "public");
+}
+
+#[test]
+fn mysql_key_pushdown_parity_live() {
+    let Some((conn, pass)) = conn_from_env("OCTA_TEST_MYSQL_URL", DbEngine::MySql) else {
+        eprintln!("skipped: OCTA_TEST_MYSQL_URL not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
+    c.execute("CREATE DATABASE IF NOT EXISTS octa_pd_keys_db")
+        .expect("create db");
+    drop(c);
+    key_pushdown_parity(DbEngine::MySql, "OCTA_TEST_MYSQL_URL", "octa_pd_keys_db");
+    let mut c = connect(&conn, Some(&pass), None).expect("reconnect");
+    c.execute("DROP DATABASE octa_pd_keys_db").expect("drop db");
+}
+
+/// Sort, filters, the value list and the exact sample on the server against
+/// the in-memory engines, over the same rows.
+fn view_pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
+    use octa::data::conditional_format::CondOp;
+    use octa::data::predicate_filter::{PredicateFilter, row_passes};
+    use octa::data::search::RowMatcher;
+    use octa::db::pushdown as p;
+    use octa::db::pushdown::view::{ServerView, SortKey, ViewFilter, page_sql};
+    let _cap = row_cap_lock();
+    let Some((conn, secret)) = conn_from_env(env_var, engine) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    let mut t = DataTable::empty();
+    t.columns = vec![
+        ColumnInfo {
+            name: "id".into(),
+            data_type: "Int64".into(),
+        },
+        ColumnInfo {
+            name: "name".into(),
+            data_type: "Utf8".into(),
+        },
+        ColumnInfo {
+            name: "n".into(),
+            data_type: "Int64".into(),
+        },
+    ];
+    // "APPLE" beside "Apple": MySQL's default collation folds case, which
+    // must not merge them in the value list.
+    let names = [
+        "Apple",
+        "apple pie",
+        "Banana",
+        "",
+        "50% off",
+        "a_b",
+        "Cherry",
+        "O'Brien",
+        "APPLE",
+    ];
+    t.rows = (0..400)
+        .map(|i| {
+            let name = if i % 11 == 4 {
+                CellValue::Null
+            } else {
+                CellValue::String(names[i % names.len()].into())
+            };
+            let n = if i % 7 == 3 {
+                CellValue::Null
+            } else {
+                CellValue::Int((i as i64 * 37) % 101 - 50)
+            };
+            vec![CellValue::Int(i as i64), name, n]
+        })
+        .collect();
+    let name = "octa_view_parity";
+    c.execute(&format!(
+        "DROP TABLE IF EXISTS {}.{}",
+        engine.quote_ident(schema),
+        engine.quote_ident(name)
+    ))
+    .ok();
+    c.write_table(None, schema, name, DbWriteMode::Create, &t)
+        .expect("seed");
+    let src = p::ServerSource {
+        conn: conn.clone(),
+        catalog: None,
+        schema: schema.into(),
+        table: name.into(),
+        filter: None,
+        derived: Vec::new(),
+    };
+    let ids = |table: &DataTable| -> Vec<String> {
+        (0..table.row_count())
+            .map(|r| table.get(r, 0).map(|v| v.to_string()).unwrap_or_default())
+            .collect()
+    };
+    let server = |c: &mut Box<dyn octa::db::DbConnector>, view: &ServerView| -> Vec<String> {
+        ids(&c
+            .query(&page_sql(
+                engine,
+                view,
+                &src.table_sql(),
+                &["id".into()],
+                1000,
+                0,
+            ))
+            .unwrap())
+    };
+    let local = |keep: &dyn Fn(usize) -> bool| -> Vec<String> {
+        (0..t.row_count())
+            .filter(|&r| keep(r))
+            .map(|r| t.get(r, 0).unwrap().to_string())
+            .collect()
+    };
+    let sorted = |mut v: Vec<String>| {
+        v.sort();
+        v
+    };
+
+    // Value filters, comparisons and both search modes.
+    let allowed = [
+        "apple".to_string(),
+        String::new(),
+        "O'Brien".to_string(),
+        "APPLE".to_string(),
+    ];
+    let v = ServerView {
+        order: vec![],
+        filters: vec![ViewFilter::values("name", allowed.clone())],
+        derived: Vec::new(),
+    };
+    assert_eq!(
+        sorted(server(&mut c, &v)),
+        sorted(local(
+            &|r| allowed.contains(&t.get(r, 1).unwrap().to_string())
+        ))
+    );
+    for (col, ty, op, value) in [
+        (1, "Utf8", CondOp::Eq, "apple"),
+        (1, "Utf8", CondOp::Contains, "%"),
+        (1, "Utf8", CondOp::NotContains, "an"),
+        (2, "Int64", CondOp::Lt, "0"),
+        (2, "Int64", CondOp::Ge, "25"),
+        (1, "Utf8", CondOp::Empty, ""),
+    ] {
+        let pf = PredicateFilter {
+            col,
+            op,
+            value: value.into(),
+            case_sensitive: false,
+        };
+        let f = ViewFilter::compare(&t.columns[col].name, ty, op, value, false).unwrap();
+        let v = ServerView {
+            order: vec![],
+            filters: vec![f],
+            derived: Vec::new(),
+        };
+        assert_eq!(
+            sorted(server(&mut c, &v)),
+            sorted(local(&|r| row_passes(std::slice::from_ref(&pf), &t, r))),
+            "{op:?} {value:?}"
+        );
+    }
+    for (wild, q) in [(false, "APP"), (false, "'b"), (true, "a*e"), (true, "a_b")] {
+        let mode = if wild {
+            octa::data::SearchMode::Wildcard
+        } else {
+            octa::data::SearchMode::Plain
+        };
+        let m = RowMatcher::with_options(q, mode, false, false);
+        let cols = vec!["name".to_string(), "n".to_string()];
+        let f = if wild {
+            ViewFilter::Wildcard {
+                columns: cols,
+                pattern: q.into(),
+                case_sensitive: false,
+            }
+        } else {
+            ViewFilter::Contains {
+                columns: cols,
+                needle: q.into(),
+                case_sensitive: false,
+            }
+        };
+        let v = ServerView {
+            order: vec![],
+            filters: vec![f],
+            derived: Vec::new(),
+        };
+        assert_eq!(
+            sorted(server(&mut c, &v)),
+            sorted(local(&|r| [1, 2]
+                .iter()
+                .any(|&k| m.matches(&t.get(r, k).unwrap().to_string())))),
+            "search {q:?}"
+        );
+    }
+
+    // The sort, with `id` as the tie-break: Octa's stable sort keeps id order.
+    for keys in [
+        vec![(1usize, true)],
+        vec![(1, false)],
+        vec![(2, true), (1, false)],
+    ] {
+        let mut local_sorted = t.clone();
+        local_sorted.sort_rows_by_columns(&keys);
+        let order = keys
+            .iter()
+            .map(|&(k, asc)| SortKey {
+                column: t.columns[k].name.clone(),
+                ascending: asc,
+                text: p::view::is_text_type(&t.columns[k].data_type),
+            })
+            .collect();
+        let v = ServerView {
+            order,
+            filters: vec![],
+            derived: Vec::new(),
+        };
+        assert_eq!(server(&mut c, &v), ids(&local_sorted), "{keys:?}");
+    }
+
+    // The value list (counted by exact text), and the exact sample.
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let want = octa::data::value_frequency::compute_value_frequency(
+        &t,
+        1,
+        None,
+        octa::data::value_frequency::BinningMode::None,
+    )
+    .unwrap();
+    let got = p::facets::run(c.as_mut(), &src, &t.columns[1], "", 50, &stop).unwrap();
+    assert_eq!(got.unique_count, want.unique_count, "APPLE and Apple apart");
+    assert_eq!(got.nulls, want.nulls);
+    let label_counts = |rows: &[octa::data::value_frequency::ValueFrequencyRow]| {
+        let mut v: Vec<(String, usize)> = rows.iter().map(|r| (r.label.clone(), r.count)).collect();
+        v.sort();
+        v
+    };
+    assert_eq!(label_counts(&got.rows), label_counts(&want.rows));
+    let (s, capped, _) = p::sample::run(
+        c.as_mut(),
+        &src,
+        25,
+        p::sample::SampleMethod::Exact,
+        1_000,
+        &stop,
+    )
+    .unwrap();
+    assert!(!capped);
+    let mut picked = ids(&s);
+    picked.sort();
+    picked.dedup();
+    assert_eq!(picked.len(), 25, "25 distinct rows");
+    // Fast runs: block sampling where the catalog has a figure, else exact.
+    let (f, _, ran) = p::sample::run(
+        c.as_mut(),
+        &src,
+        10,
+        p::sample::SampleMethod::Fast,
+        1_000,
+        &stop,
+    )
+    .unwrap();
+    assert!(f.row_count() <= 10);
+    if engine == DbEngine::MySql {
+        assert_eq!(
+            ran,
+            p::sample::SampleMethod::Exact,
+            "MySQL has no block sampling"
+        );
+    }
+
+    c.execute(&format!(
+        "DROP TABLE {}.{}",
+        engine.quote_ident(schema),
+        engine.quote_ident(name)
+    ))
+    .ok();
+}
+
+#[test]
+fn postgres_view_pushdown_parity_live() {
+    view_pushdown_parity(DbEngine::Postgres, "OCTA_TEST_POSTGRES_URL", "public");
+}
+
+#[test]
+fn mysql_view_pushdown_parity_live() {
+    let Some((conn, pass)) = conn_from_env("OCTA_TEST_MYSQL_URL", DbEngine::MySql) else {
+        eprintln!("skipped: OCTA_TEST_MYSQL_URL not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
+    c.execute("CREATE DATABASE IF NOT EXISTS octa_view_db")
+        .expect("create db");
+    drop(c);
+    view_pushdown_parity(DbEngine::MySql, "OCTA_TEST_MYSQL_URL", "octa_view_db");
+    let mut c = connect(&conn, Some(&pass), None).expect("reconnect");
+    c.execute("DROP DATABASE octa_view_db").expect("drop db");
+}
+
+/// Pivot, Resample and Rolling on the server against the file path's DuckDB
+/// SQL over the same rows (see the DuckConn parity tests for the shapes).
+fn reshape_pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
+    use octa::data::pivot::{PivotAgg, pivot_sql};
+    use octa::data::timeseries::{
+        Interval, ResampleSpec, RollingSpec, TimeAgg, build_resample_sql, build_rolling_sql,
+    };
+    use octa::db::pushdown as p;
+    let _cap = row_cap_lock();
+    let Some((conn, secret)) = conn_from_env(env_var, engine) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    let mut t = DataTable::empty();
+    let col = |name: &str, ty: &str| ColumnInfo {
+        name: name.into(),
+        data_type: ty.into(),
+    };
+    t.columns = vec![
+        col("id", "Int64"),
+        col("ts", "Timestamp(Microsecond, None)"),
+        col("region", "Utf8"),
+        col("kind", "Utf8"),
+        col("n", "Int64"),
+    ];
+    // Distinct times (hour and minute pin i mod 120), so the window order
+    // has no ties; "B" beside "b" and "10" beside "9" in kind.
+    let kinds = ["a", "b", "B", "10", "9"];
+    t.rows = (0..120)
+        .map(|i: i64| {
+            let day = 1 + (i * 7919 % 360);
+            let ts = format!(
+                "2024-{:02}-{:02} {:02}:{:02}:00",
+                1 + (day - 1) / 30,
+                1 + (day - 1) % 28,
+                i % 24,
+                i % 60
+            );
+            vec![
+                CellValue::Int(i),
+                CellValue::DateTime(ts),
+                CellValue::String(if i % 3 == 0 { "north" } else { "south" }.into()),
+                CellValue::String(kinds[i as usize % kinds.len()].into()),
+                if i % 11 == 5 {
+                    CellValue::Null
+                } else {
+                    CellValue::Int((i * 37) % 101 - 50)
+                },
+            ]
+        })
+        .collect();
+    let name = "octa_reshape_parity";
+    c.execute(&format!(
+        "DROP TABLE IF EXISTS {}.{}",
+        engine.quote_ident(schema),
+        engine.quote_ident(name)
+    ))
+    .ok();
+    c.write_table(None, schema, name, DbWriteMode::Create, &t)
+        .expect("seed");
+    let src = p::ServerSource {
+        conn: conn.clone(),
+        catalog: None,
+        schema: schema.into(),
+        table: name.into(),
+        filter: None,
+        derived: Vec::new(),
+    };
+    let cols: Vec<String> = t.columns.iter().map(|c| c.name.clone()).collect();
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let norm = |t: &DataTable| -> Vec<Vec<String>> {
+        let mut rows: Vec<Vec<String>> = t
+            .rows
+            .iter()
+            .map(|r| {
+                r.iter()
+                    .map(|c| match p::cell_f64(c) {
+                        Some(x) => format!("{x:.6}"),
+                        None => c.to_string().chars().take(19).collect(),
+                    })
+                    .collect()
+            })
+            .collect();
+        rows.sort();
+        rows
+    };
+    let names = |t: &DataTable| t.columns.iter().map(|c| c.name.clone()).collect::<Vec<_>>();
+
+    for agg in [PivotAgg::Count, PivotAgg::Sum, PivotAgg::Max] {
+        let want = octa::sql::run_query(&t, &pivot_sql("kind", agg, "n", &["region".into()]))
+            .unwrap()
+            .table;
+        let spec = p::pivot::PivotSpec {
+            columns: cols.clone(),
+            on: "kind".into(),
+            agg,
+            value: "n".into(),
+            group: vec!["region".into()],
+        };
+        let (got, _) = p::pivot::run(c.as_mut(), &src, &spec, 2, 1_000, &stop).unwrap();
+        assert_eq!(names(&got), names(&want), "pivot {agg:?}");
+        assert_eq!(norm(&got), norm(&want), "pivot {agg:?}");
+    }
+    for &agg in TimeAgg::ALL {
+        for interval in [Interval::Week, Interval::Month, Interval::Quarter] {
+            let spec = ResampleSpec {
+                time_col: "ts".into(),
+                value_cols: vec!["n".into()],
+                interval,
+                agg,
+                group_by: vec!["region".into()],
+            };
+            let want = octa::sql::run_query(&t, &build_resample_sql(&spec, &cols).unwrap())
+                .unwrap()
+                .table;
+            let (got, _) =
+                p::timeseries::resample(c.as_mut(), &src, &cols, &spec, 1_000, &stop).unwrap();
+            assert_eq!(norm(&got), norm(&want), "resample {agg:?} {interval:?}");
+        }
+        let spec = RollingSpec {
+            order_col: "ts".into(),
+            value_col: "n".into(),
+            window: 3,
+            agg,
+            partition_by: vec!["region".into()],
+        };
+        let want = octa::sql::run_query(&t, &build_rolling_sql(&spec, &cols).unwrap())
+            .unwrap()
+            .table;
+        let (got, _) =
+            p::timeseries::rolling(c.as_mut(), &src, &spec, &["id".into()], 1_000, &stop).unwrap();
+        assert_eq!(norm(&got), norm(&want), "rolling {agg:?}");
+    }
+
+    c.execute(&format!(
+        "DROP TABLE {}.{}",
+        engine.quote_ident(schema),
+        engine.quote_ident(name)
+    ))
+    .ok();
+}
+
+#[test]
+fn postgres_reshape_pushdown_parity_live() {
+    reshape_pushdown_parity(DbEngine::Postgres, "OCTA_TEST_POSTGRES_URL", "public");
+}
+
+#[test]
+fn mysql_reshape_pushdown_parity_live() {
+    let Some((conn, pass)) = conn_from_env("OCTA_TEST_MYSQL_URL", DbEngine::MySql) else {
+        eprintln!("skipped: OCTA_TEST_MYSQL_URL not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
+    c.execute("CREATE DATABASE IF NOT EXISTS octa_reshape_db")
+        .expect("create db");
+    drop(c);
+    reshape_pushdown_parity(DbEngine::MySql, "OCTA_TEST_MYSQL_URL", "octa_reshape_db");
+    let mut c = connect(&conn, Some(&pass), None).expect("reconnect");
+    c.execute("DROP DATABASE octa_reshape_db").expect("drop db");
+}
+
+/// Charts on the server against the local builder over the same rows:
+/// Histogram (number and date), Bar per aggregate, Line, and Box (MySQL:
+/// not expressible).
+fn chart_pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
+    use octa::data::chart::{
+        Aggregation, ChartConfig, ChartData, ChartKind, ChartLimits, build_chart,
+    };
+    use octa::db::pushdown as p;
+    use octa::db::pushdown::chart::{ChartKey, ChartRequest, ServerChart, column_reads};
+    let _cap = row_cap_lock();
+    let Some((conn, secret)) = conn_from_env(env_var, engine) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    let col = |name: &str, ty: &str| ColumnInfo {
+        name: name.into(),
+        data_type: ty.into(),
+    };
+    let mut t = DataTable::empty();
+    t.columns = vec![
+        col("g", "Utf8"),
+        col("n", "Int64"),
+        col("f", "Float64"),
+        col("d", "Date32"),
+    ];
+    // Sorted by g then f, g lowercase (MySQL's collation cannot reorder it),
+    // distinct f, a NULL n now and then.
+    let groups = ["alpha", "beta", "gamma", "delta"];
+    let mut rows: Vec<Vec<CellValue>> = (0..80i64)
+        .map(|i| {
+            vec![
+                CellValue::String(groups[(i % 4) as usize].into()),
+                if i % 9 == 4 {
+                    CellValue::Null
+                } else {
+                    CellValue::Int((i * 37) % 101 - 50)
+                },
+                CellValue::Float(i as f64 + 0.5),
+                CellValue::Date(format!("2024-{:02}-{:02}", 1 + i % 12, 1 + i % 28)),
+            ]
+        })
+        .collect();
+    rows.sort_by(|a, b| a[0].to_string().cmp(&b[0].to_string()));
+    t.rows = rows;
+    let name = "octa_chart_parity";
+    c.execute(&format!(
+        "DROP TABLE IF EXISTS {}.{}",
+        engine.quote_ident(schema),
+        engine.quote_ident(name)
+    ))
+    .ok();
+    c.write_table(None, schema, name, DbWriteMode::Create, &t)
+        .expect("seed");
+    let src = p::ServerSource {
+        conn: conn.clone(),
+        catalog: None,
+        schema: schema.into(),
+        table: name.into(),
+        filter: None,
+        derived: Vec::new(),
+    };
+    let limits = ChartLimits {
+        max_points: 10_000,
+        max_categories: 200,
+    };
+    let all: Vec<usize> = (0..t.row_count()).collect();
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let ask = |c: &mut Box<dyn octa::db::DbConnector>, cfg: &ChartConfig| {
+        let req = ChartRequest {
+            key: ChartKey::of(cfg, limits),
+            columns: t.columns.clone(),
+            reads: column_reads(&t),
+            tie: Vec::new(),
+        };
+        p::chart::run(c.as_mut(), &src, &req, &stop).unwrap()
+    };
+    let drawn = |s: ServerChart| match s {
+        ServerChart::Drawn { chart, .. } => chart.unwrap(),
+        ServerChart::NotExpressible => panic!("expected a chart"),
+    };
+
+    for x in [1, 3] {
+        let cfg = ChartConfig {
+            kind: ChartKind::Histogram,
+            x_col: Some(x),
+            ..ChartConfig::default()
+        };
+        let want = build_chart(&t, &all, &cfg, limits).unwrap();
+        assert_eq!(drawn(ask(&mut c, &cfg)), want, "histogram x {x}");
+    }
+    for agg in Aggregation::ALL.iter().copied() {
+        let cfg = ChartConfig {
+            kind: ChartKind::Bar,
+            x_col: Some(0),
+            y_cols: vec![1],
+            agg,
+            ..ChartConfig::default()
+        };
+        let mut want = build_chart(&t, &all, &cfg, limits).unwrap();
+        let mut got = drawn(ask(&mut c, &cfg));
+        // Avg / Sum over doubles: compare to six places.
+        for prep in [&mut want, &mut got] {
+            if let ChartData::Bars { series, .. } = &mut prep.data {
+                for s in series {
+                    for pt in &mut s.points {
+                        pt[1] = (pt[1] * 1e6).round() / 1e6;
+                    }
+                }
+            }
+        }
+        assert_eq!(got, want, "bar {agg:?}");
+    }
+    let cfg = ChartConfig {
+        kind: ChartKind::Line,
+        x_col: Some(2),
+        y_cols: vec![1],
+        ..ChartConfig::default()
+    };
+    assert_eq!(
+        drawn(ask(&mut c, &cfg)),
+        build_chart(&t, &all, &cfg, limits).unwrap(),
+        "line"
+    );
+    let cfg = ChartConfig {
+        kind: ChartKind::Box,
+        y_cols: vec![1, 2],
+        ..ChartConfig::default()
+    };
+    match (engine, ask(&mut c, &cfg)) {
+        (DbEngine::MySql, got) => assert_eq!(got, ServerChart::NotExpressible),
+        (_, got) => {
+            let (ChartData::Boxes(got), ChartData::Boxes(want)) = (
+                drawn(got).data,
+                build_chart(&t, &all, &cfg, limits).unwrap().data,
+            ) else {
+                panic!("boxes");
+            };
+            assert_eq!(got.len(), want.len(), "boxes");
+            for (g, w) in got.iter().zip(&want) {
+                for (a, b) in [
+                    (g.lower_whisker, w.lower_whisker),
+                    (g.q1, w.q1),
+                    (g.median, w.median),
+                    (g.q3, w.q3),
+                    (g.upper_whisker, w.upper_whisker),
+                ] {
+                    assert!((a - b).abs() < 1e-9, "box {}: {a} vs {b}", g.name);
+                }
+            }
+        }
+    }
+
+    c.execute(&format!(
+        "DROP TABLE {}.{}",
+        engine.quote_ident(schema),
+        engine.quote_ident(name)
+    ))
+    .ok();
+}
+
+#[test]
+fn postgres_chart_pushdown_parity_live() {
+    chart_pushdown_parity(DbEngine::Postgres, "OCTA_TEST_POSTGRES_URL", "public");
+}
+
+/// The database's hash of every row (MD5, SHA-256, SHA-512, with trim,
+/// upper-case and a NULL text) is the local engine's hash of the same text,
+/// and a page of a view with the hash column filters on it.
+fn hash_pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
+    use octa::data::transform::hash_columns::{
+        HashColumnsAlgo, HashColumnsSpec, hash_columns_row, row_input,
+    };
+    use octa::db::pushdown as p;
+    use octa::db::pushdown::hash::ServerHash;
+    use octa::db::pushdown::view::{ServerView, ViewFilter, page_sql};
+    let _cap = row_cap_lock();
+    let Some((conn, secret)) = conn_from_env(env_var, engine) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    let mut t = DataTable::empty();
+    t.columns = ["a", "b"]
+        .iter()
+        .map(|n| ColumnInfo {
+            name: (*n).into(),
+            data_type: "Utf8".into(),
+        })
+        .collect();
+    let cell = |v: Option<&str>| v.map_or(CellValue::Null, |s| CellValue::String(s.into()));
+    t.rows = [
+        (Some("x"), Some("y")),
+        (Some("  Mixed Case "), None),
+        (None, Some("tail ")),
+        (Some("o'quote"), Some("caf\u{e9} \u{fc}ber")),
+    ]
+    .into_iter()
+    .map(|(a, b)| vec![cell(a), cell(b)])
+    .collect();
+    let name = "octa_hash_parity";
+    let table = format!(
+        "{}.{}",
+        engine.quote_ident(schema),
+        engine.quote_ident(name)
+    );
+    c.execute(&format!("DROP TABLE IF EXISTS {table}")).ok();
+    c.write_table(None, schema, name, DbWriteMode::Create, &t)
+        .expect("seed");
+    let src = p::ServerSource {
+        conn: conn.clone(),
+        catalog: None,
+        schema: schema.into(),
+        table: name.into(),
+        filter: None,
+        derived: Vec::new(),
+    };
+    let names = vec!["a".to_string(), "b".to_string()];
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    for algo in HashColumnsAlgo::ALL {
+        for (trim, upper) in [(false, false), (true, true)] {
+            let spec = HashColumnsSpec {
+                columns: vec![0, 1],
+                algo,
+                delimiter: "|".into(),
+                null_text: "-".into(),
+                trim,
+                upper,
+            };
+            let h = ServerHash::of(&spec, &names, "h");
+            let mut got = p::hash::preview(c.as_mut(), &src, &h, 10, &stop).unwrap();
+            let mut want: Vec<(String, String)> = (0..t.row_count())
+                .map(|r| (row_input(&t, r, &spec), hash_columns_row(&t, r, &spec)))
+                .collect();
+            got.sort();
+            want.sort();
+            assert_eq!(got, want, "{algo:?} trim {trim} upper {upper}");
+        }
+    }
+    // A page of a view carrying the hash, filtered on it.
+    let spec = HashColumnsSpec {
+        columns: vec![0, 1],
+        ..HashColumnsSpec::default()
+    };
+    let digest = hash_columns_row(&t, 3, &spec);
+    let view = ServerView {
+        filters: vec![ViewFilter::values("h", [digest.clone()])],
+        derived: vec![ServerHash::of(&spec, &names, "h")],
+        ..Default::default()
+    };
+    let sql = page_sql(engine, &view, &view.from_item(engine, &table), &[], 10, 0);
+    let page = c.query(&sql).unwrap();
+    let col = page.columns.iter().position(|c| c.name == "h").expect("h");
+    assert_eq!(page.row_count(), 1, "{sql}");
+    assert_eq!(page.get(0, col).unwrap().to_string(), digest);
+    c.execute(&format!("DROP TABLE {table}")).ok();
+}
+
+#[test]
+fn postgres_hash_pushdown_parity_live() {
+    hash_pushdown_parity(DbEngine::Postgres, "OCTA_TEST_POSTGRES_URL", "public");
+}
+
+#[test]
+fn mysql_hash_pushdown_parity_live() {
+    let Some((conn, pass)) = conn_from_env("OCTA_TEST_MYSQL_URL", DbEngine::MySql) else {
+        eprintln!("skipped: OCTA_TEST_MYSQL_URL not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
+    c.execute("CREATE DATABASE IF NOT EXISTS octa_hash_db")
+        .expect("create db");
+    drop(c);
+    hash_pushdown_parity(DbEngine::MySql, "OCTA_TEST_MYSQL_URL", "octa_hash_db");
+    let mut c = connect(&conn, Some(&pass), None).expect("reconnect");
+    c.execute("DROP DATABASE octa_hash_db").expect("drop db");
+}
+
+/// A TIMESTAMPTZ X under a non-UTC session: the histogram follows the UTC
+/// time the connector shows, not the session's zone; a DATE stays at its
+/// midnight.
+#[test]
+fn postgres_chart_timestamptz_follows_the_shown_time_live() {
+    use octa::data::chart::{ChartConfig, ChartKind, ChartLimits, build_chart};
+    use octa::db::pushdown as p;
+    use octa::db::pushdown::chart::{ChartKey, ChartRequest, ServerChart, column_reads};
+    let _cap = row_cap_lock();
+    let Some((conn, secret)) = conn_from_env("OCTA_TEST_POSTGRES_URL", DbEngine::Postgres) else {
+        eprintln!("skipped: OCTA_TEST_POSTGRES_URL not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    c.execute("DROP TABLE IF EXISTS public.octa_chart_tz").ok();
+    c.execute("CREATE TABLE public.octa_chart_tz (ts TIMESTAMPTZ, d DATE)")
+        .expect("create");
+    c.execute(
+        "INSERT INTO public.octa_chart_tz VALUES \
+         ('2024-01-07 13:45:12+00', '2024-02-29'), \
+         ('2024-07-01 08:00:00+00', '2024-07-01'), \
+         ('2024-12-31 23:30:00+00', '2024-12-31')",
+    )
+    .expect("insert");
+    c.execute("SET TIME ZONE 'Europe/Berlin'").expect("zone");
+    let t = c
+        .query("SELECT ts, d FROM public.octa_chart_tz")
+        .expect("read");
+    let src = p::ServerSource {
+        conn: conn.clone(),
+        catalog: None,
+        schema: "public".into(),
+        table: "octa_chart_tz".into(),
+        filter: None,
+        derived: Vec::new(),
+    };
+    let limits = ChartLimits {
+        max_points: 1_000,
+        max_categories: 200,
+    };
+    let all: Vec<usize> = (0..t.row_count()).collect();
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    for x in [0, 1] {
+        let cfg = ChartConfig {
+            kind: ChartKind::Histogram,
+            x_col: Some(x),
+            ..ChartConfig::default()
+        };
+        let req = ChartRequest {
+            key: ChartKey::of(&cfg, limits),
+            columns: t.columns.clone(),
+            reads: column_reads(&t),
+            tie: Vec::new(),
+        };
+        let ServerChart::Drawn { chart, .. } =
+            p::chart::run(c.as_mut(), &src, &req, &stop).unwrap()
+        else {
+            panic!("expected a chart");
+        };
+        assert_eq!(
+            chart.unwrap(),
+            build_chart(&t, &all, &cfg, limits).unwrap(),
+            "histogram x {x}"
+        );
+    }
+    c.execute("DROP TABLE public.octa_chart_tz").ok();
+}
+
+#[test]
+fn mysql_chart_pushdown_parity_live() {
+    let Some((conn, pass)) = conn_from_env("OCTA_TEST_MYSQL_URL", DbEngine::MySql) else {
+        eprintln!("skipped: OCTA_TEST_MYSQL_URL not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
+    c.execute("CREATE DATABASE IF NOT EXISTS octa_chart_db")
+        .expect("create db");
+    drop(c);
+    chart_pushdown_parity(DbEngine::MySql, "OCTA_TEST_MYSQL_URL", "octa_chart_db");
+    let mut c = connect(&conn, Some(&pass), None).expect("reconnect");
+    c.execute("DROP DATABASE octa_chart_db").expect("drop db");
 }

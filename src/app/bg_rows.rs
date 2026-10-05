@@ -70,7 +70,11 @@ impl OctaApp {
                 }
             }
             // Evict front rows if we have too many in memory.
-            if self.tabs[self.active_tab].table.rows.len() > 3_000_000 {
+            // Not while Load whole table runs: dropping the start of the table
+            // while its end arrives would defeat the point of asking for all of it.
+            if self.tabs[self.active_tab].table.rows.len() > 3_000_000
+                && !self.tabs[self.active_tab].loading_all
+            {
                 let evict_count = self.tabs[self.active_tab].table.rows.len() - 2_000_000;
                 self.tabs[self.active_tab]
                     .table
@@ -80,6 +84,14 @@ impl OctaApp {
         }
         if loading_done {
             self.tabs[self.active_tab].bg_row_buffer = None;
+            // A whole-table load that was cancelled or failed keeps what
+            // arrived, and the tab must still be able to scroll for the rest.
+            // The scroll path itself stays off after a failed page (see
+            // `central_panel::interaction`); this is the explicit request.
+            if self.tabs[self.active_tab].loading_all && !file_exhausted {
+                self.tabs[self.active_tab].bg_can_load_more = true;
+            }
+            self.tabs[self.active_tab].loading_all = false;
             // A chunk that came back empty drains nothing, so this cannot live
             // in the `drained` branch above: without it the tab would keep
             // advertising "scroll for more" over a source that has no more.

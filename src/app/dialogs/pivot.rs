@@ -18,7 +18,7 @@ use octa::ui::settings::{
 use super::widgets::{
     PREVIEW_RESULT_ROWS, PREVIEW_SOURCE_ROWS, col_combo, multi_col_picker, render_preview_grid,
 };
-use crate::app::state::{OctaApp, PivotAgg, PivotKind, PivotState, TabState};
+use crate::app::state::{OctaApp, PivotAgg, PivotKind, PivotState};
 
 pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     if app.pivot_dialog.is_none() {
@@ -48,6 +48,14 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
     let mut size = st.size;
     let minimized = size == DialogSize::Minimized;
+    // A Pivot on a database tab runs on the server; its preview does not.
+    let on_server = app.active_server_source().is_some();
+    // The preview reads at most PREVIEW_SOURCE_ROWS of them.
+    let loaded_rows = app.tabs[app.active_tab]
+        .table
+        .rows
+        .len()
+        .min(PREVIEW_SOURCE_ROWS);
 
     let dialog_id = egui::Id::new("octa_pivot_dialog");
     let window = egui::Window::new("octa_pivot")
@@ -149,6 +157,12 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                             .strong()
                             .size(11.0),
                     );
+                    if on_server && st.kind == PivotKind::Pivot {
+                        ui.weak(octa::i18n::t("pushdown.preview_loaded").replace(
+                            "{loaded}",
+                            &octa::ui::status_bar::format_number(loaded_rows),
+                        ));
+                    }
                     render_preview_grid(ui, "pv", table);
                 }
                 Some(Err(e)) => {
@@ -175,7 +189,7 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     st.size = size;
 
     if run {
-        execute_pivot(app, &st, &col_names);
+        execute_pivot(app, ctx, &st, &col_names);
         return; // dialog dropped (st not written back)
     }
     if !close {
@@ -337,46 +351,50 @@ fn compute_preview(
     }
 }
 
-fn execute_pivot(app: &mut OctaApp, st: &PivotState, cols: &[String]) {
+/// Run the reshape. On a database tab that does not hold every row a Pivot
+/// goes to the server; Unpivot turns columns into rows, so it stays on the
+/// loaded rows and says why. A file tab runs as before.
+fn execute_pivot(app: &mut OctaApp, ctx: &egui::Context, st: &PivotState, cols: &[String]) {
     let Some(sql) = build_sql(st, cols) else {
         return;
     };
-    let mut snap = app.tabs[app.active_tab].table.clone();
-    snap.apply_edits();
-    let source_label = app.tabs[app.active_tab]
-        .table
-        .source_path
-        .as_ref()
-        .and_then(|p| {
-            std::path::Path::new(p)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-        })
-        .unwrap_or_else(|| app.tabs[app.active_tab].title_display());
-
-    match octa::sql::run_query(&snap, &sql) {
-        Ok(outcome) => {
-            let mut new_tab = TabState::new(app.settings.default_search_mode);
-            new_tab.table = outcome.table;
-            new_tab.table.source_path = None;
-            new_tab.table.format_name = None;
-            let verb = match st.kind {
-                PivotKind::Pivot => octa::i18n::t("dialog.pv_pivot"),
-                PivotKind::Unpivot => octa::i18n::t("dialog.pv_unpivot"),
+    let verb = match st.kind {
+        PivotKind::Pivot => octa::i18n::t("dialog.pv_pivot"),
+        PivotKind::Unpivot => octa::i18n::t("dialog.pv_unpivot"),
+    };
+    let server = app.active_server_source();
+    match (st.kind, server) {
+        (PivotKind::Pivot, Some(src)) => {
+            let name = |i: Option<usize>| i.and_then(|i| cols.get(i)).cloned().unwrap_or_default();
+            let spec = octa::db::pushdown::pivot::PivotSpec {
+                columns: cols.to_vec(),
+                on: name(st.on_col),
+                agg: st.agg,
+                value: name(st.value_col),
+                group: st
+                    .group_cols
+                    .iter()
+                    .filter_map(|&i| cols.get(i).cloned())
+                    .collect(),
             };
-            new_tab.custom_tab_label = Some(format!("{verb} - {source_label}"));
-            new_tab.filter_dirty = true;
-            if new_tab.table.row_count() > 0 && new_tab.table.col_count() > 0 {
-                new_tab.table_state.selected_cell = Some((0, 0));
-            }
-            app.tabs.push(new_tab);
-            app.active_tab = app.tabs.len() - 1;
+            let job = crate::app::pushdown::ReshapeJob {
+                spec: crate::app::pushdown::ReshapeSpec::Pivot(spec),
+                local_sql: sql,
+                label: verb,
+                failed_key: "dialog.pv_failed",
+            };
+            app.start_pushdown(
+                ctx,
+                crate::app::pushdown::PushdownKind::Reshape(Box::new(job)),
+                src,
+            );
         }
-        Err(e) => {
-            app.status_message = Some((
-                format!("{}: {e}", octa::i18n::t("dialog.pv_failed")),
-                std::time::Instant::now(),
-            ));
+        (PivotKind::Unpivot, Some(_)) => {
+            let loaded =
+                octa::ui::status_bar::format_number(app.tabs[app.active_tab].table.rows.len());
+            let reason = octa::i18n::t("pushdown.unpivot_loaded").replace("{loaded}", &loaded);
+            app.open_reshape_tab_local(&sql, &verb, "dialog.pv_failed", Some(reason));
         }
+        (_, None) => app.open_reshape_tab_local(&sql, &verb, "dialog.pv_failed", None),
     }
 }

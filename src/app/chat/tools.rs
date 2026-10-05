@@ -305,6 +305,7 @@ define_chat_tools! {
     "edit_open_tab"            => edit_open_tab,
     "transform_columns"        => transform_columns,
     "anonymize"                => anonymize,
+    "hash_columns"             => hash_columns,
     "partition_table"          => partition,
     "detect_outliers"          => outliers,
     "detect_pii"               => pii,

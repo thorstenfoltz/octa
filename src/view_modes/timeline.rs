@@ -11,12 +11,12 @@ use std::collections::HashSet;
 
 use eframe::egui;
 use egui::{RichText, Stroke};
-use egui_plot::{Bar, BarChart, GridMark, Plot};
+use egui_plot::{Bar, BarChart, GridMark, Plot, PlotBounds, PlotPoint, Text};
 
 use octa::data::DataTable;
 use octa::data::timeline::{
-    Timeline, build, format_secs, lanes_with_overlaps, overlaps, overlaps_columns, overlaps_table,
-    time_columns,
+    Timeline, build, format_secs, format_tick, lanes_with_overlaps, overlaps, overlaps_columns,
+    overlaps_table, time_columns, time_ticks,
 };
 use octa::i18n::t;
 use octa::ui::control_row::control_row;
@@ -46,11 +46,36 @@ struct Built {
     overlapping: HashSet<usize>,
 }
 
+/// A navigation button pressed this frame, applied inside the plot.
+#[derive(Clone, Copy)]
+enum Nav {
+    Fit,
+    /// Zoom factors for time and lanes; above 1 zooms in.
+    Zoom(f32, f32),
+}
+
+/// `lo..hi` moved and shrunk so it stays inside `full`, never narrower
+/// than `min_w`: the view cannot drift off into empty years or zoom out
+/// past the whole timeline.
+fn clamp_range(lo: f64, hi: f64, full: (f64, f64), min_w: f64) -> (f64, f64) {
+    let w = (hi - lo).max(min_w).min(full.1 - full.0);
+    let lo = lo.max(full.0).min(full.1 - w);
+    (lo, lo + w)
+}
+
 /// Per-tab timeline state (session only).
 #[derive(Default)]
 pub(crate) struct TimelineState {
     cols: Option<TimelineCols>,
     built: Option<Built>,
+}
+
+impl TimelineState {
+    /// Rebuild on the next frame: the rows were replaced by others that the
+    /// cache key (row count, edits, filtered rows) cannot tell apart.
+    pub(crate) fn forget_built(&mut self) {
+        self.built = None;
+    }
 }
 
 /// Whether a tab offers the Timeline view: a column typed as a date or a
@@ -223,7 +248,30 @@ pub fn render_timeline_view(
             );
         }
     });
-    ui.label(RichText::new(t("timeline.hint")).weak().size(10.0));
+    let mut nav = None;
+    control_row(ui, |ui| {
+        if ui
+            .button(t("timeline.fit"))
+            .on_hover_text(t("timeline.fit_hint"))
+            .clicked()
+        {
+            nav = Some(Nav::Fit);
+        }
+        for (key, axis) in [("timeline.zoom_time", 0), ("timeline.zoom_lanes", 1)] {
+            let hint = t(&format!("{key}_hint"));
+            ui.label(t(key)).on_hover_text(&hint);
+            for (sign, f) in [("+", 2.0), ("-", 0.5)] {
+                if ui.button(sign).on_hover_text(&hint).clicked() {
+                    nav = Some(if axis == 0 {
+                        Nav::Zoom(f, 1.0)
+                    } else {
+                        Nav::Zoom(1.0, f)
+                    });
+                }
+            }
+        }
+        ui.label(RichText::new(t("timeline.hint")).weak().size(10.0));
+    });
 
     // Lane bands from the top: lane l starts at row `base[l]`.
     let mut base = Vec::with_capacity(tl.lanes.len());
@@ -236,6 +284,11 @@ pub fn render_timeline_view(
         (lo.min(b.start), hi.max(b.end))
     });
     let min_len = ((span.1 - span.0) * 0.004).max(60.0);
+    // Everything there is to see: the whole time span plus a little air,
+    // every lane from the first row to the last.
+    let pad = ((span.1 - span.0) * 0.03).max(3600.0);
+    let full_x = (span.0 - pad, span.1 + pad + min_len);
+    let full_y = (-(y.saturating_sub(2) as f64) - 0.6, 0.6);
 
     let visuals = ui.visuals().clone();
     let normal = visuals.selection.bg_fill;
@@ -272,14 +325,15 @@ pub fn render_timeline_view(
         .enumerate()
         .map(|(l, name)| (-(base[l] as f64), name.clone()))
         .collect();
-    let short = span.1 - span.0 < 3.0 * 86_400.0;
-    // One y grid mark per lane, so every lane gets its name; the default
-    // log-10 spacer skips rows once there are many and the names vanish.
+    // One y grid mark per lane, so every lane gets its name. The step is
+    // the lane's band height, not one row: egui_plot hides a label whose
+    // step is under 20 px, so a 1-row step lost every name on zoom-out.
     let marks: Vec<GridMark> = lane_rows
         .iter()
-        .map(|(y, _)| GridMark {
+        .zip(&tl.tracks)
+        .map(|((y, _), &n)| GridMark {
             value: *y,
-            step_size: 1.0,
+            step_size: (n + 1) as f64,
         })
         .collect();
     // The wheel scrolls both ways (Shift for sideways), Ctrl+wheel zooms.
@@ -287,14 +341,23 @@ pub fn render_timeline_view(
         .allow_boxed_zoom(false)
         .show_y(false)
         .y_grid_spacer(move |_| marks.clone())
-        .x_axis_formatter(move |mark, _| {
-            let s = format_secs(mark.value);
-            if short {
-                s
-            } else {
-                s.chars().take(10).collect()
-            }
+        // Calendar ticks (months, Mondays, whole hours) about 110 px apart;
+        // `base_step_size` is the span of 8 px.
+        .x_grid_spacer(|input| {
+            let (step, ticks) = time_ticks(
+                input.bounds.0,
+                input.bounds.1,
+                input.base_step_size * 110.0 / 8.0,
+            );
+            ticks
+                .into_iter()
+                .map(|value| GridMark {
+                    value,
+                    step_size: step,
+                })
+                .collect()
         })
+        .x_axis_formatter(|mark, _| format_tick(mark.value, mark.step_size))
         .y_axis_formatter(move |mark, _| {
             lane_rows
                 .iter()
@@ -308,8 +371,75 @@ pub fn render_timeline_view(
     let chart = BarChart::new("timeline", bars)
         .horizontal()
         .allow_hover(false);
+    let text_color = visuals.strong_text_color();
     let resp = plot.show(ui, |plot_ui| {
         plot_ui.bar_chart(chart);
+        let b = plot_ui.plot_bounds();
+        let (mut x, mut yr) = ((b.min()[0], b.max()[0]), (b.min()[1], b.max()[1]));
+        match nav {
+            Some(Nav::Fit) => (x, yr) = (full_x, full_y),
+            Some(Nav::Zoom(fx, fy)) => {
+                let (cx, cy) = ((x.0 + x.1) / 2.0, (yr.0 + yr.1) / 2.0);
+                let (hx, hy) = (
+                    (x.1 - x.0) / 2.0 / fx as f64,
+                    (yr.1 - yr.0) / 2.0 / fy as f64,
+                );
+                (x, yr) = ((cx - hx, cx + hx), (cy - hy, cy + hy));
+            }
+            None => {}
+        }
+        let x2 = clamp_range(x.0, x.1, full_x, 60.0);
+        let y2 = clamp_range(yr.0, yr.1, full_y, 2.0);
+        if nav.is_some() || x2 != (b.min()[0], b.max()[0]) || y2 != (b.min()[1], b.max()[1]) {
+            plot_ui.set_plot_bounds(PlotBounds::from_min_max([x2.0, y2.0], [x2.1, y2.1]));
+        }
+        // The label on the bar itself, once it is wide and tall enough to
+        // hold some of it. ponytail: capped at 400 labels per frame.
+        let px_x = plot_ui.transform().dpos_dvalue_x().abs();
+        let px_y = plot_ui.transform().dpos_dvalue_y().abs();
+        if px_y >= 12.0 {
+            let mut shown = 0;
+            for bar in tl.bars.iter().take(MAX_BARS) {
+                let pos = -((base[bar.lane] + bar.track) as f64);
+                let end = bar.start + (bar.end - bar.start).max(min_len);
+                if bar.label.is_empty()
+                    || pos < y2.0
+                    || pos > y2.1
+                    || end < x2.0
+                    || bar.start > x2.1
+                {
+                    continue;
+                }
+                let from = bar.start.max(x2.0);
+                let room = ((end.min(x2.1) - from) * px_x) as usize / 7;
+                if room < 4 {
+                    continue;
+                }
+                let label: String = if bar.label.chars().count() > room {
+                    bar.label
+                        .chars()
+                        .take(room - 2)
+                        .chain("..".chars())
+                        .collect()
+                } else {
+                    bar.label.clone()
+                };
+                plot_ui.text(
+                    Text::new(
+                        "",
+                        PlotPoint::new(from + 4.0 / px_x, pos),
+                        RichText::new(label).size(11.0),
+                    )
+                    .anchor(egui::Align2::LEFT_CENTER)
+                    .color(text_color)
+                    .allow_hover(false),
+                );
+                shown += 1;
+                if shown >= 400 {
+                    break;
+                }
+            }
+        }
         (plot_ui.response().clicked(), plot_ui.pointer_coordinate())
     });
 

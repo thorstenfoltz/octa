@@ -240,3 +240,62 @@ fn interval_and_agg_parse_from_cli_words() {
     assert_eq!(TimeAgg::parse("AVG"), Some(TimeAgg::Mean));
     assert_eq!(TimeAgg::parse("median"), None);
 }
+
+#[test]
+fn first_and_last_are_by_time_not_by_row_order() {
+    use crate::data::{CellValue, ColumnInfo, DataTable};
+    // Not in time order: the earliest January row is the second one, and
+    // the January 10th row has no value (skipped, as on a database).
+    let mut t = DataTable::empty();
+    t.columns = vec![
+        ColumnInfo {
+            name: "ts".into(),
+            data_type: "Utf8".into(),
+        },
+        ColumnInfo {
+            name: "amount".into(),
+            data_type: "Int64".into(),
+        },
+    ];
+    t.rows = vec![
+        vec![CellValue::String("2024-01-20".into()), CellValue::Int(1)],
+        vec![CellValue::String("2024-01-05".into()), CellValue::Int(2)],
+        vec![CellValue::String("2024-01-10".into()), CellValue::Null],
+    ];
+    let cols: Vec<String> = t.columns.iter().map(|c| c.name.clone()).collect();
+    let run = |agg| {
+        let spec = ResampleSpec {
+            time_col: "ts".into(),
+            value_cols: vec!["amount".into()],
+            interval: Interval::Month,
+            agg,
+            group_by: Vec::new(),
+        };
+        let sql = build_resample_sql(&spec, &cols).unwrap();
+        crate::sql::run_query(&t, &sql)
+            .unwrap()
+            .table
+            .get(0, 1)
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(run(TimeAgg::First), "2", "the January 5th value");
+    assert_eq!(run(TimeAgg::Last), "1", "the January 20th value");
+}
+
+#[test]
+fn first_is_spelled_with_arg_min() {
+    let spec = ResampleSpec {
+        time_col: "ts".into(),
+        value_cols: vec!["amount".into()],
+        interval: Interval::Day,
+        agg: TimeAgg::First,
+        group_by: Vec::new(),
+    };
+    let sql = build_resample_sql(&spec, &cols()).unwrap();
+    assert!(
+        sql.contains("arg_min(\"amount\", TRY_CAST(\"ts\" AS TIMESTAMP)) AS \"amount\""),
+        "{sql}"
+    );
+    assert!(explain_resample(&spec).contains("earliest"));
+}

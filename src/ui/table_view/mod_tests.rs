@@ -897,3 +897,29 @@ fn selecting_nothing_is_a_clear_too() {
         "an empty selection clears instead of hiding everything"
     );
 }
+
+#[test]
+fn an_external_popup_asks_until_the_app_answers() {
+    let mut state = TableViewState {
+        facet_search: " ap".into(),
+        ..Default::default()
+    };
+    assert_eq!(
+        facet_values_needed(&state, 2),
+        None,
+        "the popup counts by itself"
+    );
+    state.facet_external = true;
+    // Trimmed: "ap" and " ap" are one query.
+    assert_eq!(facet_values_needed(&state, 2), Some((2, "ap".to_string())));
+    state.facet_cache_key = Some((2, "ap".to_string()));
+    assert_eq!(facet_values_needed(&state, 2), None, "answered");
+    assert_eq!(
+        facet_values_needed(&state, 3),
+        Some((3, "ap".to_string())),
+        "another column"
+    );
+    // Shapes come from the loaded rows: only the unsearched list is wanted.
+    state.facet_shapes_mode = true;
+    assert_eq!(facet_values_needed(&state, 2), Some((2, String::new())));
+}

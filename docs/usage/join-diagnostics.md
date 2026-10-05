@@ -56,6 +56,11 @@ When either table is longer the report says so, because the counts are
 then partial: a key that only appears in row 50,000 has not been looked
 at.
 
+Two database tabs on one connection that hold only part of their tables
+are diagnosed on the database over every row instead, and the sample
+field is greyed out; see
+[Analyses on live databases](analyses-on-live-databases.md#keys-and-relationships).
+
 ## Handing over to Join
 
 **Use in Join** opens the [Join tables](join-tables.md) dialog with both

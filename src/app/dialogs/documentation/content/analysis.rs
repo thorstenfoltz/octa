@@ -853,10 +853,14 @@ Nothing was measured, so the chips read **FK** instead of a score. A
 declaration and a fact are not the same thing: Postgres, MySQL, SQL Server,
 Oracle and Exasol enforce their foreign keys, so a line from those servers is
 true of the rows as well, while Redshift, Snowflake, Databricks and BigQuery accept a
-declaration and enforce nothing. **Measure** answers that: it reads a sample of
-rows from each drawn table and fills in the same overlap, score and orphan
-counts, so a declared key nothing honours shows up as orphans. It is a separate
-button and never automatic, because it is the step that reads your data.
+declaration and enforce nothing. **Measure** answers that: the database counts,
+over every row of each drawn table, how many key values find a partner, and
+fills in the same overlap, score and orphan counts, so a declared key nothing
+honours shows up as orphans. It is a separate button and never automatic,
+because it is the step that reads your data. With **Run analyses on the
+database** off it reads a sample of rows instead. A **Tabs** map gets the same
+button when every ticked tab is a table of one database connection and one of
+them does not hold every row.
 
 The **Tables** list under the schemas holds every table the scan saw. The ones
 taking part in a foreign key start ticked and the rest do not, since a grid of
@@ -890,7 +894,9 @@ filled in. That works for open tabs; a folder or database scan draws the map
 and leaves the joining to you, since the tables are not open.
 
 **Ceilings.** Sampled at 10,000 rows per table, so a high score is strong
-evidence rather than proof. Single columns only. Values are compared as trimmed
+evidence rather than proof. Measure on the database counts every row
+instead, so a line with no orphans there holds for every row today. Single
+columns only. Values are compared as trimmed
 text. A folder scan reads at most 30 files and a database scan at most 30
 tables, and both say when they stopped. A declared key whose other end is not
 drawn is counted and reported rather than drawn into nowhere.
@@ -927,7 +933,10 @@ count recomputed with one normalisation applied, run locally, same answer every
 time.
 
 Sampled at 10,000 rows per side by default. When either table is longer the
-report says so, because the counts are then partial.
+report says so, because the counts are then partial. Two database tabs on one
+connection that hold only part of their tables are diagnosed on the database
+over every row instead, and the sample field is greyed out (see Analyses on
+Live Databases).
 "#;
 
 pub const JOIN_KEYS: &str = r#"# Join Key Finder
@@ -1043,9 +1052,11 @@ two columns gives the same number. Orphans are not, which is why both
 directions are shown; left is simply the table that came first, not a
 claim about which one is the parent.
 
-**No language model is involved.** This is set arithmetic over the
-sampled values, computed on your own machine: nothing is sent anywhere,
-and the same tables always produce the same ranking.
+**No language model is involved.** This is set arithmetic, computed on
+your own machine over the sampled values, or by your own database when the
+tables are database tabs that hold only part of their table (see Analyses on
+Live Databases): nothing is sent anywhere else, and the same tables always
+produce the same ranking.
 
 Tick two or more tables (three gives every pairing between them), adjust
 the sample size if you like, then press Scan. **Use in Join** opens the
@@ -1099,6 +1110,9 @@ source rows and shows up to 10 result rows; press **Run** to reshape the
 full table.
 
 Powered by DuckDB's `PIVOT` / `UNPIVOT`, so it works on any open table.
+
+On a database tab that holds only part of its table, Pivot runs on the
+database and Unpivot on the loaded rows; see Analyses on Live Databases.
 "#;
 
 pub const CORRELATION: &str = r#"# Correlation
@@ -1185,7 +1199,8 @@ Tick the columns to use, then:
   and a banner says how many keys that affected.
 
 The scanned tab is never changed. Values compare by displayed text, and keys
-are single columns.
+are single columns. A database tab that holds only part of its table is
+scanned on the database over every row (see Analyses on Live Databases).
 "#;
 
 pub const SCHEMA_EXPORT: &str = r#"# Schema Export
@@ -1803,6 +1818,13 @@ monthly totals.
 
 The bucket lands in a column named `bucket` (or `bucket_2` if the table
 already has one).
+
+**First** and **Last** take the value at the earliest and latest time in
+each bucket (rows without a value are skipped), whatever order the rows
+are in.
+
+On a database tab that holds only part of its table, both modes run on the
+database; see Analyses on Live Databases.
 
 ## Rolling window
 

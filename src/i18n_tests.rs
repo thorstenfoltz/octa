@@ -241,6 +241,8 @@ fn locales_do_not_carry_untranslated_english_sentences() {
 /// a result tab). These must end in an ellipsis, in every language: the "..."
 /// is the promise that something is about to open.
 const OPENS_SOMETHING: &[&str] = &[
+    "loadall.menu",                // count + confirm dialog
+    "hashcols.menu",               // dialog
     "file_menu.new_file",          // new tab
     "file_menu.new_table",         // dialog
     "file_menu.open_as",           // file picker

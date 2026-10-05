@@ -920,19 +920,15 @@ pub fn render_sql_view(
     // panel exists to support: an empty one whose workspace has a server
     // ATTACHed. Those tables are describable and queryable; the tab having
     // no file of its own says nothing about that.
+    // A tab aimed at a server connection always has something to describe:
+    // that server's tables, read when the question is sent.
     let has_schema = tab.table.col_count() > 0
         || !workspace_tables.is_empty()
-        || !workspace_attachments.is_empty();
-    // Pointed at a connection with no table of this tab on it: there is
-    // nothing to describe to the model, and guessing would write SQL for the
-    // wrong database.
-    let foreign_target =
-        tab.sql_target.is_some() && crate::app::sql_panel::server_origin(tab).is_none();
-    let ask_enabled = chat_profile_available && has_schema && !foreign_target;
+        || !workspace_attachments.is_empty()
+        || tab.sql_target.is_some();
+    let ask_enabled = chat_profile_available && has_schema;
     let ask_reason = if !chat_profile_available {
         octa::i18n::t("sql.ask_needs_profile")
-    } else if foreign_target {
-        octa::i18n::t("sql.ask_needs_table")
     } else if !has_schema {
         octa::i18n::t("sql.ask_no_columns")
     } else {

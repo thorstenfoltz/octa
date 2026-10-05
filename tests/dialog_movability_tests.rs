@@ -41,7 +41,11 @@ fn no_dialog_pins_itself_with_anchor() {
         }
         let text = std::fs::read_to_string(path).expect("read source");
         for (i, line) in text.lines().enumerate() {
-            if line.contains(".anchor(egui::Align2::") || line.contains(".anchor(Align2::") {
+            // `Window::anchor(align, offset)` takes two arguments; egui_plot's
+            // one-argument `Text::anchor(align)` only aligns a label.
+            let anchored =
+                line.contains(".anchor(egui::Align2::") || line.contains(".anchor(Align2::");
+            if anchored && line.contains(',') {
                 offenders.push(format!(
                     "{}:{}: {}",
                     path.strip_prefix(src_dir()).unwrap_or(path).display(),

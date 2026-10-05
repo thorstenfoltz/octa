@@ -46,6 +46,12 @@ pub struct ToolbarCtx<'a> {
     /// `has_source_path`, and conflating the two hid Save on every db tab.
     pub can_save_in_place: bool,
     pub is_db_tab: bool,
+    /// The source holds rows this tab does not (a database tab with more
+    /// pages, or a file cut at the row limit), so Load whole table can run.
+    pub source_has_more: bool,
+    /// A live-database tab whose analyses run on the database: Hash columns
+    /// asks the database for its column, so a partial tab may have one.
+    pub hash_on_server: bool,
     pub selected_cell: Option<(usize, usize)>,
     pub selected_rows: &'a HashSet<usize>,
     pub selected_cols: &'a HashSet<usize>,
@@ -372,9 +378,13 @@ pub struct ToolbarAction {
     /// Open the Transform-column dialog for the active table.
     /// Fired by **Edit -> Transform column...**.
     pub open_transform: bool,
+    /// **Data -> Load whole table...**: count, ask, download the rest.
+    pub load_whole_table: bool,
     /// Open the Conditional-column (CASE / if-elseif-else) dialog for the
     /// active table. Fired by **Edit -> Conditional column...**.
     pub open_conditional_column: bool,
+    /// **Columns -> Hash columns...**.
+    pub open_hash_columns: bool,
     /// Toggle "Filter to marked": keep only marked rows/columns/cells.
     /// Fired by **Edit -> Filter to marked**.
     pub filter_to_marked: bool,

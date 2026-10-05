@@ -96,6 +96,10 @@ The sort indicator (▲ / ▼) appears next to the column name. Sorting
 is applied to the **filtered** view, so searching first and then
 sorting works as you'd expect.
 
+On a database tab that holds only part of its table, the database sorts
+the whole table, and the rows are fetched again in that order; see
+[Analyses on live databases](analyses-on-live-databases.md#sorting-filtering-and-sampling).
+
 ### Sort by several columns
 
 For a multi-level sort, open **Data -> Sort by columns...**. The

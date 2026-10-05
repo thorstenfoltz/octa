@@ -30,14 +30,14 @@ pub enum BinningMode {
 
 impl BinningMode {
     /// Whether this mode bins numeric values (vs. reporting raw values).
-    fn bins_numerics(self) -> bool {
+    pub(crate) fn bins_numerics(self) -> bool {
         matches!(self, BinningMode::Sturges | BinningMode::Custom(_))
     }
 }
 
 const MIN_BUCKETS: usize = 5;
 const MAX_BUCKETS: usize = 30;
-const MAX_CUSTOM_BUCKETS: usize = 1000;
+pub(crate) const MAX_CUSTOM_BUCKETS: usize = 1000;
 
 /// One row in the value-frequency result.
 #[derive(Debug, Clone)]
@@ -198,7 +198,7 @@ fn format_special(n: f64) -> String {
 
 /// Sturges' rule for the number of bins: `ceil(1 + log2(n))`, clamped to
 /// `[MIN_BUCKETS, MAX_BUCKETS]`.
-fn sturges_bin_count(n: usize) -> usize {
+pub(crate) fn sturges_bin_count(n: usize) -> usize {
     let raw = (1.0 + (n as f64).log2()).ceil() as usize;
     raw.clamp(MIN_BUCKETS, MAX_BUCKETS)
 }
@@ -209,56 +209,56 @@ fn sturges_bin_count(n: usize) -> usize {
 fn fixed_bins(values: &[f64], bin_count: usize) -> Vec<ValueFrequencyRow> {
     debug_assert!(!values.is_empty());
     let bin_count = bin_count.max(1);
-
     let min = values.iter().cloned().fold(f64::INFINITY, f64::min);
     let max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    if (max - min).abs() < f64::EPSILON {
+        return bin_rows(min, max, &[values.len()]);
+    }
+    let width = (max - min) / bin_count as f64;
+    let mut counts = vec![0usize; bin_count];
+    for &v in values {
+        counts[bin_index(v, min, width, bin_count)] += 1;
+    }
+    bin_rows(min, max, &counts)
+}
 
-    // All values equal - one bucket, no division by zero.
+/// Which bin `v` falls in. The last bin is closed on the right so `max` lands.
+pub(crate) fn bin_index(v: f64, min: f64, width: f64, bin_count: usize) -> usize {
+    ((((v - min) / width).floor() as i64).max(0) as usize).min(bin_count - 1)
+}
+
+/// Labelled rows for equal-width bins over `[min, max]` holding `counts`.
+/// One count with `min == max` is the single `[v]` bucket. Every bin is kept,
+/// empty ones included, so N bins yield N rows in range order. Shared with the
+/// server path, which counts the bins in SQL and only needs the labels.
+pub(crate) fn bin_rows(min: f64, max: f64, counts: &[usize]) -> Vec<ValueFrequencyRow> {
     if (max - min).abs() < f64::EPSILON {
         return vec![ValueFrequencyRow {
             label: format!("[{}]", format_bin_bound(min)),
-            count: values.len(),
+            count: counts.iter().sum(),
         }];
     }
-
-    let span = max - min;
-    let width = span / bin_count as f64;
-    let mut bins: Vec<(f64, f64, usize)> = (0..bin_count)
-        .map(|i| {
+    let n = counts.len();
+    let width = (max - min) / n as f64;
+    counts
+        .iter()
+        .enumerate()
+        .map(|(i, &count)| {
             let lo = min + width * i as f64;
-            let hi = if i + 1 == bin_count {
+            let last = i + 1 == n;
+            let hi = if last {
                 max
             } else {
                 min + width * (i + 1) as f64
             };
-            (lo, hi, 0usize)
-        })
-        .collect();
-
-    for &v in values {
-        // Find the bin. Last bin is closed on the right so max lands.
-        let mut idx = (((v - min) / width).floor() as i64).max(0) as usize;
-        if idx >= bin_count {
-            idx = bin_count - 1;
-        }
-        bins[idx].2 += 1;
-    }
-
-    // Keep *every* bin, including empty ones, so a request for N bins yields
-    // N rows in range order - the histogram shape (and the predictable
-    // row count) matters more than hiding zero buckets.
-    bins.into_iter()
-        .enumerate()
-        .map(|(i, (lo, hi, c))| {
-            let closed_right = i + 1 == bin_count;
             ValueFrequencyRow {
                 label: format!(
                     "[{}, {}{}",
                     format_bin_bound(lo),
                     format_bin_bound(hi),
-                    if closed_right { "]" } else { ")" }
+                    if last { "]" } else { ")" }
                 ),
-                count: c,
+                count,
             }
         })
         .collect()

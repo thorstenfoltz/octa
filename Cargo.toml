@@ -186,6 +186,10 @@ half = { version = "2", default-features = false }
 # SHA-256 verification of downloaded release archives against the published
 # SHA256SUMS file (already in the tree transitively).
 sha2 = "0.10"
+# MD5 for Hash columns (`src/data/transform/hash_columns.rs`), the usual
+# data-warehouse hash key. Same RustCrypto `digest` 0.10 line as `sha2`, and
+# already in the lockfile, so it adds no crate.
+md-5 = "0.10"
 # AWS SigV4 request signing for the Athena connector (`src/db/sigv4.rs`).
 # Already in the lockfile (rustls pulls it), so this only promotes it to a
 # direct dependency; the alternative, shelling out to the `aws` CLI, would

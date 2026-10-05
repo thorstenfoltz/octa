@@ -127,11 +127,19 @@ A declaration and a fact are not the same thing:
   and enforce nothing**. A child value pointing at a parent that does
   not exist is entirely possible there.
 
-**Measure** is the answer to that. It reads a sample of rows from each
-drawn table and fills in the same overlap, score and orphan count the
+**Measure** is the answer to that. The database counts, over every row
+of each drawn table, how many key values find a partner on the other
+side, and fills in the same overlap, score and orphan count the
 value-based sources carry, so a declared key that nothing honours shows
 up as orphans. It is a separate button and never automatic, because it
-is the step that actually reads your data.
+is the step that actually reads your data. With **Settings -> Databases
+-> Run analyses on the database** off, it reads a sample of rows from
+each table instead.
+
+A **Tabs** map gets the same button when every ticked tab is a table
+from one database connection and at least one of them does not hold
+every row: Measure then recounts the drawn lines on the server, over the
+whole tables. See [Analyses on live databases](analyses-on-live-databases.md).
 
 The **Tables** list under the schemas holds every table the scan saw.
 Tables taking part in a foreign key start ticked; the rest do not, since
@@ -225,8 +233,9 @@ Assistant can call as well.
 
 ## Limits
 
-- **Sampled**, 10,000 rows per table. Strong evidence, not a certified
-  foreign key.
+- **Sampled**, 10,000 rows per table: strong evidence, not a certified
+  foreign key. Measure on the database counts every row instead, so a line
+  with no orphans there holds for every row today.
 - **Single columns only.** A composite key is not suggested; use
   [`--unique-columns`](../cli/unique-columns.md) for that question.
 - Values are compared as trimmed text, so `1` and `1.0` are different.

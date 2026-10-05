@@ -395,6 +395,23 @@ impl Default for NewTableState {
 pub(crate) struct RandomSampleState {
     pub n_buf: String,
     pub size: ui::settings::DialogSize,
+    /// The Fast method (block sampling) on a database tab.
+    pub fast: bool,
+    /// The sample being picked on the server: the rows, whether the count was
+    /// cut to the row cap, and the method that ran.
+    pub server: Option<
+        crate::app::pushdown::ServerTask<(
+            octa::data::DataTable,
+            bool,
+            octa::db::pushdown::sample::SampleMethod,
+        )>,
+    >,
+    /// Its refusal or Cancel.
+    pub server_error: Option<String>,
+    /// What the running sample was asked for, fixed when it started (the
+    /// field, the method and the active tab may change meanwhile): rows asked
+    /// for, Fast, filtered on the server, the source tab's label.
+    pub server_asked: Option<(usize, bool, bool, String)>,
 }
 
 impl Default for RandomSampleState {
@@ -402,6 +419,10 @@ impl Default for RandomSampleState {
         Self {
             n_buf: "100".to_string(),
             size: ui::settings::DialogSize::default(),
+            fast: false,
+            server: None,
+            server_error: None,
+            server_asked: None,
         }
     }
 }

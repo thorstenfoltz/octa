@@ -380,6 +380,11 @@ pub struct AppSettings {
     /// will not; the write is still one transaction either way.
     #[serde(default = "default_true")]
     pub confirm_db_write_back: bool,
+    /// Run Summary, Value frequency, the quality report and Correlation as
+    /// SQL on the database when a database tab holds only part of its table.
+    /// Off: they run on the loaded rows, with a note saying so.
+    #[serde(default = "default_true")]
+    pub db_pushdown: bool,
     /// Copy an existing file to `<name>.<ext>.bak-YYYYMMDD-HHMMSS` before any
     /// in-place modification (every format). Default **true**.
     #[serde(default = "default_true")]
@@ -1011,6 +1016,7 @@ impl Default for AppSettings {
             write_protection: true,
             confirm_url_redirects: true,
             confirm_db_write_back: true,
+            db_pushdown: true,
             backup_before_modify: true,
             text_mode_extensions: Vec::new(),
             pinned_tabs: Vec::new(),

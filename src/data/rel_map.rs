@@ -19,7 +19,9 @@
 use std::path::Path;
 
 use crate::data::DataTable;
-use crate::data::join_keys::{DEFAULT_SAMPLE_ROWS, column_values, score_pair, suggest_keys};
+use crate::data::join_keys::{
+    DEFAULT_SAMPLE_ROWS, PairScore, column_values, score_pair, suggest_keys,
+};
 use crate::formats::FormatRegistry;
 
 /// How to build the map.
@@ -145,6 +147,39 @@ pub fn build_map(tables: &[(String, &DataTable)], opts: &RelMapOptions) -> RelMa
     RelMap { nodes, edges }
 }
 
+/// Put one measured pairing's numbers on an edge. `None` (no shared value)
+/// zeroes the score and counts every value as an orphan: that is an answer,
+/// not a failure, since a declared key whose child points nowhere is exactly
+/// what scoring exists to surface.
+pub fn apply_pair(
+    e: &mut Relationship,
+    left_values: usize,
+    right_values: usize,
+    p: Option<PairScore>,
+) {
+    e.left_distinct_values = left_values;
+    e.right_distinct_values = right_values;
+    match p {
+        Some(p) => {
+            e.overlap = p.overlap;
+            e.left_distinct = p.left_distinct;
+            e.right_distinct = p.right_distinct;
+            e.score = p.score;
+            e.left_orphans = p.left_orphans;
+            e.right_orphans = p.right_orphans;
+        }
+        None => {
+            e.overlap = 0.0;
+            e.left_distinct = 0.0;
+            e.right_distinct = 0.0;
+            e.score = 0.0;
+            e.left_orphans = left_values;
+            e.right_orphans = right_values;
+        }
+    }
+    e.scored = true;
+}
+
 /// Fill in the numbers on a map whose edges arrived without them.
 ///
 /// A declared foreign key says two columns are linked; it does not say how
@@ -167,30 +202,8 @@ pub fn score_edges(tables: &[(String, DataTable)], map: &mut RelMap, sample: usi
         };
         let (left_set, left_seen) = column_values(left, e.left_col, sample);
         let (right_set, right_seen) = column_values(right, e.right_col, sample);
-        e.left_distinct_values = left_set.len();
-        e.right_distinct_values = right_set.len();
-        match score_pair(&left_set, left_seen, &right_set, right_seen) {
-            Some(p) => {
-                e.overlap = p.overlap;
-                e.left_distinct = p.left_distinct;
-                e.right_distinct = p.right_distinct;
-                e.score = p.score;
-                e.left_orphans = p.left_orphans;
-                e.right_orphans = p.right_orphans;
-            }
-            // No shared value at all. That is an answer, not a failure: a
-            // declared key whose child points nowhere is exactly what this
-            // pass exists to surface.
-            None => {
-                e.overlap = 0.0;
-                e.left_distinct = 0.0;
-                e.right_distinct = 0.0;
-                e.score = 0.0;
-                e.left_orphans = left_set.len();
-                e.right_orphans = right_set.len();
-            }
-        }
-        e.scored = true;
+        let p = score_pair(&left_set, left_seen, &right_set, right_seen);
+        apply_pair(e, left_set.len(), right_set.len(), p);
     }
 }
 
@@ -316,6 +329,29 @@ fn walk(dir: &Path, depth: usize, opts: &ScanOpts, out: &mut CollectedTables) {
 mod tests {
     use super::*;
     use crate::data::{CellValue, ColumnInfo, DataTable};
+
+    #[test]
+    fn apply_pair_without_a_match_counts_every_value_as_an_orphan() {
+        let mut e = Relationship {
+            left_table: 0,
+            left_col: 0,
+            right_table: 1,
+            right_col: 0,
+            score: 1.0,
+            overlap: 1.0,
+            left_distinct: 1.0,
+            right_distinct: 1.0,
+            left_orphans: 0,
+            left_distinct_values: 0,
+            right_orphans: 0,
+            right_distinct_values: 0,
+            constraint: None,
+            scored: false,
+        };
+        apply_pair(&mut e, 3, 5, None);
+        assert_eq!((e.score, e.left_orphans, e.right_orphans), (0.0, 3, 5));
+        assert!(e.scored);
+    }
 
     fn tbl(col: &str, vals: &[&str]) -> DataTable {
         let mut t = DataTable::empty();

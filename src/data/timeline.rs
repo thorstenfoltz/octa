@@ -306,6 +306,101 @@ pub fn column_named(table: &DataTable, name: &str) -> anyhow::Result<usize> {
         .ok_or_else(|| anyhow::anyhow!("column `{name}` not found"))
 }
 
+const DAY: f64 = 86_400.0;
+const MONTH: f64 = 30.44 * DAY;
+
+/// Axis ticks between `lo` and `hi` (seconds) at least `min_step` apart,
+/// on calendar boundaries: whole minutes, hours, days, Mondays, months,
+/// years. Returns `(step, ticks)`; months and years have an approximate
+/// `step` (a month counts 30.44 days), for spacing and [`format_tick`].
+pub fn time_ticks(lo: f64, hi: f64, min_step: f64) -> (f64, Vec<f64>) {
+    use chrono::{Datelike, NaiveDate};
+    if !(lo.is_finite() && hi.is_finite()) || hi <= lo || min_step <= 0.0 {
+        return (1.0, Vec::new());
+    }
+    const FIXED: [f64; 15] = [
+        1.0,
+        5.0,
+        15.0,
+        30.0,
+        60.0,
+        300.0,
+        900.0,
+        1800.0,
+        3600.0,
+        10_800.0,
+        21_600.0,
+        43_200.0,
+        DAY,
+        2.0 * DAY,
+        7.0 * DAY,
+    ];
+    if let Some(&step) = FIXED.iter().find(|&&s| s >= min_step) {
+        // Weeks start on Monday; 1970-01-01 was a Thursday.
+        let offset = if step == 7.0 * DAY { 4.0 * DAY } else { 0.0 };
+        let mut t = ((lo - offset) / step).ceil() * step + offset;
+        let mut out = Vec::new();
+        while t <= hi {
+            out.push(t);
+            t += step;
+        }
+        return (step, out);
+    }
+    // Calendar months: 1, 3, 6, then years 1, 2, 5, 10, 20, 50, ...
+    let mut months = [1, 3, 6, 12, 24, 60]
+        .into_iter()
+        .find(|&m| m as f64 * MONTH >= min_step)
+        .unwrap_or(120);
+    while (months as f64) * MONTH < min_step {
+        months *= if months.to_string().starts_with('2') {
+            5
+        } else {
+            2
+        };
+    }
+    let Some(start) = DateTime::from_timestamp(lo as i64, 0) else {
+        return (months as f64 * MONTH, Vec::new());
+    };
+    let total = start.year() * 12 + start.month0() as i32;
+    let mut m = (total + months - 1).div_euclid(months) * months;
+    let mut out = Vec::new();
+    while let Some(d) = NaiveDate::from_ymd_opt(m.div_euclid(12), m.rem_euclid(12) as u32 + 1, 1) {
+        let t = d
+            .and_hms_opt(0, 0, 0)
+            .expect("midnight")
+            .and_utc()
+            .timestamp() as f64;
+        if t > hi {
+            break;
+        }
+        if t >= lo {
+            out.push(t);
+        }
+        m += months;
+    }
+    (months as f64 * MONTH, out)
+}
+
+/// A tick label as precise as its `step` needs: a year, a month, a day,
+/// a time.
+pub fn format_tick(secs: f64, step: f64) -> String {
+    let Some(d) = DateTime::from_timestamp(secs as i64, 0) else {
+        return String::new();
+    };
+    let fmt = if step < 60.0 {
+        "%H:%M:%S"
+    } else if step < DAY {
+        "%m-%d %H:%M"
+    } else if step < MONTH * 0.9 {
+        "%Y-%m-%d"
+    } else if step < 365.0 * DAY * 0.9 {
+        "%Y-%m"
+    } else {
+        "%Y"
+    };
+    d.format(fmt).to_string()
+}
+
 #[cfg(test)]
 #[path = "timeline_tests.rs"]
 mod tests;

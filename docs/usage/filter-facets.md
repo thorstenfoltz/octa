@@ -28,6 +28,11 @@ The **50 most common values**, ordered by count. When the column holds
 more distinct values than that, the popup adds a search box and a line
 saying how many are not shown.
 
+On a database tab that holds only part of its table, the list comes from
+the database: the 50 most common values over the whole table, and the
+search box searches every value there; see
+[Analyses on live databases](analyses-on-live-databases.md#sorting-filtering-and-sampling).
+
 **Searching queries the whole column, not the 50 on screen.** A value
 that ranks nine hundredth is still findable by typing part of it. That
 full scan is exactly why the box appears only when it is needed: opening

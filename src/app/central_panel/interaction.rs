@@ -189,9 +189,7 @@ impl OctaApp {
                 interaction.sort_rows_desc_by.map(|c| (c, false)),
             ];
             for (col_idx, ascending) in sorts.into_iter().flatten() {
-                let tab = &mut self.tabs[self.active_tab];
-                tab.table.sort_rows_by_column(col_idx, ascending);
-                tab.filter_dirty = true;
+                self.sort_tab_rows(self.active_tab, &[(col_idx, ascending)]);
                 self.record_sort(col_idx, ascending);
             }
         }
@@ -334,6 +332,16 @@ impl OctaApp {
             tab.filter_dirty = true;
         }
 
+        // --- Facet popup on a database tab: its values come from the server ---
+        if let Some(key) = interaction.facet_values_wanted.clone() {
+            self.want_values(
+                crate::app::db_view::ValuesSlot::Popup,
+                key,
+                octa::ui::table_view::FACET_POPUP_TOP_N,
+                ctx,
+            );
+        }
+
         // --- Hide column (right-click) ---
         if let Some(col_idx) = interaction.ctx_hide_column {
             self.tabs[self.active_tab].hidden_columns.insert(col_idx);
@@ -435,6 +443,7 @@ impl OctaApp {
             && tab.bg_can_load_more
             && tab.bg_row_buffer.is_none()
             && tab.table.total_rows.is_some()
+            && tab.view_task.is_none()
         {
             tab.bg_can_load_more = false;
             let buffer = Arc::new(Mutex::new(Vec::<Vec<data::CellValue>>::new()));
@@ -454,6 +463,7 @@ impl OctaApp {
             if tab.table.source_path.is_none()
                 && let Some(origin) = tab.db_origin.clone()
             {
+                let view = tab.server_view.clone();
                 let page_rows = self.settings.db_page_size();
                 let conn = self
                     .settings
@@ -479,22 +489,36 @@ impl OctaApp {
                         "{} {failure_label}",
                         octa::i18n::t("db.loading_more")
                     ));
-                    // ponytail: LIMIT/OFFSET paging with no ORDER BY, so a
+                    // ponytail: LIMIT/OFFSET paging. With no view, and with a
+                    // filter-only view, there is no ORDER BY; with a sort but
+                    // no table key, ties have no tie-break. Either way a
                     // server free to reorder between pages can repeat or skip
                     // a row. Same ceiling `fetch_batches` and every table copy
                     // already accept; an ORDER BY would force a full sort per
                     // page on exactly the warehouse tables this is for.
-                    let sql = octa::db::paged_sql(
-                        conn.engine,
-                        &octa::db::select_all_sql(
-                            conn.engine,
-                            origin.catalog.as_deref(),
-                            &origin.schema,
-                            &origin.table,
+                    let sql = match &view {
+                        Some(view) => crate::app::db_view::view_page_sql(
+                            &crate::app::db_view::origin_source(&conn, &origin),
+                            origin.identity.as_ref(),
+                            view,
+                            page_rows,
+                            skip_rows,
                         ),
-                        page_rows,
-                        skip_rows,
-                    );
+                        None => octa::db::paged_sql(
+                            conn.engine,
+                            &octa::db::select_all_sql(
+                                conn.engine,
+                                origin.catalog.as_deref(),
+                                &origin.schema,
+                                &origin.table,
+                            ),
+                            page_rows,
+                            skip_rows,
+                        ),
+                    };
+                    // ponytail: the order at the time of asking; a column moved
+                    // while this page is in flight lands it misplaced.
+                    let columns = crate::app::db_view::column_names(&self.tabs[self.active_tab]);
                     std::thread::spawn(move || {
                         let _done = crate::app::flag_guard::FlagOnDrop::new(done_flag, true);
                         let _load = crate::app::flag_guard::FlagOnDrop::new(load_finished, true);
@@ -518,8 +542,9 @@ impl OctaApp {
                                     exhausted_flag
                                         .store(true, std::sync::atomic::Ordering::Relaxed);
                                 }
+                                let rows = crate::app::db_view::rows_in_column_order(t, &columns);
                                 if let Ok(mut buf) = buffer.lock() {
-                                    buf.extend(t.rows);
+                                    buf.extend(rows);
                                 }
                             }
                             Err(e) => {

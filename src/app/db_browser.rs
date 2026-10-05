@@ -41,6 +41,26 @@ pub(crate) fn join_path(parts: &[&str]) -> String {
     parts.join(&PATH_SEP.to_string())
 }
 
+/// Tag every loaded row `0..n` and snapshot it as the write-back baseline:
+/// the diff-based write-back pairs `rows[i]` with `row_tags[i]`. A writable
+/// tab gets it when it opens, when a sort or filter re-queries it, and after
+/// a save.
+pub(crate) fn baseline_db_meta(table: &mut octa::data::DataTable, table_name: &str, schema: &str) {
+    let original: std::collections::HashMap<i64, Vec<octa::data::CellValue>> = table
+        .rows
+        .iter()
+        .enumerate()
+        .map(|(i, r)| (i as i64, r.clone()))
+        .collect();
+    table.db_meta = Some(octa::data::DbRowMeta {
+        table_name: table_name.to_string(),
+        schema: Some(schema.to_string()),
+        row_tags: (0..table.rows.len()).map(|i| Some(i as i64)).collect(),
+        original,
+        original_columns: table.columns.iter().map(|c| c.name.clone()).collect(),
+    });
+}
+
 /// Cached state of one expanded node's listing.
 pub(crate) enum DbListState {
     Loading,
@@ -397,33 +417,57 @@ impl OctaApp {
         super::sql_panel::SharedCancel,
         std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) {
-        let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let cancel: super::sql_panel::SharedCancel =
-            std::sync::Arc::new(std::sync::Mutex::new(None));
-        let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        self.db_load_job = Some(super::state::DbLoadJob {
-            hint,
-            finished: finished.clone(),
-            cancel: cancel.clone(),
-            cancelled: cancelled.clone(),
-        });
-        (finished, cancel, cancelled)
+        let job = super::state::DbLoadJob::new(hint);
+        let handles = (
+            job.finished.clone(),
+            job.cancel.clone(),
+            job.cancelled.clone(),
+        );
+        self.db_load_job = Some(job);
+        handles
+    }
+
+    /// The database job the status bar's spinner and Cancel speak for: a
+    /// table read first, else a running analysis on the server (a pushdown
+    /// result tab, then a value-frequency count, then a key analysis in its
+    /// dialog). Each lives in its own slot, so a sidebar open or a page
+    /// scroll during a long analysis never takes the analysis' Cancel away.
+    ///
+    /// A table read that cannot cancel yet yields to the analysis: on the
+    /// same connection it is waiting for the analysis to release the shared
+    /// connector, so the analysis is what Cancel has to stop.
+    pub(crate) fn busy_db_job(&self) -> Option<&super::state::DbLoadJob> {
+        let analysis = self.pushdown_job.as_ref().map(|j| &j.load);
+        // A value-frequency count still running on any tab's dialog.
+        let vf_count = || {
+            self.tabs
+                .iter()
+                .filter_map(|t| t.vf_server.as_ref().map(|v| &v.load))
+                .find(|l| !l.finished.load(std::sync::atomic::Ordering::Relaxed))
+        };
+        // A key analysis still running in its dialog.
+        let dialog_task = || {
+            self.dialog_tasks()
+                .into_iter()
+                .find(|l| !l.finished.load(std::sync::atomic::Ordering::Relaxed))
+        };
+        self.db_load_job
+            .as_ref()
+            .filter(|j| j.can_cancel())
+            .or(analysis)
+            .or_else(vf_count)
+            .or_else(dialog_task)
+            .or(self.db_load_job.as_ref())
     }
 
     /// Stop the database read in flight. Best effort on the server (the
     /// vendor cancel may arrive after the statement finished), but the local
     /// wait always ends, which is what the user actually asked for.
     pub(crate) fn cancel_db_load(&mut self) {
-        let Some(job) = &self.db_load_job else {
+        let Some(job) = self.busy_db_job() else {
             return;
         };
-        job.cancelled
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        if let Ok(c) = job.cancel.lock()
-            && let Some(f) = c.as_ref()
-        {
-            f();
-        }
+        job.cancel_now();
     }
 
     /// Retire the load slot once its worker has exited. Called once per frame
@@ -552,20 +596,7 @@ impl OctaApp {
                 // write-back: tag every loaded row and snapshot it as the
                 // baseline (same shape as the SQLite/DuckDB file readers).
                 if conn.allow_writes && identity.is_some() {
-                    let original: std::collections::HashMap<i64, Vec<octa::data::CellValue>> =
-                        table
-                            .rows
-                            .iter()
-                            .enumerate()
-                            .map(|(i, r)| (i as i64, r.clone()))
-                            .collect();
-                    table.db_meta = Some(octa::data::DbRowMeta {
-                        table_name: table_name.clone(),
-                        schema: Some(schema.clone()),
-                        row_tags: (0..table.rows.len()).map(|i| Some(i as i64)).collect(),
-                        original,
-                        original_columns: table.columns.iter().map(|c| c.name.clone()).collect(),
-                    });
+                    baseline_db_meta(&mut table, &table_name, &schema);
                 }
                 Ok((table, identity))
             })();

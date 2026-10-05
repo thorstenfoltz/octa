@@ -43,6 +43,11 @@ impl OctaApp {
                 self.reload_active_file();
             }
 
+            // A switch between a text view and a table view is when each
+            // catches up with the other's unsaved edits. Before the filter:
+            // text read back into the table dirties it.
+            self.tabs[self.active_tab].sync_views(&self.registry, &self.settings.write_options);
+
             // Recompute filter before drawing (toolbar actions earlier in the
             // frame may have dirtied it).
             if self.tabs[self.active_tab].filter_dirty {

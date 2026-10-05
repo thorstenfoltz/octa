@@ -16,6 +16,9 @@ exclude = [
     # GitHub Pages site goes live after the docs PR lands; the URL is
     # referenced from README/mkdocs.yml in advance.
     "https://thorstenfoltz.github.io/octa/?$",
+    # New in 0.20.2: release_notes.md links the page before docs.yml deploys
+    # it on the merge to master. Drop this line once the page is live.
+    "https://thorstenfoltz.github.io/octa/usage/analyses-on-live-databases/$",
     # Source-code links into the `master` branch for files that currently
     # live on `feature/mcp` (ods_reader.rs, docs/cli/octa.1.adoc). These
     # resolve once the branch is merged.

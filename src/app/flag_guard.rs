@@ -27,7 +27,9 @@ impl FlagOnDrop {
 
 impl Drop for FlagOnDrop {
     fn drop(&mut self) {
-        self.flag.store(self.value, Ordering::Relaxed);
+        // Release: whatever the worker wrote before (a result slot) is
+        // visible to a reader that sees the flag with an Acquire load.
+        self.flag.store(self.value, Ordering::Release);
     }
 }
 

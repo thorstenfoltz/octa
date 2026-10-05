@@ -52,6 +52,43 @@ fn codes(table: &DataTable, col: usize) -> (Vec<u32>, usize) {
     (codes, ids.len())
 }
 
+/// A dependent from its counts over the rows of repeated keys, or `None`
+/// when more rows break than `min_consistency` allows. Shared with the
+/// server path so both apply one budget.
+pub fn dependent_from_counts(
+    col: usize,
+    covered: usize,
+    breaking: usize,
+    conflicting: usize,
+    min_consistency: f64,
+) -> Option<Dependent> {
+    let budget = ((1.0 - min_consistency) * covered as f64).floor() as usize;
+    (covered > 0 && breaking <= budget).then(|| Dependent {
+        col,
+        consistency: 1.0 - breaking as f64 / covered as f64,
+        conflicting_keys: conflicting,
+        breaking_rows: breaking,
+    })
+}
+
+/// The result order: each key's dependents most consistent first, keys with
+/// the most dependents first.
+pub fn finish(findings: &mut [LookupFinding]) {
+    for f in findings.iter_mut() {
+        f.dependents.sort_by(|a, b| {
+            b.consistency
+                .total_cmp(&a.consistency)
+                .then(a.col.cmp(&b.col))
+        });
+    }
+    findings.sort_by(|a, b| {
+        b.dependents
+            .len()
+            .cmp(&a.dependents.len())
+            .then(a.key.cmp(&b.key))
+    });
+}
+
 /// Every key column with the columns that follow it at `min_consistency`
 /// or better. A key must repeat (at most half as many distinct values as
 /// rows): a unique column trivially "determines" everything.
@@ -78,21 +115,15 @@ pub fn find_lookups(
             if dep == key || *dep_distinct < 2 {
                 continue;
             }
-            if let Some((breaking, conflicting)) = measure(&groups, dep_codes, budget) {
-                dependents.push(Dependent {
-                    col: dep,
-                    consistency: 1.0 - breaking as f64 / covered as f64,
-                    conflicting_keys: conflicting,
-                    breaking_rows: breaking,
-                });
+            if let Some(d) =
+                measure(&groups, dep_codes, budget).and_then(|(breaking, conflicting)| {
+                    dependent_from_counts(dep, covered, breaking, conflicting, min_consistency)
+                })
+            {
+                dependents.push(d);
             }
         }
         if !dependents.is_empty() {
-            dependents.sort_by(|a, b| {
-                b.consistency
-                    .total_cmp(&a.consistency)
-                    .then(a.col.cmp(&b.col))
-            });
             findings.push(LookupFinding {
                 key,
                 keys: *distinct,
@@ -100,12 +131,7 @@ pub fn find_lookups(
             });
         }
     }
-    findings.sort_by(|a, b| {
-        b.dependents
-            .len()
-            .cmp(&a.dependents.len())
-            .then(a.key.cmp(&b.key))
-    });
+    finish(&mut findings);
     findings
 }
 

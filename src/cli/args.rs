@@ -746,6 +746,42 @@ pub struct Cli {
     #[arg(long = "impute", value_name = "COL=STRATEGY")]
     pub impute: Vec<String>,
 
+    /// Append a column holding a hash of the named columns of FILE, joined in that order.
+    ///
+    /// Comma-separated names. Every value is turned into text first, whatever
+    /// its type. Tune with `--hash-algo`, `--hash-delimiter`, `--hash-null`,
+    /// `--hash-trim`, `--hash-upper` and `--hash-name`.
+    #[arg(long = "hash-columns", value_name = "COL,COL,...")]
+    pub hash_columns: Option<String>,
+
+    /// Hash algorithm for `--hash-columns`: `md5` (default), `sha256` or `sha512`.
+    #[arg(long = "hash-algo", value_name = "md5|sha256|sha512")]
+    pub hash_algo: Option<String>,
+
+    /// Put between the values for `--hash-columns` (default `|`, may be empty).
+    #[arg(
+        long = "hash-delimiter",
+        value_name = "TEXT",
+        allow_hyphen_values = true
+    )]
+    pub hash_delimiter: Option<String>,
+
+    /// Stands in for a NULL cell in `--hash-columns` (default empty).
+    #[arg(long = "hash-null", value_name = "TEXT", allow_hyphen_values = true)]
+    pub hash_null: Option<String>,
+
+    /// Strip whitespace from each value before `--hash-columns` hashes it.
+    #[arg(long = "hash-trim")]
+    pub hash_trim: bool,
+
+    /// Upper-case each value before `--hash-columns` hashes it.
+    #[arg(long = "hash-upper")]
+    pub hash_upper: bool,
+
+    /// Name of the column `--hash-columns` adds (default `hash_<columns>`).
+    #[arg(long = "hash-name", value_name = "NAME")]
+    pub hash_name: Option<String>,
+
     /// Flag numeric outlier cells in FILE per column using IQR or z-score.
     ///
     /// Combine with `--outlier-method`, `--outlier-cols`, and `--outlier-k`.

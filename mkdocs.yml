@@ -118,6 +118,7 @@ nav:
       - Password-protected files: usage/protected-files.md
       - Change column type: usage/change-column-type.md
       - Anonymise Columns: usage/anonymize-columns.md
+      - Hash Columns: usage/hash-columns.md
       - Detect PII: usage/detect-pii.md
       - Detect Outliers: usage/detect-outliers.md
       - Fill Missing Values: usage/fill-missing-values.md
@@ -165,11 +166,13 @@ nav:
       - Saving: usage/saving.md
       - Export to PDF: usage/pdf-export.md
       - Large Files: usage/large-files.md
+      - Load Whole Table: usage/load-whole-table.md
       - Tabs & Folder Sidebar: usage/tabs-and-sidebar.md
       - Refresh a Tab: usage/refresh-tab.md
       - Cloud Storage: usage/cloud-storage.md
       - Cloud Inventory: usage/cloud-inventory.md
       - Database Connections: usage/database-connections.md
+      - Analyses on live databases: usage/analyses-on-live-databases.md
       - Sidebar Search: usage/sidebar-search.md
       - API Endpoints: usage/api-endpoints.md
       - Compare with Database or Cloud: usage/compare-with-database.md
@@ -220,6 +223,7 @@ nav:
       - "--detect-pii": cli/pii.md
       - "--outliers": cli/outliers.md
       - "--impute": cli/impute.md
+      - "--hash-columns": cli/hash-columns.md
       - "--dedupe": cli/dedupe.md
       - "--union": cli/union.md
       - "--join": cli/join.md
@@ -276,6 +280,7 @@ nav:
           - edit_table: mcp/tools/edit_table.md
           - transform_columns: mcp/tools/transform_columns.md
           - anonymize: mcp/tools/anonymize.md
+          - hash_columns: mcp/tools/hash_columns.md
           - detect_pii: mcp/tools/detect_pii.md
           - detect_outliers: mcp/tools/detect_outliers.md
           - fill_missing: mcp/tools/fill_missing.md

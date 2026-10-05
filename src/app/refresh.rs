@@ -181,6 +181,14 @@ impl OctaApp {
         let Some(target) = self.reload_target.take_if(|t| t.claims(source, tab_count)) else {
             return false;
         };
+        // The edits question was about the rows this replaces.
+        if self
+            .view_edit_prompt
+            .as_ref()
+            .is_some_and(|p| p.tab == target.tab)
+        {
+            self.view_edit_prompt = None;
+        }
         let fresh = TabState::new(self.settings.default_search_mode);
         let old = std::mem::replace(&mut self.tabs[target.tab], fresh);
         let tab = &mut self.tabs[target.tab];
@@ -201,6 +209,10 @@ impl OctaApp {
             Some(t)
         });
         self.pending_refresh = self.pending_refresh.and_then(|mut p| {
+            p.tab = shifted(p.tab, removed)?;
+            Some(p)
+        });
+        self.view_edit_prompt = self.view_edit_prompt.take().and_then(|mut p| {
             p.tab = shifted(p.tab, removed)?;
             Some(p)
         });

@@ -40,18 +40,65 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
     };
 
     // --- Gather unique values for the picked column. BTreeSet sorts
-    // lexicographically so the checkbox list is stable across renders. ---
-    let unique_values: Vec<String> = {
+    // lexicographically so the checkbox list is stable across renders. A
+    // partial database tab lists the server's values instead (the most
+    // common `FILTER_WINDOW_TOP_N`, plus the blank value when there are
+    // missing cells, as the loaded-row list has one); the window's own
+    // search then narrows that list as before. ---
+    let on_server = crate::app::db_view::server_conn(
+        &app.tabs[app.active_tab],
+        app.settings.db_pushdown,
+        &app.settings.db_connections,
+    )
+    .is_some();
+    if on_server {
+        app.want_values(
+            crate::app::db_view::ValuesSlot::Window,
+            (col_idx, String::new()),
+            crate::app::db_view::FILTER_WINDOW_TOP_N,
+            ctx,
+        );
+    }
+    let (unique_values, total_unique, server_loading, server_error, server_more) = {
         let tab = &app.tabs[app.active_tab];
-        let mut set: BTreeSet<String> = BTreeSet::new();
-        for row in 0..tab.table.row_count() {
-            if let Some(v) = tab.table.get(row, col_idx) {
-                set.insert(v.to_string());
+        let server = on_server.then(|| {
+            tab.filter_window_values
+                .as_ref()
+                .filter(|v| v.key.0 == col_idx)
+                .and_then(|v| v.result.as_ref())
+        });
+        match server {
+            None => {
+                let mut set: BTreeSet<String> = BTreeSet::new();
+                for row in 0..tab.table.row_count() {
+                    if let Some(v) = tab.table.get(row, col_idx) {
+                        set.insert(v.to_string());
+                    }
+                }
+                let v: Vec<String> = set.into_iter().collect();
+                let n = v.len();
+                (v, n, false, None, None)
+            }
+            Some(None) => (Vec::new(), 0, true, None, None),
+            Some(Some(Err(e))) => (Vec::new(), 0, false, Some(e.clone()), None),
+            Some(Some(Ok(vf))) => {
+                let mut v: Vec<String> = vf.rows.iter().map(|r| r.label.clone()).collect();
+                let mut total = vf.unique_count;
+                if vf.nulls > 0 {
+                    v.push(String::new());
+                    total += 1;
+                }
+                v.sort();
+                let more = (vf.unique_count > vf.rows.len())
+                    .then(|| (vf.unique_count - vf.rows.len(), vf.rows.len()));
+                (v, total, false, None, more)
             }
         }
-        set.into_iter().collect()
     };
-    let total_unique = unique_values.len();
+    // Without the list, "everything ticked" cannot be told from a filter:
+    // Apply (and a column switch) would drop the column's filter.
+    let list_ready = !server_loading && server_error.is_none();
+    let app_rows_loaded = app.tabs[app.active_tab].table.row_count();
 
     // --- Shapes mode: the column's shapes, and a shape draft derived from
     // the value draft whenever it is unset (open, column switch, switching
@@ -74,7 +121,7 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
     // "Select none" state and we'd re-seed every frame. ---
     {
         let tab = &mut app.tabs[app.active_tab];
-        if tab.column_filter_needs_seed {
+        if tab.column_filter_needs_seed && list_ready {
             tab.column_filter_draft_allowed = unique_values.iter().cloned().collect();
             tab.column_filter_needs_seed = false;
         }
@@ -161,7 +208,18 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                         clear_requested = true;
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(octa::i18n::t("common.apply")).clicked() {
+                        if ui
+                            .add_enabled(
+                                list_ready,
+                                egui::Button::new(octa::i18n::t("common.apply")),
+                            )
+                            .on_disabled_hover_text(octa::i18n::t(if server_loading {
+                                "dbview.facet_counting"
+                            } else {
+                                "dbview.facet_failed"
+                            }))
+                            .clicked()
+                        {
                             apply_requested = true;
                         }
                         if ui.button(octa::i18n::t("common.cancel")).clicked() {
@@ -221,6 +279,12 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                 });
                 let needle = value_search.to_lowercase();
                 if shapes_mode {
+                    if on_server {
+                        ui.weak(octa::i18n::t("dbview.facet_shapes_loaded").replace(
+                            "{loaded}",
+                            &octa::ui::status_bar::format_number(app_rows_loaded),
+                        ));
+                    }
                     let visible: Vec<&(String, usize, String)> = shape_rows
                         .iter()
                         .filter(|(shape, _, example)| {
@@ -285,6 +349,28 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                             }
                         });
                     return;
+                }
+                if server_loading {
+                    octa::ui::control_row::control_row(ui, |ui| {
+                        ui.spinner();
+                        ui.weak(octa::i18n::t("dbview.facet_counting"));
+                    });
+                    return;
+                }
+                if let Some(e) = &server_error {
+                    octa::ui::message::selectable_message(
+                        ui,
+                        ui.visuals().error_fg_color,
+                        &format!("{} {e}", octa::i18n::t("dbview.facet_failed")),
+                    );
+                    return;
+                }
+                if let Some((more, shown)) = server_more {
+                    ui.weak(
+                        octa::i18n::t("dbview.window_more")
+                            .replace("{count}", &octa::ui::status_bar::format_number(more))
+                            .replace("{shown}", &octa::ui::status_bar::format_number(shown)),
+                    );
                 }
                 let matches_search = |v: &String| -> bool {
                     needle.is_empty() || v.to_lowercase().contains(&needle)
@@ -409,12 +495,15 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
         tab.show_column_filter = false;
     } else if let Some(next) = switch_col {
         // Commit the current column's draft before swapping so in-progress
-        // edits aren't lost.
-        match effective(&draft, &tab.table) {
-            None => tab.column_filters.remove(&col_idx),
-            Some(allowed) => tab.column_filters.insert(col_idx, allowed),
-        };
-        tab.filter_dirty = true;
+        // edits aren't lost (not before the server's list came: nothing was
+        // edited, and the empty draft would read as "no filter").
+        if list_ready {
+            match effective(&draft, &tab.table) {
+                None => tab.column_filters.remove(&col_idx),
+                Some(allowed) => tab.column_filters.insert(col_idx, allowed),
+            };
+            tab.filter_dirty = true;
+        }
         tab.column_filter_picker_col = Some(next);
         tab.column_filter_value_search.clear();
         tab.column_filter_shape_draft = None;

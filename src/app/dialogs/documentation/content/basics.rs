@@ -469,6 +469,9 @@ sort by department ascending, then by salary descending).
 
 Use the **^** / **v** buttons to reorder the keys, **Add column** for
 another key, and **x** to remove one. **Apply** sorts the table in place.
+
+On a database tab that holds only part of its table, the database sorts
+the whole table, and the rows are fetched again in that order.
 "#;
 
 pub const TABS: &str = r#"# Tabs & Folder Sidebar
@@ -827,7 +830,9 @@ marks pick a row: marked cells and marked columns are ignored.
 **Random sample** (**Analyse > Random sample...**). Opens a new tab with a number
 of rows you choose, picked at random from the active table. Handy for eyeballing
 a fair cross-section of a big file without scrolling all of it. If you ask for
-more rows than the table has, you get them all.
+more rows than the table has, you get them all. On a database tab that holds
+only part of its table, the database picks the rows: Exact or Fast (see
+Analyses on Live Databases).
 
 **Tidy up** (**Data > Tidy up...**). Cleans the current table in one undoable
 step: trim stray spaces from cells and column titles, and optionally tidy the

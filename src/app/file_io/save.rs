@@ -379,18 +379,26 @@ impl OctaApp {
             style_decision.is_none() && self.save_would_ask_about_style(tab_idx, &path);
 
         let tab = &mut self.tabs[tab_idx];
-        if tab.raw_content_modified
+        if tab.saves_text()
             && let Some(ref content) = tab.raw_content
         {
             match std::fs::write(&path, content) {
                 Ok(()) => {
                     tab.table.source_path = Some(path.to_string_lossy().to_string());
+                    // The table catches up with the text it was saved from.
+                    // Text it cannot read leaves the table stale: drop its
+                    // edits, or a later save of it would overwrite this one.
+                    if let Err(msg) = tab.table_from_text(&self.registry) {
+                        tab.table.discard_edits();
+                        tab.table.clear_modified();
+                        tab.parse_error_banner = Some(msg);
+                    }
                     tab.raw_content_modified = false;
                     self.status_message = Some((
                         format!("Saved to {}", path.display()),
                         std::time::Instant::now(),
                     ));
-                    self.maybe_recompress_saved(tab_idx, &path);
+                    self.after_tab_saved(tab_idx, &path);
                 }
                 Err(e) => {
                     self.status_message = Some((
@@ -484,6 +492,7 @@ impl OctaApp {
                     if filtered_table.is_none() {
                         tab.table.source_path = Some(path.to_string_lossy().to_string());
                         tab.table.clear_modified();
+                        tab.raw_content_modified = false;
                         tab.file_stamp = super::file_stamp(&path);
                     }
                     self.status_message = Some((
@@ -500,7 +509,7 @@ impl OctaApp {
                         std::time::Instant::now(),
                     ));
                     if filtered_table.is_none() {
-                        self.maybe_recompress_saved(tab_idx, &path);
+                        self.after_tab_saved(tab_idx, &path);
                     }
                 }
                 Err(e) => {
@@ -645,6 +654,7 @@ impl OctaApp {
                         if filtered_table.is_none() {
                             tab.table.source_path = Some(path.to_string_lossy().to_string());
                             tab.table.clear_modified();
+                            tab.raw_content_modified = false;
                             tab.file_stamp = super::file_stamp(&path);
                             // A diff-based writer (SQLite / DuckDB) reports the
                             // identity the saved rows now have. Without it the
@@ -668,7 +678,7 @@ impl OctaApp {
                             std::time::Instant::now(),
                         ));
                         if filtered_table.is_none() {
-                            self.maybe_recompress_saved(tab_idx, &path);
+                            self.after_tab_saved(tab_idx, &path);
                         }
                     }
                     Err(e) => {
@@ -743,11 +753,19 @@ impl OctaApp {
         })
     }
 
-    /// After a successful save of a transparently decompressed tab, compress
-    /// the written temp file back onto the original `.gz` / `.zst` path.
-    /// No-op unless the save landed on exactly the recorded temp path (so
+    /// After a successful save of the tab's own file: refresh the raw text,
+    /// then, for a transparently decompressed tab, compress the written temp
+    /// file back onto the original `.gz` / `.zst` path. That part is a
+    /// no-op unless the save landed on exactly the recorded temp path (so
     /// Save As to another file never touches the compressed original).
-    fn maybe_recompress_saved(&mut self, tab_idx: usize, written: &std::path::Path) {
+    fn after_tab_saved(&mut self, tab_idx: usize, written: &std::path::Path) {
+        // Raw view shows the file's text, read once at load: re-read it, or
+        // switching to Raw after a save shows the file as it was before.
+        let tab = &mut self.tabs[tab_idx];
+        if tab.raw_content.is_some() && !tab.raw_content_modified {
+            tab.raw_content = std::fs::read_to_string(written).ok();
+            tab.raw_content_original = tab.raw_content.clone();
+        }
         let Some(origin) = self.tabs[tab_idx].compressed_origin.clone() else {
             return;
         };

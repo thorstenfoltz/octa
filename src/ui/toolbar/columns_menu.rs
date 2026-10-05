@@ -19,6 +19,9 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
         selected_cell,
         col_count,
         has_hidden_columns,
+        source_has_more,
+        hash_on_server,
+        readonly_mode,
         ..
     } = cx;
     // Was a local in `draw_toolbar`; recomputed here so the moved body
@@ -47,6 +50,23 @@ pub(super) fn columns_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
                 .clicked()
             {
                 action.open_conditional_column = true;
+                ui.close();
+            }
+            // A partly loaded tab would get a hash for the loaded rows only,
+            // unless the database computes it.
+            let hash = ui
+                .add_enabled(
+                    (!source_has_more || hash_on_server) && !readonly_mode,
+                    egui::Button::new(crate::i18n::t("hashcols.menu")),
+                )
+                .on_hover_text(crate::i18n::t("hashcols.menu_hint"))
+                .on_disabled_hover_text(if readonly_mode {
+                    crate::i18n::t("hashcols.readonly_hint")
+                } else {
+                    crate::i18n::t("hashcols.partial_hint")
+                });
+            if hash.clicked() {
+                action.open_hash_columns = true;
                 ui.close();
             }
             let del_col = ui

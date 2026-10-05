@@ -30,6 +30,7 @@ struct TabBarAction {
     rename: Option<usize>,
     export_pdf: Option<usize>,
     refresh: Option<usize>,
+    load_all: Option<usize>,
 }
 
 /// What the right-click menu needs to know about the tab it belongs to.
@@ -41,6 +42,8 @@ struct TabMenuContext {
     has_data: bool,
     /// The tab has a file, table, object or endpoint to read again.
     can_refresh: bool,
+    /// The source holds rows this tab does not.
+    has_more: bool,
 }
 
 impl OctaApp {
@@ -137,6 +140,7 @@ impl OctaApp {
             has_source: tab.table.source_path.is_some(),
             has_data: tab.table.col_count() > 0,
             can_refresh: tab.refresh_source().is_some(),
+            has_more: tab.source_has_more() && !tab.loading_all,
         };
         // Hover shows the full path when file-backed, else the full
         // (untruncated) tab title, so a shortened title is always
@@ -277,6 +281,10 @@ impl OctaApp {
         if let Some(idx) = action.refresh {
             self.request_refresh(idx, ctx);
         }
+        if let Some(idx) = action.load_all {
+            self.active_tab = idx;
+            self.open_load_all(ctx);
+        }
         if let Some(idx) = action.export_pdf {
             // The dialog prints the active tab, so make it the one that was
             // right-clicked.
@@ -309,6 +317,18 @@ fn tab_context_menu(ui: &mut egui::Ui, menu: &TabMenuContext, action: &mut TabBa
         .clicked()
     {
         action.refresh = Some(idx);
+        ui.close();
+    }
+    if ui
+        .add_enabled(
+            menu.has_more,
+            egui::Button::new(octa::i18n::t("loadall.menu")),
+        )
+        .on_hover_text(octa::i18n::t("loadall.menu_hint"))
+        .on_disabled_hover_text(octa::i18n::t("loadall.menu_disabled_hint"))
+        .clicked()
+    {
+        action.load_all = Some(idx);
         ui.close();
     }
     let pin_label = if menu.pinned { "Unpin tab" } else { "Pin tab" };

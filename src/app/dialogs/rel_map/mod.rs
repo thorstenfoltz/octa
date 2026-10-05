@@ -130,6 +130,13 @@ pub(crate) struct RelMapState {
     /// Outcome of the last export, `(ok, message)`.
     pub(crate) export_result: Option<(bool, String)>,
     job: Option<(ScanSlot, Arc<AtomicBool>)>,
+    /// One server source per node when the Tabs map was built from
+    /// live-database tabs on one connection; empty otherwise. Measure is
+    /// offered on a Tabs map only when this is filled.
+    pub(crate) tab_sources: Vec<octa::db::pushdown::ServerSource>,
+    pub(crate) measure: Option<crate::app::pushdown::ServerTask<RelMap>>,
+    pub(crate) measure_note: Option<crate::app::pushdown::DialogNote>,
+    pub(crate) measure_error: Option<String>,
 }
 
 mod draw;
@@ -219,7 +226,45 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             Err(e) => st.error = Some(e),
         }
     }
-    let running = st.job.is_some();
+    use crate::app::pushdown::{ServerUi, TaskPoll};
+    match st.measure.as_ref().map(|m| m.poll()) {
+        Some(TaskPoll::Pending) => ctx.request_repaint(),
+        // Same nodes and edges, only the numbers changed, so the boxes stay
+        // where the user put them. The note stays: it describes this map.
+        Some(TaskPoll::Ready(map)) => {
+            st.measure = None;
+            st.map = Some(map);
+        }
+        Some(TaskPoll::Cancelled) => {
+            st.measure = None;
+            st.measure_note = None;
+            st.measure_error = Some(t("pushdown.cancelled"));
+        }
+        Some(TaskPoll::Failed(e)) => {
+            st.measure = None;
+            st.measure_note = None;
+            st.measure_error = Some(e);
+        }
+        None => {}
+    }
+    let running = st.job.is_some() || st.measure.is_some();
+    let measuring = st.measure.is_some();
+    let mut run_local = false;
+    // Where Measure would count, decided once for the button and its hint.
+    // Read at click time too: the setting can change after the scan.
+    let tabs_on_server = !st.tab_sources.is_empty() && app.settings.db_pushdown;
+    let measure_on_server = tabs_on_server || (st.declared && app.settings.db_pushdown);
+    // A Tabs map whose numbers cover loaded rows only although the setting
+    // is on and some database tab is partial: say why.
+    let mixed = st.source == RelMapSource::Tabs && st.map.is_some() && {
+        let picked: Vec<&crate::app::state::TabState> =
+            st.tabs.iter().filter_map(|&i| app.tabs.get(i)).collect();
+        crate::app::pushdown::mixed_sources(
+            &picked,
+            app.settings.db_pushdown,
+            &app.settings.db_connections,
+        )
+    };
 
     let tab_labels: Vec<(usize, String)> = (0..app.tabs.len())
         .filter(|&i| app.tabs[i].table.col_count() > 0)
@@ -259,6 +304,27 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("rel_map_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
+                // The Measure outcome sits above the buttons: a refusal or a
+                // Cancel with Run on loaded rows (a declared map only, whose
+                // fallback is the sample), else what the numbers cover.
+                if !running {
+                    if matches!(
+                        crate::app::pushdown::server_status_ui(
+                            ui,
+                            false,
+                            st.measure_error.as_deref(),
+                            st.declared,
+                        ),
+                        ServerUi::RunLocal
+                    ) {
+                        run_local = true;
+                    }
+                    if let Some(note) = &st.measure_note {
+                        crate::app::pushdown::dialog_note_ui(ui, note);
+                    } else if mixed {
+                        octa::ui::message::partial_note_label(ui, &t("pushdown.mixed_sources"));
+                    }
+                }
                 ui.horizontal(|ui| {
                     // A ComboBox sizes itself against `interact_size`, a Button
                     // against its own text, so left alone the format picker
@@ -271,7 +337,11 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     ui.set_min_height(row_h);
                     if running {
                         ui.spinner();
-                        ui.label(t("relmap.scanning"));
+                        ui.label(if measuring {
+                            t("pushdown.running")
+                        } else {
+                            t("relmap.scanning")
+                        });
                         if ui
                             .button(t("relmap.cancel"))
                             .on_hover_text(t("relmap.cancel_hint"))
@@ -312,14 +382,19 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 }
                             });
                         }
-                        // Only a declared map can be measured: a value-sampled
-                        // one already carries the numbers this would compute.
-                        if st.declared && st.map.is_some() {
+                        // A declared map, or a Tabs map the server can recount
+                        // over whole tables. Any other value-sampled map
+                        // already carries the numbers this would compute.
+                        if st.map.is_some() && (st.declared || tabs_on_server) {
                             let m = ui.button(t("relmap.measure"));
                             if m.clicked() {
                                 score = true;
                             }
-                            m.on_hover_text(t("relmap.measure_hint"));
+                            m.on_hover_text(if measure_on_server {
+                                t("pushdown.measure_server_hint")
+                            } else {
+                                t("relmap.measure_hint")
+                            });
                         }
 
                         // Writes the map as it stands right now, so the file
@@ -376,6 +451,13 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
             match st.source {
                 RelMapSource::Tabs => {
+                    if let Some(on) = all_none(ui) {
+                        st.tabs = if on {
+                            tab_labels.iter().map(|(i, _)| *i).collect()
+                        } else {
+                            Vec::new()
+                        };
+                    }
                     ui.horizontal_wrapped(|ui| {
                         for (i, name) in &tab_labels {
                             let mut on = st.tabs.contains(i);
@@ -468,6 +550,13 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
                     ui.label(t("relmap.db_schemas"))
                         .on_hover_text(t("relmap.db_schemas_hint"));
+                    if !st.schemas.is_empty()
+                        && let Some(on) = all_none(ui)
+                    {
+                        for (_, s) in &mut st.schemas {
+                            *s = on;
+                        }
+                    }
                     ui.horizontal_wrapped(|ui| {
                         for (name, on) in &mut st.schemas {
                             ui.checkbox(on, name.as_str())
@@ -482,6 +571,12 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         ui.add_space(4.0);
                         ui.label(t("relmap.db_tables"))
                             .on_hover_text(t("relmap.db_tables_hint"));
+                        if let Some(on) = all_none(ui) {
+                            for (_, s) in &mut st.db_tables {
+                                *s = on;
+                            }
+                            redraw = true;
+                        }
                         egui::ScrollArea::vertical()
                             .id_salt("rel_map_db_tables")
                             .max_height(88.0)
@@ -620,6 +715,12 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     if cancel && let Some((_, flag)) = &st.job {
         flag.store(true, Ordering::Relaxed);
     }
+    // Say so at once: Oracle cannot cancel one running statement, so the
+    // worker may take a while to stop. Dropping the task cancels it.
+    if cancel && st.measure.take().is_some() {
+        st.measure_note = None;
+        st.measure_error = Some(t("pushdown.cancelled"));
+    }
     if pick_folder && let Some(dir) = rfd::FileDialog::new().pick_folder() {
         st.folder = Some(dir);
     }
@@ -633,7 +734,7 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         // Built before the file dialog opens, so what is written is the map
         // as it was when the button was clicked.
         let visuals = ctx.style_of(ctx.theme()).visuals.clone();
-        let layout = build_layout(&st, map, &visuals);
+        let layout = build_layout(&st, map, &visuals, ctx);
         if let Some(result) = export_map(&layout, format) {
             st.export_result = Some(result);
         }
@@ -645,7 +746,10 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         app.spawn_rel_map_meta(&mut st, ctx);
     }
     if score {
-        app.spawn_rel_map_score(&mut st, ctx);
+        app.start_rel_map_measure(&mut st, ctx, true);
+    }
+    if run_local {
+        app.start_rel_map_measure(&mut st, ctx, false);
     }
     // Pure and instant: the scan already read every column and every declared
     // key, so re-picking which tables are drawn touches no server.
@@ -657,6 +761,10 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             .map(|(n, _)| n.clone())
             .collect();
         let built = build_db_map(&st.db_columns, &st.db_fks, Some(&wanted), DEFAULT_MAX_FILES);
+        // A different map: the old Measure described the one it replaces.
+        st.measure = None;
+        st.measure_note = None;
+        st.measure_error = None;
         st.truncated = built.truncated;
         st.skipped_edges = built.skipped_edges;
         apply_map(&mut st, built.map);
@@ -692,6 +800,29 @@ pub(crate) fn render_rel_map_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     }
 }
 
+/// All / None above a ticked list. `Some(true)` for All, `Some(false)` for
+/// None. One helper for the three lists, so they cannot drift apart.
+fn all_none(ui: &mut egui::Ui) -> Option<bool> {
+    let mut out = None;
+    octa::ui::control_row::control_row(ui, |ui| {
+        if ui
+            .small_button(t("dialog.select_all"))
+            .on_hover_text(t("relmap.select_all_hint"))
+            .clicked()
+        {
+            out = Some(true);
+        }
+        if ui
+            .small_button(t("dialog.select_none"))
+            .on_hover_text(t("relmap.select_none_hint"))
+            .clicked()
+        {
+            out = Some(false);
+        }
+    });
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -712,6 +843,36 @@ mod tests {
     fn parse_score_clamps_instead_of_refusing() {
         assert_eq!(parse_score("11"), Some(1.0));
         assert_eq!(parse_score("-2"), Some(0.0));
+    }
+
+    /// 10px per char stands in for a font: this tests the cutting, not
+    /// egui's metrics.
+    fn w(s: &str) -> f32 {
+        s.chars().count() as f32 * 10.0
+    }
+
+    #[test]
+    fn a_name_that_fits_is_left_alone() {
+        assert_eq!(layout::elide_to_width("orders", 100.0, w), "orders");
+    }
+
+    #[test]
+    fn a_long_name_is_cut_with_three_dots_inside_the_width() {
+        let out = layout::elide_to_width("public.customer_order_line_items", 100.0, w);
+        assert_eq!(out, "public....");
+        assert!(w(&out) <= 100.0);
+    }
+
+    /// Multi-byte names are cut on characters, never inside one.
+    #[test]
+    fn eliding_cuts_on_characters() {
+        let out = layout::elide_to_width("schéma.tablé_äöüäöü", 80.0, w);
+        assert_eq!(out, "schém...");
+    }
+
+    #[test]
+    fn a_box_too_narrow_for_anything_still_says_something() {
+        assert_eq!(layout::elide_to_width("orders", 20.0, w), "...");
     }
 
     /// A half-typed field must not move the threshold: `None` leaves the

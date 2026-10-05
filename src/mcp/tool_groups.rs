@@ -363,6 +363,11 @@ pub static CATALOG: &[ToolEntry] = &[
         "Hashing or masking columns before sharing.",
     ),
     w(
+        "hash_columns",
+        Reshape,
+        "A hash key column (MD5 / SHA) over chosen columns.",
+    ),
+    w(
         "partition_table",
         Reshape,
         "Splitting one file into many by a column.",

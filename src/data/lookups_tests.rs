@@ -85,3 +85,13 @@ fn split_out_builds_lookup_and_slim_main_and_counts_resolved_keys() {
 fn cancel_stops_the_scan() {
     assert!(find_lookups(&orders(), 0.8, &AtomicBool::new(true)).is_empty());
 }
+
+#[test]
+fn dependent_from_counts_applies_the_budget() {
+    // 100 covered rows at 95%: 5 breaking rows pass, 6 do not.
+    let d = dependent_from_counts(3, 100, 5, 2, 0.95).expect("within budget");
+    assert_eq!((d.col, d.breaking_rows, d.conflicting_keys), (3, 5, 2));
+    assert!((d.consistency - 0.95).abs() < 1e-12);
+    assert!(dependent_from_counts(3, 100, 6, 2, 0.95).is_none());
+    assert!(dependent_from_counts(3, 0, 0, 0, 0.95).is_none());
+}

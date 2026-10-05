@@ -886,6 +886,7 @@ impl OctaApp {
             }
             tab.raw_content_original = tab.raw_content.clone();
             tab.raw_content_modified = false;
+            tab.text_sync_hash = None;
             tab.raw_color_enabled = true;
             tab.raw_file_size = Some(file_size);
             tab.raw_perf_prompt_resolved = false;
@@ -1027,6 +1028,8 @@ impl OctaApp {
                 .unwrap_or(0);
             tab.json_expand_depth = tab.json_file_max_depth;
             tab.json_expand_depth_str = tab.json_expand_depth.to_string();
+            // Text, table and tree were all just read from the same file.
+            tab.synced_view = (tab.view_mode, tab.compare_mode);
 
             self.add_recent_file(&path.to_string_lossy());
         }

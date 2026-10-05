@@ -1,183 +1,144 @@
-A release for the SQL editor, and for computers less powerful than the one
-Octa is built on. The SQL panel can now run a query on any saved database
-connection from any tab, runs only the part you marked, comments lines out with
-F12, formats queries in the style you pick, shares one query history across
-every tab, and copies any selection out of its result grid. Several editors can
-sit side by side, the editor stays open when its tab closes, and a running query
-is plain to see. The table can copy a selection as a SQL IN list and show
-invisible characters, and Octa can reopen your last session. Copy and paste now
-work on Wayland. The default limits are lower, so a big file no longer fills the
-memory of an ordinary laptop.
+A release that makes database tabs tell the truth. A table opened from a
+database holds only the pages it has loaded, and until now Summary, the
+filters, Pivot, charts and every other analysis quietly worked on those pages
+alone. They now run as SQL on the database, over the whole table, without
+downloading it. New are **Hash columns** for building warehouse keys, **Load
+whole table** for when you do want every row, and a timeline that zooms one
+axis at a time. Unsaved edits now show in every view without a save, the
+AppImage starts again on systems without the X11 keyboard library, and
+nineteen languages got their missing accents back.
 
 ## What's new
 
-### Run on any connection
+### Hash columns
 
-The SQL panel has a **Run on** picker on every tab: **local DuckDB**, or any
-saved database connection. Picking a connection sends the query straight to
-that server in its own SQL dialect, where every table can be queried by its
-real name. Nothing is attached or copied, so an empty SQL editor is now the
-quickest way to query a database. A tab opened from a database starts on its
-own connection. **Attach connection** is still there for the one thing this
-cannot do: joining a server's tables with local files.
+**Columns -> Hash columns...** adds one column holding a hash of the columns
+you pick, row by row: the usual hash key of a data warehouse, such as
+`MD5(UPPER(TRIM(first_name)) || '|' || birth_date)`.
 
-### Run the marked part
+- MD5, SHA-256 or SHA-512, as lowercase hex.
+- The columns in the order you choose, joined with any delimiter (`|` by
+  default), with your own text for empty cells, and optionally trimmed and
+  upper-cased first.
+- A preview shows the first rows' hashes; hover one to see the exact text
+  that was hashed. **Edit -> Undo** removes the column again.
+- On a database tab that holds only part of its table, the database computes
+  the hash for every row, and every page you scroll to carries it.
+- The same on the command line (`--hash-columns`) and over MCP
+  (`hash_columns`).
 
-Mark part of the editor and Ctrl+Enter runs only that part, so several
-statements can live in one editor and run one at a time. A **Run** button in
-the toolbar does the same.
+### Load whole table
 
-### Comments
+**Data -> Load whole table...**, also on the tab's right-click menu, counts
+the rows of a partly loaded database table or file first, says how many there
+are and how many the tab holds, and downloads the rest only when you click
+**Load all**. The status bar shows the progress with **Cancel**, and
+cancelling keeps every row that already arrived.
 
-- Everything after `--` on a line is drawn faded, so what runs stands out from
-  what does not. A `--` inside a quoted string is text, not a comment.
-- **F12** comments the marked lines out, or back in when they all already
-  start with `--`. Press it twice and you are back where you started. Rebind
-  it under **Settings -> Shortcuts**.
+### Timeline: zoom one axis at a time
 
-### One query history
+- **Time + / -** zooms only the time axis, **Lanes + / -** only the lanes,
+  so a year of data fits on one screen with every lane still readable.
+  **Fit** shows everything again.
+- The label is written on each bar where it fits, not only shown on hover.
+- The view stops at the first and last bar instead of scrolling on into empty
+  years, and you cannot zoom out past the whole timeline.
+- The time axis labels follow the zoom: years, then months, days and hours,
+  always on calendar boundaries. Lane names stay on the left at any zoom.
 
-Every SQL editor now shows the same history, whatever the tab or connection,
-and it is kept between sessions. Each entry says where it ran (the
-connection, the cloud object or the file), how long it took and how many rows
-it returned. Picking an entry loads the text into the editor and leaves where
-it runs alone. The per-connection lists from earlier versions are merged into
-the one list on first start.
+## Changed
 
-### Copying from the result
-
-Click a cell to select it, Ctrl+click to add more, Shift+click for a
-rectangle, a column header for the whole column and a row number for the
-whole row. **Ctrl+C** copies the selection as tab-separated text, ready to
-paste into a spreadsheet. Right-click a cell for Copy cell, row, column,
-selection or all.
-
-### Better autocomplete
-
-- Catalog and schema names are offered, and each part of a dotted name
-  (`wh.sales.orders`) completes on its own.
-- On a server connection, the server's catalogs, schemas and tables are
-  offered, and the columns of every table the query names are fetched in the
-  background, so `SELECT o.` lists the columns of `orders`.
-- Names with accents or umlauts complete like any other, and the list scrolls
-  when more names match than fit.
-- The faded line in an empty editor is a template: press **Tab** and it
-  becomes real text, ready for Ctrl+Enter.
-
-### Format SQL, in your style
-
-**Format** in the SQL toolbar lays a query out one clause per line, indented,
-so a long one-liner becomes readable. With part of the editor marked, only that
-part is formatted. **Settings -> SQL -> Format SQL** decides the style, with a
-live preview:
-
-- keywords in upper case, lower case or as written
-- 2 spaces, 4 spaces or a tab
-- commas at the end of a line or at the start of the next
-- JOIN level with FROM or under it
-- how long a list, a clause (`GROUP BY c.name`) and a bracket
-  (`coalesce(a, 0)`) may be and still stay on one line, each explained with an
-  example right under its field
-- blank lines between statements
-- a closing semicolon
-- the whole query on one line, which only tidies spacing and keyword case
-
-### SQL settings in groups
-
-**Settings -> SQL** is no longer one long list. Its settings sit in six groups
-you open when you need them: Panel, Editor, Results, Other open tabs, Query
-history and Format SQL.
-
-### Open result as tab
-
-**Open result as tab...** now puts every row of the result into the new tab,
-not only the page on screen, and always opens a new tab, so the SQL panel's
-own tab is never replaced.
-
-### Several SQL editors side by side
-
-**+** in the SQL toolbar, or **Ctrl+T** (also while typing), opens another
-editor next to the others, each with its own query and its own result. Click
-into one to make it the one Run, Format and Export act on; the small x above an
-editor closes it.
-
-### The SQL editor stays open
-
-Closing a tab or opening a file no longer closes the SQL editor: the next tab
-opens it and takes over your queries when its own editor is empty, so closing
-the last tab does not lose an unsaved query. **Settings -> SQL -> Keep the SQL
-editor open** switches back to the old behaviour.
-
-Opened on an empty window, the editor fills it. **Maximise** and **Restore** in
-its header switch between the whole window and docked beside the table.
-
-### You can see a query running
-
-A running query clears the previous result and error at once and shows a large
-spinner with the time so far, with **Cancel** for a query on a database server.
-Before, the old result stayed on screen until the new one arrived, which looked
-like the answer to the new query.
-
-### Sidebars where you want them
-
-The Cloud and Databases browsers each have their own dock position under
-**Settings -> Panels**, left by default. Browsers on the same edge share one
-panel.
-
-### Copy as IN list
-
-Mark some cells, right-click, **Copy as IN list**, and you get
-`('A-17', 'B-22', 'C-09')`, ready to paste after `WHERE id IN` in any database
-tool. Empty cells and repeats are left out, quotes are escaped, and numbers stay
-bare only when every value is a number, so `007` keeps its leading zero.
-
-### Show invisible characters
-
-**View -> Show invisible characters** marks the whitespace inside cells: `.`
-for a space, `->` for a tab, `_` for a non-breaking or other unusual space, `|`
-for a zero-width character. Spaces at the start or end of a value and the
-unusual characters get a coloured background, which explains why `Berlin` and
-`Berlin` did not match, and you can see at a glance whether a gap is spaces or
-a tab.
-
-### Reopen last session
-
-**Settings -> Files -> Reopen last session** opens the files again that were
-open when you closed Octa, the way a browser restores its tabs. Cloud objects
-and database or API tabs stay closed unless you switch them on separately,
-since reopening them downloads or queries at every start.
-
-## Changed defaults
-
-Octa was tuned on a fast machine. These defaults suit an ordinary laptop
-better. Only new installs get them: if you already saved your settings, your
-values stay as they are, and every one of them can be changed under
-**Settings -> Performance**.
-
-- **Rows loaded when a file opens**: 2,000,000 instead of 5,000,000. The same
-  limit applies to SQL results, database tables, the command line and the
-  assistant. `--rows all` and Unlimited still load everything.
-- **Large-file mode** starts at 2 GB instead of 10 GB, so a big CSV, JSON or
-  Parquet file is read from disk instead of being loaded into memory.
-- **Raw view** reads files up to 50 MB instead of 500 MB.
-- **Charts** plot up to 25,000 points before sampling, instead of 100,000.
-  The shape of the data stays the same, and the chart redraws much faster.
+- **First and Last in Time series** now take the value at the earliest and
+  latest time in each bucket, whatever order the rows are in. Before, they
+  took the first and last row as the file happened to list them, so results
+  can differ on unsorted data. The same on the command line and over MCP.
+- **`db_relationships` over MCP**: `measure: true` now counts every row on
+  the server instead of reading a sample, so its `sample` parameter is gone.
+  A clean result is now proof, not just evidence.
 
 ## Fixes
 
-- **Copy and paste on Wayland**: copying from Octa and pasting into another
-  program (or the other way round) did not work, because Octa used the X11
-  clipboard. Octa now uses the same clipboard as its text fields, on Wayland
-  and on X11 alike. Paste also no longer lands in the table while you are
-  typing in a text field.
-- **The SQL result grid twitched** while scrolling, as its columns kept
-  resizing to fit the rows on screen. Column widths now stay put.
+### Analyses on database tabs used only the loaded rows
+
+A database tab holds the pages it has loaded (100,000 rows each by default,
+under **Settings -> Performance**), and every analysis ran on those pages as
+if they were the whole table. With a table of millions of rows, Summary
+described the first page and called it the table. Now, whenever
+the tab does not hold every row, the database does the work over the whole
+table, and nothing is downloaded for it:
+
+- **Summary, Value frequency, the Data quality report and Correlation** are
+  counted on the server.
+- **The Join key finder, Join diagnostics, Find lookup tables** and the
+  relationship map's **Measure** compare keys on the server. The Join key
+  finder shows the row counts and what the check will cost before it runs.
+- **Sorting, every row filter and the search box** run on the server, and
+  the rows arrive already sorted and filtered, page by page. The column
+  filter lists the most common values counted over the whole table, and
+  finds values that are not loaded.
+- **Random sample** picks from the whole table, either exactly (every row
+  equally likely, which reads the whole table) or fast (the engine's own
+  block sampling, about the size you asked for).
+- **Pivot, Time series and Chart** are computed on the server. A line or
+  scatter chart over many rows draws evenly spaced rows from the whole range,
+  not just the first page.
+- Each result says so in a line above it: "Computed on the database over all
+  4,812,331 rows."
+- What an engine's SQL cannot express runs on the loaded rows and is named
+  in that line, with **Load whole table...** right there. MySQL, for example,
+  has no percentile function, so its median and quartiles come from the loaded
+  rows.
+- Unsaved edits in the tab are not on the server yet, so a sort or filter
+  that would fetch the rows again asks first: save, use only the loaded rows,
+  or cancel.
+- Long queries show a spinner with **Cancel**. A refused query shows the
+  server's own message, with **Run on loaded rows**.
+- **Settings -> Databases -> Run analyses on the database** switches all of
+  this off. The results then say how many rows they cover.
+
+The page [Analyses on live databases](https://thorstenfoltz.github.io/octa/usage/analyses-on-live-databases/)
+lists, per engine, what runs where.
+
+### More fixes
+
+- **Unsaved edits now show in every view.** A cell changed in the Table view
+  shows in Raw text, the JSON and YAML trees, Markdown and the Compare text
+  diff as soon as you switch, and text edited in Raw text shows in the Table,
+  Record, Chart, Timeline and Map views. Before, every view but the one you
+  edited in showed the file as it was saved. Save writes whichever side you
+  changed last. Text that no longer reads as the file's format keeps you in
+  the text view, with the reason, until you fix or undo it.
+- **The AppImage did not start** on systems without the
+  `libxkbcommon-x11` package: Octa 0.20.1 stopped at once with "Library
+  libxkbcommon-x11.so could not be loaded". The AppImage now carries the
+  library itself.
+- **Ask in the SQL editor** refused to work when the editor ran on a
+  database connection other than the tab's own. It now describes that
+  server's tables (those in the schemas you opened in the Databases sidebar)
+  and their foreign keys to the model, so the query it writes uses real names.
+- **Databricks** refuses a column or table name such as `my-col` written
+  without quotes. Octa now quotes the name the error points at and runs the
+  query again, in the SQL editor, over MCP (`query_db`) and on the command line
+  (`--db-query`).
+- **Relationship map**: long table names are shortened to fit their box
+  instead of running over the edge (hover for the full name), and every list
+  of tabs, schemas and tables has **All** and **None** buttons.
+- **The filter popup on a column header** lost its Find box after the first
+  letter typed.
+- **Missing accents** in Danish, Norwegian, Swedish, Estonian, Lithuanian,
+  Latvian, French, Slovenian, Croatian, Spanish, Portuguese, Finnish, German,
+  Italian, Dutch, Turkish, Czech, Slovak and Hungarian: about 1,650 strings
+  had been written without them.
+- **The CSV toolbar in Raw text** lined its fields up unevenly.
 
 ## Under the hood
 
-- SQL Server connections use tiberius 0.13 from crates.io instead of Octa's
-  own patched copy. Long queries on SQL Server are not cut off: 0.13 would
-  stop any query after 30 seconds of silence from the server, and Octa turns
-  that off.
-- The documentation covers the new SQL features and the new defaults in both
-  the in-app Help and the website.
+- Hash columns use the `md-5` crate (MIT or Apache-2.0) for MD5. It was
+  already part of the build through two other dependencies, so no new crate
+  is downloaded or shipped.
+- Every analysis that runs on a database is tested against the same
+  analysis on the same rows in memory, through a DuckDB-backed stand-in for
+  a Postgres server, and against real PostgreSQL 17 and MySQL 8 servers in CI.
+- The documentation covers everything above in both the in-app Help and the
+  website, with new pages for analyses on live databases, Load whole table and
+  Hash columns (GUI, command line and MCP).

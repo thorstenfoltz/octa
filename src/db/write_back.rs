@@ -96,6 +96,32 @@ pub struct DbWriteBackReport {
     pub added_columns: usize,
 }
 
+/// Take `names` out of `table` (edits applied) and out of its baseline, so a
+/// plan built afterwards never sees them: the hash columns a database
+/// computes for a tab, also one renamed or deleted since (gone from the
+/// table, still in the baseline).
+pub fn drop_columns(table: &mut DataTable, names: &[String]) {
+    let gone = |n: &String| names.contains(n);
+    let keep: Vec<bool> = table.columns.iter().map(|c| !gone(&c.name)).collect();
+    if keep.contains(&false) {
+        table.columns.retain(|c| !gone(&c.name));
+        for row in &mut table.rows {
+            let mut k = keep.iter();
+            row.retain(|_| *k.next().unwrap_or(&true));
+        }
+    }
+    if let Some(meta) = table.db_meta.as_mut() {
+        let keep: Vec<bool> = meta.original_columns.iter().map(|c| !gone(c)).collect();
+        if keep.contains(&false) {
+            meta.original_columns.retain(|c| !gone(c));
+            for row in meta.original.values_mut() {
+                let mut k = keep.iter();
+                row.retain(|_| *k.next().unwrap_or(&true));
+            }
+        }
+    }
+}
+
 /// Build the plan from a table whose edits are applied (`apply_edits()` done
 /// by the caller). Errors when `db_meta` is missing (row identity lost), a
 /// baseline column was removed or renamed, a PK column is not among the
@@ -983,6 +1009,46 @@ mod tests {
         let plan = build_write_back_plan(&t, &pk()).unwrap();
         assert_eq!(plan.added_columns.len(), 1);
         assert_eq!(plan.updates.len(), 3, "every row rewritten");
+    }
+
+    /// A hash column the database computes: present (with a cell typed
+    /// into it) or renamed away, it never reaches the plan; a real edit
+    /// beside it still does.
+    #[test]
+    fn dropped_columns_never_reach_the_plan() {
+        let mut t = base_table();
+        let meta = t.db_meta.as_mut().unwrap();
+        meta.original_columns.push("h".into());
+        for row in meta.original.values_mut() {
+            row.push(CellValue::String("x".into()));
+        }
+        t.columns.push(col("h", "Utf8"));
+        for row in &mut t.rows {
+            row.push(CellValue::String("x".into()));
+        }
+        t.rows[0][2] = CellValue::String("typed".into());
+        let mut clean = t.clone();
+        drop_columns(&mut clean, &["h".into()]);
+        assert!(build_write_back_plan(&clean, &pk()).unwrap().is_empty());
+
+        let mut renamed = t.clone();
+        renamed.columns[2].name = "mine".into();
+        drop_columns(&mut renamed, &["h".into()]);
+        let plan = build_write_back_plan(&renamed, &pk()).unwrap();
+        assert_eq!(
+            plan.added_columns.len(),
+            1,
+            "a renamed hash is the user's column"
+        );
+
+        t.rows[1][1] = CellValue::String("B".into());
+        drop_columns(&mut t, &["h".into()]);
+        let plan = build_write_back_plan(&t, &pk()).unwrap();
+        assert_eq!(plan.updates.len(), 1);
+        assert_eq!(
+            plan.updates[0].1,
+            vec![CellValue::Int(2), CellValue::String("B".into())]
+        );
     }
 
     #[test]

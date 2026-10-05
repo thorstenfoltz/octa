@@ -18,7 +18,8 @@ The row above the timeline has four pickers:
 - **End**: where each bar ends; it picks the second date column. Choose
   **(none)** and every row becomes a point, handy for events without a
   duration.
-- **Label**: the text shown when you hover a bar (a title, a name).
+- **Label**: the text written on each bar where it fits and shown when
+  you hover one (a title, a name).
 - **Lane**: groups the bars into bands, one per value: one band per
   room, per person, per machine. **Overlaps are only looked for inside a
   lane**, so a booking of Room A never clashes with one of Room B.
@@ -54,8 +55,19 @@ filter it, save it, send it to whoever booked the room twice.
 ## Moving around
 
 Drag or scroll to move (hold **Shift** to scroll sideways), hold
-**Ctrl** and scroll to zoom,
-double-click to see everything again. Hover a bar for its label, start,
+**Ctrl** and scroll to zoom, double-click or press **Fit** to see
+everything again.
+
+The row above the timeline zooms one axis at a time:
+
+- **Time + / -** zooms the time axis only; the lanes stay as they are.
+- **Lanes + / -** makes the lanes taller or smaller; the time axis stays.
+
+The view stops at the first and last bar, so it never scrolls on into
+empty years, and you cannot zoom out past the whole timeline. The time
+axis labels follow the zoom: years, then months, days and hours, always
+on calendar boundaries (the first of a month, a Monday, a whole hour).
+Lane names stay on the left at any zoom. Hover a bar for its label, start,
 end and row number. **Click a bar** to select its row: switch to the
 Table or Record view and you are on that row.
 

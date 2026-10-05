@@ -31,7 +31,7 @@ fn main() -> ExitCode {
     match cli.detect_action() {
         Ok(Some(action)) => {
             // For --union and --join the positional files are intentional (they
-            // form the first sources); --impute, --outliers, --partition-by,
+            // form the first sources); --impute, --hash-columns, --outliers, --partition-by,
             // --resample, --rolling, --batch-convert, --to-workbook and
             // --db-write-table take positional FILEs too.
             // All other actions ignore them, so warn.
@@ -41,6 +41,7 @@ fn main() -> ExitCode {
                     cli::Action::Union { .. }
                         | cli::Action::Join { .. }
                         | cli::Action::Impute { .. }
+                        | cli::Action::HashColumns { .. }
                         | cli::Action::Outliers { .. }
                         | cli::Action::Partition { .. }
                         | cli::Action::Resample { .. }

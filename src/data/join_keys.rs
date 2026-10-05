@@ -18,7 +18,7 @@ use crate::data::DataTable;
 pub const DEFAULT_SAMPLE_ROWS: usize = 10_000;
 
 /// Candidates scoring below this are noise and are not returned.
-const MIN_SCORE: f64 = 0.2;
+pub const MIN_SCORE: f64 = 0.2;
 
 /// One suggested column pairing. `left` and `right` are
 /// `(table index, column index)` into the slice passed to [`suggest_keys`].
@@ -102,14 +102,32 @@ pub fn score_pair(
     if left.is_empty() || right.is_empty() {
         return None;
     }
-    let shared = left.intersection(right).count();
-    if shared == 0 {
+    score_counts(
+        left.len(),
+        left_seen,
+        right.len(),
+        right_seen,
+        left.intersection(right).count(),
+    )
+}
+
+/// [`score_pair`] from counts alone: distinct values and non-empty rows per
+/// side, and how many distinct values both sides share. The server path
+/// counts these in SQL and calls this, so both paths share one formula.
+pub fn score_counts(
+    left_values: usize,
+    left_seen: usize,
+    right_values: usize,
+    right_seen: usize,
+    shared: usize,
+) -> Option<PairScore> {
+    if left_values == 0 || right_values == 0 || shared == 0 {
         return None;
     }
-    let smaller = left.len().min(right.len()) as f64;
+    let smaller = left_values.min(right_values) as f64;
     let overlap = shared as f64 / smaller;
-    let left_distinct = left.len() as f64 / left_seen.max(1) as f64;
-    let right_distinct = right.len() as f64 / right_seen.max(1) as f64;
+    let left_distinct = left_values as f64 / left_seen.max(1) as f64;
+    let right_distinct = right_values as f64 / right_seen.max(1) as f64;
     Some(PairScore {
         overlap,
         left_distinct,
@@ -117,11 +135,35 @@ pub fn score_pair(
         // Distinctness is the tie-breaker that keeps `flag` below `id`: both
         // may overlap fully, only one identifies rows.
         score: overlap * left_distinct.max(right_distinct),
-        left_values: left.len(),
-        right_values: right.len(),
-        left_orphans: left.len() - shared,
-        right_orphans: right.len() - shared,
+        left_values,
+        right_values,
+        left_orphans: left_values - shared,
+        right_orphans: right_values - shared,
     })
+}
+
+pub fn candidate(left: (usize, usize), right: (usize, usize), p: PairScore) -> KeyCandidate {
+    KeyCandidate {
+        left,
+        right,
+        overlap: p.overlap,
+        left_distinct: p.left_distinct,
+        right_distinct: p.right_distinct,
+        score: p.score,
+        left_values: p.left_values,
+        right_values: p.right_values,
+        left_orphans: p.left_orphans,
+        right_orphans: p.right_orphans,
+    }
+}
+
+/// Best first. Stable, so equal scores keep generation order.
+pub fn sort_candidates(out: &mut [KeyCandidate]) {
+    out.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 }
 
 /// Rank column pairs across every pair of tables, best first.
@@ -157,28 +199,13 @@ pub fn suggest_keys(tables: &[&DataTable], sample: usize) -> Vec<KeyCandidate> {
                     if p.score < MIN_SCORE {
                         continue;
                     }
-                    out.push(KeyCandidate {
-                        left: (ti, ci),
-                        right: (tj, cj),
-                        overlap: p.overlap,
-                        left_distinct: p.left_distinct,
-                        right_distinct: p.right_distinct,
-                        score: p.score,
-                        left_values: p.left_values,
-                        right_values: p.right_values,
-                        left_orphans: p.left_orphans,
-                        right_orphans: p.right_orphans,
-                    });
+                    out.push(candidate((ti, ci), (tj, cj), p));
                 }
             }
         }
     }
 
-    out.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    sort_candidates(&mut out);
     out
 }
 
@@ -205,6 +232,18 @@ mod tests {
             })
             .collect();
         t
+    }
+
+    #[test]
+    fn score_counts_matches_score_pair() {
+        let l: HashSet<String> = ["1", "2", "3"].iter().map(|s| s.to_string()).collect();
+        let r: HashSet<String> = ["2", "3", "9", "10"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(score_pair(&l, 3, &r, 8), score_counts(3, 3, 4, 8, 2));
+        assert_eq!(score_counts(3, 3, 4, 8, 0), None);
+        assert_eq!(score_counts(0, 0, 4, 8, 0), None);
     }
 
     #[test]

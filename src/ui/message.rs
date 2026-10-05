@@ -103,15 +103,18 @@ pub fn partial_note_text(loaded: usize, known_total: Option<usize>) -> String {
 /// Draw [`partial_note_text`] as a small amber line.
 pub fn partial_note(ui: &mut egui::Ui, loaded: usize, known_total: Option<usize>) {
     ui.horizontal_wrapped(|ui| {
-        ui.label(
-            egui::RichText::new(format!(
-                "\u{26a0} {}",
-                partial_note_text(loaded, known_total)
-            ))
+        partial_note_label(ui, &partial_note_text(loaded, known_total));
+    });
+}
+
+/// The small amber label [`partial_note`] draws, for any "this covers less
+/// than it looks" sentence.
+pub fn partial_note_label(ui: &mut egui::Ui, text: &str) {
+    ui.label(
+        egui::RichText::new(format!("\u{26a0} {text}"))
             .small()
             .color(PARTIAL_NOTE_COLOR),
-        );
-    });
+    );
 }
 
 #[cfg(test)]

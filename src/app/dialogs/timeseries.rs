@@ -24,7 +24,8 @@ use super::widgets::{
     PREVIEW_RESULT_ROWS, PREVIEW_SOURCE_ROWS, col_combo, col_combo_ordered, multi_col_picker,
     render_preview_grid,
 };
-use crate::app::state::{OctaApp, TabState, TimeseriesKind, TimeseriesState};
+use crate::app::pushdown::{PushdownKind, ReshapeJob, ReshapeSpec, SourceKey, TaskPoll};
+use crate::app::state::{OctaApp, RollingAsk, TimeseriesKind, TimeseriesState};
 
 pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     if app.timeseries_dialog.is_none() {
@@ -55,6 +56,21 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
     let mut size = st.size;
     let minimized = size == DialogSize::Minimized;
+    // Time buckets over a typed time column run on the server for a
+    // database tab; the preview does not.
+    let on_server = app.active_server_source().is_some();
+    // The preview reads at most PREVIEW_SOURCE_ROWS of them.
+    let loaded_rows = app.tabs[app.active_tab]
+        .table
+        .rows
+        .len()
+        .min(PREVIEW_SOURCE_ROWS);
+    let col_types: Vec<String> = app.tabs[app.active_tab]
+        .table
+        .columns
+        .iter()
+        .map(|c| c.data_type.clone())
+        .collect();
 
     let dialog_id = egui::Id::new("octa_timeseries_dialog");
     let window = egui::Window::new("octa_timeseries")
@@ -95,13 +111,18 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let ready = build_sql(&st, &col_names);
-                    if ui
-                        .add_enabled(
-                            ready.is_ok(),
-                            egui::Button::new(octa::i18n::t("timeseries.apply")),
-                        )
-                        .clicked()
-                    {
+                    // One Rolling question at a time.
+                    let asking = st.rolling_ask.is_some();
+                    let b = ui.add_enabled(
+                        ready.is_ok() && !asking,
+                        egui::Button::new(octa::i18n::t("timeseries.apply")),
+                    );
+                    let b = if asking {
+                        b.on_disabled_hover_text(octa::i18n::t("pushdown.rolling_title"))
+                    } else {
+                        b
+                    };
+                    if b.clicked() {
                         run = true;
                     }
                     // The reason Create tab is disabled, rather than a generic
@@ -156,6 +177,16 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                             .strong()
                             .size(11.0),
                     );
+                    let typed = st
+                        .time_col
+                        .and_then(|i| col_types.get(i))
+                        .is_some_and(|t| octa::db::pushdown::dialect::is_time_type(t));
+                    if on_server && st.kind == TimeseriesKind::Resample && typed {
+                        ui.weak(octa::i18n::t("pushdown.preview_loaded").replace(
+                            "{loaded}",
+                            &octa::ui::status_bar::format_number(loaded_rows),
+                        ));
+                    }
                     render_preview_grid(ui, "ts", table);
                 }
                 Some(Err(e)) => {
@@ -181,9 +212,11 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     }
     st.size = size;
 
-    if run {
-        execute_timeseries(app, &st, &col_names);
+    if run && execute_timeseries(app, ctx, &mut st, &col_names) {
         return; // dialog dropped (st not written back)
+    }
+    if st.rolling_ask.is_some() && render_rolling_ask(app, ctx, &mut st) {
+        return; // answered: the job started, or the loaded rows ran
     }
     if !close {
         app.timeseries_dialog = Some(st);
@@ -423,50 +456,278 @@ fn compute_preview(
     }
 }
 
-fn execute_timeseries(app: &mut OctaApp, st: &TimeseriesState, cols: &[String]) {
+/// Run the reshape. On a database tab that does not hold every row:
+/// Resample on a typed time column goes to the server, on a text one it
+/// runs on the loaded rows and says why; Rolling asks first (see
+/// [`render_rolling_ask`]). A file tab runs as before. Returns whether the
+/// dialog is done.
+fn execute_timeseries(
+    app: &mut OctaApp,
+    ctx: &egui::Context,
+    st: &mut TimeseriesState,
+    cols: &[String],
+) -> bool {
     let sql = match build_sql(st, cols) {
         Ok(sql) => sql,
         Err(e) => {
             app.status_message = Some((e, std::time::Instant::now()));
-            return;
+            return true;
         }
     };
-    let mut snap = app.tabs[app.active_tab].table.clone();
-    snap.apply_edits();
-    let source_label = app.tabs[app.active_tab]
-        .table
-        .source_path
-        .as_ref()
-        .and_then(|p| {
-            std::path::Path::new(p)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-        })
-        .unwrap_or_else(|| app.tabs[app.active_tab].title_display());
-
-    match octa::sql::run_query(&snap, &sql) {
-        Ok(outcome) => {
-            let mut new_tab = TabState::new(app.settings.default_search_mode);
-            new_tab.table = outcome.table;
-            new_tab.table.source_path = None;
-            new_tab.table.format_name = None;
-            let verb = match st.kind {
-                TimeseriesKind::Resample => octa::i18n::t("timeseries.resample"),
-                TimeseriesKind::Rolling => octa::i18n::t("timeseries.rolling"),
-            };
-            new_tab.custom_tab_label = Some(format!("{verb} - {source_label}"));
-            new_tab.filter_dirty = true;
-            if new_tab.table.row_count() > 0 && new_tab.table.col_count() > 0 {
-                new_tab.table_state.selected_cell = Some((0, 0));
+    let verb = match st.kind {
+        TimeseriesKind::Resample => octa::i18n::t("timeseries.resample"),
+        TimeseriesKind::Rolling => octa::i18n::t("timeseries.rolling"),
+    };
+    let Some(src) = app.active_server_source() else {
+        app.open_reshape_tab_local(&sql, &verb, "timeseries.failed", None);
+        return true;
+    };
+    let tab = &app.tabs[app.active_tab];
+    let loaded = octa::ui::status_bar::format_number(tab.table.rows.len());
+    let name = |i: Option<usize>| i.and_then(|i| cols.get(i)).cloned().unwrap_or_default();
+    let names = |v: &[usize]| {
+        v.iter()
+            .filter_map(|&i| cols.get(i).cloned())
+            .collect::<Vec<_>>()
+    };
+    match st.kind {
+        TimeseriesKind::Resample => {
+            let time_type = st
+                .time_col
+                .and_then(|i| tab.table.columns.get(i))
+                .map(|c| c.data_type.clone())
+                .unwrap_or_default();
+            if !octa::db::pushdown::dialect::is_time_type(&time_type) {
+                let reason = octa::i18n::t("pushdown.time_text_loaded")
+                    .replace("{loaded}", &loaded)
+                    .replace("{column}", &name(st.time_col));
+                app.open_reshape_tab_local(&sql, &verb, "timeseries.failed", Some(reason));
+                return true;
             }
-            app.tabs.push(new_tab);
-            app.active_tab = app.tabs.len() - 1;
+            let spec = ResampleSpec {
+                time_col: name(st.time_col),
+                value_cols: names(&st.value_cols),
+                interval: st.interval,
+                agg: st.agg,
+                group_by: names(&st.group_cols),
+            };
+            let job = ReshapeJob {
+                spec: ReshapeSpec::Resample {
+                    columns: cols.to_vec(),
+                    spec,
+                },
+                local_sql: sql,
+                label: verb,
+                failed_key: "timeseries.failed",
+            };
+            app.start_pushdown(ctx, PushdownKind::Reshape(Box::new(job)), src);
+            true
         }
-        Err(e) => {
-            app.status_message = Some((
-                format!("{}: {e}", octa::i18n::t("timeseries.failed")),
-                std::time::Instant::now(),
-            ));
+        TimeseriesKind::Rolling => {
+            // build_sql above has parsed it already.
+            let window = st
+                .window_text
+                .trim()
+                .replace([',', '.', ' '], "")
+                .parse()
+                .unwrap_or(1);
+            let spec = RollingSpec {
+                order_col: name(st.order_col),
+                value_col: name(st.roll_value_col),
+                window,
+                agg: st.agg,
+                partition_by: names(&st.partition_cols),
+            };
+            let Some(origin) = tab.db_origin.as_ref() else {
+                return true;
+            };
+            let source = SourceKey::of(origin);
+            let tie = match origin.identity.as_ref() {
+                Some(octa::db::write_back::RowIdentity::Key(k)) => k.clone(),
+                _ => Vec::new(),
+            };
+            let server_ok = octa::db::pushdown::timeseries::rolling_supported(src.engine(), st.agg);
+            let count_src = src.clone();
+            let count = app.spawn_server_task(src.conn.clone(), verb.clone(), move |c, stop| {
+                octa::db::pushdown::count_rows(c, &count_src, stop)
+            });
+            st.rolling_ask = Some(RollingAsk {
+                count: Some(count),
+                total: None,
+                job: ReshapeJob {
+                    spec: ReshapeSpec::Rolling {
+                        spec,
+                        tie,
+                        total: 0,
+                    },
+                    local_sql: sql,
+                    label: verb,
+                    failed_key: "timeseries.failed",
+                },
+                src,
+                source,
+                server_ok,
+            });
+            false
+        }
+    }
+}
+
+/// Where should the rolling window run: on the database (exact; every row,
+/// or the first `cap` in time order) or on the loaded rows (with the
+/// reason). Returns true once answered with one of those two.
+fn render_rolling_ask(app: &mut OctaApp, ctx: &egui::Context, st: &mut TimeseriesState) -> bool {
+    let Some(ask) = st.rolling_ask.as_mut() else {
+        return false;
+    };
+    if let Some(task) = &ask.count {
+        match task.poll() {
+            TaskPoll::Pending => ctx.request_repaint(),
+            TaskPoll::Ready(n) => {
+                ask.count = None;
+                ask.total = Some(Ok(n));
+            }
+            TaskPoll::Cancelled => {
+                ask.count = None;
+                ask.total = Some(Err(octa::i18n::t("pushdown.cancelled")));
+            }
+            TaskPoll::Failed(e) => {
+                ask.count = None;
+                ask.total = Some(Err(e));
+            }
+        }
+    }
+    let n = octa::ui::status_bar::format_number;
+    let cap = octa::db::pushdown::lookups::fetch_cap(octa::formats::initial_load_rows());
+    let engine = ask.src.engine();
+    enum Answer {
+        Server,
+        Loaded,
+        Cancel,
+    }
+    let mut answer: Option<Answer> = None;
+    egui::Window::new("octa_rolling_ask")
+        .id(egui::Id::new("octa_rolling_ask"))
+        .title_bar(false)
+        .collapsible(false)
+        .resizable(false)
+        .order(egui::Order::Foreground)
+        .default_pos(octa::ui::settings::center_on_first_show(
+            ctx,
+            egui::vec2(440.0, 200.0),
+        ))
+        .default_width(440.0)
+        .show(ctx, |ui| {
+            ui.label(
+                RichText::new(octa::i18n::t("pushdown.rolling_title"))
+                    .strong()
+                    .size(16.0),
+            );
+            ui.add_space(6.0);
+            match &ask.total {
+                None => {
+                    octa::ui::control_row::control_row(ui, |ui| {
+                        ui.spinner();
+                        ui.weak(octa::i18n::t("dbview.facet_counting"));
+                    });
+                }
+                Some(Ok(total)) => {
+                    ui.label(octa::i18n::t("pushdown.rolling_body").replace("{total}", &n(*total)));
+                    if *total > cap {
+                        ui.label(
+                            octa::i18n::t("pushdown.rolling_capped").replace("{cap}", &n(cap)),
+                        );
+                    }
+                }
+                Some(Err(e)) => {
+                    let colour = ui.visuals().error_fg_color;
+                    octa::ui::message::selectable_message(
+                        ui,
+                        colour,
+                        &format!("{} {e}", octa::i18n::t("pushdown.rolling_count_failed")),
+                    );
+                }
+            }
+            ui.add_space(8.0);
+            octa::ui::control_row::control_row(ui, |ui| {
+                let counted = matches!(ask.total, Some(Ok(_)));
+                let b = ui.add_enabled(
+                    counted && ask.server_ok,
+                    egui::Button::new(octa::i18n::t("pushdown.rolling_server")),
+                );
+                let b = if !ask.server_ok {
+                    b.on_disabled_hover_text(
+                        octa::i18n::t("pushdown.rolling_engine_hint")
+                            .replace("{engine}", engine.label()),
+                    )
+                } else if counted {
+                    b.on_hover_text(octa::i18n::t("pushdown.rolling_server_hint"))
+                } else if ask.total.is_none() {
+                    b.on_disabled_hover_text(octa::i18n::t("dbview.facet_counting"))
+                } else {
+                    b.on_disabled_hover_text(octa::i18n::t("pushdown.rolling_count_failed"))
+                };
+                if b.clicked() {
+                    answer = Some(Answer::Server);
+                }
+                if ui
+                    .button(octa::i18n::t("pushdown.use_loaded"))
+                    .on_hover_text(octa::i18n::t("pushdown.rolling_loaded_hint"))
+                    .clicked()
+                {
+                    answer = Some(Answer::Loaded);
+                }
+                if ui
+                    .button(octa::i18n::t("common.cancel"))
+                    .on_hover_text(octa::i18n::t("pushdown.prompt_cancel_hint"))
+                    .clicked()
+                {
+                    answer = Some(Answer::Cancel);
+                }
+            });
+        });
+    let answer = match answer {
+        None => return false,
+        Some(Answer::Cancel) => {
+            // Dropping a count still running cancels it on the server.
+            st.rolling_ask = None;
+            return false;
+        }
+        Some(a) => a,
+    };
+    let Some(mut ask) = st.rolling_ask.take() else {
+        return false;
+    };
+    // Back to the tab the question was asked for.
+    let Some(idx) = ask.source.find(&app.tabs) else {
+        app.status_message = Some((
+            octa::i18n::t("pushdown.source_closed_hint"),
+            std::time::Instant::now(),
+        ));
+        return false;
+    };
+    app.active_tab = idx;
+    match answer {
+        Answer::Cancel => false,
+        Answer::Loaded => {
+            let loaded = app.tabs[idx].table.rows.len();
+            let reason = octa::i18n::t("pushdown.rolling_local").replace("{loaded}", &n(loaded));
+            app.open_reshape_tab_local(
+                &ask.job.local_sql,
+                &ask.job.label,
+                ask.job.failed_key,
+                Some(reason),
+            );
+            true
+        }
+        Answer::Server => {
+            if let (ReshapeSpec::Rolling { total, .. }, Some(Ok(n))) =
+                (&mut ask.job.spec, &ask.total)
+            {
+                *total = *n;
+            }
+            app.start_pushdown(ctx, PushdownKind::Reshape(Box::new(ask.job)), ask.src);
+            true
         }
     }
 }

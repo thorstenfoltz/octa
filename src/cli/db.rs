@@ -66,11 +66,11 @@ pub fn run_query(conn_name: String, sql: String, format: OutputFormat) -> Result
     let mut c = connect(&conn, &settings)?;
     if octa::sql::is_mutation(&sql) {
         db::ensure_write_allowed(&conn, Some(&sql))?;
-        let affected = c.execute(&sql)?;
+        let affected = db::with_identifier_fix(conn.engine, &sql, |s| c.execute(s)).0?;
         eprintln!("{affected} row(s) affected");
         Ok(())
     } else {
-        let table = c.query(&sql)?;
+        let table = db::with_identifier_fix(conn.engine, &sql, |s| c.query(s)).0?;
         write_table(&table, format)
     }
 }

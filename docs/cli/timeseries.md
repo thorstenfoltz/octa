@@ -26,6 +26,8 @@ Group rows into one bucket per interval of a timestamp column and aggregate.
 | `--agg FN`          | no        | `sum`   | `sum`/`mean`/`min`/`max`/`count`/`first`/`last`       |
 | `--group-by COLS`   | no        |         | Comma-separated. One series per combination           |
 
+`first` / `last` take the value at the earliest / latest time in each bucket.
+
 The bucket lands in a column named `bucket` (or `bucket_2` if the source
 already has one).
 

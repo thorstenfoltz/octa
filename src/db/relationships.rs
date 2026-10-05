@@ -62,7 +62,7 @@ pub struct DbMap {
 }
 
 /// SQL literal with `'` doubled, as everywhere else in this module's siblings.
-fn lit(s: &str) -> String {
+pub(crate) fn lit(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
@@ -364,19 +364,16 @@ fn cell_text(table: &DataTable, row: usize, col: usize) -> String {
         .unwrap_or_default()
 }
 
-/// Read the columns and the declared foreign keys of `schemas`.
-///
-/// Two catalog queries for most engines (one per schema on Snowflake and
-/// BigQuery), and **no table data**, so the cost does not grow with the size
-/// of the database.
-pub fn scan(
+/// Read the columns of every table in `schemas`, one catalog query (one per
+/// schema on BigQuery) and no table data. The half of [`scan`] that every
+/// engine can answer, including the ones with no foreign keys.
+pub fn scan_columns(
     c: &mut dyn DbConnector,
     catalog: Option<&str>,
     schemas: &[String],
-) -> anyhow::Result<(Vec<ColumnRow>, Vec<ForeignKey>)> {
+) -> anyhow::Result<Vec<ColumnRow>> {
     let engine = c.engine();
     crate::db::reject_catalog(engine, catalog)?;
-
     let mut columns = Vec::new();
     for sql in schema_columns_sql(engine, catalog, schemas) {
         let res = c.query(&sql)?;
@@ -395,6 +392,21 @@ pub fn scan(
             ));
         }
     }
+    Ok(columns)
+}
+
+/// Read the columns and the declared foreign keys of `schemas`.
+///
+/// Two catalog queries for most engines (one per schema on Snowflake and
+/// BigQuery), and **no table data**, so the cost does not grow with the size
+/// of the database.
+pub fn scan(
+    c: &mut dyn DbConnector,
+    catalog: Option<&str>,
+    schemas: &[String],
+) -> anyhow::Result<(Vec<ColumnRow>, Vec<ForeignKey>)> {
+    let engine = c.engine();
+    let columns = scan_columns(c, catalog, schemas)?;
 
     let names = fk_result_columns(engine);
     let mut fks = Vec::new();

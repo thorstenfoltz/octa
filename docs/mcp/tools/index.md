@@ -5,7 +5,8 @@ file argument. The file-writing exceptions are `convert` (writes a new
 output file), `write_table` (writes model-supplied rows to a new file),
 `edit_table` (edits an existing file in place), `transform_columns`
 (rename / cast / drop columns, writes back), `anonymize` (mask /
-scramble columns, writes the result), `partition_table` (writes one
+scramble columns, writes the result), `hash_columns` (adds a hash
+column, writes the result), `partition_table` (writes one
 file per group), and `write_workbook` (writes one `.xlsx` holding several
 tables). The live-database write tools (`write_db_table`,
 `copy_db_table`) and `run_sql`'s `write_to` are gated the same way. All
@@ -98,6 +99,7 @@ tools exist only inside the GUI assistant and have no MCP equivalent:
 | **[`edit_table`](edit_table.md)**                           | `write`     | Add columns / set cells / insert / delete rows in place | Yes (edits the file)            |
 | **[`transform_columns`](transform_columns.md)**             | `reshape`   | Rename / cast / drop columns, write back                | Writes the output path          |
 | **[`anonymize`](anonymize.md)**                             | `reshape`   | Mask / scramble columns, write the result               | Writes the output path          |
+| **[`hash_columns`](hash_columns.md)**                       | `reshape`   | Add a hash column (MD5 / SHA) over chosen columns       | Writes the output path          |
 | **[`detect_pii`](detect_pii.md)**                           | `quality`   | Find likely personal-data columns                       | No                              |
 | **[`detect_outliers`](detect_outliers.md)**                 | `quality`   | Flag numeric outlier cells                              | No                              |
 | **[`fill_missing`](fill_missing.md)**                       | `reshape`   | Impute empty cells in a column                          | No                              |
@@ -162,7 +164,7 @@ All tools share two parameter conventions:
   application-default credentials); Azure also needs `AZURE_STORAGE_ACCOUNT`.
   Use [`list_objects`](list_objects.md) to browse a bucket first.
   **Writing** to a cloud URL works too: the write tools (`write_table`,
-  `convert`, `transform_columns`, `anonymize`, `run_sql` with `write_to`)
+  `convert`, `transform_columns`, `anonymize`, `hash_columns`, `run_sql` with `write_to`)
   accept a cloud URL as their output, building the file locally and uploading
   it. They use the same ambient credentials; run the server with
   `--mcp-read-only` to drop all write tools.

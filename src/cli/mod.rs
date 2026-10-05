@@ -34,6 +34,7 @@ pub mod export_schema;
 pub mod forecast;
 pub mod fuzzy_join;
 pub mod harmonise;
+pub mod hash_columns;
 pub mod head;
 pub mod impute;
 pub mod join;

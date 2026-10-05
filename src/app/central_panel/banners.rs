@@ -5,18 +5,96 @@
 use eframe::egui;
 
 use octa::data::ViewMode;
+use octa::i18n::t;
 use octa::ui;
 
 use crate::app::state::OctaApp;
 
 impl OctaApp {
     pub(super) fn render_load_banners(&mut self, ui: &mut egui::Ui) {
+        self.render_view_banner(ui);
+        // A result the database computed says over how many rows, and which
+        // parts came from the loaded rows instead. Not dismissable either.
+        if let Some(note) = self.tabs[self.active_tab].pushdown_note.clone() {
+            let lines = note.lines();
+            let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
+            ui.horizontal_wrapped(|ui| {
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new(&lines.server)
+                        .color(colors.text_muted)
+                        .size(12.0),
+                );
+            });
+            let source = note.source.find(&self.tabs);
+            let mut load_whole = false;
+            if let Some(local) = &lines.local {
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_space(8.0);
+                    ui::message::partial_note_label(ui, local);
+                    let has_more = source.is_some_and(|i| self.tabs[i].source_has_more());
+                    let btn =
+                        ui.add_enabled(has_more, egui::Button::new(t("loadall.menu")).small());
+                    load_whole = btn.clicked();
+                    if has_more {
+                        btn.on_hover_text(t("pushdown.load_whole_hint"));
+                    } else if source.is_some() {
+                        btn.on_disabled_hover_text(t("loadall.menu_disabled_hint"));
+                    } else {
+                        btn.on_disabled_hover_text(t("pushdown.source_closed_hint"));
+                    }
+                });
+            }
+            if let Some(unsaved) = &lines.unsaved {
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_space(8.0);
+                    ui::message::partial_note_label(ui, unsaved);
+                });
+            }
+            if let Some(more) = &lines.more {
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_space(8.0);
+                    ui::message::partial_note_label(ui, more);
+                });
+            }
+            ui.add_space(4.0);
+            if load_whole && let Some(idx) = source {
+                self.active_tab = idx;
+                self.open_load_all(ui.ctx());
+                return;
+            }
+        }
         // A result computed from a table that held only part of its
         // source says so, above the result. Not dismissable: it is not an
         // event that happened once, it is what this tab *is*.
         if let Some((loaded, known_total)) = self.tabs[self.active_tab].partial_source_note {
             octa::ui::message::partial_note(ui, loaded, known_total);
             ui.add_space(4.0);
+        }
+        // Why this result covers the loaded rows, with Load whole table.
+        if let Some((reason, key)) = self.tabs[self.active_tab].loaded_rows_note.clone() {
+            let source = key.find(&self.tabs);
+            let mut load_whole = false;
+            ui.horizontal_wrapped(|ui| {
+                ui.add_space(8.0);
+                ui::message::partial_note_label(ui, &reason);
+                let has_more = source.is_some_and(|i| self.tabs[i].source_has_more());
+                let btn = ui.add_enabled(has_more, egui::Button::new(t("loadall.menu")).small());
+                load_whole = btn.clicked();
+                if has_more {
+                    btn.on_hover_text(t("pushdown.load_whole_hint"));
+                } else if source.is_some() {
+                    btn.on_disabled_hover_text(t("loadall.menu_disabled_hint"));
+                } else {
+                    btn.on_disabled_hover_text(t("pushdown.source_closed_hint"));
+                }
+            });
+            ui.add_space(4.0);
+            if load_whole && let Some(idx) = source {
+                self.active_tab = idx;
+                self.open_load_all(ui.ctx());
+                return;
+            }
         }
 
         // Date format-change banner. Stays visible until the user

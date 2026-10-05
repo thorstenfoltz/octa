@@ -137,6 +137,15 @@ pub struct TableViewState {
     pub facet_shape_cache_col: Option<usize>,
     /// Ticked shapes; turned into a value allow-set on Apply.
     pub facet_shape_ticked: std::collections::HashSet<String>,
+    /// The app fills the popup's value list from the server (a partial
+    /// database tab): the popup does not count the loaded rows, it asks for
+    /// `(column, search)` through `TableInteraction::facet_values_wanted`
+    /// and lists what the app writes into `facet_rows`, `facet_unique` and
+    /// `facet_cache_key`.
+    pub facet_external: bool,
+    /// Under the popup's title while `facet_external`: where the counts came
+    /// from (`Ok`), or why there are none (`Err`, shown as a copyable error).
+    pub facet_external_note: Option<Result<String, String>>,
     /// Optional per-column hover descriptions shown on the column header.
     /// Indexed by column. An empty vec (or an empty/short entry) means no
     /// tooltip. Used by the Summary tab to explain each statistic; empty
@@ -618,6 +627,28 @@ pub fn facet_result(
     }
 }
 
+/// The key an external popup still waits for: `Some` while the app has not
+/// answered for this column and search.
+pub fn facet_values_needed(state: &TableViewState, col_idx: usize) -> Option<(usize, String)> {
+    if !state.facet_external {
+        return None;
+    }
+    let key = facet_request_key(state, col_idx);
+    (state.facet_cache_key.as_ref() != Some(&key)).then_some(key)
+}
+
+/// The server value list the popup on `col_idx` shows: the search trimmed
+/// (`"ap"` and `"ap "` are one query), none in Shapes mode, whose shapes come
+/// from the loaded rows and only need the whole column's distinct count.
+pub fn facet_request_key(state: &TableViewState, col_idx: usize) -> (usize, String) {
+    let search = if state.facet_shapes_mode {
+        ""
+    } else {
+        state.facet_search.trim()
+    };
+    (col_idx, search.to_string())
+}
+
 /// Signals from the table back to the app.
 #[derive(Default)]
 pub struct TableInteraction {
@@ -683,6 +714,8 @@ pub struct TableInteraction {
     /// modal writes it: this is a second door onto that state, never a second
     /// filter mechanism.
     pub facet_result: Option<FacetPopupResult>,
+    /// An external facet popup needs the values for `(column, search)`.
+    pub facet_values_wanted: Option<(usize, String)>,
     /// Hide a column from the table view. The data is preserved on disk
     /// (Save / Save As writes hidden columns too); only the renderer omits
     /// them. Cleared via Edit -> Show hidden columns.

@@ -92,7 +92,7 @@ pub fn render_raw_view(
         let is_tsv = tab.table.format_name.as_deref() == Some("TSV");
         let is_json = tab.table.format_name.as_deref() == Some("JSON");
         if is_csv || is_tsv {
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_row(ui, |ui| {
                 if ui
                     .checkbox(&mut tab.raw_view_formatted, "Align Columns")
                     .changed()

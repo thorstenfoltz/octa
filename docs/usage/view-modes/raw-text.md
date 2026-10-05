@@ -34,8 +34,10 @@ The Raw view is a multi-line text editor:
 - **Right-click** opens the context menu with Copy (greyed when
   nothing is selected) and Copy All.
 
-Edits are tracked separately from the table edit overlay. The
-status bar shows the unsaved flag (`*`) when the raw content
+Edits show up in the Table view, and every other view, as soon as you
+switch to it, without saving first (see
+[Unsaved changes in every view](overview.md#unsaved-changes-in-every-view)).
+The status bar shows the unsaved flag (`*`) when the raw content
 differs from the on-disk content.
 
 ## Syntax highlighting
@@ -80,7 +82,8 @@ controls:
   (`\"` → `"`) / None.
 - **Align columns** toggle pads fields with spaces so every column
   visually lines up. Reads better than raw CSV; turn off to see
-  what's actually on disk.
+  what's actually on disk. The padding is part of the text while it
+  is on: Save writes it, and the Table view shows it once you switch.
 
 The defaults are RFC 4180: Double + Doubled. Changing the
 combination while alignment is on re-formats the buffer immediately

@@ -867,7 +867,12 @@ fn draw_facet_popup(
     // walks every row, so once per keystroke is the ceiling, not once per
     // frame.
     let key = (col_idx, state.facet_search.clone());
-    if state.facet_cache_key.as_ref() != Some(&key) {
+    // On a partial database tab the values live on the server: ask the app,
+    // which writes the answer into the cache fields this block fills.
+    let waiting = super::facet_values_needed(state, col_idx);
+    if let Some(wanted) = &waiting {
+        interaction.facet_values_wanted = Some(wanted.clone());
+    } else if state.facet_cache_key.as_ref() != Some(&key) {
         // Searching queries the FULL distinct set, not the listed top N, so
         // a value ranked 900th is still findable. That is the expensive
         // path, which is exactly why it only runs with a search term.
@@ -904,7 +909,7 @@ fn draw_facet_popup(
     // Seed the ticks from the live filter, or from everything when the
     // column has none, so the popup opens showing what is currently kept.
     let existing = cx.column_filters.get(&col_idx);
-    if state.facet_needs_seed {
+    if state.facet_needs_seed && waiting.is_none() {
         state.facet_ticked = match existing {
             Some(allowed) => allowed.clone(),
             None => state.facet_rows.iter().map(|(v, _)| v.clone()).collect(),
@@ -923,11 +928,18 @@ fn draw_facet_popup(
         state.facet_needs_seed = false;
     }
 
+    // Before the server's first answer for this opening the cache still holds
+    // another column's (or the last opening's) values: list none of them.
+    let stale = waiting.is_some()
+        && state
+            .facet_cache_key
+            .as_ref()
+            .is_none_or(|(c, _)| *c != col_idx);
     let needle = state.facet_search.trim().to_lowercase();
     let visible: Vec<(String, usize)> = state
         .facet_rows
         .iter()
-        .filter(|(v, _)| needle.is_empty() || v.to_lowercase().contains(&needle))
+        .filter(|(v, _)| !stale && (needle.is_empty() || v.to_lowercase().contains(&needle)))
         .cloned()
         .collect();
     let visible_shapes: Vec<(String, usize, String)> = state
@@ -940,7 +952,11 @@ fn draw_facet_popup(
         })
         .cloned()
         .collect();
-    let hidden = state.facet_unique.saturating_sub(state.facet_rows.len());
+    let hidden = if stale {
+        0
+    } else {
+        state.facet_unique.saturating_sub(state.facet_rows.len())
+    };
 
     let mut close = false;
     let mut apply = false;
@@ -980,7 +996,34 @@ fn draw_facet_popup(
                 }
             });
 
-            if let Some((loaded, known_total)) = table.partial_note() {
+            if state.facet_external {
+                // The values are counted on the server over every row, so the
+                // "only N rows loaded" warning applies to the shapes alone.
+                if waiting.is_some() {
+                    crate::ui::control_row::control_row(ui, |ui| {
+                        ui.spinner();
+                        ui.weak(crate::i18n::t("dbview.facet_counting"));
+                    });
+                } else {
+                    match &state.facet_external_note {
+                        Some(Ok(note)) => {
+                            ui.weak(note);
+                        }
+                        Some(Err(e)) => crate::ui::message::selectable_message(
+                            ui,
+                            ui.visuals().error_fg_color,
+                            e,
+                        ),
+                        None => {}
+                    }
+                }
+                if state.facet_shapes_mode {
+                    ui.weak(crate::i18n::t("dbview.facet_shapes_loaded").replace(
+                        "{loaded}",
+                        &crate::ui::status_bar::format_number(table.row_count()),
+                    ));
+                }
+            } else if let Some((loaded, known_total)) = table.partial_note() {
                 crate::ui::message::partial_note(ui, loaded, known_total);
             }
 
@@ -992,7 +1035,10 @@ fn draw_facet_popup(
             let show_search = if state.facet_shapes_mode {
                 state.facet_shape_rows.len() > crate::data::shapes::MIXED_MAX_SHAPES
             } else {
-                hidden > 0
+                // A search lists every match, so nothing is hidden any more:
+                // the box must stay while it holds text, or it vanishes after
+                // the first keystroke.
+                hidden > 0 || !state.facet_search.is_empty()
             };
             if show_search {
                 ui.add(
@@ -1001,10 +1047,14 @@ fn draw_facet_popup(
                         .desired_width(f32::INFINITY),
                 )
                 .on_hover_text(crate::i18n::t("facet.search_hint"));
-                if !state.facet_shapes_mode {
-                    ui.weak(
-                        crate::i18n::t("facet.more_values").replace("{count}", &hidden.to_string()),
-                    );
+                // How many the top N leaves out; a search lists every match.
+                if !state.facet_shapes_mode && hidden > 0 && state.facet_search.trim().is_empty() {
+                    let more = if state.facet_external {
+                        "dbview.facet_more"
+                    } else {
+                        "facet.more_values"
+                    };
+                    ui.weak(crate::i18n::t(more).replace("{count}", &hidden.to_string()));
                 }
             }
 
@@ -1047,7 +1097,7 @@ fn draw_facet_popup(
             } else {
                 visible.is_empty()
             };
-            if list_empty {
+            if list_empty && waiting.is_none() {
                 ui.weak(crate::i18n::t("facet.no_values"));
             }
             egui::ScrollArea::vertical()
@@ -1089,9 +1139,22 @@ fn draw_facet_popup(
 
             ui.separator();
             ui.horizontal(|ui| {
+                // Not before the server's first answer: the ticks are seeded
+                // from it, so until then they belong to the last popup.
+                // Nor after a refusal: without the column's distinct count,
+                // "everything ticked" cannot be told from a real filter.
+                let refused = matches!(state.facet_external_note, Some(Err(_)));
                 if ui
-                    .button(crate::i18n::t("facet.apply"))
+                    .add_enabled(
+                        !state.facet_needs_seed && !refused,
+                        egui::Button::new(crate::i18n::t("facet.apply")),
+                    )
                     .on_hover_text(crate::i18n::t("facet.apply_hint"))
+                    .on_disabled_hover_text(crate::i18n::t(if refused {
+                        "dbview.facet_failed"
+                    } else {
+                        "dbview.facet_counting"
+                    }))
                     .clicked()
                 {
                     apply = true;
@@ -1129,8 +1192,15 @@ fn draw_facet_popup(
     }
 
     if apply && state.facet_shapes_mode {
-        let allowed =
-            crate::data::shapes::values_with_shapes(table, col_idx, &state.facet_shape_ticked);
+        // Every shape ticked keeps every value. On a database tab the values
+        // with a shape come from the loaded rows only, so that list must not
+        // become a filter that drops every row not loaded.
+        let all = state.facet_shape_ticked.len() >= state.facet_shape_rows.len();
+        let allowed = if all {
+            std::collections::HashSet::new()
+        } else {
+            crate::data::shapes::values_with_shapes(table, col_idx, &state.facet_shape_ticked)
+        };
         interaction.facet_result = Some(super::facet_result(col_idx, allowed, state.facet_unique));
         close = true;
     } else if apply {

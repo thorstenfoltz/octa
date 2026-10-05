@@ -864,6 +864,17 @@ PostgreSQL, MySQL/MariaDB and Redshift copy directly server to server;
 the other engines stream through Octa, exactly as the dialog's two
 lanes do.
 
+## Names the server wants quoted
+
+Databricks refuses a column or table name such as `my-col` written
+without quotes ("The unquoted identifier my-col is invalid"). Octa
+reads the name from that error, puts it in backquotes wherever it
+appears bare in your query (string literals, comments and names you
+already quoted are left alone) and runs the query again. The editor
+then shows the adjusted query and the status bar says what happened.
+The same happens for `query_db` over MCP and `--db-query` on the
+command line.
+
 ## Cancelling a running query
 
 The SQL panel's Cancel button stops a running statement on every engine

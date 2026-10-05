@@ -16,6 +16,40 @@ pub(super) fn listed_cols(cols: usize, expanded: bool) -> usize {
     }
 }
 
+/// Usable width for a box's title: the box minus 8px padding on each side.
+pub(super) const TITLE_W: f32 = NODE_W - 16.0;
+
+/// Size of a box's title text, on screen and in the export alike.
+pub(super) const TITLE_FONT: f32 = 13.0;
+
+/// Cut `text` to fit `max_w`, ending in `...` (ASCII: the bundled font has no
+/// ellipsis glyph). `width_of` measures, so the drawing and the export each use
+/// the font they really render with. The full name stays in the box's hover.
+pub(super) fn elide_to_width(text: &str, max_w: f32, width_of: impl Fn(&str) -> f32) -> String {
+    if width_of(text) <= max_w {
+        return text.to_string();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    (0..chars.len())
+        .rev()
+        .map(|n| chars[..n].iter().collect::<String>() + "...")
+        .find(|cand| width_of(cand) <= max_w)
+        .unwrap_or_else(|| "...".to_string())
+}
+
+/// Width of `text` at the title size, as egui lays it out.
+pub(super) fn title_width(ctx: &egui::Context, text: &str) -> f32 {
+    ctx.fonts_mut(|f| {
+        f.layout_no_wrap(
+            text.to_string(),
+            FontId::proportional(TITLE_FONT),
+            egui::Color32::WHITE,
+        )
+        .size()
+        .x
+    })
+}
+
 /// Height of a node box, given how many columns it lists.
 pub(super) fn node_height(cols: usize, listed: usize) -> f32 {
     // One extra row for the "+N more" line when the list was cut short.
@@ -105,7 +139,12 @@ pub(super) fn seed_positions(count: usize) -> Vec<Pos2> {
 /// does, minus the painter's origin, so what lands in the PDF is what was on
 /// screen: the boxes where they were dragged, the lines where they were bent,
 /// the column lists as far as they were opened.
-pub(super) fn build_layout(st: &RelMapState, map: &RelMap, visuals: &egui::Visuals) -> MapLayout {
+pub(super) fn build_layout(
+    st: &RelMapState,
+    map: &RelMap,
+    visuals: &egui::Visuals,
+    ctx: &egui::Context,
+) -> MapLayout {
     let nodes = map
         .nodes
         .iter()
@@ -113,7 +152,7 @@ pub(super) fn build_layout(st: &RelMapState, map: &RelMap, visuals: &egui::Visua
         .map(|(i, n)| {
             let pos = st.positions.get(i).copied().unwrap_or_default();
             NodeBox {
-                name: n.name.clone(),
+                name: elide_to_width(&n.name, TITLE_W, |s| title_width(ctx, s)),
                 columns: n.columns.clone(),
                 listed: listed_cols(n.columns.len(), st.expanded.contains(&i)),
                 x: pos.x,

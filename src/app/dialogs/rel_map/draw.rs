@@ -2,7 +2,9 @@
 //!
 //! Split out of `app/dialogs/rel_map.rs` (1,434 lines). Code moved unchanged.
 
-use super::layout::{edge_geometry, listed_cols, node_height};
+use super::layout::{
+    TITLE_FONT, TITLE_W, edge_geometry, elide_to_width, listed_cols, node_height, title_width,
+};
 use super::*;
 
 /// Draw the diagram. Returns the edge index the user clicked, if any.
@@ -118,8 +120,8 @@ pub(super) fn draw_map(ui: &mut egui::Ui, st: &mut RelMapState, map: &RelMap) ->
         painter.text(
             top_left + Vec2::new(8.0, 6.0),
             egui::Align2::LEFT_TOP,
-            &node.name,
-            FontId::proportional(13.0),
+            elide_to_width(&node.name, TITLE_W, |s| title_width(ui.ctx(), s)),
+            FontId::proportional(TITLE_FONT),
             text_color,
         );
         for (ci, col) in node.columns.iter().take(listed).enumerate() {

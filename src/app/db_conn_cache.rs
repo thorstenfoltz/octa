@@ -141,7 +141,7 @@ mod tests {
         fn query(&mut self, _sql: &str) -> anyhow::Result<DataTable> {
             if self
                 .fail_first
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
                 .is_ok()
             {
                 anyhow::bail!("simulated stale connection");

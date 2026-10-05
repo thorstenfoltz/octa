@@ -435,6 +435,23 @@ impl Cli {
                 dedupe_keep: self.dedupe_keep.clone(),
             }));
         }
+        if let Some(columns) = &self.hash_columns {
+            let path = self
+                .files
+                .first()
+                .cloned()
+                .ok_or("--hash-columns requires a positional FILE argument")?;
+            return Ok(Some(Action::HashColumns {
+                path,
+                columns: columns.clone(),
+                algo: self.hash_algo.clone(),
+                delimiter: self.hash_delimiter.clone(),
+                null_text: self.hash_null.clone(),
+                trim: self.hash_trim,
+                upper: self.hash_upper,
+                name: self.hash_name.clone(),
+            }));
+        }
         if !self.impute.is_empty() {
             // The positional FILE is the single data source for --impute.
             let path = self

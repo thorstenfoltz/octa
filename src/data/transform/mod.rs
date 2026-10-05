@@ -19,6 +19,7 @@ pub mod anonymize;
 pub mod conditional_value;
 pub mod extract;
 pub mod fill;
+pub mod hash_columns;
 pub mod merge;
 pub mod replace_in_column;
 pub mod split;
@@ -32,6 +33,7 @@ pub use conditional_value::{
 };
 pub use extract::extract_pattern;
 pub use fill::{fill_down, fill_up};
+pub use hash_columns::{HashColumnsAlgo, HashColumnsSpec, hash_columns};
 pub use merge::merge_columns;
 pub use replace_in_column::replace_in_column;
 pub use split::{SplitSpec, split_column};
