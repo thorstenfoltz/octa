@@ -257,6 +257,28 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             dedupe_keep,
         } => dedupe::run(path, dedupe_on, dedupe_keep, format),
         Action::Impute { path, specs } => impute::run(path, specs, format),
+        Action::HashColumns {
+            path,
+            columns,
+            algo,
+            delimiter,
+            null_text,
+            trim,
+            upper,
+            name,
+        } => hash_columns::run(
+            path,
+            hash_columns::Options {
+                columns,
+                algo,
+                delimiter,
+                null_text,
+                trim,
+                upper,
+                name,
+            },
+            format,
+        ),
         Action::Outliers {
             path,
             method,

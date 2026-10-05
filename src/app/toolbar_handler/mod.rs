@@ -242,6 +242,13 @@ impl OctaApp {
                 // struct cannot coexist with those disjoint field borrows.
                 let can_save_in_place = tab.saves_in_place();
                 let is_db_tab = tab.db_origin.is_some();
+                let source_has_more = tab.source_has_more() && !tab.loading_all;
+                let hash_on_server = crate::app::db_view::server_conn(
+                    tab,
+                    self.settings.db_pushdown,
+                    &self.settings.db_connections,
+                )
+                .is_some();
                 // Search scope: what this table actually holds, and what
                 // reaching the rest would cost.
                 let search_partial = tab.table.partial_note();
@@ -263,6 +270,8 @@ impl OctaApp {
                     has_source_path: tab.table.source_path.is_some(),
                     can_save_in_place,
                     is_db_tab,
+                    source_has_more,
+                    hash_on_server,
                     selected_cell: tab.table_state.selected_cell,
                     selected_rows: &tab.table_state.selected_rows,
                     selected_cols: &tab.table_state.selected_cols,
@@ -440,6 +449,9 @@ impl OctaApp {
             self.replace_all_matches();
         }
         self.dispatch_analyse_menu(ctx, &action);
+        if action.load_whole_table {
+            self.open_load_all(ctx);
+        }
         self.dispatch_help_menu(ctx, &action);
         self.dispatch_edit_menu(ctx, &action);
         self.dispatch_columns_menu(&action);

@@ -385,6 +385,8 @@ pub enum ShortcutAction {
     /// Open the Conditional-column (CASE) dialog. Also
     /// **Edit -> Conditional column...**.
     OpenConditionalColumn,
+    /// Open the Hash-columns dialog. Also **Columns -> Hash columns...**.
+    OpenHashColumns,
     /// Open the Anonymise-columns dialog. Also **Edit -> Anonymise columns...**.
     OpenAnonymize,
     /// Open the Data-validation dialog. Also **Data -> Data validation...**.
@@ -502,6 +504,9 @@ pub enum ShortcutAction {
     OpenRowCompare,
     /// Open the Random-sample dialog. Also **Analyse -> Random sample...**.
     OpenRandomSample,
+    /// Count the rows of the source and offer to download every one the tab
+    /// does not hold. Also **Data -> Load whole table...**.
+    LoadWholeTable,
     /// Open the Tidy-up dialog. Also **Data -> Tidy up...**. No-op in
     /// read-only mode, like the menu entry.
     OpenTidyUp,
@@ -627,6 +632,7 @@ impl ShortcutAction {
             Self::OpenTransform => "Transform column...",
             Self::OpenConditionalFormat => "Conditional formatting...",
             Self::OpenConditionalColumn => "Conditional column...",
+            Self::OpenHashColumns => "Hash columns...",
             Self::OpenAnonymize => "Anonymise columns...",
             Self::OpenValidation => "Data validation...",
             Self::OpenMultiSort => "Sort by columns...",
@@ -646,6 +652,7 @@ impl ShortcutAction {
             Self::OpenTranspose => "Transpose...",
             Self::OpenRowCompare => "Compare rows...",
             Self::OpenRandomSample => "Random sample...",
+            Self::LoadWholeTable => "Load whole table...",
             Self::OpenTidyUp => "Tidy up...",
             Self::OpenTimeCalc => "Date/Time calculation...",
             Self::ExportPdf => "Export to PDF...",
@@ -792,6 +799,7 @@ impl ShortcutAction {
             Self::OpenTransform => KeyCombo::ctrl_shift(Key::R),
             Self::OpenConditionalFormat => KeyCombo::ctrl_shift(Key::L),
             Self::OpenConditionalColumn => KeyCombo::ctrl_shift(Key::J),
+            Self::OpenHashColumns => KeyCombo::UNBOUND,
             Self::OpenAnonymize => KeyCombo::ctrl_shift(Key::Y),
             Self::OpenValidation => KeyCombo::ctrl_shift(Key::G),
             Self::OpenMultiSort => KeyCombo::ctrl_shift(Key::O),
@@ -853,6 +861,7 @@ impl ShortcutAction {
             | Self::OpenTranspose
             | Self::OpenRowCompare
             | Self::OpenRandomSample
+            | Self::LoadWholeTable
             | Self::OpenTidyUp
             | Self::OpenTimeCalc
             | Self::ExportPdf
@@ -1035,6 +1044,7 @@ impl ShortcutAction {
             | Self::OpenTransform
             | Self::OpenConditionalFormat
             | Self::OpenConditionalColumn
+            | Self::OpenHashColumns
             | Self::OpenAnonymize
             | Self::OpenValidation
             | Self::OpenMultiSort
@@ -1074,6 +1084,7 @@ impl ShortcutAction {
             | Self::OpenTranspose
             | Self::OpenRowCompare
             | Self::OpenRandomSample
+            | Self::LoadWholeTable
             | Self::OpenTidyUp
             | Self::OpenTimeCalc
             | Self::OpenGitCompare

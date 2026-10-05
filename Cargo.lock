@@ -5669,6 +5669,7 @@ dependencies = [
  "keyring",
  "libc",
  "markup5ever_rcdom",
+ "md-5 0.10.6",
  "mysql_async",
  "netcdf3",
  "npyz",

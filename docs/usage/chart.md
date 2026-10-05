@@ -164,6 +164,12 @@ per-series colours carry into every export.
 Line charts over dates or numbers can draw a trend line and forecast each
 line ahead with 80% and 95% ranges; see [Trend and forecast](forecast.md).
 
+## On a live database
+
+A chart opened from a database tab that holds only part of its table draws
+over the whole table, asking the database; see
+[Analyses on live databases](analyses-on-live-databases.md#charts).
+
 ## See also
 
 - [Search & Filter](search-and-filter.md) for narrowing the table

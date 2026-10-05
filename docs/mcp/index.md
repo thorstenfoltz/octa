@@ -72,6 +72,7 @@ themselves. Your files stay on disk.
 | `edit_table`              | Add columns / set cells / insert / delete rows in place      | [→ doc](tools/edit_table.md)                   |
 | `transform_columns`       | Rename / cast / drop columns, write back                     | [→ doc](tools/transform_columns.md)            |
 | `anonymize`               | Mask / scramble columns, write the result                    | [→ doc](tools/anonymize.md)                    |
+| `hash_columns`            | Add a hash column (MD5 / SHA) over chosen columns            | [→ doc](tools/hash_columns.md)                 |
 | `detect_pii`              | Find likely personal-data columns                            | [→ doc](tools/detect_pii.md)                   |
 | `detect_outliers`         | Flag numeric outlier cells                                   | [→ doc](tools/detect_outliers.md)              |
 | `fill_missing`            | Impute empty cells in a column                               | [→ doc](tools/fill_missing.md)                 |

@@ -106,7 +106,7 @@ pub fn quality_column_value_hint_keys() -> &'static [&'static [(&'static str, &'
     ]
 }
 
-fn is_numeric_type(data_type: &str) -> bool {
+pub(crate) fn is_numeric_type(data_type: &str) -> bool {
     let t = data_type.to_ascii_lowercase();
     t.contains("int") || t.contains("float") || t.contains("double") || t.contains("decimal")
 }
@@ -188,6 +188,124 @@ fn infer_column_type(cells: impl Iterator<Item = CellValue>) -> String {
     } else {
         "Int64".to_string()
     }
+}
+
+/// Per-column score (0-100): weighted completeness, uniqueness and type
+/// consistency, minus an outlier penalty capped at 10. Shared by the
+/// in-memory report and the server counts in [`apply_server_counts`].
+pub fn column_score(
+    null_frac: f64,
+    distinct_ratio: f64,
+    type_consistency: f64,
+    outlier_count: usize,
+    row_count: usize,
+) -> f64 {
+    const W_NULL: f64 = 0.4;
+    const W_DUP: f64 = 0.2;
+    const W_TYPE: f64 = 0.4;
+    let base =
+        100.0 * (W_NULL * (1.0 - null_frac) + W_DUP * distinct_ratio + W_TYPE * type_consistency);
+    let outlier_penalty = if row_count == 0 {
+        0.0
+    } else {
+        (100.0 * outlier_count as f64 / row_count as f64).min(10.0)
+    };
+    (base - outlier_penalty).clamp(0.0, 100.0).round()
+}
+
+/// Infer each numeric report column's type from its cells, so numeric
+/// columns render through the numeric path (mirrors summary.rs).
+fn refine_types(table: &mut DataTable) {
+    let ids = quality_column_ids();
+    for (ci, id) in ids.iter().enumerate() {
+        // column_name / data_type / pii_* stay Utf8.
+        if matches!(*id, "column_name" | "data_type" | "pii_flag" | "pii_kind") {
+            continue;
+        }
+        table.columns[ci].data_type = infer_column_type(table.rows.iter().map(|r| r[ci].clone()));
+    }
+}
+
+/// What the server counted for one column, for [`apply_server_counts`].
+#[derive(Debug, Clone, Copy)]
+pub struct ServerCounts {
+    pub non_null: i64,
+    pub distinct: i64,
+    /// `None` when the engine cannot compute quartiles: the loaded-row
+    /// figure stays.
+    pub outliers: Option<i64>,
+}
+
+/// Overwrite a report built from loaded rows with the server's counts over
+/// `total` rows: null percentage, distinct ratio, outlier count, and the
+/// scores that depend on them. The pattern columns (type consistency, PII,
+/// Benford's, calendar, shapes) keep their loaded-row values. A column with
+/// no counts (its query failed) keeps every loaded-row value. A column whose
+/// outliers stay loaded-row figures is penalised against `loaded_rows`, the
+/// rows that figure was counted over, not against `total`.
+pub fn apply_server_counts(
+    report: &mut QualityReport,
+    counts: &[Option<ServerCounts>],
+    total: usize,
+    loaded_rows: usize,
+) {
+    let ids = quality_column_ids();
+    let col = |id: &str| {
+        ids.iter()
+            .position(|x| *x == id)
+            .expect("known report column")
+    };
+    let (c_null, c_dist, c_out, c_type, c_score) = (
+        col("null_percentage"),
+        col("distinct_ratio"),
+        col("outlier_count"),
+        col("type_consistency"),
+        col("score"),
+    );
+    let as_f64 = |v: &CellValue| match v {
+        CellValue::Int(i) => *i as f64,
+        CellValue::Float(f) => *f,
+        _ => 0.0,
+    };
+    let mut scores = Vec::with_capacity(report.table.rows.len());
+    for (row, counts) in report.table.rows.iter_mut().zip(counts) {
+        if let Some(k) = counts {
+            let null_frac = if total == 0 {
+                0.0
+            } else {
+                (total as i64 - k.non_null).max(0) as f64 / total as f64
+            };
+            let distinct_ratio = if k.non_null == 0 {
+                0.0
+            } else {
+                k.distinct as f64 / k.non_null as f64
+            };
+            row[c_null] = num_cell((null_frac * 100.0).round());
+            row[c_dist] = num_cell(distinct_ratio);
+            let penalty_rows = match k.outliers {
+                Some(o) => {
+                    row[c_out] = CellValue::Int(o);
+                    total
+                }
+                None => loaded_rows,
+            };
+            let outliers = as_f64(&row[c_out]).max(0.0) as usize;
+            row[c_score] = num_cell(column_score(
+                null_frac,
+                distinct_ratio,
+                as_f64(&row[c_type]),
+                outliers,
+                penalty_rows,
+            ));
+        }
+        scores.push(as_f64(&row[c_score]));
+    }
+    report.overall_score = if scores.is_empty() {
+        0.0
+    } else {
+        scores.iter().sum::<f64>() / scores.len() as f64
+    };
+    refine_types(&mut report.table);
 }
 
 /// Build the quality report for `table`.
@@ -280,19 +398,13 @@ pub fn build_quality_report(table: &DataTable) -> anyhow::Result<QualityReport> 
             crate::data::shapes::ShapeVerdict::NotApplicable
         };
 
-        // score (0-100): weighted completeness + uniqueness + type consistency,
-        // minus an outlier penalty capped at 10.
-        const W_NULL: f64 = 0.4;
-        const W_DUP: f64 = 0.2;
-        const W_TYPE: f64 = 0.4;
-        let base = 100.0
-            * (W_NULL * (1.0 - null_frac) + W_DUP * distinct_ratio + W_TYPE * type_consistency);
-        let outlier_penalty = if row_count == 0 {
-            0.0
-        } else {
-            (100.0 * outlier_count as f64 / row_count as f64).min(10.0)
-        };
-        let score = (base - outlier_penalty).clamp(0.0, 100.0).round();
+        let score = column_score(
+            null_frac,
+            distinct_ratio,
+            type_consistency,
+            outlier_count,
+            row_count,
+        );
         scores.push(score);
 
         report_rows.push(vec![
@@ -313,31 +425,20 @@ pub fn build_quality_report(table: &DataTable) -> anyhow::Result<QualityReport> 
 
     // Build columns, then infer each report column's type from its cells so
     // numeric columns render through the numeric path (mirrors summary.rs).
-    let mut columns: Vec<ColumnInfo> = ids
+    let columns: Vec<ColumnInfo> = ids
         .iter()
         .map(|id| ColumnInfo {
             name: (*id).to_string(),
             data_type: "Utf8".to_string(),
         })
         .collect();
-    for (ci, col) in columns.iter_mut().enumerate() {
-        // column_name / data_type / pii_* stay Utf8.
-        if matches!(
-            ids[ci],
-            "column_name" | "data_type" | "pii_flag" | "pii_kind"
-        ) {
-            continue;
-        }
-        col.data_type = infer_column_type(report_rows.iter().map(|r| r[ci].clone()));
-    }
-
     let overall_score = if scores.is_empty() {
         0.0
     } else {
         scores.iter().sum::<f64>() / scores.len() as f64
     };
 
-    let out = DataTable {
+    let mut out = DataTable {
         columns,
         rows: report_rows,
         edits: std::collections::HashMap::new(),
@@ -352,6 +453,8 @@ pub fn build_quality_report(table: &DataTable) -> anyhow::Result<QualityReport> 
         db_meta: None,
         formulas: std::collections::HashMap::new(),
     };
+
+    refine_types(&mut out);
 
     // Findings that are not one-per-column get their own table. A section is
     // only built when it has something to say, so a clean file opens exactly

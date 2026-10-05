@@ -128,6 +128,7 @@ impl OctaApp {
     /// an ordinary, editable filter, so a wrong guess is visible and
     /// repairable rather than magic.
     fn apply_ask_result(&mut self, tab_idx: usize, result: AskResult) {
+        let sort = result.sort;
         let Some(tab) = self.tabs.get_mut(tab_idx) else {
             return;
         };
@@ -137,14 +138,14 @@ impl OctaApp {
             tab.column_filters
                 .insert(col, allowed.into_iter().collect());
         }
-        if let Some((col, ascending)) = result.sort {
-            tab.table.sort_rows_by_columns(&[(col, ascending)]);
-        }
         // The sentence was a question, not a text search: clear the box so the
         // text matcher does not also hide rows.
         tab.search_text.clear();
         tab.search_nav.reset();
         tab.filter_dirty = true;
+        if let Some((col, ascending)) = sort {
+            self.sort_tab_rows(tab_idx, &[(col, ascending)]);
+        }
         self.status_message = Some((
             octa::i18n::t("search.ask_applied").replace("{n}", &applied.to_string()),
             std::time::Instant::now(),

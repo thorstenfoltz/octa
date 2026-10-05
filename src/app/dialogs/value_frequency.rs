@@ -21,6 +21,7 @@ use octa::ui::settings::{
 };
 
 use super::super::state::OctaApp;
+use crate::app::pushdown::ServerVf;
 
 /// Top-N presets shown in the toolbar. `None` means "all distinct values".
 /// Labels are built at render time via `t("dialog.vf_top")` + the number.
@@ -38,6 +39,7 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
     let col_count = app.tabs[active].table.col_count();
     if col_idx >= col_count {
         app.tabs[active].value_frequency_col = None;
+        app.value_frequency_closed(active);
         return;
     }
 
@@ -50,6 +52,17 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
     let mut close_requested = false;
     let mut copy_payload: Option<String> = None;
     let mut filter_to_this: Option<String> = None;
+    let mut run_local = false;
+    // On a server tab every Bins value is a query, so the field commits on
+    // Enter or when it loses focus; a file tab recounts live as it types.
+    let on_server = crate::app::pushdown::server_source_for(
+        &app.tabs[active],
+        app.settings.db_pushdown,
+        &app.settings.db_connections,
+    )
+    .is_some();
+    let unsaved_edits = app.tabs[active].table.is_modified();
+    let mut committed_bins = app.tabs[active].value_frequency_bins;
 
     let (column_name, is_numeric) = {
         let tab = &app.tabs[active];
@@ -143,12 +156,21 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
                         if bin_state {
                             ui.add_space(4.0);
                             ui.label(octa::i18n::t("dialog.vf_bins"));
-                            ui.add(
-                                egui::TextEdit::singleline(&mut bins_buf)
-                                    .desired_width(48.0)
-                                    .hint_text(octa::i18n::t("dialog.vf_auto")),
-                            )
-                            .on_hover_text(octa::i18n::t("dialog.vf_bins_hint"));
+                            let mut hint = octa::i18n::t("dialog.vf_bins_hint");
+                            if on_server {
+                                hint =
+                                    format!("{hint}\n{}", octa::i18n::t("pushdown.vf_bins_hint"));
+                            }
+                            let resp = ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut bins_buf)
+                                        .desired_width(48.0)
+                                        .hint_text(octa::i18n::t("dialog.vf_auto")),
+                                )
+                                .on_hover_text(hint);
+                            if !on_server || resp.lost_focus() {
+                                committed_bins = parse_bins(&bins_buf);
+                            }
                             ui.label(
                                 egui::RichText::new(octa::i18n::t("dialog.vf_ranges_note"))
                                     .small()
@@ -160,20 +182,77 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
             });
 
         // Compute the result from the live control values (no frame lag).
-        let custom_bins: Option<usize> = bins_buf.trim().parse::<usize>().ok().filter(|n| *n > 0);
         let binning_mode = if is_numeric && bin_state {
-            match custom_bins {
+            match committed_bins {
                 Some(n) => BinningMode::Custom(n),
                 None => BinningMode::Sturges,
             }
         } else {
             BinningMode::None
         };
-        let Some(freq) =
-            compute_value_frequency(&app.tabs[active].table, col_idx, top_n_state, binning_mode)
-        else {
-            // Bounds already checked above; defensive only.
-            return;
+        // A partial live-database tab counts on the server; every other tab
+        // counts its rows in memory, every frame, as before.
+        let mut server_total: Option<usize> = None;
+        let freq = match app.server_value_frequency(ctx, active, col_idx, top_n_state, binning_mode)
+        {
+            ServerVf::Local => {
+                let Some(f) = compute_value_frequency(
+                    &app.tabs[active].table,
+                    col_idx,
+                    top_n_state,
+                    binning_mode,
+                ) else {
+                    // Bounds already checked above; defensive only.
+                    return;
+                };
+                std::sync::Arc::new(f)
+            }
+            ServerVf::Ready(f, total) => {
+                server_total = Some(total);
+                f
+            }
+            waiting => {
+                // No result to show yet, or none coming: the status, then a
+                // row with Close (the dialog stays closable while counting)
+                // and, after an error or a Cancel, the loaded rows.
+                ui.add_space(12.0);
+                match &waiting {
+                    ServerVf::Pending => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(octa::i18n::t("pushdown.vf_counting"));
+                        });
+                    }
+                    ServerVf::Cancelled => {
+                        ui.label(octa::i18n::t("pushdown.vf_cancelled"));
+                    }
+                    ServerVf::Failed(msg) => {
+                        ui.label(octa::i18n::t("pushdown.error_title"));
+                        let colour = ui.visuals().error_fg_color;
+                        octa::ui::message::selectable_message(ui, colour, msg);
+                    }
+                    _ => {}
+                }
+                ui.add_space(12.0);
+                octa::ui::control_row::control_row(ui, |ui| {
+                    if !matches!(waiting, ServerVf::Pending)
+                        && ui
+                            .button(octa::i18n::t("pushdown.run_local"))
+                            .on_hover_text(octa::i18n::t("pushdown.vf_run_local_hint"))
+                            .clicked()
+                    {
+                        run_local = true;
+                    }
+                    if ui
+                        .button(octa::i18n::t("common.close"))
+                        .on_hover_text(octa::i18n::t("pushdown.vf_close_hint"))
+                        .clicked()
+                    {
+                        close_requested = true;
+                    }
+                });
+                return;
+            }
         };
 
         egui::Panel::bottom("value_frequency_footer")
@@ -204,6 +283,25 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
                         .size(10.0)
                         .color(ui.visuals().weak_text_color()),
                     );
+                    if let Some(total) = server_total {
+                        ui.label(
+                            RichText::new(
+                                octa::i18n::t("pushdown.vf_server").replace(
+                                    "{total}",
+                                    &octa::ui::status_bar::format_number(total),
+                                ),
+                            )
+                            .size(10.0)
+                            .color(ui.visuals().weak_text_color()),
+                        );
+                        if unsaved_edits {
+                            ui.label(
+                                RichText::new(octa::i18n::t("pushdown.note_unsaved"))
+                                    .size(10.0)
+                                    .color(ui.visuals().weak_text_color()),
+                            );
+                        }
+                    }
                 });
             });
 
@@ -316,17 +414,33 @@ pub(crate) fn render_value_frequency_dialog(app: &mut OctaApp, ctx: &egui::Conte
         tab.filter_dirty = true;
     }
 
-    let custom_bins: Option<usize> = bins_buf.trim().parse::<usize>().ok().filter(|n| *n > 0);
+    if run_local {
+        app.value_frequency_run_local(active);
+    }
+    if close_requested {
+        app.value_frequency_closed(active);
+    }
+
     let tab = &mut app.tabs[active];
     tab.value_frequency_top_n = top_n_state;
     tab.value_frequency_bin_numeric = bin_state;
-    tab.value_frequency_bins = custom_bins;
+    // Closing with an uncommitted Bins text keeps what the field shows.
+    tab.value_frequency_bins = if close_requested {
+        parse_bins(&bins_buf)
+    } else {
+        committed_bins
+    };
     tab.value_frequency_bins_buf = bins_buf;
     tab.value_frequency_size = size;
     if close_requested {
         tab.value_frequency_col = None;
         tab.value_frequency_size = DialogSize::Normal;
     }
+}
+
+/// The Bins field as a bin count; blank or not a positive number is Auto.
+fn parse_bins(buf: &str) -> Option<usize> {
+    buf.trim().parse::<usize>().ok().filter(|n| *n > 0)
 }
 
 fn build_tsv(column_name: &str, freq: &octa::data::value_frequency::ValueFrequency) -> String {

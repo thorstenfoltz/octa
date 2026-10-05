@@ -56,8 +56,9 @@ fn cell_to_f64(value: &CellValue) -> Option<f64> {
     }
 }
 
-/// True when the column reads as numeric: either a numeric Arrow type name, or
-/// a sampled run of non-null cells that mostly parse as numbers.
+/// True when the column reads as numeric: either a numeric Arrow type name
+/// (`Int64`, `Float64`, `Decimal128(10, 2)`, ...), or a sampled run of non-null
+/// cells that mostly parse as numbers.
 fn is_numeric_column(table: &DataTable, col: usize) -> bool {
     let ty = table.columns[col].data_type.to_ascii_lowercase();
     if ["int", "float", "double", "decimal", "real", "uint"]
@@ -85,11 +86,17 @@ fn is_numeric_column(table: &DataTable, col: usize) -> bool {
     seen > 0 && numeric * 100 >= seen * 90
 }
 
+/// Indices of the columns a correlation covers. A text column of numeric
+/// strings (a Postgres NUMERIC arrives as one) counts, as the cells decide.
+pub fn numeric_columns(table: &DataTable) -> Vec<usize> {
+    (0..table.col_count())
+        .filter(|&c| is_numeric_column(table, c))
+        .collect()
+}
+
 /// Compute the correlation matrix over every numeric column.
 pub fn correlation_matrix(table: &DataTable, method: CorrMethod) -> CorrMatrix {
-    let cols: Vec<usize> = (0..table.col_count())
-        .filter(|&c| is_numeric_column(table, c))
-        .collect();
+    let cols = numeric_columns(table);
     let names: Vec<String> = cols
         .iter()
         .map(|&c| table.columns[c].name.clone())

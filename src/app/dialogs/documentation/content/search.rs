@@ -211,6 +211,10 @@ The 50 most common values, by count. When the column has more distinct
 values than that, the popup adds a search box and a line saying how
 many are not shown.
 
+On a database tab that holds only part of its table, the list comes from
+the database: the 50 most common values over the whole table, and the
+search box searches every value there.
+
 **Search queries the whole column, not the 50 on screen.** A value
 ranked nine hundredth is still findable by typing it. That full scan is
 why the box only appears when it is needed: an ordinary open stays
@@ -292,6 +296,9 @@ Filter values...** opens the smaller popup version of the same filter.
   active filters are visible at a glance.
 - Filters live with the tab. Closing the tab discards them; they are
   not saved to disk.
+- On a database tab that holds only part of its table, the search box
+  (Plain and Wildcard), the value filters and the comparison filters run
+  on the database over the whole table (see Analyses on Live Databases).
 - "Select none + Apply" hides every row in the current view, just like
   unchecking every checkbox by hand. Use "Clear filter on this column"
   to remove the filter entirely.

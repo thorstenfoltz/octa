@@ -141,7 +141,12 @@ impl OctaApp {
                 ));
                 continue;
             };
-            if self.is_readonly() || !chat_profiles::active_profile(&self.settings).allow_writes {
+            // `is_readonly` looks at the active tab; a database sort or filter
+            // running on the target tab would replace its rows, edit and all.
+            if self.is_readonly()
+                || self.tabs[tab_idx].view_task.is_some()
+                || !chat_profiles::active_profile(&self.settings).allow_writes
+            {
                 self.status_message = Some((
                     "Assistant edit skipped: editing is currently disabled".to_string(),
                     std::time::Instant::now(),

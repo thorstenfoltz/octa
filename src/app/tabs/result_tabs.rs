@@ -1,6 +1,9 @@
 //! Result tabs built from the active table: chart, summary, transpose,
 //! quality report and the other derived views.
 
+use eframe::egui;
+
+use crate::app::pushdown::{PushdownKind, PushdownNote, server_source_for};
 use crate::app::state::OctaApp;
 
 impl OctaApp {
@@ -104,16 +107,7 @@ impl OctaApp {
             ));
             return;
         }
-        let source_label = source
-            .table
-            .source_path
-            .as_ref()
-            .and_then(|p| {
-                std::path::Path::new(p)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-            })
-            .unwrap_or_else(|| source.title_display());
+        let source_label = source.result_source_label();
         let chart_label = format!("Chart - {source_label}");
 
         let default_search_mode = self.settings.default_search_mode;
@@ -129,6 +123,11 @@ impl OctaApp {
         new_tab.is_chart_tab = true;
         new_tab.chart_tab_label = Some(chart_label);
         new_tab.view_mode = octa::data::ViewMode::Chart;
+        new_tab.chart_server = crate::app::chart_server::chart_server_for(
+            source,
+            self.settings.db_pushdown,
+            &self.settings.db_connections,
+        );
 
         self.tabs.push(new_tab);
         self.active_tab = self.tabs.len() - 1;
@@ -142,7 +141,29 @@ impl OctaApp {
     /// The result is an ordinary detached table tab (sortable, filterable,
     /// exportable via Save As); it has no source path so it can never be
     /// saved over the original file by accident.
-    pub(crate) fn open_describe_tab(&mut self) {
+    pub(crate) fn open_describe_tab(&mut self, ctx: &egui::Context) {
+        match self.active_server_source() {
+            Some(src) => self.start_pushdown(ctx, PushdownKind::Summary, src),
+            None => self.open_describe_tab_local(),
+        }
+    }
+
+    /// The tab's analysis goes to the server only when it has columns: an
+    /// empty tab keeps the local path's "open a file first" message.
+    pub(crate) fn active_server_source(&self) -> Option<octa::db::pushdown::ServerSource> {
+        let tab = self.tabs.get(self.active_tab)?;
+        if tab.table.col_count() == 0 {
+            return None;
+        }
+        server_source_for(
+            tab,
+            self.settings.db_pushdown,
+            &self.settings.db_connections,
+        )
+    }
+
+    /// Summary over the rows this tab holds (with its unsaved edits).
+    pub(crate) fn open_describe_tab_local(&mut self) {
         let Some(source) = self.tabs.get(self.active_tab) else {
             return;
         };
@@ -153,19 +174,10 @@ impl OctaApp {
             ));
             return;
         }
-        let partial_source_note = source.table.partial_note();
+        let partial_source_note = source.partial_note();
         let mut snap = source.table.clone();
         snap.apply_edits();
-        let source_label = source
-            .table
-            .source_path
-            .as_ref()
-            .and_then(|p| {
-                std::path::Path::new(p)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-            })
-            .unwrap_or_else(|| source.title_display());
+        let source_label = source.result_source_label();
 
         let enabled = self.settings.summary_stats.clone();
         // `build_summary_table` types its numeric columns as Int64 / Float64, so
@@ -179,10 +191,21 @@ impl OctaApp {
                 return;
             }
         };
+        self.push_summary_tab(table, &source_label, partial_source_note, None);
+    }
 
+    /// Open a finished Summary table as a detached tab, local or server.
+    pub(crate) fn push_summary_tab(
+        &mut self,
+        table: octa::data::DataTable,
+        source_label: &str,
+        partial_source_note: Option<(usize, Option<usize>)>,
+        pushdown_note: Option<PushdownNote>,
+    ) {
+        let enabled = &self.settings.summary_stats;
         // Header tooltips: one localized description per active statistic, in
         // the same column order the Summary table was built with.
-        let header_tooltips: Vec<String> = octa::data::summary::active_stats(&enabled)
+        let header_tooltips: Vec<String> = octa::data::summary::active_stats(enabled)
             .iter()
             .map(|s| octa::i18n::t(s.hint_key()))
             .collect();
@@ -191,6 +214,7 @@ impl OctaApp {
         let mut new_tab = crate::app::state::TabState::new(default_search_mode);
         // Only as complete as the table it came from.
         new_tab.partial_source_note = partial_source_note;
+        new_tab.pushdown_note = pushdown_note;
         new_tab.table = table;
         new_tab.table.source_path = None;
         new_tab.table.format_name = None;
@@ -281,19 +305,10 @@ impl OctaApp {
             ));
             return;
         }
-        let partial_source_note = source.table.partial_note();
+        let partial_source_note = source.partial_note();
         let mut snap = source.table.clone();
         snap.apply_edits();
-        let source_label = source
-            .table
-            .source_path
-            .as_ref()
-            .and_then(|p| {
-                std::path::Path::new(p)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-            })
-            .unwrap_or_else(|| source.title_display());
+        let source_label = source.result_source_label();
 
         let table = octa::data::transpose::transpose_table(&snap);
         let default_search_mode = self.settings.default_search_mode;
@@ -331,19 +346,10 @@ impl OctaApp {
         if rows.len() < 2 {
             return;
         }
-        let partial_source_note = source.table.partial_note();
+        let partial_source_note = source.partial_note();
         let mut snap = source.table.clone();
         snap.apply_edits();
-        let source_label = source
-            .table
-            .source_path
-            .as_ref()
-            .and_then(|p| {
-                std::path::Path::new(p)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-            })
-            .unwrap_or_else(|| source.title_display());
+        let source_label = source.result_source_label();
 
         let table = octa::data::row_compare::compare_rows(&snap, &rows);
         let default_search_mode = self.settings.default_search_mode;
@@ -392,19 +398,10 @@ impl OctaApp {
         if source.table.col_count() == 0 {
             return;
         }
-        let partial_source_note = source.table.partial_note();
+        let partial_source_note = source.partial_note();
         let mut snap = source.table.clone();
         snap.apply_edits();
-        let source_label = source
-            .table
-            .source_path
-            .as_ref()
-            .and_then(|p| {
-                std::path::Path::new(p)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-            })
-            .unwrap_or_else(|| source.title_display());
+        let source_label = source.result_source_label();
 
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -426,6 +423,101 @@ impl OctaApp {
         ));
         self.tabs.push(new_tab);
         self.active_tab = self.tabs.len() - 1;
+    }
+
+    /// A Pivot / Resample / Rolling result from the server, as its own tab
+    /// named "<label> - <source>", carrying `note`.
+    pub(crate) fn push_reshape_tab(
+        &mut self,
+        table: octa::data::DataTable,
+        label: &str,
+        source_label: &str,
+        note: PushdownNote,
+    ) {
+        let mut new_tab = crate::app::state::TabState::new(self.settings.default_search_mode);
+        new_tab.table = table;
+        new_tab.table.source_path = None;
+        new_tab.table.format_name = None;
+        new_tab.custom_tab_label = Some(format!("{label} - {source_label}"));
+        new_tab.pushdown_note = Some(note);
+        new_tab.filter_dirty = true;
+        if new_tab.table.row_count() > 0 && new_tab.table.col_count() > 0 {
+            new_tab.table_state.selected_cell = Some((0, 0));
+        }
+        self.tabs.push(new_tab);
+        self.active_tab = self.tabs.len() - 1;
+    }
+
+    /// Run `sql` (the file path's DuckDB SQL) over the active tab's rows,
+    /// with its unsaved edits, into a new tab "<label> - <source>". On a
+    /// database tab with `reason`, the result says it covers the loaded rows
+    /// and why, with Load whole table. A file tab passes `None` and gets
+    /// exactly what it got before.
+    pub(crate) fn open_reshape_tab_local(
+        &mut self,
+        sql: &str,
+        label: &str,
+        failed_key: &str,
+        reason: Option<String>,
+    ) {
+        let Some(source) = self.tabs.get(self.active_tab) else {
+            return;
+        };
+        let mut snap = source.table.clone();
+        snap.apply_edits();
+        let source_label = source.result_source_label();
+        let partial = reason.as_ref().and_then(|_| source.partial_note());
+        let origin = source
+            .db_origin
+            .as_ref()
+            .map(crate::app::pushdown::SourceKey::of);
+        match octa::sql::run_query(&snap, sql) {
+            Ok(outcome) => {
+                let mut new_tab =
+                    crate::app::state::TabState::new(self.settings.default_search_mode);
+                new_tab.table = outcome.table;
+                new_tab.table.source_path = None;
+                new_tab.table.format_name = None;
+                new_tab.custom_tab_label = Some(format!("{label} - {source_label}"));
+                new_tab.partial_source_note = partial;
+                new_tab.loaded_rows_note = reason.zip(origin);
+                new_tab.filter_dirty = true;
+                if new_tab.table.row_count() > 0 && new_tab.table.col_count() > 0 {
+                    new_tab.table_state.selected_cell = Some((0, 0));
+                }
+                self.tabs.push(new_tab);
+                self.active_tab = self.tabs.len() - 1;
+            }
+            Err(e) => {
+                self.status_message = Some((
+                    format!("{}: {e:#}", octa::i18n::t(failed_key)),
+                    std::time::Instant::now(),
+                ));
+            }
+        }
+    }
+
+    /// A sample the database picked, as its own tab named after
+    /// `source_label`; `note` (where it came from, see the Random sample
+    /// dialog) goes to the status line.
+    pub(crate) fn open_server_sample_tab(
+        &mut self,
+        table: octa::data::DataTable,
+        source_label: &str,
+        note: String,
+    ) {
+        let rows = table.row_count();
+        let mut new_tab = crate::app::state::TabState::new(self.settings.default_search_mode);
+        new_tab.table = table;
+        new_tab.table.source_path = None;
+        new_tab.table.format_name = None;
+        new_tab.custom_tab_label = Some(format!(
+            "{} - {source_label}",
+            octa::i18n::t("sample.tab_label").replace("{n}", &rows.to_string())
+        ));
+        self.tabs.push(new_tab);
+        self.active_tab = self.tabs.len() - 1;
+        self.status_message = Some((note, std::time::Instant::now()));
     }
 
     /// Run the chosen tidy-up passes on the active table as one undoable step:
@@ -491,7 +583,15 @@ impl OctaApp {
     /// Build a data-quality report for the active table and open it as a
     /// detached tab (same pattern as `open_describe_tab`). Surfaces the overall
     /// score in the status bar.
-    pub(crate) fn open_quality_tab(&mut self) {
+    pub(crate) fn open_quality_tab(&mut self, ctx: &egui::Context) {
+        match self.active_server_source() {
+            Some(src) => self.start_pushdown(ctx, PushdownKind::Quality, src),
+            None => self.open_quality_tab_local(),
+        }
+    }
+
+    /// Quality report over the rows this tab holds (with its unsaved edits).
+    pub(crate) fn open_quality_tab_local(&mut self) {
         let Some(source) = self.tabs.get(self.active_tab) else {
             return;
         };
@@ -502,19 +602,10 @@ impl OctaApp {
             ));
             return;
         }
-        let partial_source_note = source.table.partial_note();
+        let partial_source_note = source.partial_note();
         let mut snap = source.table.clone();
         snap.apply_edits();
-        let source_label = source
-            .table
-            .source_path
-            .as_ref()
-            .and_then(|p| {
-                std::path::Path::new(p)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-            })
-            .unwrap_or_else(|| source.title_display());
+        let source_label = source.result_source_label();
 
         let report = match octa::data::quality::build_quality_report(&snap) {
             Ok(r) => r,
@@ -526,7 +617,18 @@ impl OctaApp {
                 return;
             }
         };
+        self.push_quality_tabs(report, &source_label, partial_source_note, None);
+    }
 
+    /// Open a finished quality report (main tab plus its section tabs), local
+    /// or server. The notes go on the main tab only.
+    pub(crate) fn push_quality_tabs(
+        &mut self,
+        report: octa::data::quality::QualityReport,
+        source_label: &str,
+        partial_source_note: Option<(usize, Option<usize>)>,
+        pushdown_note: Option<PushdownNote>,
+    ) {
         // Header tooltips: one localized hint per report column, in the same
         // order the engine emitted them.
         let header_tooltips: Vec<String> = octa::data::quality::quality_column_hint_keys()
@@ -548,11 +650,16 @@ impl OctaApp {
                 })
                 .collect();
 
+        // A section tab is wholly computed on the loaded rows, on a database
+        // tab too, so it carries the plain partial note, not the server one.
+        let section_note = partial_source_note
+            .or_else(|| pushdown_note.as_ref().map(|n| (n.loaded, Some(n.total))));
         let overall = report.overall_score.round() as i64;
         let default_search_mode = self.settings.default_search_mode;
         let mut new_tab = crate::app::state::TabState::new(default_search_mode);
         // Only as complete as the table it came from.
         new_tab.partial_source_note = partial_source_note;
+        new_tab.pushdown_note = pushdown_note;
         new_tab.table = report.table;
         new_tab.table.source_path = None;
         new_tab.table.format_name = None;
@@ -576,6 +683,7 @@ impl OctaApp {
         let section_count = report.sections.len();
         for section in report.sections {
             let mut tab = crate::app::state::TabState::new(default_search_mode);
+            tab.partial_source_note = section_note;
             tab.table = section.table;
             tab.table.source_path = None;
             tab.table.format_name = None;
@@ -614,7 +722,22 @@ impl OctaApp {
 
     /// Compute a correlation matrix over the active table's numeric columns and
     /// open it as a detached tab (same pattern as `open_describe_tab`).
-    pub(crate) fn open_correlation_tab(&mut self, method: octa::data::correlation::CorrMethod) {
+    pub(crate) fn open_correlation_tab(
+        &mut self,
+        ctx: &egui::Context,
+        method: octa::data::correlation::CorrMethod,
+    ) {
+        match self.active_server_source() {
+            Some(src) => self.start_pushdown(ctx, PushdownKind::Correlation(method), src),
+            None => self.open_correlation_tab_local(method),
+        }
+    }
+
+    /// Correlation over the rows this tab holds (with its unsaved edits).
+    pub(crate) fn open_correlation_tab_local(
+        &mut self,
+        method: octa::data::correlation::CorrMethod,
+    ) {
         let Some(source) = self.tabs.get(self.active_tab) else {
             return;
         };
@@ -625,21 +748,25 @@ impl OctaApp {
             ));
             return;
         }
-        let partial_source_note = source.table.partial_note();
+        let partial_source_note = source.partial_note();
         let mut snap = source.table.clone();
         snap.apply_edits();
-        let source_label = source
-            .table
-            .source_path
-            .as_ref()
-            .and_then(|p| {
-                std::path::Path::new(p)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-            })
-            .unwrap_or_else(|| source.title_display());
+        let source_label = source.result_source_label();
 
         let matrix = octa::data::correlation::correlation_matrix(&snap, method);
+        self.push_correlation_tab(matrix, method, &source_label, partial_source_note, None);
+    }
+
+    /// Open a finished correlation matrix as a detached tab, local or server.
+    /// A matrix without columns (no numeric columns) only sets a status.
+    pub(crate) fn push_correlation_tab(
+        &mut self,
+        matrix: octa::data::correlation::CorrMatrix,
+        method: octa::data::correlation::CorrMethod,
+        source_label: &str,
+        partial_source_note: Option<(usize, Option<usize>)>,
+        pushdown_note: Option<PushdownNote>,
+    ) {
         if matrix.columns.is_empty() {
             self.status_message = Some((
                 octa::i18n::t("dialog.corr_no_numeric"),
@@ -656,6 +783,7 @@ impl OctaApp {
         let mut new_tab = crate::app::state::TabState::new(default_search_mode);
         // Only as complete as the table it came from.
         new_tab.partial_source_note = partial_source_note;
+        new_tab.pushdown_note = pushdown_note;
         new_tab.table = table;
         new_tab.table.source_path = None;
         new_tab.table.format_name = None;
@@ -794,8 +922,13 @@ impl OctaApp {
         src.apply_edits();
         let rows = octa::data::lookups::breaking_rows(&src, f.key, &deps);
         let key = src.columns[f.key].name.clone();
+        self.push_lookup_breaking_tab(src.clone_with_rows(&rows), &key);
+    }
+
+    /// Open a Breaking rows tab holding `table`.
+    pub(crate) fn push_lookup_breaking_tab(&mut self, table: octa::data::DataTable, key: &str) {
         let mut new_tab = crate::app::state::TabState::new(self.settings.default_search_mode);
-        new_tab.table = src.clone_with_rows(&rows);
+        new_tab.table = table;
         new_tab.table.source_path = None;
         new_tab.table.format_name = None;
         new_tab.custom_tab_label =
@@ -828,6 +961,11 @@ impl OctaApp {
         src.apply_edits();
         let split = octa::data::lookups::split_out(&src, f.key, &deps);
         let key = src.columns[f.key].name.clone();
+        self.push_lookup_split_tabs(split, &key);
+    }
+
+    /// Open the lookup and main tabs of `split`, landing on the lookup.
+    pub(crate) fn push_lookup_split_tabs(&mut self, split: octa::data::lookups::Split, key: &str) {
         let banner = (split.resolved_keys > 0).then(|| {
             octa::i18n::t("lookups.resolved_banner")
                 .replace("{count}", &split.resolved_keys.to_string())

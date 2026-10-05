@@ -51,6 +51,10 @@ from the active table. This is handy for eyeballing a fair cross-section of a bi
 file without scrolling all of it. If you ask for more rows than the table has, you
 get them all.
 
+On a database tab that holds only part of its table, the database picks
+the rows: Exact or Fast, see
+[Analyses on live databases](analyses-on-live-databases.md#sorting-filtering-and-sampling).
+
 ## Tidy up
 
 **Data > Tidy up...** cleans the current table in a single undoable step. Two

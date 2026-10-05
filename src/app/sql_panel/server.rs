@@ -89,6 +89,7 @@ impl OctaApp {
         let ctx = ctx.clone();
         let cache = self.db_conn_cache.clone();
         std::thread::spawn(move || {
+            let mut sent = query.clone();
             let done = (|| -> Result<ServerQueryDone, String> {
                 let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
                 let ssh_secret =
@@ -109,20 +110,24 @@ impl OctaApp {
                     if let Ok(mut slot) = cancel.lock() {
                         *slot = c.cancel_handle();
                     }
-                    if octa::sql::is_mutation(&query) {
-                        c.execute(&query).map(ServerQueryDone::Affected)
-                    } else {
-                        c.query(&query).map(|t| ServerQueryDone::Rows(Box::new(t)))
-                    }
+                    let mutation = octa::sql::is_mutation(&query);
+                    octa::db::with_identifier_fix(conn.engine, &query, |sql| {
+                        if mutation {
+                            c.execute(sql).map(ServerQueryDone::Affected)
+                        } else {
+                            c.query(sql).map(|t| ServerQueryDone::Rows(Box::new(t)))
+                        }
+                    })
                 };
-                res.map_err(|e| {
+                sent = res.1;
+                res.0.map_err(|e| {
                     cache.invalidate(&conn.id);
                     format!("{e:#}")
                 })
             })();
             let done = done.unwrap_or_else(ServerQueryDone::Failed);
             if let Ok(mut r) = result.lock() {
-                *r = Some(done);
+                *r = Some((done, sent));
             }
             ctx.request_repaint();
         });
@@ -151,10 +156,11 @@ impl OctaApp {
             };
             r.take()
         };
-        let Some(done) = done else {
+        let Some((done, sent)) = done else {
             return;
         };
-        let job = self.sql_server_job.take().expect("job checked above");
+        let mut job = self.sql_server_job.take().expect("job checked above");
+        let original = std::mem::replace(&mut job.query, sent);
         // Read before the tab borrow: `record_sql_history` runs while the tab
         // is held mutably.
         let history_on = self.settings.sql_history_enabled;
@@ -200,6 +206,15 @@ impl OctaApp {
         }
         let pane = tab.sql_pane_by_id_mut(pane_id).expect("found above");
         pane.running_since = None;
+        // The worker quoted an identifier the server refused bare: put the
+        // adjusted statement in the editor so what ran is what the user sees.
+        if job.query != original {
+            pane.query = pane.query.replacen(&original, &job.query, 1);
+            self.status_message = Some((
+                octa::i18n::t("sql.server_ident_quoted"),
+                std::time::Instant::now(),
+            ));
+        }
         pane.last_duration_ms = Some(job.started.elapsed().as_millis() as u64);
         match done {
             ServerQueryDone::Rows(t) => {

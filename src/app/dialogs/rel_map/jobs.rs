@@ -43,6 +43,10 @@ impl OctaApp {
             expanded: HashSet::new(),
             export_result: None,
             job: None,
+            tab_sources: Vec::new(),
+            measure: None,
+            measure_note: None,
+            measure_error: None,
         });
     }
 
@@ -155,6 +159,62 @@ impl OctaApp {
         });
     }
 
+    /// Measure: on the server when it can (a Database map with the setting
+    /// on, or a Tabs map of one connection's tables), else the sample.
+    pub(super) fn start_rel_map_measure(
+        &self,
+        st: &mut RelMapState,
+        ctx: &egui::Context,
+        server_ok: bool,
+    ) {
+        let Some(map) = st.map.clone() else {
+            return;
+        };
+        st.measure_error = None;
+        st.measure_note = None;
+        let target = if !server_ok {
+            None
+        } else if !st.tab_sources.is_empty() && self.settings.db_pushdown {
+            let froms: Vec<String> = st.tab_sources.iter().map(|s| s.from_sql()).collect();
+            Some((st.tab_sources[0].conn.clone(), froms))
+        } else if st.declared && self.settings.db_pushdown {
+            self.rel_map_conn(st).map(|conn| {
+                let froms =
+                    octa::db::pushdown::rel_measure::node_froms(&conn, st.catalog.as_deref(), &map);
+                (conn, froms)
+            })
+        } else {
+            None
+        };
+        let Some((conn, froms)) = target else {
+            // Setting off, or Run on loaded rows after a refusal: a declared
+            // map reads its sample as before. A Tabs map already carries its
+            // loaded-row numbers.
+            if st.declared {
+                self.spawn_rel_map_score(st, ctx);
+            }
+            return;
+        };
+        let unsaved = !st.tab_sources.is_empty()
+            && st
+                .tabs
+                .iter()
+                .filter_map(|&i| self.tabs.get(i))
+                .any(|t| t.table.is_modified());
+        st.measure_note = Some(crate::app::pushdown::DialogNote {
+            unsaved,
+            ..Default::default()
+        });
+        let engine = conn.engine;
+        st.measure = Some(
+            self.spawn_server_task(conn, t("relmap.measure"), move |c, stop| {
+                let mut m = map.clone();
+                octa::db::pushdown::rel_measure::run(c, engine, &froms, &mut m, stop)?;
+                Ok(m)
+            }),
+        );
+    }
+
     pub(super) fn spawn_rel_map_scan(&self, st: &mut RelMapState, ctx: &egui::Context) {
         // Resolve the source on the UI thread: nothing is spawned for a
         // request that cannot run.
@@ -163,6 +223,12 @@ impl OctaApp {
             Folder(PathBuf, bool),
             Database(Box<octa::db::DbConnection>, Option<String>, Vec<String>),
         }
+        // A new map: the old Measure, its note and its error belonged to the
+        // one this replaces.
+        st.tab_sources.clear();
+        st.measure = None;
+        st.measure_note = None;
+        st.measure_error = None;
         let work = match st.source {
             RelMapSource::Tabs => {
                 let mut named = Vec::new();
@@ -181,6 +247,16 @@ impl OctaApp {
                     st.error = Some(t("joinkeys.need_two"));
                     return;
                 }
+                // Same filter as `named`, so the sources are index-parallel
+                // to the map's nodes.
+                let picked: Vec<&crate::app::state::TabState> =
+                    st.tabs.iter().filter_map(|&i| self.tabs.get(i)).collect();
+                st.tab_sources = crate::app::pushdown::server_sources_for(
+                    &picked,
+                    self.settings.db_pushdown,
+                    &self.settings.db_connections,
+                )
+                .unwrap_or_default();
                 Work::Tables(named)
             }
             RelMapSource::Folder => {

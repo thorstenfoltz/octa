@@ -127,6 +127,7 @@ impl eframe::App for OctaApp {
         self.drain_api_pending_open();
         self.drain_db_load_job();
         self.drain_sql_server_job();
+        self.drain_pushdown_job();
         self.run_pending_sql(&ctx);
         self.drain_db_write_back_job();
         self.drain_batch_convert();
@@ -148,6 +149,10 @@ impl eframe::App for OctaApp {
         if self.tabs[self.active_tab].sync_column_keys() {
             self.tabs[self.active_tab].filter_dirty = true;
         }
+        // After the write-back drain (a save that just landed is seen) and
+        // the column-key sync (the filters name the right columns).
+        self.sync_db_view(&ctx);
+        self.sync_chart_server(&ctx);
         if self.tabs[self.active_tab].filter_dirty {
             self.recompute_filter();
         }

@@ -19,6 +19,7 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
         has_data,
         current_view_mode,
         mark_filter_active,
+        source_has_more,
         ..
     } = cx;
     top_menu_button(
@@ -44,6 +45,17 @@ pub(super) fn data_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 .clicked()
             {
                 action.open_transform = true;
+                ui.close();
+            }
+            let load_all = ui
+                .add_enabled(
+                    source_has_more,
+                    egui::Button::new(crate::i18n::t("loadall.menu")),
+                )
+                .on_hover_text(crate::i18n::t("loadall.menu_hint"))
+                .on_disabled_hover_text(crate::i18n::t("loadall.menu_disabled_hint"));
+            if load_all.clicked() {
+                action.load_whole_table = true;
                 ui.close();
             }
             // Filter to marked: label flips to the "clear" variant when

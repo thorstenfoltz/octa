@@ -66,17 +66,11 @@ impl OctaApp {
             self.tabs[self.active_tab].filter_dirty = true;
         }
         if let Some(col_idx) = action.sort_rows_asc_by {
-            self.tabs[self.active_tab]
-                .table
-                .sort_rows_by_column(col_idx, true);
-            self.tabs[self.active_tab].filter_dirty = true;
+            self.sort_tab_rows(self.active_tab, &[(col_idx, true)]);
             self.record_sort(col_idx, true);
         }
         if let Some(col_idx) = action.sort_rows_desc_by {
-            self.tabs[self.active_tab]
-                .table
-                .sort_rows_by_column(col_idx, false);
-            self.tabs[self.active_tab].filter_dirty = true;
+            self.sort_tab_rows(self.active_tab, &[(col_idx, false)]);
             self.record_sort(col_idx, false);
         }
         if action.discard_edits {

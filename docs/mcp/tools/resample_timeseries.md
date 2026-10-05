@@ -24,6 +24,8 @@ column. The same engine that backs the GUI Time series dialog and CLI
 | `limit`      | integer  | no        | server default | Cap response rows (`0` = unlimited)                                   |
 | `unlimited`  | bool     | no        | `false`        | Lift the 2,000,000-row file-loader cap so the resample sees every row |
 
+`first` / `last` take the value at the earliest / latest time in each bucket.
+
 The bucket lands in a column named `bucket`, or `bucket_2` if the source
 already has a column called `bucket`.
 

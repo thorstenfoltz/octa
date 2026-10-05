@@ -54,6 +54,19 @@ impl OctaApp {
             tab.validation_violations.clear();
             return;
         }
+        // A tab sorted and filtered on the server already holds only the rows
+        // its filters keep. Filtering them again here would only add the
+        // differences between the two matchers, so only the parts the server
+        // could not apply exactly still filter.
+        let server_left = {
+            let tab = &self.tabs[self.active_tab];
+            super::db_view::server_leftovers(
+                tab,
+                self.settings.db_pushdown,
+                &self.settings.db_connections,
+                self.search_result_mode,
+            )
+        };
         let mode = self.search_result_mode;
         // Build the matcher under an immutable borrow that ends before the
         // mutable one below (the matcher is owned, so no borrow lingers).
@@ -63,8 +76,17 @@ impl OctaApp {
         };
         let mark_mode = self.settings.mark_filter_cell_mode;
         let tab = &mut self.tabs[self.active_tab];
-        let has_column_filters = !tab.column_filters.is_empty();
-        let has_predicates = !tab.predicate_filters.is_empty();
+        let has_column_filters = server_left.is_none() && !tab.column_filters.is_empty();
+        let local_predicates: Vec<octa::data::predicate_filter::PredicateFilter> =
+            match &server_left {
+                None => tab.predicate_filters.clone(),
+                Some(left) => left
+                    .predicates
+                    .iter()
+                    .filter_map(|&i| tab.predicate_filters.get(i).cloned())
+                    .collect(),
+            };
+        let has_predicates = !local_predicates.is_empty();
         // "Filter to marked": when active, keep only marked rows (union with
         // cell-derived rows per the mode). An empty row set means the marks
         // constrain columns only, so all rows are kept. ANDs with the text /
@@ -76,7 +98,8 @@ impl OctaApp {
         // In highlight mode the text search no longer hides rows; it only paints
         // matches. Excel-style column filters still hide rows in both modes.
         let highlight = super::state::effective_highlight(tab.view_mode, mode);
-        let text_hides_rows = matcher.is_some() && !highlight;
+        let text_hides_rows =
+            matcher.is_some() && !highlight && server_left.as_ref().is_none_or(|l| l.search);
         // Column range the text search scans (one column, or all).
         let col_count = tab.table.col_count();
         let (scope_lo, scope_hi) = match tab.search_scope_col {
@@ -113,22 +136,19 @@ impl OctaApp {
                     // 2. Excel-style column filters: every filtered column's
                     //    cell must appear in its allow-set. Filters AND with
                     //    each other and with the text search above.
-                    let values_ok = tab.column_filters.iter().all(|(&col, allowed)| {
-                        tab.table
-                            .get(row_idx, col)
-                            .map(|v| allowed.contains(&v.to_string()))
-                            .unwrap_or(false)
-                    });
+                    let values_ok = !has_column_filters
+                        || tab.column_filters.iter().all(|(&col, allowed)| {
+                            tab.table
+                                .get(row_idx, col)
+                                .map(|v| allowed.contains(&v.to_string()))
+                                .unwrap_or(false)
+                        });
                     if !values_ok {
                         return false;
                     }
                     // 3. Comparison filters (`amount > 1000`), which a value
                     //    allow-set cannot express. Also ANDed.
-                    octa::data::predicate_filter::row_passes(
-                        &tab.predicate_filters,
-                        &tab.table,
-                        row_idx,
-                    )
+                    octa::data::predicate_filter::row_passes(&local_predicates, &tab.table, row_idx)
                 })
                 .collect();
         }

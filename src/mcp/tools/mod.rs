@@ -38,6 +38,7 @@ pub mod fuzzy_join;
 pub mod generate_test_data;
 pub mod grep_files;
 pub mod harmonise_schemas;
+pub mod hash_columns;
 pub mod impute;
 pub mod join;
 pub mod list_api_connections;

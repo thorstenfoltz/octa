@@ -20,8 +20,8 @@ its tables connect without reading a single row. Takes a saved `connection` (see
 (default: every schema). Returns `relationships`, each naming the child and parent table and \
 column plus the `constraint` name. Postgres, MySQL, SQL Server, Oracle and Exasol enforce their foreign \
 keys, so an edge from those is also true of the rows; Redshift, Snowflake, Databricks and \
-BigQuery accept a declaration and enforce nothing. Pass `measure: true` to read a sample of rows \
-and add `overlap`, `score` and orphan counts both ways round per edge, which is how you find a \
+BigQuery accept a declaration and enforce nothing. Pass `measure: true` to count on the server, \
+over every row, and add `overlap`, `score` and orphan counts both ways round per edge, which is how you find a \
 declared key nothing honours (a declared key is measured child to parent, so `left_orphans` is \
 the child rows pointing at a parent that does not exist). ClickHouse has no foreign keys at all. Read-only.";
 
@@ -49,14 +49,11 @@ pub struct Params {
     #[serde(default)]
     pub max_tables: Option<usize>,
 
-    /// Also read a sample of rows and put real numbers on every edge.
-    /// Default false: the declaration alone costs no table data.
+    /// Also count, on the server and over every row, how many key values
+    /// find a partner, and put real numbers on every edge. Default false:
+    /// the declaration alone costs no table data.
     #[serde(default)]
     pub measure: bool,
-
-    /// Rows sampled per table when `measure` is set. Default 10000.
-    #[serde(default)]
-    pub sample: Option<usize>,
 }
 
 pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
@@ -86,23 +83,17 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let built = octa::db::relationships::build_db_map(&columns, &fks, wanted.as_ref(), max_tables);
     let mut map = built.map;
 
-    let sample = p
-        .sample
-        .unwrap_or(octa::data::join_keys::DEFAULT_SAMPLE_ROWS);
     if p.measure {
-        // One connection for every table, and the same scorer the GUI and
-        // suggest_join_keys use, so no two surfaces can report different
-        // numbers for one edge.
-        let mut tables: Vec<(String, octa::data::DataTable)> = Vec::new();
-        for node in &map.nodes {
-            let (schema, table) = node
-                .name
-                .split_once('.')
-                .unwrap_or(("", node.name.as_str()));
-            let sql = octa::db::select_sample_sql(conn.engine, catalog, schema, table, sample);
-            tables.push((node.name.clone(), c.query(&sql)?));
-        }
-        octa::data::rel_map::score_edges(&tables, &mut map, sample);
+        // The same exact count the GUI's Measure runs, so no two surfaces can
+        // report different numbers for one edge.
+        let froms = octa::db::pushdown::rel_measure::node_froms(&conn, catalog, &map);
+        octa::db::pushdown::rel_measure::run(
+            c.as_mut(),
+            conn.engine,
+            &froms,
+            &mut map,
+            &std::sync::atomic::AtomicBool::new(false),
+        )?;
     }
 
     let relationships: Vec<Value> = map
@@ -182,5 +173,15 @@ mod tests {
         assert_eq!(p.catalog.as_deref(), Some("sales_prod"));
         assert_eq!(p.tables.unwrap().len(), 2);
         assert!(p.measure);
+    }
+
+    #[test]
+    fn measure_no_longer_takes_a_sample() {
+        let p: Params = serde_json::from_value(serde_json::json!({
+            "connection": "c", "measure": true, "sample": 50
+        }))
+        .expect("an old client's sample is ignored, not refused");
+        assert!(p.measure);
+        assert!(DESCRIPTION.contains("every row"));
     }
 }

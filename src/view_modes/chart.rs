@@ -14,6 +14,7 @@ use egui_plot::{
     PlotPoints, Points,
 };
 
+use crate::app::chart_server::ChartShow;
 use crate::app::state::TabState;
 use crate::ui::theme::{ThemeColors, ThemeMode};
 use octa::data::chart::{
@@ -23,6 +24,7 @@ use octa::data::chart::{
 use octa::data::chart::{ChartConfig, ChartSeries};
 use octa::data::chart_export::{self, ExportOptions};
 use octa::data::forecast::{Band, TrendKind, forecast, forecast_table, overlays};
+use octa::db::pushdown::chart::ChartKey;
 use octa::i18n::t;
 use octa::ui::control_row::{control_row, control_text_edit};
 
@@ -56,8 +58,20 @@ pub fn render_chart_view(
     ui.separator();
 
     let cfg = tab.chart_config.clone();
-    let filtered: Vec<usize> = tab.filtered_rows.clone();
-    let mut prep = build_chart(&tab.table, &filtered, &cfg, limits);
+    // A chart from a database tab draws what the database answered.
+    let show = tab
+        .chart_server
+        .as_ref()
+        .map(|cs| cs.show(&ChartKey::of(&cfg, limits)));
+    draw_server_status(ui, tab, show.as_ref());
+    let mut prep = match show {
+        Some(ChartShow::Drawn(prep)) => prep,
+        Some(ChartShow::Waiting) => return Vec::new(),
+        Some(ChartShow::Local | ChartShow::NotExpressible) | None => {
+            let filtered: Vec<usize> = tab.filtered_rows.clone();
+            build_chart(&tab.table, &filtered, &cfg, limits)
+        }
+    };
 
     // Trend and forecast: Line charts over dates or numbers only. The
     // overlays are appended to the chart's own series, so the legend and
@@ -489,6 +503,75 @@ fn forecast_controls(ui: &mut egui::Ui, tab: &mut TabState, overlay_error: Optio
             });
         });
     to_table
+}
+
+/// A database chart's state above the plot: fetching, refused (Try again /
+/// Use the loaded rows), drawn from the copied rows by choice (Try again),
+/// or drawn from them because the engine cannot (the reason).
+fn draw_server_status(ui: &mut egui::Ui, tab: &mut TabState, show: Option<&ChartShow>) {
+    let Some(cs) = tab.chart_server.as_mut() else {
+        return;
+    };
+    let loaded = fmt_count(cs.loaded);
+    if matches!(show, Some(ChartShow::Waiting))
+        && !cs.local
+        && cs.pending.is_none()
+        && cs.error.is_none()
+        && cs.shown.is_none()
+    {
+        // The first sync ran before the defaults were seeded: look again.
+        // Waiting means a complete key, so the next sync sends the query and
+        // pending turns this off; an incomplete key never gets here.
+        ui.ctx().request_repaint();
+    }
+    if cs.local {
+        control_row(ui, |ui| {
+            octa::ui::message::partial_note_label(
+                ui,
+                &t("pushdown.chart_local").replace("{loaded}", &loaded),
+            );
+            if ui
+                .button(t("dbview.retry"))
+                .on_hover_text(t("pushdown.chart_retry_hint"))
+                .clicked()
+            {
+                cs.local = false;
+            }
+        });
+        return;
+    }
+    if let Some((_, e)) = cs.error.clone() {
+        let colour = ui.visuals().error_fg_color;
+        octa::ui::message::selectable_message(ui, colour, &e);
+        control_row(ui, |ui| {
+            if ui
+                .button(t("dbview.retry"))
+                .on_hover_text(t("pushdown.chart_retry_hint"))
+                .clicked()
+            {
+                cs.error = None;
+            }
+            if ui
+                .button(t("pushdown.use_loaded"))
+                .on_hover_text(t("pushdown.chart_use_loaded_hint").replace("{loaded}", &loaded))
+                .clicked()
+            {
+                cs.error = None;
+                cs.local = true;
+            }
+        });
+    } else if cs.pending.is_some() {
+        control_row(ui, |ui| {
+            ui.spinner();
+            ui.weak(t("pushdown.chart_updating"));
+        });
+    }
+    if matches!(show, Some(ChartShow::NotExpressible)) {
+        let reason = t("pushdown.chart_box_local")
+            .replace("{loaded}", &loaded)
+            .replace("{engine}", cs.src.engine().label());
+        ui.horizontal_wrapped(|ui| octa::ui::message::partial_note_label(ui, &reason));
+    }
 }
 
 /// On first entry: pick a sensible X column (first numeric one) and an

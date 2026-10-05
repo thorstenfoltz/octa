@@ -488,6 +488,9 @@ impl OctaApp {
             {
                 self.transform_dialog = Some(super::state::TransformState::default());
             }
+            if action_fired(SA::OpenHashColumns) {
+                self.open_hash_columns();
+            }
             if action_fired(SA::OpenConditionalColumn)
                 && self.tabs[self.active_tab].table.col_count() > 0
                 && !self.is_readonly()
@@ -514,7 +517,7 @@ impl OctaApp {
                 self.multi_sort_dialog = Some(super::state::MultiSortState::default());
             }
             if action_fired(SA::OpenSummary) && self.tabs[self.active_tab].table.col_count() > 0 {
-                self.open_describe_tab();
+                self.open_describe_tab(ctx);
             }
             if action_fired(SA::OpenNumberFormat)
                 && self.tabs[self.active_tab].table.col_count() > 0
@@ -706,7 +709,7 @@ impl OctaApp {
                 self.toggle_filter_to_marked();
             }
             if action_fired(SA::OpenQualityReport) {
-                self.open_quality_tab();
+                self.open_quality_tab(ctx);
             }
             if action_fired(SA::OpenRenameColumns)
                 && self.tabs[self.active_tab].table.col_count() > 0
@@ -798,6 +801,9 @@ impl OctaApp {
             if action_fired(SA::OpenRowCompare) {
                 self.open_row_compare_tab();
             }
+            if action_fired(SA::LoadWholeTable) {
+                self.open_load_all(ctx);
+            }
             if action_fired(SA::OpenRandomSample) && has_columns {
                 self.random_sample_dialog = Some(super::state::RandomSampleState::default());
             }
@@ -870,11 +876,15 @@ impl OctaApp {
         // connection in Settings takes effect immediately.
         // A large-file tab is read-only for a simpler reason: its rows are a
         // page fetched from disk, so an edit would be written onto a window
-        // that scrolls away. This is the single chokepoint every edit path
-        // funnels through, so no other gate is needed.
+        // that scrolls away. A tab whose database sort or filter is running
+        // is read-only until the new rows land, as they replace the old ones
+        // and would drop an edit made meanwhile. This is the single
+        // chokepoint every edit path funnels through, so no other gate is
+        // needed.
         self.readonly_mode
             || self.tabs.get(self.active_tab).is_some_and(|t| {
                 t.large.is_some()
+                    || t.view_task.is_some()
                     || t.db_origin
                         .as_ref()
                         .is_some_and(|o| !self.db_origin_writable(o))

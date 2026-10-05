@@ -56,6 +56,12 @@ the table `data`, the same as the [SQL panel](sql.md)). Because the
 output is a detached tab with no source path, **Save as** prompts for
 a new file and the original is safe.
 
+## On a live database
+
+On a database tab that holds only part of its table, Pivot runs on the
+database and Unpivot on the loaded rows; see
+[Analyses on live databases](analyses-on-live-databases.md#pivot-and-time-series).
+
 ## See also
 
 - [SQL Panel](sql.md) for arbitrary queries, including hand-written

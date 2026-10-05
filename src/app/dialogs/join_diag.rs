@@ -5,22 +5,53 @@
 //! report, and the hand-off button prefills the existing Join dialog rather
 //! than joining anything itself.
 //!
-//! Runs synchronously like `join_keys` does. The engine is sampled at
-//! `DEFAULT_SAMPLE_ROWS` and builds a handful of hash sets, so a worker thread
-//! would add machinery without buying responsiveness.
+//! On loaded rows it runs synchronously: the engine is sampled at
+//! `DEFAULT_SAMPLE_ROWS` and builds a handful of hash sets. On a live-database
+//! tab that does not hold every row it runs on the server in a worker
+//! (`octa::db::pushdown::join_diag`), and the fixes the engine's SQL cannot
+//! spell are computed on the loaded rows and listed apart.
 
 use eframe::egui;
 use egui::RichText;
 
+use octa::data::DataTable;
 use octa::data::join::{JoinOp, JoinType};
-use octa::data::join_diag::{JoinDiagnosis, diagnose};
+use octa::data::join_diag::{FixKind, JoinDiagnosis, SuggestedFix, diagnose};
 use octa::data::join_keys::DEFAULT_SAMPLE_ROWS;
 use octa::i18n::t;
 use octa::ui::settings::{
     DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
 };
 
+use super::super::pushdown::{DialogNote, ServerTask};
 use super::super::state::{JoinCondDraft, JoinState, OctaApp};
+
+/// What the server run hands back: its diagnosis, the fixes it could not
+/// check, and those fixes computed on the loaded rows.
+pub(crate) struct DiagOut {
+    pub(crate) diag: JoinDiagnosis,
+    pub(crate) not_checked: Vec<FixKind>,
+    pub(crate) local_fixes: Vec<SuggestedFix>,
+}
+
+/// The loaded-row fixes of just `kinds` (the ones the engine cannot spell).
+fn local_fixes_for(
+    left: &DataTable,
+    lcol: usize,
+    right: &DataTable,
+    rcol: usize,
+    sample: usize,
+    kinds: &[FixKind],
+) -> Vec<SuggestedFix> {
+    if kinds.is_empty() {
+        return Vec::new();
+    }
+    diagnose(left, lcol, right, rcol, sample)
+        .fixes
+        .into_iter()
+        .filter(|f| kinds.contains(&f.kind))
+        .collect()
+}
 
 pub(crate) struct JoinDiagState {
     pub(crate) size: DialogSize,
@@ -32,6 +63,12 @@ pub(crate) struct JoinDiagState {
     pub(crate) sample_buf: String,
     /// `None` until the user runs it.
     pub(crate) result: Option<JoinDiagnosis>,
+    /// The diagnosis running on the server.
+    pub(crate) server: Option<ServerTask<DiagOut>>,
+    pub(crate) note: Option<DialogNote>,
+    pub(crate) server_error: Option<String>,
+    /// Fixes the server could not check, computed on the loaded rows.
+    pub(crate) local_fixes: Vec<SuggestedFix>,
 }
 
 impl Default for JoinDiagState {
@@ -44,6 +81,10 @@ impl Default for JoinDiagState {
             right_col: 0,
             sample_buf: DEFAULT_SAMPLE_ROWS.to_string(),
             result: None,
+            server: None,
+            note: None,
+            server_error: None,
+            local_fixes: Vec::new(),
         }
     }
 }
@@ -155,7 +196,8 @@ fn side_picker(
     changed
 }
 
-fn render_report(ui: &mut egui::Ui, d: &JoinDiagnosis) {
+/// `has_local`: a loaded-row fix list follows, so "no fixes" would mislead.
+fn render_report(ui: &mut egui::Ui, d: &JoinDiagnosis, has_local: bool) {
     egui::Grid::new("join_diag_counts")
         .num_columns(3)
         .spacing([16.0, 4.0])
@@ -189,7 +231,9 @@ fn render_report(ui: &mut egui::Ui, d: &JoinDiagnosis) {
     ui.add_space(8.0);
     ui.label(RichText::new(t("joindiag.fixes")).strong());
     if d.fixes.is_empty() {
-        ui.weak(t("joindiag.no_fixes"));
+        if !has_local {
+            ui.weak(t("joindiag.no_fixes"));
+        }
     } else {
         for f in &d.fixes {
             ui.label(format!(
@@ -224,6 +268,48 @@ pub(crate) fn render_join_diag_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let mut run = false;
     let mut use_pair = false;
     let mut st = app.join_diag_dialog.take().unwrap();
+    use crate::app::pushdown::{TaskPoll, mixed_sources, server_sources_for};
+    match st.server.as_ref().map(|s| s.poll()) {
+        Some(TaskPoll::Pending) => ctx.request_repaint(),
+        Some(TaskPoll::Ready(out)) => {
+            st.server = None;
+            st.result = Some(out.diag);
+            st.local_fixes = out.local_fixes;
+            if let Some(n) = st.note.as_mut() {
+                n.local = out.not_checked.iter().map(|k| t(k.i18n_key())).collect();
+            }
+        }
+        Some(TaskPoll::Cancelled) => {
+            st.server = None;
+            st.note = None;
+            st.server_error = Some(t("pushdown.cancelled"));
+        }
+        Some(TaskPoll::Failed(e)) => {
+            st.server = None;
+            st.note = None;
+            st.server_error = Some(e);
+        }
+        None => {}
+    }
+    let (on_server, mixed, loaded) = {
+        let picked: Vec<&crate::app::state::TabState> = [st.left_tab, st.right_tab]
+            .iter()
+            .filter_map(|&i| app.tabs.get(i))
+            .collect();
+        let (on, conns) = (app.settings.db_pushdown, &app.settings.db_connections);
+        (
+            server_sources_for(&picked, on, conns).is_some(),
+            mixed_sources(&picked, on, conns),
+            // A self-join lists its tab twice; count its rows once.
+            picked
+                .iter()
+                .take(if st.left_tab == st.right_tab { 1 } else { 2 })
+                .map(|t| t.table.rows.len())
+                .sum::<usize>(),
+        )
+    };
+    let running = st.server.is_some();
+    let mut run_local = false;
     let mut size = st.size;
     let minimized = size == DialogSize::Minimized;
 
@@ -273,12 +359,14 @@ pub(crate) fn render_join_diag_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui
-                        .button(t("joindiag.run"))
-                        .on_hover_text(t("joindiag.run_hint"))
-                        .clicked()
-                    {
+                    let btn = ui.add_enabled(!running, egui::Button::new(t("joindiag.run")));
+                    if btn.clicked() {
                         run = true;
+                    }
+                    if running {
+                        btn.on_disabled_hover_text(t("pushdown.running"));
+                    } else {
+                        btn.on_hover_text(t("joindiag.run_hint"));
                     }
                     let has = st.result.is_some();
                     let btn = ui.add_enabled(has, egui::Button::new(t("joindiag.use_in_join")));
@@ -330,23 +418,57 @@ pub(crate) fn render_join_diag_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             if changed {
                 // The old report described different columns.
                 st.result = None;
+                st.note = None;
+                st.server_error = None;
+                st.local_fixes.clear();
+                st.server = None;
             }
 
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_row(ui, |ui| {
                 ui.label(t("joindiag.sample"))
                     .on_hover_text(t("joindiag.sample_hint"));
-                ui.add(
+                ui.add_enabled(
+                    !on_server,
                     egui::TextEdit::singleline(&mut st.sample_buf)
                         .desired_width(90.0)
                         .hint_text(DEFAULT_SAMPLE_ROWS.to_string()),
                 )
-                .on_hover_text(t("joindiag.sample_hint"));
+                .on_hover_text(t("joindiag.sample_hint"))
+                .on_disabled_hover_text(t("pushdown.sample_server_hint"));
             });
 
             ui.add_space(8.0);
             ui.separator();
             ui.add_space(4.0);
+
+            match crate::app::pushdown::server_status_ui(
+                ui,
+                st.server.is_some(),
+                st.server_error.as_deref(),
+                true,
+            ) {
+                crate::app::pushdown::ServerUi::Cancel => {
+                    // Say so at once: Oracle cannot cancel one running
+                    // statement, so the worker may take a while to stop.
+                    // Dropping the task cancels the statement.
+                    st.server = None;
+                    st.note = None;
+                    st.server_error = Some(t("pushdown.cancelled"));
+                }
+                crate::app::pushdown::ServerUi::RunLocal => run_local = true,
+                crate::app::pushdown::ServerUi::Idle => {}
+            }
+            if let Some(note) = &st.note
+                && st.result.is_some()
+            {
+                crate::app::pushdown::dialog_note_ui(ui, note);
+            } else if mixed {
+                octa::ui::message::partial_note_label(ui, &t("pushdown.mixed_sources"));
+            } else if on_server && st.result.is_some() {
+                // Run on loaded rows: say how many.
+                octa::ui::message::partial_note(ui, loaded, None);
+            }
 
             match &st.result {
                 None => {
@@ -356,7 +478,21 @@ pub(crate) fn render_join_diag_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     egui::ScrollArea::vertical()
                         .id_salt("join_diag_report")
                         .auto_shrink([false, false])
-                        .show(ui, |ui| render_report(ui, d));
+                        .show(ui, |ui| {
+                            render_report(ui, d, !st.local_fixes.is_empty());
+                            if !st.local_fixes.is_empty() {
+                                ui.add_space(8.0);
+                                ui.label(RichText::new(t("pushdown.local_fixes")).strong());
+                                for f in &st.local_fixes {
+                                    ui.label(format!(
+                                        "{}  ({} {})",
+                                        t(f.kind.i18n_key()),
+                                        f.would_match,
+                                        t("joindiag.fix_would_match")
+                                    ));
+                                }
+                            }
+                        });
                 }
             }
         });
@@ -367,14 +503,22 @@ pub(crate) fn render_join_diag_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     }
     st.size = size;
 
-    if run {
-        let sample = st
-            .sample_buf
-            .trim()
-            .replace([',', '_', '.'], "")
-            .parse::<usize>()
-            .unwrap_or(DEFAULT_SAMPLE_ROWS)
-            .max(1);
+    if run || run_local {
+        st.server_error = None;
+        st.note = None;
+        st.local_fixes.clear();
+        // The field is greyed out while the tabs are on the database: what
+        // runs on the loaded rows then uses every one of them.
+        let sample = if on_server {
+            usize::MAX
+        } else {
+            st.sample_buf
+                .trim()
+                .replace([',', '_', '.'], "")
+                .parse::<usize>()
+                .unwrap_or(DEFAULT_SAMPLE_ROWS)
+                .max(1)
+        };
         // Snapshot with edits applied, so the report describes what is on
         // screen rather than what was last saved.
         let snap = |idx: usize| {
@@ -382,9 +526,61 @@ pub(crate) fn render_join_diag_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             t.apply_edits();
             t
         };
-        let left = snap(st.left_tab);
-        let right = snap(st.right_tab);
-        st.result = Some(diagnose(&left, st.left_col, &right, st.right_col, sample));
+        let (l, r) = (&app.tabs[st.left_tab], &app.tabs[st.right_tab]);
+        let srcs = (!run_local)
+            .then(|| {
+                server_sources_for(
+                    &[l, r],
+                    app.settings.db_pushdown,
+                    &app.settings.db_connections,
+                )
+            })
+            .flatten();
+        let names = (
+            l.table.columns.get(st.left_col).map(|c| c.name.clone()),
+            r.table.columns.get(st.right_col).map(|c| c.name.clone()),
+        );
+        let unsaved = l.table.is_modified() || r.table.is_modified();
+        let loaded = if st.left_tab == st.right_tab {
+            l.table.rows.len()
+        } else {
+            l.table.rows.len() + r.table.rows.len()
+        };
+        if let (Some(mut srcs), (Some(lc), Some(rc))) = (srcs, names) {
+            let right = srcs.pop().expect("two sources");
+            let left = srcs.pop().expect("two sources");
+            st.note = Some(DialogNote {
+                unsaved,
+                loaded,
+                engine: Some(left.engine()),
+                ..Default::default()
+            });
+            st.result = None;
+            // Clone the loaded rows only when the engine leaves fixes to them.
+            let snaps = (!octa::db::pushdown::join_diag::unchecked_fixes(left.engine()).is_empty())
+                .then(|| (snap(st.left_tab), snap(st.right_tab)));
+            let (lci, rci) = (st.left_col, st.right_col);
+            let conn = left.conn.clone();
+            st.server = Some(
+                app.spawn_server_task(conn, t("joindiag.title"), move |c, stop| {
+                    let (diag, not_checked) =
+                        octa::db::pushdown::join_diag::run(c, &left, &lc, &right, &rc, stop)?;
+                    let local_fixes = snaps
+                        .as_ref()
+                        .map(|(ls, rs)| local_fixes_for(ls, lci, rs, rci, sample, &not_checked))
+                        .unwrap_or_default();
+                    Ok(DiagOut {
+                        diag,
+                        not_checked,
+                        local_fixes,
+                    })
+                }),
+            );
+        } else {
+            let left = snap(st.left_tab);
+            let right = snap(st.right_tab);
+            st.result = Some(diagnose(&left, st.left_col, &right, st.right_col, sample));
+        }
     }
 
     if use_pair {
@@ -408,5 +604,38 @@ pub(crate) fn render_join_diag_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
     if !close {
         app.join_diag_dialog = Some(st);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use octa::data::join_diag::FixKind;
+    use octa::data::{CellValue, ColumnInfo, DataTable};
+
+    fn col(vals: &[&str]) -> DataTable {
+        let mut t = DataTable::empty();
+        t.columns = vec![ColumnInfo {
+            name: "k".into(),
+            data_type: "Utf8".into(),
+        }];
+        t.rows = vals
+            .iter()
+            .map(|v| vec![CellValue::String((*v).into())])
+            .collect();
+        t
+    }
+
+    /// Only the kinds the server could not check are taken from the loaded
+    /// rows, so the two lists never repeat a fix.
+    #[test]
+    fn local_fixes_keep_only_the_unchecked_kinds() {
+        let l = col(&["a  b", "x-1", " c"]);
+        let r = col(&["a b", "x 1", "c"]);
+        let got = super::local_fixes_for(&l, 0, &r, 0, usize::MAX, &[FixKind::StripPunctuation]);
+        assert_eq!(
+            got.iter().map(|f| f.kind).collect::<Vec<_>>(),
+            [FixKind::StripPunctuation]
+        );
+        assert!(super::local_fixes_for(&l, 0, &r, 0, usize::MAX, &[]).is_empty());
     }
 }

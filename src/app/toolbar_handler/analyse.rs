@@ -85,7 +85,7 @@ impl OctaApp {
             self.open_file_internals_tab();
         }
         if action.open_describe_tab {
-            self.open_describe_tab();
+            self.open_describe_tab(ctx);
         }
         if action.open_pivot && self.tabs[self.active_tab].table.col_count() > 0 {
             self.pivot_dialog = Some(crate::app::state::PivotState::default());
@@ -97,7 +97,7 @@ impl OctaApp {
             self.toggle_cleanup_panel();
         }
         if action.open_quality {
-            self.open_quality_tab();
+            self.open_quality_tab(ctx);
         }
         if action.open_transpose {
             self.open_transpose_tab();

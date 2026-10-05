@@ -36,6 +36,33 @@ JSONL and every other format still open in Table view.
 | [**Timeline**](timeline.md)            | Any table with a date column         | Yes                           |
 | [**Compare**](compare.md)              | Any file (compared against another)  | Yes (it's a diff viewer)      |
 
+## Unsaved changes in every view
+
+Switching views never needs a save. Change a cell in the Table view,
+then switch to Raw text, the JSON or YAML tree, Markdown or the Compare
+text diff: the text shows the table the way **Save** would write it.
+Change the text instead and switch back: Table, Record, Chart, Timeline
+and Map all read the edited text. Closing the tab without saving still
+drops the changes, as it always did.
+
+Save writes whichever side you changed last: the text exactly as you
+typed it, or the table through the format's writer. Because the text
+view shows the table the way Save writes it, it can differ from your
+file in more places than your change, for example JSON indentation or
+YAML comments. A save would change those too, so this is your chance to
+see it before it happens.
+
+Two cases stop a switch, with the reason in a banner, rather than show
+something that is not your file:
+
+- **The text no longer reads as the file's format**, such as JSON with
+  a missing bracket. You stay in the text view to fix it or undo the
+  change.
+- **The file is only partly loaded as a table** because it has more
+  rows than the initial load limit. The text holds the whole file and
+  the table only its first rows, so neither can stand in for the other.
+  Save first, then switch.
+
 ## Open as... (files with a misleading extension)
 
 Which view modes a file offers depends on how it was parsed, and Octa

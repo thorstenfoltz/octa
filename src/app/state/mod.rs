@@ -94,6 +94,13 @@ pub(crate) struct TabState {
     /// or to re-format under a different quote/escape mode, without going
     /// back to disk. `None` for files that weren't loaded as raw text.
     pub(crate) raw_content_original: Option<String>,
+    /// The view the text and the table were last put in step for. Moving
+    /// between a text view and a table view is when one catches up with the
+    /// other (`view_sync`).
+    pub(crate) synced_view: (ViewMode, data::CompareMode),
+    /// Hash of `raw_content` when the table last matched it, so leaving a
+    /// text view reads the text again only when it really changed.
+    pub(crate) text_sync_hash: Option<u64>,
     /// Per-tab gate for raw-view column coloring. Defaults to `true`; flipped
     /// off by the slow-file prompt when the user enters the raw view of a
     /// large CSV/TSV. Not persisted - only governs this tab.
@@ -124,6 +131,10 @@ pub(crate) struct TabState {
     pub(crate) bg_loading_done: Arc<std::sync::atomic::AtomicBool>,
     pub(crate) bg_can_load_more: bool,
     pub(crate) bg_file_exhausted: Arc<std::sync::atomic::AtomicBool>,
+    /// A **Load whole table** download is filling this tab. Suspends the
+    /// front-row eviction in `drain_background_rows`, which would otherwise
+    /// drop the start of the table while its end arrives.
+    pub(crate) loading_all: bool,
     /// Pending vertical scroll offset for the markdown view's ScrollArea -
     /// set when the user clicks a `#fragment` link, applied next frame.
     pub(crate) markdown_scroll_target: Option<f32>,
@@ -256,6 +267,10 @@ pub(crate) struct TabState {
     /// tab. `None` = dialog closed. Set by Ctrl+Shift+I, column-header
     /// right-click -> "Value frequency...", or the Edit menu.
     pub(crate) value_frequency_col: Option<usize>,
+    /// The value-frequency dialog's count on the server, for a partial
+    /// live-database tab. `None` for every other tab, and after the dialog
+    /// closes, so reopening counts afresh.
+    pub(crate) vf_server: Option<crate::app::pushdown::VfServer>,
     /// Top-N cap shown in the value-frequency dialog. `None` means "all
     /// distinct values". Defaults to `Some(50)` per the F3 plan.
     pub(crate) value_frequency_top_n: Option<usize>,
@@ -399,6 +414,13 @@ pub(crate) struct TabState {
     /// one of them presented that as an answer about the file. The note
     /// travels with the result so it cannot be read without its scope.
     pub(crate) partial_source_note: Option<(usize, Option<usize>)>,
+    /// A result computed on the loaded rows of a database tab on purpose
+    /// (Unpivot, a text time column, Rolling on the loaded rows): why, and
+    /// the source for Load whole table.
+    pub(crate) loaded_rows_note: Option<(String, crate::app::pushdown::SourceKey)>,
+    /// Set on a Summary / quality / correlation result the database computed:
+    /// how many rows it covers and which parts came from the loaded rows.
+    pub(crate) pushdown_note: Option<crate::app::pushdown::PushdownNote>,
     /// One sentence answering "what am I looking at?", shown when the pointer
     /// rests on the tab. Set by the analysis tabs Octa opens on the user's
     /// behalf - a report tab arrives without the user having chosen its
@@ -431,6 +453,37 @@ pub(crate) struct TabState {
     /// everything else. Session-only; set by the search bar's Ask mode and
     /// removable from the chip row.
     pub(crate) predicate_filters: Vec<octa::data::predicate_filter::PredicateFilter>,
+    /// The sort the server applies, by column name (database view). Set
+    /// instead of permuting the rows when the tab sorts on the server.
+    pub(crate) server_sort: Vec<octa::db::pushdown::view::SortKey>,
+    /// Hash columns the database computes (database view), by name: what
+    /// the tab asks for, as `server_sort` is for the sort.
+    pub(crate) server_hashes: Vec<octa::db::pushdown::hash::ServerHash>,
+    /// Every name ever added to `server_hashes`: such a column is never
+    /// written back, even renamed or put back by Undo.
+    pub(crate) server_hash_seen: Vec<String>,
+    /// The view the loaded rows came from; `None` is the plain table.
+    pub(crate) server_view: Option<octa::db::pushdown::view::ServerView>,
+    /// A re-query in flight: the view it fetches, and its task.
+    pub(crate) view_task: Option<(
+        octa::db::pushdown::view::ServerView,
+        crate::app::pushdown::ServerTask<octa::data::DataTable>,
+    )>,
+    /// The user chose to keep the loaded rows for one view (unsaved edits).
+    pub(crate) view_hold: Option<crate::app::db_view::ViewHold>,
+    /// The last refusal or Cancel of a re-query, shown until the user picks
+    /// Try again or Use the loaded rows.
+    pub(crate) view_error: Option<String>,
+    /// The filter and sort settings behind the applied view, which Cancel in
+    /// the edits prompt puts back.
+    pub(crate) view_ui: Option<crate::app::db_view::ViewUiSnapshot>,
+    /// Typing in the search box settles before a query: the view waited for,
+    /// and since when.
+    pub(crate) view_settle: Option<(octa::db::pushdown::view::ServerView, std::time::Instant)>,
+    /// The facet popup's value list from the server.
+    pub(crate) facet_values: Option<crate::app::db_view::ServerValues>,
+    /// The Column Filter window's value list from the server.
+    pub(crate) filter_window_values: Option<crate::app::db_view::ServerValues>,
     /// Ask mode: the search box sends its text to an assistant instead of
     /// matching it. Session-only, per tab.
     pub(crate) search_ask_mode: bool,
@@ -562,6 +615,9 @@ pub(crate) struct TabState {
         u64,
         Result<octa::data::forecast::Overlays, octa::data::forecast::ForecastError>,
     )>,
+    /// Set when the chart was opened from a database tab that does not hold
+    /// every row: the chart asks the database (batch 5b).
+    pub(crate) chart_server: Option<crate::app::chart_server::ChartServer>,
     /// Set when this tab was opened from cloud storage. Carries the connection
     /// id + object key so a later save can write back (gated by
     /// `allow_writes`). `None` for local files.
@@ -738,6 +794,10 @@ pub(crate) struct OctaApp {
     /// Tab whose Save found the file changed on disk since it was opened,
     /// waiting on the overwrite / reload / cancel prompt.
     pub(crate) pending_overwrite_confirm: Option<usize>,
+    /// The **Load whole table** dialog, while it is up.
+    pub(crate) load_all: Option<crate::app::dialogs::load_all::LoadAllState>,
+    /// The question before a database sort or filter drops unsaved edits.
+    pub(crate) view_edit_prompt: Option<crate::app::db_view::ViewEditPrompt>,
     /// Tab whose Save is waiting on the partly-loaded confirmation.
     pub(crate) pending_partial_save_confirm: Option<usize>,
     /// The user answered "Save anyway" on that dialog, so the save it
@@ -942,6 +1002,8 @@ pub(crate) struct OctaApp {
     /// Active "Random sample" dialog state, or `None` when closed
     /// (`src/app/dialogs/random_sample.rs`).
     pub(crate) random_sample_dialog: Option<RandomSampleState>,
+    /// **Columns -> Hash columns...**, while it is up.
+    pub(crate) hash_columns_dialog: Option<crate::app::dialogs::hash_columns::HashColumnsState>,
     /// Active New-table dialog state, or `None` when closed. Opens a blank
     /// editable grid in a new tab (see `src/app/dialogs/new_table.rs`).
     pub(crate) new_table_dialog: Option<NewTableState>,
@@ -1084,6 +1146,10 @@ pub(crate) struct OctaApp {
     pub(crate) db_conn_cache: super::db_conn_cache::DbConnCache,
     /// In-flight "Run on server" SQL query, if any (one at a time).
     pub(crate) sql_server_job: Option<super::sql_panel::SqlServerJob>,
+    /// In-flight analysis running as SQL on the server (one at a time).
+    pub(crate) pushdown_job: Option<super::pushdown::PushdownJob>,
+    /// The server refused an analysis; shown until closed or re-run locally.
+    pub(crate) pushdown_error: Option<super::pushdown::PushdownError>,
     /// Every query run in any SQL editor, most recent first, each tagged with
     /// where it ran. Loaded once at start-up, written back on every run.
     pub(crate) sql_history: Vec<octa::sql::history::SqlHistoryEntry>,
@@ -1119,10 +1185,36 @@ pub(crate) struct DbLoadJob {
 }
 
 impl DbLoadJob {
+    /// A fresh handle: nothing finished, no cancel closure yet, not cancelled.
+    /// The owner keeps it on its own state and clones the three `Arc`s into
+    /// its worker; the status bar finds it through `OctaApp::busy_db_job`.
+    pub(crate) fn new(hint: String) -> Self {
+        Self {
+            hint,
+            finished: Default::default(),
+            cancel: Default::default(),
+            cancelled: Default::default(),
+        }
+    }
+
     /// Whether there is a cancel to offer yet. False while the worker is
     /// still connecting, and always false on an engine with no cancel.
     pub(crate) fn can_cancel(&self) -> bool {
         self.cancel.lock().is_ok_and(|c| c.is_some())
+    }
+
+    /// Raise the Cancel flag and fire the connector's cancel, if it has one.
+    /// Not once the worker has exited: the cached connection may be running
+    /// someone else's statement by then.
+    pub(crate) fn cancel_now(&self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        if !self.finished.load(std::sync::atomic::Ordering::Acquire)
+            && let Ok(c) = self.cancel.lock()
+            && let Some(f) = c.as_ref()
+        {
+            f();
+        }
     }
 }
 

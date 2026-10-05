@@ -40,7 +40,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         }
         octa::db::ensure_write_allowed(&conn, Some(&p.sql))?;
         let mut c = ctx.db_connect(&conn)?;
-        let affected = c.execute(&p.sql)?;
+        let affected = octa::db::with_identifier_fix(conn.engine, &p.sql, |s| c.execute(s)).0?;
         return Ok(json!({
             "kind": "mutation",
             "connection": conn.name,
@@ -48,7 +48,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         }));
     }
     let mut c = ctx.db_connect(&conn)?;
-    let table = c.query(&p.sql)?;
+    let table = octa::db::with_identifier_fix(conn.engine, &p.sql, |s| c.query(s)).0?;
     let row_cap = match p.limit {
         Some(n) => Some(n),
         None => ctx.default_row_limit,

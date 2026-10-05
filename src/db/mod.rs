@@ -34,10 +34,12 @@ pub mod copy;
 pub mod databricks;
 pub mod exasol;
 pub mod fetch_table;
+pub mod ident_fix;
 pub mod mssql;
 pub mod mysql;
 pub mod oracle;
 pub mod postgres;
+pub mod pushdown;
 pub mod relationships;
 pub(crate) mod rest;
 pub mod sigv4;
@@ -45,6 +47,8 @@ pub mod snowflake;
 pub mod ssh_tunnel;
 pub mod trino;
 pub mod write_back;
+
+pub use ident_fix::{quote_rejected_identifier, with_identifier_fix};
 
 /// Supported database engines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -134,14 +138,19 @@ impl DbEngine {
     /// needs before it can compare a number or a date against a search box.
     ///
     /// Every engine has one; none of them spell it the same way.
-    fn as_text(self, expr: &str) -> String {
+    pub(crate) fn as_text(self, expr: &str) -> String {
         match self {
             DbEngine::MySql => format!("CAST({expr} AS CHAR)"),
             DbEngine::Mssql => format!("CAST({expr} AS NVARCHAR(MAX))"),
             DbEngine::Oracle => format!("TO_CHAR({expr})"),
             DbEngine::ClickHouse => format!("toString({expr})"),
-            DbEngine::BigQuery => format!("CAST({expr} AS STRING)"),
-            // Postgres, Redshift, Exasol, Trino, Athena, Snowflake, Databricks
+            // Databricks (Spark) refuses VARCHAR without a length.
+            DbEngine::BigQuery | DbEngine::Databricks => format!("CAST({expr} AS STRING)"),
+            // Exasol requires a length; this is its maximum.
+            DbEngine::Exasol => format!("CAST({expr} AS VARCHAR(2000000))"),
+            // A bare VARCHAR is VARCHAR(256) on Redshift, too short for text.
+            DbEngine::Redshift => format!("CAST({expr} AS VARCHAR(65535))"),
+            // Postgres, Trino, Athena, Snowflake
             _ => format!("CAST({expr} AS VARCHAR)"),
         }
     }
@@ -1098,7 +1107,12 @@ pub fn create_table_sql(
 
 /// `[<catalog>.]<schema>.<table>` in the engine's own quoting. `catalog` is
 /// set only for three-level engines (Snowflake/Databricks/BigQuery).
-fn qualified_name(engine: DbEngine, catalog: Option<&str>, schema: &str, table: &str) -> String {
+pub(crate) fn qualified_name(
+    engine: DbEngine,
+    catalog: Option<&str>,
+    schema: &str,
+    table: &str,
+) -> String {
     let mut name = String::new();
     if let Some(cat) = catalog {
         name.push_str(&engine.quote_ident(cat));
@@ -1149,6 +1163,15 @@ pub fn select_sample_sql(
         DbEngine::Oracle => format!("SELECT * FROM {name} FETCH FIRST {n} ROWS ONLY"),
         _ => format!("SELECT * FROM {name} LIMIT {n}"),
     }
+}
+
+/// Rows in a table, as one cell aliased `n`. Snowflake upper-cases the
+/// alias, so read it case-insensitively.
+pub fn count_sql(engine: DbEngine, catalog: Option<&str>, schema: &str, table: &str) -> String {
+    format!(
+        "SELECT COUNT(*) AS n FROM {}",
+        qualified_name(engine, catalog, schema, table)
+    )
 }
 
 /// The whole table, unlimited. This is the base query [`paged_sql`] wraps when
@@ -1741,6 +1764,18 @@ mod tests {
         assert_eq!(
             qualified_name(DbEngine::Snowflake, Some("db"), "", "orders"),
             "\"db\".\"orders\""
+        );
+    }
+
+    #[test]
+    fn count_sql_qualifies_like_select() {
+        assert_eq!(
+            count_sql(DbEngine::Postgres, None, "public", "my table"),
+            "SELECT COUNT(*) AS n FROM \"public\".\"my table\""
+        );
+        assert_eq!(
+            count_sql(DbEngine::Mssql, None, "dbo", "t"),
+            "SELECT COUNT(*) AS n FROM [dbo].[t]"
         );
     }
 

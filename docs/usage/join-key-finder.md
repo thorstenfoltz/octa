@@ -210,8 +210,10 @@ of `left_distinct_values` and `right_orphans` out of
 
 ## No language model is involved
 
-This is set arithmetic over the sampled values, computed on your own
-machine. Nothing is sent anywhere, no model is consulted, and the same
+This is set arithmetic, computed on your own machine over the sampled
+values, or by your own database when the tables are
+[database tabs that hold only part of their table](analyses-on-live-databases.md#keys-and-relationships).
+Nothing is sent anywhere else, no model is consulted, and the same
 tables always produce the same ranking. The only features in Octa that
 talk to a language model are the Chat assistant and the two
 plain-language **Ask** boxes, all listed in the

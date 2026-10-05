@@ -39,7 +39,7 @@ Add `--mcp-read-only` to expose a **read-only tool surface**: every
 file-writing tool is omitted from the server, so an agent wired to Octa
 can inspect and query data but cannot modify files. The dropped tools are
 `write_table`, `write_workbook`, `edit_table`, `convert`, `batch_convert`,
-`transform_columns`, `anonymize`, `partition_table`, `create_report`,
+`transform_columns`, `anonymize`, `hash_columns`, `partition_table`, `create_report`,
 `harmonise_schemas`, `write_db_table`, `copy_db_table`, `copy_object`,
 `move_object` and `delete_object`.
 
@@ -94,7 +94,7 @@ The groups are:
 | `quality`   | ~5,000  | `find_duplicates`, `fuzzy_duplicates`, `unique_columns`, `detect_outliers`, `detect_pii`, `check_rules`, `validate_against_schema`, `check_references`, `correlation`, `compare_distributions` |
 | `compare`   | ~2,900  | `compare_schemas`, `diff_tables`, `data_drift`, `schema_drift`, `export_schema`                                                                                                                |
 | `combine`   | ~4,000  | `union_tables`, `join_tables`, `fuzzy_join`, `suggest_join_keys`, `diagnose_join`, `harmonise_schemas`                                                                                         |
-| `reshape`   | ~6,000  | `pivot`, `resample_timeseries`, `rolling_window`, `drop_duplicates`, `fill_missing`, `transform_columns`, `anonymize`, `partition_table`                                                       |
+| `reshape`   | ~6,000  | `pivot`, `resample_timeseries`, `rolling_window`, `drop_duplicates`, `fill_missing`, `transform_columns`, `anonymize`, `hash_columns`, `partition_table`                                       |
 | `databases` | ~3,000  | `list_db_connections`, `list_db_tables`, `db_relationships`, `query_db`, `sync_sql`, `write_db_table`, `copy_db_table`                                                                         |
 | `cloud`     | ~1,300  | `list_objects`, `copy_object`, `move_object`, `delete_object`                                                                                                                                  |
 | `write`     | ~5,100  | `write_table`, `write_workbook`, `edit_table`, `convert`, `batch_convert`, `create_report`                                                                                                     |

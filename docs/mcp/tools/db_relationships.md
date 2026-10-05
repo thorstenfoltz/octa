@@ -20,8 +20,7 @@ Read-only, and kept when the server runs with `--mcp-read-only`.
 | `schemas`    | array of string   | Schemas to read. Empty: every schema the connection lists                               |
 | `tables`     | array of string   | Draw only these `schema.table` labels. Absent: the tables taking part in a foreign key  |
 | `max_tables` | integer           | Tables carried in the answer before it stops. Default 30                                |
-| `measure`    | boolean           | Also read a sample of rows and score every edge. Default false                          |
-| `sample`     | integer           | Rows sampled per table when `measure` is set. Default 10000                             |
+| `measure`    | boolean           | Also count every row on the server and score every edge. Default false                  |
 
 ## Result
 
@@ -59,8 +58,10 @@ Read-only, and kept when the server runs with `--mcp-read-only`.
   enforce nothing**. A child value pointing at a parent that does not
   exist is entirely possible there.
 
-`measure: true` settles it. Each edge then also carries `overlap`,
-`score` and both orphan counts (`left_orphans` out of
+`measure: true` settles it. The server counts, over every row of each
+table, how many key values find a partner on the other side, so nothing
+is sampled and no rows travel to Octa. Each edge then also carries
+`overlap`, `score` and both orphan counts (`left_orphans` out of
 `left_distinct_values`, `right_orphans` out of `right_distinct_values`),
 computed by the same scorer
 [`suggest_join_keys`](suggest_join_keys.md#how-the-score-is-calculated)
@@ -78,8 +79,9 @@ with a pointer to `suggest_join_keys` over exported files.
 - At most 30 tables by default; `truncated` says when it stopped.
 - A declared key whose other end is not drawn is counted in
   `skipped_edges` rather than reported as an edge into nowhere.
-- Measuring samples 10,000 rows per table, so a clean result is strong
-  evidence rather than proof.
+- Measuring reads every row of every drawn table on the server. On billed
+  engines (BigQuery, Snowflake) that costs money; a clean result is then
+  proof, not just evidence.
 
 ## See also
 

@@ -74,7 +74,7 @@ impl OctaApp {
         // A read-only format (SAS, HDF5, ...) can't be written, so a save would
         // only toast an error every tick. Raw-text edits still save (they write
         // the buffer directly, bypassing the reader), so only gate table edits.
-        if !tab.raw_content_modified
+        if !tab.saves_text()
             && let Some(path) = tab.table.source_path.as_ref()
             && let Some(reader) = self.registry.reader_for_path(std::path::Path::new(path))
             && !reader.supports_write()

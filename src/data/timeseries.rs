@@ -150,7 +150,7 @@ fn require(col: &str, cols: &[String]) -> Result<(), TimeseriesError> {
 }
 
 /// A name for the bucket column that no source column already uses.
-fn bucket_name(cols: &[String]) -> String {
+pub fn bucket_name(cols: &[String]) -> String {
     let mut name = "bucket".to_string();
     let mut n = 2;
     while cols.iter().any(|c| c == &name) {
@@ -173,21 +173,21 @@ pub fn build_resample_sql(spec: &ResampleSpec, cols: &[String]) -> Result<String
     let bucket = bucket_name(cols);
     // TRY_CAST, not CAST: a text timestamp column that has one unparseable row
     // should bucket the rest rather than failing the whole query.
-    let trunc = format!(
-        "date_trunc('{}', TRY_CAST({} AS TIMESTAMP))",
-        spec.interval.unit(),
-        quote_ident(&spec.time_col)
-    );
+    let ts = format!("TRY_CAST({} AS TIMESTAMP)", quote_ident(&spec.time_col));
+    let trunc = format!("date_trunc('{}', {ts})", spec.interval.unit());
 
     let mut select = vec![format!("{trunc} AS {}", quote_ident(&bucket))];
     select.extend(spec.group_by.iter().map(|g| quote_ident(g)));
     select.extend(spec.value_cols.iter().map(|v| {
-        format!(
-            "{}({}) AS {}",
-            spec.agg.sql_fn(),
-            quote_ident(v),
-            quote_ident(v)
-        )
+        // First / Last: the value at the earliest / latest time in the bucket,
+        // as on a database (which has no row order). `first` / `last` would
+        // follow the file's row order instead.
+        let call = match spec.agg {
+            TimeAgg::First => format!("arg_min({}, {ts})", quote_ident(v)),
+            TimeAgg::Last => format!("arg_max({}, {ts})", quote_ident(v)),
+            agg => format!("{}({})", agg.sql_fn(), quote_ident(v)),
+        };
+        format!("{call} AS {}", quote_ident(v))
     }));
 
     let mut group = vec![trunc.clone()];
@@ -247,11 +247,16 @@ pub fn explain_resample(spec: &ResampleSpec) -> String {
     } else {
         format!(", separately for each {}", spec.group_by.join(" and "))
     };
+    let agg = match spec.agg {
+        TimeAgg::First => "value at the earliest time".to_string(),
+        TimeAgg::Last => "value at the latest time".to_string(),
+        a => a.sql_fn().to_string(),
+    };
     format!(
         "Group the rows into one bucket per {} of \"{}\", then take the {} of {}{}.",
         spec.interval.unit(),
         spec.time_col,
-        spec.agg.sql_fn(),
+        agg,
         spec.value_cols
             .iter()
             .map(|v| format!("\"{v}\""))

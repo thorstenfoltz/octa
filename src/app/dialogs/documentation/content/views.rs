@@ -70,6 +70,24 @@ Text. You can always switch to another mode from the View menu; this
 just picks a sensible starting point. JSONL and every other format
 still open in Table view.
 
+## Unsaved changes in every view
+
+Switching views never needs a save. Change a cell in the Table view, then
+switch to Raw text, the JSON or YAML tree, Markdown or the Compare text diff:
+the text shows the table the way **Save** would write it. Change the text
+instead and switch back: Table, Record, Chart, Timeline and Map all read the
+edited text. Closing the tab without saving still drops the changes.
+
+Save writes whichever side you changed last: the text exactly as you typed
+it, or the table through the format's writer. The text view shows the table
+the way Save writes it, so it can differ from your file in more places than
+your change (JSON indentation, YAML comments). A save would change those too.
+
+Two cases stop a switch, with the reason in a banner: text that no longer
+reads as the file's format (you stay in the text view to fix or undo it), and
+a file only partly loaded as a table, where the text holds the whole file and
+the table only its first rows. Save first, then switch.
+
 ## Open as... (a file with a misleading extension)
 
 Which views a file offers depends on how it was parsed, and Octa parses it
@@ -270,7 +288,7 @@ time column; **F4** cycles to it.
 
 **Columns.** **Start** and **End** pick the first two date columns by
 themselves; End **(none)** turns every row into a point. **Label** is the text
-shown when you hover a bar. **Lane** groups the bars into bands, one per value
+written on each bar where it fits and shown when you hover one. **Lane** groups the bars into bands, one per value
 (a room, a person); overlaps are only looked for inside a lane.
 
 **Overlaps.** Bars in the same lane that share time are outlined in the
@@ -286,8 +304,11 @@ above the timeline (hover it for the row numbers); a row without a start is
 left out and counted.
 
 **Moving around.** Drag or scroll to move (Shift scrolls sideways), Ctrl and
-scroll to zoom, double-click to see
-everything. Click a bar to select its row, then switch to Table or Record view
+scroll to zoom, double-click or **Fit** to see everything. **Time + / -**
+zooms only the time axis, **Lanes + / -** only the lanes, so a year of data
+fits on one screen with every lane still readable. The view stops at the
+first and last bar instead of scrolling on into empty years, and the time
+axis labels follow the zoom: years, months, days, then hours. Click a bar to select its row, then switch to Table or Record view
 to land on it. The timeline follows the search and column filters.
 
 **Elsewhere.** `octa --overlaps FILE --overlaps-lane room` prints the same
@@ -404,6 +425,11 @@ always work off the full input.
 - **Right-drag a box** zooms into that region.
 - **Double-click** resets to auto-bounds.
 - **Hover** a point or bar to see its coordinates in a tooltip.
+
+## On a live database
+
+A chart opened from a database tab that holds only part of its table draws
+over the whole table, asking the database; see Analyses on Live Databases.
 "#;
 
 pub const SQL_VIEW: &str = r#"# SQL View
@@ -816,6 +842,54 @@ Unloading is refused, not warned about, when it would lose data:
   tab or a paste has nothing to read back.
 
 The button is disabled in both cases and explains which one applies.
+"#;
+
+pub const LOAD_WHOLE_TABLE: &str = r#"# Load Whole Table
+
+A tab does not always hold every row of its source:
+
+- A **database table** opens one page at a time. How big a page is comes from
+  **Settings > Performance > Live database page size**, and scrolling to the
+  bottom fetches the next one.
+- A **file** stops at **Initial-load row cap** in the same section.
+
+Whatever works on the tab's rows, such as Summary, Value frequency, a chart or
+the relationship map, then sees only those rows. **Data > Load whole table...**
+fetches the rest.
+
+## How it works
+
+1. Octa counts first. For a database it asks the server with one
+   `SELECT COUNT(*)`, which reads no rows. A file that knows its own size
+   (Parquet, for example) says so straight away. A CSV cannot know without
+   reading all of it, and the dialog says that instead of guessing.
+2. The dialog shows how many rows the source has and how many the tab holds
+   now. Nothing is downloaded until you click **Load all**.
+3. The rest arrives in large batches. The status bar shows the progress and a
+   **Cancel** button. Cancelling keeps every row that already arrived, and the
+   tab can still scroll for more later.
+
+While a whole table loads, Octa does not drop rows from the start of the tab
+to save memory, as it otherwise does past three million rows. You asked for
+all of them.
+
+## Where to find it
+
+- **Data > Load whole table...**
+- Right-click a tab, then **Load whole table...**
+- A keyboard shortcut you can set under **Settings > Shortcuts** (none by
+  default).
+
+The entry is greyed out when the tab already holds every row.
+
+## Good to know
+
+- A large table takes time and memory. The count in the dialog is there so
+  you know what you are asking for.
+- A database tab stays a database tab. Edits and **Save** still write back to
+  the server exactly as before.
+- Another database read already running (opening a table, the next page)
+  has to finish first. The dialog says so.
 "#;
 
 pub const LARGE_FILES: &str = r#"# Large Files

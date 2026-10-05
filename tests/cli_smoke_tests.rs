@@ -205,6 +205,10 @@ fn every_file_action_runs_and_prints_its_header() {
         (vec!["--outliers", &a], "row\tcolumn\tvalue"),
         (vec!["--impute", "amount=mean", &a], "id\tcity\tamount"),
         (
+            vec!["--hash-columns", "id,city", "--hash-algo", "sha256", &a],
+            "id\tcity\tamount\thash_id_city",
+        ),
+        (
             vec!["--validate-schema", &a, "--expect-schema", &schema],
             "status\tcolumn\tactual_type\texpected_type",
         ),

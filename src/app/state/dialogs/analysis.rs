@@ -166,6 +166,28 @@ pub(crate) struct LookupsState {
     /// Per finding (by index), the dependents ticked for Split out.
     pub(crate) ticked: Vec<std::collections::BTreeSet<usize>>,
     pub(crate) size: DialogSize,
+    /// The scan running on the server: findings and the table's row count.
+    pub(crate) server:
+        Option<crate::app::pushdown::ServerTask<(Vec<octa::data::lookups::LookupFinding>, usize)>>,
+    /// The table's row count from a server scan.
+    pub(crate) total: Option<usize>,
+    /// `Some` once the findings came from the server.
+    pub(crate) note: Option<crate::app::pushdown::DialogNote>,
+    pub(crate) server_error: Option<String>,
+    /// The action waiting on "loaded rows or fetch?".
+    pub(crate) prompt: Option<LookupAct>,
+    /// Breaking rows / Split out fetched from the server.
+    pub(crate) fetch:
+        Option<crate::app::pushdown::ServerTask<crate::app::dialogs::lookups::LookupFetch>>,
+    /// The key column's name, for the fetched tabs' labels.
+    pub(crate) fetch_key: String,
+}
+
+/// A finding's footer action, by finding index.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum LookupAct {
+    Breaking(usize),
+    Split(usize),
 }
 
 impl LookupsState {
@@ -179,6 +201,13 @@ impl LookupsState {
             findings: None,
             ticked: Vec::new(),
             size: DialogSize::default(),
+            server: None,
+            total: None,
+            note: None,
+            server_error: None,
+            prompt: None,
+            fetch: None,
+            fetch_key: String::new(),
         }
     }
 }
@@ -359,6 +388,24 @@ pub(crate) struct TimeseriesState {
     /// Recomputed only when `preview_key` changes, never per frame.
     pub(crate) preview: Option<Result<octa::data::DataTable, String>>,
     pub(crate) preview_key: u64,
+    /// The Rolling question on a database tab: the row count being taken,
+    /// then the answer. `Some` keeps the dialog open behind the question.
+    pub(crate) rolling_ask: Option<RollingAsk>,
+}
+
+/// Rolling window on a database tab, while the user is asked where to run
+/// it. Dropping it (Cancel, dialog closed) cancels a count still running.
+pub(crate) struct RollingAsk {
+    pub(crate) count: Option<crate::app::pushdown::ServerTask<usize>>,
+    pub(crate) total: Option<Result<usize, String>>,
+    pub(crate) job: crate::app::pushdown::ReshapeJob,
+    pub(crate) src: octa::db::pushdown::ServerSource,
+    /// The tab it was asked for: the answer runs there, even if another
+    /// tab is active by then.
+    pub(crate) source: crate::app::pushdown::SourceKey,
+    /// The engine can run this window exactly (ClickHouse First / Last
+    /// cannot).
+    pub(crate) server_ok: bool,
 }
 
 impl Default for TimeseriesState {
@@ -377,6 +424,7 @@ impl Default for TimeseriesState {
             size: ui::settings::DialogSize::Normal,
             preview: None,
             preview_key: 0,
+            rolling_ask: None,
         }
     }
 }

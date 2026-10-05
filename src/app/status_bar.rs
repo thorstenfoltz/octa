@@ -42,8 +42,8 @@ impl OctaApp {
         // waits for that closure rather than appearing with the spinner, so
         // it is never shown while connecting, nor at all on Oracle, which has
         // no cancel to give.
-        let db_load_hint = self.db_load_job.as_ref().map(|j| j.hint.clone());
-        let db_load_cancellable = self.db_load_job.as_ref().is_some_and(|j| j.can_cancel());
+        let db_load_hint = self.busy_db_job().map(|j| j.hint.clone());
+        let db_load_cancellable = self.busy_db_job().is_some_and(|j| j.can_cancel());
         let asking = self.ask_filter_job.is_some() || self.ask_sql_job.is_some();
         // Union: cloud listing/download and the local read phase all report
         // through one progress object, so the spinner spans them.

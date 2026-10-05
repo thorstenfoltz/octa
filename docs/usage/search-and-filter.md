@@ -308,6 +308,11 @@ itself as you work.
 - Filters live with the tab. Closing the tab discards them; they are
   not saved to disk.
 
+On a database tab that holds only part of its table, the search box (Plain
+and Wildcard), the value filters and the comparison filters run on the
+database over the whole table; see
+[Analyses on live databases](analyses-on-live-databases.md#sorting-filtering-and-sampling).
+
 !!! note "Select none"
 
     Unchecking every value with **Select none** + **Apply** hides

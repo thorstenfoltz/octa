@@ -520,6 +520,7 @@ fn read_only_server_hides_the_write_tools() {
         "convert",
         "transform_columns",
         "anonymize",
+        "hash_columns",
         "partition_table",
         "write_db_table",
         "copy_db_table",

@@ -62,7 +62,9 @@ them.
 - Keys are single columns. A lookup that needs two columns together as its key
   is not found.
 - On a partially loaded file, the scan sees only the loaded rows; the dialog
-  says so.
+  says so. A database tab that holds only part of its table is scanned on
+  the database over every row instead; see
+  [Analyses on live databases](analyses-on-live-databases.md#keys-and-relationships).
 
 ## See also
 

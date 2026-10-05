@@ -47,6 +47,14 @@ beside it says exactly what is missing ("Choose a time column.").
 The bucket lands in a column named `bucket`. If your table already has a
 column called `bucket`, the new one is named `bucket_2` instead.
 
+**First** and **Last** take the value at the earliest and latest time in
+each bucket (rows without a value are skipped), whatever order the rows
+are in.
+
+On a database tab that holds only part of its table, both modes run on the
+database; see
+[Analyses on live databases](analyses-on-live-databases.md#pivot-and-time-series).
+
 ### Rolling window
 
 | Field                | Meaning                                          |

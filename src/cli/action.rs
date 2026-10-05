@@ -177,6 +177,16 @@ pub enum Action {
         path: PathBuf,
         specs: Vec<String>,
     },
+    HashColumns {
+        path: PathBuf,
+        columns: String,
+        algo: Option<String>,
+        delimiter: Option<String>,
+        null_text: Option<String>,
+        trim: bool,
+        upper: bool,
+        name: Option<String>,
+    },
     Outliers {
         path: PathBuf,
         method: Option<String>,

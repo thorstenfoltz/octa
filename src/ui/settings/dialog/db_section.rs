@@ -50,11 +50,17 @@ fn auth_uses_secret(kind: DbAuthKind) -> bool {
 impl SettingsDialog {
     /// Body of the "Databases" Settings section.
     pub(super) fn db_section_body(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        crate::ui::control_row::control_row(ui, |ui| {
             ui.label(t("settings.confirm_db_write_back"))
                 .on_hover_text(t("settings_hint.confirm_db_write_back"));
             ui.checkbox(&mut self.draft.confirm_db_write_back, "")
                 .on_hover_text(t("settings_hint.confirm_db_write_back"));
+        });
+        crate::ui::control_row::control_row(ui, |ui| {
+            ui.label(t("settings.db_pushdown"))
+                .on_hover_text(t("settings_hint.db_pushdown"));
+            ui.checkbox(&mut self.draft.db_pushdown, "")
+                .on_hover_text(t("settings_hint.db_pushdown"));
         });
         ui.separator();
         self.db_connection_list(ui);

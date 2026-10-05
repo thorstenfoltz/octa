@@ -53,7 +53,7 @@ impl OctaApp {
     /// Shared by the write-back modal and the SQL export so the two can never
     /// disagree about what a save would do. `Err` carries the message to show;
     /// `Ok(None)` means "nothing to write", which is not an error.
-    fn db_plan_for_tab(
+    pub(crate) fn db_plan_for_tab(
         &self,
         tab_idx: usize,
     ) -> Result<
@@ -82,6 +82,8 @@ impl OctaApp {
         };
         let mut snapshot = self.tabs[tab_idx].table.clone();
         snapshot.apply_edits();
+        // Hash columns the database computes are never written back.
+        octa::db::write_back::drop_columns(&mut snapshot, &self.tabs[tab_idx].server_hash_seen);
         let plan = octa::db::write_back::build_write_back_plan(&snapshot, &identity)
             .map_err(|e| format!("{} {e:#}", t("db.wb_failed")))?;
         if plan.is_empty() {
@@ -262,6 +264,9 @@ impl OctaApp {
                     tab.table.apply_edits();
                     retag_db_meta(tab);
                     tab.table.clear_modified();
+                    // Nothing unsaved holds the loaded rows any more: the
+                    // tab's sort and filters go back to the server.
+                    tab.view_hold = None;
                 }
                 let n = report.deleted + report.updated + report.inserted;
                 self.status_message = Some((
@@ -291,20 +296,8 @@ fn retag_db_meta(tab: &mut TabState) {
     let Some(origin) = tab.db_origin.as_ref() else {
         return;
     };
-    let original: std::collections::HashMap<i64, Vec<octa::data::CellValue>> = tab
-        .table
-        .rows
-        .iter()
-        .enumerate()
-        .map(|(i, r)| (i as i64, r.clone()))
-        .collect();
-    tab.table.db_meta = Some(octa::data::DbRowMeta {
-        table_name: origin.table.clone(),
-        schema: Some(origin.schema.clone()),
-        row_tags: (0..tab.table.rows.len()).map(|i| Some(i as i64)).collect(),
-        original,
-        original_columns: tab.table.columns.iter().map(|c| c.name.clone()).collect(),
-    });
+    let (name, schema) = (origin.table.clone(), origin.schema.clone());
+    crate::app::db_browser::baseline_db_meta(&mut tab.table, &name, &schema);
 }
 
 /// The forced-choice confirmation modal (no close 'x'; Confirm / Cancel

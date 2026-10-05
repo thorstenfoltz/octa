@@ -116,3 +116,28 @@ fn empty_values_are_not_treated_as_keys() {
     assert_eq!(d.distinct_left, 1, "only `a` counts");
     assert_eq!(d.matched_left, 0);
 }
+
+#[test]
+fn fixes_from_counts_keeps_strict_improvements_most_helpful_first() {
+    let got = fixes_from_counts(
+        2,
+        [
+            (FixKind::TrimWhitespace, 3),
+            (FixKind::IgnoreCase, 2),
+            (FixKind::StripLeadingZeros, 5),
+        ],
+    );
+    assert_eq!(
+        got,
+        vec![
+            SuggestedFix {
+                kind: FixKind::StripLeadingZeros,
+                would_match: 5
+            },
+            SuggestedFix {
+                kind: FixKind::TrimWhitespace,
+                would_match: 3
+            },
+        ]
+    );
+}

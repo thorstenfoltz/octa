@@ -36,11 +36,13 @@ pub(crate) mod find_fuzzy_duplicates;
 pub(crate) mod fuzzy_join;
 pub(crate) mod git_compare;
 pub(crate) mod harmonise;
+pub(crate) mod hash_columns;
 pub(crate) mod impute;
 pub(crate) mod join;
 pub(crate) mod join_diag;
 pub(crate) mod join_keys;
 pub(crate) mod large_file_notice;
+pub(crate) mod load_all;
 pub(crate) mod lookups;
 pub(crate) mod merge_versions;
 pub(crate) mod multi_sort;
@@ -106,6 +108,8 @@ impl OctaApp {
         delete_columns::render_delete_columns_dialog(self, ctx);
         file_changed::render_file_changed_dialog(self, ctx);
         partial_save::render_partial_save_dialog(self, ctx);
+        load_all::render_load_all_dialog(self, ctx);
+        self.render_pushdown_error(ctx);
         unsaved_changes::render_close_confirm_dialog(self, ctx);
         unsaved_changes::render_open_confirm_dialog(self, ctx);
         table_picker::render_table_picker(self, ctx);
@@ -121,6 +125,7 @@ impl OctaApp {
         xlsx_style_save::render_xlsx_style_save_dialog(self, ctx);
         schema_change_save::render_schema_change_save_dialog(self, ctx);
         db_write_back::render_db_write_back_dialog(self, ctx);
+        crate::app::db_view::render_view_edit_prompt(self, ctx);
         db_compare::render_db_compare_dialog(self, ctx);
         drift::render_drift_dialog(self, ctx);
         large_file_notice::render_large_file_notice(self, ctx);
@@ -186,6 +191,7 @@ impl OctaApp {
         rename_columns::render_rename_columns_dialog(self, ctx);
         pdf_export::render_pdf_export_dialog(self, ctx);
         random_sample::render_random_sample_dialog(self, ctx);
+        hash_columns::render_hash_columns_dialog(self, ctx);
         new_table::render_new_table_dialog(self, ctx);
         tidy_up::render_tidy_up_dialog(self, ctx);
         schema_export::render_schema_export_dialog(self, ctx);

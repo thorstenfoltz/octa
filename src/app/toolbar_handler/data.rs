@@ -28,6 +28,9 @@ impl OctaApp {
         {
             self.transform_dialog = Some(crate::app::state::TransformState::default());
         }
+        if action.open_hash_columns {
+            self.open_hash_columns();
+        }
         if action.open_conditional_column
             && self.tabs[self.active_tab].table.col_count() > 0
             && !self.is_readonly()

@@ -1091,6 +1091,19 @@ targets."
     }
 
     #[tool(
+        description = "Append one column holding an MD5 / SHA-256 / SHA-512 hex hash of chosen \
+columns (joined in order with a free delimiter, any type as text, optional NULL text, trim, \
+upper-case) and write the result to `output_path` (default: overwrite `path`). Database files \
+are not valid sources or targets."
+    )]
+    async fn hash_columns(
+        &self,
+        Parameters(p): Parameters<tools::hash_columns::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::hash_columns::handle(self, p).await
+    }
+
+    #[tool(
         description = "Concatenate (union) multiple tables into one, reconciling differing \
 schemas. Each entry in `sources` has a `path` (file) or `open_tab` (GUI tab name / `@active`), \
 plus an optional `table` for multi-table sources. By default takes the union of all columns \

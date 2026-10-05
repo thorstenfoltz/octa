@@ -73,7 +73,9 @@ pub(crate) struct SqlServerJob {
     /// When the query was sent, so the history can record what it cost. The
     /// wall-clock round trip is the number a user cares about here.
     pub(crate) started: std::time::Instant,
-    pub(crate) result: std::sync::Arc<std::sync::Mutex<Option<ServerQueryDone>>>,
+    /// The outcome, plus the SQL actually sent: it differs from `query` when
+    /// the server refused an unquoted identifier and the worker quoted it.
+    pub(crate) result: std::sync::Arc<std::sync::Mutex<Option<(ServerQueryDone, String)>>>,
     /// Cancel handle delivered by the worker once the connection is up.
     pub(crate) cancel: SharedCancel,
 }

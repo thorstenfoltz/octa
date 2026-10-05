@@ -178,44 +178,6 @@ impl SummaryStat {
     }
 }
 
-/// Which `SUMMARIZE` column each direct-mapped statistic reads from.
-/// Derived statistics (NullCount, DistinctRatio, TotalRows) are computed
-/// separately and have no entry here.
-fn summarize_field(stat: SummaryStat) -> Option<&'static str> {
-    match stat {
-        SummaryStat::ColumnName => Some("column_name"),
-        SummaryStat::Type => Some("column_type"),
-        SummaryStat::Min => Some("min"),
-        SummaryStat::Max => Some("max"),
-        SummaryStat::Mean => Some("avg"),
-        SummaryStat::Median => Some("q50"),
-        SummaryStat::Std => Some("std"),
-        SummaryStat::Q25 => Some("q25"),
-        SummaryStat::Q75 => Some("q75"),
-        // Derived from other SUMMARIZE fields (no own column): Range = max-min,
-        // Iqr = q75-q25.
-        SummaryStat::Range | SummaryStat::Iqr => None,
-        // Computed by extra passes or direct snapshot scans: Sum/TextLenMin/
-        // TextLenMax via one aggregate query; Mode/ModeCount via a per-column
-        // GROUP BY; NotNull/Null/NullPercent from a direct `missing_counts` scan
-        // (counts empty strings + true Nulls, no rounding); Unique and
-        // DistinctRatio from an exact `COUNT(DISTINCT)` pass (SUMMARIZE's
-        // `approx_unique` is a HyperLogLog estimate that can exceed the row
-        // count); TotalRows from the snapshot.
-        SummaryStat::Sum
-        | SummaryStat::TextLenMin
-        | SummaryStat::TextLenMax
-        | SummaryStat::Mode
-        | SummaryStat::ModeCount
-        | SummaryStat::UniqueCount
-        | SummaryStat::NotNullCount
-        | SummaryStat::NullCount
-        | SummaryStat::NullPercent
-        | SummaryStat::DistinctRatio
-        | SummaryStat::TotalRows => None,
-    }
-}
-
 /// Quote a column name as a DuckDB identifier (double quotes, internal quotes
 /// doubled) so names with spaces or punctuation survive in a SELECT.
 fn quote_ident(name: &str) -> String {
@@ -247,7 +209,7 @@ pub fn num_cell(x: f64) -> CellValue {
 /// anything else (a lexicographic text min/max, a category mode) stays text.
 /// This is what lets a numeric column's min/max/mode group like a number while
 /// a text column's stay verbatim.
-fn typed_cell(s: &str) -> CellValue {
+pub(crate) fn typed_cell(s: &str) -> CellValue {
     let trimmed = s.trim();
     if trimmed.is_empty() {
         return CellValue::String(String::new());
@@ -432,37 +394,51 @@ pub fn active_stats(enabled: &[SummaryStat]) -> Vec<SummaryStat> {
         .collect()
 }
 
-/// Build the Summary table: one row per source column, one column per active
-/// statistic, with localized column titles. Pure apart from the i18n lookup
-/// for titles. Runs a single `SUMMARIZE` over `snap`.
-pub fn build_summary_table(snap: &DataTable, enabled: &[SummaryStat]) -> anyhow::Result<DataTable> {
-    let total_rows = snap.row_count();
+/// Everything the Summary table shows about one source column, before it is
+/// laid out. Two producers fill it - [`column_stats`] from a DuckDB pass
+/// over loaded rows, `db::pushdown::summary` from SQL on a server - and
+/// [`stats_table`] renders either the same way.
+#[derive(Debug, Clone, Default)]
+pub struct ColumnStats {
+    pub name: String,
+    pub type_name: String,
+    pub min: Option<CellValue>,
+    pub max: Option<CellValue>,
+    pub mean: Option<CellValue>,
+    pub median: Option<CellValue>,
+    pub std: Option<CellValue>,
+    pub q25: Option<CellValue>,
+    pub q75: Option<CellValue>,
+    pub sum: Option<f64>,
+    pub mode: Option<String>,
+    pub mode_count: Option<i64>,
+    /// Null or empty cells.
+    pub missing: i64,
+    pub unique: Option<i64>,
+    pub text_len_min: Option<i64>,
+    pub text_len_max: Option<i64>,
+}
+
+/// A statistic cell as a number, for Range and IQR. Text that does not
+/// parse (a date min) gives `None`, so those cells stay blank.
+fn stat_f64(v: &Option<CellValue>) -> Option<f64> {
+    match v.as_ref()? {
+        CellValue::Int(i) => Some(*i as f64),
+        CellValue::Float(f) => Some(*f),
+        other => other.to_string().trim().parse::<f64>().ok(),
+    }
+}
+
+/// Gather the figures for the `active` statistics from `snap`. Runs a single
+/// `SUMMARIZE` plus one extra pass per statistic family that is switched on.
+pub fn column_stats(snap: &DataTable, active: &[SummaryStat]) -> anyhow::Result<Vec<ColumnStats>> {
     let outcome = crate::sql::run_query(snap, "SUMMARIZE data")?;
     let summ = outcome.table;
 
     let field_idx = |name: &str| summ.columns.iter().position(|c| c.name == name);
-    let active = active_stats(enabled);
-
-    // Machine-friendly, never-localized column ids so the table is reusable.
-    // Types start as Utf8 and are refined to Int64 / Float64 once the cells
-    // exist (see the inference pass below) so numeric statistics render as real
-    // numbers (grouped, right-aligned) rather than plain text.
-    let mut columns: Vec<ColumnInfo> = active
-        .iter()
-        .map(|s| ColumnInfo {
-            name: s.column_id().to_string(),
-            data_type: "Utf8".to_string(),
-        })
-        .collect();
-
     let cell_str = |row: usize, name: &str| -> Option<String> {
         let ci = field_idx(name)?;
         summ.get(row, ci).map(|v| v.to_string())
-    };
-    // Parse a SUMMARIZE numeric field (min/max/q25/q75) for a row, for the
-    // derived Range / Iqr stats. Blank when the field is missing or non-numeric.
-    let cell_f64 = |row: usize, name: &str| -> Option<f64> {
-        cell_str(row, name).and_then(|s| s.parse::<f64>().ok())
     };
 
     // Exact distinct counts only when a stat that needs them is shown.
@@ -514,91 +490,118 @@ pub fn build_summary_table(snap: &DataTable, enabled: &[SummaryStat]) -> anyhow:
         Vec::new()
     };
 
-    let mut rows: Vec<Vec<CellValue>> = Vec::with_capacity(summ.row_count());
-    for r in 0..summ.row_count() {
-        let unique: Option<i64> = exact_unique.get(r).copied().flatten();
-        let agg = extra.get(r).cloned().unwrap_or_default();
-        let (mode_value, mode_count) = modes.get(r).cloned().unwrap_or((None, None));
-        // Null / empty / not-null come from the exact `missing_per_col` pass
-        // (counts empty strings, no rounding). Percentage derived from the same.
-        let missing = missing_per_col.get(r).copied().unwrap_or(0);
-        let not_null = (total_rows as i64 - missing).max(0);
-        let null_percent = if total_rows > 0 {
-            missing as f64 / total_rows as f64 * 100.0
-        } else {
-            0.0
-        };
+    let text = |r: usize, f: &str| cell_str(r, f).map(|s| typed_cell(&s));
+    Ok((0..summ.row_count())
+        .map(|r| {
+            let agg = extra.get(r).cloned().unwrap_or_default();
+            let (mode, mode_count) = modes.get(r).cloned().unwrap_or((None, None));
+            ColumnStats {
+                name: cell_str(r, "column_name").unwrap_or_default(),
+                type_name: cell_str(r, "column_type").unwrap_or_default(),
+                min: text(r, "min"),
+                max: text(r, "max"),
+                mean: text(r, "avg"),
+                median: text(r, "q50"),
+                std: text(r, "std"),
+                q25: text(r, "q25"),
+                q75: text(r, "q75"),
+                sum: agg.sum,
+                mode,
+                mode_count,
+                missing: missing_per_col.get(r).copied().unwrap_or(0),
+                unique: exact_unique.get(r).copied().flatten(),
+                text_len_min: agg.text_len_min,
+                text_len_max: agg.text_len_max,
+            }
+        })
+        .collect())
+}
 
-        let blank = || CellValue::String(String::new());
-        let row: Vec<CellValue> = active
-            .iter()
-            .map(|stat| match stat {
-                SummaryStat::Sum => agg.sum.map(num_cell).unwrap_or_else(blank),
-                SummaryStat::Range => match (cell_f64(r, "min"), cell_f64(r, "max")) {
-                    (Some(lo), Some(hi)) => num_cell(hi - lo),
-                    _ => blank(),
-                },
-                SummaryStat::Iqr => match (cell_f64(r, "q25"), cell_f64(r, "q75")) {
-                    (Some(lo), Some(hi)) => num_cell(hi - lo),
-                    _ => blank(),
-                },
-                SummaryStat::Mode => mode_value.as_deref().map(typed_cell).unwrap_or_else(blank),
-                SummaryStat::ModeCount => mode_count.map(CellValue::Int).unwrap_or_else(blank),
-                SummaryStat::TextLenMin => {
-                    agg.text_len_min.map(CellValue::Int).unwrap_or_else(blank)
-                }
-                SummaryStat::TextLenMax => {
-                    agg.text_len_max.map(CellValue::Int).unwrap_or_else(blank)
-                }
-                SummaryStat::NotNullCount => CellValue::Int(not_null),
-                SummaryStat::NullCount => CellValue::Int(missing),
-                SummaryStat::NullPercent => num_cell(null_percent),
-                SummaryStat::UniqueCount => unique.map(CellValue::Int).unwrap_or_else(blank),
-                SummaryStat::DistinctRatio => match unique {
-                    Some(u) if total_rows > 0 => num_cell(u as f64 / total_rows as f64),
-                    _ => blank(),
-                },
-                SummaryStat::TotalRows => CellValue::Int(total_rows as i64),
-                // Column name and type are always plain text, even if a column
-                // happens to be named numerically.
-                SummaryStat::ColumnName | SummaryStat::Type => CellValue::String(
-                    summarize_field(*stat)
-                        .and_then(|f| cell_str(r, f))
-                        .unwrap_or_default(),
-                ),
-                // Min / Max / Mean / Median / Std / Q25 / Q75 come from SUMMARIZE
-                // as strings; type them so numeric columns group.
-                other => summarize_field(*other)
-                    .and_then(|f| cell_str(r, f))
-                    .map(|s| typed_cell(&s))
-                    .unwrap_or_else(blank),
-            })
-            .collect();
-        rows.push(row);
-    }
-
+/// Lay gathered statistics out as the Summary table: one row per source
+/// column, one column per active statistic. Column headers are the stable
+/// `column_id`s; types are refined from the cells so numbers render as numbers.
+pub fn stats_table(stats: &[ColumnStats], total_rows: usize, enabled: &[SummaryStat]) -> DataTable {
+    let active = active_stats(enabled);
+    let mut columns: Vec<ColumnInfo> = active
+        .iter()
+        .map(|s| ColumnInfo {
+            name: s.column_id().to_string(),
+            data_type: "Utf8".to_string(),
+        })
+        .collect();
+    let blank = || CellValue::String(String::new());
+    let or_blank = |v: &Option<CellValue>| v.clone().unwrap_or_else(blank);
+    let rows: Vec<Vec<CellValue>> = stats
+        .iter()
+        .map(|s| {
+            let not_null = (total_rows as i64 - s.missing).max(0);
+            let null_percent = if total_rows > 0 {
+                s.missing as f64 / total_rows as f64 * 100.0
+            } else {
+                0.0
+            };
+            active
+                .iter()
+                .map(|stat| match stat {
+                    SummaryStat::ColumnName => CellValue::String(s.name.clone()),
+                    SummaryStat::Type => CellValue::String(s.type_name.clone()),
+                    SummaryStat::Min => or_blank(&s.min),
+                    SummaryStat::Max => or_blank(&s.max),
+                    SummaryStat::Mean => or_blank(&s.mean),
+                    SummaryStat::Median => or_blank(&s.median),
+                    SummaryStat::Std => or_blank(&s.std),
+                    SummaryStat::Q25 => or_blank(&s.q25),
+                    SummaryStat::Q75 => or_blank(&s.q75),
+                    SummaryStat::Sum => s.sum.map(num_cell).unwrap_or_else(blank),
+                    SummaryStat::Range => match (stat_f64(&s.min), stat_f64(&s.max)) {
+                        (Some(lo), Some(hi)) => num_cell(hi - lo),
+                        _ => blank(),
+                    },
+                    SummaryStat::Iqr => match (stat_f64(&s.q25), stat_f64(&s.q75)) {
+                        (Some(lo), Some(hi)) => num_cell(hi - lo),
+                        _ => blank(),
+                    },
+                    SummaryStat::Mode => s.mode.as_deref().map(typed_cell).unwrap_or_else(blank),
+                    SummaryStat::ModeCount => {
+                        s.mode_count.map(CellValue::Int).unwrap_or_else(blank)
+                    }
+                    SummaryStat::TextLenMin => {
+                        s.text_len_min.map(CellValue::Int).unwrap_or_else(blank)
+                    }
+                    SummaryStat::TextLenMax => {
+                        s.text_len_max.map(CellValue::Int).unwrap_or_else(blank)
+                    }
+                    SummaryStat::NotNullCount => CellValue::Int(not_null),
+                    SummaryStat::NullCount => CellValue::Int(s.missing),
+                    SummaryStat::NullPercent => num_cell(null_percent),
+                    SummaryStat::UniqueCount => s.unique.map(CellValue::Int).unwrap_or_else(blank),
+                    SummaryStat::DistinctRatio => match s.unique {
+                        Some(u) if total_rows > 0 => num_cell(u as f64 / total_rows as f64),
+                        _ => blank(),
+                    },
+                    SummaryStat::TotalRows => CellValue::Int(total_rows as i64),
+                })
+                .collect()
+        })
+        .collect();
     // Refine each column's type from the cells it ended up with, so numeric
     // statistics are real Int64 / Float64 columns (grouped + right-aligned by
     // the table view) while mixed or textual ones stay Utf8.
     for (ci, col) in columns.iter_mut().enumerate() {
         col.data_type = infer_column_type(rows.iter().map(|row| row[ci].clone()));
     }
-
-    Ok(DataTable {
+    DataTable {
         columns,
         rows,
-        edits: std::collections::HashMap::new(),
-        source_path: None,
-        format_name: None,
-        structural_changes: false,
-        total_rows: None,
-        row_offset: 0,
-        marks: std::collections::HashMap::new(),
-        undo_stack: Vec::new(),
-        redo_stack: Vec::new(),
-        db_meta: None,
-        formulas: std::collections::HashMap::new(),
-    })
+        ..DataTable::empty()
+    }
+}
+
+/// Build the Summary table: one row per source column, one column per active
+/// statistic, with stable column ids. Runs a single `SUMMARIZE` over `snap`.
+pub fn build_summary_table(snap: &DataTable, enabled: &[SummaryStat]) -> anyhow::Result<DataTable> {
+    let stats = column_stats(snap, &active_stats(enabled))?;
+    Ok(stats_table(&stats, snap.row_count(), enabled))
 }
 
 #[cfg(test)]

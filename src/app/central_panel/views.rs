@@ -188,7 +188,15 @@ impl OctaApp {
                     })
                 }
             };
+        // A partial database tab's facet popup lists the server's values.
+        let facet_external = crate::app::db_view::server_conn(
+            &self.tabs[self.active_tab],
+            self.settings.db_pushdown,
+            &self.settings.db_connections,
+        )
+        .is_some();
         let tab = &mut self.tabs[self.active_tab];
+        tab.table_state.facet_external = facet_external;
         // Large-file mode: the vertical scrollbar addresses the file, not
         // the loaded page. Off for every other tab.
         let virtual_rows = match (&tab.large, tab.table.total_rows) {

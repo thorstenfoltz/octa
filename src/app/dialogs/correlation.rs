@@ -93,7 +93,7 @@ pub(crate) fn render_correlation_dialog(app: &mut OctaApp, ctx: &egui::Context) 
     st.size = size;
 
     if run {
-        app.open_correlation_tab(st.method);
+        app.open_correlation_tab(ctx, st.method);
         return;
     }
     if !close {

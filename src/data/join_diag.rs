@@ -132,6 +132,33 @@ fn overlap(kind: Option<FixKind>, left: &[String], right: &[String]) -> (usize, 
     (shared, shared)
 }
 
+/// Every normalisation, in the order they are tried.
+pub const ALL_FIXES: [FixKind; 5] = [
+    FixKind::TrimWhitespace,
+    FixKind::IgnoreCase,
+    FixKind::CollapseWhitespace,
+    FixKind::StripPunctuation,
+    FixKind::StripLeadingZeros,
+];
+
+/// The fixes worth reporting: strictly more matches than `matched`, most
+/// helpful first. Shared with the server path.
+pub fn fixes_from_counts(
+    matched: usize,
+    counts: impl IntoIterator<Item = (FixKind, usize)>,
+) -> Vec<SuggestedFix> {
+    let mut fixes: Vec<SuggestedFix> = counts
+        .into_iter()
+        // Strictly greater: a normalisation that changes nothing is not advice.
+        .filter(|&(_, would)| would > matched)
+        .map(|(kind, would_match)| SuggestedFix { kind, would_match })
+        .collect();
+    // `Reverse` rather than a flipped comparator so clippy's sort_by_key
+    // form applies. Stable, so ties keep `ALL_FIXES` order.
+    fixes.sort_by_key(|f| std::cmp::Reverse(f.would_match));
+    fixes
+}
+
 /// Diagnose a join between `left.left_col` and `right.right_col`.
 pub fn diagnose(
     left: &DataTable,
@@ -164,26 +191,10 @@ pub fn diagnose(
     unmatched_left.truncate(MAX_SAMPLES);
     unmatched_right.truncate(MAX_SAMPLES);
 
-    let mut fixes = Vec::new();
-    for kind in [
-        FixKind::TrimWhitespace,
-        FixKind::IgnoreCase,
-        FixKind::CollapseWhitespace,
-        FixKind::StripPunctuation,
-        FixKind::StripLeadingZeros,
-    ] {
-        let (would, _) = overlap(Some(kind), &lv, &rv);
-        // Strictly greater: a normalisation that changes nothing is not advice.
-        if would > matched_left {
-            fixes.push(SuggestedFix {
-                kind,
-                would_match: would,
-            });
-        }
-    }
-    // Most helpful first. `Reverse` rather than a flipped comparator so
-    // clippy's sort_by_key form applies.
-    fixes.sort_by_key(|f| std::cmp::Reverse(f.would_match));
+    let fixes = fixes_from_counts(
+        matched_left,
+        ALL_FIXES.map(|kind| (kind, overlap(Some(kind), &lv, &rv).0)),
+    );
 
     JoinDiagnosis {
         left_rows: left.row_count(),
