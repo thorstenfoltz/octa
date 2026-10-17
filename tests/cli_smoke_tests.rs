@@ -1307,9 +1307,17 @@ fn partition_hive_layout_writes_key_equals_value_directories() {
     // Case is preserved, unlike the flat layout's sanitised stems: the value
     // has to be recoverable from the directory name for a reader to use it as
     // a partition column.
+    // Compared by the names the directory holds, not by looking `city=tokyo`
+    // up: macOS's default file system ignores case, so that lookup finds
+    // `city=Tokyo`.
+    let names: Vec<String> = std::fs::read_dir(root)
+        .expect("list the output folder")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
     assert!(
-        !root.join("city=tokyo").is_dir(),
-        "hive values must keep their case"
+        names.iter().any(|n| n == "city=Tokyo") && !names.iter().any(|n| n == "city=tokyo"),
+        "hive values must keep their case: {names:?}"
     );
 
     // The point of the layout: Octa reads the folder back as one table with
