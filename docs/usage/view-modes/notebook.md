@@ -1,33 +1,48 @@
 # Notebook view
 
-For `.ipynb` files Octa renders the notebook the way Jupyter does:
-code cells with syntect syntax highlighting, Markdown cells through
-the Markdown renderer, and outputs (stdout, stderr, plots, HTML)
-underneath each code cell.
+For `.ipynb` files Octa shows the notebook cell by cell, the way Jupyter
+lays it out: each code cell with its outputs, text and pictures, beneath
+or beside it.
 
 ![Notebook view](../../assets/screenshots/notebook-view.png){ .screenshot-placeholder }
 
 ## What gets rendered
 
-| Cell type                    | Renderer                                                             |
-|------------------------------|----------------------------------------------------------------------|
-| `markdown`                   | The same pulldown-cmark renderer as the [Markdown view](markdown.md) |
-| `code` (Python, Julia, R, …) | Syntect with the notebook's declared language                        |
-| `raw`                        | Plain monospace                                                      |
+| Cell type  | Shown as                               |
+|------------|----------------------------------------|
+| `code`     | Editable source, highlighted as Python |
+| `markdown` | Editable source text, not rendered     |
+| `raw`      | Editable plain text                    |
 
-Each code cell shows its execution count (`[1]`, `[2]`, etc.) in
-the left margin. Cells without an execution count display `[ ]`.
+Each code cell shows its position in the notebook (`In [1]:`,
+`In [2]:`) in the left margin, and its outputs under `Out[1]:`.
 
 ## Output rendering
 
-Outputs are listed below each code cell:
+Outputs appear in the order the notebook stores them:
 
-- **Text output** (`stdout`, `stderr`): monospace, no truncation.
-- **HTML output**: rendered as plain text in v1 (Octa doesn't
-  embed an HTML renderer).
-- **Plot output** (image/png base64): decoded and shown inline at
-  natural size.
-- **Error output**: traceback in red.
+- **Text** (`stdout`, `stderr`, the plain text of a result): monospace,
+  no truncation.
+- **Pictures** (PNG, JPEG, GIF, WebP, SVG): drawn at their own size, or
+  shrunk to fit the space, on a white background as in Jupyter, so a
+  transparent plot stays readable in a dark theme. Hover a picture to see
+  the text the notebook keeps with it (`<Figure size 640x480 with 1 Axes>`
+  for a matplotlib plot). Click it to open it in the
+  [binary viewer](../binary-cells.md), which shows it full size and can
+  save it or open it in another program. When an output holds several
+  formats, the first of PNG, JPEG, GIF, WebP and SVG is shown. Text in an
+  SVG is drawn with your system fonts; a file or web address the SVG
+  points to is never loaded.
+- **HTML** (a pandas DataFrame, for example): shown as its plain-text
+  version. Octa has no HTML renderer.
+- **Errors**: the error name and message, such as
+  `ValueError: bad input`. The traceback is not shown.
+
+A picture that cannot be decoded shows the reason in its place.
+
+In the [Table view](../table-view.md), the Output column holds only text.
+A picture that comes with no text reads as a placeholder such as
+`[image/png 640x480]`, and the command line and MCP tools see the same.
 
 ## Layout
 
@@ -39,10 +54,11 @@ The **Output layout** under
 [**Settings → File-Specific → Notebook output layout**](../../reference/settings.md#file-specific)
 picks between:
 
-- **Below cell** (default) shows outputs directly under their
-  source cell.
-- **Side-by-side** shows outputs to the right of the source cell
-  (better use of wide screens, but compresses long outputs).
+- **Beneath** (default) shows outputs directly under their source
+  cell.
+- **Beside** shows outputs to the right of the source cell: a cell
+  with output gives its source half the width and the output the
+  other half. Better use of a wide screen, but long lines wrap sooner.
 
 ## Editing cell source
 
@@ -79,31 +95,22 @@ The notebook view still can't:
 If you need to inspect the notebook's table-of-values structure
 (e.g. to filter all cells matching a pattern), or to add / delete
 cells, switch to [**Table view**](../table-view.md). Each cell becomes
-a row with `cell_type`, `source`, `outputs`, etc. as columns. From
+a row with the columns `Cell`, `Type`, `Source` and `Output`. From
 there the [search bar](../search-and-filter.md) or
 [SQL panel](../sql.md) can filter the cells, and the usual row
 insert / delete operations apply.
 
-## Languages with syntax highlighting
+## Syntax highlighting
 
-The cell's language comes from the notebook's
-`metadata.kernelspec.language` (or `metadata.kernelspec.name` as a
-fallback). Octa maps common names to syntect language packs:
-
-| Notebook language          | Syntect grammar         |
-|----------------------------|-------------------------|
-| `python`, `python3`        | Python                  |
-| `julia`                    | Julia                   |
-| `r`                        | R                       |
-| `rust`                     | Rust                    |
-| `bash`, `sh`               | Bash                    |
-| `javascript`, `typescript` | JavaScript / TypeScript |
-
-Unknown languages fall back to plain monospace.
+Code cells are highlighted as Python, which is what nearly every
+notebook holds. A cell in another language still opens and edits
+normally; only its colours may be off.
 
 ## Limitations
 
-- **No interactive widgets.** ipywidgets, Plotly, etc. don't render.
+- **No interactive widgets.** ipywidgets, interactive Plotly charts and
+  other HTML or JavaScript outputs show as their plain text.
+- **Markdown cells are not rendered.** They show their source.
 - **No cell execution.** Editing source does not run the cell or
   refresh its output.
 - **No diffing**, though the [Compare view](compare.md) handles

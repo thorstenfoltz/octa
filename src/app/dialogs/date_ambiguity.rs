@@ -7,8 +7,9 @@ use std::collections::VecDeque;
 
 use eframe::egui;
 use egui::RichText;
-use octa::data::date_infer::{self, DateLayout, DateTimeLayout};
+use octa::data::date_infer::{DateLayout, DateTimeLayout};
 
+use super::super::file_io::passes::Promotion;
 use super::super::state::{DateAmbiguity, OctaApp};
 use octa::ui::settings::{
     DialogSize, center_on_first_show, draw_window_controls, remember_dialog_rect,
@@ -42,19 +43,19 @@ fn takes_same_answer(queue: &VecDeque<DateAmbiguity>, choice: Choice) -> Vec<usi
         .collect()
 }
 
-/// Apply one answer to one queued column.
+/// Apply one answer to one queued column, on a worker
+/// ([`column_cast_job`](crate::app::column_cast_job)).
 fn apply_to(app: &mut OctaApp, q: &DateAmbiguity, choice: Choice) {
-    if q.tab_idx >= app.tabs.len() {
-        return;
-    }
-    let tab = &mut app.tabs[q.tab_idx];
-    match choice {
-        Choice::Date(layout) => date_infer::apply_date(&mut tab.table, q.col_idx, layout),
-        Choice::DateTime(layout) => date_infer::apply_datetime(&mut tab.table, q.col_idx, layout),
-        Choice::Skip => {}
-    }
-    tab.filter_dirty = true;
-    tab.table_state.invalidate_row_heights();
+    let promotion = match choice {
+        Choice::Date(layout) => Promotion::Date(layout),
+        Choice::DateTime(layout) => Promotion::DateTime(layout),
+        Choice::Skip => return,
+    };
+    app.start_column_cast(
+        q.tab_idx,
+        q.col_idx,
+        crate::app::bg_rows::ChunkCast::Date(promotion),
+    );
 }
 
 pub(crate) fn render_date_ambiguity_dialog(app: &mut OctaApp, ctx: &egui::Context) {
@@ -98,7 +99,7 @@ pub(crate) fn render_date_ambiguity_dialog(app: &mut OctaApp, ctx: &egui::Contex
         egui::Panel::top("date_ambiguity_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(egui::RichText::new(title.clone()).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -207,58 +208,5 @@ pub(crate) fn render_date_ambiguity_dialog(app: &mut OctaApp, ctx: &egui::Contex
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn q(name: &str, dates: &[DateLayout], datetimes: &[DateTimeLayout]) -> DateAmbiguity {
-        DateAmbiguity {
-            tab_idx: 0,
-            col_idx: 0,
-            col_name: name.to_string(),
-            samples: Vec::new(),
-            date_candidates: dates.to_vec(),
-            datetime_candidates: datetimes.to_vec(),
-        }
-    }
-
-    /// "Use this for all remaining" must only settle columns that actually
-    /// offer the chosen layout. Forcing it on a column with a different set
-    /// of candidates would answer a question nobody asked, and silently
-    /// reinterpret its values.
-    #[test]
-    fn apply_to_all_skips_columns_that_do_not_offer_the_layout() {
-        let queue: VecDeque<DateAmbiguity> = [
-            q("a", &[DateLayout::DmySlash, DateLayout::MdySlash], &[]),
-            q("b", &[DateLayout::MdySlash], &[]),
-            q("c", &[], &[DateTimeLayout::DmySlashSpace]),
-        ]
-        .into_iter()
-        .collect();
-
-        assert_eq!(
-            takes_same_answer(&queue, Choice::Date(DateLayout::DmySlash)),
-            [0]
-        );
-        assert_eq!(
-            takes_same_answer(&queue, Choice::Date(DateLayout::MdySlash)),
-            [0, 1]
-        );
-        assert_eq!(
-            takes_same_answer(&queue, Choice::DateTime(DateTimeLayout::DmySlashSpace)),
-            [2]
-        );
-    }
-
-    /// Leaving a column as text changes nothing, so every queued column can
-    /// take that answer: it is the one that clears the whole queue.
-    #[test]
-    fn leaving_as_text_settles_every_remaining_column() {
-        let queue: VecDeque<DateAmbiguity> = [
-            q("a", &[DateLayout::DmySlash], &[]),
-            q("b", &[], &[DateTimeLayout::MdySlashSpace]),
-        ]
-        .into_iter()
-        .collect();
-        assert_eq!(takes_same_answer(&queue, Choice::Skip), [0, 1]);
-    }
-}
+#[path = "date_ambiguity_tests.rs"]
+mod tests;

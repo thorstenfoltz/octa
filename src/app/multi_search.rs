@@ -240,7 +240,9 @@ impl OctaApp {
                 let mode = self.multi_search.mode;
                 let max_file_bytes = self.settings.grep_max_file_bytes();
 
+                let task = self.long_tasks.start(octa::i18n::t("multi_search.title"));
                 let handle = std::thread::spawn(move || {
+                    let _task = task;
                     // Clears `running` however the worker ends: a panic here used to
                     // wedge the flag true for the rest of the session.
                     let _running = crate::app::flag_guard::FlagOnDrop::new(running, false);
@@ -356,7 +358,7 @@ impl OctaApp {
                 let mut pick_dir_clicked = false;
                 let running = self.multi_search.running.load(Ordering::Relaxed);
 
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(octa::i18n::t("multi_search.title"))
                             .strong()
@@ -412,7 +414,7 @@ impl OctaApp {
                     });
                 });
 
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     let query_edit = egui::TextEdit::singleline(&mut self.multi_search.query)
                         .desired_width(ui.available_width() - 220.0)
                         .hint_text(octa::i18n::t("multi_search.query_hint"));
@@ -436,7 +438,7 @@ impl OctaApp {
                 });
 
                 if self.multi_search.scope == MultiSearchScope::Directory {
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         ui.label(octa::i18n::t("multi_search.directory"));
                         let label = self
                             .multi_search

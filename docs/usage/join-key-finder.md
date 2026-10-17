@@ -241,7 +241,7 @@ The finder never joins anything itself. It only tells you which columns
 are worth joining on, so there is one join implementation and one place
 where join options live.
 
-## Over MCP
+## MCP and the assistant
 
 `suggest_join_keys` gives an agent the same ranking before it calls
 `join_tables`:
@@ -256,6 +256,8 @@ It returns `candidates` best first, each carrying `left_table`,
 `left_distinct_values` and `right_orphans` out of
 `right_distinct_values`, all as defined above. It is read-only and stays
 available under `--mcp-read-only`.
+
+- MCP: [`suggest_join_keys`](../mcp/tools/suggest_join_keys.md), [`unique_columns`](../mcp/tools/unique_columns.md)
 
 ## Ceilings
 

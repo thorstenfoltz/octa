@@ -171,7 +171,7 @@ fn render_fields(
                 // grid.
                 let formula = tab.table.formula(row, col).map(str::to_string);
 
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.add_sized(
                         [NAME_WIDTH, row_height],
                         egui::Label::new(egui::RichText::new(field).weak()).truncate(),

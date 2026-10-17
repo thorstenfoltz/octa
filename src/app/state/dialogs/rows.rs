@@ -151,24 +151,98 @@ pub(crate) struct UnionState {
     pub(crate) ignore_case: bool,
 }
 
-/// Live state for the "Partition by column" dialog (Analyse -> Partition by
-/// column...). The user picks a column of the active tab, an output directory,
-/// and an optional format override; Apply writes one file per distinct value
-/// into that directory (see `src/app/dialogs/partition.rs`).
+/// Live state for the "Split into files" dialog (Data -> Split into
+/// files...). The user picks an optional column, optional row / size limits,
+/// an output directory and an optional format override; Apply writes the
+/// files on a worker thread (see `src/app/dialogs/partition.rs`).
 pub(crate) struct PartitionState {
-    /// Index of the column to partition on.
-    pub(crate) col: usize,
+    /// Column to split by; `None` splits the whole table by rows / size only.
+    pub(crate) col: Option<usize>,
     /// Output directory chosen by the folder picker.
     pub(crate) out_dir: Option<std::path::PathBuf>,
-    /// Extension override (e.g. `"csv"`). Empty = use the source file's own
-    /// extension.
+    /// Extension override (e.g. `"csv"`). Empty = the source file's own.
     pub(crate) format: String,
-    /// Flat files or Hive `col=value/` directories.
     pub(crate) layout: octa::data::partition::PartitionLayout,
+    /// Typed row limit; empty = none.
+    pub(crate) max_rows_buf: String,
+    /// Typed size limit in MB (decimal); empty = none.
+    pub(crate) max_mb_buf: String,
     /// Last inline error from Apply.
     pub(crate) error: Option<String>,
     /// Dialog window sizing (Normal / Maximized / Minimized).
     pub(crate) size: ui::settings::DialogSize,
+    /// Worker state while a split runs.
+    pub(crate) running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) progress: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub(crate) result: SplitResultSlot,
+    /// Close was pressed mid-split: cancel, then drop the dialog once the
+    /// worker has reported.
+    pub(crate) close_when_done: bool,
+}
+
+/// Where the split worker leaves its outcome and the folder it wrote to.
+pub(crate) type SplitResultSlot = std::sync::Arc<
+    std::sync::Mutex<
+        Option<Result<(octa::data::partition::SplitOutcome, std::path::PathBuf), String>>,
+    >,
+>;
+
+impl PartitionState {
+    pub(crate) fn new() -> Self {
+        Self {
+            col: Some(0),
+            out_dir: None,
+            format: String::new(),
+            layout: octa::data::partition::PartitionLayout::default(),
+            max_rows_buf: String::new(),
+            max_mb_buf: String::new(),
+            error: None,
+            size: ui::settings::DialogSize::default(),
+            running: Default::default(),
+            cancel: Default::default(),
+            progress: Default::default(),
+            result: Default::default(),
+            close_when_done: false,
+        }
+    }
+
+    /// The split the dialog describes, or the localised reason it cannot run.
+    pub(crate) fn spec(
+        &self,
+        layout: octa::data::partition::PartitionLayout,
+    ) -> Result<octa::data::partition::SplitSpec, String> {
+        let bad = || octa::i18n::t("partition.bad_number");
+        let max_rows = match self.max_rows_buf.trim() {
+            "" => None,
+            s => Some(
+                octa::ui::settings::parse_comma_number(s)
+                    .ok()
+                    .filter(|n| *n > 0)
+                    .ok_or_else(bad)?,
+            ),
+        };
+        let max_bytes = match self.max_mb_buf.trim().replace(',', ".").as_str() {
+            "" => None,
+            s => Some(
+                s.parse::<f64>()
+                    .ok()
+                    .filter(|mb| mb.is_finite() && *mb > 0.0)
+                    .map(|mb| (mb * 1_000_000.0).round() as u64)
+                    .filter(|b| *b > 0)
+                    .ok_or_else(bad)?,
+            ),
+        };
+        let spec = octa::data::partition::SplitSpec {
+            column: self.col,
+            layout,
+            max_rows,
+            max_bytes,
+        };
+        spec.validate()
+            .map_err(|_| octa::i18n::t("partition.need_limit"))?;
+        Ok(spec)
+    }
 }
 
 /// One join condition draft: `left.left_col <op> right.right_col`. Columns are

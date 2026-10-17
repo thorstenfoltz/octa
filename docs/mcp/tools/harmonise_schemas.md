@@ -11,7 +11,7 @@ tells you the folder disagrees with itself, this one fixes it.
     started with `--mcp-read-only`. The **originals are never modified**
     - output always goes to `out_dir`, which must differ from `dir`.
 
-## Parameters
+## Input schema
 
 | Name          | Type    | Required | Default | Description                                                                                                                         |
 |---------------|---------|----------|---------|-------------------------------------------------------------------------------------------------------------------------------------|
@@ -23,7 +23,7 @@ tells you the folder disagrees with itself, this one fixes it.
 | `overwrite`   | boolean | no       | `false` | Replace files that already exist in `out_dir`.                                                                                      |
 | `combine`     | boolean | no       | `false` | Fold the folder into ONE file with a `source_file` column instead of writing a copy of each. `out_dir` then names that output FILE. |
 
-## Response
+## Response shape
 
 ```json
 {

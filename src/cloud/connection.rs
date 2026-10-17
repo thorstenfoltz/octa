@@ -9,7 +9,7 @@ use super::CloudKind;
 /// Connection config for one cloud target. For S3 an empty `endpoint` means
 /// real AWS; a set `endpoint` means an S3-compatible provider (IONOS, MinIO,
 /// Cloudflare R2, ...), which uses path-style requests and static keys.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudConnection {
     /// Stable id used to reference this connection (and its keyring secret).
     pub id: String,
@@ -75,6 +75,18 @@ pub struct CloudConnection {
     /// Azure tenant for the browser endpoints (Azure only). None = "organizations".
     #[serde(default)]
     pub oauth_tenant: Option<String>,
+    /// The account on an SFTP or WebDAV server. Unused for object stores.
+    #[serde(default)]
+    pub username: Option<String>,
+    /// How an SFTP connection signs in (agent, key file, password). The
+    /// password or key passphrase lives in the keyring like every other
+    /// cloud secret. `None` = agent.
+    #[serde(default)]
+    pub ssh_auth: Option<crate::ssh::SshAuth>,
+    /// Accept and remember an SFTP server's key the first time it is seen
+    /// (OpenSSH's `accept-new`). A changed key is refused regardless.
+    #[serde(default)]
+    pub accept_new_host_key: bool,
 }
 
 impl CloudConnection {
@@ -88,20 +100,7 @@ impl CloudConnection {
             name: bucket.clone(),
             kind: CloudKind::S3,
             bucket,
-            region: None,
-            endpoint: None,
-            force_path_style: false,
-            allow_http: false,
-            secret_ref: None,
-            account: None,
-            profile: None,
-            anonymous: false,
-            prefix: None,
-            account_level: false,
-            project: None,
-            allow_writes: false,
-            oauth_client_id: None,
-            oauth_tenant: None,
+            ..Default::default()
         }
     }
 
@@ -116,20 +115,8 @@ impl CloudConnection {
             name: format!("{account}/{container}"),
             kind: CloudKind::AzureBlob,
             bucket: container,
-            region: None,
-            endpoint: None,
-            force_path_style: false,
-            allow_http: false,
-            secret_ref: None,
             account: Some(account),
-            profile: None,
-            anonymous: false,
-            prefix: None,
-            account_level: false,
-            project: None,
-            allow_writes: false,
-            oauth_client_id: None,
-            oauth_tenant: None,
+            ..Default::default()
         }
     }
 
@@ -141,26 +128,45 @@ impl CloudConnection {
             name: bucket.clone(),
             kind: CloudKind::Gcs,
             bucket,
-            region: None,
-            endpoint: None,
-            force_path_style: false,
-            allow_http: false,
-            secret_ref: None,
-            account: None,
-            profile: None,
-            anonymous: false,
-            prefix: None,
-            account_level: false,
-            project: None,
-            allow_writes: false,
-            oauth_client_id: None,
-            oauth_tenant: None,
+            ..Default::default()
         }
+    }
+
+    /// Ephemeral SFTP connection for an `sftp://` URL no saved connection
+    /// covers: the SSH agent, the URL's user (else the OS user), strict
+    /// host-key checking.
+    pub fn ephemeral_sftp(authority: impl Into<String>, user: Option<String>) -> Self {
+        let authority = authority.into();
+        let user = user.or_else(|| {
+            std::env::var("USER")
+                .or_else(|_| std::env::var("USERNAME"))
+                .ok()
+        });
+        Self {
+            id: format!("ephemeral-sftp-{authority}"),
+            name: authority.clone(),
+            kind: CloudKind::Sftp,
+            bucket: authority,
+            username: user,
+            ssh_auth: Some(crate::ssh::SshAuth::Agent),
+            ..Default::default()
+        }
+    }
+
+    /// Host and port of an SFTP connection, read from `bucket`.
+    pub fn sftp_host_port(&self) -> (String, u16) {
+        crate::cloud::split_host_port(&self.bucket, 22)
     }
 
     /// Does this connection cover the given parsed URL (kind + bucket + prefix)?
     pub fn covers(&self, loc: &crate::cloud::CloudLocation) -> bool {
         if self.kind != loc.kind {
+            return false;
+        }
+        if self.kind == CloudKind::Sftp
+            && let Some(user) = &loc.user
+            && self.username.as_deref() != Some(user.as_str())
+        {
             return false;
         }
         if self.account_level {
@@ -180,82 +186,5 @@ impl CloudConnection {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ephemeral_s3_defaults_to_real_aws() {
-        let c = CloudConnection::ephemeral_s3("my-bucket");
-        assert_eq!(c.kind, CloudKind::S3);
-        assert_eq!(c.bucket, "my-bucket");
-        assert!(c.endpoint.is_none());
-        assert!(!c.force_path_style);
-    }
-
-    #[test]
-    fn connection_roundtrips_through_json() {
-        let c = CloudConnection {
-            id: "c1".into(),
-            name: "IONOS prod".into(),
-            kind: CloudKind::S3,
-            bucket: "data".into(),
-            region: Some("de".into()),
-            endpoint: Some("https://s3.eu-central-1.ionoscloud.com".into()),
-            force_path_style: true,
-            allow_http: false,
-            secret_ref: Some("cloud:c1".into()),
-            account: None,
-            profile: None,
-            anonymous: false,
-            prefix: None,
-            account_level: false,
-            project: None,
-            allow_writes: false,
-            oauth_client_id: None,
-            oauth_tenant: None,
-        };
-        let json = serde_json::to_string(&c).unwrap();
-        let back: CloudConnection = serde_json::from_str(&json).unwrap();
-        assert_eq!(c, back);
-    }
-
-    #[test]
-    fn ephemeral_azure_carries_account_and_container() {
-        let c = CloudConnection::ephemeral_azure("acct", "cont");
-        assert_eq!(c.kind, CloudKind::AzureBlob);
-        assert_eq!(c.account.as_deref(), Some("acct"));
-        assert_eq!(c.bucket, "cont");
-    }
-
-    #[test]
-    fn covers_respects_prefix_and_account_level() {
-        use crate::cloud::parse_cloud_url;
-        let mut c = CloudConnection::ephemeral_s3("data");
-        // Plain bucket scope: covers its bucket, not another.
-        assert!(c.covers(&parse_cloud_url("s3://data/x.csv").unwrap()));
-        assert!(!c.covers(&parse_cloud_url("s3://other/x.csv").unwrap()));
-
-        // Prefix scope: only keys under the prefix.
-        c.prefix = Some("team-a/".into());
-        assert!(c.covers(&parse_cloud_url("s3://data/team-a/x.csv").unwrap()));
-        assert!(c.covers(&parse_cloud_url("s3://data/team-a/").unwrap()));
-        assert!(!c.covers(&parse_cloud_url("s3://data/team-b/x.csv").unwrap()));
-
-        // Account scope: any bucket of the same kind.
-        let mut a = CloudConnection::ephemeral_s3("");
-        a.account_level = true;
-        assert!(a.covers(&parse_cloud_url("s3://anything/x.csv").unwrap()));
-        assert!(!a.covers(&parse_cloud_url("gs://anything/x.csv").unwrap()));
-    }
-
-    #[test]
-    fn old_settings_without_new_fields_still_deserialize() {
-        let json = r#"{"id":"c1","name":"n","kind":"S3","bucket":"b"}"#;
-        let c: CloudConnection = serde_json::from_str(json).unwrap();
-        assert!(c.prefix.is_none());
-        assert!(!c.account_level);
-        // Secure by default: a connection saved before the field existed is
-        // read-only until the user opts it in.
-        assert!(!c.allow_writes);
-    }
-}
+#[path = "connection_tests.rs"]
+mod tests;

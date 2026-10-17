@@ -57,3 +57,5 @@ hash).
 
 - [`anonymize`](anonymize.md): apply the suggested (or custom) masking
   rules.
+- In the app: [Detect PII](../../usage/detect-pii.md)
+- Command line: [`--detect-pii`](../../cli/pii.md)

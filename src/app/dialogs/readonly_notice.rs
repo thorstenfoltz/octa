@@ -58,7 +58,7 @@ pub(crate) fn render_readonly_notice_dialog(app: &mut OctaApp, ctx: &egui::Conte
         egui::Panel::top("readonly_notice_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(egui::RichText::new(title.clone()).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -85,7 +85,7 @@ pub(crate) fn render_readonly_notice_dialog(app: &mut OctaApp, ctx: &egui::Conte
                     .size(11.0),
             );
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui.button(octa::i18n::t("common.ok")).clicked() {
                     close = true;
                 }

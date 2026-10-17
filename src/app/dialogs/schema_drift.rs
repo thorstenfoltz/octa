@@ -53,7 +53,7 @@ pub(crate) fn render_schema_drift_dialog(app: &mut OctaApp, ctx: &egui::Context)
         egui::Panel::top("schema_drift_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("drift.title"))
                             .strong()
@@ -74,7 +74,7 @@ pub(crate) fn render_schema_drift_dialog(app: &mut OctaApp, ctx: &egui::Context)
         egui::Panel::bottom("schema_drift_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if running {
                         ui.spinner();
                         ui.label(octa::i18n::t("drift.running"));
@@ -110,7 +110,7 @@ pub(crate) fn render_schema_drift_dialog(app: &mut OctaApp, ctx: &egui::Context)
             });
 
         egui::CentralPanel::default().show(ui, |ui| {
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("drift.folder"))
                     .on_hover_text(octa::i18n::t("drift.folder_hint"));
                 if ui

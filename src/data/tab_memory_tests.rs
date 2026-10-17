@@ -63,3 +63,16 @@ fn the_format_is_human_readable() {
     assert_eq!(format_estimate(5 * 1024 * 1024), "5.0 MB");
     assert_eq!(format_estimate(3 * 1024 * 1024 * 1024), "3.0 GB");
 }
+
+/// Above the sample size the walk samples and scales, and on uniform rows
+/// that lands on the exact figure: 50,000 rows estimate as five times the
+/// cells of 10,000 (the fixed table overhead aside).
+#[test]
+fn a_big_table_is_sampled_and_scaled_to_the_same_figure() {
+    let base = estimate_bytes(&DataTable::empty()) as i64;
+    let small = estimate_bytes(&table_with(10_000, "abcdef")) as i64 - base;
+    let big = estimate_bytes(&table_with(50_000, "abcdef")) as i64 - base;
+    // Vec capacity rounding of `rows` aside, the cells scale exactly.
+    let diff = (big - 5 * small).abs();
+    assert!(diff < big / 100, "{big} vs 5 x {small}");
+}

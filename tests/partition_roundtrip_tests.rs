@@ -41,8 +41,8 @@ fn write_layout(dir: &Path, layout: PartitionLayout) {
     let registry = FormatRegistry::new();
     let reader = registry.reader_for_path(Path::new("x.csv")).unwrap();
     let mut seen = std::collections::HashMap::new();
-    for (i, (value, group)) in partition_table(&source(), 0).into_iter().enumerate() {
-        let rel = partition_path(layout, "city", &value, "csv", i + 1);
+    for (value, group) in partition_table(&source(), 0) {
+        let rel = partition_path(layout, "city", &value, "csv");
         let rel = dedupe_flat_name(layout, rel, "csv", &mut seen);
         let path = dir.join(&rel);
         if let Some(parent) = path.parent() {
@@ -125,8 +125,8 @@ fn the_difference_is_the_names_on_disk() {
         names(PartitionLayout::Folder),
         vec![
             "Berlin/part-0001.csv",
-            "New York/part-0002.csv",
-            "Sao Paulo/part-0003.csv"
+            "New York/part-0001.csv",
+            "Sao Paulo/part-0001.csv"
         ]
     );
     assert_eq!(
@@ -141,8 +141,8 @@ fn the_difference_is_the_names_on_disk() {
         names(PartitionLayout::HiveParts),
         vec![
             "city=Berlin/part-0001.csv",
-            "city=New York/part-0002.csv",
-            "city=Sao Paulo/part-0003.csv"
+            "city=New York/part-0001.csv",
+            "city=Sao Paulo/part-0001.csv"
         ]
     );
 }

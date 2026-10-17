@@ -59,6 +59,7 @@ pub fn plan_batch(
     out_dir: &Path,
     target_ext: &str,
     overwrite: bool,
+    protect: bool,
 ) -> Vec<BatchItem> {
     let ext = target_ext.trim_start_matches('.').to_ascii_lowercase();
 
@@ -95,6 +96,11 @@ pub fn plan_batch(
                 format!("{stem}_{count}.{ext}")
             };
             let output = out_dir.join(name);
+            let output = if protect {
+                crate::formats::encrypt::zip_path_for(&output)
+            } else {
+                output
+            };
 
             let status = if !target_writable {
                 BatchStatus::Skipped(SkipReason::ReadOnlyTarget)
@@ -120,6 +126,7 @@ pub fn run_batch(
     progress: &dyn Fn(usize, usize),
     cancel: &AtomicBool,
     opts: &crate::formats::write_options::WriteOptions,
+    passphrase: Option<&str>,
 ) -> BatchReport {
     let total = plan.len();
     let registry = FormatRegistry::new();
@@ -131,9 +138,9 @@ pub fn run_batch(
         if item.status != BatchStatus::Pending {
             continue;
         }
-        item.status = match convert_one(&registry, &item.input, &item.output, opts) {
+        item.status = match convert_one(&registry, &item.input, &item.output, opts, passphrase) {
             Ok(rows) => BatchStatus::Done { rows },
-            Err(e) => BatchStatus::Failed(e.to_string()),
+            Err(e) => BatchStatus::Failed(format!("{e:#}")),
         };
         progress(done + 1, total);
     }
@@ -164,6 +171,7 @@ fn convert_one(
     input: &Path,
     output: &Path,
     opts: &crate::formats::write_options::WriteOptions,
+    passphrase: Option<&str>,
 ) -> anyhow::Result<usize> {
     // read_table_auto, not the registry directly, so .gz and .zst inputs work
     // with no extra code here.
@@ -171,10 +179,22 @@ fn convert_one(
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let writer = registry
-        .reader_for_path(output)
-        .ok_or_else(|| anyhow::anyhow!("no writer for {}", output.display()))?;
-    writer.write_file_with_options(output, &table, opts)?;
+    match passphrase {
+        Some(pass) => {
+            // The entry is the output's name without `.zip`.
+            let entry = output
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "data".to_string());
+            crate::formats::encrypt::write_table_encrypted(&table, output, &entry, pass, opts)?;
+        }
+        None => {
+            let writer = registry
+                .reader_for_path(output)
+                .ok_or_else(|| anyhow::anyhow!("no writer for {}", output.display()))?;
+            writer.write_file_with_options(output, &table, opts)?;
+        }
+    }
     Ok(table.row_count())
 }
 

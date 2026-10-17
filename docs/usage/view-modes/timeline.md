@@ -74,7 +74,7 @@ Table or Record view and you are on that row.
 The timeline follows the table's search and column filters, so filter to
 one month or one department first to see just that part.
 
-## From the command line and the assistant
+## Command line and MCP
 
 ```bash
 octa --overlaps bookings.csv --overlaps-lane room --overlaps-label title

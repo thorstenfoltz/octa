@@ -9,7 +9,7 @@ nothing.
 
 Read-only, and kept when the server runs with `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
 None.
 
@@ -40,3 +40,8 @@ An assistant cannot add an endpoint, and cannot call an arbitrary address. The
 only endpoints reachable from MCP are the ones a person saved in Settings, and
 a `path` is always joined under that endpoint's own base URL. Choosing which
 hosts Octa talks to is a decision that stays with the user.
+
+## See also
+
+- In the app: [API Endpoints](../../usage/api-endpoints.md)
+- Command line: [`--api`](../../cli/api.md)

@@ -1,0 +1,20 @@
+== Physical Plan ==
+AdaptiveSparkPlan isFinalPlan=false
++- == Initial Plan ==
+   PhotonResultStage
+   +- PhotonColumnarToRow
+      +- PhotonTopK(sortOrder=[avg(fare_amount)#11384776 DESC NULLS LAST], partitionOrderCount=0)
+         +- PhotonShuffleExchangeSource false
+            +- PhotonShuffleMapStage ENSURE_REQUIREMENTS, [id=#22527409]
+               +- PhotonShuffleExchangeSink SinglePartition
+                  +- PhotonTopK(sortOrder=[avg(fare_amount)#11384776 DESC NULLS LAST], partitionOrderCount=0)
+                     +- PhotonGroupingAgg(keys=[pickup_zip#11384771], functions=[finalmerge_avg(merge sum#11384783, count#11384784L) AS avg(fare_amount)#11384775])
+                        +- PhotonShuffleExchangeSource false
+                           +- PhotonShuffleMapStage ENSURE_REQUIREMENTS, [id=#22527401]
+                              +- PhotonShuffleExchangeSink hashpartitioning(pickup_zip#11384771, 16)
+                                 +- PhotonGroupingAgg(keys=[pickup_zip#11384771], functions=[partial_avg(fare_amount#11384770) AS (sum#11384783, count#11384784L)])
+                                    +- PhotonScan parquet samples.nyctaxi.trips[fare_amount#11384770,pickup_zip#11384771] DataFilters: [isnotnull(fare_amount#11384770), (fare_amount#11384770 < 3.0)], DictionaryFilters: [(fare_amount#11384770 < 3.0)], Format: parquet, Location: PreparedDeltaFileIndex(1 paths)[abfss://metastore@example.dfs.core.windows.net/00000000-000..., OptionalDataFilters: [], PartitionFilters: [], ReadSchema: struct<fare_amount:double,pickup_zip:int>, RequiredDataFilters: [isnotnull(fare_amount#11384770), (fare_amount#11384770 < 3.0)]
+
+
+== Photon Explanation ==
+The query is fully supported by Photon.

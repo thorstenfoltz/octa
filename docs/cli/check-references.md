@@ -55,3 +55,8 @@ however many there are.
 |------|-----------------------------------------------|
 | `0`  | Every child key with a value has a parent.    |
 | `1`  | Orphans found, or the file could not be read. |
+
+## See also
+
+- In the app: [Referential Integrity](../usage/referential-integrity.md)
+- MCP: [`check_references`](../mcp/tools/check_references.md)

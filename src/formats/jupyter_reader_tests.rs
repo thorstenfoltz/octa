@@ -117,3 +117,97 @@ fn no_source_path_emits_fresh_notebook() {
     assert_eq!(written["cells"][0]["source"][0].as_str().unwrap(), "x = 1");
     assert_eq!(written["nbformat"].as_i64().unwrap(), 4);
 }
+
+/// A 2x1 PNG, base64 as nbformat stores it.
+const PNG_2X1: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAADklEQVR4nGP4z8AAQv8BD/kD/YURmXYAAAAASUVORK5CYII=";
+
+fn png_bytes() -> Vec<u8> {
+    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, PNG_2X1).unwrap()
+}
+
+/// One code cell holding `outputs`, then a markdown cell.
+fn nb_with_outputs(outputs: &str) -> String {
+    format!(
+        r##"{{"nbformat": 4, "nbformat_minor": 5, "metadata": {{}}, "cells": [
+          {{"cell_type": "code", "execution_count": 1, "metadata": {{}}, "source": ["x"],
+            "outputs": {outputs}}},
+          {{"cell_type": "markdown", "metadata": {{}}, "source": ["# t"]}}]}}"##
+    )
+}
+
+#[test]
+fn a_picture_with_no_text_reads_as_a_placeholder() {
+    let src = write_temp(&nb_with_outputs(&format!(
+        r#"[{{"output_type": "display_data", "metadata": {{}}, "data": {{"image/png": "{PNG_2X1}"}}}}]"#
+    )));
+    let table = JupyterReader.read_file(src.path()).unwrap();
+    assert_eq!(
+        table.get(0, 3),
+        Some(&CellValue::String("[image/png 2x1]".into()))
+    );
+}
+
+#[test]
+fn output_parts_keep_their_order_and_the_picture_wins_over_its_text() {
+    let src = write_temp(&nb_with_outputs(&format!(
+        r#"[{{"output_type": "stream", "name": "stdout", "text": ["a\n"]}},
+            {{"output_type": "display_data", "metadata": {{}},
+              "data": {{"image/png": "{PNG_2X1}", "text/plain": ["<Figure size 2x1>"]}}}},
+            {{"output_type": "stream", "name": "stdout", "text": "b"}}]"#
+    )));
+    let parts = read_output_parts(src.path()).unwrap();
+    assert_eq!(parts.len(), 1, "only the cell with a picture: {parts:?}");
+    assert_eq!(
+        parts[&1],
+        vec![
+            OutputPart::Text("a\n".into()),
+            OutputPart::Picture {
+                bytes: png_bytes(),
+                alt: "<Figure size 2x1>".into()
+            },
+            OutputPart::Text("b".into()),
+        ]
+    );
+    // The Output column reads exactly as before pictures were kept.
+    let table = JupyterReader.read_file(src.path()).unwrap();
+    assert_eq!(
+        table.get(0, 3),
+        Some(&CellValue::String("a\n\n<Figure size 2x1>\nb".into()))
+    );
+}
+
+#[test]
+fn line_broken_base64_and_svg_text_both_decode() {
+    let (head, tail) = PNG_2X1.split_at(20);
+    let src = write_temp(&nb_with_outputs(&format!(
+        r#"[{{"output_type": "execute_result", "execution_count": 1, "metadata": {{}},
+              "data": {{"image/png": ["{head}\n", "{tail}\n"]}}}},
+            {{"output_type": "display_data", "metadata": {{}},
+              "data": {{"image/svg+xml": ["<svg xmlns='http://www.w3.org/2000/svg'\n", " width='3' height='2'/>"]}}}}]"#
+    )));
+    let parts = read_output_parts(src.path()).unwrap();
+    assert_eq!(
+        parts[&1],
+        vec![
+            OutputPart::Picture {
+                bytes: png_bytes(),
+                alt: "[image/png 2x1]".into()
+            },
+            OutputPart::Picture {
+                bytes: b"<svg xmlns='http://www.w3.org/2000/svg'\n width='3' height='2'/>".to_vec(),
+                alt: "[image/svg+xml]".into()
+            },
+        ]
+    );
+}
+
+#[test]
+fn broken_base64_falls_back_to_the_text() {
+    let src = write_temp(&nb_with_outputs(
+        r#"[{"output_type": "display_data", "metadata": {},
+             "data": {"image/png": "not base64!", "text/plain": "<Figure>"}}]"#,
+    ));
+    assert!(read_output_parts(src.path()).unwrap().is_empty());
+    let table = JupyterReader.read_file(src.path()).unwrap();
+    assert_eq!(table.get(0, 3), Some(&CellValue::String("<Figure>".into())));
+}

@@ -31,3 +31,7 @@ octa --hash-columns first,last,birth --hash-algo sha256 --hash-trim --hash-upper
 
 The same function is in the app as **Columns > Hash columns...** and in the
 MCP server as [`hash_columns`](../mcp/tools/hash_columns.md).
+
+## See also
+
+- In the app: [Hash Columns](../usage/hash-columns.md)

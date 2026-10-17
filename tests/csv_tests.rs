@@ -125,6 +125,55 @@ fn test_detect_empty_file_returns_none() {
     assert_eq!(detect_delimiter(f.path()), None);
 }
 
+#[test]
+fn test_detect_semicolon_below_title_lines() {
+    let mut f = NamedTempFile::new().unwrap();
+    writeln!(f, "Sales report Q3 2025").unwrap();
+    writeln!(f, "Created 03.10.2026").unwrap();
+    writeln!(f).unwrap();
+    writeln!(f, "Region;Revenue;Share").unwrap();
+    writeln!(f, "North;1.234,56;0,25").unwrap();
+    writeln!(f, "South;987,10;0,5").unwrap();
+    assert_eq!(detect_delimiter(f.path()), Some(b';'));
+}
+
+#[test]
+fn test_detect_semicolon_below_a_title_with_a_comma() {
+    let mut f = NamedTempFile::new().unwrap();
+    writeln!(f, "Sales report, Q3 2025").unwrap();
+    writeln!(f, "Region;Revenue;Share").unwrap();
+    writeln!(f, "North;1.234,56;0,25").unwrap();
+    writeln!(f, "South;987,10;0,5").unwrap();
+    assert_eq!(detect_delimiter(f.path()), Some(b';'));
+}
+
+#[test]
+fn test_detect_comma_below_title_line() {
+    let mut f = NamedTempFile::new().unwrap();
+    writeln!(f, "Monthly figures").unwrap();
+    writeln!(f, "id,name,amount").unwrap();
+    writeln!(f, "1,Anna,10").unwrap();
+    writeln!(f, "2,Ben,20").unwrap();
+    assert_eq!(detect_delimiter(f.path()), Some(b','));
+}
+
+#[test]
+fn test_detect_two_column_european_file_stays_semicolon() {
+    let mut f = NamedTempFile::new().unwrap();
+    writeln!(f, "a;b").unwrap();
+    writeln!(f, "1,5;2,5").unwrap();
+    writeln!(f, "3,5;4,5").unwrap();
+    assert_eq!(detect_delimiter(f.path()), Some(b';'));
+}
+
+#[test]
+fn test_detect_delimiter_in_needs_two_agreeing_lines() {
+    // A title with one comma above a table without commas is not a CSV.
+    assert_eq!(detect_delimiter_in("Report, Q3\nfoo\nbar\n"), None);
+    // A single header line still counts, as before.
+    assert_eq!(detect_delimiter_in("a,b,c\n"), Some(b','));
+}
+
 // --- read/write round-trip ---
 
 #[test]
@@ -339,4 +388,130 @@ fn test_read_delimited_opts_default_matches_normal() {
     let table = read_delimited_opts(f.path(), b',', "CSV", &opts).unwrap();
     assert_eq!(table.columns.len(), 2);
     assert_eq!(table.row_count(), 1);
+}
+
+// --- table width follows the data ---
+
+fn read_csv(text: &str) -> octa::data::DataTable {
+    let mut f = tempfile::Builder::new().suffix(".csv").tempfile().unwrap();
+    f.write_all(text.as_bytes()).unwrap();
+    CsvReader.read_file(f.path()).unwrap()
+}
+
+fn col_names(t: &octa::data::DataTable) -> Vec<String> {
+    t.columns.iter().map(|c| c.name.clone()).collect()
+}
+
+#[test]
+fn test_title_line_keeps_every_field() {
+    let t = read_csv(
+        "Sales report Q3 2025\nRegion;Revenue;Share\nNorth;1.234,56;0,25\nSouth;987,10;0,5\n",
+    );
+    assert_eq!(
+        col_names(&t),
+        ["Sales report Q3 2025", "column_2", "column_3"]
+    );
+    let header = (0..t.row_count())
+        .find(|&r| t.get(r, 0) == Some(&CellValue::String("Region".into())))
+        .expect("the real header is a row");
+    assert_eq!(t.get(header, 2), Some(&CellValue::String("Share".into())));
+    assert_eq!(
+        t.get(header + 1, 1),
+        Some(&CellValue::String("1.234,56".into()))
+    );
+}
+
+#[test]
+fn test_trailing_delimiter_adds_no_empty_column() {
+    let t = read_csv("a;b;c\n1;2;3;\n4;5;6;\n");
+    assert_eq!(col_names(&t), ["a", "b", "c"]);
+}
+
+#[test]
+fn test_a_few_long_rows_do_not_widen_the_table() {
+    let t = read_csv("a,b,c\n1,2,3\n4,5,6,7\n");
+    assert_eq!(t.col_count(), 3);
+}
+
+#[test]
+fn test_title_block_csv_end_to_end() {
+    use octa::data::header_rows::{HeaderSuggestion, suggest, use_header_rows};
+    let mut t = read_csv(
+        "Sales report Q3 2025\nCreated 03.10.2026\n\nRegion;Revenue;Share\nNorth;1.234,56;0,25\nSouth;987,10;0,5\n",
+    );
+    let s = suggest(&t).expect("the Region row is offered");
+    assert_eq!(t.get(s.last, 0), Some(&CellValue::String("Region".into())));
+    assert_eq!(
+        s,
+        HeaderSuggestion {
+            first: s.last,
+            last: s.last
+        }
+    );
+    use_header_rows(&mut t, s.first, s.last, true).unwrap();
+    assert_eq!(col_names(&t), ["Region", "Revenue", "Share"]);
+    let types: Vec<&str> = t.columns.iter().map(|c| c.data_type.as_str()).collect();
+    assert_eq!(types, ["Utf8", "Float64", "Float64"]);
+    assert_eq!(t.get(0, 1), Some(&CellValue::Float(1234.56)));
+}
+
+/// Background chunks of a CSV: each one carries on from the byte position the
+/// last one stopped at, and together they hold every record exactly once,
+/// a quoted line break included (records, not lines).
+#[test]
+fn csv_chunks_resume_where_the_last_one_stopped() {
+    use octa::formats::csv_reader::{ChunkResume, ChunkSink, ChunkSpec, load_csv_rows_chunk};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::{Arc, Mutex};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("chunks.csv");
+    let mut text = String::from("id,note\n");
+    for i in 0..10 {
+        if i == 4 {
+            text.push_str("4,\"two\nlines\"\n");
+        } else {
+            text.push_str(&format!("{i},n{i}\n"));
+        }
+    }
+    std::fs::write(&path, text).unwrap();
+
+    let resume: ChunkResume = Default::default();
+    let chunk = |skip_rows: usize, resume: &ChunkResume| {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        load_csv_rows_chunk(
+            &path,
+            b',',
+            ChunkSpec {
+                skip_rows,
+                max_rows: 3,
+                num_cols: 2,
+            },
+            ChunkSink {
+                buffer: buffer.clone(),
+                done: Arc::new(AtomicBool::new(false)),
+                exhausted: Arc::new(AtomicBool::new(false)),
+                resume: resume.clone(),
+            },
+        )
+        .unwrap();
+        let rows = std::mem::take(&mut *buffer.lock().unwrap());
+        rows.iter().map(|r| r[0].to_string()).collect::<Vec<_>>()
+    };
+
+    // The first chunk has no position yet and skips by counting.
+    assert_eq!(chunk(1, &resume), ["1", "2", "3"]);
+    assert_eq!(resume.lock().unwrap().as_ref().unwrap().0, 4);
+    assert_eq!(chunk(4, &resume), ["4", "5", "6"]);
+    assert_eq!(chunk(7, &resume), ["7", "8", "9"]);
+
+    // The position is really used: keyed to another count, it still wins
+    // over counting from the start.
+    let pos = resume.lock().unwrap().clone().unwrap().1;
+    let after_six: ChunkResume = Default::default();
+    *after_six.lock().unwrap() = Some((4, pos));
+    assert!(
+        chunk(4, &after_six).is_empty(),
+        "seeked to the end, not row 4"
+    );
 }

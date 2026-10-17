@@ -288,7 +288,7 @@ pub(crate) fn render_cloud_transfer_dialog(app: &mut OctaApp, ctx: &egui::Contex
         egui::Panel::top("cloud_transfer_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(RichText::new(t(title)).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -310,7 +310,7 @@ pub(crate) fn render_cloud_transfer_dialog(app: &mut OctaApp, ctx: &egui::Contex
                     draw_result_message(ui, *ok, msg);
                     ui.add_space(4.0);
                 }
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     let go = match st.op {
                         CloudObjOp::Copy => t("cloud.copy_to"),
                         CloudObjOp::Move => t("cloud.move_to"),
@@ -348,6 +348,7 @@ pub(crate) fn render_cloud_transfer_dialog(app: &mut OctaApp, ctx: &egui::Contex
                 .num_columns(2)
                 .spacing([12.0, 8.0])
                 .show(ui, |ui| {
+                    octa::ui::control_row::pin_control_height(ui);
                     ui.label(t("dialog.clt_source"));
                     ui.monospace(&st.src_label);
                     ui.end_row();

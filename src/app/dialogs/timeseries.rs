@@ -88,7 +88,7 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("timeseries_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("timeseries.title"))
                             .strong()
@@ -109,7 +109,7 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("timeseries_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     let ready = build_sql(&st, &col_names);
                     // One Rolling question at a time.
                     let asking = st.rolling_ask.is_some();
@@ -144,7 +144,7 @@ pub(crate) fn render_timeseries_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             });
 
         egui::CentralPanel::default().show(ui, |ui| {
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.selectable_value(
                     &mut st.kind,
                     TimeseriesKind::Resample,
@@ -232,6 +232,7 @@ fn resample_body(
     egui::Grid::new("timeseries_resample_grid")
         .num_columns(2)
         .show(ui, |ui| {
+            octa::ui::control_row::pin_control_height(ui);
             ui.label(octa::i18n::t("timeseries.time_col"));
             col_combo_ordered(ui, "ts_time", &mut st.time_col, cols, Some(time_order));
             ui.end_row();

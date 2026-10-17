@@ -15,6 +15,7 @@ use octa::db::{self, DbConnection};
 use octa::ui::settings::db_secrets::{get_db_secret, get_ssh_secret};
 use octa::ui::tree_filter::{self, SearchSlot, TreeSearch};
 
+use super::cloud_browser::SignInState;
 use super::state::{DbOrigin, OctaApp};
 
 /// (connection id, path) key into the listings cache. The path is a
@@ -62,6 +63,7 @@ pub(crate) fn baseline_db_meta(table: &mut octa::data::DataTable, table_name: &s
 }
 
 /// Cached state of one expanded node's listing.
+#[derive(Clone)]
 pub(crate) enum DbListState {
     Loading,
     /// The connection root of a `has_catalogs` engine: its catalogs.
@@ -71,6 +73,9 @@ pub(crate) enum DbListState {
     /// One schema: its tables (and views).
     Tables(Vec<String>),
     Error(String),
+    /// The listing failed because no token could be had, and a browser
+    /// sign-in would give one: the error, shown beside a Sign in button.
+    NeedsSignIn(String),
 }
 
 /// Turns a listing node that is still `Loading` when its worker ends into an
@@ -145,6 +150,8 @@ pub(crate) struct DbBrowserState {
     pub(crate) search_query: String,
     /// The deep search, written by its worker.
     pub(crate) search: Arc<Mutex<SearchSlot<DbHit>>>,
+    /// Browser sign-ins started from the sidebar, by connection id.
+    pub(crate) sign_in: Arc<Mutex<HashMap<String, SignInState>>>,
 }
 
 impl Default for DbBrowserState {
@@ -156,8 +163,30 @@ impl Default for DbBrowserState {
             pending_open: Arc::new(Mutex::new(Vec::new())),
             search_query: String::new(),
             search: Arc::new(Mutex::new(SearchSlot::default())),
+            sign_in: Arc::new(Mutex::new(HashMap::new())),
         }
     }
+}
+
+/// Whether a listing that failed on `conn` failed for want of a token that a
+/// browser sign-in would give: no valid cached sign-in, and for Azure AD /
+/// GCP IAM the vendor CLI has no token either. Asked only after a failure,
+/// since it runs the token command once more.
+fn needs_browser_signin(conn: &DbConnection, secret: Option<&str>) -> bool {
+    use octa::db::auth::{
+        PasswordResolution, browser_signin_offered, cached_browser_token,
+        resolve_password_with_cache,
+    };
+    browser_signin_offered(conn)
+        && matches!(
+            resolve_password_with_cache(
+                conn,
+                secret,
+                cached_browser_token(&conn.id).as_ref(),
+                true
+            ),
+            Ok(PasswordResolution::NeedsBrowserSignin)
+        )
 }
 
 impl OctaApp {
@@ -269,12 +298,66 @@ impl OctaApp {
                 };
                 Ok(state)
             });
-            let state = result.unwrap_or_else(|e| DbListState::Error(format!("{e:#}")));
+            let state = result.unwrap_or_else(|e| {
+                let msg = format!("{e:#}");
+                if needs_browser_signin(&conn, secret.as_deref()) {
+                    DbListState::NeedsSignIn(msg)
+                } else {
+                    DbListState::Error(msg)
+                }
+            });
             if let Ok(mut m) = listings.lock() {
                 m.insert(key, state);
             }
             ctx.request_repaint();
         });
+    }
+
+    /// Sign a connection in through the browser from the sidebar, on a
+    /// worker; `drain_db_sign_ins` lists it again once that worked.
+    pub(crate) fn db_sign_in(&mut self, ctx: &egui::Context, conn_id: String) {
+        let Some(conn) = self.find_db_conn(&conn_id) else {
+            return;
+        };
+        let client_secret = get_db_secret(&conn.id, &self.settings);
+        let status = self.db_browser.sign_in.clone();
+        if let Ok(mut m) = status.lock() {
+            m.insert(conn_id.clone(), SignInState::InProgress);
+        }
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let state = match db::auth::browser_signin(&conn, client_secret.as_deref()) {
+                Ok(()) => SignInState::Done,
+                Err(e) => SignInState::Failed(e),
+            };
+            if let Ok(mut m) = status.lock() {
+                m.insert(conn_id, state);
+            }
+            ctx.request_repaint();
+        });
+    }
+
+    /// Once per frame: list every connection whose sidebar sign-in just
+    /// worked again, on a fresh connection.
+    pub(crate) fn drain_db_sign_ins(&mut self, ctx: &egui::Context) {
+        let done: Vec<String> = {
+            let Ok(mut m) = self.db_browser.sign_in.lock() else {
+                return;
+            };
+            let done: Vec<String> = m
+                .iter()
+                .filter(|(_, s)| matches!(s, SignInState::Done))
+                .map(|(k, _)| k.clone())
+                .collect();
+            for k in &done {
+                m.remove(k);
+            }
+            done
+        };
+        for conn_id in done {
+            self.db_conn_cache.invalidate(&conn_id);
+            self.refresh_db_conn(ctx, conn_id);
+        }
     }
 
     /// Search every schema of the expanded connections for tables whose name
@@ -310,7 +393,11 @@ impl OctaApp {
         let settings = self.settings.clone();
         let cache = self.db_conn_cache.clone();
         let ctx = ctx.clone();
+        let task = self
+            .long_tasks
+            .start(octa::i18n::t("notify.task_db_search"));
         std::thread::spawn(move || {
+            let _task = task;
             let mut hits = Vec::new();
             let mut errors = Vec::new();
             let mut schemas_seen = 0usize;
@@ -649,7 +736,11 @@ impl OctaApp {
             std::time::Instant::now(),
         ));
         let cache = self.db_conn_cache.clone();
+        let task = self
+            .long_tasks
+            .start(octa::i18n::t("notify.task_db_metadata"));
         std::thread::spawn(move || {
+            let _task = task;
             let secret = get_db_secret(&conn.id, &settings);
             let ssh_secret = get_ssh_secret(&conn.id, &settings);
             let sql = db::table_metadata_sql(conn.engine, catalog.as_deref(), &schema, &table_name);
@@ -788,15 +879,5 @@ impl OctaApp {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{join_path, split_path};
-
-    #[test]
-    fn path_roundtrip() {
-        assert_eq!(split_path(""), Vec::<&str>::new());
-        assert_eq!(split_path("main"), vec!["main"]);
-        assert_eq!(split_path("main\u{1f}sales"), vec!["main", "sales"]);
-        assert_eq!(join_path(&["main", "sales"]), "main\u{1f}sales");
-        assert_eq!(join_path(&["public"]), "public");
-    }
-}
+#[path = "db_browser_tests.rs"]
+mod tests;

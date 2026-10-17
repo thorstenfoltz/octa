@@ -155,48 +155,114 @@ pub(super) struct RowHeightOpts {
     pub(super) wrap: bool,
 }
 
-/// Rebuild the prefix-sum of row heights if the cache is stale.
+/// Keep the prefix sums of row heights current, measuring only the rows on
+/// screen.
+///
+/// With line breaks on, a row's height is known only once its cells are laid
+/// out. Measuring every row at once (the old way) laid out every cell of the
+/// table in one frame, and egui's text cache held all of it: more than 55 GB
+/// at five million rows. Now a row counts as `base_row_height` until it is
+/// first in view (`view_height` below `scroll_y`), is measured then, and keeps
+/// that height (`measured_heights`, by actual row) until the next
+/// invalidation. The cost is a scrollbar that settles as rows are seen.
 pub(super) fn ensure_row_y_offsets(
     ui: &Ui,
     state: &mut TableViewState,
     table: &DataTable,
     filtered_rows: &[usize],
     opts: RowHeightOpts,
+    view_height: f32,
 ) {
-    if state.row_heights_cached_generation == state.row_heights_generation
-        && state.row_y_offsets.len() == filtered_rows.len() + 1
-    {
+    let stale = state.row_heights_cached_generation != state.row_heights_generation;
+    if stale {
+        state.measured_heights.clear();
+    }
+    // 0.0 = not measured yet; a measured row is never below the base height.
+    state.measured_heights.resize(table.row_count(), 0.0);
+    state.row_heights_cached_generation = state.row_heights_generation;
+    if stale || state.row_y_offsets.len() != filtered_rows.len() + 1 {
+        state.row_y_offsets.clear();
+        state.row_y_offsets.push(0.0);
+        state.row_y_offsets.resize(filtered_rows.len() + 1, 0.0);
+        refresh_offsets(state, filtered_rows, opts.base_row_height);
+    }
+    if !opts.wrap {
         return;
     }
-    let col_widths = state.col_widths.clone();
-    let overrides = state.row_heights.clone();
-    let mut offsets = Vec::with_capacity(filtered_rows.len() + 1);
-    offsets.push(0.0);
-    let mut cumulative = 0.0f32;
-    for &actual_row in filtered_rows {
-        // A height the user dragged wins outright. Otherwise measure only when
-        // wrapping is on: `compute_row_height` lays out every cell of the row,
-        // so running it with wrap off - where every unadjusted row is exactly
-        // `base_row_height` - would be an O(rows x cols) text-layout pass for
-        // an answer already known.
-        let h = match overrides.get(&actual_row) {
-            Some(&h) => h,
-            None if opts.wrap => compute_row_height(
+    let first = row_at_offset(&state.row_y_offsets, state.scroll_y);
+    let end_y = state.scroll_y + view_height;
+    // (display index, height above the base) of each row that grew.
+    let mut grown: Vec<(usize, f32)> = Vec::new();
+    // The first row in view whose height was already known: what the user
+    // is looking at, kept still below.
+    let mut anchor = None;
+    let mut idx = first;
+    while idx < filtered_rows.len() && state.row_y_offsets[idx] <= end_y {
+        let actual = filtered_rows[idx];
+        // A height the user dragged wins outright, so there is nothing to
+        // measure for it.
+        if state.row_heights.contains_key(&actual)
+            || state.measured_heights.get(actual) != Some(&0.0)
+        {
+            anchor.get_or_insert(idx);
+        } else {
+            let h = compute_row_height(
                 ui,
                 table,
-                actual_row,
-                &col_widths,
+                actual,
+                &state.col_widths,
                 opts.font_size,
                 opts.base_row_height,
                 opts.binary_display_mode,
-            ),
-            None => opts.base_row_height,
-        };
-        cumulative += h;
-        offsets.push(cumulative);
+            );
+            state.measured_heights[actual] = h;
+            if h != opts.base_row_height {
+                grown.push((idx, h - opts.base_row_height));
+            }
+        }
+        idx += 1;
     }
-    state.row_y_offsets = offsets;
-    state.row_heights_cached_generation = state.row_heights_generation;
+    if let Some(&(from, _)) = grown.first() {
+        // Rows that grew above the anchor would push it down: scrolling up
+        // into rows not seen yet made the table jump. Scroll by as much, as
+        // a browser does, so the anchor stays where it was on screen.
+        let above: f32 = grown
+            .iter()
+            .filter(|(i, _)| anchor.is_some_and(|a| *i < a))
+            .map(|(_, d)| d)
+            .sum();
+        state.scroll_y += above;
+        // Every offset below a grown row moves down by what it grew: one add
+        // per row, where recomputing each row's height again cost a lookup
+        // per row (~100 ms a frame at five million rows while scrolling).
+        let mut grown = grown.into_iter().peekable();
+        let mut shift = 0.0;
+        for (k, offset) in state.row_y_offsets.iter_mut().enumerate().skip(from + 1) {
+            while let Some(&(i, d)) = grown.peek()
+                && i < k
+            {
+                shift += d;
+                grown.next();
+            }
+            *offset += shift;
+        }
+        // Rows grew, so rows further down may now be the ones in view.
+        ui.ctx().request_repaint();
+    }
+}
+
+/// Recompute every offset from the heights known now.
+fn refresh_offsets(state: &mut TableViewState, filtered_rows: &[usize], base_row_height: f32) {
+    for (idx, &actual) in filtered_rows.iter().enumerate() {
+        let h = match state.row_heights.get(&actual) {
+            Some(&h) => h,
+            None => match state.measured_heights.get(actual) {
+                Some(&h) if h > 0.0 => h,
+                _ => base_row_height,
+            },
+        };
+        state.row_y_offsets[idx + 1] = state.row_y_offsets[idx] + h;
+    }
 }
 
 /// Compute the height of a row by measuring wrapped text in each cell.

@@ -122,20 +122,8 @@ so for a CSV, **F4** cycles between Table and Raw only.
 
 ## Read-only mode
 
-**F8**
-([`ToggleReadOnly`](../../reference/shortcuts.md#view)) toggles a session-only read-only state independent
-of view mode. Every editing path short-circuits:
-
-- Double-click on a cell doesn't enter edit mode.
-- The [raw text editor](raw-text.md) renders non-interactive.
-- Shortcuts for [Insert / Delete row](../editing.md#inserting-rows),
-  [Mark](../colour-marking.md), Undo, Redo all no-op.
-
-The status bar shows a `[Read-only]` pill while active. A one-shot
-notice explains the mode the first time you toggle it.
-
-Read-only is not persisted, so it resets every time you launch
-Octa.
+**F8** makes every view read-only, whichever one is showing; see
+[Read-only mode](../editing.md#read-only-mode).
 
 ## Per-mode references
 

@@ -56,7 +56,13 @@ pub fn run(path: PathBuf, db: String, table_spec: String, on: String) -> Result<
         &table,
     )?;
 
-    let result = compare_join(&live, &file_table, &keys)?;
+    // Exact on purpose: a sync, or a change highlight, must see every difference.
+    let result = compare_join(
+        &live,
+        &file_table,
+        &keys,
+        &octa::data::compare::CompareOptions::default(),
+    )?;
     let synced = plan_from_comparison(&live, &file_table, &result, &keys)?;
     let plan = synced.plan;
     if !synced.ignored_columns.is_empty() {

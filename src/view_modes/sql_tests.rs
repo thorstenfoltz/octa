@@ -86,9 +86,9 @@ fn the_ask_box_never_asks_for_a_negative_width() {
 /// height known when *that* widget is added, and the three had three
 /// different heights (box 9.5, button 13.5, combo 18.0 under Octa's
 /// `button_padding`, against egui's default of 1px where they happen to
-/// agree). The row therefore pins `interact_size.y` to
-/// [`control_height`] and gives the box the button's vertical padding as its
-/// margin; this test drives the same sequence headlessly and fails on any
+/// agree). The row is therefore a `control_line`, which pins
+/// `interact_size.y` to the button height, and the box gets the button's
+/// vertical padding as its margin; this test drives the same sequence headlessly and fails on any
 /// drift, including an egui upgrade that changes the layout rules.
 #[test]
 fn the_ask_row_shares_one_centre_line() {
@@ -110,8 +110,7 @@ fn the_ask_row_shares_one_centre_line() {
             // A theme's padding, not egui's default: the defect only shows
             // with a button taller than a one-line text box.
             ui.spacing_mut().button_padding = egui::vec2(10.0, 6.0);
-            ui.horizontal(|ui| {
-                ui.spacing_mut().interact_size.y = control_height(ui);
+            octa::ui::control_row::control_line(ui, |ui| {
                 let pad = ui.spacing().button_padding.y.round() as i8;
                 let box_resp = ui.add(
                     egui::TextEdit::multiline(&mut buf)
@@ -267,9 +266,11 @@ fn run_sql_panel(
     let mut frame = |events: Vec<egui::Event>, painted: &mut Vec<_>| {
         let input = egui::RawInput {
             events,
+            // Wide enough to keep the SQL toolbar on one row: this fixture tests
+            // the splitter handles, not toolbar wrapping.
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::pos2(0.0, 0.0),
-                egui::vec2(1000.0, 700.0),
+                egui::vec2(1400.0, 700.0),
             )),
             ..Default::default()
         };
@@ -452,6 +453,170 @@ fn line_comments_run_to_end_of_line_and_skip_strings() {
     assert!(line_comment_ranges("SELECT 'it''s -- no'").is_empty());
 }
 
+/// One frame of the SQL view in a headless context, fed `events`.
+fn editor_frame(
+    ctx: &egui::Context,
+    events: Vec<egui::Event>,
+    tab: &mut crate::app::state::TabState,
+) -> egui::FullOutput {
+    editor_frame_wide(ctx, events, tab, 1000.0)
+}
+
+/// [`editor_frame`] in a window `width` points wide.
+fn editor_frame_wide(
+    ctx: &egui::Context,
+    events: Vec<egui::Event>,
+    tab: &mut crate::app::state::TabState,
+    width: f32,
+) -> egui::FullOutput {
+    let input = egui::RawInput {
+        events,
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(width, 700.0),
+        )),
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        egui::Panel::bottom("sql_panel_bottom")
+            .default_size(500.0)
+            .show(ui, |ui| {
+                render_sql_view(
+                    ui,
+                    tab,
+                    SqlViewContext {
+                        autocomplete_enabled: true,
+                        default_row_limit: 1000,
+                        partial_rows: None,
+                        editor_font: octa::ui::settings::SqlEditorFont::SystemMonospace,
+                        workspace_tables: &[],
+                        workspace_attachments: &[],
+                        inspector_selection: None,
+                        inspector_entry: None,
+                        history: &[],
+                        server_running: false,
+                        db_connections: Vec::new(),
+                        cloud_connections: Vec::new(),
+                        auto_registered: &[],
+                        show_auto_register_notice: false,
+                        chat_profile_available: false,
+                        ask_profiles: Vec::new(),
+                        extra_identifiers: &[],
+                    },
+                );
+            });
+    });
+    out.textures_delta.clear();
+    out
+}
+
+fn key(key: egui::Key) -> egui::Event {
+    egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }
+}
+
+/// Escape with the suggestion list open closes the list and nothing else:
+/// the caret stays in the editor, and the next Enter is a line break.
+#[test]
+fn escape_closes_suggestions_and_keeps_the_editor() {
+    use crate::app::state::TabState;
+
+    let ctx = egui::Context::default();
+    let mut tab = TabState::new(octa::data::SearchMode::Plain);
+    tab.table = octa::data::DataTable::empty();
+    tab.table.columns.push(octa::data::ColumnInfo {
+        name: "amount".into(),
+        data_type: "Utf8".into(),
+    });
+    tab.sql.focus_pending = true;
+    for _ in 0..3 {
+        editor_frame(&ctx, Vec::new(), &mut tab);
+    }
+    editor_frame(&ctx, vec![egui::Event::Text("SELECT am".into())], &mut tab);
+    editor_frame(&ctx, Vec::new(), &mut tab);
+    assert!(tab.sql.ac_visible, "typing opens the list");
+
+    editor_frame(&ctx, vec![key(egui::Key::Escape)], &mut tab);
+    editor_frame(&ctx, Vec::new(), &mut tab);
+    assert!(!tab.sql.ac_visible, "Escape closes the list");
+    let id = editor_id(tab.sql.id);
+    assert_eq!(
+        ctx.memory(|m| m.focused()),
+        Some(id),
+        "the editor keeps focus"
+    );
+
+    editor_frame(&ctx, vec![key(egui::Key::Enter)], &mut tab);
+    assert_eq!(
+        tab.sql.query, "SELECT am\n",
+        "Enter is a line break, not a pick"
+    );
+
+    // With the list closed, Escape leaves the editor as before.
+    editor_frame(&ctx, vec![key(egui::Key::Escape)], &mut tab);
+    editor_frame(&ctx, Vec::new(), &mut tab);
+    assert_ne!(ctx.memory(|m| m.focused()), Some(id));
+}
+
+/// Suggestions belong to typing. Marking a column name left the caret right
+/// after it, so the list opened and took the next Enter as a pick.
+#[test]
+fn suggestions_show_while_typing_and_never_for_marked_text() {
+    use crate::app::state::TabState;
+
+    let ctx = egui::Context::default();
+    let mut tab = TabState::new(octa::data::SearchMode::Plain);
+    tab.table = octa::data::DataTable::empty();
+    tab.table.columns.push(octa::data::ColumnInfo {
+        name: "amount".into(),
+        data_type: "Utf8".into(),
+    });
+    tab.sql.focus_pending = true;
+    for _ in 0..3 {
+        editor_frame(&ctx, Vec::new(), &mut tab);
+    }
+    editor_frame(&ctx, vec![egui::Event::Text("SELECT amo".into())], &mut tab);
+    editor_frame(&ctx, Vec::new(), &mut tab);
+    assert!(tab.sql.ac_visible, "typing opens the list");
+
+    // Moving the caret without typing closes it.
+    editor_frame(&ctx, vec![key(egui::Key::ArrowLeft)], &mut tab);
+    editor_frame(&ctx, Vec::new(), &mut tab);
+    assert!(!tab.sql.ac_visible, "a caret move closes the list");
+    editor_frame(&ctx, vec![key(egui::Key::End)], &mut tab);
+    editor_frame(&ctx, vec![egui::Event::Text("unt".into())], &mut tab);
+    assert_eq!(tab.sql.query, "SELECT amount");
+
+    // Mark "amount" left to right: the caret ends right after the name.
+    editor_frame(&ctx, vec![key(egui::Key::Home)], &mut tab);
+    for _ in 0..7 {
+        editor_frame(&ctx, vec![key(egui::Key::ArrowRight)], &mut tab);
+    }
+    let shift_right = egui::Event::Key {
+        key: egui::Key::ArrowRight,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::SHIFT,
+    };
+    for _ in 0..6 {
+        editor_frame(&ctx, vec![shift_right.clone()], &mut tab);
+    }
+    editor_frame(&ctx, Vec::new(), &mut tab);
+    assert!(!tab.sql.ac_visible, "marking text opens no list");
+
+    editor_frame(&ctx, vec![key(egui::Key::Enter)], &mut tab);
+    assert_eq!(
+        tab.sql.query, "SELECT \n",
+        "Enter replaces the marked text, it picks nothing"
+    );
+}
+
 /// Paste and copy reach the SQL editor through the real view, on a tab that
 /// holds a table and has a selected result cell (the Ctrl+C hijack beside it).
 #[test]
@@ -467,47 +632,7 @@ fn editor_takes_paste_and_copy_with_a_table_open() {
     });
     tab.sql.query = "SELECT 1".into();
     tab.sql.focus_pending = true;
-    let frame = |events: Vec<egui::Event>, tab: &mut TabState| {
-        let input = egui::RawInput {
-            events,
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::pos2(0.0, 0.0),
-                egui::vec2(1000.0, 700.0),
-            )),
-            ..Default::default()
-        };
-        let mut out = ctx.run_ui(input, |ui| {
-            egui::Panel::bottom("sql_panel_bottom")
-                .default_size(500.0)
-                .show(ui, |ui| {
-                    render_sql_view(
-                        ui,
-                        tab,
-                        SqlViewContext {
-                            autocomplete_enabled: true,
-                            default_row_limit: 1000,
-                            partial_rows: None,
-                            editor_font: octa::ui::settings::SqlEditorFont::SystemMonospace,
-                            workspace_tables: &[],
-                            workspace_attachments: &[],
-                            inspector_selection: None,
-                            inspector_entry: None,
-                            history: &[],
-                            server_running: false,
-                            db_connections: Vec::new(),
-                            cloud_connections: Vec::new(),
-                            auto_registered: &[],
-                            show_auto_register_notice: false,
-                            chat_profile_available: false,
-                            ask_profiles: Vec::new(),
-                            extra_identifiers: &[],
-                        },
-                    );
-                });
-        });
-        out.textures_delta.clear();
-        out
-    };
+    let frame = |events: Vec<egui::Event>, tab: &mut TabState| editor_frame(&ctx, events, tab);
     for _ in 0..3 {
         frame(Vec::new(), &mut tab);
     }
@@ -589,6 +714,7 @@ fn history_sources_resolve_to_names() {
     let dbs = vec![DbAttachEntry {
         id: "c1".into(),
         name: "prod".into(),
+        engine: octa::db::DbEngine::Postgres,
         drill: None,
     }];
     let clouds = vec![("s3".to_string(), "bucket".to_string())];
@@ -663,7 +789,11 @@ fn side_by_side_editors_each_take_their_own_input() {
 
     let ctx = egui::Context::default();
     let mut tab = TabState::new(octa::data::SearchMode::Plain);
-    tab.set_sql_queries(vec!["a".into(), "b".into(), "c".into()]);
+    tab.set_sql_editors(vec![
+        ("a".into(), None),
+        ("b".into(), None),
+        ("c".into(), None),
+    ]);
     let frame = |events: Vec<egui::Event>, tab: &mut TabState| {
         let input = egui::RawInput {
             events,
@@ -718,7 +848,7 @@ fn side_by_side_editors_each_take_their_own_input() {
     frame(Vec::new(), &mut tab);
     frame(vec![egui::Event::Text("X".into())], &mut tab);
     frame(Vec::new(), &mut tab);
-    let queries = tab.sql_queries();
+    let queries: Vec<String> = tab.sql_editors().into_iter().map(|(q, _)| q).collect();
     assert_eq!(queries[0], "a");
     assert!(queries[1].contains('X'), "typed into pane 2: {queries:?}");
     assert_eq!(queries[2], "c");
@@ -726,4 +856,185 @@ fn side_by_side_editors_each_take_their_own_input() {
         tab.sql_active_pane, 1,
         "the focused editor is the active one"
     );
+}
+
+#[test]
+fn accepting_a_suggestion_closes_the_list() {
+    // The word just inserted still matches itself, so a list left open
+    // stayed up until Escape.
+    let ctx = egui::Context::default();
+    let mut tab = crate::app::state::TabState::new(octa::data::SearchMode::Plain);
+    tab.sql.query = "SELECT cust".to_string();
+    tab.sql.ac_visible = true;
+    apply_suggestion_later(&mut tab, 7, 4, "customer_id", &ctx);
+    assert_eq!(tab.sql.query, "SELECT customer_id");
+    assert!(!tab.sql.ac_visible, "the list closes once a word is taken");
+}
+
+/// The header's right-hand buttons (`x`, Maximise / Restore) are laid out
+/// from the right edge leftwards. Drawn last in a full row, they landed on
+/// top of whatever the row already held there, hiding it.
+#[test]
+fn nothing_in_the_header_hides_behind_restore() {
+    use crate::app::state::TabState;
+
+    for width in [520.0_f32, 700.0, 900.0, 1100.0, 1400.0] {
+        let ctx = egui::Context::default();
+        let mut tab = TabState::new(octa::data::SearchMode::Plain);
+        tab.sql_maximised = true;
+        let mut result = octa::data::DataTable::empty();
+        result.columns = vec![octa::data::ColumnInfo {
+            name: "a".into(),
+            data_type: "Int64".into(),
+        }];
+        result.rows = (0..3)
+            .map(|i| vec![octa::data::CellValue::Int(i)])
+            .collect();
+        tab.sql.result = Some(result);
+        tab.sql.result_total = Some(1_234_567);
+        tab.sql.last_duration_ms = Some(1234);
+        let mut shapes = Vec::new();
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, 700.0),
+                )),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| {
+                render_sql_view(
+                    ui,
+                    &mut tab,
+                    SqlViewContext {
+                        autocomplete_enabled: false,
+                        default_row_limit: 1000,
+                        partial_rows: None,
+                        editor_font: octa::ui::settings::SqlEditorFont::SystemMonospace,
+                        workspace_tables: &[],
+                        workspace_attachments: &[],
+                        inspector_selection: None,
+                        inspector_entry: None,
+                        history: &[],
+                        server_running: false,
+                        db_connections: Vec::new(),
+                        cloud_connections: Vec::new(),
+                        auto_registered: &[],
+                        show_auto_register_notice: false,
+                        chat_profile_available: false,
+                        ask_profiles: Vec::new(),
+                        extra_identifiers: &[],
+                    },
+                );
+            });
+            out.textures_delta.clear();
+            shapes = out.shapes;
+        }
+        let texts: Vec<(String, egui::Rect)> = shapes
+            .iter()
+            .filter_map(|cs| match &cs.shape {
+                egui::Shape::Text(t) => Some((
+                    t.galley.text().to_string(),
+                    t.visual_bounding_rect().intersect(cs.clip_rect),
+                )),
+                _ => None,
+            })
+            .filter(|(_, r)| r.is_positive())
+            .collect();
+        for corner in [octa::i18n::t("sql.restore"), "\u{00d7}".to_string()] {
+            let (_, own) = texts
+                .iter()
+                .find(|(s, _)| *s == corner)
+                .unwrap_or_else(|| panic!("{width}px: no {corner:?} drawn"));
+            for (s, r) in &texts {
+                if *s != corner && r.intersects(*own) && r.intersect(*own).area() > 1.0 {
+                    panic!("{width}px: {s:?} at {r:?} is drawn under {corner:?} at {own:?}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn a_query_added_to_the_editor_goes_below_and_is_marked() {
+    use crate::app::state::TabState;
+    let ctx = egui::Context::default();
+    let mut tab = TabState::new(octa::data::SearchMode::Plain);
+    tab.sql.query = "SELECT 1\n".to_string();
+    append_to_editor(&mut tab, "SELECT 2", &ctx);
+    // What was there stays; a blank line keeps the two apart.
+    assert_eq!(tab.sql.query, "SELECT 1\n\nSELECT 2");
+    // Marked, so Run runs the added query and not both.
+    let state = egui::TextEdit::load_state(&ctx, editor_id(tab.sql.id)).unwrap();
+    let marked = state.cursor.char_range().unwrap().as_sorted_char_range();
+    assert_eq!((marked.start.0, marked.end.0), (10, 18));
+    assert_eq!(query_to_run(&ctx, &tab.sql), "SELECT 2".to_string());
+    assert!(tab.sql.focus_pending);
+
+    let mut empty = TabState::new(octa::data::SearchMode::Plain);
+    empty.sql.query = "  \n".to_string();
+    append_to_editor(&mut empty, "SELECT 3", &ctx);
+    assert_eq!(empty.sql.query, "SELECT 3");
+}
+
+/// The editor header: a number only with several editors, the file name
+/// when there is one, ` *` while unsaved. No assertion on the translated
+/// "Editor" word: the i18n tests switch the language under parallel runs.
+#[test]
+fn the_editor_header_names_its_file_and_marks_unsaved_changes() {
+    let p = std::path::Path::new("/tmp/q.sql");
+    assert_eq!(pane_label(0, 1, None, false), None);
+    assert_eq!(pane_label(0, 1, Some(p), false).as_deref(), Some("q.sql"));
+    assert_eq!(pane_label(0, 1, Some(p), true).as_deref(), Some("q.sql *"));
+    let several = pane_label(1, 2, Some(p), true).unwrap();
+    assert!(
+        several.contains('2') && several.ends_with(": q.sql *"),
+        "{several}"
+    );
+    let plain = pane_label(1, 2, None, false).unwrap();
+    assert!(plain.contains('2') && !plain.contains(':'), "{plain}");
+}
+
+/// A narrow panel wraps the header's controls onto more lines, whole. The
+/// result buttons (Export, Write result to DB, Open result as tab) sat in a
+/// scope that got only the rest of the line, and their labels broke letter
+/// by letter down a sliver of a column.
+#[test]
+fn a_narrow_panel_never_breaks_a_button_label() {
+    use crate::app::state::TabState;
+
+    let ctx = egui::Context::default();
+    let mut tab = TabState::new(octa::data::SearchMode::Plain);
+    let mut result = octa::data::DataTable::empty();
+    result.columns.push(octa::data::ColumnInfo {
+        name: "n".into(),
+        data_type: "Int64".into(),
+    });
+    result.rows.push(vec![octa::data::CellValue::Int(1)]);
+    tab.sql.result = Some(result);
+    let labels: Vec<String> = ["sql.export", "sql.write_to_db", "sql.result_to_tab"]
+        .iter()
+        .map(|k| octa::i18n::t(k))
+        .collect();
+    for width in [520.0, 700.0, 1000.0] {
+        let mut out = editor_frame_wide(&ctx, Vec::new(), &mut tab, width);
+        out = if out.shapes.is_empty() {
+            editor_frame_wide(&ctx, Vec::new(), &mut tab, width)
+        } else {
+            out
+        };
+        for label in &labels {
+            let rows = out.shapes.iter().find_map(|c| match &c.shape {
+                egui::Shape::Text(t) if t.galley.text() == label.as_str() => {
+                    Some(t.galley.rows.len())
+                }
+                _ => None,
+            });
+            assert_eq!(
+                rows,
+                Some(1),
+                "at {width} px, '{label}' must be drawn on one line"
+            );
+        }
+    }
 }

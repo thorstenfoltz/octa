@@ -83,7 +83,7 @@ would hide where it came from.
   `ambiguous_N` to find the ones worth a look, and filter or edit the
   result tab.
 
-## Elsewhere in Octa
+## Command line and MCP
 
 ```bash
 octa --fuzzy-join crm.csv --fuzzy-join-file sales.csv \

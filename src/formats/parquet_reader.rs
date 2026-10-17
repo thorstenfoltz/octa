@@ -693,51 +693,97 @@ pub fn write_parquet_with(
     table: &DataTable,
     opts: &crate::formats::write_options::ParquetOptions,
 ) -> Result<()> {
-    use parquet::file::properties::{EnabledStatistics, WriterProperties};
-
-    let fields: Vec<Field> = table
-        .columns
-        .iter()
-        .map(|col| Field::new(&col.name, data_type_from_string(&col.data_type), true))
-        .collect();
-    let schema = Arc::new(Schema::new(fields));
-
-    let mut builder = WriterProperties::builder()
-        .set_compression(crate::formats::write_options::parquet_compression(
-            &opts.compression,
-        ))
-        .set_dictionary_enabled(opts.dictionary)
-        .set_statistics_enabled(if opts.statistics {
-            EnabledStatistics::Chunk
-        } else {
-            EnabledStatistics::None
-        });
-    if let Some(n) = opts.row_group_size {
-        builder = builder.set_max_row_group_row_count(Some(n.max(1)));
-    }
-    let props = builder.build();
-
     // Written to a sibling temp and renamed over `path`, so a failure part-way
     // leaves the existing file untouched instead of truncated.
-    crate::formats::write_atomically(path, |tmp| {
-        let file = File::create(tmp)?;
-        let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props))?;
+    crate::formats::write_slices(
+        path,
+        &crate::formats::SliceFormat::Parquet(opts.clone()),
+        &table.columns,
+        [Ok(table)],
+    )
+}
 
-        // Build Arrow arrays column by column
-        let num_rows = table.row_count();
-        let mut arrays: Vec<Arc<dyn Array>> = Vec::with_capacity(table.col_count());
+/// A Parquet file written one batch of rows at a time, for a table too big to
+/// hold whole (the database export streams pages into it). The column types
+/// are fixed by the columns it was created with, and every batch is written
+/// against them, so a page in which a driver typed a column differently still
+/// lands in the same column.
+pub struct ParquetStreamWriter {
+    writer: ArrowWriter<File>,
+    schema: Arc<Schema>,
+    types: Vec<DataType>,
+}
 
-        for col_idx in 0..table.col_count() {
-            let arrow_type = data_type_from_string(&table.columns[col_idx].data_type);
-            let array = build_arrow_array(&arrow_type, table, col_idx, num_rows);
-            arrays.push(array);
+impl ParquetStreamWriter {
+    /// Start a file at `path` with `columns`. Nothing is atomic here: the
+    /// caller writes to a temp and renames (see `formats::write_atomically`).
+    pub fn create(
+        path: &Path,
+        columns: &[ColumnInfo],
+        opts: &crate::formats::write_options::ParquetOptions,
+    ) -> Result<Self> {
+        use parquet::file::properties::{EnabledStatistics, WriterProperties};
+
+        let types: Vec<DataType> = columns
+            .iter()
+            .map(|col| data_type_from_string(&col.data_type))
+            .collect();
+        let fields: Vec<Field> = columns
+            .iter()
+            .zip(&types)
+            .map(|(col, ty)| Field::new(&col.name, ty.clone(), true))
+            .collect();
+        let schema = Arc::new(Schema::new(fields));
+
+        let mut builder = WriterProperties::builder()
+            .set_compression(crate::formats::write_options::parquet_compression(
+                &opts.compression,
+            ))
+            .set_dictionary_enabled(opts.dictionary)
+            .set_statistics_enabled(if opts.statistics {
+                EnabledStatistics::Chunk
+            } else {
+                EnabledStatistics::None
+            });
+        if let Some(n) = opts.row_group_size {
+            builder = builder.set_max_row_group_row_count(Some(n.max(1)));
         }
+        let writer =
+            ArrowWriter::try_new(File::create(path)?, schema.clone(), Some(builder.build()))?;
+        Ok(Self {
+            writer,
+            schema,
+            types,
+        })
+    }
 
-        let batch = arrow::record_batch::RecordBatch::try_new(schema, arrays)?;
-        writer.write(&batch)?;
-        writer.close()?;
+    /// Append every row of `batch`, which must have the columns the file was
+    /// created with.
+    pub fn write(&mut self, batch: &DataTable) -> Result<()> {
+        if batch.col_count() != self.types.len() {
+            return Err(anyhow!(
+                "a batch has {} columns, the file {}",
+                batch.col_count(),
+                self.types.len()
+            ));
+        }
+        let num_rows = batch.row_count();
+        let arrays: Vec<Arc<dyn Array>> = self
+            .types
+            .iter()
+            .enumerate()
+            .map(|(col_idx, ty)| build_arrow_array(ty, batch, col_idx, num_rows))
+            .collect();
+        let batch = arrow::record_batch::RecordBatch::try_new(self.schema.clone(), arrays)?;
+        self.writer.write(&batch)?;
         Ok(())
-    })
+    }
+
+    /// Write the footer. Without it the file is not a Parquet file.
+    pub fn finish(self) -> Result<()> {
+        self.writer.close()?;
+        Ok(())
+    }
 }
 
 /// Outcome of coercing one cell to `f64` for the float builders.

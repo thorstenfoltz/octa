@@ -74,7 +74,9 @@ impl OctaApp {
         let settings = self.settings.clone();
         let ctx = ctx.clone();
 
+        let task = self.long_tasks.start(octa::i18n::t("relmap.title"));
         std::thread::spawn(move || {
+            let _task = task;
             let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
             let ssh_secret = octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &settings);
             let outcome = cache
@@ -118,7 +120,9 @@ impl OctaApp {
         let settings = self.settings.clone();
         let ctx = ctx.clone();
 
+        let task = self.long_tasks.start(octa::i18n::t("relmap.title"));
         std::thread::spawn(move || {
+            let _task = task;
             let outcome = (|| -> anyhow::Result<RelMapJob> {
                 let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
                 let ssh_secret =
@@ -301,7 +305,9 @@ impl OctaApp {
         let settings = self.settings.clone();
         let ctx = ctx.clone();
 
+        let task = self.long_tasks.start(octa::i18n::t("relmap.title"));
         std::thread::spawn(move || {
+            let _task = task;
             let outcome = (|| -> anyhow::Result<RelMapJob> {
                 // The database source builds its map from declared keys, so it
                 // never reaches the value scorer below.

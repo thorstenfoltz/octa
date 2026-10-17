@@ -55,3 +55,5 @@ Returns the joined table:
   matching on a key.
 - [`run_sql`](run_sql.md): full control over join conditions and output
   columns.
+- In the app: [Join Tables](../../usage/join-tables.md)
+- Command line: [`--join`](../../cli/join.md)

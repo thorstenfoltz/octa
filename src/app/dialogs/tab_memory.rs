@@ -110,7 +110,7 @@ pub(crate) fn render_tab_memory_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("tabmem_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(RichText::new(t("tabmem.title")).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -126,7 +126,7 @@ pub(crate) fn render_tab_memory_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("tabmem_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(t("tabmem.total").replace("{size}", &format_estimate(total)))
                             .strong(),
@@ -236,50 +236,5 @@ impl OctaApp {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use octa::data::SearchMode;
-
-    fn tab_with_source(path: &str) -> TabState {
-        let mut tab = TabState::new(SearchMode::Plain);
-        tab.table.source_path = Some(path.to_string());
-        tab
-    }
-
-    #[test]
-    fn a_tab_with_pending_edits_refuses_to_unload() {
-        let mut tab = tab_with_source("/tmp/x.csv");
-        assert!(can_unload(&tab).is_ok());
-        tab.table
-            .edits
-            .insert((0, 0), octa::data::CellValue::Int(1));
-        assert!(matches!(can_unload(&tab), Err(UnloadRefusal::PendingEdits)));
-    }
-
-    /// A structural change is not in the edit overlay, so checking only
-    /// `edits` would let a deleted column be thrown away silently.
-    #[test]
-    fn a_tab_with_structural_changes_refuses_too() {
-        let mut tab = tab_with_source("/tmp/x.csv");
-        tab.table.structural_changes = true;
-        assert!(matches!(can_unload(&tab), Err(UnloadRefusal::PendingEdits)));
-    }
-
-    #[test]
-    fn a_tab_with_no_file_behind_it_refuses_to_unload() {
-        let tab = TabState::new(SearchMode::Plain);
-        assert!(
-            matches!(can_unload(&tab), Err(UnloadRefusal::NoSourcePath)),
-            "an in-memory table cannot be reloaded, so unloading it would lose it"
-        );
-    }
-
-    /// Every refusal explains itself on the disabled button, or the user is
-    /// left with a dead control and no reason.
-    #[test]
-    fn every_refusal_has_a_message() {
-        for r in [UnloadRefusal::PendingEdits, UnloadRefusal::NoSourcePath] {
-            assert!(r.i18n_key().starts_with("tabmem.refuse_"));
-        }
-    }
-}
+#[path = "tab_memory_tests.rs"]
+mod tests;

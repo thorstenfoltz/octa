@@ -74,3 +74,5 @@ finding, which is what the quality report's `null_percentage` is for.
   values.
 - [`--drift-report`](drift-report.md) compares whole profiles between two
   datasets.
+- In the app: [Compare Distributions](../usage/compare-distributions.md)
+- MCP: [`compare_distributions`](../mcp/tools/compare_distributions.md)

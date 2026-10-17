@@ -23,6 +23,7 @@ impl SettingsDialog {
                 .num_columns(2)
                 .spacing([16.0, 8.0])
                 .show(ui, |ui| {
+                    crate::ui::control_row::pin_control_height(ui);
                     ui.label(crate::i18n::t("settings.show_row_numbers"))
                         .on_hover_text(crate::i18n::t("settings_hint.show_row_numbers"));
                     ui.checkbox(&mut self.draft.show_row_numbers, "")
@@ -40,6 +41,33 @@ impl SettingsDialog {
                     ui.checkbox(&mut self.draft.alternating_row_colors, "")
                         .on_hover_text(crate::i18n::t("settings_hint.alternating_rows"));
                     ui.end_row();
+
+                    ui.label(crate::i18n::t("settings.sort_text"))
+                        .on_hover_text(crate::i18n::t("settings_hint.sort_text"));
+                    let current = if self.draft.natural_sort {
+                        crate::i18n::t("settings.sort_natural")
+                    } else {
+                        crate::i18n::t("settings.sort_letters")
+                    };
+                    egui::ComboBox::from_id_salt("settings_sort_text")
+                        .selected_text(current)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.draft.natural_sort,
+                                false,
+                                crate::i18n::t("settings.sort_letters"),
+                            )
+                            .on_hover_text(crate::i18n::t("settings_hint.sort_letters"));
+                            ui.selectable_value(
+                                &mut self.draft.natural_sort,
+                                true,
+                                crate::i18n::t("settings.sort_natural"),
+                            )
+                            .on_hover_text(crate::i18n::t("settings_hint.sort_natural"));
+                        })
+                        .response
+                        .on_hover_text(crate::i18n::t("settings_hint.sort_text"));
+                    ui.end_row();
                 });
         });
 
@@ -52,6 +80,7 @@ impl SettingsDialog {
                     .num_columns(2)
                     .spacing([16.0, 8.0])
                     .show(ui, |ui| {
+                        crate::ui::control_row::pin_control_height(ui);
                         ui.label(crate::i18n::t("settings.thousand_sep"))
                             .on_hover_text(crate::i18n::t("settings_hint.thousand_sep"));
                         ui.checkbox(&mut self.draft.thousands_separators_in_cells, "")
@@ -91,6 +120,7 @@ impl SettingsDialog {
                 .num_columns(2)
                 .spacing([16.0, 8.0])
                 .show(ui, |ui| {
+                    crate::ui::control_row::pin_control_height(ui);
                     ui.label(crate::i18n::t("settings.highlight_edits"))
                         .on_hover_text(crate::i18n::t("settings_hint.highlight_edits"));
                     ui.checkbox(&mut self.draft.highlight_edits, "")
@@ -141,6 +171,7 @@ impl SettingsDialog {
                 .num_columns(2)
                 .spacing([16.0, 8.0])
                 .show(ui, |ui| {
+                    crate::ui::control_row::pin_control_height(ui);
                     ui.label(crate::i18n::t("settings.default_mark_color"))
                         .on_hover_text(crate::i18n::t("settings_hint.default_mark_color"));
                     egui::ComboBox::from_id_salt("default_mark_color_combo")

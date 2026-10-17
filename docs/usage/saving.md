@@ -9,12 +9,45 @@ by format family; this page covers what to expect for each.
   original format.
 - **File → Save as…** lets you pick a new path and / or a different
   format. The output format is chosen from the file extension you
-  type in the save dialog.
+  type in the save dialog. Afterwards it may ask a few things first, see
+  [Save as: the questions](#save-as-the-questions).
+- **File → Save with password…** writes the table into a password-protected
+  zip (AES-256). See
+  [Password-protected files](protected-files.md#saving-with-a-password).
 - Closing a tab or quitting Octa with unsaved changes pops a
   *"Save? Don't Save? Cancel?"* confirmation.
 
 The status bar shows a `*` next to the tab name when a tab has
 unsaved changes.
+
+## Saving a big table
+
+A save of a big table (more than about half a million cells) runs in
+the background, so the window stays usable while the file is written:
+
+- The status bar shows which file is being saved.
+- That tab is read-only until the save is done, and sorting it waits
+  too. The other tabs work as usual.
+- Octa hands the rows to the writer a slice at a time. For CSV, TSV and
+  Parquet that is all the extra memory the save needs. Every other
+  format (Excel, JSON and the rest) is written from a copy of the table
+  put together in the background, so it needs about as much memory
+  again as the table takes.
+- A backup and an [earlier version](earlier-versions.md) of the file, when
+  either is switched on, are copied in the background first. If that
+  copy fails, nothing is written.
+- The file is replaced only once every row is written. If the table
+  changes before then, for example because another file was opened into
+  the tab, the save stops and the file stays as it was. Closing the tab
+  stops the save the same way.
+- The tab counts as unsaved until the save is done, so quitting before
+  then asks first, as for any unsaved tab.
+- **Save** in the close or quit question saves in the background too,
+  and the tab closes, or Octa quits, once the save worked. If it fails,
+  the tab stays open with its changes.
+
+Saves into a SQLite, DuckDB or GeoPackage file change that file in place
+and are written while the window waits.
 
 ## When the file changed underneath you
 
@@ -58,8 +91,13 @@ So that one save asks first, naming the numbers:
   gone. This is right when you deliberately opened a slice.
 - **Cancel** touches nothing.
 
-**Save as** is unguarded here for the same reason as above: writing a
-slice to a *new* file loses nothing.
+**Save as** asks too, before its file picker. It loses nothing from the
+source, but the new file would hold only the loaded rows: an 18 million
+row CSV saved as Parquet would quietly become a Parquet of its first 5
+million. **Load all rows** and **Cancel** work as above; **Save anyway**
+goes on to the file picker and writes the slice. A
+[large-file](large-files.md) tab offers no **Load all rows**, since its
+rows stay on disk.
 
 ## Rounding on save
 
@@ -189,12 +227,18 @@ reports the codec of any file you open, so you can check what you got.
 
 ### CSV / TSV write options
 
-| Option       | Default          | What it does                                                                                                                |
-|--------------|------------------|-----------------------------------------------------------------------------------------------------------------------------|
-| Delimiter    | the format's own | Applies to CSV. Left at a comma, each file keeps the delimiter it was opened with; a `.tsv` writes tabs whatever this says. |
-| Quoting      | only when needed | Or quote every field, or suppress defensive quoting.                                                                        |
-| Line endings | LF               | Switch to CRLF for consumers that require Windows line endings.                                                             |
-| Header row   | on               | Turn off to write data only.                                                                                                |
+These are the defaults for files written without the Save as window: the
+command line, batch convert and the SQL panel's export. Save as to a `.csv`
+asks instead, see [Saving a CSV](#saving-a-csv).
+
+| Option          | Default          | What it does                                                                                                                |
+|-----------------|------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| Delimiter       | the format's own | Applies to CSV. Left at a comma, each file keeps the delimiter it was opened with; a `.tsv` writes tabs whatever this says. |
+| Quoting         | only when needed | Or quote every field, or suppress defensive quoting.                                                                        |
+| Line endings    | LF               | Switch to CRLF for consumers that require Windows line endings.                                                             |
+| Header row      | on               | Turn off to write data only.                                                                                                |
+| Decimal mark    | point            | Or comma (`1234,56`). A file opened with decimal commas keeps them either way.                                              |
+| Byte order mark | off              | Start the file with the UTF-8 byte order mark. A file that had one keeps it either way.                                     |
 
 ### Excel write options
 
@@ -259,8 +303,8 @@ Straightforward whole-file rewrite. The current table content
 replaces the file on disk.
 
 - **CSV** preserves the **original delimiter** it was opened with
-  (comma / semicolon / pipe / tab). Octa detects the delimiter on
-  open and reuses it on save.
+  (comma / semicolon / pipe / tab), its decimal commas and its byte
+  order mark. Octa detects them on open and reuses them on save.
 - **TSV** always uses tab.
 - **JSON** writes a pretty-printed array of objects keyed by column
   name.
@@ -290,9 +334,10 @@ Excel **read** supports `.xlsx`, `.xls`, `.xlsm`, `.xlsb`, `.xlm`
 (via `calamine`) and opens **every sheet** of a multi-sheet workbook
 (see [Supported Formats](../getting-started/supported-formats.md#excel-multi-sheet-workbooks)).
 Excel **write** only emits `.xlsx` structure, since `rust_xlsxwriter`
-can't write the older formats, and writes the **active tab's single
-sheet**, since there's no multi-sheet write. Save legacy workbooks as
-`.xlsx` to round-trip them through Octa.
+can't write the older formats. Save and Save as write the **active tab** as
+one sheet; to put several open tabs into one workbook, one sheet each, use
+**File > Export workbook...**. Save legacy workbooks as `.xlsx` to
+round-trip them through Octa.
 
 `.xlsx` is the one format that can carry the table's on-screen formatting;
 see [Formatting in Excel files](#formatting-in-excel-files).
@@ -406,19 +451,62 @@ If you try to Save as into a **read-only target** (`.sas7bdat`,
 `.rds`, etc.), the dialog accepts the path but the save fails
 loudly with *"format X does not support writing"*.
 
-## Save as respects active filters
+## Save as: the questions
 
-When the active tab has a text search or
-[column filter](search-and-filter.md#column-filter) applied,
-**Save as** writes only the **currently visible** rows. The status
-bar confirms the export: *"Exported N filtered rows to {path}
-(in-memory table unchanged)"*. The tab's `source_path` is **not**
-updated and the modified flag is left alone. Save as under filters
-behaves as a one-shot export, not a permanent re-anchor.
+After you pick a file, **Save as** asks only what applies, all in one small
+window, and then writes:
 
-Regular **Save** (Ctrl+S) is unaffected by filters: it always writes
-the full table back to the source file. This keeps the on-disk file
-safe from accidental data loss while filters are active.
+- **Which rows should go into the file?** Only while a text search or a
+  [column filter](search-and-filter.md#column-filter) hides rows. **All rows**
+  writes the whole table. **Only the rows you see** writes just the rows that
+  match right now; the status bar then says *"Exported N filtered rows to
+  {path} (in-memory table unchanged)"*.
+- **Open the new file after saving.** On (the default), you carry on in the new
+  file: the tab moves to it, or, when only the rows you see were saved, a new
+  tab opens it. Off, the new file is only written, and the tab stays on its own
+  file with its unsaved changes still unsaved.
+- **How a CSV is written**, for a `.csv` file. See [Saving a CSV](#saving-a-csv).
+
+Both questions can be turned off under **Settings > Files**. Each has an **Ask
+every time** box and a choice next to it: untick the box and that choice is
+used without asking. Ticked, the choice is the answer the question starts at.
+
+Regular **Save** (Ctrl+S) never asks and is unaffected by filters: it always
+writes the full table back to its own file, so a search or filter can never
+cost you rows on disk.
+
+## Saving a CSV
+
+A CSV file is plain text with a separator between the values, and the program
+that opens it has to expect the same separator, or everything lands in one
+column. So a **Save as** to a `.csv` asks, in plain words:
+
+| Separator    | Who expects it                                                         |
+|--------------|------------------------------------------------------------------------|
+| Comma        | The international standard. Most programs and websites expect it.      |
+| Semicolon    | Spreadsheet programs in Germany, France and most of Europe.            |
+| Tab          | A good choice when the values themselves contain commas or semicolons. |
+| Vertical bar | Some databases and data tools.                                         |
+
+Below it you choose how decimal numbers look, `1234.56` or `1234,56`, and
+whether spreadsheet programs should **show accents correctly**: that adds an
+invisible marker at the start of the file (the UTF-8 byte order mark) without
+which some spreadsheet programs on Windows show `ä` as `Ã¤`. A preview shows
+the first lines exactly as they will be written. If a spreadsheet later shows
+everything in one column, the separator was the wrong one: save again with the
+other.
+
+The choices start at the file's own when the tab was opened from a CSV, and
+otherwise at what is usual for your language (semicolon and decimal comma for
+the European languages Octa speaks). Only real numbers get the decimal comma;
+text that merely looks like a number is written exactly as it is. Choosing a
+comma for both the separator and the decimal mark is allowed, the numbers are
+then put in quotes, and the window says so.
+
+A plain **Save** writes a CSV back the way it came: its separator, its decimal
+commas when Octa read its numbers the [European way](editing.md#european-number-formats)
+(`1.234,56`), and its byte order mark when it had one. A German CSV opened,
+edited and saved therefore stays a German CSV.
 
 ## Unsaved-changes guards
 
@@ -433,15 +521,7 @@ Two checkpoints prevent accidental loss:
 The **Don't Save** path discards every edit including structural
 changes. The undo stack is **not** preserved across reloads.
 
-## See also
-
-- [Editing](editing.md) covers what counts as a change.
-- [Supported formats](../getting-started/supported-formats.md) is
-  the full format matrix.
-- [`octa --convert`](../cli/convert.md) drives the same writers
-  from the CLI.
-
-### Exporting several tabs as one workbook
+## Exporting several tabs as one workbook
 
 **File > Export workbook...** writes any number of open tabs into a single
 `.xlsx`, one worksheet per tab. Tick the tabs you want, adjust the sheet names
@@ -457,11 +537,27 @@ Chart tabs and empty tabs are not offered, since they have no table to write.
 The entry has no keyboard shortcut by default; assign one under **Settings >
 Shortcuts** if you use it often.
 
-Headless, the same thing is `--to-workbook`:
+Headless, the same thing is `--to-workbook` (see the [CLI overview](../cli/index.md)):
 
 ```bash
 octa --to-workbook report.xlsx sales.csv returns.parquet stock.json
 ```
 
-Sheet names come from the file stems. Agents can do it with the `write_workbook`
+Sheet names come from the file stems. Agents can do it with the [`write_workbook`](../mcp/tools/write_workbook.md)
 tool, which takes an explicit `name` per sheet.
+
+## Command line and MCP
+
+The same job without the GUI:
+
+- MCP: [`convert`](../mcp/tools/convert.md), [`write_table`](../mcp/tools/write_table.md)
+
+## See also
+
+- [Earlier versions](earlier-versions.md) keeps the version a save
+  replaces, if you turn it on.
+- [Editing](editing.md) covers what counts as a change.
+- [Supported formats](../getting-started/supported-formats.md) is
+  the full format matrix.
+- [`octa --convert`](../cli/convert.md) drives the same writers
+  from the CLI.

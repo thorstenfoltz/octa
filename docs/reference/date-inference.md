@@ -1,6 +1,7 @@
 # Date Inference
 
-When Octa opens a text-shaped tabular file (CSV, TSV, JSON, JSONL,
+With **Settings > File-Specific > Detect dates on load** switched on,
+when Octa opens a text-shaped tabular file (CSV, TSV, JSON, JSONL,
 Excel, XML, TOML, YAML, Markdown, DBF), it scans every string
 column for a uniform date layout. If **every non-null value** in a
 column matches the same date pattern, the column is silently
@@ -14,6 +15,27 @@ losslessly into binary formats like Parquet.
 This page documents which patterns are detected and what happens
 when a column is ambiguous (e.g. `02/03/2024` could be either
 DD/MM or MM/DD).
+
+## Off by default, and never in the way
+
+Nothing looks for dates unless you ask: with the setting off (the
+default), date columns stay text, and so does a column retyped by
+**Use as header**. Ticking the setting asks first and says what it costs.
+
+When it does run, it runs in the background, on the same thread that
+reads a large file, so the window keeps responding. A column is decided
+on its first thousand values: a column of product names is ruled out at
+once and never read in full. Only columns that look like dates are read
+to the end, and every value of those is checked, which on five million
+rows costs about three seconds per date column.
+
+[Big files opened the ordinary way](../usage/large-files.md#big-files-opened-the-ordinary-way)
+puts this beside the other settings that cost time on large files.
+
+To get dates without the setting, use **Columns -> Detect dates** (the
+same check, on the open table, in the background, undone by one
+<kbd>Ctrl+Z</kbd>) or convert one column with
+[Change type](../usage/change-column-type.md).
 
 ## Why text-formats only
 

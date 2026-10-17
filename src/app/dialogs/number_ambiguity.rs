@@ -6,7 +6,7 @@
 
 use eframe::egui;
 use egui::RichText;
-use octa::data::num_parse::{self, NumberStyle};
+use octa::data::num_parse::NumberStyle;
 
 use super::super::state::OctaApp;
 use octa::ui::settings::{
@@ -49,7 +49,7 @@ pub(crate) fn render_number_ambiguity_dialog(app: &mut OctaApp, ctx: &egui::Cont
         egui::Panel::top("number_ambiguity_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(octa::i18n::t("dialog.num_title"))
                             .strong()
@@ -127,13 +127,12 @@ pub(crate) fn render_number_ambiguity_dialog(app: &mut OctaApp, ctx: &egui::Cont
     }
 
     if let Some(answer) = choice {
-        if let Some(style) = answer
-            && tab_idx < app.tabs.len()
-        {
-            let tab = &mut app.tabs[tab_idx];
-            num_parse::apply_style(&mut tab.table, col_idx, style);
-            tab.filter_dirty = true;
-            tab.table_state.invalidate_row_heights();
+        if let Some(style) = answer {
+            app.start_column_cast(
+                tab_idx,
+                col_idx,
+                crate::app::bg_rows::ChunkCast::Number(style),
+            );
         }
         app.pending_number_pickers.pop_front();
     }

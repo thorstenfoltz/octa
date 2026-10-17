@@ -45,7 +45,7 @@ pub(crate) fn render_raw_perf_prompt_dialog(app: &mut OctaApp, ctx: &egui::Conte
         egui::Panel::top("raw_perf_prompt_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(octa::i18n::t("dialog.rawperf_title"))
                             .strong()
@@ -66,7 +66,7 @@ pub(crate) fn render_raw_perf_prompt_dialog(app: &mut OctaApp, ctx: &egui::Conte
             ui.add_space(4.0);
             ui.label(octa::i18n::t("dialog.rawperf_body"));
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui.button(octa::i18n::t("dialog.rawperf_disable")).clicked() {
                     disable = true;
                 }

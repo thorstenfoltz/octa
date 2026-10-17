@@ -78,6 +78,7 @@ fn sections(shortcuts: &ui::shortcuts::Shortcuts) -> Vec<(&'static str, String)>
         ("Report", REPORT.to_string()),
         ("Fuzzy Join", FUZZY_JOIN.to_string()),
         ("Compare with Database", DB_COMPARE.to_string()),
+        ("Compare Folders", FOLDER_COMPARE.to_string()),
         ("Clean-up Suggestions", CLEANUP.to_string()),
         ("Date/Time Calculation", DATE_TIME_CALC.to_string()),
         ("Time Series", TIME_SERIES.to_string()),
@@ -96,6 +97,7 @@ fn sections(shortcuts: &ui::shortcuts::Shortcuts) -> Vec<(&'static str, String)>
         ("Jump to Flagged Cells", PROBLEM_NAV.to_string()),
         ("Filter to Marked", FILTER_TO_MARKED.to_string()),
         ("Rename columns", RENAME_COLUMNS.to_string()),
+        ("Header row", HEADER_ROW.to_string()),
         ("Bookmarks", BOOKMARKS.to_string()),
         ("Transform Column", TRANSFORMS.to_string()),
         ("Anonymise Columns", ANONYMIZE.to_string()),
@@ -105,13 +107,14 @@ fn sections(shortcuts: &ui::shortcuts::Shortcuts) -> Vec<(&'static str, String)>
         ("Union Tables", UNION.to_string()),
         ("Join Tables", JOIN.to_string()),
         ("Spatial Join", SPATIAL_JOIN.to_string()),
-        ("Partition by Column", PARTITION.to_string()),
+        ("Split into Files", PARTITION.to_string()),
         ("Batch Convert", BATCH_CONVERT.to_string()),
         ("Table Tools", TABLE_TOOLS.to_string()),
         ("Clean Headers on Load", CLEAN_HEADERS.to_string()),
         ("Sorting", SORTING.to_string()),
         ("View Modes", VIEW_MODES.to_string()),
         ("Record view", RECORD_VIEW.to_string()),
+        ("Binary cells", BINARY_CELLS.to_string()),
         ("Timeline", TIMELINE_VIEW.to_string()),
         ("Compare View", COMPARE_VIEW.to_string()),
         ("EPUB reader", EPUB_VIEW.to_string()),
@@ -136,9 +139,11 @@ fn sections(shortcuts: &ui::shortcuts::Shortcuts) -> Vec<(&'static str, String)>
             ASSISTANT_CONTEXT.to_string(),
         ),
         ("Saving", SAVING.to_string()),
+        ("Earlier Versions", EARLIER_VERSIONS.to_string()),
         ("Export to PDF", PDF_EXPORT.to_string()),
         ("Settings Reference", SETTINGS_REFERENCE.to_string()),
         ("Updates", UPDATES.to_string()),
+        ("Notifications", NOTIFICATIONS.to_string()),
         ("Debug & Reports", DIAGNOSTICS.to_string()),
         (
             "Shortcuts",
@@ -161,7 +166,7 @@ pub(crate) fn render_documentation_dialog(app: &mut OctaApp, ctx: &egui::Context
     });
     let minimized = size == DialogSize::Minimized;
     let inner = window.show(ctx, |ui| {
-        ui.horizontal(|ui| {
+        octa::ui::control_row::control_line(ui, |ui| {
             ui.label(egui::RichText::new("Documentation").strong().size(16.0));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if draw_window_controls(ui, &mut app.documentation_size) {

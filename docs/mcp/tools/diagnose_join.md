@@ -7,7 +7,7 @@ Use it after [`suggest_join_keys`](suggest_join_keys.md) has named the
 columns and before [`join_tables`](join_tables.md) actually joins them,
 whenever the row count comes back suspiciously low.
 
-## Parameters
+## Input schema
 
 | Name           | Type    | Required | Default | Description                                       |
 |----------------|---------|----------|---------|---------------------------------------------------|
@@ -25,7 +25,7 @@ A column name that does not exist is an error listing the names that do,
 rather than a silent fallback that would produce a confident, meaningless
 diagnosis.
 
-## Response
+## Response shape
 
 ```json
 {

@@ -29,7 +29,116 @@ impl Cli {
         opts
     }
 
+    fn sort_args(&self) -> SortArgs {
+        SortArgs {
+            by: self.sort_by.clone(),
+            desc: self.sort_desc.clone(),
+            natural: self.natural,
+        }
+    }
+
     pub fn detect_action(&self) -> Result<Option<Action>, &'static str> {
+        if let Some(msg) = self.stray_modifier() {
+            return Err(msg);
+        }
+        let action = self.pick_action()?;
+        // The split flags select Split into files themselves, so they are no
+        // modifier with one owner: refuse them when they lost to another action.
+        let splitting = self.split_rows.is_some() || self.split_size.is_some();
+        if splitting && !matches!(action, Some(Action::Partition { .. })) {
+            return Err("--split-rows and --split-size are an action of their own: \
+                        use them without the other action");
+        }
+        Ok(action)
+    }
+
+    /// A flag that only means something beside one action, given without it.
+    ///
+    /// Not clap's `requires`: clap waives a requirement whose target
+    /// conflicts with a flag that is present, and every action flag conflicts
+    /// with every other one through the `action` group, so `--head F --rules R`
+    /// ran --head and dropped --rules without a word.
+    fn stray_modifier(&self) -> Option<&'static str> {
+        [
+            (
+                self.rules.is_some(),
+                self.check.is_some(),
+                "--rules works with --check",
+            ),
+            (
+                self.mcp_read_only,
+                self.mcp,
+                "--mcp-read-only works with --mcp",
+            ),
+            (
+                !self.mcp_tools.is_empty(),
+                self.mcp,
+                "--mcp-tools works with --mcp",
+            ),
+            (
+                !self.mcp_without.is_empty(),
+                self.mcp,
+                "--mcp-without works with --mcp",
+            ),
+            (
+                self.deep,
+                self.describe.is_some(),
+                "--deep works with --describe",
+            ),
+            (
+                self.fail_on.is_some(),
+                self.drift_report.is_some(),
+                "--fail-on works with --drift-report",
+            ),
+            (
+                self.report_sample.is_some() || self.report_sections.is_some(),
+                self.report.is_some(),
+                "--report-sample and --report-sections work with --report",
+            ),
+            (
+                self.sync_table.is_some() || self.sync_on.is_some(),
+                self.sync_sql.is_some(),
+                "--sync-table and --sync-on work with --sync-sql",
+            ),
+            (
+                self.api_path.is_some(),
+                self.api.is_some(),
+                "--api-path works with --api",
+            ),
+            (
+                !self.db_export_tables.is_empty(),
+                self.db_export.is_some(),
+                "--db-export-tables works with --db-export",
+            ),
+            (
+                self.partition_layout.is_some(),
+                self.partition_by.is_some(),
+                "--partition-layout works with --partition-by",
+            ),
+            (
+                self.no_recursive,
+                self.compare_folders,
+                "--no-recursive works with --compare-folders",
+            ),
+        ]
+        .into_iter()
+        .find(|(given, owner, _)| *given && !*owner)
+        .map(|(_, _, msg)| msg)
+    }
+
+    fn pick_action(&self) -> Result<Option<Action>, &'static str> {
+        let sorting = !self.sort_by.is_empty() || !self.sort_desc.is_empty() || self.natural;
+        if sorting && self.head.is_none() && self.convert.is_empty() {
+            return Err("--sort-by, --sort-desc and --natural work with --head and --convert");
+        }
+        if self.explain && self.sql.is_none() && self.db_query.is_none() {
+            return Err("--explain works with --sql or --db-query");
+        }
+        if self.explain && self.sql_write_to.is_some() {
+            return Err(
+                "--explain does not run the query, so it cannot write: drop --sql-write-to",
+            );
+        }
         if let Some(p) = &self.schema {
             return Ok(Some(Action::Schema(p.clone())));
         }
@@ -37,6 +146,7 @@ impl Cli {
             return Ok(Some(Action::Head {
                 path: p.clone(),
                 n: self.lines,
+                sort: self.sort_args(),
             }));
         }
         if let Some(p) = &self.tail {
@@ -63,6 +173,8 @@ impl Cli {
                 output: self.convert[1].clone(),
                 to: self.to.clone(),
                 write_options: self.write_options(),
+                sort: self.sort_args(),
+                password_env: self.password_env.clone(),
             }));
         }
         if let Some(p) = &self.sql {
@@ -93,6 +205,7 @@ impl Cli {
                 attachments,
                 write_target,
                 stream: self.stream,
+                explain: self.explain,
             }));
         }
         if let Some(p) = &self.export_schema {
@@ -271,12 +384,22 @@ impl Cli {
             if matches!(mode, octa::data::compare::CompareMode::Join) && self.diff_on.is_empty() {
                 return Err("--diff-mode join requires --diff-on COL[,COL...]");
             }
+            let options = octa::data::compare::CompareOptions {
+                number_abs: self.diff_tolerance,
+                number_pct: self.diff_tolerance_pct,
+                seconds: self.diff_time_tolerance,
+                ignore_case: self.diff_ignore_case,
+                ignore_spaces: self.diff_ignore_spaces,
+                ignore_columns: self.diff_ignore_columns.clone(),
+            };
+            options.check(mode)?;
             return Ok(Some(Action::Diff {
                 path_a: self.diff[0].clone(),
                 path_b: self.diff.get(1).cloned(),
                 db_b,
                 mode,
                 on: self.diff_on.clone(),
+                options,
             }));
         }
         if let Some(p) = &self.validate_schema {
@@ -326,6 +449,19 @@ impl Cli {
             return Ok(Some(Action::Relationships {
                 dir: dir.clone(),
                 recursive: self.recursive,
+            }));
+        }
+        if self.compare_folders {
+            if self.files.len() < 2 {
+                return Err("--compare-folders needs at least two FOLDER arguments");
+            }
+            return Ok(Some(Action::CompareFolders {
+                roots: self
+                    .files
+                    .iter()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect(),
+                recursive: !self.no_recursive,
             }));
         }
         if let Some(path) = &self.check {
@@ -498,6 +634,7 @@ impl Cli {
                 target_ext,
                 overwrite: self.overwrite,
                 write_options: self.write_options(),
+                password_env: self.password_env.clone(),
             }));
         }
         if let Some(col) = &self.resample {
@@ -562,27 +699,37 @@ impl Cli {
                 },
             }));
         }
-        if let Some(col) = &self.partition_by {
-            let path = self
-                .files
-                .first()
-                .cloned()
-                .ok_or("--partition-by requires a positional FILE argument")?;
+        if self.partition_by.is_some() || self.split_rows.is_some() || self.split_size.is_some() {
+            let path = self.files.first().cloned().ok_or(
+                "--partition-by / --split-rows / --split-size require a positional FILE argument",
+            )?;
             let out_dir = self
                 .out_dir
                 .clone()
-                .ok_or("--partition-by requires --out-dir DIR")?;
+                .ok_or("--partition-by / --split-rows / --split-size require --out-dir DIR")?;
             let layout = match &self.partition_layout {
                 Some(word) => octa::data::partition::PartitionLayout::parse(word)
                     .ok_or("--partition-layout must be one of: flat, folder, hive, hive-parts")?,
                 None => octa::data::partition::PartitionLayout::default(),
             };
+            if self.split_rows == Some(0) {
+                return Err("--split-rows must be at least 1");
+            }
+            let max_bytes = match &self.split_size {
+                Some(s) => Some(
+                    octa::data::partition::parse_size(s)
+                        .map_err(|_| "--split-size must look like 25MB, 500KB or 1GB")?,
+                ),
+                None => None,
+            };
             return Ok(Some(Action::Partition {
                 path,
-                col: col.clone(),
+                col: self.partition_by.clone(),
                 out_dir,
                 format: self.partition_format.clone(),
                 layout,
+                max_rows: self.split_rows,
+                max_bytes,
             }));
         }
         if let Some(out) = &self.to_workbook {
@@ -627,6 +774,7 @@ impl Cli {
             return Ok(Some(Action::DbQuery {
                 conn,
                 sql: sql.clone(),
+                explain: self.explain,
             }));
         }
         if self.db_tables {
@@ -655,6 +803,31 @@ impl Cli {
                 target: target.clone(),
                 mode: self.db_write_mode.to_db_write_mode(),
                 file,
+            }));
+        }
+        if let Some(schema) = &self.db_export {
+            let conn = self
+                .db
+                .clone()
+                .ok_or("--db-export requires --db CONNECTION")?;
+            let out_dir = self
+                .out_dir
+                .clone()
+                .ok_or("--db-export requires --out-dir DIR")?;
+            let format = match self.to.as_deref() {
+                None => octa::db::export::ExportFormat::Parquet,
+                Some(ext) => octa::db::export::ExportFormat::parse(ext)
+                    .ok_or("--db-export --to takes parquet, csv, tsv or jsonl")?,
+            };
+            return Ok(Some(Action::DbExport {
+                conn,
+                catalog: self.db_catalog.clone(),
+                schema: schema.clone(),
+                tables: self.db_export_tables.clone(),
+                out_dir,
+                format,
+                overwrite: self.overwrite,
+                write_options: self.write_options(),
             }));
         }
         if let Some(source) = &self.db_copy {
@@ -739,3 +912,7 @@ impl Cli {
         Ok(None)
     }
 }
+
+#[cfg(test)]
+#[path = "detect_tests.rs"]
+mod tests;

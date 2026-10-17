@@ -144,7 +144,8 @@ Parquet files with very many row groups fall back to a DuckDB-backed reader. \
 Returns JSON with `schema`, `rows`, `row_count`, `truncated`, `total_rows_available`, \
 `cell_truncated`. Pass `limit: 0` for unlimited response rows; pass `unlimited: true` to \
 also lift the 2,000,000-row file-loader cap so every row is read from disk. Use both together \
-to truly return every row."
+to truly return every row. `sort` ([{column, descending}]) and `natural` sort the rows before \
+`limit` takes the first ones."
     )]
     async fn read_table(
         &self,
@@ -321,7 +322,8 @@ the child rows pointing at a parent that does not exist). ClickHouse has no fore
 MySQL/MariaDB, or SQL Server - not DuckDB SQL). SELECTs return `{schema, rows, ...}` like \
 `read_table` (the `limit` param caps the response). Mutations (INSERT/UPDATE/DELETE/DDL) return \
 `{rows_affected}` and are refused unless the connection's \"Allow writes\" switch is on. Add \
-your own LIMIT/TOP for large tables - the whole result is fetched from the server."
+your own LIMIT/TOP for large tables - the whole result is fetched from the server. Pass explain: true to get the query plan \
+instead of running the query."
     )]
     async fn query_db(
         &self,
@@ -418,6 +420,21 @@ to the source's. Returns `{rows_copied, created}`."
     }
 
     #[tool(
+        description = "Export the tables of one schema of a saved live-database connection (see \
+`list_db_connections`) into a folder, one file per table. `format` is `parquet` (default), \
+`csv`, `tsv` or `jsonl`; `tables` limits it to some tables (default: all of the schema). Each \
+table is read page by page, so its size does not matter. Existing files are skipped unless \
+`overwrite`; one failed table does not stop the rest. Returns `{written, skipped, failed, \
+rows, items}`. Pass `catalog` on Snowflake, Databricks and BigQuery."
+    )]
+    async fn export_db_tables(
+        &self,
+        Parameters(p): Parameters<tools::export_db_tables::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::export_db_tables::handle(self, p).await
+    }
+
+    #[tool(
         description = "Count rows in a tabular file. Loads the table and reports its row count. \
 For streaming formats (Parquet, CSV, TSV) the count is bounded by Octa's 2,000,000-row \
 initial-load cap; the response flags `initial_load_capped: true` when the count may not \
@@ -443,7 +460,8 @@ the SELECT result back into a DuckDB or SQLite file (target schema + table + mod
 created_schema, target }`. For row-returning queries the response is `{ kind: 'select' | \
 'mutation', result, affected? }` carrying the same `truncated` / `cell_truncated` flags as \
 `read_table`. Pass `limit: 0` for unlimited response rows; pass `unlimited: true` to also \
-lift the 2,000,000-row file-loader cap so every loaded file is read in full."
+lift the 2,000,000-row file-loader cap so every loaded file is read in full. Pass explain: true \
+to get the query plan instead of running the query."
     )]
     async fn run_sql(
         &self,
@@ -457,7 +475,8 @@ lift the 2,000,000-row file-loader cap so every loaded file is read in full."
 resolved by file extension. The output extension must map to a writable format - read-only \
 formats (SAS, RDS, HDF5, NetCDF) cannot be a target. The input is read with the streaming \
 initial-load cap (2,000,000 rows by default); pass `unlimited: true` to convert the entire \
-source. Returns the row/column count and the output path on success."
+source. `sort` ([{column, descending}]) and `natural` sort the rows first. Returns the \
+row/column count and the output path on success."
     )]
     async fn convert(
         &self,
@@ -585,6 +604,21 @@ unlimited); `unlimited: true` also lifts the 2,000,000-row file-loader cap. Use 
         Parameters(p): Parameters<tools::diff_tables::Params>,
     ) -> Result<CallToolResult, McpError> {
         tools::diff_tables::handle(self, p).await
+    }
+
+    #[tool(
+        description = "Compare two or more folders file by file. `folders` are local paths \
+or cloud URLs (s3://, az://, gs://, sftp://, davs://). Files are matched by their path inside each \
+folder; copies of equal size are compared by a BLAKE3 hash of their contents. Returns one row per \
+file: path, status (same / different / missing), in, missing from, and size / modified / hash per \
+folder; plus any_difference and the folders whose listing stopped at the file limit \
+(truncated_folders). `unlimited: true` lists every file."
+    )]
+    async fn compare_folders(
+        &self,
+        Parameters(p): Parameters<tools::compare_folders::Params>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::compare_folders::handle(self, p).await
     }
 
     #[tool(
@@ -1199,12 +1233,7 @@ are default anonymise-column rules (full SHA-256 hash) ready to pass to the `ano
     }
 
     #[tool(
-        description = "Split a table into one file per distinct value of a column, written into \
-a directory. Returns the list of files written. `column` is the column name to partition on; \
-`out_dir` is the output directory (created if absent); `format` overrides the output extension \
-(defaults to the source file's extension, or is required when the source is an open tab without \
-a known path). The response is `{ files: [{value, path, rows}, ...], count }`. This is a write \
-tool and is unavailable in read-only mode."
+        description = "Split a table into files: one file per distinct value of a column, and/or parts of at most max_rows rows or max_bytes bytes (files then get a part number). Pass at least one of column, max_rows, max_bytes. out_dir is created if absent; format overrides the output extension (defaults to the source file's, required for an open tab without a path). Returns { files: [{value, path, rows}], count, partial }; partial is true when the source was cut at the load cap (pass unlimited: true). This is a write tool and is unavailable in read-only mode."
     )]
     async fn partition_table(
         &self,

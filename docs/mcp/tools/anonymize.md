@@ -80,3 +80,4 @@ digest, or set it to keep a shorter prefix (shorter = small collision chance).
 - [Anonymise Columns](../../usage/anonymize-columns.md): the GUI dialog and CLI
   `--anonymize` flag for the same engine.
 - [`write_table`](write_table.md): write inline rows to a new file.
+- Command line: [`--anonymize`](../../cli/anonymize.md)

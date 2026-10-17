@@ -61,7 +61,7 @@ is an answer rather than an error. A tab with no file behind it (an
 unsaved table, a query result) has nothing to inspect and says so in the
 status bar.
 
-## Elsewhere
+## Command line and MCP
 
 The same information is available without the GUI:
 

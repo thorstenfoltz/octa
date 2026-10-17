@@ -67,3 +67,7 @@ from git. See [Merge Versions](../usage/merge-versions.md).
 |------|-----------------------------------------------------------------------|
 | `0`  | Merged, and written to `--merge-out` or stdout.                       |
 | `1`  | Conflicts are open, a key column is missing, or a file is unreadable. |
+
+## See also
+
+- MCP: [`merge_tables`](../mcp/tools/merge_tables.md)

@@ -1,0 +1,10 @@
+{
+  "kind": "bigquery#queryResponse",
+  "schema": {
+    "fields": [{ "name": "name", "type": "STRING", "mode": "NULLABLE" }]
+  },
+  "jobReference": { "projectId": "p", "location": "EU" },
+  "totalBytesProcessed": "3435973837",
+  "jobComplete": true,
+  "cacheHit": false
+}

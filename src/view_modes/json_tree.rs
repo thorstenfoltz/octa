@@ -220,7 +220,7 @@ fn render_value_tree(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMod
     let mut expand_all = false;
     let mut collapse_all = false;
 
-    ui.horizontal(|ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
         if ui.button(octa::i18n::t("view.jt_expand")).clicked() {
             expand_all = true;
         }

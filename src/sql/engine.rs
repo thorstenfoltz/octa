@@ -66,6 +66,16 @@ pub fn is_mutation(query: &str) -> bool {
     )
 }
 
+/// Whether `query` holds a semicolon anywhere but at its end, strings and
+/// comments included. Blunt on purpose: engines lex those differently, so
+/// only this reading cannot be fooled into missing a second statement.
+pub fn has_inner_semicolon(query: &str) -> bool {
+    query
+        .trim()
+        .trim_end_matches(|c: char| c == ';' || c.is_whitespace())
+        .contains(';')
+}
+
 /// Whether `query` is a `CREATE ...` statement (table, view, or anything
 /// else DuckDB accepts after the keyword). `SqlWorkspace::execute` diffs the
 /// catalog around these to hand a freshly created table to the caller.
@@ -73,25 +83,58 @@ pub(super) fn is_create(query: &str) -> bool {
     first_keyword(query) == "CREATE"
 }
 
-/// Leading keyword of `query`, upper-cased; empty for a blank query.
-fn first_keyword(query: &str) -> String {
-    query
-        .split(|c: char| c.is_whitespace() || c == '(')
-        .find(|s| !s.is_empty())
+/// `query` from its first keyword on: leading whitespace, `(`, `;` and
+/// comments skipped, so `-- note\nDELETE ...` still reads as a DELETE (it read
+/// as `--` once, which no check took for a write). A block comment ends at its
+/// first `*/`; one that holds another `/*` is left in place, because
+/// PostgreSQL, SQL Server and Spark nest them and the others do not, so no
+/// single reading of what follows is safe.
+pub fn statement_start(query: &str) -> &str {
+    let mut rest = query;
+    loop {
+        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == '(' || c == ';');
+        if let Some(r) = rest.strip_prefix("--").or_else(|| rest.strip_prefix('#')) {
+            rest = r.split_once('\n').map_or("", |(_, after)| after);
+        } else if let Some(r) = rest.strip_prefix("/*")
+            && let Some((body, after)) = r.split_once("*/")
+            && !body.contains("/*")
+        {
+            rest = after;
+        } else {
+            return rest;
+        }
+    }
+}
+
+/// Leading keyword of `query`, upper-cased; empty for a blank query or one
+/// that does not start with a word.
+pub fn first_keyword(query: &str) -> String {
+    statement_start(query)
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .next()
         .unwrap_or("")
         .to_ascii_uppercase()
 }
 
-/// Create a TEMP TABLE called `name` and append every row of `table` into it
-/// via DuckDB's appender API. Shared by both the one-shot `run_query` path
-/// (which builds a fresh connection per call) and [`SqlWorkspace`] (which
-/// reuses one persistent connection across many calls).
+/// Create a table called `name` and append every row of `table` into it
+/// via DuckDB's appender API, in one go. The SQL panel's copy of `data`
+/// uses the two halves itself ([`create_table_for`], then [`append_rows`]
+/// per slice).
 pub(super) fn register_table_into(conn: &Connection, name: &str, table: &DataTable) -> Result<()> {
     if table.columns.is_empty() {
         return Ok(());
     }
-    let cols_sql: Vec<String> = table
-        .columns
+    create_table_for(conn, name, &table.columns)?;
+    append_rows(conn, name, table)
+}
+
+/// The empty table [`register_table_into`] fills, typed from `columns`.
+pub(super) fn create_table_for(
+    conn: &Connection,
+    name: &str,
+    columns: &[ColumnInfo],
+) -> Result<()> {
+    let cols_sql: Vec<String> = columns
         .iter()
         .map(|c| {
             format!(
@@ -103,13 +146,17 @@ pub(super) fn register_table_into(conn: &Connection, name: &str, table: &DataTab
         .collect();
     conn.execute(
         &format!(
-            "CREATE TEMP TABLE {} ({})",
+            "CREATE TABLE {} ({})",
             quote_ident(name),
             cols_sql.join(", ")
         ),
         [],
     )?;
+    Ok(())
+}
 
+/// Append every row of `table` (pending edits read through) to `name`.
+pub(super) fn append_rows(conn: &Connection, name: &str, table: &DataTable) -> Result<()> {
     if table.row_count() == 0 {
         return Ok(());
     }

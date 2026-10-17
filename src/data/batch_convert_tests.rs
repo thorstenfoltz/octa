@@ -13,6 +13,7 @@ fn plans_one_output_per_input() {
         Path::new("/out"),
         "parquet",
         false,
+        false,
     );
     assert_eq!(plan.len(), 2);
     assert_eq!(plan[0].output, PathBuf::from("/out/a.parquet"));
@@ -27,6 +28,7 @@ fn de_collides_two_inputs_with_the_same_stem() {
         &inputs(&["/in/a.csv", "/other/a.json"]),
         Path::new("/out"),
         "parquet",
+        false,
         false,
     );
     assert_eq!(plan[0].output, PathBuf::from("/out/a.parquet"));
@@ -44,7 +46,7 @@ fn skips_existing_files_unless_overwriting() {
     std::fs::create_dir_all(&out).unwrap();
     std::fs::write(out.join("a.csv"), "x").unwrap();
 
-    let plan = plan_batch(&inputs(&["/in/a.json"]), &out, "csv", false);
+    let plan = plan_batch(&inputs(&["/in/a.json"]), &out, "csv", false, false);
     assert!(
         matches!(
             plan[0].status,
@@ -54,7 +56,7 @@ fn skips_existing_files_unless_overwriting() {
         plan[0].status
     );
 
-    let plan = plan_batch(&inputs(&["/in/a.json"]), &out, "csv", true);
+    let plan = plan_batch(&inputs(&["/in/a.json"]), &out, "csv", true, false);
     assert_eq!(
         plan[0].status,
         BatchStatus::Pending,
@@ -71,6 +73,7 @@ fn rejects_a_read_only_target_format() {
         Path::new("/out"),
         "sas7bdat",
         false,
+        false,
     );
     assert!(
         matches!(
@@ -84,7 +87,13 @@ fn rejects_a_read_only_target_format() {
 
 #[test]
 fn rejects_an_unknown_target_extension() {
-    let plan = plan_batch(&inputs(&["/in/a.csv"]), Path::new("/out"), "zzz", false);
+    let plan = plan_batch(
+        &inputs(&["/in/a.csv"]),
+        Path::new("/out"),
+        "zzz",
+        false,
+        false,
+    );
     assert!(
         matches!(
             plan[0].status,
@@ -97,7 +106,7 @@ fn rejects_an_unknown_target_extension() {
 
 #[test]
 fn an_empty_input_list_plans_nothing() {
-    assert!(plan_batch(&[], Path::new("/out"), "csv", false).is_empty());
+    assert!(plan_batch(&[], Path::new("/out"), "csv", false, false).is_empty());
 }
 
 #[test]
@@ -112,12 +121,14 @@ fn runs_a_real_conversion_and_reports_each_item() {
         &out,
         "json",
         false,
+        false,
     );
     let report = run_batch(
         plan,
         &|_, _| {},
         &std::sync::atomic::AtomicBool::new(false),
         &Default::default(),
+        None,
     );
 
     assert_eq!(report.converted, 2, "{report:?}");
@@ -138,12 +149,19 @@ fn one_bad_input_does_not_abort_the_run() {
     let missing = dir.path().join("missing.csv");
     let out = dir.path().join("out");
 
-    let plan = plan_batch(&[missing, dir.path().join("good.csv")], &out, "json", false);
+    let plan = plan_batch(
+        &[missing, dir.path().join("good.csv")],
+        &out,
+        "json",
+        false,
+        false,
+    );
     let report = run_batch(
         plan,
         &|_, _| {},
         &std::sync::atomic::AtomicBool::new(false),
         &Default::default(),
+        None,
     );
 
     assert_eq!(report.failed, 1, "{report:?}");
@@ -162,9 +180,10 @@ fn a_cancelled_run_stops_early() {
         &dir.path().join("out"),
         "json",
         false,
+        false,
     );
     let cancel = std::sync::atomic::AtomicBool::new(true);
-    let report = run_batch(plan, &|_, _| {}, &cancel, &Default::default());
+    let report = run_batch(plan, &|_, _| {}, &cancel, &Default::default(), None);
     assert_eq!(
         report.converted, 0,
         "a pre-cancelled run must convert nothing"
@@ -206,6 +225,7 @@ fn progress_fires_once_per_converted_item() {
         &dir.path().join("out"),
         "json",
         false,
+        false,
     );
 
     let seen = std::sync::Mutex::new(Vec::new());
@@ -214,6 +234,7 @@ fn progress_fires_once_per_converted_item() {
         &|done, total| seen.lock().unwrap().push((done, total)),
         &std::sync::atomic::AtomicBool::new(false),
         &Default::default(),
+        None,
     );
 
     assert_eq!(report.converted, 2);
@@ -223,4 +244,31 @@ fn progress_fires_once_per_converted_item() {
         seen.iter().all(|&(done, total)| done <= total),
         "progress must never exceed the total: {seen:?}"
     );
+}
+
+#[test]
+fn a_protected_batch_writes_one_zip_per_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("a.csv");
+    std::fs::write(&input, "id\n1\n").unwrap();
+    let out = dir.path().join("out");
+    let plan = plan_batch(&[input], &out, "csv", false, true);
+    assert_eq!(plan[0].output, out.join("a.csv.zip"));
+    let report = run_batch(
+        plan,
+        &|_, _| {},
+        &std::sync::atomic::AtomicBool::new(false),
+        &Default::default(),
+        Some("pw"),
+    );
+    assert_eq!(report.converted, 1, "{:?}", report.items);
+    let zip = out.join("a.csv.zip");
+    assert!(crate::formats::decrypt::zip_needs_passphrase(&zip).unwrap());
+    let back = crate::formats::decrypt::open_zip_entry(
+        &zip,
+        "a.csv",
+        &crate::formats::decrypt::OpenSecret::Passphrase("pw".into()),
+    )
+    .unwrap();
+    assert!(String::from_utf8(back).unwrap().contains('1'));
 }

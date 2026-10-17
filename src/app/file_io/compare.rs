@@ -23,6 +23,35 @@ impl OctaApp {
         let Some(path) = dialog.pick_file() else {
             return;
         };
+        self.begin_compare_with_path(path);
+    }
+
+    /// Compare the active tab with the file at `path`: the second half of
+    /// "Compare with...", also used by File -> Earlier versions. A `.gz` /
+    /// `.zst` file is compared by what it holds.
+    pub(crate) fn begin_compare_with_path(&mut self, path: std::path::PathBuf) {
+        let _decompressed;
+        let path = match octa::formats::compression::detect_codec(&path) {
+            Some(codec) => {
+                let cap = if self.settings.max_decompressed_unlimited {
+                    u64::MAX
+                } else {
+                    self.settings.max_decompressed_bytes
+                };
+                match octa::formats::compression::decompress_to_temp(&path, codec, cap) {
+                    Ok(tmp) => {
+                        let inner = tmp.path().to_path_buf();
+                        _decompressed = tmp;
+                        inner
+                    }
+                    Err(e) => {
+                        self.status_message = Some((format!("{e:#}"), std::time::Instant::now()));
+                        return;
+                    }
+                }
+            }
+            None => path,
+        };
 
         // Best-effort raw text load, gated by the configurable raw-view size
         // cap (read before the mutable tab borrow below).
@@ -42,6 +71,7 @@ impl OctaApp {
         // Best-effort DataTable load via the registry. Failures fall
         // through with `compare_right_table = None` - the row-diff
         // renderer surfaces a friendly message in that case.
+        tab.compare_cache = None;
         tab.compare_right_table = match self.registry.reader_for_path(&path) {
             Some(r) => match r.read_file(&path) {
                 Ok(t) => Some(Box::new(t)),
@@ -165,6 +195,7 @@ impl OctaApp {
         } else {
             None
         };
+        tab.compare_cache = None;
         tab.compare_right_table = match self.registry.reader_for_path(&path) {
             Some(r) => match r.read_file(&path) {
                 Ok(t) => Some(Box::new(t)),
@@ -274,6 +305,7 @@ impl OctaApp {
         tab.compare_error = None;
         tab.compare_right_path = right_path;
         tab.compare_right_raw = right_raw;
+        tab.compare_cache = None;
         tab.compare_right_table = Some(Box::new(right_table));
         tab.compare_columns_left.clear();
         tab.compare_columns_right.clear();

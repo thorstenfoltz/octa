@@ -8,7 +8,7 @@ result holds every page's rows rather than just the first. Names come from
 
 Read-only, and kept when the server runs with `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
 | Name           | Type    | Required | Description                                                                         |
 |----------------|---------|----------|-------------------------------------------------------------------------------------|
@@ -38,3 +38,8 @@ first. If a `Link` header or a body cursor points at a different host, the
 fetch stops rather than following it: those values are data the server chose,
 and an endpoint should not be able to walk the read onto an address the user
 never approved.
+
+## See also
+
+- In the app: [API Endpoints](../../usage/api-endpoints.md)
+- Command line: [`--api`](../../cli/api.md)

@@ -10,6 +10,22 @@ use std::sync::Mutex;
 static LANG_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
+fn decimal_comma_languages_are_supported_codes() {
+    // A typo in the list would silently pre-select the wrong decimal mark.
+    for code in ["de", "fr", "pt", "ru", "vi"] {
+        assert!(uses_decimal_comma(code), "{code}");
+    }
+    for code in ["en", "ja", "ko", "zh", "xx"] {
+        assert!(!uses_decimal_comma(code), "{code}");
+    }
+    let listed = LANGUAGES
+        .iter()
+        .filter(|(c, _)| uses_decimal_comma(c))
+        .count();
+    assert_eq!(listed, 28, "every comma language is a shipped locale");
+}
+
+#[test]
 fn english_keys_resolve() {
     let _g = LANG_LOCK.lock().unwrap();
     set_language("en");
@@ -74,7 +90,25 @@ const PLACEHOLDERS: &[(&str, &str)] = &[
     ("pdf.pages", "{n}"),
     ("pdf.written", "{path}"),
     ("pdf.failed", "{error}"),
+    ("detect_dates.done", "{n}"),
+    ("detect_dates.done", "{columns}"),
+    ("detect_dates.failed", "{error}"),
+    ("largefile.filter_refused", "{columns}"),
+    ("largefile.facet_counted", "{total}"),
+    ("largefile.facet_more", "{count}"),
+    ("largefile.window_more", "{count}"),
+    ("largefile.window_more", "{shown}"),
     ("transpose.too_many_rows", "{n}"),
+    ("db.wb_done_merged", "{m}"),
+    ("db.wb_done_merged", "{target}"),
+    ("db.wb_conflicts", "{n}"),
+    ("db.wb_conflicts_cols", "{n}"),
+    ("db_conflicts.row", "{key}"),
+    ("explain.uses_steps", "{list}"),
+    ("explain.uses_steps", "{last}"),
+    ("saving.task", "{name}"),
+    ("saving.busy", "{name}"),
+    ("saving.stopped", "{name}"),
 ];
 
 #[test]
@@ -241,8 +275,12 @@ fn locales_do_not_carry_untranslated_english_sentences() {
 /// a result tab). These must end in an ellipsis, in every language: the "..."
 /// is the promise that something is about to open.
 const OPENS_SOMETHING: &[&str] = &[
+    "file_menu.save_password",     // file picker, then the passphrase dialog
+    "binview.menu",                // binary viewer window
+    "header.delete_columns",       // Columns menu: column picker dialog
     "loadall.menu",                // count + confirm dialog
     "hashcols.menu",               // dialog
+    "partition.menu",              // dialog
     "file_menu.new_file",          // new tab
     "file_menu.new_table",         // dialog
     "file_menu.open_as",           // file picker
@@ -252,6 +290,7 @@ const OPENS_SOMETHING: &[&str] = &[
     "tabmem.menu",                 // dialog
     "file_menu.schema_drift",
     "file_menu.merge_versions",     // dialog
+    "file_menu.versions",           // dialog
     "testdata.menu",                // dialog
     "edit_menu.apply_recipe",       // file picker
     "file_menu.harmonise",          // dialog
@@ -273,14 +312,16 @@ const OPENS_SOMETHING: &[&str] = &[
     "edit_menu.scope_row",
     "edit_menu.scope_column",
     "edit_menu.scope_table",
-    "view_menu.compare_with",      // file picker
-    "view_menu.compare_git",       // dialog
-    "analyse_menu.chart",          // new tab
-    "analyse_menu.transpose",      // new tab
-    "analyse_menu.describe",       // new tab
-    "analyse_menu.quality",        // new tab
-    "analyse_menu.file_internals", // new tab
-    "analyse_menu.db_compare",     // dialog
+    "view_menu.compare_with",       // file picker
+    "view_menu.compare_git",        // dialog
+    "analyse_menu.chart",           // new tab
+    "analyse_menu.describe",        // new tab
+    "analyse_menu.quality",         // new tab
+    "analyse_menu.file_internals",  // new tab
+    "analyse_menu.db_compare",      // dialog
+    "analyse_menu.folder_compare",  // dialog
+    "folder_compare.add",           // folder context menu: opens the dialog
+    "folder_compare.compare_files", // row menu: opens a Compare tab
     "analyse_menu.join_keys",
     "analyse_menu.join_diag", // dialog
     "drift.scan_schemas",     // dialog, from the folder context menu
@@ -302,6 +343,7 @@ const OPENS_SOMETHING: &[&str] = &[
     "help_menu.settings",           // window
     "help_menu.about",              // window
     "help_menu.check_updates",      // window
+    "help_menu.store_updates",      // the Store app's window
     "ai_report.menu",               // window
     "analyse_menu.row_compare",
     "file_menu.export_pdf",
@@ -311,6 +353,8 @@ const OPENS_SOMETHING: &[&str] = &[
 /// Menu entries that just do the thing, in place: no tab, no window, nothing to
 /// fill in. An ellipsis on these is a broken promise.
 const JUST_EXECUTES: &[&str] = &[
+    "toolbar.delete_column",           // column right-click: deletes at once
+    "toolbar.delete_selected_columns", // same, for a column selection
     "file_menu.close_directory",
     "file_menu.cloud_connections", // toggles the sidebar
     "file_menu.databases",         // toggles the sidebar
@@ -319,6 +363,7 @@ const JUST_EXECUTES: &[&str] = &[
     "edit_menu.fit_all_columns",
     "edit_menu.recipe_panel", // toggles the panel
     "retype.menu",            // opens a submenu, not a window
+    "detect_dates.menu",      // runs in the background, asks only if it must
     "edit_menu.copy_markdown",
     "edit_menu.copy_in_list",
     "context_menu.copy_in_list",
@@ -345,6 +390,7 @@ const JUST_EXECUTES: &[&str] = &[
     "analyse_menu.sql",         // toggles a docked panel
     "analyse_menu.assistant",   // toggles a docked panel
     "chat.explain",             // opens the docked chat panel and sends
+    "analyse_menu.transpose",   // runs at once; the result tab asks nothing
     "diagnostics.menu_export",  // writes the report and reveals it
 ];
 

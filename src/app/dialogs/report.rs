@@ -64,7 +64,7 @@ pub(crate) fn render_report_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("report_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("report.title"))
                             .strong()
@@ -85,7 +85,7 @@ pub(crate) fn render_report_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("report_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if running {
                         ui.spinner();
                         ui.label(octa::i18n::t("report.running"));
@@ -158,7 +158,7 @@ pub(crate) fn render_report_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             ui.checkbox(&mut st.sample_enabled, octa::i18n::t("report.sample"))
                 .on_hover_text(octa::i18n::t("report.sample_hint"));
             if st.sample_enabled {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(octa::i18n::t("report.sample_rows"));
                     ui.add(
                         egui::TextEdit::singleline(&mut st.sample_rows_text).desired_width(90.0),
@@ -168,7 +168,7 @@ pub(crate) fn render_report_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             }
 
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("report.destination"))
                     .on_hover_text(octa::i18n::t("report.destination_hint"));
                 if ui

@@ -135,7 +135,7 @@ impl OctaApp {
         let partial = tab.table.partial_note();
         let is_template = is_sql_export_template(tab);
 
-        ui.horizontal(|ui| {
+        octa::ui::control_row::control_line(ui, |ui| {
             ui.label(
                 egui::RichText::new(
                     t("edit_audit.title").replace("{count}", &entries.len().to_string()),
@@ -269,7 +269,7 @@ fn draw_edit_audit_row(
     readonly: bool,
     action: &mut EditAuditAction,
 ) {
-    ui.horizontal(|ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
         ui.label(format!("{}", entry.row + 1 + row_offset));
         ui.label(&entry.column_name);
         ui.label(egui::RichText::new(format!("{} -> {}", entry.before, entry.after)).monospace());
@@ -296,118 +296,9 @@ fn draw_edit_audit_row(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use octa::data::{CellValue, ColumnInfo, DataTable};
-
-    fn edited_table() -> DataTable {
-        let mut t = DataTable::empty();
-        t.columns = vec![ColumnInfo {
-            name: "city".into(),
-            data_type: "text".into(),
-        }];
-        t.rows = vec![vec![CellValue::String("Aachen".into())]];
-        t.edits.insert((0, 0), CellValue::String("Bonn".into()));
-        t
-    }
-
-    /// Reverting one edit restores exactly that cell and leaves the rest of
-    /// the overlay alone.
-    #[test]
-    fn revert_one_removes_only_that_edit() {
-        let mut t = edited_table();
-        t.edits.insert((0, 0), CellValue::String("Bonn".into()));
-        revert_one(&mut t, 0, 0);
-        assert!(t.edits.is_empty(), "the reverted edit is gone");
-        assert_eq!(
-            t.get(0, 0).map(|c| c.to_string()).as_deref(),
-            Some("Aachen")
-        );
-    }
-
-    /// Read-only mode blocks the revert but never the list.
-    #[test]
-    fn readonly_blocks_revert_but_not_viewing() {
-        let t = edited_table();
-        assert_eq!(octa::data::edit_audit::audit_entries(&t).len(), 1);
-        assert!(!revert_allowed(true), "read-only refuses the revert");
-        assert!(revert_allowed(false));
-    }
-}
+#[path = "edit_audit_tests.rs"]
+mod tests;
 
 #[cfg(test)]
-mod revert_tests {
-    use super::*;
-    use octa::data::{CellValue, ColumnInfo};
-
-    fn three_edits() -> DataTable {
-        let mut t = DataTable::empty();
-        t.columns = vec![
-            ColumnInfo {
-                name: "a".into(),
-                data_type: "Utf8".into(),
-            },
-            ColumnInfo {
-                name: "b".into(),
-                data_type: "Utf8".into(),
-            },
-        ];
-        t.rows = vec![
-            vec![
-                CellValue::String("a0".into()),
-                CellValue::String("b0".into()),
-            ],
-            vec![
-                CellValue::String("a1".into()),
-                CellValue::String("b1".into()),
-            ],
-        ];
-        t.edits.insert((0, 0), CellValue::String("EDIT-00".into()));
-        t.edits.insert((1, 0), CellValue::String("EDIT-10".into()));
-        t.edits.insert((0, 1), CellValue::String("EDIT-01".into()));
-        t
-    }
-
-    /// Reverting ONE edit reverts exactly one. Reported from real use as
-    /// "it reverts everything", so this pins the count and the survivors,
-    /// not just that the clicked one went.
-    #[test]
-    fn reverting_one_edit_leaves_the_others_alone() {
-        let mut t = three_edits();
-        assert_eq!(audit_entries(&t).len(), 3);
-
-        revert_one(&mut t, 1, 0);
-
-        let left = audit_entries(&t);
-        assert_eq!(left.len(), 2, "exactly one edit went: {left:?}");
-        assert_eq!(
-            t.get(1, 0),
-            Some(&CellValue::String("a1".into())),
-            "the reverted cell is back to its original"
-        );
-        assert_eq!(
-            t.get(0, 0),
-            Some(&CellValue::String("EDIT-00".into())),
-            "another edit in the same column survived"
-        );
-        assert_eq!(
-            t.get(0, 1),
-            Some(&CellValue::String("EDIT-01".into())),
-            "another edit in the same row survived"
-        );
-    }
-
-    /// Reverting every edit one at a time empties the trail, and does it
-    /// one at a time rather than all at once on the first click.
-    #[test]
-    fn reverting_each_in_turn_empties_the_trail_gradually() {
-        let mut t = three_edits();
-        let mut expected = 3;
-        while let Some(entry) = audit_entries(&t).first().cloned() {
-            revert_one(&mut t, entry.row, entry.col);
-            expected -= 1;
-            assert_eq!(audit_entries(&t).len(), expected, "one at a time");
-        }
-        assert_eq!(expected, 0);
-    }
-}
+#[path = "edit_audit_revert_tests.rs"]
+mod revert_tests;

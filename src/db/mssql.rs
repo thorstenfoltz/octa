@@ -126,62 +126,90 @@ impl MssqlConnector {
     }
 }
 
-/// Extract one cell via typed `try_get`, keyed on the mapped Arrow bucket
-/// (mirrors the Postgres connector). Degrades to text, then Null.
-fn tds_cell(row: &tiberius::Row, i: usize, arrow_type: &str) -> CellValue {
-    match arrow_type {
-        "Int64" => {
-            // Intn covers TINYINT..BIGINT; try widest to narrowest.
-            if let Ok(Some(v)) = row.try_get::<i64, _>(i) {
-                return CellValue::Int(v);
-            }
-            if let Ok(Some(v)) = row.try_get::<i32, _>(i) {
-                return CellValue::Int(v as i64);
-            }
-            if let Ok(Some(v)) = row.try_get::<i16, _>(i) {
-                return CellValue::Int(v as i64);
-            }
-            if let Ok(Some(v)) = row.try_get::<u8, _>(i) {
-                return CellValue::Int(v as i64);
-            }
-            CellValue::Null
-        }
-        "Float64" => {
-            if let Ok(Some(v)) = row.try_get::<f64, _>(i) {
-                return CellValue::Float(v);
-            }
-            if let Ok(Some(v)) = row.try_get::<f32, _>(i) {
-                return CellValue::Float(v as f64);
-            }
-            CellValue::Null
-        }
-        "Boolean" => row
-            .try_get::<bool, _>(i)
+/// One cell from the value the driver decoded, by its actual variant.
+///
+/// The old code picked a Rust type from the declared column type and read
+/// everything unlisted as text, which failed for DECIMAL, MONEY,
+/// uniqueidentifier, varbinary, time and xml and turned them into NULL. A
+/// database tab writes back whole rows, so a save then wrote that NULL over
+/// the real value. The match has no catch-all on purpose: a variant a future
+/// driver adds fails to compile instead of reading as NULL.
+fn tds_cell(data: &tiberius::ColumnData<'static>, offset_as_timestamp: bool) -> CellValue {
+    use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+    use tiberius::{ColumnData as D, FromSql};
+    let cell = match data {
+        D::U8(v) => v.map(|x| CellValue::Int(x.into())),
+        D::I16(v) => v.map(|x| CellValue::Int(x.into())),
+        D::I32(v) => v.map(|x| CellValue::Int(x.into())),
+        D::I64(v) => v.map(CellValue::Int),
+        // Through its shortest text, so a REAL 1.1 reads as 1.1, not as the
+        // 1.100000023841858 a plain widening gives.
+        D::F32(v) => v
+            .and_then(|x| x.to_string().parse().ok())
+            .map(CellValue::Float),
+        // FLOAT, and MONEY / SMALLMONEY, which the driver decodes as f64.
+        D::F64(v) => v.map(CellValue::Float),
+        D::Bit(v) => v.map(CellValue::Bool),
+        D::String(v) => v.as_ref().map(|s| CellValue::String(s.to_string())),
+        // SQL Server prints a GUID in capitals.
+        D::Guid(v) => v.map(|g| CellValue::String(g.to_string().to_uppercase())),
+        D::Binary(v) => v.as_ref().map(|b| CellValue::Binary(b.to_vec())),
+        // Exact text: a DECIMAL has no f64 representation.
+        D::Numeric(v) => v.map(|n| CellValue::String(numeric_text(n))),
+        D::Xml(v) => v.as_ref().map(|x| CellValue::String(x.to_string())),
+        D::Date(_) => NaiveDate::from_sql(data)
             .ok()
             .flatten()
-            .map(CellValue::Bool)
-            .unwrap_or(CellValue::Null),
-        "Date32" => row
-            .try_get::<chrono::NaiveDate, _>(i)
+            .map(|d| CellValue::Date(d.format("%Y-%m-%d").to_string())),
+        D::Time(_) => NaiveTime::from_sql(data).ok().flatten().map(|t| {
+            CellValue::String(format!(
+                "{}{}",
+                t.format("%H:%M:%S"),
+                super::fraction_text(t.nanosecond())
+            ))
+        }),
+        D::DateTime2(_) | D::SmallDateTime(_) => NaiveDateTime::from_sql(data)
             .ok()
             .flatten()
-            .map(|d| CellValue::Date(d.format("%Y-%m-%d").to_string()))
-            .unwrap_or(CellValue::Null),
-        t if t.starts_with("Timestamp") => {
-            if let Ok(Some(v)) = row.try_get::<chrono::NaiveDateTime, _>(i) {
-                return CellValue::DateTime(v.format("%Y-%m-%d %H:%M:%S").to_string());
-            }
-            if let Ok(Some(v)) = row.try_get::<chrono::DateTime<chrono::Utc>, _>(i) {
-                return CellValue::DateTime(v.format("%Y-%m-%d %H:%M:%S").to_string());
-            }
-            CellValue::Null
-        }
-        _ => row
-            .try_get::<&str, _>(i)
+            .map(|d| CellValue::DateTime(super::datetime_text(&d))),
+        // DATETIME counts in 1/300 s. SQL Server prints it to the millisecond
+        // and refuses a DATETIME literal with more digits, so a save of the
+        // exact 3.333 ms would fail.
+        D::DateTime(_) => NaiveDateTime::from_sql(data).ok().flatten().map(|d| {
+            let ms = (d.nanosecond() + 500_000) / 1_000_000;
+            let whole = d.with_nanosecond(0).unwrap_or(d);
+            let d = whole + chrono::Duration::milliseconds(ms.into());
+            CellValue::DateTime(super::datetime_text(&d))
+        }),
+        // Text with its own offset by default: the column stores the offset,
+        // so a save writes it back. As a timestamp (the connection's choice,
+        // `DbConnection::datetimeoffset_as_timestamp`) it is the moment in
+        // UTC, which SQL Server reads back as +00:00: the same moment.
+        D::DateTimeOffset(_) => DateTime::<FixedOffset>::from_sql(data)
             .ok()
             .flatten()
-            .map(|s| CellValue::String(s.to_string()))
-            .unwrap_or(CellValue::Null),
+            .map(|d| {
+                if offset_as_timestamp {
+                    CellValue::DateTime(super::datetime_text(&d.naive_utc()))
+                } else {
+                    CellValue::String(format!(
+                        "{} {}",
+                        super::datetime_text(&d.naive_local()),
+                        d.format("%:z")
+                    ))
+                }
+            }),
+    };
+    cell.unwrap_or(CellValue::Null)
+}
+
+/// A DECIMAL as SQL Server prints it: `99.50`, `-0.000123`, and `123` with
+/// no point when the scale is 0 (the driver's own Display writes `123.0`).
+fn numeric_text(n: tiberius::numeric::Numeric) -> String {
+    if n.scale() == 0 {
+        n.int_part().to_string()
+    } else {
+        n.to_string()
     }
 }
 
@@ -221,22 +249,54 @@ impl DbConnector for MssqlConnector {
         // before the connection can be reused), so an unbounded SELECT
         // cannot exhaust memory.
         let cap = crate::formats::initial_load_rows();
+        // SQL Server has no read-only session, and a batch needs no semicolon
+        // between statements, so `SELECT 1 DELETE FROM t` is two. Without
+        // "Allow writes" the batch runs in a transaction that is always rolled
+        // back; `db::write_risk` refuses the words that could end it early.
+        let read_only = !self.reconnect.0.allow_writes;
+        let client = &mut self.client;
         let rows = runtime()
             .block_on(async {
                 use futures_util::TryStreamExt;
-                let mut stream = self.client.simple_query(sql).await?;
-                let mut rows = Vec::new();
-                while let Some(item) = stream.try_next().await? {
-                    if let tiberius::QueryItem::Row(row) = item
-                        && row.result_index() == 0
-                        && rows.len() < cap
-                    {
-                        rows.push(row);
-                    }
+                if read_only {
+                    client
+                        .simple_query("BEGIN TRANSACTION")
+                        .await?
+                        .into_results()
+                        .await?;
                 }
-                Ok::<_, tiberius::error::Error>(rows)
+                let rows = async {
+                    let mut stream = client.simple_query(sql).await?;
+                    let mut rows = Vec::new();
+                    while let Some(item) = stream.try_next().await? {
+                        if let tiberius::QueryItem::Row(row) = item
+                            && row.result_index() == 0
+                            && rows.len() < cap
+                        {
+                            rows.push(row);
+                        }
+                    }
+                    Ok::<_, tiberius::error::Error>(rows)
+                }
+                .await;
+                if read_only {
+                    // After a failed batch too: nothing it did may stay.
+                    let rolled_back = async {
+                        client
+                            .simple_query("IF @@TRANCOUNT > 0 ROLLBACK")
+                            .await?
+                            .into_results()
+                            .await
+                    }
+                    .await;
+                    let rows = rows?;
+                    rolled_back?;
+                    return Ok(rows);
+                }
+                rows
             })
             .with_context(|| format!("querying '{}'", self.conn_label))?;
+        let offset_as_timestamp = self.reconnect.0.datetimeoffset_as_timestamp;
         let mut table = DataTable::empty();
         let Some(first) = rows.first() else {
             return Ok(table);
@@ -246,15 +306,14 @@ impl DbConnector for MssqlConnector {
             .iter()
             .map(|c| ColumnInfo {
                 name: c.name().to_string(),
-                data_type: tds_type_to_arrow(c.column_type()).to_string(),
+                data_type: tds_type_to_arrow(c.column_type(), offset_as_timestamp).to_string(),
             })
             .collect();
-        let col_types: Vec<String> = table.columns.iter().map(|c| c.data_type.clone()).collect();
         table.rows = rows
             .iter()
             .map(|row| {
-                (0..col_types.len())
-                    .map(|i| tds_cell(row, i, &col_types[i]))
+                row.cells()
+                    .map(|(_, data)| tds_cell(data, offset_as_timestamp))
                     .collect()
             })
             .collect();
@@ -321,16 +380,18 @@ impl DbConnector for MssqlConnector {
 }
 
 /// Map a TDS column type to the Arrow-name strings Octa uses.
-fn tds_type_to_arrow(t: tiberius::ColumnType) -> &'static str {
+fn tds_type_to_arrow(t: tiberius::ColumnType, offset_as_timestamp: bool) -> &'static str {
     use tiberius::ColumnType::*;
     match t {
         Int1 | Int2 | Int4 | Int8 | Intn => "Int64",
-        Float4 | Float8 | Floatn => "Float64",
+        Float4 | Float8 | Floatn | Money | Money4 => "Float64",
         Bit | Bitn => "Boolean",
         Daten => "Date32",
-        Datetime | Datetime2 | Datetime4 | Datetimen | DatetimeOffsetn => {
-            "Timestamp(Microsecond, None)"
-        }
+        Datetime | Datetime2 | Datetime4 | Datetimen => "Timestamp(Microsecond, None)",
+        DatetimeOffsetn if offset_as_timestamp => "Timestamp(Microsecond, None)",
+        BigVarBin | BigBinary | Image => "Binary",
+        // DECIMAL as exact text, and by default DATETIMEOFFSET as text with
+        // its offset (see `tds_cell`), with the strings, GUIDs, times and xml.
         _ => "Utf8",
     }
 }

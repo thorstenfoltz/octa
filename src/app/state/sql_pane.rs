@@ -10,8 +10,10 @@
 //! pane `i` by swapping it in, drawing the unchanged single-editor code, and
 //! swapping back.
 
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use anyhow::Context as _;
 use octa::data::DataTable;
 
 use super::TabState;
@@ -21,6 +23,54 @@ use super::TabState;
 /// server query find the pane it was started from after panes were closed.
 /// 0 is the placeholder; real panes start at 1.
 static NEXT_PANE_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Which of the three plan views a pane shows. Kept per pane for the session
+/// and never reset by a new Explain, so the choice sticks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum PlanView {
+    #[default]
+    Tree,
+    Table,
+    Server,
+}
+
+/// The `.sql` file an editor was opened from or saved to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SqlFile {
+    pub(crate) path: PathBuf,
+    /// The text as last read or written, LF line endings. The editor is
+    /// unsaved while its text differs: a comparison rather than a flag,
+    /// because Format, Ask, History and Insert all write `query` directly.
+    pub(crate) saved: String,
+    /// The file used CRLF, so Save writes it back that way.
+    pub(crate) crlf: bool,
+}
+
+/// Read a `.sql` file for the editor: UTF-8, BOM dropped, CRLF folded to LF
+/// (the editor works in LF). Returns the text and whether it had CRLF.
+pub(crate) fn read_sql_file(path: &Path) -> anyhow::Result<(String, bool)> {
+    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let owned = String::from_utf8(bytes)
+        .with_context(|| format!("{} is not UTF-8 text", path.display()))?;
+    let text = owned.strip_prefix('\u{feff}').unwrap_or(&owned);
+    Ok((text.replace("\r\n", "\n"), text.contains("\r\n")))
+}
+
+/// Write the editor's text, with CRLF again when the file had it.
+pub(crate) fn write_sql_file(path: &Path, text: &str, crlf: bool) -> anyhow::Result<()> {
+    let lf = text.replace("\r\n", "\n");
+    let out = if crlf { lf.replace('\n', "\r\n") } else { lf };
+    octa::formats::write_atomically(path, |tmp| Ok(std::fs::write(tmp, out)?))
+        .with_context(|| format!("writing {}", path.display()))
+}
+
+/// The file's name for labels and messages, or the whole path when it has none.
+pub(crate) fn file_display_name(path: &Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    )
+}
 
 #[derive(Default)]
 pub(crate) struct SqlPane {
@@ -40,8 +90,12 @@ pub(crate) struct SqlPane {
     pub(crate) focus_pending: bool,
     /// Autocomplete popup: highlighted suggestion (clamped every frame).
     pub(crate) ac_selected: usize,
-    /// Autocomplete popup: `false` after Escape until the user types again.
+    /// Autocomplete popup: on while the user types; off after Escape, a pick,
+    /// or any caret move that is not typing.
     pub(crate) ac_visible: bool,
+    /// The editor's caret as the last frame left it, to tell a caret moved
+    /// by typing from one moved by a click, an arrow or a selection.
+    pub(crate) ac_caret: Option<egui::text::CCursorRange>,
     /// Last successfully executed SELECT, verbatim, so the write-back dialog
     /// has a source query to compose `CREATE TABLE AS ...` from.
     pub(crate) last_query: String,
@@ -51,20 +105,25 @@ pub(crate) struct SqlPane {
     /// the result area shows a running state instead of the previous result,
     /// which otherwise looked like the answer to the new query.
     pub(crate) running_since: Option<std::time::Instant>,
-    /// A local query parked until the running state has been painted once:
-    /// the (synchronous) DuckDB call blocks the window, so it must not start
-    /// in the frame that is about to show that state. Carries the frame it
-    /// was parked in.
-    pub(crate) pending_run: Option<(String, u64)>,
+    /// The plan Explain showed last. Run and Clear drop it.
+    pub(crate) plan: Option<octa::sql::explain::Plan>,
+    /// The plan view this pane shows (Text tree until the user picks another).
+    pub(crate) plan_view: PlanView,
+    /// The file this editor was opened from or saved to.
+    pub(crate) file: Option<SqlFile>,
 }
 
 impl SqlPane {
     pub(crate) fn new() -> Self {
         Self {
             id: NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed),
-            ac_visible: true,
             ..Default::default()
         }
+    }
+
+    /// Has a file, and its text changed since the last read or save.
+    pub(crate) fn is_dirty(&self) -> bool {
+        self.file.as_ref().is_some_and(|f| f.saved != self.query)
     }
 
     /// The run is starting: drop what the last one showed.
@@ -73,7 +132,19 @@ impl SqlPane {
         self.result_total = None;
         self.result_sel = Default::default();
         self.error = None;
+        self.plan = None;
         self.running_since = Some(std::time::Instant::now());
+    }
+
+    /// Show `plan`: its steps go into the result grid (the Table view, which
+    /// keeps Copy and Export working), the plan itself backs the other two.
+    pub(crate) fn show_plan(&mut self, plan: octa::sql::explain::Plan) {
+        self.result = Some(octa::sql::explain::steps_table(&plan));
+        self.result_total = None;
+        self.result_sel = Default::default();
+        self.error = None;
+        self.running_since = None;
+        self.plan = Some(plan);
     }
 }
 
@@ -140,43 +211,46 @@ impl TabState {
         self.sql_panes.iter_mut().find(|p| p.id == id && id != 0)
     }
 
-    /// Every editor's text is blank.
+    /// Every editor's text is blank and none has a file.
     pub(crate) fn sql_editors_empty(&self) -> bool {
-        self.sql.query.trim().is_empty() && self.sql_panes.iter().all(|p| p.query.trim().is_empty())
+        let blank = |p: &SqlPane| p.query.trim().is_empty() && p.file.is_none();
+        blank(&self.sql) && self.sql_panes.iter().all(blank)
     }
 
-    /// Each editor's text, left to right.
-    pub(crate) fn sql_queries(&self) -> Vec<String> {
+    /// Each editor's text and file, left to right.
+    pub(crate) fn sql_editors(&self) -> Vec<(String, Option<SqlFile>)> {
         (0..self.sql_panes.len())
             .map(|i| {
-                if i == self.sql_active_pane {
-                    self.sql.query.clone()
+                let p = if i == self.sql_active_pane {
+                    &self.sql
                 } else {
-                    self.sql_panes[i].query.clone()
-                }
+                    &self.sql_panes[i]
+                };
+                (p.query.clone(), p.file.clone())
             })
             .collect()
     }
 
-    /// Take over the queries of a closed tab's editors: only when every
-    /// editor here is blank (never overwrite what the user typed), and only
-    /// the non-blank ones.
-    pub(crate) fn adopt_sql_queries(&mut self, queries: Vec<String>) {
-        let queries: Vec<String> = queries
+    /// Take over a closed tab's editors: only when every editor here is
+    /// blank (never overwrite what the user typed), and only the ones with
+    /// text or a file.
+    pub(crate) fn adopt_sql_editors(&mut self, editors: Vec<(String, Option<SqlFile>)>) {
+        let editors: Vec<(String, Option<SqlFile>)> = editors
             .into_iter()
-            .filter(|q| !q.trim().is_empty())
+            .filter(|(q, f)| !q.trim().is_empty() || f.is_some())
             .collect();
-        if self.sql_editors_empty() && !queries.is_empty() {
-            self.set_sql_queries(queries);
+        if self.sql_editors_empty() && !editors.is_empty() {
+            self.set_sql_editors(editors);
         }
     }
 
-    /// Replace the editors with one per query (at least one), first active.
-    pub(crate) fn set_sql_queries(&mut self, queries: Vec<String>) {
-        let mut panes: Vec<SqlPane> = queries
+    /// Replace the editors with one per entry (at least one), first active.
+    pub(crate) fn set_sql_editors(&mut self, editors: Vec<(String, Option<SqlFile>)>) {
+        let mut panes: Vec<SqlPane> = editors
             .into_iter()
-            .map(|q| SqlPane {
-                query: q,
+            .map(|(query, file)| SqlPane {
+                query,
+                file,
                 ..SqlPane::new()
             })
             .collect();
@@ -187,79 +261,23 @@ impl TabState {
         self.sql_panes = panes;
         self.sql_active_pane = 0;
     }
+
+    /// Show a file read from disk: in the active editor when it is blank
+    /// (no text, no file), else in a new editor beside the others.
+    pub(crate) fn put_sql_file(&mut self, path: PathBuf, text: String, crlf: bool) {
+        if !self.sql.query.trim().is_empty() || self.sql.file.is_some() {
+            self.add_sql_pane();
+        }
+        self.sql.file = Some(SqlFile {
+            path,
+            saved: text.clone(),
+            crlf,
+        });
+        self.sql.query = text;
+        self.sql.focus_pending = true;
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn tab() -> TabState {
-        TabState::new(Default::default())
-    }
-
-    fn typed(tab: &mut TabState, texts: &[&str]) {
-        tab.set_sql_queries(texts.iter().map(|t| t.to_string()).collect());
-    }
-
-    #[test]
-    fn activating_swaps_panes_without_losing_text() {
-        let mut t = tab();
-        typed(&mut t, &["a", "b", "c"]);
-        t.activate_sql_pane(2);
-        assert_eq!(t.sql.query, "c");
-        t.activate_sql_pane(0);
-        assert_eq!(t.sql.query, "a");
-        assert_eq!(t.sql_queries(), ["a", "b", "c"]);
-    }
-
-    #[test]
-    fn closing_the_active_pane_activates_a_neighbour_and_keeps_the_rest() {
-        let mut t = tab();
-        typed(&mut t, &["a", "b", "c"]);
-        t.activate_sql_pane(1);
-        t.close_sql_pane(1);
-        assert_eq!(t.sql_queries(), ["a", "c"]);
-        assert_eq!(t.sql.query, "a");
-        // Closing one left of the active pane shifts its index.
-        t.activate_sql_pane(1);
-        t.close_sql_pane(0);
-        assert_eq!(t.sql_active_pane, 0);
-        assert_eq!(t.sql.query, "c");
-        // The last pane stays.
-        t.close_sql_pane(0);
-        assert_eq!(t.sql_pane_count(), 1);
-    }
-
-    #[test]
-    fn a_pane_is_found_by_id_wherever_it_sits() {
-        let mut t = tab();
-        typed(&mut t, &["a", "b"]);
-        let id_b = t.sql_pane_id(1);
-        t.sql_pane_by_id_mut(id_b).expect("b").query.push('!');
-        assert_eq!(t.sql_queries(), ["a", "b!"]);
-        assert!(t.has_sql_pane(id_b));
-        assert!(!t.has_sql_pane(0), "the placeholder is never a pane");
-    }
-
-    #[test]
-    fn a_closed_tabs_queries_land_only_in_blank_editors() {
-        let mut t = tab();
-        t.adopt_sql_queries(vec!["select 1".into(), "  ".into(), "select 2".into()]);
-        assert_eq!(t.sql_queries(), ["select 1", "select 2"]);
-
-        let mut busy = tab();
-        busy.sql.query = "mine".into();
-        busy.adopt_sql_queries(vec!["select 1".into()]);
-        assert_eq!(busy.sql_queries(), ["mine"]);
-    }
-
-    #[test]
-    fn starting_a_run_clears_what_the_last_one_showed() {
-        let mut p = SqlPane::new();
-        p.error = Some("boom".into());
-        p.result_total = Some(3);
-        p.start_run();
-        assert!(p.error.is_none() && p.result.is_none() && p.result_total.is_none());
-        assert!(p.running_since.is_some());
-    }
-}
+#[path = "sql_pane_tests.rs"]
+mod tests;

@@ -61,6 +61,17 @@ pub(crate) struct ApplyRecipeState {
 }
 
 impl TabState {
+    /// The undo history was just cleared under the recipe: its steps point
+    /// into a history that is gone, so they start over at its new bottom, or
+    /// the next hand edits go unrecorded.
+    pub(crate) fn recipe_after_history_cleared(&mut self) {
+        for step in &mut self.recipe {
+            step.undo_mark = 0;
+        }
+        self.recipe_undone.clear();
+        self.recipe_seen = 0;
+    }
+
     /// Undo just ran: steps it took back move aside.
     pub(crate) fn recipe_after_undo(&mut self) {
         let len = self.table.undo_stack.len();
@@ -277,7 +288,11 @@ impl OctaApp {
                 })
             })
             .collect();
-        self.record_step(RecipeStep::Sort(octa::data::recipe::Sort { by }));
+        // A sort the database ran (`server_sort` set) went letter by letter
+        // whatever the setting says, so the replay must too.
+        let natural =
+            self.settings.natural_sort && self.tabs[self.active_tab].server_sort.is_empty();
+        self.record_step(RecipeStep::Sort(octa::data::recipe::Sort { by, natural }));
     }
 
     pub(crate) fn record_sort(&mut self, col: usize, ascending: bool) {
@@ -469,7 +484,7 @@ impl OctaApp {
                 ui.set_min_width(ui.available_width());
                 ui.set_min_height(ui.available_height());
                 let tab = &mut self.tabs[self.active_tab];
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(
                             t("recipe.panel_title")
@@ -486,7 +501,7 @@ impl OctaApp {
                     });
                 });
                 ui.separator();
-                ui.horizontal_wrapped(|ui| {
+                octa::ui::control_row::control_row(ui, |ui| {
                     let any = tab.recipe.iter().any(|s| s.enabled);
                     let b = ui.add_enabled(any, egui::Button::new(t("recipe.save")));
                     save = if any {
@@ -602,7 +617,7 @@ pub(crate) fn render_apply_recipe_dialog(app: &mut OctaApp, ctx: &egui::Context)
         egui::Panel::top("apply_recipe_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(RichText::new(t("recipe.apply_title")).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -617,7 +632,7 @@ pub(crate) fn render_apply_recipe_dialog(app: &mut OctaApp, ctx: &egui::Context)
         egui::Panel::bottom("apply_recipe_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if st.outcome.is_none() {
                         let ok = !readonly && has_table && !st.recipe.steps.is_empty();
                         let b = ui.add_enabled(ok, egui::Button::new(t("recipe.apply_run")));
@@ -759,7 +774,7 @@ pub(crate) fn render_recipe_key_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             .min_height(240.0)
     });
     let inner = window.show(ctx, |ui| {
-        ui.horizontal(|ui| {
+        octa::ui::control_row::control_line(ui, |ui| {
             ui.label(RichText::new(t("recipe.key_title")).strong().size(16.0));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if draw_window_controls(ui, &mut size) {
@@ -779,7 +794,7 @@ pub(crate) fn render_recipe_key_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             );
         }
         ui.add_space(8.0);
-        ui.horizontal(|ui| {
+        octa::ui::control_row::control_line(ui, |ui| {
             let ok = !st.cols.is_empty();
             let b = ui.add_enabled(ok, egui::Button::new(t("recipe.key_use")));
             if ok {
@@ -819,91 +834,5 @@ pub(crate) fn render_recipe_key_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 }
 
 #[cfg(test)]
-mod tests {
-    use octa::data::recipe::{RecipeStep, SetCells};
-    use octa::data::{CellValue, ColumnInfo, DataTable};
-
-    use super::TabState;
-
-    fn tab(headers: &[&str], rows: &[&[&str]]) -> TabState {
-        let mut t = TabState::new(octa::data::SearchMode::Plain);
-        let mut d = DataTable::empty();
-        d.columns = headers
-            .iter()
-            .map(|h| ColumnInfo {
-                name: h.to_string(),
-                data_type: "Utf8".into(),
-            })
-            .collect();
-        d.rows = rows
-            .iter()
-            .map(|r| r.iter().map(|s| CellValue::String(s.to_string())).collect())
-            .collect();
-        t.table = d;
-        t
-    }
-
-    fn set_cells(t: &TabState, i: usize) -> SetCells {
-        match &t.recipe[i].step {
-            RecipeStep::SetCells(s) => s.clone(),
-            other => panic!("expected set_cells, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn a_typed_value_is_recorded_against_the_rows_id() {
-        let mut t = tab(&["name", "id"], &[&["a", "7"], &["b", "8"]]);
-        t.table.set(1, 0, CellValue::String("B".into()));
-        assert!(t.record_hand_edits());
-        let s = set_cells(&t, 0);
-        assert_eq!(s.key, ["id"]);
-        assert_eq!(s.cells[0].row, ["8"]);
-        assert_eq!(s.cells[0].column, "name");
-        assert_eq!(s.cells[0].value.as_deref(), Some("B"));
-        // Nothing new: nothing recorded twice.
-        assert!(!t.record_hand_edits());
-    }
-
-    #[test]
-    fn editing_the_id_itself_keeps_the_old_id_to_find_the_row() {
-        let mut t = tab(&["id", "v"], &[&["7", "x"]]);
-        t.table.set(0, 0, CellValue::String("70".into()));
-        t.record_hand_edits();
-        assert_eq!(set_cells(&t, 0).cells[0].row, ["7"]);
-    }
-
-    #[test]
-    fn without_an_id_the_edit_waits_and_resolves_when_one_is_chosen() {
-        let mut t = tab(&["city", "price"], &[&["Oslo", "1"], &["Oslo", "2"]]);
-        t.table.set(1, 1, CellValue::String("9".into()));
-        t.record_hand_edits();
-        assert!(t.recipe[0].pending.is_some());
-        assert!(
-            t.recipe_to_save().steps.is_empty(),
-            "pending edits are not saved"
-        );
-    }
-
-    #[test]
-    fn undo_and_redo_move_the_edit_without_recording_it_again() {
-        let mut t = tab(&["id", "v"], &[&["1", "x"]]);
-        t.table.set(0, 1, CellValue::String("y".into()));
-        t.record_hand_edits();
-        t.table.undo();
-        t.recipe_after_undo();
-        assert!(t.recipe.is_empty());
-        t.table.redo();
-        t.recipe_after_redo();
-        assert!(!t.record_hand_edits());
-        assert_eq!(t.recipe.len(), 1);
-    }
-
-    #[test]
-    fn cells_filled_by_an_inserted_column_are_not_typed_values() {
-        let mut t = tab(&["id"], &[&["1"]]);
-        t.table.insert_column(1, "new".into(), "Utf8".into());
-        t.table.set(0, 1, CellValue::String("f".into()));
-        assert!(!t.record_hand_edits());
-        assert!(t.recipe.is_empty());
-    }
-}
+#[path = "recipe_tests.rs"]
+mod tests;

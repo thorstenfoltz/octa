@@ -19,6 +19,9 @@ exclude = [
     # New in 0.20.2: release_notes.md links the page before docs.yml deploys
     # it on the merge to master. Drop this line once the page is live.
     "https://thorstenfoltz.github.io/octa/usage/analyses-on-live-databases/$",
+    # New in 0.21.0: the README links the user guide's topic pages before
+    # docs.yml deploys them on the merge to master. Drop once they are live.
+    "https://thorstenfoltz.github.io/octa/guide/.*$",
     # Source-code links into the `master` branch for files that currently
     # live on `feature/mcp` (ods_reader.rs, docs/cli/octa.1.adoc). These
     # resolve once the branch is merged.

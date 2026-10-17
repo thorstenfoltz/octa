@@ -323,6 +323,57 @@ impl OctaApp {
             self.pending_number_warning = None;
         }
 
+        // The real header looks like it sits further down. Nothing changed
+        // on load, so Dismiss only closes the banner.
+        let mut use_suggestion = None;
+        let mut dismiss_suggestion = false;
+        if let Some(s) = self.tabs[self.active_tab].header_suggestion {
+            let colors = ui::theme::ThemeColors::for_mode(self.theme_mode);
+            let (text, button) = if s.first == s.last {
+                let row = (s.last + 1).to_string();
+                (
+                    t("banner.header_suggest").replace("{row}", &row),
+                    t("banner.header_use_row").replace("{row}", &row),
+                )
+            } else {
+                let (first, last) = ((s.first + 1).to_string(), (s.last + 1).to_string());
+                (
+                    t("banner.header_suggest_rows")
+                        .replace("{first}", &first)
+                        .replace("{last}", &last),
+                    t("banner.header_use_rows")
+                        .replace("{first}", &first)
+                        .replace("{last}", &last),
+                )
+            };
+            let blocked = self.header_row_block_reason(true);
+            ui.horizontal_wrapped(|ui| {
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new(text).color(colors.warning).size(12.0));
+                let use_btn = ui.add_enabled(blocked.is_none(), egui::Button::new(button).small());
+                if use_btn
+                    .on_hover_text(t("banner.header_use_tip"))
+                    .on_disabled_hover_text(blocked.clone().unwrap_or_default())
+                    .clicked()
+                {
+                    use_suggestion = Some(s);
+                }
+                if ui
+                    .small_button(t("banner.dismiss"))
+                    .on_hover_text(t("banner.close_tip"))
+                    .clicked()
+                {
+                    dismiss_suggestion = true;
+                }
+            });
+            ui.add_space(4.0);
+        }
+        if let Some(s) = use_suggestion {
+            self.apply_header_rows(s.first, s.last);
+        } else if dismiss_suggestion {
+            self.tabs[self.active_tab].header_suggestion = None;
+        }
+
         // Per-tab notice banner (parse fallback, inventory truncation, the
         // file-internals facts). The Raw view renders this itself inside
         // its scroll area, so only the other views need it here - without
@@ -427,6 +478,10 @@ impl OctaApp {
         // Restoring whitespace is an in-place change; re-sync the DB diff-save
         // baseline so it isn't later seen as an edit / schema change.
         crate::app::file_io::resync_db_meta_baseline(tab);
+        // Nothing the SQL panel's stamp looks at changed, only the cells.
+        tab.sql_data_stamp = None;
+        // Rows streamed in from now on keep their whitespace too.
+        tab.chunk_trim = false;
         tab.filter_dirty = true;
         tab.table_state.invalidate_row_heights();
     }

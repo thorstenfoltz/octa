@@ -43,6 +43,7 @@ pub fn render_write_options(
                     egui::Grid::new("write_options_parquet")
                         .num_columns(2)
                         .show(ui, |ui| {
+                            crate::ui::control_row::pin_control_height(ui);
                             ui.label(crate::i18n::t("wo.compression"))
                                 .on_hover_text(crate::i18n::t("wo.compression_hint"));
                             egui::ComboBox::from_id_salt("wo_compression")
@@ -101,6 +102,7 @@ pub fn render_write_options(
                     egui::Grid::new("write_options_csv")
                         .num_columns(2)
                         .show(ui, |ui| {
+                            crate::ui::control_row::pin_control_height(ui);
                             ui.label(crate::i18n::t("wo.delimiter"))
                                 .on_hover_text(crate::i18n::t("wo.delimiter_hint"));
                             let mut delim = (opts.csv.delimiter as char).to_string();
@@ -131,12 +133,38 @@ pub fn render_write_options(
                                 .response
                                 .on_hover_text(crate::i18n::t("wo.quote_style_hint"));
                             ui.end_row();
+
+                            ui.label(crate::i18n::t("wo.decimal"))
+                                .on_hover_text(crate::i18n::t("wo.decimal_hint"));
+                            let decimal_key = |comma: bool| {
+                                if comma {
+                                    "wo.decimal_comma"
+                                } else {
+                                    "wo.decimal_point"
+                                }
+                            };
+                            egui::ComboBox::from_id_salt("wo_decimal_mark")
+                                .selected_text(crate::i18n::t(decimal_key(opts.csv.decimal_comma)))
+                                .show_ui(ui, |ui| {
+                                    for comma in [false, true] {
+                                        ui.selectable_value(
+                                            &mut opts.csv.decimal_comma,
+                                            comma,
+                                            crate::i18n::t(decimal_key(comma)),
+                                        );
+                                    }
+                                })
+                                .response
+                                .on_hover_text(crate::i18n::t("wo.decimal_hint"));
+                            ui.end_row();
                         });
 
                     ui.checkbox(&mut opts.csv.crlf, crate::i18n::t("wo.crlf"))
                         .on_hover_text(crate::i18n::t("wo.crlf_hint"));
                     ui.checkbox(&mut opts.csv.write_header, crate::i18n::t("wo.header"))
                         .on_hover_text(crate::i18n::t("wo.header_hint"));
+                    ui.checkbox(&mut opts.csv.bom, crate::i18n::t("wo.bom"))
+                        .on_hover_text(crate::i18n::t("wo.bom_hint"));
                 });
 
             egui::CollapsingHeader::new(crate::i18n::t("wo.xlsx"))

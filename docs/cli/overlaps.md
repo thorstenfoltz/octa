@@ -44,3 +44,7 @@ start (left out), go to stderr.
 | `1`  | At least one overlap, or the file or a column is missing. |
 
 See [Timeline](../usage/view-modes/timeline.md).
+
+## See also
+
+- MCP: [`find_overlaps`](../mcp/tools/find_overlaps.md)

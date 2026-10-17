@@ -296,13 +296,7 @@ impl TabState {
         self.table.edits.clear();
         self.table.undo_stack.clear();
         self.table.redo_stack.clear();
-        // The recipe's steps point into the undo history just cleared: start
-        // over at its new bottom, or the next hand edits go unrecorded.
-        for step in &mut self.recipe {
-            step.undo_mark = 0;
-        }
-        self.recipe_undone.clear();
-        self.recipe_seen = 0;
+        self.recipe_after_history_cleared();
         // A whole-table download of the old view ends with it.
         self.loading_all = false;
         self.table
@@ -481,7 +475,9 @@ impl TabState {
                         .map(|i| (i, k.ascending))
                 })
                 .collect();
-            self.table.sort_rows_by_columns(&keys);
+            // Letters on purpose: this stands in for the server's ORDER BY, which sorts letter by letter.
+            self.table
+                .sort_rows_by_columns(&keys, octa::data::TextOrder::Letters);
         }
         self.view_hold = Some(ViewHold::LoadedRows(wanted));
         self.view_error = None;
@@ -976,21 +972,54 @@ impl OctaApp {
     /// loaded rows, as before. The header, the Edit menu, Multi-sort and Ask
     /// all come through here.
     pub(crate) fn sort_tab_rows(&mut self, idx: usize, keys: &[(usize, bool)]) {
+        let natural = self.settings.natural_sort;
         let server = self.tabs.get(idx).is_some_and(|t| {
             view_source_for(t, self.settings.db_pushdown, &self.settings.db_connections).is_some()
         });
         let Some(tab) = self.tabs.get_mut(idx) else {
             return;
         };
+        // Detect dates copied the rows in this order and puts its answer
+        // back by row number.
+        if tab.date_detect.is_some() {
+            self.status_message = Some((
+                octa::i18n::t("detect_dates.busy"),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        // A background save is still reading the rows in this order.
+        if let Some(job) = &tab.saving {
+            self.status_message = Some((
+                octa::i18n::t("saving.busy").replace("{name}", &job.file_name()),
+                std::time::Instant::now(),
+            ));
+            return;
+        }
+        // A picker answer puts its column back by row number; SQL is copying
+        // the rows in this order or writing over them.
+        if tab.holds_rows() {
+            self.status_message = Some((octa::i18n::t("busy.rows"), std::time::Instant::now()));
+            return;
+        }
         if server {
             tab.sort_on_server(keys);
         } else {
-            tab.table.sort_rows_by_columns(keys);
+            tab.table
+                .sort_rows_by_columns(keys, octa::data::TextOrder::from_natural(natural));
             // A local sort replaces a server one left from before the setting
             // was switched off, which would otherwise return with it.
             tab.server_sort.clear();
         }
         tab.filter_dirty = true;
+        // The database sorts letter by letter; with Natural on, say so
+        // rather than leave a different order unexplained.
+        if server && natural {
+            self.status_message = Some((
+                octa::i18n::t("natsort.server_note"),
+                std::time::Instant::now(),
+            ));
+        }
     }
 }
 
@@ -1093,6 +1122,21 @@ impl OctaApp {
             }
             ValuesDue::SendNew | ValuesDue::Send => {}
         }
+        // A large-file tab counts its file on a worker with a connection of
+        // its own; the list lands in the same slot a server's would.
+        if let Some(large) = &self.tabs[idx].large {
+            let Some(job) = large.value_frequency_job(key.0, &key.1, top_n) else {
+                return;
+            };
+            let task = super::pushdown::spawn_local_fallible(job);
+            *self.tabs[idx].values_slot(which) = Some(ServerValues {
+                key,
+                task: Some(task),
+                result: None,
+                since: now,
+            });
+            return;
+        }
         let Some(src) = view_source_for(
             &self.tabs[idx],
             self.settings.db_pushdown,
@@ -1183,12 +1227,17 @@ impl TabState {
         // note, come from the unsearched list only: a search answers for its
         // matches.
         let unsearched = v.key.1.is_empty();
+        let (counted, failed) = if self.large.is_some() {
+            ("largefile.facet_counted", "largefile.facet_failed")
+        } else {
+            ("dbview.facet_server", "dbview.facet_failed")
+        };
         match res {
             Ok(vf) => {
                 st.facet_rows = vf.rows.iter().map(|r| (r.label.clone(), r.count)).collect();
                 if unsearched {
                     st.facet_unique = vf.unique_count;
-                    st.facet_external_note = Some(Ok(t("dbview.facet_server").replace(
+                    st.facet_external_note = Some(Ok(t(counted).replace(
                         "{total}",
                         &octa::ui::status_bar::format_number(vf.nulls + vf.total_non_null),
                     )));
@@ -1196,7 +1245,7 @@ impl TabState {
             }
             Err(e) => {
                 st.facet_rows.clear();
-                st.facet_external_note = Some(Err(format!("{} {e}", t("dbview.facet_failed"))));
+                st.facet_external_note = Some(Err(format!("{} {e}", t(failed))));
             }
         }
         st.facet_cache_key = Some(v.key.clone());

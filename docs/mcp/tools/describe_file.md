@@ -134,3 +134,4 @@ structure, which is an answer rather than an error.
 - [`profile`](profile.md): the heavier-weight cousin, returns
   per-column statistics via DuckDB SUMMARIZE.
 - [`octa --describe`](../../cli/describe.md), the CLI mirror.
+- In the app: [File Internals](../../usage/file-internals.md)

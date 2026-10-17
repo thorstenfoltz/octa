@@ -8,7 +8,7 @@ Report section, and `octa --shapes`.
 
 Read-only, so it stays available under `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
 | Name       | Type   | Meaning                                           |
 |------------|--------|---------------------------------------------------|
@@ -18,7 +18,7 @@ Read-only, so it stays available under `--mcp-read-only`.
 | `column`   | string | The column to shape.                              |
 | `limit`    | number | Maximum shapes to return. `0` for unlimited.      |
 
-## Response
+## Response shape
 
 ```json
 {
@@ -35,3 +35,7 @@ Read-only, so it stays available under `--mcp-read-only`.
 A column where one shape dominates and a few values differ usually holds
 typos or a second format. Values longer than 24 characters shorten runs
 of four or more identical shape characters as `a(12)`.
+
+## See also
+
+- Command line: [`--shapes`](../../cli/shapes.md)

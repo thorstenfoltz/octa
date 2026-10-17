@@ -47,7 +47,7 @@ impl OctaApp {
             return;
         }
         let mut insert: Option<String> = None;
-        ui.horizontal_wrapped(|ui| {
+        octa::ui::control_row::control_row(ui, |ui| {
             ui.label(
                 egui::RichText::new(t("chat.context_label"))
                     .weak()

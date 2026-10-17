@@ -36,6 +36,12 @@ Because the result is a normal table, you can sort it, copy it, colour-mark
 extreme values with [conditional formatting](conditional-formatting.md), or
 export it like any other tab.
 
+## Command line and MCP
+
+The same job without the GUI:
+
+- MCP: [`correlation`](../mcp/tools/correlation.md)
+
 ## See also
 
 - [Summary](summary.md) for per-column descriptive statistics.

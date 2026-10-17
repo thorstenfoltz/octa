@@ -41,7 +41,7 @@ pub(crate) fn render_tidy_up_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("tidy_up_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("tidyup.title"))
                             .strong()
@@ -70,7 +70,7 @@ pub(crate) fn render_tidy_up_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             ui.checkbox(&mut state.headers, octa::i18n::t("tidyup.headers"));
 
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 let can_apply = state.trim || state.headers;
                 if ui
                     .add_enabled(can_apply, egui::Button::new(octa::i18n::t("tidyup.apply")))

@@ -32,11 +32,13 @@ side instead of a file.
 
 Set **Compare against** to **Cloud object** and paste the object's URL:
 
-| Provider             | URL form                  |
-|----------------------|---------------------------|
-| Amazon S3, MinIO, R2 | `s3://bucket/key.parquet` |
-| Azure Blob Storage   | `az://container/blob`     |
-| Google Cloud Storage | `gs://bucket/key`         |
+| Provider             | URL form                        |
+|----------------------|---------------------------------|
+| Amazon S3, MinIO, R2 | `s3://bucket/key.parquet`       |
+| Azure Blob Storage   | `az://container/blob`           |
+| Google Cloud Storage | `gs://bucket/key`               |
+| SFTP server          | `sftp://user@host/path/key.csv` |
+| WebDAV / Nextcloud   | `davs://host/path/key.csv`      |
 
 The object is downloaded to a temporary file and read like any local file,
 so every format Octa opens works here. Credentials come from a saved cloud
@@ -66,7 +68,29 @@ octa --diff local.parquet s3://bucket/exports/day.parquet \
 The read runs on a worker thread, so the window stays responsive while a
 slow connection answers.
 
-## On the command line
+## Tolerance
+
+Open **Tolerance** under the key columns to count values as the same when
+they are close enough, or to leave columns out of the comparison.
+
+- **Numbers within**: two numbers count as the same when they differ by at
+  most the absolute amount you type (for example `0.01`), or by at most the
+  percentage you type of the larger one. Either is enough. Both decimal
+  marks work. Empty means exact.
+- **Times within**: dates and times count as the same when they are at most
+  this many seconds apart. A date counts as midnight.
+- **Ignore upper/lower case** and **Ignore extra spaces**: text compares
+  without regard to case, or with spaces at the ends removed and runs of
+  spaces counted as one. These also apply when rows are matched on the key
+  columns.
+- **Leave out these columns**: ticked columns are not compared, but they
+  still appear in the result.
+
+Tolerance never pairs keys: a number tolerance does not make key `1.0` match
+key `1.001`. When some cells differ only within tolerance, the banner of the
+result tab says "N cells differ only within tolerance".
+
+## Command line
 
 ```bash
 octa --diff orders.csv \
@@ -93,7 +117,7 @@ standard error so a pipe carries only the table. The blank
 
 That makes it usable as a load check in a pipeline.
 
-## Over MCP
+## MCP and the assistant
 
 `diff_tables` takes a `b_db` object instead of `path_b`:
 
@@ -105,6 +129,8 @@ That makes it usable as a load check in a pipeline.
   "on": ["id"]
 }
 ```
+
+- MCP: [`diff_tables`](../mcp/tools/diff_tables.md)
 
 ## Ceilings
 

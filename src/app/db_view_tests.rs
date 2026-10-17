@@ -18,6 +18,7 @@ pub(crate) fn conn() -> DbConnection {
         oauth_tenant: None,
         athena_workgroup: None,
         athena_output_location: None,
+        datetimeoffset_as_timestamp: false,
         query_timeout_secs: DEFAULT_QUERY_TIMEOUT_SECS,
         ssh: None,
         tunnel_port: None,
@@ -197,7 +198,8 @@ fn a_page_of_the_view_replaces_the_loaded_rows() {
     use octa::data::MarkKey;
     let mut tab = db_tab();
     tab.table.row_offset = 40;
-    tab.table.sort_rows_by_columns(&[(1, false)]); // an undo entry, structural change
+    tab.table
+        .sort_rows_by_columns(&[(1, false)], octa::data::TextOrder::Letters); // an undo entry, structural change
     tab.table
         .marks
         .insert(MarkKey::Row(0), octa::data::MarkColor::Red);
@@ -732,7 +734,10 @@ fn a_new_view_ends_a_download_and_restarts_the_recipe_marks() {
     let mut tab = db_tab();
     tab.loading_all = true;
     tab.recipe.push(crate::app::recipe::RecordedStep {
-        step: octa::data::recipe::RecipeStep::Sort(octa::data::recipe::Sort { by: vec![] }),
+        step: octa::data::recipe::RecipeStep::Sort(octa::data::recipe::Sort {
+            by: vec![],
+            natural: false,
+        }),
         undo_mark: 5,
         enabled: true,
         pending: None,

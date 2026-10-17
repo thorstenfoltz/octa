@@ -62,6 +62,12 @@ On a database tab that holds only part of its table, Pivot runs on the
 database and Unpivot on the loaded rows; see
 [Analyses on live databases](analyses-on-live-databases.md#pivot-and-time-series).
 
+## Command line and MCP
+
+The same job without the GUI:
+
+- MCP: [`pivot`](../mcp/tools/pivot.md)
+
 ## See also
 
 - [SQL Panel](sql.md) for arbitrary queries, including hand-written

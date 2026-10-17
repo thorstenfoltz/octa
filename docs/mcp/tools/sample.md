@@ -47,3 +47,4 @@ row_count, truncated, total_rows_available, cell_truncated }`. The
 
 - [`read_table`](read_table.md) / [`tail`](tail.md).
 - CLI [`octa --sample`](../../cli/sample.md).
+- In the app: [Random sample](../../usage/table-tools.md#random-sample)

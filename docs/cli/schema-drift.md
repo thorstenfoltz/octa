@@ -110,3 +110,5 @@ drifting columns: amount
   diff.
 - [`octa --union`](union.md): reconcile differing schemas into one
   table instead of only reporting them.
+- In the app: [Schema drift](../usage/schema-drift.md)
+- MCP: [`schema_drift`](../mcp/tools/schema_drift.md)

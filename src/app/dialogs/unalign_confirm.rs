@@ -38,7 +38,7 @@ pub(crate) fn render_unalign_confirm_dialog(app: &mut OctaApp, ctx: &egui::Conte
         egui::Panel::top("unalign_confirm_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(octa::i18n::t("dialog.unalign_title"))
                             .strong()
@@ -57,7 +57,7 @@ pub(crate) fn render_unalign_confirm_dialog(app: &mut OctaApp, ctx: &egui::Conte
         egui::CentralPanel::default().show(ui, |ui| {
             ui.label(octa::i18n::t("dialog.unalign_body"));
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui
                     .button(octa::i18n::t("dialog.reload_and_discard"))
                     .clicked()

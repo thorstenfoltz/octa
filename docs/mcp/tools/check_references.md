@@ -26,7 +26,7 @@ analytics (stays available under `--mcp-read-only`).
 \* One of `path` or `open_tab` is required. Omitting the child source checks a
 **self-reference**, such as a `manager_id` pointing at `id` in one table.
 
-## Response
+## Response shape
 
 ```json
 {
@@ -53,3 +53,8 @@ analytics (stays available under `--mcp-read-only`).
   [`suggest_join_keys`](suggest_join_keys.md) and the relationship map. That is
   what makes `1` match `1` when one side came from a CSV and the other from a
   database.
+
+## See also
+
+- In the app: [Referential Integrity](../../usage/referential-integrity.md)
+- Command line: [`--check-references`](../../cli/check-references.md)

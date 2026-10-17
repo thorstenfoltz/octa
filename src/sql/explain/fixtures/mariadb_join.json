@@ -1,0 +1,40 @@
+{
+  "query_block": {
+    "select_id": 1,
+    "cost": 1.0578768,
+    "filesort": {
+      "sort_key": "sum(o.amount) desc",
+      "temporary_table": {
+        "nested_loop": [
+          {
+            "table": {
+              "table_name": "c",
+              "access_type": "ALL",
+              "possible_keys": ["PRIMARY"],
+              "loops": 1,
+              "rows": 50,
+              "cost": 0.0190048,
+              "filtered": 100
+            }
+          },
+          {
+            "table": {
+              "table_name": "o",
+              "access_type": "ref",
+              "possible_keys": ["orders_customer"],
+              "key": "orders_customer",
+              "key_length": "5",
+              "used_key_parts": ["customer_id"],
+              "ref": ["app.c.id"],
+              "loops": 50,
+              "rows": 20,
+              "cost": 1.038872,
+              "filtered": 100,
+              "attached_condition": "o.amount > 10"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

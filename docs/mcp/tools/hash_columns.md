@@ -36,3 +36,8 @@ DuckDB / GeoPackage) are not valid sources or targets.
 ```json
 { "rows_written": 1200, "new_column": "hash_id_email", "output": "/data/customers.parquet" }
 ```
+
+## See also
+
+- In the app: [Hash Columns](../../usage/hash-columns.md)
+- Command line: [`--hash-columns`](../../cli/hash-columns.md)

@@ -374,8 +374,10 @@ impl OctaApp {
             }
         }
 
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        {
+        // `cfg!`, not a `#[cfg]` block: on macOS the two blocks above are
+        // compiled out, and a block that always returns would leave the
+        // `Ok` below unreachable, which CI's `-D warnings` refuses.
+        if cfg!(not(any(target_os = "linux", target_os = "windows"))) {
             let _ = current_exe;
             let _ = new_version;
             return Err(

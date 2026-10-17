@@ -168,9 +168,17 @@ impl TabState {
         table.apply_edits();
         let dir = tempfile::tempdir()?;
         let path = dir.path().join(self.scratch_name());
-        // Same choice of writer as `do_save_tab_inner`.
-        if table.format_name.as_deref() == Some("CSV") && self.csv_delimiter != b',' {
-            octa::formats::csv_reader::write_delimited(&path, self.csv_delimiter, &table)?;
+        // Same choice of writer as `do_save_tab_inner`, by the file's
+        // extension; a tab with no file falls back on its format.
+        let format_delimiter =
+            super::file_io::save::delimited_target(&path).or(match table.format_name.as_deref() {
+                Some("CSV") => Some(b','),
+                Some("TSV") => Some(b'\t'),
+                _ => None,
+            });
+        if let Some(format_delimiter) = format_delimiter {
+            let (csv, delimiter) = self.delimited_options(&opts.csv, None, format_delimiter);
+            octa::formats::csv_reader::write_delimited_with(&path, &table, &csv, delimiter)?;
         } else {
             let writer = self
                 .table
@@ -237,7 +245,7 @@ impl TabState {
         }
         self.table = table;
         self.table_state.editing_cell = None;
-        self.first_row_is_header = true;
+        self.header_suggestion = None;
         self.outlier_cells.clear();
         self.retype_kept_as_text.clear();
         // Both key on (row count, edits, ...), which the new table can match.

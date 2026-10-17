@@ -10,6 +10,7 @@ use eframe::egui;
 use octa::db::{DbConnection, DbEngine};
 use octa::ui::tree_filter::{self, RowFilter, TreeSearch};
 
+use super::cloud_browser::SignInState;
 use super::db_browser::{ConnSchema, DbHit, DbListState, join_path, split_path};
 
 const INDENT_PER_LEVEL: f32 = 14.0;
@@ -24,11 +25,16 @@ pub(crate) struct DbTreeAction {
     /// Open the "Copy table to another connection" dialog for
     /// (conn_id, catalog, schema, table).
     pub(crate) copy: Option<(String, Option<String>, String, String)>,
+    /// Open the "Export tables to files" dialog for (conn_id, catalog,
+    /// schema, the right-clicked table if it came from a table row).
+    pub(crate) export: Option<(String, Option<String>, String, Option<String>)>,
     /// Show a table's metadata in a read-only tab for
     /// (conn_id, catalog, schema, table).
     pub(crate) metadata: Option<(String, Option<String>, String, String)>,
     /// Re-list a connection.
     pub(crate) refresh: Option<String>,
+    /// Sign this connection in through the browser.
+    pub(crate) sign_in: Option<String>,
     /// Open Settings at the Databases section with a blank form.
     pub(crate) add_connection: bool,
     /// Hide the Databases section.
@@ -53,6 +59,7 @@ pub(crate) fn render_db_tree(
     connections: &[DbConnection],
     listings: &HashMap<ConnSchema, DbListState>,
     expanded: &HashSet<ConnSchema>,
+    sign_in: &HashMap<String, SignInState>,
     search: DbTreeSearch<'_>,
     share: bool,
 ) -> DbTreeAction {
@@ -116,7 +123,16 @@ pub(crate) fn render_db_tree(
         .show(ui, |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
             for conn in connections {
-                draw_connection(ui, listings, expanded, conn, needle.as_deref(), &mut action);
+                let cx = TreeCtx {
+                    listings,
+                    expanded,
+                    conn,
+                    catalog: None,
+                    indent: INDENT_PER_LEVEL,
+                    filter: needle.as_deref(),
+                    sign_in,
+                };
+                draw_connection(ui, cx, &mut action);
             }
         });
     action
@@ -175,18 +191,23 @@ fn subtree_matches(
             })
         }
         Some(DbListState::Tables(names)) => names.iter().any(|n| tree_filter::matches(n, needle)),
-        Some(DbListState::Loading) | Some(DbListState::Error(_)) | None => false,
+        Some(DbListState::Loading)
+        | Some(DbListState::Error(_))
+        | Some(DbListState::NeedsSignIn(_))
+        | None => false,
     }
 }
 
-fn draw_connection(
-    ui: &mut egui::Ui,
-    listings: &HashMap<ConnSchema, DbListState>,
-    expanded: &HashSet<ConnSchema>,
-    conn: &DbConnection,
-    filter: Option<&str>,
-    action: &mut DbTreeAction,
-) {
+/// A connection row and, when open, its root level. `cx` is the root's
+/// context: `filter` is the search box's needle, applied to the name here.
+fn draw_connection(ui: &mut egui::Ui, cx: TreeCtx<'_>, action: &mut DbTreeAction) {
+    let TreeCtx {
+        listings,
+        expanded,
+        conn,
+        filter,
+        ..
+    } = cx;
     let root_key = (conn.id.clone(), String::new());
     // Connections always stay listed: they are where a search starts. A
     // match below one opens it.
@@ -235,12 +256,8 @@ fn draw_connection(
         draw_level(
             ui,
             TreeCtx {
-                listings,
-                expanded,
-                conn,
-                catalog: None,
-                indent: INDENT_PER_LEVEL,
                 filter: row.child_filter(filter),
+                ..cx
             },
             "",
             action,
@@ -265,6 +282,8 @@ struct TreeCtx<'a> {
     indent: f32,
     /// The search box's needle, while it still applies at this depth.
     filter: Option<&'a str>,
+    /// Browser sign-ins started from the sidebar, by connection id.
+    sign_in: &'a HashMap<String, SignInState>,
 }
 
 fn draw_level(ui: &mut egui::Ui, cx: TreeCtx<'_>, path: &str, action: &mut DbTreeAction) {
@@ -284,6 +303,7 @@ fn draw_level(ui: &mut egui::Ui, cx: TreeCtx<'_>, path: &str, action: &mut DbTre
     match listings.get(&(conn.id.clone(), path.to_string())) {
         None | Some(DbListState::Loading) => loading_row(ui, indent),
         Some(DbListState::Error(msg)) => error_row(ui, indent, msg),
+        Some(DbListState::NeedsSignIn(msg)) => sign_in_row(ui, cx, msg, action),
         Some(DbListState::Catalogs(cats)) => {
             for cat in cats {
                 let child = child_key(cat);
@@ -339,6 +359,21 @@ fn draw_level(ui: &mut egui::Ui, cx: TreeCtx<'_>, path: &str, action: &mut DbTre
                 if resp.clicked() {
                     action.toggle = Some(key.clone());
                 }
+                resp.context_menu(|ui| {
+                    if ui
+                        .button(octa::i18n::t("db.export_tables"))
+                        .on_hover_text(octa::i18n::t("db.export_tables_hint"))
+                        .clicked()
+                    {
+                        action.export = Some((
+                            conn.id.clone(),
+                            cx.catalog.map(str::to_string),
+                            schema.clone(),
+                            None,
+                        ));
+                        ui.close();
+                    }
+                });
                 if is_open {
                     draw_tables(
                         ui,
@@ -381,6 +416,7 @@ fn draw_tables(
     match listings.get(&(conn.id.clone(), path.to_string())) {
         None | Some(DbListState::Loading) => loading_row(ui, indent),
         Some(DbListState::Error(msg)) => error_row(ui, indent, msg),
+        Some(DbListState::NeedsSignIn(msg)) => sign_in_row(ui, cx, msg, action),
         Some(DbListState::Catalogs(_)) | Some(DbListState::Schemas(_)) => {}
         Some(DbListState::Tables(tables)) => {
             for table in tables {
@@ -401,6 +437,19 @@ fn draw_tables(
                     ));
                 }
                 resp.context_menu(|ui| {
+                    if ui
+                        .button(octa::i18n::t("db.export_table"))
+                        .on_hover_text(octa::i18n::t("db.export_table_hint"))
+                        .clicked()
+                    {
+                        action.export = Some((
+                            conn.id.clone(),
+                            catalog.map(str::to_string),
+                            schema.to_string(),
+                            Some(table.clone()),
+                        ));
+                        ui.close();
+                    }
                     if ui.button(octa::i18n::t("db.copy_to")).clicked() {
                         action.copy = Some((
                             conn.id.clone(),
@@ -433,6 +482,33 @@ fn loading_row(ui: &mut egui::Ui, indent: f32) {
     indented(ui, indent, |ui| {
         ui.add(egui::Spinner::new().size(12.0));
         ui.label(octa::i18n::t("db.loading"));
+    });
+}
+
+/// A listing that needs a browser sign-in: the error, and the button that
+/// fixes it, as the cloud tree offers on its connections.
+fn sign_in_row(ui: &mut egui::Ui, cx: TreeCtx<'_>, msg: &str, action: &mut DbTreeAction) {
+    error_row(ui, cx.indent, msg);
+    indented(ui, cx.indent, |ui| match cx.sign_in.get(&cx.conn.id) {
+        Some(SignInState::InProgress) => {
+            ui.add(egui::Spinner::new().size(12.0));
+            ui.label(octa::i18n::t("db.signin_needed"));
+        }
+        state => {
+            if ui
+                .small_button(octa::i18n::t("db.signin_button"))
+                .on_hover_text(octa::i18n::t("db.signin_button_hint"))
+                .clicked()
+            {
+                action.sign_in = Some(cx.conn.id.clone());
+            }
+            if let Some(SignInState::Failed(e)) = state {
+                ui.colored_label(
+                    ui.visuals().error_fg_color,
+                    format!("{} {e}", octa::i18n::t("cloud.sign_in_failed")),
+                );
+            }
+        }
     });
 }
 
@@ -470,34 +546,5 @@ fn engine_short(engine: DbEngine) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_table_match_is_found_through_catalog_and_schema() {
-        let mut listings = HashMap::new();
-        let conn = "c".to_string();
-        listings.insert(
-            (conn.clone(), String::new()),
-            DbListState::Catalogs(vec!["main".into()]),
-        );
-        listings.insert(
-            (conn.clone(), "main".into()),
-            DbListState::Schemas(vec!["public".into(), "stage".into()]),
-        );
-        listings.insert(
-            (conn.clone(), join_path(&["main", "public"])),
-            DbListState::Tables(vec!["orders".into(), "fact_sales".into()]),
-        );
-        // "stage" was never opened: nothing is known below it.
-        assert!(subtree_matches(&listings, &conn, "", "sales"));
-        assert!(subtree_matches(&listings, &conn, "main", "sales"));
-        assert!(!subtree_matches(
-            &listings,
-            &conn,
-            &join_path(&["main", "stage"]),
-            "sales"
-        ));
-        assert!(!subtree_matches(&listings, &conn, "", "invoices"));
-    }
-}
+#[path = "db_tree_tests.rs"]
+mod tests;

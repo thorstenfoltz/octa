@@ -72,7 +72,7 @@ pub fn render_epub_view(ctx: &egui::Context, ui: &mut egui::Ui, tab: &mut TabSta
 
 fn draw_chapter_toolbar(ui: &mut egui::Ui, tab: &mut TabState) {
     let total = tab.epub_chapters_md.len();
-    ui.horizontal(|ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
         // Book title (best-effort) goes first so the user knows what
         // they're reading even after they navigate away from chapter 1.
         if let Some(ref title) = tab.epub_title {

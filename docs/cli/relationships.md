@@ -36,3 +36,7 @@ samples 10,000 rows per table. Add `--recursive` to walk subdirectories.
 See [Relationship Map](../usage/relationship-map.md) for the drawn
 version, and [Join Key Finder](../usage/join-key-finder.md) for the same
 ranking over the tables you have open.
+
+## See also
+
+- MCP: [`db_relationships`](../mcp/tools/db_relationships.md)

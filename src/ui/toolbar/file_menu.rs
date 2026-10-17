@@ -17,6 +17,7 @@ pub(super) fn file_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
     let ToolbarCtx {
         colors,
         has_data,
+        has_raw_content,
         can_save_in_place,
         is_db_tab,
         recent_files,
@@ -161,7 +162,10 @@ pub(super) fn file_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 action.toggle_db_browser = true;
                 ui.close();
             }
-            if has_data {
+            // A text document (File -> New file, a raw view) has no columns
+            // but saves all the same; gating this on `has_data` left it
+            // saveable by shortcut only.
+            if has_data || has_raw_content {
                 ui.separator();
                 // Every way of SAVING the open table, then a
                 // separator, then every way of EXPORTING
@@ -184,6 +188,26 @@ pub(super) fn file_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                     action.save_file_as = true;
                     ui.close();
                 }
+                if ui
+                    .button(crate::i18n::t("file_menu.save_password"))
+                    .on_hover_text(crate::i18n::t("file_menu.save_password_hint"))
+                    .clicked()
+                {
+                    action.save_with_password = true;
+                    ui.close();
+                }
+                // A file on disk only: a database tab has no earlier
+                // versions of its own here.
+                if can_save_in_place
+                    && !is_db_tab
+                    && ui
+                        .button(crate::i18n::t("file_menu.versions"))
+                        .on_hover_text(crate::i18n::t("file_menu.versions_hint"))
+                        .clicked()
+                {
+                    action.open_file_versions = true;
+                    ui.close();
+                }
                 if is_db_tab
                     && ui
                         .button(crate::i18n::t("file_menu.save_sql"))
@@ -193,15 +217,17 @@ pub(super) fn file_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                     action.save_db_sql = true;
                     ui.close();
                 }
-                if ui
-                    .button(crate::i18n::t("file_menu.save_to_db"))
-                    .on_hover_text(crate::i18n::t("file_menu.save_to_db_hint"))
-                    .clicked()
+                if has_data
+                    && ui
+                        .button(crate::i18n::t("file_menu.save_to_db"))
+                        .on_hover_text(crate::i18n::t("file_menu.save_to_db_hint"))
+                        .clicked()
                 {
                     action.open_table_to_db = true;
                     ui.close();
                 }
-
+            }
+            if has_data {
                 ui.separator();
 
                 if ui

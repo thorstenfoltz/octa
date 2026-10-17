@@ -38,6 +38,23 @@ pub struct Args {
     pub write_target: Option<SqlWriteSpec>,
     /// Register the primary file as a scan view instead of loading its rows.
     pub stream: bool,
+    /// Print the plan instead of running the query.
+    pub explain: bool,
+}
+
+/// A plan on stdout: the steps in plain words for the default TSV, the step rows for
+/// `-f json` and `-f csv`.
+pub(super) fn print_plan(
+    plan: &octa::sql::explain::Plan,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    match format {
+        OutputFormat::Tsv => {
+            print!("{}", octa::sql::explain::plain_text(plan));
+            Ok(())
+        }
+        _ => write_table(&octa::sql::explain::steps_table(plan), format),
+    }
 }
 
 pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<()> {
@@ -48,6 +65,7 @@ pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<()> {
         attachments,
         write_target,
         stream,
+        explain,
     } = args;
     // Build the workspace and register the primary file as `data`. The
     // primary file is *always* loaded as `data`; this is the contract the
@@ -94,6 +112,9 @@ pub fn run(args: Args, format: OutputFormat) -> anyhow::Result<()> {
         })?;
     }
 
+    if explain {
+        return print_plan(&ws.explain(&query)?, format);
+    }
     if let Some(target) = write_target {
         let report = ws.write_result_to_db(&WriteTarget {
             path: target.path.clone(),

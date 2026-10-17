@@ -54,3 +54,4 @@ variance).
 
 - [`profile`](profile.md): per-column summary statistics.
 - [`value_frequency`](value_frequency.md): distribution of a single column.
+- In the app: [Correlation](../../usage/correlation.md)

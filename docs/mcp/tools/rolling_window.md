@@ -63,3 +63,5 @@ standard row-returning shape:
 
 - [`resample_timeseries`](resample_timeseries.md): group into time buckets instead.
 - [`run_sql`](run_sql.md): custom window frames (`RANGE`, `FOLLOWING`, …).
+- In the app: [Time Series](../../usage/time-series.md)
+- Command line: [`--resample` / `--rolling`](../../cli/timeseries.md)

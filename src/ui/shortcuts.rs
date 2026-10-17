@@ -233,6 +233,8 @@ pub enum ShortcutAction {
     OpenFile,
     SaveFile,
     SaveFileAs,
+    /// File -> Save with password...: the table inside an AES-256 zip.
+    SaveWithPassword,
     /// Write a live-database tab's pending edits out as a SQL script instead
     /// of applying them. Deliberately separate from SaveFile: reviewing a
     /// script and saving are different intents.
@@ -417,6 +419,11 @@ pub enum ShortcutAction {
     OpenSchemaDrift,
     /// Open the Merge versions dialog. Also **File -> Merge versions...**.
     OpenMergeVersions,
+    /// Open the Earlier versions dialog. Also **File -> Earlier versions...**.
+    OpenFileVersions,
+    /// Export the open database table's schema to files. Also the
+    /// Databases sidebar's schema menu **Export tables...**.
+    OpenDbExport,
     OpenTestData,
     /// Open the Report dialog. Also **File -> Report...**.
     OpenReport,
@@ -427,6 +434,8 @@ pub enum ShortcutAction {
     /// Open the database/cloud compare dialog. Also
     /// **Analyse -> Compare with database or cloud...**.
     OpenDbCompare,
+    /// Open the Compare folders dialog. Also **Analyse -> Compare folders...**.
+    OpenFolderCompare,
     OpenDataDrift,
     OpenRelMap,
     /// Open the Join key finder. Also **Analyse -> Join key finder...**.
@@ -441,7 +450,7 @@ pub enum ShortcutAction {
     OpenUnion,
     /// Open the Join-tables dialog. Also **Analyse -> Join tables...**.
     OpenJoin,
-    /// Open the Partition-by-column dialog. Also **Analyse -> Partition by column...**.
+    /// Open the Split into files dialog. Also **Data -> Split into files...**.
     OpenPartition,
     /// Open the Detect-outliers dialog. Also **Analyse -> Detect outliers...**.
     OpenOutliers,
@@ -477,9 +486,19 @@ pub enum ShortcutAction {
     /// Lay out the SQL editor's query (the marked part, or all of it) in the
     /// style set under Settings -> SQL. Also the SQL panel's **Format**.
     FormatSql,
+    /// Show the SQL editor's query plan without running it (the panel's
+    /// **Explain**). Named apart from `ExplainFile`, the assistant's
+    /// "Explain this file".
+    ExplainQuery,
     /// Open another SQL editor beside the others (the panel's **+**), or
     /// open the panel when it is closed.
     AddSqlEditor,
+    /// Read a `.sql` file into the SQL editor (the panel's **File -> Open...**),
+    /// opening the panel when it is closed.
+    OpenSqlFile,
+    /// Save the SQL editor's query to a new `.sql` file (**File -> Save as...**).
+    /// Plain Save is the Save file shortcut while the editor has focus.
+    SaveSqlFileAs,
     /// Copy the selected cells as a SQL `IN` list, `('a', 'b')`. Also the
     /// cell right-click **Copy as IN list** and **Edit -> Copy as IN list**.
     CopyAsInList,
@@ -491,13 +510,16 @@ pub enum ShortcutAction {
     /// Open Cell history for the selected cell. Also the cell right-click
     /// **Cell history...**. Only for files inside a Git repository.
     OpenCellHistory,
+    /// Open the binary viewer on the selected cell (the cell menu's
+    /// **View contents...**).
+    OpenBinaryViewer,
     /// Open the Compare-distributions dialog. Also
     /// **Analyse -> Compare distributions...**.
     OpenDistCompare,
     /// Open the Referential-integrity dialog. Also
     /// **Analyse -> Referential integrity...**.
     OpenReferential,
-    /// Open a Transpose tab. Also **Analyse -> Transpose...**.
+    /// Open a Transpose tab. Also **Analyse -> Transpose**.
     OpenTranspose,
     /// Open a Compare-rows tab for the selected or marked rows. Also
     /// **Analyse -> Compare rows...**.
@@ -573,6 +595,7 @@ impl ShortcutAction {
             Self::OpenUrl => "Open URL...",
             Self::OpenApiEndpoint => "Open API endpoint...",
             Self::SaveFileAs => "Save file as...",
+            Self::SaveWithPassword => "Save with password...",
             Self::ReloadFile => "Refresh tab",
             Self::FocusSearch => "Focus search box",
             Self::ToggleFindReplace => "Toggle find & replace",
@@ -647,9 +670,10 @@ impl ShortcutAction {
             Self::OpenCorrelation => "Correlation...",
             Self::OpenLookups => "Find lookup tables...",
             Self::OpenCellHistory => "Cell history...",
+            Self::OpenBinaryViewer => "View cell contents...",
             Self::OpenDistCompare => "Compare distributions...",
             Self::OpenReferential => "Referential integrity...",
-            Self::OpenTranspose => "Transpose...",
+            Self::OpenTranspose => "Transpose",
             Self::OpenRowCompare => "Compare rows...",
             Self::OpenRandomSample => "Random sample...",
             Self::LoadWholeTable => "Load whole table...",
@@ -669,11 +693,14 @@ impl ShortcutAction {
             Self::OpenBatchConvert => "Batch convert...",
             Self::OpenSchemaDrift => "Schema drift...",
             Self::OpenMergeVersions => "Merge versions...",
+            Self::OpenFileVersions => "Earlier versions...",
+            Self::OpenDbExport => "Export database tables...",
             Self::OpenTestData => "Generate test data...",
             Self::OpenReport => "Report...",
             Self::OpenFuzzyJoin => "Fuzzy join...",
             Self::OpenFileInternals => "File internals...",
             Self::OpenDbCompare => "Compare with database or cloud...",
+            Self::OpenFolderCompare => "Compare folders...",
             Self::OpenDataDrift => "Data drift...",
             Self::OpenRelMap => "Relationship map...",
             Self::OpenJoinKeys => "Join key finder...",
@@ -682,7 +709,7 @@ impl ShortcutAction {
             Self::ToggleAskFilter => "Toggle Ask (plain-language filter)",
             Self::OpenUnion => "Union tables...",
             Self::OpenJoin => "Join tables",
-            Self::OpenPartition => "Partition by column",
+            Self::OpenPartition => "Split into files...",
             Self::OpenOutliers => "Detect outliers...",
             Self::OpenPii => "Detect PII...",
             Self::FilterToMarked => "Filter to marked",
@@ -695,7 +722,10 @@ impl ShortcutAction {
             Self::RunSqlOnServer => "Run SQL on server",
             Self::ToggleSqlComment => "Comment / uncomment SQL lines",
             Self::FormatSql => "Format SQL",
+            Self::ExplainQuery => "Explain query plan",
             Self::AddSqlEditor => "New SQL editor",
+            Self::OpenSqlFile => "Open SQL file...",
+            Self::SaveSqlFileAs => "Save SQL file as...",
             Self::CopyAsInList => "Copy as IN list",
             Self::ToggleColumnNavigator => "Toggle column navigator",
             Self::ToggleEditAudit => "Toggle edit audit trail",
@@ -719,6 +749,7 @@ impl ShortcutAction {
             Self::OpenUrl => KeyCombo::UNBOUND,
             Self::OpenApiEndpoint => KeyCombo::UNBOUND,
             Self::SaveFileAs => KeyCombo::ctrl_shift(Key::S),
+            Self::SaveWithPassword => KeyCombo::UNBOUND,
             Self::ReloadFile => KeyCombo::ctrl(Key::R),
             Self::FocusSearch => KeyCombo::ctrl(Key::F),
             Self::ToggleFindReplace => KeyCombo::ctrl(Key::H),
@@ -856,6 +887,7 @@ impl ShortcutAction {
             Self::OpenCorrelation
             | Self::OpenLookups
             | Self::OpenCellHistory
+            | Self::OpenBinaryViewer
             | Self::OpenDistCompare
             | Self::OpenReferential
             | Self::OpenTranspose
@@ -876,15 +908,21 @@ impl ShortcutAction {
             | Self::AddSplitPane
             | Self::RemoveSplitPane
             | Self::FormatSql
+            | Self::ExplainQuery
+            | Self::OpenSqlFile
+            | Self::SaveSqlFileAs
             | Self::CopyAsInList => KeyCombo::UNBOUND,
             Self::OpenBatchConvert => KeyCombo::UNBOUND,
             Self::OpenSchemaDrift => KeyCombo::UNBOUND,
             Self::OpenMergeVersions => KeyCombo::UNBOUND,
+            Self::OpenFileVersions => KeyCombo::UNBOUND,
+            Self::OpenDbExport => KeyCombo::UNBOUND,
             Self::OpenTestData => KeyCombo::UNBOUND,
             Self::OpenReport => KeyCombo::UNBOUND,
             Self::OpenFuzzyJoin => KeyCombo::UNBOUND,
             Self::OpenFileInternals => KeyCombo::UNBOUND,
             Self::OpenDbCompare => KeyCombo::UNBOUND,
+            Self::OpenFolderCompare => KeyCombo::UNBOUND,
             // No clipboard-safe Ctrl+Shift letter is left, so this ships unbound.
             Self::OpenDataDrift => KeyCombo::UNBOUND,
             Self::OpenRelMap => KeyCombo::UNBOUND,
@@ -966,6 +1004,7 @@ impl ShortcutAction {
             | Self::OpenFile
             | Self::SaveFile
             | Self::SaveFileAs
+            | Self::SaveWithPassword
             | Self::SaveDbSql
             | Self::ExportWorkbook
             | Self::OpenUrl
@@ -1034,7 +1073,10 @@ impl ShortcutAction {
             | Self::RunSqlOnServer
             | Self::ToggleSqlComment
             | Self::FormatSql
-            | Self::AddSqlEditor => G::SqlPanel,
+            | Self::ExplainQuery
+            | Self::AddSqlEditor
+            | Self::OpenSqlFile
+            | Self::SaveSqlFileAs => G::SqlPanel,
             Self::ListCloudInventory => G::Search,
             Self::OpenNumberFormat | Self::CopyAsMarkdown | Self::CopyAsInList => G::Editing,
             Self::OpenDocumentation
@@ -1059,11 +1101,14 @@ impl ShortcutAction {
             | Self::OpenBatchConvert
             | Self::OpenSchemaDrift
             | Self::OpenMergeVersions
+            | Self::OpenFileVersions
+            | Self::OpenDbExport
             | Self::OpenTestData
             | Self::OpenReport
             | Self::OpenFuzzyJoin
             | Self::OpenFileInternals
             | Self::OpenDbCompare
+            | Self::OpenFolderCompare
             | Self::OpenDataDrift
             | Self::OpenRelMap
             | Self::OpenJoinKeys
@@ -1079,6 +1124,7 @@ impl ShortcutAction {
             | Self::OpenCorrelation
             | Self::OpenLookups
             | Self::OpenCellHistory
+            | Self::OpenBinaryViewer
             | Self::OpenDistCompare
             | Self::OpenReferential
             | Self::OpenTranspose
@@ -1135,39 +1181,5 @@ impl Shortcuts {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use strum::IntoEnumIterator;
-
-    /// No two actions may ship with the same default key combination, otherwise
-    /// one of them would be silently unreachable until rebound. (Unbound
-    /// defaults are exempt - several actions can legitimately ship with no key.)
-    #[test]
-    fn default_combos_are_unique() {
-        let mut seen: HashMap<KeyCombo, ShortcutAction> = HashMap::new();
-        for action in ShortcutAction::iter() {
-            let combo = action.default_combo();
-            if combo == KeyCombo::UNBOUND {
-                continue;
-            }
-            if let Some(prev) = seen.insert(combo, action) {
-                panic!(
-                    "default key {} is bound to both {:?} and {:?}",
-                    combo.label(),
-                    prev,
-                    action
-                );
-            }
-        }
-    }
-
-    /// Every action must report a label and a group (the matches are
-    /// exhaustive, so this mostly guards the `strum` iterator wiring).
-    #[test]
-    fn every_action_has_label_and_group() {
-        for action in ShortcutAction::iter() {
-            assert!(!action.label().is_empty());
-            let _ = action.group();
-        }
-    }
-}
+#[path = "shortcuts_tests.rs"]
+mod tests;

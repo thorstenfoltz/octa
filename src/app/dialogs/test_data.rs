@@ -114,7 +114,7 @@ pub(crate) fn render_test_data_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("testdata_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(RichText::new(t("testdata.title")).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -133,7 +133,7 @@ pub(crate) fn render_test_data_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 if let Some(e) = &st.error {
                     octa::ui::message::selectable_message(ui, ui.visuals().error_fg_color, e);
                 }
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui
                         .add_enabled(
                             !st.plans.is_empty(),
@@ -181,7 +181,7 @@ pub(crate) fn render_test_data_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 }
             });
 
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(t("testdata.rows"))
                     .on_hover_text(t("testdata.rows_hint"));
                 ui.add(
@@ -209,6 +209,7 @@ pub(crate) fn render_test_data_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                             .striped(true)
                             .spacing([12.0, 4.0])
                             .show(ui, |ui| {
+                                octa::ui::control_row::pin_control_height(ui);
                                 ui.label(RichText::new(t("testdata.col_column")).weak());
                                 ui.label(RichText::new(t("testdata.col_generator")).weak())
                                     .on_hover_text(t("testdata.generator_hint"));

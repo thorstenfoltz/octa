@@ -11,8 +11,14 @@ use octa::ui::settings::{
 };
 
 impl eframe::App for OctaApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // `cfg!` rather than `#[cfg]`: the branch stays type-checked on the
+        // Linux CI even though only Windows runs it.
+        if cfg!(windows) && std::mem::take(&mut self.taskbar_icon_pending) {
+            let icon = super::init::render_icon(self.resolved_icon.svg_source());
+            octa::platform::set_taskbar_icon(&*frame, &icon.rgba, icon.width, icon.height);
+        }
         // Load CLI-provided files on first frame. Multiple paths are queued so
         // the standard drain logic creates one tab per file. Pinned tabs from
         // a previous session enqueue alongside (de-duplicated against the
@@ -112,6 +118,16 @@ impl eframe::App for OctaApp {
         self.update_easter_egg_inputs(&ctx);
         self.drain_background_rows(&ctx);
         self.drive_pending_load(&ctx);
+        self.poll_date_detection(&ctx);
+        self.poll_column_casts(&ctx);
+        self.drive_sql_imports(&ctx);
+        self.drive_other_tab_copies(&ctx);
+        self.drive_save_jobs(&ctx);
+        self.poll_large_exports(&ctx);
+        self.poll_large_open(&ctx);
+        self.poll_large_fetches(&ctx);
+        // Plain copies of protected opens that failed or were cancelled.
+        self.release_unclaimed_protected_origins();
         self.drive_union_prep(&ctx);
         // The cloud union phases (listing, downloading) run on their own threads
         // and only notify when finished, so keep frames coming while any union
@@ -119,18 +135,22 @@ impl eframe::App for OctaApp {
         if self.union_progress.is_some() {
             ctx.request_repaint();
         }
+        self.drain_instance_handover(&ctx);
         self.drain_pending_open_queue();
         self.drain_pending_tab_edits();
-        self.drain_cloud_pending_open();
+        self.drain_cloud_pending_open(&ctx);
         self.drain_cloud_sign_ins(&ctx);
+        self.drain_db_sign_ins(&ctx);
         self.drain_db_pending_open();
         self.drain_api_pending_open();
         self.drain_db_load_job();
         self.drain_sql_server_job();
         self.drain_pushdown_job();
-        self.run_pending_sql(&ctx);
+        self.drive_sql_jobs(&ctx);
         self.drain_db_write_back_job();
         self.drain_batch_convert();
+        self.drain_folder_compare();
+        self.drain_partition();
         self.drain_open_url(&ctx);
         self.drain_schema_drift();
         self.drain_harmonise();
@@ -142,6 +162,7 @@ impl eframe::App for OctaApp {
         self.drain_ask_sql();
         self.expire_sql_diff_highlights(&ctx);
         self.drive_auto_save(&ctx);
+        self.watch_long_tasks(&ctx);
 
         // Columns may have been inserted, deleted or reordered since the last
         // frame; the filters and hidden columns are keyed by index and have to
@@ -155,6 +176,9 @@ impl eframe::App for OctaApp {
         self.sync_chart_server(&ctx);
         if self.tabs[self.active_tab].filter_dirty {
             self.recompute_filter();
+        }
+        for tab in &mut self.tabs {
+            super::sql_panel::forget_stale_data(tab);
         }
 
         let search_active = !self.tabs[self.active_tab].search_text.is_empty();
@@ -193,8 +217,18 @@ impl eframe::App for OctaApp {
     /// freeing GPU resources. Octa allocates none directly (egui owns its own
     /// textures), so it is ignored.
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        if let Some(listener) = &self.instance {
+            listener.release();
+        }
         self.persist_current_session();
         self.save_session();
+        // Remove the plain copies of protected files now: eframe does not
+        // promise to drop the app on every platform.
+        for tab in &mut self.tabs {
+            tab.protected_origin = None;
+        }
+        self.pending_protected_origins.clear();
+        self.stop_save_jobs();
         self.chat.ollama.stop_server();
         octa::diagnostics::crash::clear_running();
     }
@@ -255,7 +289,7 @@ impl OctaApp {
             egui::Panel::top("crash_offer_header")
                 .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         ui.label(
                             egui::RichText::new(octa::i18n::t("diagnostics.crash_title"))
                                 .strong()
@@ -274,7 +308,7 @@ impl OctaApp {
             egui::CentralPanel::default().show(ui, |ui| {
                 ui.label(octa::i18n::t("diagnostics.crash_body"));
                 ui.add_space(8.0);
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui.button(octa::i18n::t("diagnostics.export")).clicked() {
                         self.export_debug_report_now();
                         close = true;

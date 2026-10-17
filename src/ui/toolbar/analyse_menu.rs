@@ -110,6 +110,14 @@ pub(super) fn analyse_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut Toolbar
                     ui.close();
                 }
                 if ui
+                    .button(crate::i18n::t("analyse_menu.folder_compare"))
+                    .on_hover_text(crate::i18n::t("analyse_menu.folder_compare_hint"))
+                    .clicked()
+                {
+                    action.open_folder_compare = true;
+                    ui.close();
+                }
+                if ui
                     .button(crate::i18n::t("datadrift.menu"))
                     .on_hover_text(crate::i18n::t("datadrift.menu_hint"))
                     .clicked()

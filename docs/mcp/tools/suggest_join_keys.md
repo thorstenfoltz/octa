@@ -6,7 +6,7 @@ Use it before [`join_tables`](join_tables.md) when the key columns have
 different names on each side, or are simply unknown. It looks at values,
 not names, so `cust_id` and `id` pair up.
 
-## Parameters
+## Input schema
 
 | Name        | Type            | Required | Default | Description                                        |
 |-------------|-----------------|----------|---------|----------------------------------------------------|
@@ -19,7 +19,7 @@ not names, so `cust_id` and `id` pair up.
 required. One source is an error rather than an empty result, since an
 empty list would read as "no keys found".
 
-## Response
+## Response shape
 
 ```json
 {
@@ -109,3 +109,4 @@ arithmetic through with a checkable example.
   within one table.
 - [Join Key Finder](../../usage/join-key-finder.md): the same feature in
   the GUI.
+- Command line: [`octa --unique-columns`](../../cli/unique-columns.md)

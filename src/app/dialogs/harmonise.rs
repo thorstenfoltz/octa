@@ -59,7 +59,7 @@ pub(crate) fn render_harmonise_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("harmonise_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
                             close = true;
@@ -83,7 +83,7 @@ pub(crate) fn render_harmonise_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("harmonise_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     let can_plan = !running && !st.folder.trim().is_empty();
                     let b = ui.add_enabled(can_plan, egui::Button::new(t("harmonise.plan")));
                     if b.clicked() {
@@ -128,7 +128,7 @@ pub(crate) fn render_harmonise_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             ui.label(t("harmonise.body"));
             ui.add_space(8.0);
 
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(t("harmonise.folder"))
                     .on_hover_text(t("harmonise.folder_hint"));
                 ui.add(egui::TextEdit::singleline(&mut st.folder).desired_width(360.0));
@@ -136,7 +136,7 @@ pub(crate) fn render_harmonise_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     pick_in = true;
                 }
             });
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(t("harmonise.out_dir"))
                     .on_hover_text(t("harmonise.out_dir_hint"));
                 ui.add(egui::TextEdit::singleline(&mut st.out_dir).desired_width(360.0));

@@ -20,6 +20,12 @@ use super::*;
 /// handler. The guard is dropped (and the cap restored) before this function
 /// returns.
 pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usize>) -> ExitCode {
+    // A split that silently drops rows past the load cap is the partial-data
+    // failure again: read everything unless --rows says otherwise.
+    let rows_override = match action {
+        Action::Partition { .. } => rows_override.or(Some(usize::MAX)),
+        _ => rows_override,
+    };
     let _rows_guard = rows_override.map(octa::formats::InitialLoadRowsGuard::new);
     // --validate-schema and --batch-convert decide their own exit codes
     // (schema drift, or a run where some items failed), so they are pulled
@@ -101,6 +107,16 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             }
         };
     }
+    // A difference, a missing copy or an incomplete listing is a failure.
+    if let Action::CompareFolders { roots, recursive } = action {
+        return match compare_folders::run(roots, recursive, format) {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("error: {e:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if let Action::Check { path, rules } = action {
         return match check::run(path, rules, format) {
             Ok(code) => code,
@@ -155,15 +171,51 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             }
         };
     }
+    if let Action::DbExport {
+        conn,
+        catalog,
+        schema,
+        tables,
+        out_dir,
+        format,
+        overwrite,
+        write_options,
+    } = action
+    {
+        let request = octa::db::export::ExportRequest {
+            catalog,
+            schema,
+            tables,
+            dir: out_dir,
+            format,
+            overwrite,
+            options: write_options,
+        };
+        return match db::run_export(conn, request) {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("error: {e:#}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if let Action::BatchConvert {
         inputs,
         out_dir,
         target_ext,
         overwrite,
         write_options,
+        password_env,
     } = action
     {
-        return match batch_convert::run(inputs, out_dir, target_ext, overwrite, write_options) {
+        return match batch_convert::run(
+            inputs,
+            out_dir,
+            target_ext,
+            overwrite,
+            write_options,
+            password_env,
+        ) {
             Ok(code) => code,
             Err(e) => {
                 eprintln!("error: {e:#}");
@@ -173,7 +225,7 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
     }
     let result = match action {
         Action::Schema(path) => schema::run(path, format),
-        Action::Head { path, n } => head::run(path, n, format),
+        Action::Head { path, n, sort } => head::run(path, n, sort, format),
         Action::Tail { path, n } => tail::run(path, n, format),
         Action::Sample { path, n, seed } => sample::run(path, n, seed, format),
         Action::Convert {
@@ -181,7 +233,9 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             output,
             to,
             write_options,
-        } => convert::run(input, output, to, write_options),
+            sort,
+            password_env,
+        } => convert::run(input, output, to, write_options, sort, password_env),
         Action::Sql {
             path,
             query,
@@ -189,6 +243,7 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             attachments,
             write_target,
             stream,
+            explain,
         } => sql::run(
             sql::Args {
                 path,
@@ -197,6 +252,7 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
                 attachments,
                 write_target,
                 stream,
+                explain,
             },
             format,
         ),
@@ -225,7 +281,8 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             db_b,
             mode,
             on,
-        } => diff::run(path_a, path_b, db_b, mode, on, format),
+            options,
+        } => diff::run(path_a, path_b, db_b, mode, on, options, format),
         Action::Describe {
             path,
             table,
@@ -294,8 +351,18 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
             out_dir,
             format: partition_format,
             layout,
-        } => partition::run(path, col, out_dir, partition_format, layout),
-        Action::DbQuery { conn, sql } => db::run_query(conn, sql, format),
+            max_rows,
+            max_bytes,
+        } => partition::run(
+            path,
+            col,
+            out_dir,
+            partition_format,
+            layout,
+            max_rows,
+            max_bytes,
+        ),
+        Action::DbQuery { conn, sql, explain } => db::run_query(conn, sql, explain, format),
         Action::ApiFetch { conn, path } => api::run(&conn, path.as_deref(), format),
         Action::ToWorkbook { out, inputs } => workbook::run(out, inputs),
         Action::SyncSql {
@@ -350,8 +417,10 @@ pub fn dispatch(action: Action, format: OutputFormat, rows_override: Option<usiz
         Action::SchemaDrift { .. } => unreachable!("handled above"),
         Action::DriftReport { .. } => unreachable!("handled above"),
         Action::Check { .. } => unreachable!("handled above"),
+        Action::CompareFolders { .. } => unreachable!("handled above"),
         Action::Harmonise { .. } => unreachable!("handled above"),
         Action::BatchConvert { .. } => unreachable!("handled above"),
+        Action::DbExport { .. } => unreachable!("handled above"),
         Action::Completions(shell) => completions::run(shell),
         Action::Mcp => {
             eprintln!("error: --mcp must be dispatched from main, not via cli::dispatch");

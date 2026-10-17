@@ -48,12 +48,13 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     let out_dir = ctx.resolve_write_path(&p.out_dir)?;
     std::fs::create_dir_all(&out_dir)?;
 
-    let plan = plan_batch(&p.inputs, &out_dir, &p.to, p.overwrite);
+    let plan = plan_batch(&p.inputs, &out_dir, &p.to, p.overwrite, false);
     let report = run_batch(
         plan,
         &|_, _| {},
         &AtomicBool::new(false),
         &Default::default(),
+        None,
     );
 
     let items: Vec<Value> = report
@@ -88,8 +89,8 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     let ctx = server.tool_context();
     let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
         .await
-        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-        .map_err(|e| McpError::invalid_params(format!("batch_convert failed: {e}"), None))?;
+        .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("batch_convert failed: {e:#}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))

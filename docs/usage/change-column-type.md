@@ -114,6 +114,25 @@ sample fixes that, at the cost of the freeze described above.
 If you are unsure, leave it alone. 10,000 values settle a vote that is
 usually unanimous by value fifty.
 
+## Every date column at once
+
+**Columns -> Detect dates** finds the text columns that hold nothing but
+dates and turns all of them into date columns in one go. It is the same
+check **Settings > File-Specific > Detect dates on load** runs when a
+file opens, and the way to get dates with that setting off, which it is
+by default.
+
+It runs in the background, so the window keeps responding on a table of
+millions of rows. Only columns whose first thousand values look like
+dates are read in full. While it runs the tab is read-only and neither
+sorts nor loads more rows, because the answer goes back in by row
+number. One <kbd>Ctrl+Z</kbd> undoes every column it converted.
+
+A column that two layouts fit (`01/02/2020`) gets the same question the
+loader asks. A column where most but not all values are dates stays
+text, with a note naming the values that are not; **Change type**
+converts it anyway and keeps those values as text.
+
 ## Strict or mixed
 
 By default the conversion is **mixed**: what parses is converted, and what
@@ -143,3 +162,9 @@ declared type.
 
 Changing a column's type is an edit, so it is off in read-only mode. The
 menu entry and the Convert button explain why when you hover them.
+
+## Command line and MCP
+
+The same job without the GUI:
+
+- MCP: [`transform_columns`](../mcp/tools/transform_columns.md)

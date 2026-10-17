@@ -51,7 +51,7 @@ pub(crate) fn render_refresh_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("refresh_dialog_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("refresh.title"))
                             .strong()
@@ -75,7 +75,7 @@ pub(crate) fn render_refresh_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 ui.label(RichText::new(octa::i18n::t("refresh.body_edits")).color(colors.warning));
             }
             ui.add_space(8.0);
-            ui.horizontal_wrapped(|ui| {
+            octa::ui::control_row::control_row(ui, |ui| {
                 let in_place_label = if modified {
                     "refresh.in_place_discard"
                 } else {

@@ -53,7 +53,9 @@ impl OctaApp {
         state.running = true;
         let slot = state.slot.clone();
         let ctx = ctx.clone();
+        let task = self.long_tasks.start(octa::i18n::t("url.title"));
         std::thread::spawn(move || {
+            let _task = task;
             // The address came from the person at the keyboard, so it is not
             // confined to public hosts: reading from a local server is a
             // normal thing to want.
@@ -139,7 +141,7 @@ pub(crate) fn render_open_url_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("open_url_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(RichText::new(t("url.title")).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -157,7 +159,7 @@ pub(crate) fn render_open_url_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("open_url_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     let has_text = app
                         .open_url_dialog
                         .as_ref()
@@ -247,7 +249,7 @@ fn render_redirect_confirm(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("url_redirect_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(t("url.redirect_title"))
                             .strong()
@@ -275,7 +277,7 @@ fn render_redirect_confirm(app: &mut OctaApp, ctx: &egui::Context) {
             ui.label(RichText::new(t("url.redirect_landed")).strong());
             octa::ui::message::selectable_message(ui, ui.visuals().warn_fg_color, &landed);
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui
                     .button(t("url.redirect_open"))
                     .on_hover_text(t("url.redirect_open_hint"))

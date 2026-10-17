@@ -14,21 +14,23 @@ octa - multi-format tabular data viewer, editor, CLI tool, and MCP server
 
 *octa* *--schema* _FILE_ [*-f* _FORMAT_] [*--rows* _N_|all]
 
-*octa* *--head* _FILE_ [*-n* _N_] [*-f* _FORMAT_] [*--rows* _N_|all]
+*octa* *--head* _FILE_ [*-n* _N_] [*--sort-by* _COLS_ [*--sort-desc* _COLS_] [*--natural*]] [*-f* _FORMAT_] [*--rows* _N_|all]
 
 *octa* *--tail* _FILE_ [*-n* _N_] [*-f* _FORMAT_] [*--rows* _N_|all]
 
 *octa* *--sample* _FILE_ [*-n* _N_] [*--seed* _N_] [*-f* _FORMAT_] [*--rows* _N_|all]
 
-*octa* *--convert* _IN_ _OUT_ [*--rows* _N_|all]
+*octa* *--convert* _IN_ _OUT_ [*--sort-by* _COLS_ [*--sort-desc* _COLS_] [*--natural*]] [*--rows* _N_|all] [*--password-env* _VAR_]
 
-*octa* *--sql* _FILE_ *-q* _QUERY_ [*-f* _FORMAT_] [*--rows* _N_|all] [*--sql-table* _NAME_=_PATH_ ...] [*--sql-attach* _ALIAS_=_PATH_ ...] [*--sql-write-to* _PATH_ *--sql-write-table* _TABLE_ [*--sql-write-schema* _SCHEMA_] [*--sql-write-mode* _MODE_]]
+*octa* *--sql* _FILE_ *-q* _QUERY_ [*--explain*] [*-f* _FORMAT_] [*--rows* _N_|all] [*--sql-table* _NAME_=_PATH_ ...] [*--sql-attach* _ALIAS_=_PATH_ ...] [*--sql-write-to* _PATH_ *--sql-write-table* _TABLE_ [*--sql-write-schema* _SCHEMA_] [*--sql-write-mode* _MODE_]]
 
 *octa* *--export-schema* _FILE_ [*-t* _TARGET_]
 
 *octa* *--compare-schemas* _FILE_A_ _FILE_B_ [*--table-a* _NAME_] [*--table-b* _NAME_] [*-f* _FORMAT_]
 
-*octa* *--diff* _FILE_A_ _FILE_B_ [*--diff-mode* _MODE_] [*--diff-on* _COLS_] [*-f* _FORMAT_]
+*octa* *--diff* _FILE_A_ _FILE_B_ [*--diff-mode* _MODE_] [*--diff-on* _COLS_] [*--diff-tolerance* _N_] [*--diff-tolerance-pct* _P_] [*--diff-time-tolerance* _SECS_] [*--diff-ignore-case*] [*--diff-ignore-spaces*] [*--diff-ignore-columns* _COLS_] [*-f* _FORMAT_]
+
+*octa* *--diff* _FILE_ *--diff-db* _CONN_ *--diff-db-table* _TABLE_ [*--diff-mode* _MODE_] [*--diff-on* _COLS_] [*--diff-tolerance* _N_] [*--diff-tolerance-pct* _P_] [*--diff-time-tolerance* _SECS_] [*--diff-ignore-case*] [*--diff-ignore-spaces*] [*--diff-ignore-columns* _COLS_] [*-f* _FORMAT_]
 
 *octa* *--describe* _FILE_ [*--table* _NAME_] [*--sample-rows* _N_] [*-f* _FORMAT_]
 
@@ -37,6 +39,8 @@ octa - multi-format tabular data viewer, editor, CLI tool, and MCP server
 *octa* *--schema-drift* _DIR_ [*--recursive*] [*--ignore-case*] [*-f* _FORMAT_]
 
 *octa* *--relationships* _DIR_ [*--recursive*] [*-f* _FORMAT_]
+
+*octa* *--compare-folders* _FOLDER_ _FOLDER_... [*--no-recursive*] [*-f* _FORMAT_]
 
 *octa* *--check* _FILE_ *--rules* _RULES.toml_ [*-f* _FORMAT_]
 
@@ -88,9 +92,11 @@ octa - multi-format tabular data viewer, editor, CLI tool, and MCP server
 
 *octa* *--partition-by* _COL_ *--out-dir* _DIR_ _FILE_ [*--partition-format* _EXT_]
 
+*octa* *--split-rows* _N_ | *--split-size* _SIZE_ *--out-dir* _DIR_ _FILE_ [*--partition-by* _COL_]
+
 *octa* *--db-tables* *--db* _CONNECTION_ [*--db-catalog* _NAME_] [*-f* _FORMAT_]
 
-*octa* *--db-query* _SQL_ *--db* _CONNECTION_ [*-f* _FORMAT_]
+*octa* *--db-query* _SQL_ *--db* _CONNECTION_ [*--explain*] [*-f* _FORMAT_]
 
 *octa* *--sync-sql* _FILE_ *--db* _CONNECTION_ *--sync-table* _SCHEMA.TABLE_ *--sync-on* _COLS_
 
@@ -101,6 +107,8 @@ octa - multi-format tabular data viewer, editor, CLI tool, and MCP server
 *octa* *--db-write-table* _SCHEMA_._TABLE_ *--db* _CONNECTION_ _FILE_ [*--db-write-mode* _MODE_] [*--db-catalog* _NAME_]
 
 *octa* *--db-copy* _SCHEMA_._TABLE_ *--db* _CONNECTION_ *--db-copy-to* _CONNECTION_ [*--db-copy-target* _SCHEMA_._TABLE_] [*--db-write-mode* _MODE_]
+
+*octa* *--db-export* _SCHEMA_ *--db* _CONNECTION_ *--out-dir* _DIR_ [*--to* _EXT_] [*--db-export-tables* _T1_,_T2_] [*--overwrite*]
 
 *octa* *--mcp*
 
@@ -117,7 +125,7 @@ one of the action flags (*--schema*, *--head*, *--tail*, *--sample*,
 *--convert*, *--sql*, *--export-schema*, *--compare-schemas*, *--diff*,
 *--describe*, *--validate-schema*, *--schema-drift*, *--harmonise-schema*,
 *--drift-report*, *--merge*, *--recipe*, *--test-data*, *--overlaps*, *--shapes*, *--lookups*, *--cell-history*, *--spatial-join*, *--forecast*, *--check*, *--relationships*,
-*--report*, *--fuzzy-join*,
+*--compare-folders*, *--report*, *--fuzzy-join*,
 *--unique-columns*,
 *--anonymize*,
 *--dedupe*, *--impute*, *--outliers*, *--detect-pii*, *--union*,
@@ -128,7 +136,8 @@ Action flags are mutually exclusive. Trailing _FILE_ arguments are
 ignored (with a warning) when an action flag is set.
 
 A _FILE_ argument may also be a cloud object URL (`s3://bucket/key`,
-`az://container/blob`, `gs://bucket/key`). The object is downloaded to a
+`az://container/blob`, `gs://bucket/key`, `sftp://user@host/path`,
+`davs://host/path`). The object is downloaded to a
 temporary file and read as usual. Credentials come from a saved cloud
 connection covering the URL, otherwise from the ambient chain (`AWS_*`
 environment variables, a cached SSO session, `az login`, Google application
@@ -162,11 +171,13 @@ a local path.
   Convert _IN_ to _OUT_. Both formats are inferred from each path's
   extension and routed through the shared format registry. Read-only
   output formats (SAS, R datasets, HDF5, NetCDF, EPUB, GeoJSON) are
-  rejected with a clear error.
+  rejected with a clear error. *--password-env* _VAR_ writes only a
+  password-protected AES-256 zip (`out.csv` becomes `out.csv.zip`), with
+  the passphrase taken from environment variable _VAR_, never from argv.
 
 *--sql* _FILE_::
   Run a SQL query against _FILE_. The query is supplied via
-  *-q* / *--query*. _FILE_ is exposed to DuckDB as a temporary table
+  *-q* / *--query*. _FILE_ is exposed to DuckDB as a table
   called *data*. Extra tables can be registered with *--sql-table*
   _NAME_=_PATH_ and whole DuckDB / SQLite databases attached with
   *--sql-attach* _ALIAS_=_PATH_, so a single invocation can JOIN
@@ -212,6 +223,29 @@ a local path.
   Key column(s) for *--diff-mode join*, comma-separated (matched by
   name). Required when the mode is *join*; ignored otherwise.
 
+*--diff-tolerance* _N_::
+  Numbers within this absolute difference count as the same. Ordered
+  and join modes only; set mode refuses it.
+
+*--diff-tolerance-pct* _P_::
+  Numbers within this percentage of the larger value count as the
+  same. A pair passes if it is within either number tolerance.
+
+*--diff-time-tolerance* _SECS_::
+  Dates and times at most this many seconds apart count as the same. A
+  date counts as midnight.
+
+*--diff-ignore-case*::
+  Compare text without regard to upper and lower case, join keys
+  included.
+
+*--diff-ignore-spaces*::
+  Compare text trimmed, with runs of spaces as one, join keys included.
+
+*--diff-ignore-columns* _COLS_::
+  Columns to leave out of the comparison, comma-separated or repeated.
+  They still appear in the output.
+
 *--diff-db* _CONN_::
   Compare against a live database table instead of a second file.
   _CONN_ names a saved database connection. With this set, *--diff*
@@ -222,7 +256,7 @@ a local path.
 *--diff-db-table* _TABLE_::
   Table to compare against on the *--diff-db* connection, as
   _SCHEMA.TABLE_ or _CATALOG.SCHEMA.TABLE_ (the three-part form is for
-  Snowflake, Databricks and BigQuery). An unqualified name uses the
+  Trino, Snowflake, Databricks and BigQuery). An unqualified name uses the
   connection's own database.
 
 *--describe* _FILE_::
@@ -261,6 +295,23 @@ a local path.
   at 30 files and at 10,000 rows per table. Unreadable files are noted
   on stderr. Always exits *0*: this is a report, not a gate. Add
   *--recursive* to walk subdirectories.
+
+*--compare-folders* _FOLDER_ _FOLDER_...::
+  Compare two or more folders file by file. Each _FOLDER_ is a local
+  path or a cloud URL (*s3://*, *az://*, *gs://*, *sftp://*,
+  *davs://*). Files are matched by their path inside each folder;
+  copies of different sizes are different without being read, and
+  copies of equal size are compared by a BLAKE3 hash of their
+  contents. Prints one row per file with a *status* of *same*,
+  *different* or *missing*, the folders that have it and lack it, and
+  the size, modified time and hash per folder. Each folder is listed
+  up to the file limit from the settings (*folder_compare_max_files*,
+  default 100,000); a folder cut short is named on stderr. Exit code
+  is *0* when every file is the same everywhere and *1* when anything
+  differs, is missing, or a folder hit the limit.
+
+*--no-recursive*::
+  With *--compare-folders*: compare only the top level of each folder.
 
 *--check* _FILE_::
   Check _FILE_'s values against the rules in *--rules* (required) and
@@ -568,6 +619,9 @@ per-step report goes to stderr.
   sharing a stem get `_2`, `_3` suffixes in input order, so a run cannot
   overwrite its own earlier output. Existing outputs are skipped unless
   *--overwrite* is given. One failed file does not stop the run.
+  *--password-env* _VAR_ writes every output as its own password-protected
+  AES-256 zip (`a.csv` becomes `a.csv.zip`), passphrase from environment
+  variable _VAR_.
 +
 Output is a headerless `input<TAB>output<TAB>status` listing on stdout,
 with per-file errors and a summary on stderr. The exit code is *1* when
@@ -596,9 +650,18 @@ buckets as NULL instead of failing the whole run.
 *--db-tables*::
   List every schema and table of the saved database connection named by
   *--db* _CONNECTION_ (Settings -> Databases) as a two-column table. On
-  Snowflake, Databricks and BigQuery, which have a catalog level above
+  Trino, Snowflake, Databricks and BigQuery, which have a catalog level above
   the schema, the catalogs themselves are listed unless *--db-catalog*
   names one.
+
+*--explain*::
+  With *--sql* or *--db-query*: show the query plan instead of running the
+  statement. Prints the steps in plain words, numbered in the order the
+  database works through them; with *-f json* or *-f csv*, one row per step.
+  One statement. With *--sql* the plan is DuckDB's own (the local
+  workspace); with *--db-query* it works on PostgreSQL, MySQL / MariaDB,
+  Databricks and BigQuery (BigQuery: the bytes it would read). Nothing is
+  executed.
 
 *--db-query* _SQL_::
   Run one SQL statement on the saved connection named by *--db*,
@@ -667,6 +730,18 @@ rows loaded under the initial-load cap are compared; use *--rows* to raise it.
 *--db-copy-target-catalog* _NAME_::
   Target catalog for *--db-copy* on a three-level engine.
 
+*--db-export* _SCHEMA_::
+  Export the tables of _SCHEMA_ in the *--db* connection into *--out-dir*,
+  one file per table named after it. *--to* picks *parquet* (default),
+  *csv*, *tsv* or *jsonl*. Each table is read page by page, so its size does
+  not matter. A file that is already there is skipped unless *--overwrite*.
+  One failed table does not stop the rest; the exit code is 1 if any failed.
+  On a three-level engine name the catalog with *--db-catalog*.
+
+*--db-export-tables* _T1_,_T2_::
+  Tables for *--db-export*, comma separated. Default: every table of the
+  schema.
+
 *--db* _CONNECTION_::
   Saved connection name (case-insensitive) or id for the *--db-** actions.
   Connections are managed in Settings -> Databases; passwords stay in
@@ -703,14 +778,15 @@ rows loaded under the initial-load cap are compared; use *--rows* to raise it.
   unrecognised name is an error and the server does not start. This is the
   lever for an agent's context size: the client reads the tool list once and
   carries it in every request to its model, and all of Octa's tools together
-  are roughly 33,000 tokens of description and schema.
+  are roughly 39,000 tokens of description and schema.
 
 *--mcp-without*=_LIST_::
   Only valid with *--mcp*. Advertise everything except these, in the same
   spelling as *--mcp-tools*. Applied after it, so the two combine:
   *--mcp-tools core,write --mcp-without convert*.
 
-*--batch-convert*, *--harmonise-schema*, *--partition-by* and *--db-copy*
+*--batch-convert*, *--harmonise-schema*, *--partition-by*, *--db-copy* and
+*--db-export*
 report progress on stderr while they run, on a single line that rewrites itself
 (`[137/500] file.csv  ETA 1:12`). The line appears only when stderr is a
 terminal, so redirected output and CI logs are unchanged.
@@ -724,7 +800,8 @@ terminal, so redirected output and CI logs are unchanged.
   under the install prefix.
 
 *--cloud-ls* _URL_::
-  List a cloud bucket or prefix (*s3://*, *az://*, *gs://*). One folder
+  List a cloud bucket or prefix (*s3://*, *az://*, *gs://*, *sftp://*,
+  *davs://*). One folder
   level by default; add *--recursive* to flatten everything under the
   prefix. Credentials come from a saved connection covering the URL, else
   the ambient chain.
@@ -780,6 +857,19 @@ terminal, so redirected output and CI logs are unchanged.
 
 *-n* _N_, *--lines* _N_::
   Row count for *--head*, *--tail*, and *--sample*. Default *20*.
+
+*--sort-by* _COLS_::
+  Sort the rows of *--head* or *--convert* by these columns, first key
+  first (comma-separated or repeated). Sorts the rows that were read, up
+  to the row cap: add *--rows all* to sort a whole large file. With
+  *--head* the sort happens before the first _N_ rows are taken.
+
+*--sort-desc* _COLS_::
+  The *--sort-by* columns that sort high to low.
+
+*--natural*::
+  Sort text naturally (file2 before file10) instead of letter by letter,
+  the default.
 
 *--seed* _N_::
   Seed for *--sample* and *--test-data*, for reproducible output.
@@ -914,7 +1004,8 @@ terminal, so redirected output and CI logs are unchanged.
   precisely. Omitted means the writer's own default.
 
 *--out-dir* _DIR_::
-  Output directory for *--partition-by* (required; created if absent).
+  Output directory for *--partition-by*, *--split-rows*, *--split-size*,
+  *--batch-convert*, *--harmonise-schema* and *--db-export* (required; created if absent).
 
 *--partition-layout* _LAYOUT_::
   How the pieces are named. `flat` (default) writes `<value>.<ext>` side by
@@ -930,6 +1021,16 @@ terminal, so redirected output and CI logs are unchanged.
 
 *--partition-format* _EXT_::
   Output extension for *--partition-by* (default: the source's extension).
+
+*--split-rows* _N_::
+  At most _N_ rows per output file. Works alone (splits the whole table) or
+  with *--partition-by* (splits each group). Every file then gets a part
+  number: `name_part_0001.ext`, or `part-0001.ext` inside a folder.
+
+*--split-size* _SIZE_::
+  At most _SIZE_ per output file, e.g. `25MB`, `500KB`, `1GB` (1 MB =
+  1,000,000 bytes; `MiB` for 1,048,576). Works alone or with *--partition-by*
+  and *--split-rows*. Files land a little under the limit.
 
 *-f* _FORMAT_, *--format* _FORMAT_::
   Output format for actions that print a table (*--schema*,
@@ -977,8 +1078,8 @@ schemas differ, and *--schema-drift* exits *1* on a successful scan
 where the files disagree. *--harmonise-schema* exits *1* when any file
 was refused, *--batch-convert* when any input failed,
 *--drift-report* when a *--fail-on* gate was breached, *--merge*
-while a conflict is open, *--recipe* when a step could not run, and *--check* on any failing or unrunnable
-rule, so CI pipelines can gate on all eight directly.
+while a conflict is open, *--recipe* when a step could not run, *--check* on any failing or unrunnable
+rule, and *--compare-folders* when any file differs or is missing, so CI pipelines can gate on all nine directly.
 
 == Examples
 

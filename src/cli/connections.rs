@@ -96,6 +96,8 @@ fn cloud_kind(name: &str) -> Option<CloudKind> {
         "s3" | "aws" => Some(CloudKind::S3),
         "azure" | "az" | "azureblob" | "abfs" => Some(CloudKind::AzureBlob),
         "gcs" | "gs" | "google" => Some(CloudKind::Gcs),
+        "sftp" => Some(CloudKind::Sftp),
+        "webdav" | "dav" | "davs" | "nextcloud" => Some(CloudKind::WebDav),
         _ => None,
     }
 }
@@ -133,6 +135,13 @@ const CLOUD_KEYS: &[&str] = &[
     "allow_writes",
     "force_path_style",
     "allow_http",
+    "url",
+    "host",
+    "port",
+    "user",
+    "auth",
+    "key",
+    "accept_new_host_key",
 ];
 
 const DB_KEYS: &[&str] = &[
@@ -196,6 +205,7 @@ pub fn parse_cloud_secret(kind: CloudKind, raw: &str) -> Result<CloudSecret> {
              stored secret. Run `gcloud auth application-default login`, or add the connection \
              without --secret-env."
         ),
+        CloudKind::Sftp | CloudKind::WebDav => Ok(CloudSecret::Password(raw.to_string())),
     }
 }
 
@@ -226,7 +236,7 @@ pub fn add(spec: String, secret_env: Option<String>) -> Result<()> {
         add_db(&mut settings, engine, &name, &spec, secret.as_deref())?
     } else {
         bail!(
-            "unknown kind `{kind}`. Cloud: s3, azure, gcs. Database: postgres, mysql, mssql, \
+            "unknown kind `{kind}`. Cloud: s3, azure, gcs, sftp, webdav. Database: postgres, mysql, mssql, \
              oracle, redshift, clickhouse, exasol, trino, athena, snowflake, \
              databricks, bigquery."
         );
@@ -245,17 +255,63 @@ fn add_cloud(
     secret: Option<&str>,
 ) -> Result<String> {
     let account_level = flag(spec, "account_level", false)?;
-    let bucket = opt(spec, "bucket").unwrap_or_default();
-    if bucket.is_empty() && !account_level {
-        bail!("`bucket=` is required unless `account_level=true`");
-    }
-    if kind == CloudKind::AzureBlob && opt(spec, "account").is_none() {
-        bail!("Azure needs `account=` (the storage account name)");
-    }
-    let endpoint = opt(spec, "endpoint");
+    let allow_http = flag(spec, "allow_http", false)?;
+    // Same shape the Settings form stores: no slash at either end, one
+    // trailing `/` added back. Keys never start with `/`, so a prefix that
+    // did (an SFTP user writes `/home/anna`) would never cover a URL.
+    let mut prefix = opt(spec, "prefix")
+        .map(|p| p.trim_matches('/').to_string())
+        .filter(|p| !p.is_empty())
+        .map(|p| format!("{p}/"));
+    let mut endpoint = opt(spec, "endpoint");
+    let mut username = None;
+    let mut ssh_auth = None;
+    let bucket = match kind {
+        CloudKind::Sftp => {
+            let host = required(spec, "host")?;
+            let port = match opt(spec, "port") {
+                Some(p) => p
+                    .parse::<u16>()
+                    .with_context(|| format!("`port={p}` is not a port number"))?,
+                None => 22,
+            };
+            username = Some(required(spec, "user")?);
+            ssh_auth = Some(match opt(spec, "auth").as_deref() {
+                None | Some("agent") => octa::ssh::SshAuth::Agent,
+                Some("password") => octa::ssh::SshAuth::Password,
+                Some("key") => octa::ssh::SshAuth::PrivateKey {
+                    path: required(spec, "key")?,
+                },
+                Some(other) => bail!("`auth={other}` is not one of agent, password, key"),
+            });
+            octa::cloud::sftp_authority(&host, port)
+        }
+        CloudKind::WebDav => {
+            let url = required(spec, "url")?;
+            let (_, authority, path) = octa::cloud::split_server_url(&url, allow_http)?;
+            prefix = (!path.is_empty()).then_some(path);
+            endpoint = Some(url);
+            username = opt(spec, "user");
+            authority
+        }
+        _ => {
+            let bucket = opt(spec, "bucket").unwrap_or_default();
+            if bucket.is_empty() && !account_level {
+                bail!("`bucket=` is required unless `account_level=true`");
+            }
+            if kind == CloudKind::AzureBlob && opt(spec, "account").is_none() {
+                bail!("Azure needs `account=` (the storage account name)");
+            }
+            bucket
+        }
+    };
     // Custom S3-compatible endpoints almost always need path-style addressing;
     // real AWS does not. Same default the Settings form applies.
-    let force_path_style = flag(spec, "force_path_style", endpoint.is_some())?;
+    let force_path_style = flag(
+        spec,
+        "force_path_style",
+        kind == CloudKind::S3 && endpoint.is_some(),
+    )?;
 
     // Replacing by name keeps the id (and therefore the keyring entry) stable,
     // so re-running a provisioning script is idempotent rather than additive.
@@ -277,15 +333,18 @@ fn add_cloud(
         region: opt(spec, "region"),
         endpoint,
         force_path_style,
-        allow_http: flag(spec, "allow_http", false)?,
+        allow_http,
         secret_ref: None,
         account: opt(spec, "account"),
         profile: opt(spec, "profile"),
-        anonymous: flag(spec, "anonymous", false)?,
+        anonymous: !kind.is_file_server() && flag(spec, "anonymous", false)?,
         project: None,
         oauth_client_id: None,
         oauth_tenant: None,
-        prefix: opt(spec, "prefix").map(|p| if p.ends_with('/') { p } else { format!("{p}/") }),
+        prefix,
+        username,
+        ssh_auth,
+        accept_new_host_key: flag(spec, "accept_new_host_key", false)?,
         account_level,
         allow_writes: flag(spec, "allow_writes", false)?,
     };
@@ -352,6 +411,7 @@ fn add_db(
             // Settings -> Databases; the CLI then uses it like any other surface.
             athena_workgroup: None,
             athena_output_location: None,
+            datetimeoffset_as_timestamp: false,
             query_timeout_secs: match opt(spec, "query_timeout") {
                 Some(v) => v.parse::<u32>().ok().filter(|n| *n >= 1).with_context(|| {
                     format!("`query_timeout={v}` is not a whole number of seconds")
@@ -421,88 +481,5 @@ pub fn remove(name_or_id: String) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn spec_parses_pairs_and_rejects_junk() {
-        let s = parse_spec("kind=s3, name=Prod , bucket=my-bucket").unwrap();
-        assert_eq!(s["kind"], "s3");
-        assert_eq!(s["name"], "Prod");
-        assert_eq!(s["bucket"], "my-bucket");
-        // Keys are case-insensitive, values are not.
-        assert_eq!(parse_spec("KIND=s3,name=X").unwrap()["kind"], "s3");
-
-        assert!(parse_spec("").is_err());
-        assert!(parse_spec("just-a-word").is_err());
-        assert!(parse_spec("=novalue").is_err());
-        assert!(parse_spec("kind=s3,kind=gcs").is_err(), "duplicate key");
-    }
-
-    #[test]
-    fn unknown_keys_are_reported_not_ignored() {
-        // A typo must not produce a connection pointing nowhere.
-        let s = parse_spec("kind=s3,name=x,buckett=y").unwrap();
-        let err = reject_unknown(&s, CLOUD_KEYS).unwrap_err().to_string();
-        assert!(err.contains("buckett"), "{err}");
-        assert!(err.contains("bucket"), "the message lists the real keys");
-    }
-
-    #[test]
-    fn flags_take_the_usual_spellings() {
-        let s = parse_spec("a=true,b=no,c=1,d=off").unwrap();
-        assert!(flag(&s, "a", false).unwrap());
-        assert!(!flag(&s, "b", true).unwrap());
-        assert!(flag(&s, "c", false).unwrap());
-        assert!(!flag(&s, "d", true).unwrap());
-        assert!(flag(&s, "missing", true).unwrap(), "absent = default");
-        let bad = parse_spec("a=maybe").unwrap();
-        assert!(flag(&bad, "a", false).is_err());
-    }
-
-    #[test]
-    fn s3_secret_accepts_the_shorthand_and_the_stored_json() {
-        let s = parse_cloud_secret(CloudKind::S3, "AKIA123:supersecret").unwrap();
-        assert_eq!(
-            s,
-            CloudSecret::S3 {
-                access_key_id: "AKIA123".into(),
-                secret_access_key: "supersecret".into(),
-                token: None,
-            }
-        );
-        // With a session token.
-        let s = parse_cloud_secret(CloudKind::S3, "AKIA123:supersecret:tok").unwrap();
-        assert!(matches!(s, CloudSecret::S3 { token: Some(t), .. } if t == "tok"));
-        // Missing half is an error, not a silent empty key.
-        assert!(parse_cloud_secret(CloudKind::S3, "AKIA123").is_err());
-        assert!(parse_cloud_secret(CloudKind::S3, "  ").is_err());
-
-        // The JSON Octa itself stores round-trips, for anything exotic.
-        let json = serde_json::to_string(&CloudSecret::AzureSas("sv=x&sig=y".into())).unwrap();
-        assert_eq!(
-            parse_cloud_secret(CloudKind::AzureBlob, &json).unwrap(),
-            CloudSecret::AzureSas("sv=x&sig=y".into())
-        );
-    }
-
-    #[test]
-    fn azure_tells_a_sas_from_an_account_key() {
-        assert!(matches!(
-            parse_cloud_secret(CloudKind::AzureBlob, "?sv=2021&sig=abc").unwrap(),
-            CloudSecret::AzureSas(_)
-        ));
-        assert!(matches!(
-            parse_cloud_secret(CloudKind::AzureBlob, "base64accountkey==").unwrap(),
-            CloudSecret::AzureKey(_)
-        ));
-    }
-
-    #[test]
-    fn gcs_says_why_it_takes_no_secret() {
-        let err = parse_cloud_secret(CloudKind::Gcs, "anything")
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("application-default"), "{err}");
-    }
-}
+#[path = "connections_tests.rs"]
+mod tests;

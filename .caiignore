@@ -1,3 +1,7 @@
 Cargo.lock
 uv.lock
 CLAUDE.md
+src/db/auth.rs
+src/db/auth_tests.rs
+src/diagnostics/report.rs
+src/diagnostics/report_tests.rs

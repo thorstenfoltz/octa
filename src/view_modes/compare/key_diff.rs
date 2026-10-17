@@ -17,8 +17,11 @@
 use eframe::egui;
 use egui::{RichText, ScrollArea};
 
-use octa::data::compare::{CompareResult, build_compare_table, compare_join, compare_ordered};
+use octa::data::compare::{
+    CompareOptions, CompareResult, build_compare_table, compare_join, compare_ordered,
+};
 use octa::data::{CellValue, DataTable};
+use octa::i18n::t;
 
 use crate::app::state::TabState;
 use crate::ui;
@@ -29,83 +32,156 @@ use ui::theme::ThemeMode;
 /// true totals so the cap never hides the scale.
 const RESULT_DISPLAY_CAP: usize = 2000;
 
+/// What the last comparison was computed from. The left table counts as
+/// unchanged while its undo, redo and edit counts and its shape stay the
+/// same, the key the timeline view uses too.
+/// ponytail: an edit undone and replaced by another of the same size between
+/// two frames keeps the counts; recomputing every frame is what this cache
+/// exists to stop, and a content hash would cost as much as the comparison.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeyDiffKey {
+    join: bool,
+    keys: Vec<String>,
+    options: CompareOptions,
+    // The right-hand table is not in the key: every site that changes it drops
+    // `compare_cache` (`app/file_io/compare.rs`, `central_panel/views.rs`).
+    left: Generation,
+}
+
+type Generation = (usize, usize, usize, usize, usize, usize);
+
+/// A finished comparison and its flattened table.
+pub struct KeyDiffCache {
+    key: KeyDiffKey,
+    /// egui pass that last used this cache.
+    pass: u64,
+    outcome: Result<(CompareResult, DataTable), String>,
+}
+
+fn generation(t: &DataTable) -> Generation {
+    (
+        t.undo_stack.len(),
+        t.redo_stack.len(),
+        t.edits.len(),
+        t.row_count(),
+        t.col_count(),
+        // A replaced table is a new allocation, so this catches every
+        // `tab.table = ..` site without each one dropping the cache.
+        t.rows.as_ptr() as usize,
+    )
+}
+
+/// A cache only counts if it was used on the previous pass: while this view is
+/// not drawn the table may be freed and a new one reuse its address.
+fn reusable(cache: &KeyDiffCache, key: &KeyDiffKey, pass: u64) -> bool {
+    cache.key == *key && pass <= cache.pass.saturating_add(1)
+}
+
 pub fn render(ui: &mut egui::Ui, tab: &mut TabState, theme_mode: ThemeMode, join: bool) {
     let colors = ui::theme::ThemeColors::for_mode(theme_mode);
-    let Some(ref right_box) = tab.compare_right_table else {
-        ui.label(
-            RichText::new(
-                "Right side has no tabular data. Switch to Text Diff or\n\
-                 re-open the compare with a tabular format on the right.",
-            )
-            .color(colors.text_muted),
-        );
+    if tab.compare_right_table.is_none() {
+        ui.label(RichText::new(t("cmptol.no_table")).color(colors.text_muted));
         return;
-    };
-    let left = &tab.table;
-    let right: &DataTable = right_box.as_ref();
+    }
+    let left_names: Vec<String> = tab.table.columns.iter().map(|c| c.name.clone()).collect();
 
-    // Compute the result. Join needs key columns; on a missing key column or an
-    // empty selection it returns an error / prompt instead of a table.
-    let result: Result<CompareResult, String> = if join {
-        // Key-column picker reuses `compare_columns_left` as the chosen keys.
-        ui.collapsing("Key columns", |ui| {
-            draw_key_picker(ui, left, &mut tab.compare_columns_left, &colors);
+    if join {
+        // The key picker reuses `compare_columns_left` as the chosen keys.
+        ui.collapsing(t("cmptol.key_columns"), |ui| {
+            draw_key_picker(ui, &tab.table, &mut tab.compare_columns_left, &colors);
             ui.add_space(4.0);
             ui.label(
-                RichText::new(
-                    "Rows are matched by these column(s) on both sides.\n\
-                     The same column names must exist on the right side too.",
-                )
-                .color(colors.text_muted)
-                .size(11.0),
+                RichText::new(t("cmptol.key_columns_hint"))
+                    .color(colors.text_muted)
+                    .size(11.0),
             );
         });
-        ui.separator();
+    }
+    super::tolerance::tolerance_controls(
+        ui,
+        "compare_tolerance",
+        &mut tab.compare_tolerance,
+        &left_names,
+    );
+    ui.separator();
 
-        let key_names: Vec<String> = tab
-            .compare_columns_left
-            .iter()
-            .filter_map(|&i| left.columns.get(i).map(|c| c.name.clone()))
-            .collect();
-        if key_names.is_empty() {
-            ui.label(
-                RichText::new("Pick at least one key column above to run the join.")
-                    .color(colors.text_muted),
-            );
-            return;
-        }
-        compare_join(left, right, &key_names).map_err(|e| e.to_string())
-    } else {
-        Ok(compare_ordered(left, right))
+    let key_names: Vec<String> = tab
+        .compare_columns_left
+        .iter()
+        .filter_map(|&i| left_names.get(i).cloned())
+        .collect();
+    if join && key_names.is_empty() {
+        ui.label(RichText::new(t("cmptol.pick_keys")).color(colors.text_muted));
+        return;
+    }
+
+    let options = tab.compare_tolerance.options(&left_names);
+    let key = KeyDiffKey {
+        join,
+        keys: key_names.clone(),
+        options: options.clone(),
+        left: generation(&tab.table),
     };
-
-    let result = match result {
-        Ok(r) => r,
+    let pass = ui.ctx().cumulative_pass_nr();
+    if !tab
+        .compare_cache
+        .as_ref()
+        .is_some_and(|c| reusable(c, &key, pass))
+    {
+        let right = tab
+            .compare_right_table
+            .as_deref()
+            .expect("checked at the top");
+        let left = &tab.table;
+        let outcome = if join {
+            compare_join(left, right, &key_names, &options)
+        } else {
+            Ok(compare_ordered(left, right, &options))
+        }
+        .map(|r| {
+            let table = build_compare_table(left, right, &r);
+            (r, table)
+        })
+        .map_err(|e| format!("{e:#}"));
+        tab.compare_cache = Some(KeyDiffCache { key, pass, outcome });
+    }
+    let Some(cache) = tab.compare_cache.as_mut() else {
+        return;
+    };
+    cache.pass = pass;
+    let (result, table) = match &cache.outcome {
+        Ok((result, table)) => (result, table),
         Err(err) => {
-            ui.label(RichText::new(format!("⚠ {err}")).color(colors.warning));
+            ui.label(RichText::new(err).color(colors.warning));
             return;
         }
     };
 
-    // Summary line - true totals upfront.
-    ui.horizontal(|ui| {
+    // Summary line: the true totals up front.
+    octa::ui::control_row::control_line(ui, |ui| {
         ui.label(
-            RichText::new(format!(
-                "Changed: {}   Unchanged: {}   Only in left: {}   Only in right: {}",
-                result.changed.len(),
-                result.unchanged,
-                result.only_in_a.len(),
-                result.only_in_b.len(),
-            ))
+            RichText::new(
+                t("cmptol.summary")
+                    .replace("{changed}", &result.changed.len().to_string())
+                    .replace("{unchanged}", &result.unchanged.to_string())
+                    .replace("{left}", &result.only_in_a.len().to_string())
+                    .replace("{right}", &result.only_in_b.len().to_string()),
+            )
             .color(colors.text_secondary)
             .size(12.0),
         );
+        if result.within_tolerance > 0 {
+            ui.label(
+                RichText::new(
+                    t("cmptol.within").replace("{n}", &result.within_tolerance.to_string()),
+                )
+                .color(colors.text_muted)
+                .size(12.0),
+            );
+        }
     });
     ui.add_space(6.0);
-
-    // Flatten to the shared annotated table and render it as a grid.
-    let table = build_compare_table(left, right, &result);
-    draw_result_table(ui, &table, &colors);
+    draw_result_table(ui, table, &colors);
 }
 
 /// Checkbox list of the left table's columns, used to pick join keys.
@@ -118,7 +194,7 @@ fn draw_key_picker(
     let total = table.col_count();
     if total == 0 {
         ui.label(
-            RichText::new("(no columns)")
+            RichText::new(t("cmptol.no_columns"))
                 .color(colors.text_muted)
                 .size(11.0),
         );
@@ -143,7 +219,7 @@ fn draw_key_picker(
 /// as a scrollable striped grid, colouring the status cell by kind.
 fn draw_result_table(ui: &mut egui::Ui, table: &DataTable, colors: &ui::theme::ThemeColors) {
     if table.row_count() == 0 {
-        ui.label(RichText::new("No differences - the tables match.").color(colors.success));
+        ui.label(RichText::new(t("cmptol.no_differences")).color(colors.success));
         return;
     }
     let mono = egui::FontId::new(12.0, egui::FontFamily::Monospace);
@@ -217,10 +293,10 @@ fn draw_result_table(ui: &mut egui::Ui, table: &DataTable, colors: &ui::theme::T
                 });
             if table.row_count() > RESULT_DISPLAY_CAP {
                 ui.label(
-                    RichText::new(format!(
-                        "... {} more rows not shown",
-                        table.row_count() - RESULT_DISPLAY_CAP
-                    ))
+                    RichText::new(
+                        t("cmptol.more_rows")
+                            .replace("{n}", &(table.row_count() - RESULT_DISPLAY_CAP).to_string()),
+                    )
                     .color(colors.text_muted),
                 );
             }
@@ -251,3 +327,7 @@ fn status_color(status: &str, colors: &ui::theme::ThemeColors) -> egui::Color32 
         _ => colors.text_primary,
     }
 }
+
+#[cfg(test)]
+#[path = "key_diff_tests.rs"]
+mod tests;

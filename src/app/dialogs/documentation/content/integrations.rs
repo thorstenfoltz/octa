@@ -67,7 +67,8 @@ The most-used tools cover roughly the CLI surface plus row counting:
 (That is a small part of the roster; the full set covers data
 quality, joins, drift, reporting, live databases and cloud objects.
 See the online MCP docs for the tool-by-tool reference.) Tools also
-accept **cloud URLs** (`s3://`, `az://`, `gs://`) wherever they take a
+accept **cloud URLs** (`s3://`, `az://`, `gs://`, `sftp://`, `davs://`)
+wherever they take a
 `path`, for both reading and writing, using ambient cloud credentials;
 `list_objects` browses a bucket.
 
@@ -479,7 +480,8 @@ removing the profile removes it.
 
 The assistant sees only your **open tabs** (and the other sheets/tables
 of an open workbook or database). It cannot read arbitrary files. It can
-also read and list **cloud objects** (s3://, az://, gs://) in buckets you
+also read and list **cloud objects** (s3://, az://, gs://, sftp://, davs://)
+in buckets you
 have saved as a connection under **Settings > Cloud storage**; unsaved
 buckets are refused. Writes are confined to the export directory
 (**Settings > Chat / Assistant > Export directory**, default ~/Downloads)
@@ -663,7 +665,8 @@ data. "A" is your open tab, "B" is the other side.
 
 Pick the source at the top of the dialog. For a cloud object, paste its
 URL (`s3://bucket/exports/day.parquet`, `az://container/blob`,
-`gs://bucket/key`); it is downloaded and read like a local file, so every
+`gs://bucket/key`, `sftp://user@host/path`, `davs://host/path`); it is
+downloaded and read like a local file, so every
 format Octa opens works. Credentials come from a saved cloud connection
 covering that URL, otherwise from your ambient cloud login.
 
@@ -672,6 +675,15 @@ connection is Snowflake, Databricks or BigQuery. An empty schema uses the
 connection's own database. The Compare button stays disabled until a
 table is named and at least one key column is ticked; its tooltip says
 which is missing.
+
+Open **Tolerance** under the key columns to count values as the same when
+they are close enough: **Numbers within** (an absolute amount or a
+percentage of the larger number, either is enough), **Times within** (a
+number of seconds), **Ignore upper/lower case**, **Ignore extra spaces**
+(both also apply when rows are matched on the key columns) and **Leave out
+these columns** (not compared, but still shown). Tolerance never pairs keys.
+When some cells differ only within tolerance, the result tab's banner says
+how many.
 
 The read runs on a worker thread, so the window stays responsive.
 
@@ -713,8 +725,10 @@ jump host, which also encrypts the hop.
 **Names are upper case.** Oracle folds unquoted names to UPPER CASE, so
 that is what the sidebar lists and what to type. A table Octa writes keeps
 the exact case of the source columns, so read those back quoted:
-`SELECT "id" FROM ...`. The schema list hides the schemas Oracle itself
-ships; each schema lists its tables and its views.
+`SELECT "id" FROM ...`. Appending works the other way round too: rows
+headed id and note land in a table created as ORDERS (ID, NOTE), even with
+the table name typed as orders. The schema list hides the schemas Oracle itself ships; each schema
+lists its tables and its views.
 
 **Types.** NUMBER(p, 0) reads as a whole number and anything with a scale
 as a decimal; a NUMBER with no declared precision (a literal or a computed
@@ -729,8 +743,12 @@ decimals become NUMBER rather than BINARY_DOUBLE, which Octa could not
 read back. A statement you run in the SQL panel is committed when it
 succeeds, as on every other engine, so there is nothing left to ROLLBACK.
 
-**Two limitations of the young driver.** A statement the server rejects
-ends the connection and reports generic text instead of the ORA- reason
+**Three limitations of the young driver.** A result stops at 100 rows:
+the driver never asks for the next batch, so opening a table, a SQL panel
+query, an export and a copy each see at most 100 rows of an Oracle result,
+and nothing says the rest is missing (SELECT COUNT(*) tells you how many
+there are). A statement the server rejects ends the connection and
+reports generic text instead of the ORA- reason
 (Octa reconnects on the next action, so nothing wedges, but the reason is
 lost - check it in SQL*Plus when it matters). And BINARY_FLOAT /
 BINARY_DOUBLE columns are not decoded: those cells say so, and
@@ -757,6 +775,13 @@ the AWS IAM row, and credentials resolve in the usual order: an IAM
 Identity Center role, then AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, then
 whatever the aws CLI is configured with. Athena reports no affected-row
 count, so a write says zero rows changed even when it worked.
+
+**SQL Server** reads a `datetimeoffset` column as text with its own offset
+(`2024-01-02 03:04:05.1234567 +02:00`) by default, so a save writes exactly
+that back. Tick **Read datetimeoffset as a timestamp (UTC)** on the
+connection to read it as a timestamp in UTC instead: charts and date
+features then work with it, and a save stores the same moment with offset
++00:00.
 
 The PostgreSQL and MySQL engines also reach any wire-compatible managed
 service: Amazon RDS and Aurora, Azure Database for PostgreSQL / MySQL,
@@ -813,7 +838,15 @@ why no client id has to be supplied by anyone.
 Next to the button Octa shows whether you are signed in and roughly how
 many minutes the token has left, with a **Sign out** button that forgets
 it. The connection list marks a signed-in connection **Signed in via
-browser**.
+browser**. The sign-in is kept in your system keyring until the token
+expires, so it survives a restart of Octa, and the command line and the MCP
+server use it too.
+
+When a connection in the **Databases** sidebar cannot get a token (it
+expired, or the CLI is signed out), the sidebar shows the error with a
+**Sign in with browser** button right under it. That covers Azure AD, GCP
+IAM, AWS IAM Identity Center, and Databricks and Snowflake browser sign-in. Once you are
+signed in, the connection lists again on its own.
 
 If the CLI is not installed, the message says which one is missing and
 gives the install command for your operating system (winget on Windows,
@@ -927,7 +960,10 @@ one of your saved connections, or a DuckDB or SQLite file.
 Pick a target, a schema and a table name, then a mode: **Create** makes a
 new table and fails if the name is taken, **Replace** drops any existing
 table of that name first, and **Append** adds the rows to an existing
-table whose column names match.
+table whose column names match. The case does not have to: a header id
+fills a column the server stores as ID (Oracle and Snowflake store unquoted
+names in upper case), and the table name is found the same way. When both
+spellings exist, the exact one wins.
 
 The table name is pre-filled from the file name. Column names are written
 exactly as they appear in Octa, capitals included, so a CSV with an
@@ -977,13 +1013,58 @@ Notes:
   catalog warehouses are excluded, since their DML is not a plain
   single-row UPDATE.
 - Only the loaded rows (the initial-load window) are compared; rows
-  beyond it are never touched. Concurrent server edits between load and
-  save are overwritten (last writer wins).
+  beyond it are never touched.
+- Someone else's changes made between load and save are not overwritten;
+  see When someone else changed the table below.
 - A local SQL mutation on the tab rewrites the snapshot and loses row
   identity; save then refuses and suggests reloading or **Run on
   server**.
 - **Save as** exports the tab to a file and detaches it from the
   server.
+
+### When someone else changed the table
+
+Between opening a table and saving it, a colleague or a scheduled job may
+have changed the same rows. Octa does not simply overwrite their work. When
+you save, it first reads every row you changed or deleted again, inside the
+same transaction, and compares three versions of each: the row as it was
+when you opened the table, as it is on the server now, and as it is in your
+tab.
+
+- Their change and yours in **different cells** of one row are both kept.
+  The save writes the combined row, the tab shows their values afterwards,
+  and the status line says how many rows also took someone else's changes.
+- A row they deleted that you never edited (it only joined the save because
+  you added a column) simply leaves your tab.
+- The **same cell** changed to different values, a row **you edited but
+  they deleted**, or a row **you deleted but they changed** stops the save.
+  Nothing is written. A dialog lists each of these rows with the value from
+  when you opened the table, the value on the server now, and yours, and
+  asks what to keep:
+
+| Situation | Your side | Their side |
+|---|---|---|
+| Both changed the same cells | Keep mine | Take theirs |
+| They deleted the row | Add it back with my values | Let it go |
+| You deleted, they changed it | Delete anyway | Keep theirs |
+
+**All mine** and **All theirs** set every row at once. **Save with these
+choices** applies them and saves straight away; Octa checks the server once
+more, so a change made in the meantime is caught too. **Cancel** closes the
+dialog and keeps your edits in the tab, unsaved. Applying the choices clears
+the tab's undo history, because the rows now start from the server's
+version.
+
+Postgres, MySQL, Oracle and SQL Server lock the rows they read again until
+the save commits, so nobody can change them between the check and the
+write. Redshift and Exasol read without a lock, which leaves a gap of
+milliseconds. MySQL, MariaDB and Oracle commit an ALTER TABLE on their own:
+when a save adds a column and the conflict only turns up after the column
+was added, the column stays on the server and the dialog says so.
+
+A table without a key is not merged: its save matches each row on all of
+its values and refuses when one of them has changed on the server, as
+before.
 
 ### Exporting the changes as SQL instead
 
@@ -1062,6 +1143,31 @@ engines, either direction, via two lanes (the dialog says which):
 
 The target connection needs **Allow writes**. Agents can do the same via
 the `copy_db_table` tool.
+
+## Exporting tables to files
+
+Right-click a schema in the sidebar tree and pick **Export tables...** (or a
+table and **Export to file...**, which starts with just that table ticked).
+Tick the tables you want, choose a folder and a format, and **Export**: each
+table becomes one file named after it.
+
+- **Formats**: Parquet (small, keeps the column types), CSV, TSV and JSON
+  Lines. CSV uses the separator, decimal mark and quoting set under
+  **Settings > Files > Write options**.
+- **Any size**: each table is read page by page and written as it arrives, so
+  a table with millions of rows never has to fit in memory.
+- **Nothing lost by accident**: a table whose file is already in the folder is
+  skipped unless **Replace files that are already there** is ticked, and a file
+  is only put in place once it is complete.
+- **One failure does not stop the rest**: the summary names each table that
+  failed and why. **Stop** ends the run after the current page; finished files
+  stay.
+
+Reading needs no **Allow writes**: the export only reads from the server. With
+a database table open, the **Export database tables...** shortcut (unbound by
+default) opens the dialog for its schema. From the command line:
+`octa --db NAME --db-export SCHEMA --out-dir DIR --to parquet`, optionally with
+`--db-export-tables a,b` and `--overwrite`; agents use `export_db_tables`.
 
 ## SQL: server or local
 
@@ -1154,6 +1260,42 @@ Every connection is **read-only by default**. Mutations (INSERT /
 UPDATE / DDL), the write-back target in the SQL panel, the CLI
 `--db-write-table`, and the MCP `write_db_table` tool are all refused
 until you switch on **Allow writes** for that connection.
+
+A read-only connection only runs statements that start with `SELECT`,
+`WITH`, `SHOW`, `DESCRIBE` or `EXPLAIN` (or `VALUES`, `TABLE`, `USE`, `LIST`,
+`HELP`, `EXISTS`). Anything else could write, a procedure call or a code
+block among them, so it is refused.
+
+Where the server can, it also holds the connection read-only itself, so a
+write hidden inside a read (`WITH x AS (DELETE ...) SELECT`, `SELECT ... INTO`)
+is refused by the server:
+
+| Engine | How the server keeps it read-only |
+|---|---|
+| PostgreSQL | a read-only session, set again before every statement |
+| MySQL / MariaDB | a read-only session |
+| ClickHouse | the `readonly` setting on every request |
+| SQL Server | each batch runs in a transaction that is then rolled back |
+
+SQL Server needs no semicolon between statements, so a batch can hold a
+write after its `SELECT`, and the rollback undoes it. So that nothing can end
+that transaction early, a read-only SQL Server batch must start with
+`SELECT`, `WITH`, `DECLARE`, `IF`, `BEGIN`, `WHILE` or `PRINT`, and may not
+contain `COMMIT`, `ROLLBACK`, `EXEC` or `EXECUTE` anywhere, not even in text or
+a comment.
+
+On MySQL / MariaDB and BigQuery, a read-only connection also refuses any
+query with a semicolon before its end, even one inside text or a comment.
+Those servers run every statement they are sent, so `SELECT 1; DELETE FROM t`
+would otherwise delete. Send one statement at a time, or switch on **Allow
+writes**.
+
+The other engines rely on these checks and on what the database user may do.
+Three more rules cover what they could hide in a read: on Amazon Redshift the
+word `INTO` is refused, since `SELECT ... INTO` creates a table; on Databricks
+a `WITH` query may not contain `INSERT`, `UPDATE`, `DELETE` or `MERGE`, even in
+text; and `EXPLAIN ANALYZE`, which runs what it explains, is refused. To be
+certain, connect as a database user that can only read.
 
 ## CLI and agents
 
@@ -1474,9 +1616,10 @@ back on its own.
 pub const CLOUD_STORAGE: &str = r#"# Cloud Storage
 
 Browse and open files directly from Amazon S3 (and S3-compatible providers
-such as IONOS, MinIO, and Cloudflare R2), Azure Blob Storage, and Google
-Cloud Storage. Saving back to the cloud is **off by default** and must be
-turned on.
+such as IONOS, MinIO, and Cloudflare R2), Azure Blob Storage, Google Cloud
+Storage, and your own SFTP and WebDAV servers (Nextcloud, ownCloud, NAS
+boxes). Saving back to the cloud is **off by default** and must be turned
+on.
 
 ## Add a connection
 
@@ -1488,7 +1631,8 @@ connections yet.
 The form fields:
 
 - **Name** - a label shown in the sidebar.
-- **Provider** - S3, Azure Blob, or GCS.
+- **Provider** - S3, Azure Blob, GCS, SFTP, or WebDAV / Nextcloud (the last
+  two have their own fields, see "SFTP and WebDAV servers" below).
 - **Scope** - **Whole bucket** (target one bucket/container), **Path prefix**
   (confine to a folder inside the bucket, e.g. `team-a/`; the browser roots
   there and cannot go above it), or **Account level** (list every
@@ -1538,6 +1682,35 @@ access** in the connection form. Octa then skips request signing entirely, so
 it opens with no credentials and no sign-in. (Without this, a public Azure
 container would redirect to a login and fail.) No secret is needed, and the
 sidebar shows the connection as `(public)`.
+
+## SFTP and WebDAV servers
+
+Two more kinds sit in the same list: **SFTP** and **WebDAV / Nextcloud**.
+Once saved they behave like a bucket in the sidebar: browse, open, save
+back, copy, move, delete, Union and "List contents as table". Writing still
+needs **Allow writes on this connection**.
+
+**SFTP** asks for the host, the port (22 unless told otherwise), your user
+name and how to sign in: your SSH agent, a private key file (with its
+passphrase if it has one) or a password. Passwords and passphrases go into
+the system keyring. Octa checks the server against `~/.ssh/known_hosts`: a
+server it has never seen is refused unless you tick **Accept a new host
+key**, and a server whose key has changed is always refused. **Start
+folder** is where the sidebar opens, for example `/home/anna`.
+
+Saving back writes a hidden `.octa-part` file next to the target first and
+swaps it in when the upload is complete, so a dropped connection never
+leaves a half-written file under the real name. Copying within one server
+moves the bytes through Octa (SFTP has no server-side copy); moving is the
+server's own rename.
+
+**WebDAV** asks for the server address, your user name and an app password.
+For Nextcloud and ownCloud the address is
+`https://host/remote.php/dav/files/USER/`, also shown under **Files
+settings** in the Files app; create the app password under **Settings >
+Security**. Synology, QNAP and other NAS boxes show their WebDAV address in
+their own settings. Plain `http://` is refused unless you tick **Allow
+HTTP**.
 
 ## Signing in: CLI or browser
 
@@ -1796,21 +1969,28 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
   path, custom title bar, and **Message timeout**. The chosen theme applies
   when you press **Apply**.
 - **Table view**: row numbers, alternating row colours, negative-number
-  highlight, thousand separators + number style (English / European)
-  for numeric cells, edit highlight, default mark colour, line breaks,
+  highlight, **Sort text** (letter by letter or natural), thousand separators + number style (English / European)
+  for numeric cells, edit highlight, default mark colour, line breaks
+  (off by default; on a large file they can freeze Octa and run it out of
+  memory, so ticking it warns first),
   **ask about line breaks when a row is made taller**, clickable web
   links, binary display mode (Binary / Hex / Text).
 - **Files**: recent-files count, "open as text" extensions,
-  **Auto-save** (on/off + interval in minutes), and the **Write options**
-  group (one expander per format: Parquet, CSV / TSV, Excel). See the
-  **Saving** section.
+  **Auto-save** (on/off + interval in minutes), the two **Save as**
+  questions (which rows while a filter is on, open the new file: each with
+  **Ask every time** and the answer to use), **Keep earlier versions** with
+  its two limits, and the **Write options** group (one expander per format:
+  Parquet, CSV / TSV with separator, quoting, decimal mark and byte order
+  mark, Excel). See the **Saving** and **Earlier Versions** sections.
 - **Search & Editor**: default search mode, search result display, search
   history size, tab size.
 - **Summary**: a checkbox per statistic the **Analyse > Summary** tab can
   show (Min, Max, Mean, Median, Std dev, quartiles, null counts, unique,
   distinct ratio, total rows). Column and Type are always shown.
 - **File-Specific**: column colouring for raw CSV/TSV, "warn before
-  un-aligning" guard, "warn on date format change" banner, "trim
+  un-aligning" guard, "detect dates on load" (off by default; on a large
+  file it makes opening slower, and ticking it says by how much), "warn on date format change"
+  banner, "trim
   whitespace on load" + "warn on whitespace trim" toggles, "read-only
   mode notice" toggle, notebook output layout.
 - **SQL**, in six groups you open as needed:
@@ -1823,7 +2003,9 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
     duration).
   - **Other open tabs**: query other open tabs, and the row limit above
     which a tab gets a Register button instead.
-  - **Query history**: keep the queries you run, and how many.
+  - **Query history**: keep the queries you run, how many, and whether a
+    query picked from History or inserted from Snippets replaces the editor
+    text (off: it is added below).
   - **Format SQL**: keyword case, whole query on one line, indent, commas,
     JOIN level, how long a list, a clause and a bracket may stay on one
     line (each explained with an example under its field; an empty clause
@@ -1860,7 +2042,12 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
   editor, default 50 MB, with an Unlimited toggle), a user-extensible
   list of file extensions to open as plain text, and how many Excel
   sheets to auto-open.
-- **Window**: initial size, start maximised. The initial size is the
+- **Window**: initial size, start maximised, open files in the running
+  Octa. **Open files in the running Octa** (default on) sends a file opened
+  from outside to the Octa already open instead of starting another.
+  **Notify me when a long task finishes** (default on), **Notify after
+  (seconds)** (default 5) and **Also when Octa is in front** (default off),
+  see Notifications. The initial size is the
   pixel size of the window when it is *not* maximised, and runs from
   400 x 300 up to 7680 x 4320. A maximised window always fills the screen,
   so the size only takes effect once you un-maximise (or turn "Start
@@ -1874,6 +2061,43 @@ Open **Help > Settings** (default **F3**). Categories are collapsible:
   window instead of opening partly off-screen.
 - **Updates**: "check for updates at start" and "show what a new release
   brings", both on by default. See the **Updates** section.
+
+## Themes
+
+Seventeen themes under **Appearance > Default theme**, five light and twelve
+dark. A theme changes colours only.
+
+Light:
+
+- **Light** (default): white background, near-black text, indigo accent.
+- **Warm**: cream and blush backgrounds, soft rose and mauve accents, dark
+  plum text.
+- **Manga**: cream paper, ink-black text, a sakura-pink accent with sky-blue
+  hovers.
+- **Frost**: a near-white snowfield with pale ice-blue accents and dark slate
+  text; the light counterpart to Deep Sea.
+- **Solarized Light**: warm, low-glare paper with teal-grey text.
+
+Dark:
+
+- **Dark**: neutral charcoal greys, near-white text, indigo accent.
+- **Forest**: deep forest green, mossy accents, pale parchment text.
+- **North**: cool arctic blue-grey with frost-blue accents.
+- **Dracula**: dark purple-grey, off-white text, lavender accent.
+- **Gruvbox Dark**: warm retro browns, cream text, amber accent.
+- **High Contrast**: pure black, white text, yellow accent.
+- **Gentleman**: deep walnut and burgundy, parchment text, champagne-gold
+  accents.
+- **Deep Sea**: abyssal navy, lagoon-blue accents, near-white text.
+- **Deep Sea Contrast**: Deep Sea, with dialogs that rise off the window
+  behind them (bright rim, deep shadow). Try it when a dialog seems to vanish
+  into the window in a dark theme.
+- **Phosphor**: an old amber terminal: near-black glass, glowing amber text.
+- **Colour-blind Safe**: neutral greys with the Okabe-Ito colours. Success is
+  bluish green and errors vermilion, never red against green alone; a
+  selection is sky blue and an edited cell orange.
+- **Tokyo Night**: deep indigo night, neon blue highlights, soft pastel
+  status colours.
 
 ## Status messages
 
@@ -1907,6 +2131,150 @@ Settings persist to:
 - Linux: `~/.config/octa/settings.toml`
 - macOS: `~/Library/Application Support/Octa/settings.toml`
 - Windows: `%APPDATA%\Octa\settings.toml`
+"#;
+
+pub const EARLIER_VERSIONS: &str = r#"# Earlier Versions
+
+Turn on **Settings > Files > Keep earlier versions**, and every time you save
+over a file, Octa first keeps a copy of the version it replaces. It is off by
+default, because the copies use disk space.
+
+**File > Earlier versions...** lists them for the file of the active tab,
+newest first, with the time that version was last saved and its size:
+
+- **Open** shows the version in a new tab. Your file is not touched.
+- **Compare** opens the Compare view between this tab and the version
+  (double-clicking a version does the same).
+- **Restore** puts the version back as the file and reloads the tab. What the
+  file holds at that moment is kept as a version first, so a restore can be
+  undone the same way. It is not offered while the tab has unsaved changes.
+
+**Limits.** Next to the switch you set how many versions to keep **per file**
+and how much **space** all of them may use together, in MB (10 and 1024 to
+start with). Each has its own **Unlimited** box, so you can use one limit,
+both, or none. When a limit is reached the oldest versions go first; the newest
+version of each file always stays, even if it alone is bigger than the space
+limit.
+
+**Where they live.** In the `versions` folder inside Octa's settings folder,
+never beside your files, so your folders stay as they were. Versions kept
+before you turned the switch off stay listed and usable.
+
+**What gets a version.** Every Save and Save as that writes over an existing
+file. Auto-save keeps a file's version only the first time it saves that file
+after Octa starts, so the timer cannot push your useful versions out. A cloud
+object keeps nothing here (its storage has its own versioning); a `.gz` or
+`.zst` file keeps the compressed file. If keeping the version fails, the save
+stops with a message rather than overwriting without a way back.
+
+## Delta Lake and Apache Iceberg tables
+
+A Delta or Iceberg table keeps its own history: every write, merge or delete
+adds a version, and the old ones stay readable until they are cleaned up. On
+a tab opened from such a table folder, **File > Earlier versions** lists that
+history instead of kept copies. The **Keep earlier versions** setting plays
+no part here.
+
+Each line shows the version (`v12` for Delta, `snapshot 3` for Iceberg), when
+it was written, what happened (`WRITE`, `MERGE`, `DELETE`, `append`, ...) and
+the rows it added, removed and updated (`+120 -3 ~7`) where the table
+recorded them. A table with more than 500 versions shows the newest 500 and
+says how many there are.
+
+- **Open** shows the version in a new tab. It is a copy: Refresh does not
+  move it to the latest version.
+- **Compare with current** shows the rows that differ between this version
+  and the table as it is now.
+- **What changed** shows what this one change did: the rows it added and
+  removed, compared with the version just before it.
+
+Both compares run in DuckDB over the two complete versions, however large the
+table, and open their result as a new tab with a `change` column (`added` or
+`removed`). The banner gives the exact totals. An updated row appears twice:
+once as removed, with the old values, and once as added, with the new ones.
+Columns that exist in only one of the two versions are named in the banner
+and left out of the comparison. A long comparison shows a spinner and can be
+cancelled.
+
+**Restore** is not offered: Octa reads Delta and Iceberg tables but never
+writes them.
+
+If a version's data files have been deleted, usually by `VACUUM`, Octa says
+so instead of opening it.
+
+### From the command line and MCP
+
+There is no extra flag. `--sql`, the MCP `run_sql` tool and the SQL panel read
+any version directly (the file after `--sql` only provides the `data` table;
+the scan reads the folder you name):
+
+```sh
+octa --sql data.csv -q "SELECT count(*) FROM delta_scan('sales_delta', version = 12)"
+octa --sql data.csv -q "SELECT * FROM iceberg_scan('sales_iceberg', allow_moved_paths = true, snapshot_from_id = 3776207205136740581)"
+```
+"#;
+
+pub const NOTIFICATIONS: &str = r#"# Notifications
+
+Octa can tell you when a long task is done, so you can work in another
+program meanwhile. It is on by default; **Settings > Window > Notify me
+when a long task finishes** turns it off.
+
+## When a notification appears
+
+All three must be true:
+
+1. The setting is on.
+2. The task ran for at least **Notify after (seconds)**: 5 by default, any
+   whole number of 1 or more. Shorter tasks finish while you are still
+   watching.
+3. Octa is not the window in front. If you are looking at Octa, there is no
+   pop-up, unless **Also when Octa is in front** is ticked (off by default).
+
+The notification says what finished and how long it took, plus the message
+Octa showed in its status bar at that moment, which tells you whether it
+worked. Every task Octa runs in the background counts:
+
+- SQL queries, local and on a database.
+- Reading from a database: a table, Load whole table, table details,
+  analyses run on the server, writing back.
+- Opening a large file, or a file from a cloud bucket, an API or a web
+  address; uploading to a cloud bucket.
+- Batch convert, Split into files, Export tables to files, Union, cloud and
+  database copies.
+- Compare with database or cloud, Compare folders, comparing versions of a
+  Delta or Iceberg table, Merge versions, Cell history.
+- Multi-search, searching the Databases and Cloud sidebars, a bucket
+  inventory.
+- Report, Schema drift, Data drift, Harmonise schemas, Fuzzy join, Find
+  near-duplicates, Find lookup tables, Relationship map, Clean-up
+  suggestions.
+- An Assistant reply or an Ask question.
+
+When several run at once, you get one notification when the last one ends.
+
+**Send test notification**, next to the setting, shows one right away.
+
+## Your system
+
+- **KDE Plasma**: notifications appear in Plasma's pop-up and history under
+  Octa's name and icon. **System Settings > Notifications > Applications >
+  Octa** mutes them or changes how they show. GNOME and other Linux desktops
+  use the same notification service.
+- **Windows**: nothing to install. The Store version shows its notifications
+  as Octa. The zip and installer versions register Octa's name and icon for
+  your user account before their first notification (one registry entry, no
+  admin rights).
+- **macOS**: Notification Centre. macOS asks once whether Octa may send
+  notifications.
+
+Nothing is stored and nothing runs in the background for this: Octa notices
+the moment it was already noticing that the task is done.
+
+**Minimised windows on Wayland.** Some Wayland desktops stop drawing a
+window that is minimised. Octa then notices the end of a task only when its
+window is shown again, and the notification comes late. A window that is
+merely behind others is not affected.
 "#;
 
 pub const UPDATES: &str = r#"# Updates
@@ -1950,6 +2318,12 @@ the background, so Octa stays out of it: there is no update check at all in a
 Store copy. **Help > Check for updates** is not in the menu, the launch-time
 check never runs, and the setting above is greyed out. Windows already knows
 about a new version and installs it on its own.
+
+The Store does that on its own schedule, though, not the moment a release
+appears, and only when **App updates** is switched on in the Store's settings.
+Windows Update does not update Store apps at all. To get a new version at
+once, use **Help > Updates in the Microsoft Store...**: it opens Octa's page in
+the Store app, where an **Update** button waits when a newer version is out.
 
 The release notes are unaffected: they ship inside the copy you installed.
 "#;

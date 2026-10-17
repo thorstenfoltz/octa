@@ -92,3 +92,10 @@ fresh snapshot.
 
 For a deeper look at a single column, use
 [Value Frequency](value-frequency.md) instead.
+
+## Command line and MCP
+
+The same job without the GUI:
+
+- Command line: [`octa --describe`](../cli/describe.md)
+- MCP: [`profile`](../mcp/tools/profile.md)

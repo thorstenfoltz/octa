@@ -9,17 +9,17 @@ tools can reach.
 **Write tool.** Removed from the roster entirely when the server runs
 with `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
-| Name         | Type              | Meaning                                                                            |
-|--------------|-------------------|------------------------------------------------------------------------------------|
-| `connection` | string (required) | Saved connection name or id                                                        |
-| `schema`     | string (required) | Target schema (`public`, `dbo`, or the database name on MySQL)                     |
-| `table`      | string (required) | Target table name                                                                  |
-| `mode`       | string            | `create` (default, error if the table exists), `append`, `replace` (DROP + CREATE) |
-| `path`       | string            | Source file, any supported format. Cloud URLs included                             |
-| `open_tab`   | string            | Source open tab (in-GUI assistant only): `@active`, a tab name, or `#2`            |
-| `catalog`    | string            | Top namespace level on Snowflake, Databricks and BigQuery. An error elsewhere      |
+| Name         | Type              | Meaning                                                                              |
+|--------------|-------------------|--------------------------------------------------------------------------------------|
+| `connection` | string (required) | Saved connection name or id                                                          |
+| `schema`     | string (required) | Target schema (`public`, `dbo`, or the database name on MySQL)                       |
+| `table`      | string (required) | Target table name                                                                    |
+| `mode`       | string            | `create` (default, error if the table exists), `append`, `replace` (DROP + CREATE)   |
+| `path`       | string            | Source file, any supported format. Cloud URLs included                               |
+| `open_tab`   | string            | Source open tab (in-GUI assistant only): `@active`, a tab name, or `#2`              |
+| `catalog`    | string            | Top namespace level on Trino, Snowflake, Databricks and BigQuery. An error elsewhere |
 
 Give exactly one of `path` or `open_tab`.
 
@@ -53,3 +53,5 @@ a capital letter or a space survives the round trip.
 - [`copy_db_table`](copy_db_table.md) — server to server, no file in the middle.
 - [`sync_sql`](sync_sql.md) — get the SQL for review instead of writing.
 - [Database Connections](../../usage/database-connections.md).
+- In the app: [Working with Databases](../../usage/working-with-databases.md)
+- Command line: [`--db-write-table`](../../cli/databases.md#writing-a-file-into-a-table)

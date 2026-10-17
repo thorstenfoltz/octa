@@ -12,7 +12,7 @@ read the source into memory first.
 **Write tool.** Removed from the roster entirely when the server runs
 with `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
 | Name                | Type              | Meaning                                                                                |
 |---------------------|-------------------|----------------------------------------------------------------------------------------|
@@ -53,3 +53,5 @@ then stay cached.
 
 - [`write_db_table`](write_db_table.md) — any engine, from a file or tab.
 - [Database Connections](../../usage/database-connections.md).
+- In the app: [Working with Databases](../../usage/working-with-databases.md)
+- Command line: [`--db-copy`](../../cli/databases.md#copying-a-table-between-servers)

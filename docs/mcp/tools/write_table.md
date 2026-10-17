@@ -117,3 +117,5 @@ match `columns`; otherwise the call errors with an
 - [`edit_table`](edit_table.md) edits an existing file in place.
 - [Supported formats](../../getting-started/supported-formats.md) is the
   full read/write matrix.
+- In the app: [Saving](../../usage/saving.md)
+- Command line: [`octa --convert`](../../cli/convert.md)

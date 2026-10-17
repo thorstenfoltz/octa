@@ -289,3 +289,39 @@ fn fractional_seconds_preserved_after_promotion() {
     expect(2, "2024-05-10 09:15:30.000000001");
     expect(3, "2024-06-20 12:00:00");
 }
+
+/// The cheap probe that picks columns for the background check: a date
+/// column is found from its first values, text and typed columns are not.
+#[test]
+fn column_probe_finds_dates_from_the_first_values() {
+    assert!(column_looks_like_dates(
+        &table(vec!["15.04.2024", "", "01.12.2025"]),
+        0
+    ));
+    assert!(!column_looks_like_dates(
+        &table(vec!["Mortgage", "Debt collection"]),
+        0
+    ));
+    let mut typed = table(vec!["15.04.2024"]);
+    typed.columns[0].data_type = "Date32".into();
+    assert!(!column_looks_like_dates(&typed, 0));
+}
+
+/// A text column is skipped on its first values, and a date column with a few
+/// bad values past them is still a near miss counted over every row.
+#[test]
+fn sampled_layouts_keep_promotions_and_near_misses() {
+    let mut values: Vec<Option<&str>> = vec![Some("not a date"); 5000];
+    assert!(matches!(infer_column(&values), InferOutcome::Skip));
+    values = vec![Some("2024-01-15"); 5000];
+    values[4000] = Some("garbage");
+    match infer_column(&values) {
+        InferOutcome::Failed { parsed, total, .. } => assert_eq!((parsed, total), (4999, 5000)),
+        other => panic!("expected a near miss, got {other:?}"),
+    }
+    values[4000] = Some("2024-02-29");
+    assert!(matches!(
+        infer_column(&values),
+        InferOutcome::PromotedDate(DateLayout::YmdDash)
+    ));
+}

@@ -91,6 +91,7 @@ impl OctaApp {
             self.db_browser.listings.clone();
         let mut db_query = self.db_browser.search_query.clone();
         let db_search_arc = self.db_browser.search.clone();
+        let db_sign_in_arc = self.db_browser.sign_in.clone();
 
         // Each browser has its own edge. Browsers on the same edge share one
         // panel, stacked cloud, databases, folders as before.
@@ -158,12 +159,17 @@ impl OctaApp {
                 }
             }
             if db_here {
-                if let (Ok(listings), Ok(search)) = (db_listings_arc.lock(), db_search_arc.lock()) {
+                if let (Ok(listings), Ok(search), Ok(sign_in)) = (
+                    db_listings_arc.lock(),
+                    db_search_arc.lock(),
+                    db_sign_in_arc.lock(),
+                ) {
                     db_action = db_tree::render_db_tree(
                         ui,
                         &db_connections,
                         &listings,
                         &db_expanded,
+                        &sign_in,
                         db_tree::DbTreeSearch {
                             query: &mut db_query,
                             results: &search.state,
@@ -284,6 +290,12 @@ impl OctaApp {
         if let Some((conn_id, prefix)) = cloud_action.inventory {
             self.cloud_inventory(&ctx, conn_id, prefix);
         }
+        if let Some((conn_id, key)) = cloud_action.compare_folder {
+            self.add_folder_to_comparison(super::folder_compare::GuiFolderRoot::Cloud {
+                conn_id,
+                key,
+            });
+        }
         if let Some((conn_id, prefix, recursive)) = cloud_action.union_folder {
             self.cloud_union_folder(&ctx, conn_id, prefix, recursive);
         }
@@ -319,8 +331,14 @@ impl OctaApp {
         if let Some((conn_id, catalog, schema, table)) = db_action.copy {
             self.open_db_copy_dialog(conn_id, catalog, schema, table);
         }
+        if let Some((conn_id, catalog, schema, table)) = db_action.export {
+            self.open_db_export_dialog(&ctx, conn_id, catalog, schema, table);
+        }
         if let Some((conn_id, catalog, schema, table)) = db_action.metadata {
             self.open_db_metadata(&ctx, conn_id, catalog, schema, table);
+        }
+        if let Some(conn_id) = db_action.sign_in {
+            self.db_sign_in(&ctx, conn_id);
         }
         if let Some(conn_id) = db_action.refresh {
             self.refresh_db_conn(&ctx, conn_id);
@@ -344,6 +362,8 @@ impl OctaApp {
                 super::state::BatchConvertState::new(files)
                     .with_write_options(self.settings.write_options.clone()),
             );
+        } else if let Some(dir) = tree_action.compare_folder {
+            self.add_folder_to_comparison(super::folder_compare::GuiFolderRoot::Local(dir));
         } else if let Some(dir) = tree_action.scan_schemas {
             super::dialogs::schema_drift::open_for_folder(self, &dir);
         } else if let Some(dir) = tree_action.open_dataset {

@@ -89,7 +89,7 @@ pub(crate) fn render_impute_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("impute_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("impute.title"))
                             .strong()
@@ -110,7 +110,7 @@ pub(crate) fn render_impute_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("impute_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui.button(octa::i18n::t("impute.apply")).clicked() {
                         apply = true;
                     }
@@ -124,7 +124,7 @@ pub(crate) fn render_impute_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 
         egui::CentralPanel::default().show(ui, |ui| {
             // Column picker.
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(RichText::new(octa::i18n::t("impute.column_label")).strong());
                 let col_text = col_names.get(st.col).cloned().unwrap_or_default();
                 egui::ComboBox::from_id_salt("impute_col")
@@ -143,7 +143,7 @@ pub(crate) fn render_impute_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             ui.add_space(6.0);
 
             // Strategy picker.
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(RichText::new(octa::i18n::t("impute.strategy_label")).strong());
                 let strat_text = octa::i18n::t(STRATEGIES[st.strategy_idx].0);
                 egui::ComboBox::from_id_salt("impute_strategy")
@@ -165,7 +165,7 @@ pub(crate) fn render_impute_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             // Constant value field (only shown when Constant is selected).
             if st.strategy_idx == 3 {
                 ui.add_space(4.0);
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(octa::i18n::t("impute.constant_label"));
                     ui.add(egui::TextEdit::singleline(&mut st.constant).desired_width(200.0));
                 });

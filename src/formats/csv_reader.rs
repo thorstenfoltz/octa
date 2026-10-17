@@ -70,40 +70,75 @@ impl FormatReader for TsvReader {
     }
 }
 
-/// Auto-detect the delimiter used in a CSV file by checking consistency of
-/// candidate delimiters across the first few lines.
+/// Auto-detect the delimiter of a CSV file from its first lines. Reads at
+/// most 1 MB, so a multi-gigabyte file costs what a small one does.
 pub fn detect_delimiter(path: &Path) -> Option<u8> {
-    let content = std::fs::read_to_string(path).ok()?;
-    let lines: Vec<&str> = content.lines().take(20).collect();
-    if lines.is_empty() {
-        return None;
+    const SNIFF_BYTES: usize = 1 << 20;
+    let raw = read_prefix(path, SNIFF_BYTES)?;
+    let mut text = String::from_utf8_lossy(&raw).into_owned();
+    // A full buffer most likely cut the last line short, and a short line
+    // would break the consistency check below: leave it out.
+    if raw.len() == SNIFF_BYTES
+        && let Some(cut) = text.rfind('\n')
+    {
+        text.truncate(cut);
     }
+    detect_delimiter_in(&text)
+}
 
-    let candidates: &[u8] = b",;|\t";
-    let mut best: Option<(u8, usize)> = None; // (delimiter, count_per_line)
-
-    for &delim in candidates {
-        let delim_char = delim as char;
+/// The delimiter the first 20 lines agree on.
+///
+/// Per candidate, `C` is its most common non-zero count per line. From the
+/// first line holding `C` on, every line must hold `C` or none; lines
+/// **before** it may hold fewer, which is what a title block above the real
+/// header looks like (`Report generated 03.10.2026`). At least two lines
+/// must hold `C` (a lone title line with a comma is not a table), unless the
+/// text is a single line. Among the candidates that pass, the one whose run
+/// starts earliest wins: the header is the first structured line, while
+/// decimal commas only start in the data below it. Then the larger `C`,
+/// then the order `,;|\t`.
+pub fn detect_delimiter_in(content: &str) -> Option<u8> {
+    let lines: Vec<&str> = content.lines().take(20).collect();
+    let non_empty = lines.iter().filter(|l| !l.trim().is_empty()).count();
+    // (first line of the run, count per line, delimiter)
+    let mut best: Option<(usize, usize, u8)> = None;
+    for &delim in b",;|\t" {
         let counts: Vec<usize> = lines
             .iter()
-            .map(|l| l.matches(delim_char).count())
+            .map(|l| l.matches(delim as char).count())
             .collect();
-
-        // Skip if header has zero occurrences
-        if counts[0] == 0 {
+        let Some(c) = most_common_nonzero(&counts) else {
+            continue;
+        };
+        let Some(start) = counts.iter().position(|&n| n == c) else {
+            continue;
+        };
+        let consistent = counts[..start].iter().all(|&n| n < c)
+            && counts[start..].iter().all(|&n| n == c || n == 0);
+        let agreeing = counts.iter().filter(|&&n| n == c).count();
+        if !consistent || (agreeing < 2 && non_empty > 1) {
             continue;
         }
-
-        // Check consistency: all lines should have roughly the same count
-        let header_count = counts[0];
-        let consistent = counts.iter().all(|&c| c == header_count || c == 0);
-
-        if consistent && (best.is_none() || header_count > best.unwrap().1) {
-            best = Some((delim, header_count));
+        let better = match best {
+            None => true,
+            Some((s, bc, _)) => start < s || (start == s && c > bc),
+        };
+        if better {
+            best = Some((start, c, delim));
         }
     }
+    best.map(|(_, _, d)| d)
+}
 
-    best.map(|(d, _)| d)
+/// The most frequent non-zero value in `counts`; a tie goes to the larger.
+fn most_common_nonzero(counts: &[usize]) -> Option<usize> {
+    let mut freq: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
+    for &n in counts.iter().filter(|&&n| n > 0) {
+        *freq.entry(n).or_default() += 1;
+    }
+    freq.into_iter()
+        .max_by_key(|&(n, f)| (f, n))
+        .map(|(n, _)| n)
 }
 
 pub fn infer_cell_value(s: &str) -> CellValue {
@@ -218,6 +253,32 @@ pub fn read_delimited_opts(
     build_table_from_reader(rdr, path, format_name, opts.preserve_ragged)
 }
 
+/// How many records the width check looks at.
+const BODY_SAMPLE: usize = 50;
+
+/// The table width: the header's, unless most sampled records have more
+/// fields (a title line sat where the header should be); then the most
+/// common record width. A few long rows keep the header width, as before.
+fn body_width(header: usize, record_lens: &[usize]) -> usize {
+    let wider = record_lens.iter().filter(|&&n| n > header).count();
+    if wider * 2 > record_lens.len() {
+        header.max(most_common_nonzero(record_lens).unwrap_or(0))
+    } else {
+        header
+    }
+}
+
+fn record_to_row(record: &csv::StringRecord, width: usize) -> Vec<CellValue> {
+    (0..width)
+        .map(|i| {
+            record
+                .get(i)
+                .map(infer_cell_value)
+                .unwrap_or(CellValue::Null)
+        })
+        .collect()
+}
+
 /// Build a [`DataTable`] from any CSV reader. Shared by the streaming
 /// ([`read_delimited`]) and repair ([`read_delimited_opts`]) paths so the
 /// header / row / type-refinement logic lives in one place.
@@ -266,24 +327,33 @@ fn build_table_from_reader<R: std::io::Read>(
         }
         col_count
     } else {
-        for result in rdr.records() {
+        // Peek at the first records: a title line above the real header
+        // makes the header narrower than the data, and sizing rows to it
+        // would cut every later field off.
+        let mut records = rdr.records();
+        let mut head: Vec<csv::StringRecord> = Vec::new();
+        for result in records.by_ref().take(BODY_SAMPLE) {
+            head.push(result?);
+        }
+        let lens: Vec<usize> = head.iter().map(|r| r.len()).collect();
+        let width = body_width(header_count, &lens);
+        for record in &head {
             if rows.len() >= max_rows {
                 truncated = true;
                 break;
             }
-            let record = result?;
-            let mut row: Vec<CellValue> = (0..header_count)
-                .map(|i| {
-                    record
-                        .get(i)
-                        .map(infer_cell_value)
-                        .unwrap_or(CellValue::Null)
-                })
-                .collect();
-            row.resize(header_count, CellValue::Null);
-            rows.push(row);
+            rows.push(record_to_row(record, width));
         }
-        header_count
+        if !truncated {
+            for result in records {
+                if rows.len() >= max_rows {
+                    truncated = true;
+                    break;
+                }
+                rows.push(record_to_row(&result?, width));
+            }
+        }
+        width
     };
 
     // Build columns, adding synthetic names for any overflow beyond the header.
@@ -301,6 +371,18 @@ fn build_table_from_reader<R: std::io::Read>(
             data_type: "Utf8".to_string(),
         });
     }
+    // Overflow columns empty in every row are a trailing delimiter on each
+    // data line (`1;2;3;`), not data: drop them so such files read as before.
+    while columns.len() > header_count
+        && rows
+            .iter()
+            .all(|r| matches!(r.last(), None | Some(CellValue::Null)))
+    {
+        columns.pop();
+        for row in &mut rows {
+            row.pop();
+        }
+    }
 
     // If truncated, signal that more rows are available without reading the rest
     let total_rows = if truncated {
@@ -312,40 +394,9 @@ fn build_table_from_reader<R: std::io::Read>(
     // Refine column types based on actual data
     let mut refined_columns = columns;
     for (col_idx, col) in refined_columns.iter_mut().enumerate() {
-        let mut has_int = false;
-        let mut has_float = false;
-        let mut has_bool = false;
-        let mut has_date = false;
-        let mut has_datetime = false;
-        let mut has_string = false;
-
-        for row in &rows {
-            match row.get(col_idx) {
-                Some(CellValue::Int(_)) => has_int = true,
-                Some(CellValue::Float(_)) => has_float = true,
-                Some(CellValue::Bool(_)) => has_bool = true,
-                Some(CellValue::Date(_)) => has_date = true,
-                Some(CellValue::DateTime(_)) => has_datetime = true,
-                Some(CellValue::String(_)) => has_string = true,
-                _ => {}
-            }
-        }
-
-        col.data_type = if has_string {
-            "Utf8".to_string()
-        } else if has_datetime {
-            "Timestamp(Microsecond, None)".to_string()
-        } else if has_date {
-            "Date32".to_string()
-        } else if has_float {
-            "Float64".to_string()
-        } else if has_int {
-            "Int64".to_string()
-        } else if has_bool {
-            "Boolean".to_string()
-        } else {
-            "Utf8".to_string()
-        };
+        col.data_type =
+            crate::data::column_type_from_cells(rows.iter().filter_map(|r| r.get(col_idx)))
+                .to_string();
     }
 
     Ok(DataTable {
@@ -516,7 +567,15 @@ pub struct ChunkSink {
     pub buffer: std::sync::Arc<std::sync::Mutex<Vec<Vec<CellValue>>>>,
     pub done: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub exhausted: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Where the last chunk stopped: records read, and the byte position of
+    /// the next one. A chunk starting at that record count seeks there
+    /// instead of parsing the file from the start again, which made every
+    /// chunk slower than the one before. Kept per tab, across chunks.
+    pub resume: ChunkResume,
 }
+
+/// See [`ChunkSink::resume`].
+pub type ChunkResume = std::sync::Arc<std::sync::Mutex<Option<(usize, csv::Position)>>>;
 
 pub fn load_csv_rows_chunk(
     path: &Path,
@@ -533,6 +592,7 @@ pub fn load_csv_rows_chunk(
         buffer,
         done,
         exhausted,
+        resume,
     } = sink;
     let mut rdr = csv::ReaderBuilder::new()
         .delimiter(delimiter)
@@ -540,20 +600,30 @@ pub fn load_csv_rows_chunk(
         .flexible(true)
         .from_path(path)?;
 
+    let mut record = csv::StringRecord::new();
+    let resume_at = resume
+        .lock()
+        .ok()
+        .and_then(|r| r.clone())
+        .filter(|(records, _)| skip_rows > 0 && *records == skip_rows);
+    if let Some((_, position)) = resume_at {
+        rdr.seek(position)?;
+    } else {
+        // A reused record, so skipping allocates nothing per row.
+        for _ in 0..skip_rows {
+            if !rdr.read_record(&mut record)? {
+                break;
+            }
+        }
+    }
+
     let flush_threshold = 50_000;
     let mut batch_buf = Vec::with_capacity(flush_threshold);
-    let mut skipped = 0usize;
     let mut loaded = 0usize;
 
-    for result in rdr.records() {
-        let record = result?;
-        if skipped < skip_rows {
-            skipped += 1;
-            continue;
-        }
-        if loaded >= max_rows {
-            break;
-        }
+    // The limit is checked before reading, so the position after the loop is
+    // the start of the first record this chunk did not take.
+    while loaded < max_rows && rdr.read_record(&mut record)? {
         let mut row: Vec<CellValue> = (0..num_cols)
             .map(|i| {
                 record
@@ -581,6 +651,9 @@ pub fn load_csv_rows_chunk(
         buf.append(&mut batch_buf);
     }
 
+    if let Ok(mut r) = resume.lock() {
+        *r = Some((skip_rows + loaded, rdr.position().clone()));
+    }
     if loaded < max_rows {
         exhausted.store(true, std::sync::atomic::Ordering::Relaxed);
     }
@@ -611,48 +684,138 @@ pub fn write_delimited_with(
     opts: &crate::formats::write_options::CsvOptions,
     format_delimiter: u8,
 ) -> Result<()> {
-    use crate::formats::write_options::QuoteStyle;
+    // Through a sibling temp + rename: a half-written CSV must not replace the
+    // user's file (see `formats::write_atomically`).
+    crate::formats::write_slices(
+        path,
+        &crate::formats::SliceFormat::Delimited {
+            opts: opts.clone(),
+            delimiter: format_delimiter,
+        },
+        &table.columns,
+        [Ok(table)],
+    )
+}
 
+/// The delimited half of [`write_slices`](crate::formats::write_slices): the
+/// header, then the rows of each slice, straight into `path` (the caller owns
+/// the temp and the rename).
+pub(crate) fn write_delimited_slices<T: std::borrow::Borrow<DataTable>>(
+    path: &Path,
+    columns: &[ColumnInfo],
+    slices: impl IntoIterator<Item = Result<T>>,
+    opts: &crate::formats::write_options::CsvOptions,
+    format_delimiter: u8,
+) -> Result<()> {
     let delimiter = if format_delimiter == b'\t' || opts.delimiter == b',' {
         format_delimiter
     } else {
         opts.delimiter
     };
-    // Through a sibling temp + rename: a half-written CSV must not replace the
-    // user's file (see `formats::write_atomically`).
-    crate::formats::write_atomically(path, |tmp| {
-        let mut wtr = csv::WriterBuilder::new()
-            .delimiter(delimiter)
-            .quote_style(match opts.quote_style {
-                QuoteStyle::Necessary => csv::QuoteStyle::Necessary,
-                QuoteStyle::Always => csv::QuoteStyle::Always,
-                QuoteStyle::Never => csv::QuoteStyle::Never,
-            })
-            .terminator(if opts.crlf {
-                csv::Terminator::CRLF
-            } else {
-                csv::Terminator::Any(b'\n')
-            })
-            .from_path(tmp)?;
+    let mut wtr = delimited_writer(std::fs::File::create(path)?, opts, delimiter)?;
+    if opts.write_header {
+        write_delimited_header(&mut wtr, columns)?;
+    }
+    for slice in slices {
+        write_delimited_rows(&mut wtr, slice?.borrow(), opts.decimal_comma)?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
 
+/// The header and the first `rows` rows of `table` as `opts` would write them,
+/// for the Save As dialog's preview. The byte order mark is left out: it is
+/// invisible anyway.
+pub fn preview_delimited(
+    table: &DataTable,
+    opts: &crate::formats::write_options::CsvOptions,
+    rows: usize,
+) -> String {
+    let head = table.clone_with_rows(&(0..rows.min(table.row_count())).collect::<Vec<_>>());
+    let opts = crate::formats::write_options::CsvOptions {
+        bom: false,
+        ..opts.clone()
+    };
+    let mut out = Vec::new();
+    let written = (|| -> Result<()> {
+        let mut wtr = delimited_writer(&mut out, &opts, opts.delimiter)?;
         if opts.write_header {
-            let headers: Vec<&str> = table.columns.iter().map(|c| c.name.as_str()).collect();
-            wtr.write_record(&headers)?;
+            write_delimited_header(&mut wtr, &head.columns)?;
         }
-
-        for row_idx in 0..table.row_count() {
-            let record: Vec<String> = (0..table.col_count())
-                .map(|col_idx| {
-                    table
-                        .get(row_idx, col_idx)
-                        .map(|v| v.to_string())
-                        .unwrap_or_default()
-                })
-                .collect();
-            wtr.write_record(&record)?;
-        }
-
+        write_delimited_rows(&mut wtr, &head, opts.decimal_comma)?;
         wtr.flush()?;
         Ok(())
-    })
+    })();
+    match written {
+        Ok(()) => String::from_utf8_lossy(&out).into_owned(),
+        Err(e) => format!("{e:#}"),
+    }
+}
+
+/// A CSV writer over `out` with `opts` applied and, when `opts.bom` asks for
+/// it, the UTF-8 byte order mark already written. Shared with the streaming
+/// database export, which writes one batch at a time into the same writer.
+pub(crate) fn delimited_writer<W: std::io::Write>(
+    mut out: W,
+    opts: &crate::formats::write_options::CsvOptions,
+    delimiter: u8,
+) -> Result<csv::Writer<W>> {
+    use crate::formats::write_options::QuoteStyle;
+
+    if opts.bom {
+        out.write_all(b"\xEF\xBB\xBF")?;
+    }
+    Ok(csv::WriterBuilder::new()
+        .delimiter(delimiter)
+        .quote_style(match opts.quote_style {
+            QuoteStyle::Necessary => csv::QuoteStyle::Necessary,
+            QuoteStyle::Always => csv::QuoteStyle::Always,
+            QuoteStyle::Never => csv::QuoteStyle::Never,
+        })
+        .terminator(if opts.crlf {
+            csv::Terminator::CRLF
+        } else {
+            csv::Terminator::Any(b'\n')
+        })
+        .from_writer(out))
+}
+
+/// The header row: one field per column name.
+pub(crate) fn write_delimited_header<W: std::io::Write>(
+    wtr: &mut csv::Writer<W>,
+    columns: &[ColumnInfo],
+) -> Result<()> {
+    wtr.write_record(columns.iter().map(|c| c.name.as_str()))?;
+    Ok(())
+}
+
+/// Every row of `table`, in order.
+pub(crate) fn write_delimited_rows<W: std::io::Write>(
+    wtr: &mut csv::Writer<W>,
+    table: &DataTable,
+    decimal_comma: bool,
+) -> Result<()> {
+    for row_idx in 0..table.row_count() {
+        let record: Vec<String> = (0..table.col_count())
+            .map(|col_idx| {
+                table
+                    .get(row_idx, col_idx)
+                    .map(|v| cell_text(v, decimal_comma))
+                    .unwrap_or_default()
+            })
+            .collect();
+        wtr.write_record(&record)?;
+    }
+    Ok(())
+}
+
+/// One cell as CSV text. With `decimal_comma` a decimal number is written with
+/// a comma (`1234,56`), the way a German or French spreadsheet program reads
+/// it. Only real numbers change: text that merely looks like a number is the
+/// user's own text and is written exactly as it is.
+fn cell_text(cell: &CellValue, decimal_comma: bool) -> String {
+    match cell {
+        CellValue::Float(_) if decimal_comma => cell.to_string().replacen('.', ",", 1),
+        _ => cell.to_string(),
+    }
 }

@@ -60,6 +60,15 @@ impl MySqlConnector {
                     conn.username, conn.host, conn.port, conn.database
                 )
             })?;
+        // Without "Allow writes" the server refuses every write, also one the
+        // statement check missed (`WITH x AS (SELECT 1) DELETE ...`), DDL
+        // and temporary tables included. Turning it off again takes a SET,
+        // which the check refuses.
+        if !conn.allow_writes {
+            runtime()
+                .block_on(client.query_drop("SET SESSION TRANSACTION READ ONLY"))
+                .context("making the session read-only")?;
+        }
         let session_id: Option<String> = runtime()
             .block_on(client.query_first::<u64, _>("SELECT CONNECTION_ID()"))
             .ok()
@@ -74,10 +83,33 @@ impl MySqlConnector {
     }
 }
 
-/// Map a MySQL column type to the Arrow-name strings Octa uses.
-fn mysql_type_to_arrow(t: mysql_async::consts::ColumnType) -> &'static str {
+/// Map a MySQL column to the Arrow-name strings Octa uses.
+///
+/// A string, BLOB or BIT type in the `binary` character set holds bytes, not
+/// text. It used to go through the text path, where every byte that is not
+/// valid UTF-8 became U+FFFD, and since a database tab writes back whole
+/// rows, a save then wrote those replacement characters over the bytes.
+/// (Numbers and dates carry the binary character set too, hence the type
+/// list.) Only a column read straight from a table counts: Octa's own server
+/// analyses compare text exactly through `CAST(.. AS BINARY)`, and such an
+/// expression has no source table and stays text, as before.
+fn mysql_type_to_arrow(column: &mysql_async::Column) -> &'static str {
     use mysql_async::consts::ColumnType::*;
-    match t {
+    const BINARY_CHARSET: u16 = 63;
+    match column.column_type() {
+        MYSQL_TYPE_TINY_BLOB
+        | MYSQL_TYPE_MEDIUM_BLOB
+        | MYSQL_TYPE_LONG_BLOB
+        | MYSQL_TYPE_BLOB
+        | MYSQL_TYPE_VAR_STRING
+        | MYSQL_TYPE_STRING
+        | MYSQL_TYPE_VARCHAR
+        | MYSQL_TYPE_BIT
+        | MYSQL_TYPE_GEOMETRY
+            if column.character_set() == BINARY_CHARSET && !column.org_table_ref().is_empty() =>
+        {
+            "Binary"
+        }
         MYSQL_TYPE_TINY | MYSQL_TYPE_SHORT | MYSQL_TYPE_LONG | MYSQL_TYPE_LONGLONG
         | MYSQL_TYPE_INT24 | MYSQL_TYPE_YEAR => "Int64",
         MYSQL_TYPE_FLOAT | MYSQL_TYPE_DOUBLE => "Float64",
@@ -103,6 +135,7 @@ fn mysql_value_to_cell(v: &mysql_async::Value, col_type: &str) -> CellValue {
             .unwrap_or_else(|_| CellValue::String(u.to_string())),
         Float(f) => CellValue::Float(*f as f64),
         Double(d) => CellValue::Float(*d),
+        Bytes(b) if col_type == "Binary" => CellValue::Binary(b.clone()),
         Bytes(b) => {
             let s = String::from_utf8_lossy(b).to_string();
             match col_type {
@@ -190,7 +223,7 @@ impl DbConnector for MySqlConnector {
             .iter()
             .map(|c| ColumnInfo {
                 name: c.name_str().to_string(),
-                data_type: mysql_type_to_arrow(c.column_type()).to_string(),
+                data_type: mysql_type_to_arrow(c).to_string(),
             })
             .collect();
         let col_types: Vec<String> = table.columns.iter().map(|c| c.data_type.clone()).collect();

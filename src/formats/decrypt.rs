@@ -40,8 +40,29 @@ impl OpenSecret {
 /// Reads the central directory only, so this answers **before** anyone is
 /// asked for a passphrase: prompting for a file that turns out not to need
 /// one is its own small insult.
+///
+/// Every file Octa opens is asked this, so anything that does not start like
+/// a zip is answered from its first four bytes. Handed to the zip library, a
+/// file that is not a zip gets searched end to end for the archive's
+/// directory, several times over: 43 GB read for a 5 GB CSV, on the UI
+/// thread, before the open even started.
 pub fn zip_needs_passphrase(path: &Path) -> anyhow::Result<bool> {
-    let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    use std::io::{Read, Seek};
+    const LOCAL_HEADER: [u8; 4] = *b"PK\x03\x04";
+    const EMPTY_ARCHIVE: [u8; 4] = *b"PK\x05\x06";
+    let mut file =
+        std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let mut head = [0u8; 4];
+    match file.read_exact(&mut head) {
+        Ok(()) if head == LOCAL_HEADER || head == EMPTY_ARCHIVE => {}
+        Ok(()) => return Ok(false),
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(false),
+        Err(e) => {
+            return Err(anyhow::Error::new(e).context(format!("reading {}", path.display())));
+        }
+    }
+    file.rewind()
+        .with_context(|| format!("reading {}", path.display()))?;
     let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file))
         .context("reading zip central directory")?;
     for i in 0..archive.len() {

@@ -486,3 +486,54 @@ pub(crate) struct SchemaExportState {
     pub(crate) target: octa::data::schema_export::SchemaTarget,
     pub(crate) size: ui::settings::DialogSize,
 }
+
+/// Where the PDF worker leaves its page count and text.
+pub(crate) type BinaryPdfSlot =
+    std::sync::Arc<std::sync::Mutex<Option<Result<(usize, String), String>>>>;
+
+/// What a gzip cell unpacks to, worked out on a thread because the Settings
+/// limit may let it run to gigabytes. Only what the window shows is kept.
+pub(crate) struct GunzipView {
+    /// Bytes unpacked (all of them, or up to the limit).
+    pub(crate) size: usize,
+    /// The Settings limit stopped the unpacking.
+    pub(crate) cut: bool,
+    /// The head of the text, or the i18n key of what the bytes are plus the
+    /// hex dump of their start.
+    pub(crate) body: Result<String, (&'static str, String)>,
+}
+
+/// Where the gunzip worker leaves its answer.
+pub(crate) type BinaryGunzipSlot =
+    std::sync::Arc<std::sync::Mutex<Option<Result<GunzipView, String>>>>;
+
+/// The binary cell viewer (cell menu **View contents...**). The zip listing
+/// and the JSON layout are worked out when it opens; the picture on the first
+/// frame; the PDF text and the gunzip on worker threads.
+pub(crate) struct BinaryViewerState {
+    pub(crate) size: octa::ui::settings::DialogSize,
+    pub(crate) column: String,
+    /// Table row, 0-based.
+    pub(crate) row: usize,
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) kind: octa::data::binary_kind::BinaryKind,
+    /// The decoded picture, made on the first frame (it needs the context).
+    pub(crate) texture: Option<eframe::egui::TextureHandle>,
+    /// The picture's original size, before any shrinking for the GPU.
+    pub(crate) image_size: Option<[u32; 2]>,
+    pub(crate) image_error: Option<String>,
+    /// Page count and text, filled by a worker thread.
+    pub(crate) pdf: BinaryPdfSlot,
+    /// The worker's answer, moved out of the slot once so later frames read it
+    /// here instead of cloning the text.
+    pub(crate) pdf_done: Option<Result<(usize, String), String>>,
+    /// Hex dump of `bytes`, built on the first frame that shows it.
+    pub(crate) hex: Option<String>,
+    pub(crate) zip: Option<Result<Vec<octa::formats::archive_reader::ArchiveEntry>, String>>,
+    /// What the gzip unpacks to, filled by a worker thread.
+    pub(crate) gunzip: BinaryGunzipSlot,
+    /// The worker's answer, moved out of the slot once.
+    pub(crate) gunzip_done: Option<Result<GunzipView, String>>,
+    pub(crate) json: Option<String>,
+    pub(crate) message: Option<(bool, String)>,
+}

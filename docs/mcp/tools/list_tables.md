@@ -128,3 +128,4 @@ Everything else (Parquet, CSV, Excel, etc.) returns an empty list.
   the `table` value from a `list_tables` response.
 - [Supported formats](../../getting-started/supported-formats.md)
   lists which formats are single-table vs multi-table.
+- Command line: [`octa --schema`](../../cli/schema.md)

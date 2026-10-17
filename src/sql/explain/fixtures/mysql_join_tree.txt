@@ -1,0 +1,8 @@
+-> Limit: 5 row(s)
+    -> Sort: total DESC, limit input to 5 row(s) per chunk
+        -> Table scan on <temporary>
+            -> Aggregate using temporary table
+                -> Nested loop inner join  (cost=218 rows=333)
+                    -> Filter: ((o.amount > 10.00) and (o.customer_id is not null))  (cost=101 rows=333)
+                        -> Table scan on o  (cost=101 rows=1000)
+                    -> Single-row index lookup on c using PRIMARY (id=o.customer_id)  (cost=0.25 rows=1)

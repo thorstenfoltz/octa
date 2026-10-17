@@ -1,6 +1,6 @@
 # Octa for macOS
 
-A multi-format data viewer and editor for Parquet, CSV, JSON, Excel, and more.
+A multi-format data viewer and editor for Parquet, CSV, JSON, XLSX, and more.
 
 This build is for Apple Silicon (arm64) Macs.
 
@@ -8,29 +8,35 @@ This build is for Apple Silicon (arm64) Macs.
 
 Drag `Octa.app` into `/Applications` (or `~/Applications`).
 
-The app is **ad-hoc signed but not notarized**, so macOS Gatekeeper will warn the first time you launch it. You have two options to bypass the warning:
+The app is **ad-hoc signed but not notarised**, so macOS Gatekeeper refuses
+the first launch of a copy downloaded with a browser. Two ways past it:
 
-**Option A — clear the quarantine attribute (always works):**
+### Option A: Open Anyway
+
+1. Double-click `Octa.app` and click **Done** (or **OK**) when macOS refuses.
+2. Open **System Settings > Privacy & Security**, scroll down to
+   *"Octa.app was blocked"* and click **Open Anyway**.
+3. Confirm with your password and **Open Anyway** once more.
+
+After that, double-clicking opens the app normally. (Control-click > Open did
+this up to macOS 14; macOS 15 removed it.)
+
+### Option B: clear the quarantine attribute
 
 ```bash
-# Locate the bundle and confirm its quarantine attribute is present
-find /Applications -maxdepth 1 -name "Octa.app" -exec xattr {} \;
-
-# Strip the attribute (top-level only — macOS only quarantines the bundle)
 xattr -d com.apple.quarantine /Applications/Octa.app
 
-# If the strip above fails with "No such xattr: …" but the warning persists,
-# fall back to the recursive form once (handles "Octa.app is damaged"):
+# If that fails with "No such xattr" but the warning persists, or macOS
+# says "Octa.app is damaged", use the recursive form once:
 # xattr -cr /Applications/Octa.app
 ```
 
-After that, double-clicking opens the app normally.
+**Next time, skip all of this** with the one-line install, which downloads
+with `curl` and so never triggers Gatekeeper:
 
-**Option B — right-click → Open:**
-
-Control-click `Octa.app` in Finder and choose **Open**, then confirm in the Gatekeeper dialog. After the first successful launch, double-clicking works normally.
-
-> ⚠️  If you see "Octa.app is damaged and can't be opened" with only a "Move to Trash" button, your copy was extracted before the ad-hoc signature was applied — use the `xattr -cr` fallback shown above.
+```bash
+curl -fsSL https://raw.githubusercontent.com/thorstenfoltz/octa/master/get-octa.sh | bash
+```
 
 ## Run from the command line
 
@@ -38,14 +44,17 @@ Control-click `Octa.app` in Finder and choose **Open**, then confirm in the Gate
 /Applications/Octa.app/Contents/MacOS/octa [file]
 ```
 
-Optionally symlink it onto your `PATH`:
+Optionally link it onto your `PATH` (`/usr/local/bin` does not exist on a
+fresh Apple Silicon Mac):
 
 ```bash
-ln -s /Applications/Octa.app/Contents/MacOS/octa /usr/local/bin/octa
+mkdir -p ~/.local/bin
+ln -s /Applications/Octa.app/Contents/MacOS/octa ~/.local/bin/octa
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zprofile
 ```
 
 ## Uninstall
 
 ```bash
-rm -rf /Applications/Octa.app
+rm -rf /Applications/Octa.app ~/.local/bin/octa
 ```

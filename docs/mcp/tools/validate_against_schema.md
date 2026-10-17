@@ -112,3 +112,4 @@ Inline schema:
 - [`export_schema`](export_schema.md): produce the JSON Schema this
   tool consumes.
 - [`compare_schemas`](compare_schemas.md): symmetric two-file diff.
+- In the app: [Schema drift](../../usage/schema-drift.md)

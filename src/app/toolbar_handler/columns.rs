@@ -10,7 +10,9 @@ use crate::app::state::OctaApp;
 impl OctaApp {
     /// Run every Columns-menu action set on `action`.
     pub(super) fn dispatch_columns_menu(&mut self, action: &ui::toolbar::ToolbarAction) {
-        if action.add_column {
+        // The menu greys these out; this is the gate that holds regardless.
+        let ro = self.is_readonly();
+        if action.add_column && !ro {
             self.tabs[self.active_tab].show_add_column_dialog = true;
             self.tabs[self.active_tab].new_col_name.clear();
             self.tabs[self.active_tab].new_col_type = "String".to_string();
@@ -20,10 +22,11 @@ impl OctaApp {
                 .selected_cell
                 .map(|(_, c)| c + 1);
         }
-        if action.delete_column && self.tabs[self.active_tab].table.col_count() > 0 {
+        if action.delete_column && !ro && self.tabs[self.active_tab].table.col_count() > 0 {
             self.open_delete_columns_dialog();
         }
         if action.move_col_left
+            && !ro
             && let Some((row, col)) = self.tabs[self.active_tab].table_state.selected_cell
             && col > 0
         {
@@ -32,6 +35,7 @@ impl OctaApp {
             self.tabs[self.active_tab].table_state.widths_initialized = false;
         }
         if action.move_col_right
+            && !ro
             && let Some((row, col)) = self.tabs[self.active_tab].table_state.selected_cell
             && col + 1 < self.tabs[self.active_tab].table.col_count()
         {
@@ -39,14 +43,17 @@ impl OctaApp {
             self.tabs[self.active_tab].table_state.selected_cell = Some((row, col + 1));
             self.tabs[self.active_tab].table_state.widths_initialized = false;
         }
-        if action.sort_columns_asc {
+        if action.sort_columns_asc && !ro {
             self.sort_columns_alphabetically(true);
         }
-        if action.sort_columns_desc {
+        if action.sort_columns_desc && !ro {
             self.sort_columns_alphabetically(false);
         }
         if action.show_all_columns {
             self.tabs[self.active_tab].hidden_columns.clear();
+        }
+        if action.detect_dates {
+            self.start_date_detection();
         }
         if action.open_retype
             && self.tabs[self.active_tab].table.col_count() > 0

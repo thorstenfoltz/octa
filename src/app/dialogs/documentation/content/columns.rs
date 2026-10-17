@@ -68,6 +68,9 @@ is actually stored.
 - **Drag handle** - drag a row to reorder that column in the table.
   Disabled in read-only mode; showing, hiding and freezing stay available
   even then, since only reordering changes the table's structure.
+- **Up / down arrows**: move that column one place, which is one place left
+  or right in the table. Up is greyed out on the first column and down on
+  the last. Disabled in read-only mode, like the drag handle.
 
 **Settings > Table > Column navigator position** picks which edge of the
 window the panel docks to.
@@ -123,6 +126,25 @@ wins.
 removes that limit. It is only worth raising when a column's first
 values are not representative of the rest, such as a file sorted so
 every ISO-formatted row comes first.
+
+## Every date column at once
+
+**Columns -> Detect dates** finds the text columns that hold nothing but
+dates and turns all of them into date columns in one go. It is the same
+check **Settings > File-Specific > Detect dates on load** runs when a
+file opens, and the way to get dates with that setting off, which it is
+by default.
+
+It runs in the background, so the window keeps responding on a table of
+millions of rows. Only columns whose first thousand values look like
+dates are read in full. While it runs the tab is read-only and neither
+sorts nor loads more rows, because the answer goes back in by row
+number. One <kbd>Ctrl+Z</kbd> undoes every column it converted.
+
+A column that two layouts fit (`01/02/2020`) gets the same question the
+loader asks. A column where most but not all values are dates stays
+text, with a note naming the values that are not; **Change type**
+converts it anyway and keeps those values as text.
 
 ## Strict or mixed
 
@@ -378,6 +400,24 @@ column, or `(any column)` to check every cell) and a kind:
   number or barcode, the country's shape and (where published) check digit
   for a VAT number, the spelling of an email address. Spaces and dashes are
   fine; empty cells pass.
+- **Compare with column** - the cell must compare as chosen (equal, not
+  equal, less than, at most, greater than, at least) with another column in
+  the same row, for example end at least start. Numbers compare as numbers;
+  dates and times compare by time, a date counting as midnight; texts compare
+  as text, case counting. Values of different kinds fail. An empty cell on
+  either side passes. The rule needs a named column.
+- **One of these values** - the cell must be exactly one of the values you
+  choose. Press **Values (n)...** to see the column's distinct values, most
+  common first, with counts and tick boxes; **Find** narrows the list and
+  **Add value** takes a value not in the data yet. Matching is exact: case and
+  trailing spaces count. Empty cells pass. The list shows at most 1,000
+  values; a column with more has only the Add field. On a partly loaded
+  table (database tab, large file) the list covers the rows loaded so far.
+  Values already in the rule but absent from the data stay listed and can be
+  unticked.
+
+Rules point at columns by position while the tab is open, so after deleting
+or moving columns check that they still name the columns you meant.
 
 The footer shows a live count of how many cells currently fail.
 
@@ -411,12 +451,15 @@ removes one; **Clear all** removes them all.
 which is fine while exploring and useless once the same check has to run every
 week. **Save rules...** writes them to a TOML file and **Load rules...** reads
 one back. Rules are stored by column name, not position, because a rules file
-outlives the table it was written from. If a loaded file names a column this
+outlives the table it was written from. A compare rule is written as
+kind "compare" with op (one of =, !=, <, <=, >, >=) and other_column; a pick
+rule as kind "one_of" with values. If a loaded file names a column this
 table does not have, the dialog says which ones rather than dropping them
 quietly: a rules file that half applies is worse than one that fails loudly.
 The same file runs as `octa --check FILE --rules RULES.toml`, which exits 1 on
 any violation and on any rule that could not run, and as the `check_rules` MCP
-tool.
+tool. A compare failure's report names both values, for example
+end=2024-01-01, start=2024-02-01.
 "#;
 
 pub const IMPUTE: &str = r#"# Fill Missing Values
@@ -512,21 +555,53 @@ It is off by default, so files load with their original headers unless you
 opt in. It pairs naturally with **Trim whitespace on load**.
 "#;
 
-pub const PARTITION: &str = r#"# Partition by Column
+pub const PARTITION: &str = r#"# Split into Files
 
-Partition by Column splits the active table into one file per distinct
-value of a column, like sorting rows into folders by category. Open it via
-**Data > Partition by column...** (Ctrl+Shift+Z).
+Split into Files writes the active table as several files: one per value of
+a column, at most so many rows each, at most so much size each, or a mix.
+Open it via **Data > Split into files...** (Ctrl+Shift+Z).
 
-## How it works
+## The three limits
 
-Pick the column to split on and an output folder. Octa writes one file per
-distinct value (named after the value) in the format you choose. For
-example, partitioning a sales table by `region` gives you `North.csv`,
-`South.csv`, and so on.
+Choose at least one of these; they combine.
 
-The original table is not changed. Also available as
-`octa --partition-by` and the `partition_table` assistant/MCP tool.
+- **Column** - one file per distinct value, named after the value. Splitting a
+  sales table by `region` gives `north.csv`, `south.csv`, and so on. Leave it
+  at **(none)** to split the whole table by rows or size only.
+- **Max rows per file** - no file holds more rows than this. Type a whole
+  number; `10,000` works.
+- **Max size per file (MB)** - no file is bigger than this (1 MB = 1,000,000
+  bytes; decimals such as `2.5` work). Octa writes a file, measures it and
+  rewrites it with fewer rows if it came out too big, so every format works,
+  compressed Parquet included. Files land a little under the limit rather than
+  packed to the byte.
+
+With a column and a limit, each value is split further. With only a limit the
+files are named after the source file.
+
+## Names
+
+Without a row or size limit the names are the plain ones below. With a limit
+every file gets a part number: flat files become `berlin_part_0001.csv`,
+`berlin_part_0002.csv`, ..., and the folder layouts number the files inside
+their folder (`city=Berlin/part-0001.csv`). The numbers count per folder, so
+each folder starts at `part-0001`. The preview in the dialog uses the same
+naming code as the writer and shows the first file of the first few values.
+
+## Big tabs
+
+If the tab holds only part of its source, the dialog says so and offers
+**Load the rest**; split writes only the rows that are loaded. A tab that
+shows one page of a very large file is refused with a pointer to
+`octa --split-rows` and `octa --split-size`, which stream the whole file.
+
+## Running
+
+The split runs in the background with a progress line and **Cancel**. Cancel
+stops after the file being written; files already written stay.
+
+The original table is not changed. Also available as `octa --partition-by`,
+`--split-rows`, `--split-size` and the `partition_table` assistant/MCP tool.
 
 ### Choosing how the pieces are named
 
@@ -534,7 +609,7 @@ The **Layout** option offers four shapes. Taking `city` with values `New York`,
 `Berlin` and `Sao Paulo`, and writing CSV:
 
 - **Flat files** - `new_york.csv`, `berlin.csv`, `sao_paulo.csv`
-- **Folder per value** - `New York/part-0001.csv`, `Berlin/part-0002.csv`
+- **Folder per value** - `New York/part-0001.csv`, `Berlin/part-0001.csv`
 - **Hive folders** - `city=New York/data.csv`, `city=Berlin/data.csv`
 - **Hive folders, numbered files** - `city=New York/part-0001.csv`
 
@@ -563,13 +638,9 @@ You do not have to work this out from the descriptions. The dialog shows a
 with the same code that writes the files, and it follows every change to the
 column, the format and the layout.
 
-Those names above are illustrations. In the dialog, **hover either option and
-it shows the names your own table would produce**: the first few real values
-of the column you picked, run through the same naming the writer uses, so the
-tooltip and the disk agree.
-
-Both options explain themselves on hover. Flat is the default, so nothing
-changes unless you pick otherwise.
+The layouts only apply when you split by a column. Every option explains
+itself on hover. Flat is the default, so nothing changes unless you pick
+otherwise.
 "#;
 
 pub const OUTLIERS: &str = r#"# Detect Outliers
@@ -704,4 +775,81 @@ the hash, for every row:
 - The same function is available from the command line as
   `octa --hash-columns` and to AI agents as the MCP tool
   `hash_columns`.
+"#;
+
+pub const HEADER_ROW: &str = r#"# Header row
+
+Some files do not start with their column names. Bank and government exports
+often put a title block above the real header, Excel reports spread the
+header over two rows with merged cells, and some files have no header at
+all. Octa opens them as they are and lets you fix the header afterwards.
+
+## Use a row as the header
+
+Right-click any cell in the row that holds the column names and pick **Use as
+header row**. That row becomes the column names, and it and every row above
+it are removed.
+
+When the header spans two rows (a merged `2025` above `Q1 Q2 Q3 Q4`), select
+both rows first: click the first row number, Shift+click the second, then
+right-click. The entry reads **Use rows 4-5 as header** and combines them. A
+blank cell in the upper row takes the text to its left, so the merged `2025`
+reaches every quarter below it and the names become `2025 Q1`, `2025 Q2`, and
+so on.
+
+Blank names become `column_1`, `column_2`, ...; a name that repeats gets
+`_2`, `_3`.
+
+Afterwards Octa looks at every column again, the way it does when a file
+opens: a column that was text only because of the title rows becomes numbers
+or dates again, European numbers like `1.234,56` included. A column that
+could be read two ways, such as dates that work day first and month first,
+stays text; **Change column type** lets you pick.
+
+**Ctrl+Z** puts everything back in one step: the rows, the names and the
+types.
+
+## Octa suggests the row
+
+When most column names are placeholders such as `column_3` or `Column3`, the
+file almost certainly has a title block. Octa then looks through the first
+20 rows for one that is filled across and made of words, and shows a banner:
+
+> The column names look like they are in row 4. **Use row 4 as header**
+> **Dismiss**
+
+Nothing changes until you click. For a merged two-row header the banner
+offers both rows.
+
+## A file without a header
+
+If the first row of the file is data, Octa has used it as the column names.
+Untick **Edit > First row is header**: the names go back into the table as
+the first row, and the columns are called `column_1`, `column_2`, and so on.
+Tick it again, or press Ctrl+Z, to undo that.
+
+## When it is not available
+
+- In read-only mode and in large-file mode, like every other edit.
+- On database tables: their column names come from the database.
+- While a filter hides rows: rows above the header that you cannot see would
+  be removed. Clear the filter first. A sort is fine, because the rows above
+  are then the rows you see above.
+
+## Next month's file
+
+Both actions are recorded as Recipe steps (`use_header_rows`,
+`header_is_data`), so replaying the recipe on next month's export fixes its
+header the same way: in Octa, with `octa --recipe`, and over MCP. The step
+remembers the row number, so it fits files whose title block has the same
+height.
+
+## Title lines in CSV files
+
+A CSV whose first line is a title (`Report generated 03.10.2026`) used to open
+one column wide, because every row was sized to that line. Octa now sizes the
+table to the rows below it and finds the separator from the lines that agree
+with each other, so a `;` file with a title line opens with every field in
+place. Columns that are empty in every row, because each line ends in a
+separator, are left out as before.
 "#;

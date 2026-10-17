@@ -56,7 +56,7 @@ searchable"). Open that version in Octa.
   unprotected copy first. PDFs that are only protected against editing
   or printing open normally.
 
-## From the command line and the assistant
+## Command line and MCP
 
 Every command that reads a file reads PDFs too. Commands that take a
 single table (`--convert`, `--head`, ...) read the first one; `--describe`

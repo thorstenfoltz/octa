@@ -23,143 +23,131 @@ like Claude can answer questions about your local files.
 
 ---
 
-## What it's good for
+## What you can do
+
+The [user guide](guide/index.md) is sorted by task. Each topic lists its
+jobs with where to find them in the app, on the command line, and as an
+MCP tool.
 
 <div class="grid cards" markdown>
 
-- :material-table-eye:{ .lg .middle } **Look at data quickly**
+- :material-folder-open-outline:{ .lg .middle } **Open files**
 
     ---
 
-    Drag a Parquet, a Stata `.dta`, a SQLite database, an Excel
-    workbook, Octa figures out the format and opens it in a table.
-    Multi-million-row Parquet files stream in the background while
-    you scroll. Even the tables inside a PDF open as a grid.
+    Parquet, CSV, Excel, SQLite, a PDF's tables, a log file: Octa works out
+    the format and opens it in a table. Files bigger than memory stream in
+    the background.
 
-    [:octicons-arrow-right-24: Supported formats](getting-started/supported-formats.md)
+    [:octicons-arrow-right-24: Open files](guide/open/index.md)
 
-- :material-database-search:{ .lg .middle } **Run SQL against any file**
-
-    ---
-
-    Every open file is exposed to DuckDB as a temp table called
-    `data`. No schema setup, no import step needed. Press Ctrl+Enter
-    and your `SELECT ... FROM data WHERE ...` runs against the loaded rows.
-
-    [:octicons-arrow-right-24: SQL panel](usage/sql.md)
-
-- :material-chart-line:{ .lg .middle } **Plot without leaving Octa**
+- :material-cloud-outline:{ .lg .middle } **Connect**
 
     ---
 
-    Histogram, bar, line, scatter, and box plots open in their own
-    tab via **Analyse → Chart...**. Style the title, axes, legend, and
-    per-series colours, then export to PNG, SVG, or PDF for a report
-    or slide deck.
+    Browse S3, Azure, GCS, SFTP and WebDAV, twelve live database engines and
+    REST APIs in a sidebar, and open what you find like a local file.
 
-    [:octicons-arrow-right-24: Charts](usage/chart.md)
+    [:octicons-arrow-right-24: Connect](guide/connect/index.md)
 
-- :material-console:{ .lg .middle } **Use it from the shell**
+- :material-table-eye:{ .lg .middle } **View and find**
 
     ---
 
-    `octa --schema data.parquet` prints columns + types. `octa --head`
-    / `--tail` / `--sample` slice rows out (as TSV / JSON / CSV).
-    `octa --diff a.csv b.csv` shows the rows that changed between two
-    files, and `octa --convert in.csv out.parquet` round-trips through
-    the same format readers the GUI uses.
+    Sort, filter, search, mark and bookmark rows, or switch to a raw text,
+    JSON tree, map, timeline or record view.
 
-    [:octicons-arrow-right-24: Command-line reference](cli/index.md)
+    [:octicons-arrow-right-24: View and find](guide/view/index.md)
 
-- :material-robot-outline:{ .lg .middle } **Plug Claude into your data**
+- :material-pencil:{ .lg .middle } **Edit and reshape**
 
     ---
 
-    `octa --mcp` is a Model Context Protocol server on stdio. Over
-    sixty tools, read_table, schema, run_sql, convert, profile,
-    diff_tables, write_table, edit_table, and more, lets Claude Desktop,
-    Claude Code, or any MCP client answer questions about (and edit) your
-    local files. Runs in a [container](cli/docker.md) too.
+    Edit cells inline, add columns from formulas, change types, pivot and
+    transpose, with undo for every step.
 
-    [:octicons-arrow-right-24: MCP server guide](mcp/index.md)
+    [:octicons-arrow-right-24: Edit and reshape](guide/edit/index.md)
 
-- :material-vector-difference:{ .lg .middle } **Compare two files**
+- :material-broom:{ .lg .middle } **Clean and protect**
 
     ---
 
-    Compare a CSV to a Parquet by hashing matching columns. See exact
-    line-by-line text diffs of two notebooks. Bucket rows into
-    Left-only / Right-only / Shared and inspect each.
+    Find duplicates, outliers, missing values and personal data, fix them,
+    and anonymise a table before you share it.
 
-    [:octicons-arrow-right-24: Compare view](usage/view-modes/compare.md)
+    [:octicons-arrow-right-24: Clean and protect](guide/clean/index.md)
 
-- :material-repeat:{ .lg .middle } **Repeat the monthly clean-up**
-
-    ---
-
-    Octa records what you do to a table: renames, type changes,
-    removed duplicates, typed values. Save it as a recipe (`.ocp`)
-    and replay it on next month's file with one click, or from a
-    script.
-
-    [:octicons-arrow-right-24: Recipes](usage/recipes.md)
-
-- :material-source-merge:{ .lg .middle } **Merge edited copies**
+- :material-table-merge-cells:{ .lg .middle } **Combine and split**
 
     ---
 
-    Two, three or ten people edited copies of one table. Octa puts
-    their changes back together cell by cell and asks only where two
-    of them changed the same cell differently. Works as a git merge
-    driver too.
+    Union, join, fuzzy and spatial joins, the key finder and the
+    relationship map, merging edited copies, and splitting into files.
 
-    [:octicons-arrow-right-24: Merge versions](usage/merge-versions.md)
+    [:octicons-arrow-right-24: Combine and split](guide/combine/index.md)
 
-- :material-cloud-outline:{ .lg .middle } **Open files from the cloud**
+- :material-chart-line:{ .lg .middle } **Analyse**
 
     ---
 
-    Browse and open objects straight from Amazon S3 (and S3-compatible
-    stores), Azure Blob, and Google Cloud Storage in a sidebar. Static
-    keys, SSO sign-in, or public buckets, files download and open like
-    local ones. Saving back is off by default until you opt in.
+    Summaries, value counts, correlations, time buckets, charts, forecasts
+    and a shareable HTML report.
 
-    [:octicons-arrow-right-24: Cloud storage](usage/cloud-storage.md)
+    [:octicons-arrow-right-24: Analyse](guide/analyse/index.md)
 
-- :material-api:{ .lg .middle } **Read a REST API as a table**
+- :material-vector-difference:{ .lg .middle } **Compare and history**
 
     ---
 
-    Save an endpoint with its authentication and pagination once, then
-    open it like a file: every page's rows in one table, ready to
-    filter, join or save. The credential stays in your OS keyring.
+    Diff two files or a file and a server table, spot schema and data drift,
+    and follow a cell back through Git.
 
-    [:octicons-arrow-right-24: API endpoints](usage/api-endpoints.md)
+    [:octicons-arrow-right-24: Compare and history](guide/compare/index.md)
 
-- :material-pencil:{ .lg .middle } **Edit and save back**
-
-    ---
-
-    Edit cells inline, insert and reorder columns, derive new ones with
-    [formulas](usage/formulas.md) or
-    [date/time calculation](usage/date-time-calculation.md), mark cells
-    with colours, undo and redo. Even
-    [Jupyter notebook](usage/view-modes/notebook.md) source cells are
-    editable, and saving preserves their outputs. SQLite/DuckDB writes
-    are diff-based, so only changed rows are touched.
-
-    [:octicons-arrow-right-24: Editing](usage/editing.md)
-
-- :material-translate:{ .lg .middle } **Use it in your language**
+- :material-content-save-outline:{ .lg .middle } **Save and export**
 
     ---
 
-    The interface is available in 32 languages, English, German,
-    Spanish, French, and more, switchable live under
-    **Settings → Appearance**. Text-file encodings, date formats, and
-    number separators are detected per file.
+    Save back, convert to another format, export to PDF, a workbook or DDL,
+    and keep earlier versions.
 
-    [:octicons-arrow-right-24: Languages](reference/languages.md)
+    [:octicons-arrow-right-24: Save and export](guide/save/index.md)
+
+- :material-database-search:{ .lg .middle } **SQL and assistant**
+
+    ---
+
+    Query any open file with DuckDB SQL, or ask a language model about your
+    data in plain words.
+
+    [:octicons-arrow-right-24: SQL and assistant](guide/sql-assistant/index.md)
+
+- :material-repeat:{ .lg .middle } **Automate**
+
+    ---
+
+    Record a clean-up once and replay it as a recipe, convert whole folders,
+    and script it all from the shell.
+
+    [:octicons-arrow-right-24: Automate](guide/automate/index.md)
+
+- :material-console:{ .lg .middle } **Command line**
+
+    ---
+
+    Every job that makes sense headless is an `octa --flag`, with TSV, CSV
+    or JSON output for pipelines.
+
+    [:octicons-arrow-right-24: Command line](cli/index.md)
+
+- :material-robot-outline:{ .lg .middle } **MCP server**
+
+    ---
+
+    `octa --mcp` lets Claude Desktop, Claude Code or any MCP client read,
+    query and (if you allow it) edit your local files.
+
+    [:octicons-arrow-right-24: MCP server](mcp/index.md)
 
 </div>
 
@@ -169,15 +157,12 @@ like Claude can answer questions about your local files.
 
 - New here? Start with **[Installation](getting-started/installation.md)** and
   **[First Steps](getting-started/first-steps.md)**.
-- Looking for a specific feature? The **[View modes
-  overview](usage/view-modes/overview.md)** lists every way Octa can
-  display a file.
-- Setting up MCP? **[MCP setup walkthrough](mcp/setup.md)** has
-  step-by-step configs for Claude Desktop, Claude Code, and MCP
-  Inspector.
-- Power user? Jump to **[Keyboard
-  shortcuts](reference/shortcuts.md)** or
-  **[Tips & recipes](tips/workflows.md)**.
+- Want a complete walk-through? **[Common tasks](tips/workflows.md)** goes from
+  a messy CSV to a clean Parquet, compares two files, and more.
+- Setting up MCP? **[MCP setup](mcp/setup.md)** has step-by-step configs for
+  Claude Desktop, Claude Code, and MCP Inspector.
+- Power user? Jump to **[Keyboard shortcuts](reference/shortcuts.md)** or the
+  **[Settings reference](reference/settings.md)**.
 
 Octa is open source (MIT) and the source lives at
 [github.com/thorstenfoltz/octa](https://github.com/thorstenfoltz/octa).

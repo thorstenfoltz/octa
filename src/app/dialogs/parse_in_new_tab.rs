@@ -117,7 +117,7 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
         egui::Panel::top("parse_in_new_tab_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(octa::i18n::t("edit_menu.parse_in_new_tab"))
                             .strong()
@@ -143,7 +143,7 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
             ui.label(egui::RichText::new(&state.source_label).strong());
             ui.add_space(6.0);
 
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("dialog.pnt_parse_as"));
                 egui::ComboBox::from_id_salt("parse_format_combo")
                     .selected_text(PARSE_FORMATS[state.format_idx].0)
@@ -158,7 +158,7 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
             // the dialog stays compact.
             let ext = PARSE_FORMATS[state.format_idx].1;
             if ext == "csv" || ext == "tsv" {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(octa::i18n::t("dialog.pnt_delimiter"));
                     ui.add(
                         egui::TextEdit::singleline(&mut state.csv_delimiter).desired_width(48.0),
@@ -181,7 +181,7 @@ pub(crate) fn render_parse_in_new_tab_dialog(app: &mut OctaApp, ctx: &egui::Cont
             );
 
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui
                     .button(octa::i18n::t("dialog.pnt_open_in_new_tab"))
                     .clicked()

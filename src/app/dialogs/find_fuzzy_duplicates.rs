@@ -59,7 +59,7 @@ pub(crate) fn render_find_fuzzy_duplicates_dialog(app: &mut OctaApp, ctx: &egui:
         egui::Panel::top("fuzzy_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("fuzzy_dup.title"))
                             .strong()
@@ -80,7 +80,7 @@ pub(crate) fn render_find_fuzzy_duplicates_dialog(app: &mut OctaApp, ctx: &egui:
         egui::Panel::bottom("fuzzy_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if is_running {
                         ui.add(egui::Spinner::new());
                         ui.label(octa::i18n::t("fuzzy_dup.running"));
@@ -202,7 +202,7 @@ fn controls(ui: &mut egui::Ui, st: &mut FuzzyDuplicatesState, cols: &[String]) {
         });
     ui.separator();
 
-    ui.horizontal(|ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
         ui.label(octa::i18n::t("fuzzy_dup.method"));
         egui::ComboBox::from_id_salt("fuzzy_method")
             .selected_text(method_label(st.method))
@@ -256,7 +256,7 @@ fn controls(ui: &mut egui::Ui, st: &mut FuzzyDuplicatesState, cols: &[String]) {
         );
     });
 
-    ui.horizontal(|ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
         ui.label(octa::i18n::t("fuzzy_dup.block_on"))
             .on_hover_text(octa::i18n::t("fuzzy_dup.block_help"));
         let label = st
@@ -290,7 +290,7 @@ fn controls(ui: &mut egui::Ui, st: &mut FuzzyDuplicatesState, cols: &[String]) {
             .color(ui.visuals().weak_text_color()),
     );
 
-    ui.horizontal(|ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
         ui.label(octa::i18n::t("fuzzy_dup.max_rows"));
         ui.add(egui::TextEdit::singleline(&mut st.max_rows_text).desired_width(80.0));
     });
@@ -353,7 +353,9 @@ fn start_scan(app: &mut OctaApp, st: &mut FuzzyDuplicatesState, _cols: &[String]
     let running = st.running.clone();
     let cancel = st.cancel.clone();
 
+    let task = app.long_tasks.start(octa::i18n::t("fuzzy_dup.title"));
     let handle = std::thread::spawn(move || {
+        let _task = task;
         // Clears `running` however the worker ends: a panic here used to
         // wedge the flag true for the rest of the session.
         let _running = crate::app::flag_guard::FlagOnDrop::new(running, false);

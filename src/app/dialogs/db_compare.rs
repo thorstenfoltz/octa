@@ -31,6 +31,7 @@ pub(crate) struct CompareOutcome {
     pub(crate) table: DataTable,
     pub(crate) capped: bool,
     pub(crate) db_label: String,
+    pub(crate) within_tolerance: usize,
 }
 
 type CompareSlot = Arc<Mutex<Option<Result<CompareOutcome, String>>>>;
@@ -67,6 +68,8 @@ pub(crate) struct DbCompareState {
     pub(crate) url: String,
     /// Key columns, indices into the active tab's column list.
     pub(crate) keys: Vec<usize>,
+    /// The Tolerance block, as typed.
+    pub(crate) tolerance: crate::view_modes::compare::tolerance::ToleranceDraft,
     /// In-flight worker slot; `Some` while a comparison runs.
     pub(crate) job: Option<CompareSlot>,
     pub(crate) result_msg: Option<(bool, String)>,
@@ -128,6 +131,7 @@ impl OctaApp {
             source,
             url: String::new(),
             keys: Vec::new(),
+            tolerance: Default::default(),
             job: None,
             result_msg: None,
         });
@@ -192,6 +196,8 @@ impl OctaApp {
             st.result_msg = Some((false, t("dbcmp.need_keys")));
             return;
         }
+        let column_names: Vec<String> = left.columns.iter().map(|c| c.name.clone()).collect();
+        let options = st.tolerance.options(&column_names);
 
         let slot: CompareSlot = Arc::new(Mutex::new(None));
         st.job = Some(slot.clone());
@@ -199,7 +205,9 @@ impl OctaApp {
         let settings = self.settings.clone();
         let ctx = ctx.clone();
 
+        let task = self.long_tasks.start(octa::i18n::t("dbcmp.title"));
         std::thread::spawn(move || {
+            let _task = task;
             let outcome = (|| -> anyhow::Result<CompareOutcome> {
                 let right = match side {
                     SideB::Db {
@@ -235,11 +243,13 @@ impl OctaApp {
                 };
                 let cap = octa::formats::initial_load_rows();
                 let capped = right.row_count() >= cap || left.row_count() >= cap;
-                let result = octa::data::compare::compare_join(&left, &right, &key_names)?;
+                let result =
+                    octa::data::compare::compare_join(&left, &right, &key_names, &options)?;
                 Ok(CompareOutcome {
                     table: octa::data::compare::build_compare_table(&left, &right, &result),
                     capped,
                     db_label,
+                    within_tolerance: result.within_tolerance,
                 })
             })()
             .map_err(|e| format!("{e:#}"));
@@ -259,8 +269,15 @@ impl OctaApp {
         new_tab.table.source_path = None;
         new_tab.table.format_name = None;
         new_tab.custom_tab_label = Some(format!("{} - {}", t("dbcmp.tab_label"), outcome.db_label));
+        let mut notes = Vec::new();
         if outcome.capped {
-            new_tab.parse_error_banner = Some(t("dbcmp.capped_note"));
+            notes.push(t("dbcmp.capped_note"));
+        }
+        if outcome.within_tolerance > 0 {
+            notes.push(t("cmptol.within").replace("{n}", &outcome.within_tolerance.to_string()));
+        }
+        if !notes.is_empty() {
+            new_tab.parse_error_banner = Some(notes.join(" "));
         }
         self.tabs.push(new_tab);
         self.active_tab = self.tabs.len() - 1;
@@ -319,7 +336,7 @@ pub(crate) fn render_db_compare_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("db_compare_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(RichText::new(t("dbcmp.title")).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -336,7 +353,7 @@ pub(crate) fn render_db_compare_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("db_compare_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if running {
                         ui.spinner();
                         ui.label(t("dbcmp.running"));
@@ -401,6 +418,7 @@ pub(crate) fn render_db_compare_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     .num_columns(2)
                     .spacing([12.0, 8.0])
                     .show(ui, |ui| {
+                        octa::ui::control_row::pin_control_height(ui);
                         ui.label(t("dbcmp.connection"))
                             .on_hover_text(t("dbcmp.connection_hint"));
                         let selected = connections
@@ -461,6 +479,13 @@ pub(crate) fn render_db_compare_dialog(app: &mut OctaApp, ctx: &egui::Context) {
             ui.label(RichText::new(t("dbcmp.keys")).strong())
                 .on_hover_text(t("dbcmp.keys_hint"));
             multi_col_picker(ui, "db_compare_keys", &mut st.keys, &columns);
+            ui.add_space(8.0);
+            crate::view_modes::compare::tolerance::tolerance_controls(
+                ui,
+                "db_compare_tolerance",
+                &mut st.tolerance,
+                &columns,
+            );
 
             if let Some((ok, msg)) = &st.result_msg {
                 ui.add_space(8.0);

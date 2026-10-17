@@ -69,6 +69,9 @@ impl OctaApp {
         });
         // Apply the persisted UI language before any frame renders.
         octa::i18n::set_language(&settings.language);
+        // Plain copies of protected files that a crashed session left behind.
+        // A running Octa's folders hold their lock and are left alone.
+        octa::formats::encrypt::sweep_stale_protected_dirs(&std::env::temp_dir());
         // Warn once at startup if the chat audit logs have grown past the
         // configured limit (so they don't accumulate unnoticed).
         let audit_warning = if settings.chat_audit_log_warn_enabled {
@@ -139,6 +142,11 @@ impl OctaApp {
             logo_texture: None,
             welcome_logo_texture: None,
             initial_files,
+            instance: None,
+            attention_pending: false,
+            long_task: None,
+            long_tasks: Default::default(),
+            taskbar_icon_pending: true,
             pending_open_file: false,
             show_open_confirm: false,
             show_about_dialog: false,
@@ -170,6 +178,7 @@ impl OctaApp {
             pending_table_picker: None,
             pending_sheet_picker: None,
             pending_compressed_origin: None,
+            pending_protected_origins: Vec::new(),
             pending_load: None,
             union_prep: None,
             union_progress: None,
@@ -191,10 +200,16 @@ impl OctaApp {
             pending_file_repair: None,
             pending_round_save: None,
             pending_xlsx_style_save: None,
+            pending_save_as: None,
+            password_save: None,
+            saving_automatically: false,
+            versioned_paths: std::collections::HashSet::new(),
+            file_versions_dialog: None,
             xlsx_style_remember: false,
             pending_schema_change_save: None,
             pending_db_write_back: None,
             db_write_back_job: None,
+            db_conflicts: None,
             ask_filter_job: None,
             full_scan_job: None,
             load_cap_to_restore: None,
@@ -203,15 +218,19 @@ impl OctaApp {
             join_diag_dialog: None,
             harmonise_dialog: None,
             db_compare_dialog: None,
+            folder_compare: None,
+            pending_pair_compare: None,
             drift_dialog: None,
             merge_versions_dialog: None,
             test_data_dialog: None,
             pending_large_file_notice: None,
             large_convert_job: None,
+            large_open_job: None,
             large_check_bypass: None,
             large_filter_pending: None,
             rel_map_dialog: None,
             db_copy_dialog: None,
+            db_export_dialog: None,
             cloud_transfer_dialog: None,
             pending_parse_modal: None,
             schema_export: None,
@@ -230,6 +249,8 @@ impl OctaApp {
             correlation_dialog: None,
             lookups_dialog: None,
             cell_history_dialog: None,
+            binary_viewer: None,
+            binary_temp_dir: None,
             dist_compare_dialog: None,
             referential_dialog: None,
             units_dialog: None,

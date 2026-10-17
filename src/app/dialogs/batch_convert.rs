@@ -76,7 +76,7 @@ pub(crate) fn render_batch_convert_dialog(app: &mut OctaApp, ctx: &egui::Context
         egui::Panel::top("batch_convert_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("batch.title"))
                             .strong()
@@ -97,7 +97,7 @@ pub(crate) fn render_batch_convert_dialog(app: &mut OctaApp, ctx: &egui::Context
         egui::Panel::bottom("batch_convert_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if running {
                         ui.spinner();
                         ui.label(
@@ -109,14 +109,21 @@ pub(crate) fn render_batch_convert_dialog(app: &mut OctaApp, ctx: &egui::Context
                             st.cancel.store(true, Ordering::Relaxed);
                         }
                     } else {
-                        let ready = st.out_dir.is_some() && !st.inputs.is_empty();
-                        if ui
-                            .add_enabled(ready, egui::Button::new(octa::i18n::t("batch.run")))
-                            .clicked()
-                        {
+                        let pass_ok = !st.protect
+                            || (!st.pass_buf.is_empty() && st.pass_buf == st.repeat_buf);
+                        let ready = st.out_dir.is_some() && !st.inputs.is_empty() && pass_ok;
+                        let run_btn =
+                            ui.add_enabled(ready, egui::Button::new(octa::i18n::t("batch.run")));
+                        if !pass_ok {
+                            run_btn.on_disabled_hover_text(octa::i18n::t(
+                                "password_save.save_disabled_hint",
+                            ));
+                        } else if run_btn.clicked() {
                             run = true;
                         }
-                        if !ready {
+                        // Shown beside the button whatever the passphrase
+                        // says, so both missing things are named.
+                        if st.out_dir.is_none() || st.inputs.is_empty() {
                             ui.label(
                                 RichText::new(octa::i18n::t("batch.need_dir"))
                                     .size(10.0)
@@ -160,6 +167,7 @@ pub(crate) fn render_batch_convert_dialog(app: &mut OctaApp, ctx: &egui::Context
             egui::Grid::new("batch_convert_grid")
                 .num_columns(2)
                 .show(ui, |ui| {
+                    octa::ui::control_row::pin_control_height(ui);
                     ui.label(octa::i18n::t("batch.target"));
                     egui::ComboBox::from_id_salt("batch_target")
                         .selected_text(&st.target_ext)
@@ -171,7 +179,7 @@ pub(crate) fn render_batch_convert_dialog(app: &mut OctaApp, ctx: &egui::Context
                     ui.end_row();
 
                     ui.label(octa::i18n::t("batch.out_dir"));
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         if ui.button(octa::i18n::t("batch.choose_dir")).clicked() {
                             pick_dir = true;
                         }
@@ -184,6 +192,31 @@ pub(crate) fn render_batch_convert_dialog(app: &mut OctaApp, ctx: &egui::Context
 
             ui.add_space(4.0);
             ui.checkbox(&mut st.overwrite, octa::i18n::t("batch.overwrite"));
+
+            ui.add_space(4.0);
+            ui.checkbox(&mut st.protect, octa::i18n::t("batch.protect"))
+                .on_hover_text(octa::i18n::t("batch.protect_hint"));
+            if st.protect {
+                octa::ui::control_row::control_grid(ui, "batch_protect_grid", |ui| {
+                    ui.label(octa::i18n::t("password_save.passphrase"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut st.pass_buf)
+                            .password(true)
+                            .desired_width(220.0),
+                    )
+                    .on_hover_text(octa::i18n::t("password_save.passphrase_hint"));
+                    ui.end_row();
+                    ui.label(octa::i18n::t("password_save.repeat"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut st.repeat_buf)
+                            .password(true)
+                            .desired_width(220.0),
+                    )
+                    .on_hover_text(octa::i18n::t("password_save.repeat_hint"));
+                    ui.end_row();
+                });
+                ui.label(octa::i18n::t("batch.protect_note"));
+            }
 
             ui.add_space(4.0);
             render_write_options(ui, &mut st.write_options, &mut st.row_group_buf);
@@ -216,7 +249,13 @@ fn start_run(app: &mut OctaApp, ctx: &egui::Context) {
     let Some(out_dir) = st.out_dir.clone() else {
         return;
     };
-    let plan = plan_batch(&st.inputs, &out_dir, &st.target_ext, st.overwrite);
+    let plan = plan_batch(
+        &st.inputs,
+        &out_dir,
+        &st.target_ext,
+        st.overwrite,
+        st.protect,
+    );
     st.total = plan.len();
     st.progress.store(0, Ordering::Relaxed);
     st.cancel.store(false, Ordering::Relaxed);
@@ -228,6 +267,8 @@ fn start_run(app: &mut OctaApp, ctx: &egui::Context) {
     let result = std::sync::Arc::clone(&st.result);
     // Write options for this run: the dialog's copy, seeded from Settings.
     let write_opts = st.write_options.clone();
+    let pass = st.protect.then(|| std::mem::take(&mut st.pass_buf));
+    st.repeat_buf.clear();
     let ctx = ctx.clone();
 
     std::thread::spawn(move || {
@@ -239,6 +280,7 @@ fn start_run(app: &mut OctaApp, ctx: &egui::Context) {
             &|done, _total| progress.store(done, Ordering::Relaxed),
             &cancel,
             &write_opts,
+            pass.as_deref(),
         );
         if let Ok(mut slot) = result.lock() {
             *slot = Some(report);

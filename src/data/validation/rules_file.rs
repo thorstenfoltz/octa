@@ -13,6 +13,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::data::ColumnInfo;
+use crate::data::conditional_format::CondOp;
 use crate::data::validation::{ValidationKind, ValidationRule};
 
 /// A rules file. The array is named `rule` so the TOML reads `[[rule]]`.
@@ -30,7 +31,8 @@ pub struct NamedRule {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub column: Option<String>,
     /// One of `not_null`, `range`, `regex`, `unique`, `max_length`, or an ID
-    /// check: `iban`, `card_number`, `gtin`, `vat_id`, `email`.
+    /// check: `iban`, `card_number`, `gtin`, `vat_id`, `email`; or `compare`,
+    /// `one_of`.
     pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min: Option<f64>,
@@ -40,6 +42,15 @@ pub struct NamedRule {
     pub pattern: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_length: Option<usize>,
+    /// `compare`: one of `=`, `!=`, `<`, `<=`, `>`, `>=`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<String>,
+    /// `compare`: the column on the other side, in the same row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub other_column: Option<String>,
+    /// `one_of`: the allowed values, exactly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub values: Option<Vec<String>>,
 }
 
 /// The on-disk name of a kind. Kept next to the parser below so the two
@@ -52,7 +63,28 @@ fn kind_id(kind: &ValidationKind) -> &'static str {
         ValidationKind::Unique => "unique",
         ValidationKind::MaxLength(_) => "max_length",
         ValidationKind::Id(k) => k.id(),
+        ValidationKind::CompareColumn { .. } => "compare",
+        ValidationKind::OneOf(_) => "one_of",
     }
+}
+
+/// The rules file writes a comparison as its symbol.
+fn op_symbol(op: CondOp) -> &'static str {
+    match op {
+        CondOp::Eq => "=",
+        CondOp::Ne => "!=",
+        CondOp::Lt => "<",
+        CondOp::Le => "<=",
+        CondOp::Gt => ">",
+        _ => ">=",
+    }
+}
+
+fn op_from_symbol(s: &str) -> Option<CondOp> {
+    CondOp::COMPARISONS
+        .iter()
+        .copied()
+        .find(|op| op_symbol(*op) == s.trim())
 }
 
 /// Turn live rules into their file form, naming the columns they point at.
@@ -75,6 +107,11 @@ pub fn to_named(rules: &[ValidationRule], columns: &[ColumnInfo]) -> RulesFile {
                 }
                 ValidationKind::Regex(p) => out.pattern = Some(p.clone()),
                 ValidationKind::MaxLength(n) => out.max_length = Some(*n),
+                ValidationKind::CompareColumn { op, other } => {
+                    out.op = Some(op_symbol(*op).to_string());
+                    out.other_column = columns.get(*other).map(|c| c.name.clone());
+                }
+                ValidationKind::OneOf(values) => out.values = Some(values.clone()),
                 ValidationKind::NotNull | ValidationKind::Unique | ValidationKind::Id(_) => {}
             }
             out
@@ -112,6 +149,41 @@ pub fn resolve(file: &RulesFile, columns: &[ColumnInfo]) -> (Vec<ValidationRule>
             },
             "regex" => ValidationKind::Regex(r.pattern.clone().unwrap_or_default()),
             "max_length" => ValidationKind::MaxLength(r.max_length.unwrap_or(0)),
+            "compare" => {
+                if column.is_none() {
+                    unknown.push("a compare rule needs a column".to_string());
+                    continue;
+                }
+                let Some(op) = r.op.as_deref().and_then(op_from_symbol) else {
+                    unknown.push(format!(
+                        "compare rule on '{}' needs op =, !=, <, <=, > or >=",
+                        r.column.as_deref().unwrap_or_default()
+                    ));
+                    continue;
+                };
+                let Some(other_name) = r.other_column.as_deref() else {
+                    unknown.push(format!(
+                        "compare rule on '{}' needs other_column",
+                        r.column.as_deref().unwrap_or_default()
+                    ));
+                    continue;
+                };
+                let Some(other) = columns.iter().position(|c| c.name == other_name) else {
+                    unknown.push(other_name.to_string());
+                    continue;
+                };
+                ValidationKind::CompareColumn { op, other }
+            }
+            "one_of" => match &r.values {
+                Some(values) if !values.is_empty() => ValidationKind::OneOf(values.clone()),
+                _ => {
+                    unknown.push(format!(
+                        "one_of rule on '{}' lists no values",
+                        r.column.as_deref().unwrap_or("(any column)")
+                    ));
+                    continue;
+                }
+            },
             other => match crate::data::id_checks::IdKind::from_id(other) {
                 Some(k) => ValidationKind::Id(k),
                 None => {
@@ -139,94 +211,5 @@ pub fn save(path: &Path, file: &RulesFile) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::data::ColumnInfo;
-    use crate::data::validation::{ValidationKind, ValidationRule};
-
-    fn cols() -> Vec<ColumnInfo> {
-        vec![
-            ColumnInfo {
-                name: "order_id".into(),
-                data_type: "Int64".into(),
-            },
-            ColumnInfo {
-                name: "amount".into(),
-                data_type: "Float64".into(),
-            },
-        ]
-    }
-
-    #[test]
-    fn round_trips_through_toml() {
-        let rules = vec![
-            ValidationRule {
-                column: Some(0),
-                kind: ValidationKind::Unique,
-            },
-            ValidationRule {
-                column: Some(1),
-                kind: ValidationKind::Range {
-                    min: Some(0.0),
-                    max: Some(100.0),
-                },
-            },
-            ValidationRule {
-                column: None,
-                kind: ValidationKind::NotNull,
-            },
-            ValidationRule {
-                column: Some(0),
-                kind: ValidationKind::Id(crate::data::id_checks::IdKind::VatId),
-            },
-        ];
-        let file = to_named(&rules, &cols());
-        let text = toml::to_string_pretty(&file).unwrap();
-        let back: RulesFile = toml::from_str(&text).unwrap();
-        let (resolved, unknown) = resolve(&back, &cols());
-        assert!(unknown.is_empty());
-        assert_eq!(resolved, rules);
-    }
-
-    #[test]
-    fn an_unknown_column_is_reported_not_skipped() {
-        let text = r#"
-[[rule]]
-column = "nope"
-kind = "unique"
-"#;
-        let file: RulesFile = toml::from_str(text).unwrap();
-        let (resolved, unknown) = resolve(&file, &cols());
-        assert!(resolved.is_empty());
-        assert_eq!(unknown, vec!["nope".to_string()]);
-    }
-
-    #[test]
-    fn a_rule_without_a_column_applies_to_every_column() {
-        let text = r#"
-[[rule]]
-kind = "not_null"
-"#;
-        let file: RulesFile = toml::from_str(text).unwrap();
-        let (resolved, unknown) = resolve(&file, &cols());
-        assert!(unknown.is_empty());
-        assert_eq!(resolved.len(), 1);
-        assert_eq!(resolved[0].column, None);
-    }
-
-    #[test]
-    fn an_unknown_kind_resolves_to_nothing_and_is_reported() {
-        let text = r#"
-[[rule]]
-column = "amount"
-kind = "sparkles"
-"#;
-        let file: RulesFile = toml::from_str(text).unwrap();
-        let (resolved, unknown) = resolve(&file, &cols());
-        assert!(resolved.is_empty());
-        assert!(
-            unknown.iter().any(|u| u.contains("sparkles")),
-            "got {unknown:?}"
-        );
-    }
-}
+#[path = "rules_file_tests.rs"]
+mod tests;

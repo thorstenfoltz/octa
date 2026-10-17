@@ -4,7 +4,7 @@ A few quick utilities for reshaping and tidying the active table.
 
 ## Transpose
 
-**Analyse > Transpose...** swaps rows and columns into a new tab. The original
+**Analyse > Transpose** swaps rows and columns into a new tab. The original
 column names become the first column, and each original row becomes a column.
 Everything is shown as text, since a transposed mix of column types has no single
 type.
@@ -69,12 +69,9 @@ options:
 A single **Undo** reverts the whole thing. Octa can already do this automatically
 when opening a file; this lets you run it at any time.
 
-## Clickable links
+## Command line and MCP
 
-When a cell holds a web address (`http://` or `https://`), Octa shows it as an
-underlined link. **Ctrl+click** opens it in your browser; a plain click still
-selects the cell as usual.
+The same job without the GUI:
 
-Because Ctrl+click also toggles a cell in a multi-cell selection, on a link cell
-the Ctrl+click opens the link instead of toggling that one cell. You can turn the
-whole feature off with **Settings > Table View > Clickable web links**.
+- Command line: [`octa --sample`](../cli/sample.md)
+- MCP: [`sample`](../mcp/tools/sample.md)

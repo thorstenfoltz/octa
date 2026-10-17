@@ -67,7 +67,7 @@ field is greyed out; see
 tables and columns already filled in. There is one join implementation
 in Octa, and this is not it.
 
-## Over MCP
+## MCP and the assistant
 
 The same diagnosis is the `diagnose_join` tool, so an assistant can run
 it before proposing a join. It is read-only and stays available under

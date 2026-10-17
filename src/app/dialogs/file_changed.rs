@@ -50,7 +50,7 @@ pub(crate) fn render_file_changed_dialog(app: &mut OctaApp, ctx: &egui::Context)
         egui::Panel::top("file_changed_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(octa::i18n::t("dialog.file_changed_title"))
                             .strong()
@@ -74,7 +74,7 @@ pub(crate) fn render_file_changed_dialog(app: &mut OctaApp, ctx: &egui::Context)
             let colour = ui.visuals().weak_text_color();
             octa::ui::message::selectable_message(ui, colour, &path);
             ui.add_space(12.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui
                     .button(octa::i18n::t("dialog.file_changed_overwrite"))
                     .on_hover_text(octa::i18n::t("dialog.file_changed_overwrite_hint"))

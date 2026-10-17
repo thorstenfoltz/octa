@@ -294,6 +294,7 @@ impl OctaApp {
                                         c,
                                         cat.as_deref(),
                                         schemas,
+                                        None,
                                     )?,
                                     Vec::new(),
                                 )

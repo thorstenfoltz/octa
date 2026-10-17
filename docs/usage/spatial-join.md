@@ -137,7 +137,7 @@ octa --spatial-join samples/features/customer_locations.csv \
      --spatial-op nearest --within-km 100
 ```
 
-## Command line and assistant
+## Command line and MCP
 
 `octa --spatial-join` (see [`--spatial-join`](../cli/spatial-join.md)) and
 the [`spatial_join`](../mcp/tools/spatial_join.md) MCP tool do the same.

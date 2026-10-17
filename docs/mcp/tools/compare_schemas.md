@@ -86,3 +86,4 @@ Comparing two tables inside SQLite databases:
   validation against a fixed expected schema.
 - [`export_schema`](export_schema.md) to lock in a schema for later
   comparison.
+- Command line: [`octa --compare-schemas`](../../cli/compare-schemas.md)

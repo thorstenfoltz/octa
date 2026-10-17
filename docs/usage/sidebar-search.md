@@ -26,7 +26,7 @@ through the parts you have not opened yet. Octa walks the connections you
 have expanded in the background:
 
 - **Databases**: every table of every expanded connection (and of every
-  catalog, for Snowflake, Databricks and BigQuery). Most engines answer with
+  catalog, for Trino, Snowflake, Databricks and BigQuery). Most engines answer with
   one catalogue query per connection or per catalog, so this takes seconds
   even on a warehouse with hundreds of schemas. BigQuery, Athena, and a
   catalog without an `information_schema` (a Databricks `hive_metastore`)

@@ -16,7 +16,9 @@ mod dialogs;
 mod sql_pane;
 
 pub(crate) use dialogs::*;
-pub(crate) use sql_pane::SqlPane;
+pub(crate) use sql_pane::{
+    PlanView, SqlFile, SqlPane, file_display_name, read_sql_file, write_sql_file,
+};
 
 /// Maximum number of recently-closed tabs Octa remembers for the
 /// `ReopenLastClosedTab` shortcut. Matches the convention browsers use.
@@ -123,6 +125,16 @@ pub(crate) struct TabState {
     /// corrupt the document). Session-only, per tab.
     pub(crate) raw_view_wrap: bool,
     pub(crate) csv_delimiter: u8,
+    /// The CSV writes its decimal numbers with a comma (`1234,56`). Set when
+    /// the number pass reads a column as European, so an in-place save writes
+    /// the numbers back the way the file had them and a German or French
+    /// spreadsheet program still reads them as numbers.
+    pub(crate) csv_decimal_comma: bool,
+    /// The CSV started with a UTF-8 byte order mark; in-place saves keep it.
+    pub(crate) csv_bom: bool,
+    /// The choices made in the "Save as CSV" dialog, for the one save they
+    /// were made for. Taken by the write, so they never leak into a later one.
+    pub(crate) csv_save_choice: Option<CsvChoice>,
     /// Quote convention used by the raw CSV/TSV column-alignment view.
     pub(crate) raw_csv_quote: RawCsvQuote,
     /// Escape convention for quoted fields in the raw CSV/TSV view.
@@ -218,6 +230,10 @@ pub(crate) struct TabState {
     /// `None` until then so opening a tab doesn't pay the DuckDB
     /// connection cost up front.
     pub(crate) sql_workspace: Option<octa::sql::SqlWorkspace>,
+    /// What `data` in `sql_workspace` was copied from; `None` = copy again.
+    pub(crate) sql_data_stamp: Option<crate::app::sql_panel::DataStamp>,
+    /// A copy of `data` or a local query running on a worker.
+    pub(crate) sql_job: Option<crate::app::sql_panel::job::SqlJob>,
     /// The source file's modification time and size when this tab last read
     /// or wrote it. Compared before an in-place Save so another program's
     /// changes are not silently overwritten. `None` for a tab with no file
@@ -259,10 +275,27 @@ pub(crate) struct TabState {
     /// closed. Lives on the tab so write-back state survives toggling
     /// between tabs.
     pub(crate) sql_write_back: Option<super::dialogs::sql_write_back::SqlWriteBackState>,
-    /// Whether the first data row in the file is being treated as column
-    /// headers (the default for most readers). When toggled off, the headers
-    /// are pushed back into row 0 and column names become `column_1..N`.
-    pub(crate) first_row_is_header: bool,
+    /// The rows the load banner offers as the header (a title block was
+    /// found above it). Set once per load, cleared by any header action.
+    pub(crate) header_suggestion: Option<octa::data::header_rows::HeaderSuggestion>,
+    /// Records read from the source file so far: where the next background
+    /// chunk starts. Not `row_count()`, which removing rows changes.
+    pub(crate) file_rows_read: usize,
+    /// Where the CSV chunk loader stopped, so the next chunk seeks there.
+    pub(crate) csv_resume: octa::formats::csv_reader::ChunkResume,
+    /// The load's date and number conversions, repeated on streamed chunks
+    /// (see `bg_rows::cast_chunk`).
+    pub(crate) chunk_casts: Vec<(usize, crate::app::bg_rows::ChunkCast)>,
+    /// Picker answers being converted on workers; see `column_cast_job`.
+    pub(crate) column_casts: Vec<crate::app::column_cast_job::ColumnCastJob>,
+    /// A live-database import into this tab's SQL workspace, running on a
+    /// worker; see `sql_panel::workspace`.
+    pub(crate) sql_import: Option<crate::app::sql_panel::workspace::SqlImport>,
+    /// The other open tabs being copied into this tab's SQL workspace on a
+    /// worker; see `sync_open_tabs_into_workspace`.
+    pub(crate) sql_other_tabs: Option<crate::app::sql_panel::workspace::OtherTabsCopy>,
+    /// The load trimmed whitespace, so streamed chunks are trimmed too.
+    pub(crate) chunk_trim: bool,
     /// Column index whose value-frequency dialog is currently open for this
     /// tab. `None` = dialog closed. Set by Ctrl+Shift+I, column-header
     /// right-click -> "Value frequency...", or the Edit menu.
@@ -464,6 +497,11 @@ pub(crate) struct TabState {
     pub(crate) server_hash_seen: Vec<String>,
     /// The view the loaded rows came from; `None` is the plain table.
     pub(crate) server_view: Option<octa::db::pushdown::view::ServerView>,
+    /// A Columns > Detect dates in flight; the tab is read-only meanwhile.
+    pub(crate) date_detect: Option<crate::app::date_detect::DateDetectJob>,
+    /// A big save being written in the background; the tab is read-only
+    /// meanwhile, and dropping the job stops it with the file untouched.
+    pub(crate) saving: Option<crate::app::file_io::save_job::SaveJob>,
     /// A re-query in flight: the view it fetches, and its task.
     pub(crate) view_task: Option<(
         octa::db::pushdown::view::ServerView,
@@ -553,6 +591,11 @@ pub(crate) struct TabState {
     /// Error banner shown above the Compare view (e.g. failed to load
     /// the right-side file). Dismissable.
     pub(crate) compare_error: Option<String>,
+    /// The compare view's Tolerance block, as typed (session only).
+    pub(crate) compare_tolerance: crate::view_modes::compare::tolerance::ToleranceDraft,
+    /// The compare view's last Ordered / Join result. Dropped whenever the
+    /// right side is replaced.
+    pub(crate) compare_cache: Option<crate::view_modes::compare::key_diff::KeyDiffCache>,
     /// Markdown payload for each EPUB chapter, in spine order. Populated by
     /// `apply_loaded_table` from `epub_reader::read_with_extras`; consumed
     /// by `view_modes::epub_reader::render_epub_view`. Empty for non-EPUB
@@ -569,6 +612,14 @@ pub(crate) struct TabState {
     /// href. Populated on first paint of a chapter that references the
     /// image; survives chapter switches so we don't re-decode every flip.
     pub(crate) epub_image_textures: std::collections::HashMap<String, egui::TextureHandle>,
+    /// A notebook's outputs for the cells that hold a picture, keyed by the
+    /// Cell column (`jupyter_reader::read_output_parts`). Empty otherwise.
+    pub(crate) notebook_outputs:
+        std::collections::HashMap<i64, Vec<octa::formats::jupyter_reader::OutputPart>>,
+    /// Those pictures decoded, keyed by (cell, part index); a picture that
+    /// cannot be decoded keeps its error so it is tried once.
+    pub(crate) notebook_textures:
+        std::collections::HashMap<(i64, usize), Result<egui::TextureHandle, String>>,
     /// Currently-displayed chapter index (0-based) in the EPUB view.
     pub(crate) epub_active_chapter: usize,
     /// Best-effort EPUB book title (from `<dc:title>`). Shown in the
@@ -633,6 +684,12 @@ pub(crate) struct TabState {
     /// Save re-compresses that temp back onto the original path. Save As to
     /// any other path leaves the original compressed file untouched.
     pub(crate) compressed_origin: Option<CompressedOrigin>,
+    /// Set when this tab was opened from a password-protected zip. Save
+    /// writes back into the zip; closing the tab removes the plain copy.
+    pub(crate) protected_origin: Option<ProtectedOrigin>,
+    /// Set on a Compare folders result tab: the folders it compared, so a
+    /// row's copies can be opened in the Compare view.
+    pub(crate) folder_compare: Option<crate::app::folder_compare::FolderCompareOrigin>,
     /// Repository root and path of this tab's file, asked of `git` once per
     /// source path: `(source_path, answer)`, the answer `None` when the file
     /// is not in a repository. Keyed on the path because a tab outlives its
@@ -650,6 +707,11 @@ pub(crate) struct TabState {
     /// The (offset, len, order, filter) the current page was fetched for, so
     /// scrolling only re-queries when the window actually moved.
     pub(crate) large_page_key: Option<crate::app::large_file::LargePageKey>,
+    /// A page of this large tab being fetched on a worker.
+    pub(crate) large_fetch: Option<crate::app::large_file::LargeFetch>,
+    /// This large tab's Save As being written by DuckDB; dropping it stops
+    /// the write with the target untouched.
+    pub(crate) large_export: Option<crate::app::file_io::large_save::LargeExport>,
 }
 
 /// Provenance of a transparently decompressed tab: the compressed file the
@@ -661,6 +723,23 @@ pub(crate) struct CompressedOrigin {
     pub(crate) original: std::path::PathBuf,
     pub(crate) codec: octa::formats::compression::Codec,
     pub(crate) temp: std::path::PathBuf,
+}
+
+/// A tab opened from a password-protected zip. Its `source_path` is the
+/// decrypted copy `temp_file` inside `temp`; Save writes that copy, then
+/// puts it back into `zip` encrypted with `passphrase`.
+///
+/// Memory only: never persisted, never logged. Deliberately not `Debug`, so
+/// the passphrase cannot reach a log through a `{:?}`.
+#[derive(Clone)]
+pub(crate) struct ProtectedOrigin {
+    pub(crate) zip: std::path::PathBuf,
+    pub(crate) entry: String,
+    pub(crate) passphrase: String,
+    pub(crate) temp_file: std::path::PathBuf,
+    /// Keeps the private folder alive while a tab uses it; the last drop
+    /// removes the folder and the plain copy with it.
+    pub(crate) _temp: std::sync::Arc<octa::formats::encrypt::ProtectedTempDir>,
 }
 
 /// Text-input staging buffers for the Chart Customise section. Kept on
@@ -733,6 +812,20 @@ pub(crate) struct OctaApp {
     /// File paths passed via command line (loaded on first frame). Each path
     /// opens in its own tab; the first replaces the empty welcome tab.
     pub(crate) initial_files: Vec<std::path::PathBuf>,
+    /// Listener for files a later `octa <file>` hands over. `None` when the
+    /// setting is off or another Octa already holds the role.
+    pub(crate) instance: Option<octa::single_instance::Listener>,
+    /// Focus was requested for handed-over files; next frame flashes the
+    /// taskbar entry instead if the OS refused it.
+    pub(crate) attention_pending: bool,
+    /// The long task the finish notification is waiting on: its label and
+    /// when the busy span started (`notify_watch.rs`).
+    pub(crate) long_task: Option<(String, std::time::Instant)>,
+    /// Worker threads that hold a token while they run (`notify_watch`).
+    pub(crate) long_tasks: crate::app::notify_watch::LongTasks,
+    /// Set the Windows taskbar's large icon on the next frame (needs
+    /// `eframe::Frame`, which only `ui()` has).
+    pub(crate) taskbar_icon_pending: bool,
     /// Pending file to open after unsaved-changes dialog resolves
     pub(crate) pending_open_file: bool,
     /// Show unsaved-changes dialog before opening a new file
@@ -798,8 +891,9 @@ pub(crate) struct OctaApp {
     pub(crate) load_all: Option<crate::app::dialogs::load_all::LoadAllState>,
     /// The question before a database sort or filter drops unsaved edits.
     pub(crate) view_edit_prompt: Option<crate::app::db_view::ViewEditPrompt>,
-    /// Tab whose Save is waiting on the partly-loaded confirmation.
-    pub(crate) pending_partial_save_confirm: Option<usize>,
+    /// Tab whose save is waiting on the partly-loaded confirmation, and
+    /// whether it is a Save As (`true`) rather than a Save.
+    pub(crate) pending_partial_save_confirm: Option<(usize, bool)>,
     /// The user answered "Save anyway" on that dialog, so the save it
     /// re-triggers must not ask again. Cleared by the save it lets past.
     pub(crate) partial_save_acknowledged: bool,
@@ -822,6 +916,11 @@ pub(crate) struct OctaApp {
         octa::formats::compression::Codec,
         std::path::PathBuf,
     )>,
+    /// Handoffs from `open_protected` to the tab placed on each decrypted
+    /// copy, each claimed only by a tab on exactly its `temp_file` (see
+    /// `claim_protected_origin`). Several can wait at once: a second
+    /// protected open must not drop the first while its read still runs.
+    pub(crate) pending_protected_origins: Vec<ProtectedOrigin>,
     pub(crate) pending_load: Option<PendingLoad>,
     /// Files being read for the Union dialog on a worker thread (see
     /// `drive_union_prep`). The dialog opens when this completes.
@@ -856,7 +955,7 @@ pub(crate) struct OctaApp {
     /// `raw_perf_prompt::render_raw_perf_prompt_dialog`.
     pub(crate) pending_raw_perf_prompt: Option<RawPerfPrompt>,
     /// Pending date-format-change banner to render above the central panel.
-    /// Set by `run_date_inference_pass` whenever one or more columns are
+    /// Set by `report_date_findings` whenever one or more columns are
     /// promoted with a non-ISO source layout. `None` once dismissed.
     pub(crate) pending_date_warning: Option<DateWarning>,
     /// Pending near-miss date banner: columns that looked date-shaped but had
@@ -885,6 +984,21 @@ pub(crate) struct OctaApp {
     /// `.xlsx`; resolved by
     /// `xlsx_style_save::render_xlsx_style_save_dialog`.
     pub(crate) pending_xlsx_style_save: Option<XlsxStylePrompt>,
+    /// Save As questions (rows, open the new file, CSV options), drawn by
+    /// `save_as_dialog::render_save_as_dialog`.
+    pub(crate) pending_save_as: Option<SaveAsPrompt>,
+    /// File -> Save with password... dialog, drawn by
+    /// `password_save::render_password_save_dialog`.
+    pub(crate) password_save: Option<crate::app::dialogs::password_save::PasswordSaveState>,
+    /// Set while auto-save runs its pass, so a save knows it was not asked
+    /// for: auto-save keeps an earlier version of a file only once per run of
+    /// Octa (see `versioned_paths`), or its timer would push every useful
+    /// version out of the per-file limit.
+    pub(crate) saving_automatically: bool,
+    /// Files an earlier version was kept of during this run of Octa.
+    pub(crate) versioned_paths: std::collections::HashSet<std::path::PathBuf>,
+    /// File -> Earlier versions.
+    pub(crate) file_versions_dialog: Option<crate::app::dialogs::file_versions::FileVersionsState>,
     /// Session-only "do not ask again" tick on the formatting prompt itself
     /// (the checkbox state persists across prompts within one run; whether it
     /// is applied is decided per answer).
@@ -900,6 +1014,9 @@ pub(crate) struct OctaApp {
     pub(crate) pending_db_write_back: Option<crate::app::dialogs::db_write_back::DbWriteBackPrompt>,
     /// In-flight live-DB write-back worker, if any (one at a time app-wide).
     pub(crate) db_write_back_job: Option<crate::app::dialogs::db_write_back::DbWriteBackJob>,
+    /// The rows a write-back found changed by someone else, waiting for the
+    /// user's choices; drawn by `db_conflicts::render_db_conflicts_dialog`.
+    pub(crate) db_conflicts: Option<crate::app::dialogs::db_conflicts::DbConflictsState>,
     pub(crate) ask_filter_job: Option<AskFilterJob>,
     /// One in-flight whole-source search (see `app::full_scan`).
     pub(crate) full_scan_job: Option<crate::app::full_scan::FullScanJob>,
@@ -913,6 +1030,12 @@ pub(crate) struct OctaApp {
     pub(crate) join_keys_dialog: Option<crate::app::dialogs::join_keys::JoinKeysState>,
     pub(crate) join_diag_dialog: Option<crate::app::dialogs::join_diag::JoinDiagState>,
     pub(crate) db_compare_dialog: Option<crate::app::dialogs::db_compare::DbCompareState>,
+    /// Analyse -> Compare folders..., also filled from the sidebars' "Add to
+    /// folder comparison...". The scan runs on a worker.
+    pub(crate) folder_compare: Option<crate::app::dialogs::folder_compare::FolderCompareState>,
+    /// "Compare these files...": `(left, right)`. `apply_loaded_table` opens
+    /// the Compare view once `left` has landed in its tab.
+    pub(crate) pending_pair_compare: Option<(std::path::PathBuf, std::path::PathBuf)>,
     pub(crate) drift_dialog: Option<crate::app::dialogs::drift::DriftState>,
     pub(crate) merge_versions_dialog:
         Option<crate::app::dialogs::merge_versions::MergeVersionsState>,
@@ -922,6 +1045,8 @@ pub(crate) struct OctaApp {
         Option<crate::app::dialogs::large_file_notice::LargeFileNotice>,
     /// A running conversion to a temporary Parquet file.
     pub(crate) large_convert_job: Option<crate::app::dialogs::large_file_notice::LargeConvertJob>,
+    /// A file opening in large-file mode, on a worker.
+    pub(crate) large_open_job: Option<crate::app::large_file::LargeOpenJob>,
     /// Path the large-file size check must skip exactly once, set when the user
     /// answered "Open normally".
     pub(crate) large_check_bypass: Option<std::path::PathBuf>,
@@ -931,6 +1056,8 @@ pub(crate) struct OctaApp {
     pub(crate) large_filter_pending: Option<(String, std::time::Instant)>,
     pub(crate) rel_map_dialog: Option<crate::app::dialogs::rel_map::RelMapState>,
     pub(crate) db_copy_dialog: Option<crate::app::dialogs::db_copy::DbCopyState>,
+    /// Databases sidebar -> Export tables...
+    pub(crate) db_export_dialog: Option<crate::app::dialogs::db_export::DbExportState>,
     /// Copy / move / delete a cloud object or folder (cloud tree context menu).
     pub(crate) cloud_transfer_dialog:
         Option<crate::app::dialogs::cloud_transfer::CloudTransferState>,
@@ -982,6 +1109,12 @@ pub(crate) struct OctaApp {
     /// through the Git history of the tab's file (see
     /// `src/app/dialogs/cell_history.rs`).
     pub(crate) cell_history_dialog: Option<CellHistoryState>,
+    /// Active binary cell viewer, or `None` when closed (see
+    /// `src/app/dialogs/binary_viewer.rs`).
+    pub(crate) binary_viewer: Option<BinaryViewerState>,
+    /// Copies handed to the system's own viewer. A `TempDir` deletes itself
+    /// when dropped, so they go when Octa closes.
+    pub(crate) binary_temp_dir: Option<tempfile::TempDir>,
     /// Active Compare-distributions dialog, or `None` when closed.
     pub(crate) dist_compare_dialog: Option<DistCompareState>,
     /// Active Referential-integrity dialog, or `None` when closed.

@@ -32,8 +32,8 @@ fn main() -> ExitCode {
         Ok(Some(action)) => {
             // For --union and --join the positional files are intentional (they
             // form the first sources); --impute, --hash-columns, --outliers, --partition-by,
-            // --resample, --rolling, --batch-convert, --to-workbook and
-            // --db-write-table take positional FILEs too.
+            // --resample, --rolling, --batch-convert, --to-workbook,
+            // --db-write-table and --compare-folders take positional FILEs too.
             // All other actions ignore them, so warn.
             if !cli.files.is_empty()
                 && !matches!(
@@ -51,6 +51,7 @@ fn main() -> ExitCode {
                         | cli::Action::ToWorkbook { .. }
                         | cli::Action::FuzzyJoin(_)
                         | cli::Action::DbWrite { .. }
+                        | cli::Action::CompareFolders { .. }
                 )
             {
                 eprintln!(
@@ -131,6 +132,17 @@ fn main() -> ExitCode {
         settings.debug_mode = true;
     }
 
+    // A start with files hands them to the Octa already running and exits; a
+    // start without files, or any failure, opens its own window as before.
+    let config_dir = AppSettings::config_dir();
+    if settings.open_in_running_instance
+        && !initial_files.is_empty()
+        && let Some(dir) = config_dir.as_deref()
+        && octa::single_instance::try_hand_over(dir, &initial_files)
+    {
+        return ExitCode::SUCCESS;
+    }
+
     // GUI diagnostics: file logging (size-capped) + a panic hook that records
     // crashes. The MCP path keeps its own stderr subscriber and is unaffected.
     octa::diagnostics::init_logging(settings.debug_mode);
@@ -190,11 +202,14 @@ fn main() -> ExitCode {
             // distracting. This is a no-op in release builds, where the
             // warning is already off (`warn_on_id_clash = cfg!(debug_assertions)`).
             cc.egui_ctx.options_mut(|o| o.warn_on_id_clash = false);
-            Ok(Box::new(OctaApp::new(
-                initial_files,
-                settings,
-                resolved_icon,
-            )))
+            let mut app = OctaApp::new(initial_files, settings, resolved_icon);
+            if app.settings.open_in_running_instance
+                && let Some(dir) = config_dir.as_deref()
+            {
+                let ctx = cc.egui_ctx.clone();
+                app.instance = octa::single_instance::listen(dir, move || ctx.request_repaint());
+            }
+            Ok(Box::new(app))
         }),
     ) {
         Ok(()) => ExitCode::SUCCESS,

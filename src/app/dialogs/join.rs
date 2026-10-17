@@ -197,7 +197,7 @@ pub(crate) fn render_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("join_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("join.title"))
                             .strong()
@@ -218,7 +218,7 @@ pub(crate) fn render_join_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("join_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     let no_points = st.spatial.is_some() && left_points.is_none();
                     if ui
                         .add_enabled(!no_points, egui::Button::new(octa::i18n::t("join.apply")))

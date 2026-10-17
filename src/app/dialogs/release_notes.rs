@@ -70,7 +70,7 @@ pub(crate) fn render_release_notes_dialog(app: &mut OctaApp, ctx: &egui::Context
             egui::Panel::bottom("release_notes_footer")
                 .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         if ui
                             .checkbox(&mut hide, octa::i18n::t("release.dont_show"))
                             .on_hover_text(octa::i18n::t("release.dont_show_hint"))
@@ -113,31 +113,5 @@ pub(crate) fn render_release_notes_dialog(app: &mut OctaApp, ctx: &egui::Context
 }
 
 #[cfg(test)]
-mod tests {
-    use super::should_show;
-
-    #[test]
-    fn a_fresh_install_sees_its_notes() {
-        assert!(should_show(true, "", "0.17.1"));
-    }
-
-    #[test]
-    fn an_acknowledged_version_stays_silent() {
-        assert!(!should_show(true, "0.17.1", "0.17.1"));
-    }
-
-    #[test]
-    fn the_next_release_opens_the_window_again() {
-        assert!(should_show(true, "0.17.1", "0.17.2"));
-    }
-
-    #[test]
-    fn the_setting_wins_over_everything() {
-        assert!(!should_show(false, "", "0.17.1"));
-    }
-
-    #[test]
-    fn a_dev_build_stays_silent() {
-        assert!(!should_show(true, "", "0.0.0-dev"));
-    }
-}
+#[path = "release_notes_tests.rs"]
+mod tests;

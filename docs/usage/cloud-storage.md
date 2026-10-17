@@ -1,8 +1,9 @@
 # Cloud Storage
 
 Browse and open files directly from Amazon S3 (and S3-compatible providers
-such as IONOS, MinIO, and Cloudflare R2), Azure Blob Storage, and Google Cloud
-Storage. Saving back to the cloud is **off by default** and must be turned on.
+such as IONOS, MinIO, and Cloudflare R2), Azure Blob Storage, Google Cloud
+Storage, and your own SFTP and WebDAV servers (Nextcloud, ownCloud, NAS
+boxes). Saving back to the cloud is **off by default** and must be turned on.
 
 ![Cloud connections sidebar](../assets/screenshots/cloud-sidebar.png){ .screenshot-placeholder }
 
@@ -22,7 +23,7 @@ The form fields:
 | Field                  | Meaning                                                                                                                                                          |
 |------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Name**               | Label shown in the sidebar.                                                                                                                                      |
-| **Provider**           | S3, Azure Blob, or GCS.                                                                                                                                          |
+| **Provider**           | S3, Azure Blob, GCS, SFTP, or WebDAV / Nextcloud. The last two have their own fields, see [SFTP and WebDAV servers](#sftp-and-webdav-servers).                   |
 | **Bucket / Container** | The S3 bucket, Azure container, or GCS bucket.                                                                                                                   |
 | **S3 endpoint**        | Leave empty for real AWS. Set it for an S3-compatible provider; those usually also need **Path-style addressing** on, and a local MinIO may need **Allow HTTP**. |
 | **Region**             | S3 region (real AWS).                                                                                                                                            |
@@ -84,6 +85,35 @@ access** in the connection form. Octa then skips request signing entirely, so
 it opens with no credentials and no sign-in. Without it, a public Azure
 container would redirect to a login and fail. The sidebar shows the connection
 as `(public)`.
+
+## SFTP and WebDAV servers
+
+Two more kinds sit in the same list: **SFTP** and **WebDAV / Nextcloud**.
+Once saved they behave like a bucket in the sidebar: browse, open, save
+back, copy, move, delete, Union and "List contents as table". Writing still
+needs **Allow writes on this connection**.
+
+**SFTP** asks for the host, the port (22 unless told otherwise), your user
+name and how to sign in: your SSH agent, a private key file (with its
+passphrase if it has one) or a password. Passwords and passphrases go into
+the system keyring. Octa checks the server against `~/.ssh/known_hosts`: a
+server it has never seen is refused unless you tick **Accept a new host
+key**, and a server whose key has changed is always refused. **Start
+folder** is where the sidebar opens, for example `/home/anna`.
+
+Saving back writes a hidden `.octa-part` file next to the target first and
+swaps it in when the upload is complete, so a dropped connection never
+leaves a half-written file under the real name. Copying within one server
+moves the bytes through Octa (SFTP has no server-side copy); moving is the
+server's own rename.
+
+**WebDAV** asks for the server address, your user name and an app password.
+For Nextcloud and ownCloud the address is
+`https://host/remote.php/dav/files/USER/`, also shown under **Files
+settings** in the Files app; create the app password under **Settings >
+Security**. Synology, QNAP and other NAS boxes show their WebDAV address in
+their own settings. Plain `http://` is refused unless you tick **Allow
+HTTP**.
 
 ## Signing in: CLI or browser
 
@@ -395,3 +425,10 @@ One case is refused outright rather than offered as a choice: an address on
 the public internet that redirects inward, to your own machine or your own
 network. You asked for a public host, so being sent inside is not a preference
 to confirm.
+
+## Command line and MCP
+
+The same job without the GUI:
+
+- Command line: [Cloud storage from the CLI](../cli/cloud.md)
+- MCP: [`list_objects`](../mcp/tools/list_objects.md), [`copy_object`](../mcp/tools/copy_object.md), [`move_object`](../mcp/tools/move_object.md), [`delete_object`](../mcp/tools/delete_object.md)

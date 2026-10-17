@@ -55,7 +55,7 @@ pub(crate) fn render_conditional_format_dialog(app: &mut OctaApp, ctx: &egui::Co
         egui::Panel::top("cnf_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.cnf_title"))
                             .strong()
@@ -77,7 +77,7 @@ pub(crate) fn render_conditional_format_dialog(app: &mut OctaApp, ctx: &egui::Co
         egui::Panel::bottom("cnf_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui.button(octa::i18n::t("dialog.cnf_add_rule")).clicked() {
                         rules.push(CondRule::new());
                         changed = true;
@@ -123,6 +123,7 @@ pub(crate) fn render_conditional_format_dialog(app: &mut OctaApp, ctx: &egui::Co
                         .num_columns(6)
                         .spacing([8.0, 6.0])
                         .show(ui, |ui| {
+                            octa::ui::control_row::pin_control_height(ui);
                             for (i, rule) in rules.iter_mut().enumerate() {
                                 {
                                     // Column picker: "(any)" or a specific column.
@@ -221,7 +222,7 @@ pub(crate) fn render_conditional_format_dialog(app: &mut OctaApp, ctx: &egui::Co
 
                                     // Reorder and remove share one cell, so the three
                                     // buttons stay together at the end of every row.
-                                    ui.horizontal(|ui| {
+                                    octa::ui::control_row::control_line(ui, |ui| {
                                         // Rules are first-match-wins, so order is the
                                         // if / else-if chain the user builds.
                                         // All three at the standard interact

@@ -9,7 +9,7 @@ first and costs nothing.
 
 Read-only, and kept when the server runs with `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
 None.
 
@@ -63,3 +63,4 @@ only at connect time.
 - [Database Connections](../../usage/database-connections.md) — setting
   them up, and what each engine needs.
 - [`list_db_tables`](list_db_tables.md) — what is inside one.
+- Command line: [Databases from the CLI](../../cli/databases.md)

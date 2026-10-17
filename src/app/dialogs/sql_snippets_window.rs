@@ -37,7 +37,7 @@ pub(crate) fn render_sql_snippets_window(app: &mut OctaApp, ctx: &egui::Context)
     let minimized = size == DialogSize::Minimized;
 
     let inner = window.show(ctx, |ui| {
-        ui.horizontal(|ui| {
+        octa::ui::control_row::control_line(ui, |ui| {
             ui.label(
                 egui::RichText::new(octa::i18n::t("sql.snippets"))
                     .strong()
@@ -78,7 +78,7 @@ pub(crate) fn render_sql_snippets_window(app: &mut OctaApp, ctx: &egui::Context)
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for snip in &app.sql_snippets {
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui
                                 .button("x")
@@ -131,8 +131,7 @@ pub(crate) fn render_sql_snippets_window(app: &mut OctaApp, ctx: &egui::Context)
         }
     }
     if let Some(q) = insert_snippet {
-        app.tabs[app.active_tab].sql.query = q;
-        app.tabs[app.active_tab].sql.focus_pending = true;
+        app.put_picked_query(&q, ctx);
     }
     if let Some(name) = delete_snippet {
         app.sql_snippets.retain(|s| s.name != name);

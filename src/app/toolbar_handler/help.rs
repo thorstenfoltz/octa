@@ -32,6 +32,9 @@ impl OctaApp {
             self.show_update_dialog = true;
             self.check_for_updates(ctx);
         }
+        if action.open_store_page {
+            octa::auth::oauth_browser::open_url_in_browser(octa::platform::STORE_PAGE_URI);
+        }
         if action.export_debug_report {
             self.export_debug_report_now();
         }

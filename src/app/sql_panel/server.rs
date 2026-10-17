@@ -6,7 +6,7 @@ impl OctaApp {
     /// Append the next page of the SQL result the workspace materialised.
     ///
     /// Called when the result grid scrolls near the end of what it holds. The
-    /// rows never left DuckDB, so this is a `LIMIT/OFFSET` over a temp table,
+    /// rows never left DuckDB, so this is a `LIMIT/OFFSET` over a result table,
     /// not a re-run of the user's query.
     pub(super) fn load_more_sql_result_rows(&mut self, pane_id: u64) {
         let page_rows = self.settings.sql_result_page_rows;
@@ -52,7 +52,7 @@ impl OctaApp {
     /// Run the editor's query on the live database server the active tab's
     /// editor targets (`sql_target`), on a worker thread (network). One in-flight query at a
     /// time; the result lands via `drain_sql_server_job`.
-    pub(crate) fn run_server_query(&mut self, ctx: &egui::Context, query: String) {
+    pub(crate) fn run_server_query(&mut self, ctx: &egui::Context, query: String, explain: bool) {
         if self.sql_server_job.is_some() {
             return;
         }
@@ -94,7 +94,10 @@ impl OctaApp {
                 let secret = octa::ui::settings::db_secrets::get_db_secret(&conn.id, &settings);
                 let ssh_secret =
                     octa::ui::settings::db_secrets::get_ssh_secret(&conn.id, &settings);
-                if octa::sql::is_mutation(&query) {
+                // Explain plans only, so it never needs the write switch.
+                // Every other statement goes through the gate, which also
+                // catches a second statement behind a harmless first one.
+                if !explain {
                     octa::db::ensure_write_allowed(&conn, Some(&query))
                         .map_err(|e| format!("{e:#}"))?;
                 }
@@ -110,14 +113,22 @@ impl OctaApp {
                     if let Ok(mut slot) = cancel.lock() {
                         *slot = c.cancel_handle();
                     }
-                    let mutation = octa::sql::is_mutation(&query);
-                    octa::db::with_identifier_fix(conn.engine, &query, |sql| {
-                        if mutation {
-                            c.execute(sql).map(ServerQueryDone::Affected)
-                        } else {
-                            c.query(sql).map(|t| ServerQueryDone::Rows(Box::new(t)))
-                        }
-                    })
+                    if explain {
+                        (
+                            octa::sql::explain::explain_db(&mut **c, &query)
+                                .map(|p| ServerQueryDone::Plan(Box::new(p))),
+                            query.clone(),
+                        )
+                    } else {
+                        let mutation = octa::sql::is_mutation(&query);
+                        octa::db::with_identifier_fix(conn.engine, &query, |sql| {
+                            if mutation {
+                                c.execute(sql).map(ServerQueryDone::Affected)
+                            } else {
+                                c.query(sql).map(|t| ServerQueryDone::Rows(Box::new(t)))
+                            }
+                        })
+                    }
                 };
                 sent = res.1;
                 res.0.map_err(|e| {
@@ -191,7 +202,7 @@ impl OctaApp {
         let recorded_rows = match &done {
             ServerQueryDone::Rows(t) => Some(t.row_count()),
             ServerQueryDone::Affected(n) => Some(*n as usize),
-            ServerQueryDone::Failed(_) => None,
+            ServerQueryDone::Failed(_) | ServerQueryDone::Plan(_) => None,
         };
         if let Some(rows) = recorded_rows {
             record_sql_history(
@@ -233,6 +244,7 @@ impl OctaApp {
                     std::time::Instant::now(),
                 ));
             }
+            ServerQueryDone::Plan(plan) => pane.show_plan(*plan),
             ServerQueryDone::Failed(msg) => {
                 pane.error = Some(msg);
             }

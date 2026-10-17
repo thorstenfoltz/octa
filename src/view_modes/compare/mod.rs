@@ -23,6 +23,7 @@ pub mod hash;
 pub mod key_diff;
 pub mod row_diff;
 pub mod text_diff;
+pub mod tolerance;
 
 /// User actions emitted by the Compare view in one frame.
 #[derive(Debug, Clone, Copy, Default)]
@@ -60,7 +61,7 @@ pub fn render_compare_view(
     }
 
     // Toolbar: which file is on which side + mode toggle + close.
-    ui.horizontal(|ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
         let left_full = tab
             .table
             .source_path

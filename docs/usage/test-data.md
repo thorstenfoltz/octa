@@ -71,7 +71,7 @@ telling which one is the parent.
 6. **Generate** opens one new tab per table, named **Test data: ...**,
    ready to save in any format.
 
-## From the command line
+## Command line
 
 ```bash
 octa --test-data customers.csv orders.csv --test-data-rows 1000 --seed 42 \
@@ -83,7 +83,7 @@ the folder as `customers_test.csv` and `orders_test.csv`. The plan (which
 generator made each column) goes to stderr, with a note for every column
 that kept its real values. See [`--test-data`](../cli/test-data.md).
 
-## For the assistant
+## MCP and the assistant
 
 The `generate_test_data` tool does the same and returns the tables. See
 [`generate_test_data`](../mcp/tools/generate_test_data.md).

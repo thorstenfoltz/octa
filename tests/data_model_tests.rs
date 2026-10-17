@@ -611,7 +611,7 @@ fn test_multi_column_sort_primary_and_tiebreak() {
         db_meta: None,
         formulas: std::collections::HashMap::new(),
     };
-    t.sort_rows_by_columns(&[(0, true), (1, true)]);
+    t.sort_rows_by_columns(&[(0, true), (1, true)], TextOrder::Letters);
     assert_eq!(t.get(0, 0), Some(&CellValue::String("A".into())));
     assert_eq!(t.get(0, 1), Some(&CellValue::Int(1)));
     assert_eq!(t.get(1, 0), Some(&CellValue::String("A".into())));
@@ -625,7 +625,7 @@ fn test_multi_column_sort_secondary_descending() {
     let mut t = sample_table();
     // All ids distinct; sort by a constant-free secondary just to check the
     // per-key direction flips. Sort by score desc as the only key.
-    t.sort_rows_by_columns(&[(2, false)]);
+    t.sort_rows_by_columns(&[(2, false)], TextOrder::Letters);
     assert_eq!(t.get(0, 2), Some(&CellValue::Float(9.5)));
     assert_eq!(t.get(2, 2), Some(&CellValue::Float(7.0)));
 }
@@ -633,7 +633,7 @@ fn test_multi_column_sort_secondary_descending() {
 #[test]
 fn test_multi_column_sort_empty_keys_noop() {
     let mut t = sample_table();
-    t.sort_rows_by_columns(&[]);
+    t.sort_rows_by_columns(&[], TextOrder::Letters);
     assert!(!t.structural_changes);
 }
 
@@ -1338,7 +1338,7 @@ fn sorting_carries_db_row_tags_with_their_row() {
 #[test]
 fn multi_column_sorting_carries_db_row_tags_too() {
     let mut t = db_backed_table();
-    t.sort_rows_by_columns(&[(2, true)]); // by score: Bob, Charlie, Alice
+    t.sort_rows_by_columns(&[(2, true)], TextOrder::Letters); // by score: Bob, Charlie, Alice
     assert_eq!(t.rows[0][1], CellValue::String("Bob".into()));
     assert_eq!(tag_of(&t, "Alice"), Some(1));
     assert_eq!(tag_of(&t, "Bob"), Some(2));
@@ -1404,4 +1404,30 @@ fn a_recoverable_apply_can_put_the_tab_back_in_its_unsaved_state() {
     t.edits = overlay;
     assert!(t.is_modified(), "a failed write must leave the table dirty");
     assert_eq!(t.get(0, 1), Some(&CellValue::String("Alicia".into())));
+}
+
+#[test]
+fn natural_order_sorts_numbers_inside_text_by_value() {
+    let make = || {
+        let mut t = DataTable::empty();
+        t.columns = vec![ColumnInfo {
+            name: "file".into(),
+            data_type: "Utf8".into(),
+        }];
+        t.rows = ["file10", "file2", "File1"]
+            .iter()
+            .map(|s| vec![CellValue::String((*s).into())])
+            .collect();
+        t
+    };
+    let names =
+        |t: &DataTable| -> Vec<String> { t.rows.iter().map(|r| r[0].to_string()).collect() };
+
+    let mut letters = make();
+    letters.sort_rows_by_columns(&[(0, true)], TextOrder::Letters);
+    assert_eq!(names(&letters), ["File1", "file10", "file2"]);
+
+    let mut natural = make();
+    natural.sort_rows_by_columns(&[(0, true)], TextOrder::Natural);
+    assert_eq!(names(&natural), ["File1", "file2", "file10"]);
 }

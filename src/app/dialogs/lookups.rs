@@ -101,7 +101,9 @@ fn start_scan_on(app: &OctaApp, st: &mut LookupsState, server_ok: bool) {
     cancel.store(false, Ordering::Relaxed);
     running.store(true, Ordering::Relaxed);
     st.findings = None;
+    let task = app.long_tasks.start(octa::i18n::t("lookups.title"));
     std::thread::spawn(move || {
+        let _task = task;
         // Clears `running` however the worker ends: a panic here used to
         // wedge the flag true for the rest of the session.
         let _running = crate::app::flag_guard::FlagOnDrop::new(running, false);
@@ -258,7 +260,7 @@ pub(crate) fn render_lookups_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("lookups_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("lookups.title"))
                             .strong()
@@ -569,19 +571,5 @@ pub(crate) fn render_lookups_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::app::state::LookupAct;
-
-    /// After a server result the actions ask first; otherwise they act.
-    #[test]
-    fn server_results_ask_before_acting() {
-        assert_eq!(
-            super::route(LookupAct::Split(2), true),
-            super::Route::Ask(LookupAct::Split(2))
-        );
-        assert_eq!(
-            super::route(LookupAct::Breaking(0), false),
-            super::Route::Now(LookupAct::Breaking(0))
-        );
-    }
-}
+#[path = "lookups_tests.rs"]
+mod tests;

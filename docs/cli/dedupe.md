@@ -28,3 +28,4 @@ octa --dedupe people.csv --dedupe-on email --dedupe-keep last
 
 - [Find duplicates](../usage/editing.md#find-duplicates) (GUI, drop mode) and the
   [`drop_duplicates`](../mcp/tools/drop_duplicates.md) MCP tool.
+- MCP: [`find_duplicates`](../mcp/tools/find_duplicates.md)

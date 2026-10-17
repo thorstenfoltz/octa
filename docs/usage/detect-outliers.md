@@ -34,7 +34,7 @@ ends, with a `Problem 3 of 27` counter in the status bar. The same keys
 also cover [data validation](data-validation.md) violations, and rows
 hidden by the current filter are skipped.
 
-## Command line and assistant
+## Command line and MCP
 
 Also available as `octa --outliers` (see the
 [`--outliers`](../cli/outliers.md) reference) and as the

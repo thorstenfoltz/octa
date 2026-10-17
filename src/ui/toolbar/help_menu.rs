@@ -44,8 +44,11 @@ pub(super) fn help_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             // a scary answer to a question the user never had to ask. The
             // startup check is skipped for the same reason - see
             // `app::update_loop`.
+            // A Store copy gets its updates from the Store instead, on the
+            // Store's own schedule; this takes the user straight to Octa's
+            // page there, where an Update button waits when one is out.
+            ui.separator();
             if !crate::platform::is_store_packaged() {
-                ui.separator();
                 if ui
                     .button(crate::i18n::t("help_menu.check_updates"))
                     .on_hover_text(crate::i18n::t("help_menu.check_updates_hint"))
@@ -54,6 +57,13 @@ pub(super) fn help_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                     action.check_for_updates = true;
                     ui.close();
                 }
+            } else if ui
+                .button(crate::i18n::t("help_menu.store_updates"))
+                .on_hover_text(crate::i18n::t("help_menu.store_updates_hint"))
+                .clicked()
+            {
+                action.open_store_page = true;
+                ui.close();
             }
             ui.separator();
             if ui

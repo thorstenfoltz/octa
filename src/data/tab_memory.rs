@@ -15,6 +15,28 @@ use std::collections::HashMap;
 
 use crate::data::{CellValue, DataTable};
 
+/// Rows (or captured values) walked per estimate. Above this the walk takes
+/// evenly spaced samples and scales up, so the estimate costs about the
+/// same at 50 million rows as at 10,000: the tab's hover text asks for it on
+/// the window thread. Exact below it.
+const SAMPLE: usize = 10_000;
+
+/// `f` summed over `items`, from at most [`SAMPLE`] evenly spaced ones
+/// scaled up to the whole slice.
+fn sampled_sum<T>(items: &[T], f: impl Fn(&T) -> usize) -> usize {
+    if items.len() <= SAMPLE {
+        return items.iter().map(f).sum();
+    }
+    let step = items.len().div_ceil(SAMPLE);
+    let (count, sum) = items
+        .iter()
+        .step_by(step)
+        .fold((0usize, 0usize), |(n, s), item| (n + 1, s + f(item)));
+    // u128: a 50M-row sum times 50M would overflow usize on 32-bit targets
+    // and comes close on 64-bit ones.
+    (sum as u128 * items.len() as u128 / count.max(1) as u128) as usize
+}
+
 /// Heap bytes a single cell's payload holds, on top of the enum itself.
 fn payload_bytes(value: &CellValue) -> usize {
     match value {
@@ -44,12 +66,11 @@ pub fn estimate_bytes(table: &DataTable) -> u64 {
 
     // Cells. One pass, not one per column: a wide table is the case that
     // matters and walking it twice would double the cost of the dialog.
-    for row in &table.rows {
-        total += size_of::<Vec<CellValue>>() + row.capacity() * size_of::<CellValue>();
-        for cell in row {
-            total += payload_bytes(cell);
-        }
-    }
+    total += sampled_sum(&table.rows, |row| {
+        size_of::<Vec<CellValue>>()
+            + row.capacity() * size_of::<CellValue>()
+            + row.iter().map(payload_bytes).sum::<usize>()
+    });
     total += table.rows.capacity().saturating_sub(table.rows.len()) * size_of::<Vec<CellValue>>();
 
     // Column metadata.
@@ -81,8 +102,8 @@ fn undo_payload_bytes(action: &crate::data::UndoAction) -> usize {
             ..
         } => {
             (old_values.len() + new_values.len()) * size_of::<CellValue>()
-                + old_values.iter().map(payload_bytes).sum::<usize>()
-                + new_values.iter().map(payload_bytes).sum::<usize>()
+                + sampled_sum(old_values, payload_bytes)
+                + sampled_sum(new_values, payload_bytes)
         }
         _ => 0,
     }

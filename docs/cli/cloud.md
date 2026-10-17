@@ -15,6 +15,11 @@ Octa falls back to the ambient chain, exactly as `octa --mcp` does:
   carry the account name)
 - **GCS**: Google application-default credentials (`gcloud auth
   application-default login`)
+- **SFTP**: `sftp://[user@]host[:port]/path/file.csv`. Without a saved
+  connection Octa signs in through your SSH agent, as the URL's user (else
+  your login name), and checks the host strictly against `~/.ssh/known_hosts`.
+- **WebDAV**: `davs://host/path/file.parquet` needs a saved connection, since
+  the URL cannot carry the user name and app password.
 
 `octa --list-connections` prints what is saved (names and targets only, never
 secrets), for both cloud and database connections. See
@@ -104,16 +109,26 @@ octa --add-connection 'kind=postgres,name=warehouse,host=db.internal,database=an
 octa --remove-connection warehouse
 ```
 
+SFTP and WebDAV take their own keys. `auth=` is `agent` (the default),
+`password` or `key` (with `key=` naming the private key file); the secret
+variable then holds the password or the key's passphrase:
+
+```bash
+octa --add-connection "kind=sftp,name=Files,host=files.example.com,user=anna,auth=agent"
+octa --add-connection "kind=sftp,name=Box,host=u123.example.de,port=23,user=u123,auth=password" --secret-env SFTP_PW
+octa --add-connection "kind=webdav,name=Cloud,url=https://cloud.example.com/remote.php/dav/files/anna/,user=anna" --secret-env NC_APP_PW
+```
+
 **The secret is never a command-line argument.** `--secret-env` names an
 environment variable and the value is read from there, so it stays out of `ps`
 output, shell history and any process listing.
 
-| Field         | Value                                                                                                                                                                                                                      |
-|---------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `kind=`       | Cloud: `s3`, `azure`, `gcs`. Database: `postgres`, `mysql`, `mssql`, `oracle`, `redshift`, `clickhouse`, `exasol`, `trino`, `athena`, `snowflake`, `databricks`, `bigquery`.                                               |
-| `name=`       | What you will refer to it as. Required.                                                                                                                                                                                    |
-| Cloud keys    | `bucket`, `region`, `endpoint`, `prefix`, `account`, `profile`, `account_level`, `anonymous`, `allow_writes`, `force_path_style`, `allow_http`                                                                             |
-| Database keys | `host`, `port`, `database`, `user`, `allow_writes`. On Oracle, `database=` is the service name; on Trino the default catalog; on Athena the Glue database; on Databricks the SQL warehouse id; on BigQuery the project id. |
+| Field         | Value                                                                                                                                                                                                                                                |
+|---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `kind=`       | Cloud: `s3`, `azure`, `gcs`, `sftp`, `webdav`. Database: `postgres`, `mysql`, `mssql`, `oracle`, `redshift`, `clickhouse`, `exasol`, `trino`, `athena`, `snowflake`, `databricks`, `bigquery`.                                                       |
+| `name=`       | What you will refer to it as. Required.                                                                                                                                                                                                              |
+| Cloud keys    | `bucket`, `region`, `endpoint`, `prefix`, `account`, `profile`, `account_level`, `anonymous`, `allow_writes`, `force_path_style`, `allow_http`. SFTP: `host`, `port`, `user`, `auth`, `key`, `accept_new_host_key`, `prefix`. WebDAV: `url`, `user`. |
+| Database keys | `host`, `port`, `database`, `user`, `allow_writes`. On Oracle, `database=` is the service name; on Trino the default catalog; on Athena the Glue database; on Databricks the SQL warehouse id; on BigQuery the project id.                           |
 
 What the secret variable should hold:
 
@@ -123,6 +138,8 @@ What the secret variable should hold:
 | S3         | `ACCESS_KEY_ID:SECRET_ACCESS_KEY`, optionally `:SESSION_TOKEN`.                   |
 | Azure      | The storage account key, or a SAS token (recognised by its `sig=`).               |
 | GCS        | Nothing: GCS uses application-default credentials. Add it without `--secret-env`. |
+| SFTP       | The password, or the private key's passphrase. Nothing for `auth=agent`.          |
+| WebDAV     | The (app) password.                                                               |
 
 Any of them also accepts the JSON form Octa stores internally, for cases the
 shorthand does not cover.
@@ -138,7 +155,8 @@ shorthand does not cover.
   from the CLI is read-only until you say otherwise.
 - **`--remove-connection` also deletes the stored secret**, so nothing is left
   orphaned in the keyring.
-- Only password authentication can be expressed in a spec. AWS IAM, Azure AD,
+- Only password authentication (plus SFTP's agent and key file) can be
+  expressed in a spec. AWS IAM, Azure AD,
   key-pair JWT and browser sign-in need fields and interactive steps that do
   not fit in one line; configure those in the Settings dialog.
 
@@ -188,3 +206,8 @@ secret stored in settings.toml as plain text (no OS keyring available)
 If that plaintext matters to you, mount `settings.toml` from a real secret
 store (a Kubernetes secret, a bind mount from a host vault) rather than baking
 it into an image layer.
+
+## See also
+
+- In the app: [Cloud Storage](../usage/cloud-storage.md), [Cloud Inventory](../usage/cloud-inventory.md)
+- MCP: [`list_objects`](../mcp/tools/list_objects.md), [`copy_object`](../mcp/tools/copy_object.md), [`move_object`](../mcp/tools/move_object.md), [`delete_object`](../mcp/tools/delete_object.md)

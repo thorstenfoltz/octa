@@ -13,12 +13,13 @@ pub fn cli_binary(kind: CloudKind) -> &'static str {
         CloudKind::S3 => "aws",
         CloudKind::AzureBlob => "az",
         CloudKind::Gcs => "gcloud",
+        CloudKind::Sftp | CloudKind::WebDav => "",
     }
 }
 
 /// Whether the cloud's CLI is on `PATH` (gates the Sign in button).
 pub fn cli_available(kind: CloudKind) -> bool {
-    which_on_path(cli_binary(kind))
+    !kind.is_file_server() && which_on_path(cli_binary(kind))
 }
 
 /// Build (but do not run) the browser sign-in command for a cloud.
@@ -42,6 +43,8 @@ pub fn login_command(kind: CloudKind, profile: Option<&str>) -> Command {
             c.arg("auth").arg("application-default").arg("login");
             c
         }
+        // Never run: the sidebar offers no CLI sign-in for file servers (is_file_server).
+        CloudKind::Sftp | CloudKind::WebDav => Command::new(cli_binary(kind)),
     }
 }
 
@@ -69,39 +72,5 @@ fn which_on_path(bin: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn login_command_uses_the_right_program_and_args() {
-        let c = login_command(CloudKind::S3, Some("prod"));
-        assert_eq!(c.get_program().to_string_lossy(), "aws");
-        let args: Vec<String> = c
-            .get_args()
-            .map(|a| a.to_string_lossy().to_string())
-            .collect();
-        assert_eq!(args, ["sso", "login", "--profile", "prod"]);
-
-        let az = login_command(CloudKind::AzureBlob, None);
-        assert_eq!(az.get_program().to_string_lossy(), "az");
-        let az_args: Vec<String> = az
-            .get_args()
-            .map(|a| a.to_string_lossy().to_string())
-            .collect();
-        assert_eq!(az_args, ["login"]);
-
-        let gs = login_command(CloudKind::Gcs, None);
-        let gs_args: Vec<String> = gs
-            .get_args()
-            .map(|a| a.to_string_lossy().to_string())
-            .collect();
-        assert_eq!(gs_args, ["auth", "application-default", "login"]);
-    }
-
-    #[test]
-    fn cli_binary_names_match_the_cloud() {
-        assert_eq!(cli_binary(CloudKind::S3), "aws");
-        assert_eq!(cli_binary(CloudKind::AzureBlob), "az");
-        assert_eq!(cli_binary(CloudKind::Gcs), "gcloud");
-    }
-}
+#[path = "login_tests.rs"]
+mod tests;

@@ -1,0 +1,8 @@
+== Physical Plan ==
+AdaptiveSparkPlan isFinalPlan=false
++- HashAggregate(keys=[id#23], functions=[])
+   +- Exchange hashpartitioning(id#23, 200), ENSURE_REQUIREMENTS, [plan_id=154]
+      +- HashAggregate(keys=[id#23], functions=[])
+         +- Union
+            :- FileScan parquet spark_catalog.default.orders[id#23] Batched: true, DataFilters: [], Format: Parquet, Location: InMemoryFileIndex(1 paths)[file:/opt/spark/work-dir/spark-warehouse/orders], PartitionFilters: [], PushedFilters: [], ReadSchema: struct<id:int>
+            +- FileScan parquet spark_catalog.default.customers[id#26] Batched: true, DataFilters: [], Format: Parquet, Location: InMemoryFileIndex(1 paths)[file:/opt/spark/work-dir/spark-warehouse/customers], PartitionFilters: [], PushedFilters: [], ReadSchema: struct<id:int>

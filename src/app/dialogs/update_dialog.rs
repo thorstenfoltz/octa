@@ -42,7 +42,7 @@ pub(crate) fn render_update_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("update_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(octa::i18n::t("dialog.ud_title"))
                             .strong()
@@ -101,7 +101,7 @@ pub(crate) fn render_update_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         ui.label(octa::i18n::t("release.store"));
                         ui.add_space(8.0);
                     }
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         let version = new_version.clone();
                         if !store && ui.button(octa::i18n::t("dialog.ud_update_now")).clicked() {
                             app.perform_update(&version, ctx);
@@ -138,7 +138,7 @@ pub(crate) fn render_update_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         octa::i18n::t("dialog.ud_elev_post")
                     ));
                     ui.add_space(10.0);
-                    ui.horizontal(|ui| {
+                    octa::ui::control_row::control_line(ui, |ui| {
                         let version_c = version.clone();
                         let tmp_c = tmp_path.clone();
                         let install_c = install_path.clone();

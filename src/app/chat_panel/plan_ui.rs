@@ -30,7 +30,7 @@ pub fn render_plan_offer(ui: &mut egui::Ui) -> PlanAction {
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.label(RichText::new(t("chat.plan_offer_note")).weak());
         ui.add_space(4.0);
-        ui.horizontal(|ui| {
+        octa::ui::control_row::control_line(ui, |ui| {
             if ui
                 .button(t("chat.plan_approve"))
                 .on_hover_text(t("chat.plan_approve_hint"))

@@ -72,6 +72,10 @@ pub struct ToolbarCtx<'a> {
     /// that talk to the assistant can grey themselves out with a reason.
     pub chat_profile_available: bool,
     pub readonly_mode: bool,
+    /// `OctaApp::is_readonly()`: the F8 switch above, or a tab that cannot be
+    /// edited (a live database without writes, a large file). Greys out the
+    /// Edit and Columns menus' edits.
+    pub edits_blocked: bool,
     /// Whether **View -> Show invisible characters** is ticked.
     pub show_invisibles: bool,
     /// Whether the active tab's table is split into two scrolling panes.
@@ -89,6 +93,8 @@ pub struct ToolbarCtx<'a> {
     pub recent_files: &'a [String],
     pub directory_tree_open: bool,
     pub first_row_is_header: bool,
+    /// Why "First row is header" is greyed out on this tab, or `None`.
+    pub first_row_header_blocked: Option<&'a str>,
     pub has_hidden_columns: bool,
     pub can_undo: bool,
     pub can_redo: bool,
@@ -251,6 +257,8 @@ pub struct ToolbarAction {
     pub clear_recent: bool,
     pub save_file: bool,
     pub save_file_as: bool,
+    /// File -> Save with password...
+    pub save_with_password: bool,
     /// Export a live-database tab's pending edits as a reviewable SQL script.
     pub save_db_sql: bool,
     /// Write several open tabs into one .xlsx, one sheet per tab.
@@ -304,6 +312,8 @@ pub struct ToolbarAction {
     /// Open the "Report AI content" dialog from the Help menu.
     pub show_ai_report: bool,
     pub check_for_updates: bool,
+    /// Open Octa's page in the Microsoft Store (Store copies only).
+    pub open_store_page: bool,
     pub export_debug_report: bool,
     pub replace_next: bool,
     pub replace_all: bool,
@@ -332,6 +342,8 @@ pub struct ToolbarAction {
     /// **Analyse -> Compare with database table...**: diff the active tab
     /// against a table on a saved database connection.
     pub open_db_compare: bool,
+    /// **Analyse -> Compare folders...**: open the folder comparison dialog.
+    pub open_folder_compare: bool,
     /// Analyse -> Data drift...
     pub open_drift: bool,
     /// Analyse -> Relationship map...
@@ -343,6 +355,8 @@ pub struct ToolbarAction {
     pub open_schema_drift: bool,
     /// File -> Merge versions...
     pub open_merge_versions: bool,
+    /// File -> Earlier versions...
+    pub open_file_versions: bool,
     pub open_harmonise: bool,
     pub open_report: bool,
     /// Open the "Export to PDF" dialog for the active tab's view.
@@ -425,6 +439,8 @@ pub struct ToolbarAction {
     pub open_impute: bool,
     /// Open the Change-type (re-type column) dialog for the active table.
     pub open_retype: bool,
+    /// Columns > Detect dates: run the date check on the active table.
+    pub detect_dates: bool,
     /// Open the Tab memory dialog.
     pub open_tab_memory: bool,
     /// Open the Find-near-duplicates (fuzzy) dialog for the active table.

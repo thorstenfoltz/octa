@@ -19,7 +19,7 @@ A strategy that doesn't fit the data (for example Mean on a text column)
 shows an inline error and changes nothing. The operation respects
 read-only mode.
 
-## Command line and assistant
+## Command line and MCP
 
 Also available as `octa --impute COL=STRATEGY` (see the
 [`--impute`](../cli/impute.md) reference) and as the

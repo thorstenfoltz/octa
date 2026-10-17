@@ -58,7 +58,7 @@ Building runs in the background, so Octa stays usable, and **Cancel**
 stops it. When it finishes the dialog shows where the file went and
 offers **Open in browser**.
 
-## Elsewhere in Octa
+## Command line and MCP
 
 The same engine runs on the command line and over MCP:
 

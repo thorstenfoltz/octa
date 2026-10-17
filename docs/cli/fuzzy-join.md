@@ -111,3 +111,4 @@ octa --fuzzy-join crm.csv --fuzzy-join-file sales.csv \
   columns to compare.
 - [MCP `fuzzy_join`](../mcp/tools/fuzzy_join.md), the same feature for an
   agent.
+- In the app: [Fuzzy join](../usage/fuzzy-join.md)

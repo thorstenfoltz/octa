@@ -18,6 +18,7 @@ pub mod batch_convert;
 pub mod cell_history;
 pub mod check;
 pub mod cloud;
+pub mod compare_folders;
 pub mod compare_schemas;
 pub mod completions;
 pub mod connections;
@@ -65,7 +66,7 @@ pub mod unique_columns;
 pub mod validate_schema;
 pub mod workbook;
 
-pub use action::Action;
+pub use action::{Action, SortArgs};
 pub use args::{Cli, NamedPath, OutputFormat, parse_named_paths, parse_rows_flag};
 pub use dispatch::dispatch;
 // The per-action handlers under `src/cli/*.rs` call this as `super::read_table`,

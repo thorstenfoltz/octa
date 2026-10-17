@@ -41,7 +41,7 @@ pub(crate) fn render_sheet_picker_dialog(app: &mut OctaApp, ctx: &egui::Context)
         egui::Panel::top("sheet_picker_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.sheets_title"))
                             .strong()
@@ -65,7 +65,7 @@ pub(crate) fn render_sheet_picker_dialog(app: &mut OctaApp, ctx: &egui::Context)
         egui::Panel::bottom("sheet_picker_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     let open_btn = ui.add_enabled(
                         count > 0,
                         egui::Button::new(format!(

@@ -14,8 +14,9 @@ pub mod rules_file;
 
 use std::collections::{HashMap, HashSet};
 
-use crate::data::DataTable;
+use crate::data::conditional_format::CondOp;
 use crate::data::id_checks::IdKind;
+use crate::data::{CellValue, DataTable};
 
 /// A single validation check.
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +36,13 @@ pub enum ValidationKind {
     /// The cell must be a correctly built ID of this kind (check digit,
     /// shape). Empty cells pass: emptiness is `NotNull`'s job.
     Id(IdKind),
+    /// The cell must compare with another column of the same row: numbers
+    /// as numbers, dates and times by time (a date as midnight), text as
+    /// text with case. Different kinds fail; an empty cell on either side
+    /// passes. Needs a named column (`ValidationRule.column` is `Some`).
+    CompareColumn { op: CondOp, other: usize },
+    /// The cell must be exactly one of these values. Empty cells pass.
+    OneOf(Vec<String>),
 }
 
 impl ValidationKind {
@@ -50,6 +58,11 @@ impl ValidationKind {
             ValidationKind::Regex(String::new()),
             ValidationKind::Unique,
             ValidationKind::MaxLength(0),
+            ValidationKind::CompareColumn {
+                op: CondOp::Ge,
+                other: 0,
+            },
+            ValidationKind::OneOf(Vec::new()),
         ]
         .into_iter()
         .chain(IdKind::ALL.map(ValidationKind::Id))
@@ -64,6 +77,8 @@ impl ValidationKind {
             ValidationKind::Regex(_) => "Matches pattern",
             ValidationKind::Unique => "Unique",
             ValidationKind::MaxLength(_) => "Max length",
+            ValidationKind::CompareColumn { .. } => "Compare with column",
+            ValidationKind::OneOf(_) => "One of these values",
             ValidationKind::Id(IdKind::Iban) => "IBAN",
             ValidationKind::Id(IdKind::CardNumber) => "Card number",
             ValidationKind::Id(IdKind::Gtin) => "EAN / ISBN / UPC",
@@ -80,6 +95,8 @@ impl ValidationKind {
             ValidationKind::Regex(_) => "validation_kind.regex",
             ValidationKind::Unique => "validation_kind.unique",
             ValidationKind::MaxLength(_) => "validation_kind.max_length",
+            ValidationKind::CompareColumn { .. } => "validation_kind.compare",
+            ValidationKind::OneOf(_) => "validation_kind.one_of",
             ValidationKind::Id(IdKind::Iban) => "validation_kind.iban",
             ValidationKind::Id(IdKind::CardNumber) => "validation_kind.card_number",
             ValidationKind::Id(IdKind::Gtin) => "validation_kind.gtin",
@@ -97,6 +114,8 @@ impl ValidationKind {
             ValidationKind::Id(IdKind::Gtin) => Some("validation_kind.gtin_hint"),
             ValidationKind::Id(IdKind::VatId) => Some("validation_kind.vat_id_hint"),
             ValidationKind::Id(IdKind::Email) => Some("validation_kind.email_hint"),
+            ValidationKind::CompareColumn { .. } => Some("validation_kind.compare_hint"),
+            ValidationKind::OneOf(_) => Some("validation_kind.one_of_hint"),
             _ => None,
         }
     }
@@ -126,6 +145,89 @@ fn is_blank(table: &DataTable, row: usize, col: usize) -> bool {
         .get(row, col)
         .map(|v| v.to_string().trim().is_empty())
         .unwrap_or(true)
+}
+
+/// What a cell is, for comparing it with another: a number (typed, or text
+/// that reads as a plain one), else a date or time, else text.
+enum Class {
+    Number(f64),
+    Time(chrono::NaiveDateTime),
+    Text(String),
+}
+
+fn classify(v: &CellValue) -> Class {
+    match v {
+        CellValue::Int(i) => Class::Number(*i as f64),
+        CellValue::Float(f) => Class::Number(*f),
+        _ => {
+            let s = v.to_string();
+            if let Ok(n) = s.trim().parse::<f64>() {
+                return Class::Number(n);
+            }
+            if let Some((dt, _)) = crate::data::time_calc::cell_to_datetime(v) {
+                return Class::Time(dt);
+            }
+            Class::Text(s)
+        }
+    }
+}
+
+/// Does `a <op> b` hold? An empty cell on either side passes: emptiness is
+/// `NotNull`'s job. Two cells of different kinds never compare, so they fail.
+fn compare_holds(a: Option<&CellValue>, b: Option<&CellValue>, op: CondOp) -> bool {
+    let empty = |v: Option<&CellValue>| v.is_none_or(|v| v.to_string().trim().is_empty());
+    if empty(a) || empty(b) {
+        return true;
+    }
+    let (Some(a), Some(b)) = (a, b) else {
+        return true;
+    };
+    let ord = match (classify(a), classify(b)) {
+        (Class::Number(x), Class::Number(y)) => x.partial_cmp(&y),
+        (Class::Time(x), Class::Time(y)) => Some(x.cmp(&y)),
+        (Class::Text(x), Class::Text(y)) => Some(x.cmp(&y)),
+        _ => None,
+    };
+    let Some(ord) = ord else {
+        return false;
+    };
+    match op {
+        CondOp::Eq => ord.is_eq(),
+        CondOp::Ne => ord.is_ne(),
+        CondOp::Lt => ord.is_lt(),
+        CondOp::Le => ord.is_le(),
+        CondOp::Gt => ord.is_gt(),
+        CondOp::Ge => ord.is_ge(),
+        // Never stored for this kind: the dialog and the rules file offer
+        // only the six comparisons.
+        _ => true,
+    }
+}
+
+/// The text a report shows for a failing cell: the cell itself, or for a
+/// column comparison both values (`end=2024-01-01, start=2024-02-01`), since
+/// either one alone does not say what is wrong.
+pub fn sample_text(table: &DataTable, rule: &ValidationRule, row: usize, col: usize) -> String {
+    let text = |c: usize| table.get(row, c).map(|v| v.to_string()).unwrap_or_default();
+    match &rule.kind {
+        ValidationKind::CompareColumn { other, .. } => {
+            let name = |c: usize| {
+                table
+                    .columns
+                    .get(c)
+                    .map(|ci| ci.name.clone())
+                    .unwrap_or_default()
+            };
+            format!(
+                "{}={}, {}={}",
+                name(col),
+                text(col),
+                name(*other),
+                text(*other)
+            )
+        }
+        _ => text(col),
+    }
 }
 
 /// The set of cells failing any rule. Edits are honoured (`DataTable::get`
@@ -213,6 +315,31 @@ pub fn violations(table: &DataTable, rules: &[ValidationRule]) -> HashSet<(usize
                         }
                         let s = table.get(r, c).map(|v| v.to_string()).unwrap_or_default();
                         if !kind.check(&s) {
+                            out.insert((r, c));
+                        }
+                    }
+                }
+            }
+            ValidationKind::CompareColumn { op, other } => {
+                // Needs a named column, and the other one must still exist.
+                let Some(c) = rule.column else { continue };
+                if *other >= col_count {
+                    continue;
+                }
+                for r in 0..row_count {
+                    if !compare_holds(table.get(r, c), table.get(r, *other), *op) {
+                        out.insert((r, c));
+                    }
+                }
+            }
+            ValidationKind::OneOf(values) => {
+                for &c in &cols {
+                    for r in 0..row_count {
+                        if is_blank(table, r, c) {
+                            continue;
+                        }
+                        let s = table.get(r, c).map(|v| v.to_string()).unwrap_or_default();
+                        if !values.contains(&s) {
                             out.insert((r, c));
                         }
                     }

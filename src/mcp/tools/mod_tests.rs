@@ -312,3 +312,36 @@ fn build_data_table_validates_arity() {
     // Empty columns rejected.
     assert!(build_data_table(&[], &[]).is_err());
 }
+
+#[test]
+fn read_only_query_db_refuses_a_second_mysql_statement_before_connecting() {
+    let mut ctx = sandbox_ctx(false, &[], None);
+    ctx.read_only = true;
+    ctx.db_connections = vec![octa::db::DbConnection {
+        id: "db-1".into(),
+        name: "shop".into(),
+        engine: octa::db::DbEngine::MySql,
+        host: "localhost".into(),
+        port: 3306,
+        database: "shop".into(),
+        username: "octa".into(),
+        auth: octa::db::DbAuth::Password,
+        allow_writes: true,
+        oauth_client_id: None,
+        oauth_tenant: None,
+        athena_workgroup: None,
+        athena_output_location: None,
+        datetimeoffset_as_timestamp: false,
+        ssh: None,
+        query_timeout_secs: octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
+        tunnel_port: None,
+    }];
+    let p = query_db::Params {
+        connection: "shop".into(),
+        sql: "SELECT 1; DELETE FROM orders".into(),
+        limit: None,
+        explain: false,
+    };
+    let err = query_db::run(&ctx, &p).unwrap_err().to_string();
+    assert!(err.contains("semicolon"), "{err}");
+}

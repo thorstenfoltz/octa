@@ -109,7 +109,7 @@ a real conflict the driver writes nothing and exits 1, git marks the
 file as conflicted, and **File -> Merge versions...** picks it up from
 there.
 
-## From the command line
+## Command line
 
 ```bash
 octa --merge march_anna.csv march_ben.csv march_carla.csv \
@@ -118,7 +118,7 @@ octa --merge march_anna.csv march_ben.csv march_carla.csv \
 
 See [`--merge`](../cli/merge.md) for every flag and the exit codes.
 
-## For the assistant
+## MCP and the assistant
 
 The `merge_tables` tool does the same merge and returns the merged rows
 or the open conflicts. See [`merge_tables`](../mcp/tools/merge_tables.md).

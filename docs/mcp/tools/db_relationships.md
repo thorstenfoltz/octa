@@ -11,16 +11,16 @@ sampling every table would not.
 
 Read-only, and kept when the server runs with `--mcp-read-only`.
 
-## Parameters
+## Input schema
 
-| Name         | Type              | Meaning                                                                                 |
-|--------------|-------------------|-----------------------------------------------------------------------------------------|
-| `connection` | string (required) | Saved connection name or id, from [`list_db_connections`](list_db_connections.md)       |
-| `catalog`    | string            | Top namespace level on Snowflake, Databricks and BigQuery. An error on any other engine |
-| `schemas`    | array of string   | Schemas to read. Empty: every schema the connection lists                               |
-| `tables`     | array of string   | Draw only these `schema.table` labels. Absent: the tables taking part in a foreign key  |
-| `max_tables` | integer           | Tables carried in the answer before it stops. Default 30                                |
-| `measure`    | boolean           | Also count every row on the server and score every edge. Default false                  |
+| Name         | Type              | Meaning                                                                                        |
+|--------------|-------------------|------------------------------------------------------------------------------------------------|
+| `connection` | string (required) | Saved connection name or id, from [`list_db_connections`](list_db_connections.md)              |
+| `catalog`    | string            | Top namespace level on Trino, Snowflake, Databricks and BigQuery. An error on any other engine |
+| `schemas`    | array of string   | Schemas to read. Empty: every schema the connection lists                                      |
+| `tables`     | array of string   | Draw only these `schema.table` labels. Absent: the tables taking part in a foreign key         |
+| `max_tables` | integer           | Tables carried in the answer before it stops. Default 30                                       |
+| `measure`    | boolean           | Also count every row on the server and score every edge. Default false                         |
 
 ## Result
 
@@ -89,3 +89,4 @@ with a pointer to `suggest_join_keys` over exported files.
   answer in the GUI.
 - [`suggest_join_keys`](suggest_join_keys.md) for files, where nothing
   was declared.
+- Command line: [`--relationships`](../../cli/relationships.md)

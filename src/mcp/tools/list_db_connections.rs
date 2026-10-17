@@ -41,8 +41,9 @@ pub fn run(ctx: &ToolContext, _p: &Params) -> anyhow::Result<Value> {
 
 pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult, McpError> {
     let ctx = server.tool_context();
-    let payload = run(&ctx, &p)
-        .map_err(|e| McpError::invalid_params(format!("list_db_connections failed: {e}"), None))?;
+    let payload = run(&ctx, &p).map_err(|e| {
+        McpError::invalid_params(format!("list_db_connections failed: {e:#}"), None)
+    })?;
     Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))

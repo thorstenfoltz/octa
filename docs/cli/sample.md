@@ -62,3 +62,4 @@ octa --sample huge.parquet -n 50 --rows all
   N rows.
 - [MCP `sample` tool](../mcp/tools/sample.md): the same access pattern
   via MCP, with a `seed` parameter.
+- In the app: [Random sample](../usage/table-tools.md#random-sample)

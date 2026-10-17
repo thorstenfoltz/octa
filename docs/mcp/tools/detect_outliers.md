@@ -56,3 +56,5 @@ Columns with fewer than four numeric values are skipped.
 
 - [`profile`](profile.md): per-column summary statistics.
 - [`value_frequency`](value_frequency.md): value distribution and binning.
+- In the app: [Detect Outliers](../../usage/detect-outliers.md)
+- Command line: [`--outliers`](../../cli/outliers.md)

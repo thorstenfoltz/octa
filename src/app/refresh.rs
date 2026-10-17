@@ -197,6 +197,9 @@ impl OctaApp {
         // A cloud tab re-read from its downloaded copy (a Tab memory reload)
         // is still that object.
         tab.cloud_origin = old.cloud_origin;
+        // Likewise a protected tab re-read from its plain copy: moving the
+        // handle keeps the folder that copy lives in.
+        tab.protected_origin = old.protected_origin;
         self.active_tab = target.tab;
         true
     }
@@ -216,52 +219,25 @@ impl OctaApp {
             p.tab = shifted(p.tab, removed)?;
             Some(p)
         });
+        // The password dialog is not modal: closing its own tab drops it, an
+        // earlier tab closing re-points it.
+        self.password_save = self.password_save.take().and_then(|mut p| {
+            p.tab_idx = shifted(p.tab_idx, removed)?;
+            Some(p)
+        });
+        // So is the conflict dialog.
+        self.db_conflicts = self.db_conflicts.take().and_then(|mut c| {
+            c.tab_idx = shifted(c.tab_idx, removed)?;
+            Some(c)
+        });
+        // A write-back in flight re-baselines its tab when it lands: follow
+        // the tab, and land nowhere once it is closed.
+        if let Some(job) = self.db_write_back_job.as_mut() {
+            job.tab_idx = shifted(job.tab_idx, removed).unwrap_or(usize::MAX);
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_cloud_tab_refreshes_the_object_not_its_downloaded_copy() {
-        let mut tab = TabState::new(octa::data::SearchMode::default());
-        tab.table.source_path = Some("/tmp/octa-download-123.csv".into());
-        tab.cloud_origin = Some(crate::app::state::CloudOrigin {
-            conn_id: "s3".into(),
-            key: "data/sales.csv".into(),
-        });
-        assert_eq!(
-            tab.refresh_source().as_deref(),
-            Some("cloud:s3:data/sales.csv")
-        );
-    }
-
-    #[test]
-    fn a_file_tab_refreshes_its_path_and_a_computed_tab_nothing() {
-        let mut tab = TabState::new(octa::data::SearchMode::default());
-        assert_eq!(tab.refresh_source(), None);
-        tab.table.source_path = Some("/data/a.csv".into());
-        assert_eq!(tab.refresh_source().as_deref(), Some("/data/a.csv"));
-    }
-
-    #[test]
-    fn only_the_awaited_source_claims_the_tab() {
-        let target = ReloadTarget {
-            tab: 2,
-            source: "/data/a.csv".into(),
-        };
-        assert!(target.claims("/data/a.csv", 3));
-        // Another file opened meanwhile gets a tab of its own.
-        assert!(!target.claims("/data/b.csv", 3));
-        // The tab was closed in between: nothing to land in.
-        assert!(!target.claims("/data/a.csv", 2));
-    }
-
-    #[test]
-    fn closing_a_tab_keeps_the_indices_on_the_same_tabs() {
-        assert_eq!(shifted(1, 3), Some(1));
-        assert_eq!(shifted(3, 3), None);
-        assert_eq!(shifted(4, 3), Some(3));
-    }
-}
+#[path = "refresh_tests.rs"]
+mod tests;

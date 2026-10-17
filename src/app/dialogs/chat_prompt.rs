@@ -40,7 +40,7 @@ pub(crate) fn render_chat_prompt_dialog(app: &mut OctaApp, ctx: &egui::Context) 
         egui::Panel::top("chat_prompt_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.prompt_title"))
                             .strong()
@@ -96,7 +96,7 @@ pub(crate) fn render_chat_prompt_dialog(app: &mut OctaApp, ctx: &egui::Context) 
                 });
 
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 let can_save = !draft.name.trim().is_empty() && !draft.text.trim().is_empty();
                 if ui
                     .add_enabled(can_save, egui::Button::new(octa::i18n::t("common.save")))

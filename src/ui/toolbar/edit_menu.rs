@@ -28,10 +28,12 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
         selected_cells,
         row_count,
         first_row_is_header,
+        first_row_header_blocked,
         can_undo,
         can_redo,
         can_reopen_tab,
         table,
+        edits_blocked,
         ..
     } = cx;
     // Was a local in `draw_toolbar`; recomputed here so the moved body
@@ -45,12 +47,16 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                 ui.weak(crate::i18n::t("menu.need_table"));
                 return;
             }
+            if edits_blocked {
+                ui.weak(crate::i18n::t("context_menu.header_row_readonly"));
+                ui.separator();
+            }
             // Edit menu entries deliberately omit shortcut suffixes -
             // bindings are discoverable via Settings -> Shortcuts; cramming
             // them into the menu was visually noisy.
             if ui
                 .add_enabled(
-                    can_undo,
+                    can_undo && !edits_blocked,
                     egui::Button::new(crate::i18n::t("edit_menu.undo")),
                 )
                 .on_hover_text(crate::i18n::t("edit_menu.undo_hint"))
@@ -61,7 +67,7 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             }
             if ui
                 .add_enabled(
-                    can_redo,
+                    can_redo && !edits_blocked,
                     egui::Button::new(crate::i18n::t("edit_menu.redo")),
                 )
                 .on_hover_text(crate::i18n::t("edit_menu.redo_hint"))
@@ -123,7 +129,10 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
                     .color(colors.text_muted),
             );
             if ui
-                .button(crate::i18n::t("edit_menu.insert_row"))
+                .add_enabled(
+                    !edits_blocked,
+                    egui::Button::new(crate::i18n::t("edit_menu.insert_row")),
+                )
                 .on_hover_text(crate::i18n::t("edit_menu.insert_row_hint"))
                 .clicked()
             {
@@ -132,7 +141,7 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             }
             let del_row = ui
                 .add_enabled(
-                    has_selected_cell,
+                    has_selected_cell && !edits_blocked,
                     egui::Button::new(crate::i18n::t("edit_menu.delete_row")),
                 )
                 .on_hover_text(crate::i18n::t("edit_menu.delete_row_hint"));
@@ -146,7 +155,7 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
 
             let up_btn = ui
                 .add_enabled(
-                    can_move_up,
+                    can_move_up && !edits_blocked,
                     egui::Button::new(crate::i18n::t("edit_menu.move_row_up")),
                 )
                 .on_hover_text(crate::i18n::t("edit_menu.move_row_up_hint"));
@@ -156,7 +165,7 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             }
             let down_btn = ui
                 .add_enabled(
-                    can_move_down,
+                    can_move_down && !edits_blocked,
                     egui::Button::new(crate::i18n::t("edit_menu.move_row_down")),
                 )
                 .on_hover_text(crate::i18n::t("edit_menu.move_row_down_hint"));
@@ -318,12 +327,16 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
 
             ui.separator();
             let mut header_flag = first_row_is_header;
-            if ui
-                .checkbox(
+            let header_box = ui.add_enabled(
+                first_row_header_blocked.is_none(),
+                egui::Checkbox::new(
                     &mut header_flag,
                     crate::i18n::t("edit_menu.first_row_is_header"),
-                )
+                ),
+            );
+            if header_box
                 .on_hover_text(crate::i18n::t("edit_menu.first_row_is_header_hint"))
+                .on_disabled_hover_text(first_row_header_blocked.unwrap_or_default())
                 .changed()
             {
                 action.toggle_first_row_header = true;
@@ -359,7 +372,10 @@ pub(super) fn edit_menu(ui: &mut Ui, cx: ToolbarCtx<'_>, action: &mut ToolbarAct
             if has_edits {
                 ui.separator();
                 if ui
-                    .button(crate::i18n::t("edit_menu.discard_all_edits"))
+                    .add_enabled(
+                        !edits_blocked,
+                        egui::Button::new(crate::i18n::t("edit_menu.discard_all_edits")),
+                    )
                     .on_hover_text(crate::i18n::t("edit_menu.discard_all_edits_hint"))
                     .clicked()
                 {

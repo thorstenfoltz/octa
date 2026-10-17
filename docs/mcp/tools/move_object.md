@@ -4,7 +4,7 @@ Move a cloud object, or every object under a prefix, to another location.
 **Write tool**: removed by `--mcp-read-only`, and hidden from a chat profile
 without **Allow writes**.
 
-## Parameters
+## Input schema
 
 | Name   | Type   | Required | Description                                                           |
 |--------|--------|----------|-----------------------------------------------------------------------|
@@ -25,7 +25,7 @@ written, which is the recoverable direction: re-running it finishes the job.
 Identical to [`copy_object`](copy_object.md): 10,000 objects per call, no
 moving a folder into itself.
 
-## Response
+## Response shape
 
 ```json
 { "from": "s3://a/old/", "to": "s3://a/archive/", "objects": 7, "bytes": 4096, "server_side": true }
@@ -35,3 +35,5 @@ moving a folder into itself.
 
 - [`copy_object`](copy_object.md) - when the source should survive
 - [`delete_object`](delete_object.md)
+- In the app: [Cloud Storage](../../usage/cloud-storage.md)
+- Command line: [Cloud storage from the CLI](../../cli/cloud.md)

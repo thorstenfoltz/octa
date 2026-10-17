@@ -73,14 +73,7 @@ impl OctaApp {
             && !self.tabs.is_empty()
             && self.tabs[self.active_tab].table.col_count() > 0
         {
-            self.partition_dialog = Some(crate::app::state::PartitionState {
-                col: 0,
-                out_dir: None,
-                format: String::new(),
-                layout: octa::data::partition::PartitionLayout::default(),
-                error: None,
-                size: octa::ui::settings::DialogSize::default(),
-            });
+            self.partition_dialog = Some(crate::app::state::PartitionState::new());
         }
         // Union and Join both need a second open table. Surface a status
         // message instead of silently doing nothing when only one tab is open.

@@ -41,7 +41,9 @@ impl OctaApp {
             // "Saved to ..." status; we overwrite it with the aggregate note
             // below. Eligibility already excluded the cloud-writes-off case, so
             // `save_tab`'s early return never fires here.
+            self.saving_automatically = true;
             self.save_tab(idx);
+            self.saving_automatically = false;
             saved += 1;
         }
         if saved > 0 {
@@ -63,6 +65,10 @@ impl OctaApp {
             return false;
         }
         if !(tab.is_modified() || tab.raw_content_modified) {
+            return false;
+        }
+        // Still being written by an earlier save.
+        if tab.saving.is_some() {
             return false;
         }
         // Cloud tab with writing turned off (globally or per connection): the

@@ -8,6 +8,10 @@
 //!
 //! So the one save that can destroy data asks first, and offers the fix
 //! (load the rest, then save) rather than only a way past the warning.
+//!
+//! Save As asks too, before its file picker. It destroys nothing, but the new
+//! file silently holds only the window: an 18-million-row CSV saved as a
+//! Parquet of its first 5 million looked like a finished conversion.
 
 use eframe::egui;
 
@@ -18,15 +22,16 @@ use octa::ui::settings::{
 };
 
 pub(crate) fn render_partial_save_dialog(app: &mut OctaApp, ctx: &egui::Context) {
-    let Some(tab_idx) = app.pending_partial_save_confirm else {
+    let Some((tab_idx, save_as)) = app.pending_partial_save_confirm else {
         return;
     };
     // The tab could have been closed while this was up; without the guard the
     // buttons below would act on whatever tab slid into that index.
-    let Some(((loaded, known_total), path)) = app.tabs.get(tab_idx).and_then(|t| {
+    let Some(((loaded, known_total), path, large)) = app.tabs.get(tab_idx).and_then(|t| {
         Some((
             t.table.partial_note()?,
             t.table.source_path.clone().unwrap_or_default(),
+            t.large.is_some(),
         ))
     }) else {
         app.pending_partial_save_confirm = None;
@@ -55,7 +60,7 @@ pub(crate) fn render_partial_save_dialog(app: &mut OctaApp, ctx: &egui::Context)
         egui::Panel::top("partial_save_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(octa::i18n::t("dialog.partial_save_title"))
                             .strong()
@@ -72,7 +77,11 @@ pub(crate) fn render_partial_save_dialog(app: &mut OctaApp, ctx: &egui::Context)
             return;
         }
         egui::CentralPanel::default().show(ui, |ui| {
-            ui.label(octa::i18n::t("dialog.partial_save_body"));
+            ui.label(octa::i18n::t(if save_as {
+                "dialog.partial_save_as_body"
+            } else {
+                "dialog.partial_save_body"
+            }));
             ui.add_space(4.0);
             ui.label(
                 egui::RichText::new(octa::ui::message::partial_note_text(loaded, known_total))
@@ -82,11 +91,14 @@ pub(crate) fn render_partial_save_dialog(app: &mut OctaApp, ctx: &egui::Context)
             let colour = ui.visuals().weak_text_color();
             octa::ui::message::selectable_message(ui, colour, &path);
             ui.add_space(12.0);
-            ui.horizontal(|ui| {
-                if ui
-                    .button(octa::i18n::t("dialog.partial_save_load_all"))
-                    .on_hover_text(octa::i18n::t("dialog.partial_save_load_all_hint"))
-                    .clicked()
+            octa::ui::control_row::control_line(ui, |ui| {
+                // A large-file tab reloaded without the cap would only reach
+                // the large-file question again: its rows stay on disk.
+                if !large
+                    && ui
+                        .button(octa::i18n::t("dialog.partial_save_load_all"))
+                        .on_hover_text(octa::i18n::t("dialog.partial_save_load_all_hint"))
+                        .clicked()
                 {
                     app.pending_partial_save_confirm = None;
                     app.active_tab = tab_idx;
@@ -94,13 +106,21 @@ pub(crate) fn render_partial_save_dialog(app: &mut OctaApp, ctx: &egui::Context)
                 }
                 if ui
                     .button(octa::i18n::t("dialog.partial_save_anyway"))
-                    .on_hover_text(octa::i18n::t("dialog.partial_save_anyway_hint"))
+                    .on_hover_text(octa::i18n::t(if save_as {
+                        "dialog.partial_save_as_anyway_hint"
+                    } else {
+                        "dialog.partial_save_anyway_hint"
+                    }))
                     .clicked()
                 {
                     app.pending_partial_save_confirm = None;
                     app.partial_save_acknowledged = true;
                     app.active_tab = tab_idx;
-                    app.save_file();
+                    if save_as {
+                        app.save_tab_as(tab_idx);
+                    } else {
+                        app.save_file();
+                    }
                 }
                 if ui
                     .button(octa::i18n::t("common.cancel"))

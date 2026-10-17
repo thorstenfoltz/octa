@@ -102,6 +102,59 @@ fn csv_options_control_delimiter_and_line_ending() {
 }
 
 #[test]
+fn a_european_csv_keeps_its_decimal_comma_and_byte_order_mark() {
+    let mut t = DataTable::empty();
+    t.columns = ["amount", "count", "note"]
+        .iter()
+        .zip(["Float64", "Int64", "Utf8"])
+        .map(|(n, ty)| ColumnInfo {
+            name: n.to_string(),
+            data_type: ty.into(),
+        })
+        .collect();
+    t.rows = vec![
+        vec![
+            CellValue::Float(1234.56),
+            CellValue::Int(7),
+            // Text that looks like a number is the user's text: never rewritten.
+            CellValue::String("1.5".into()),
+        ],
+        vec![
+            CellValue::Float(15.5),
+            CellValue::Int(-3),
+            CellValue::String("Grüße".into()),
+        ],
+    ];
+    let path = dir().join("european.csv");
+    let opts = WriteOptions {
+        csv: CsvOptions {
+            delimiter: b';',
+            decimal_comma: true,
+            bom: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let registry = FormatRegistry::new();
+    let reader = registry.reader_for_path(&path).unwrap();
+    reader.write_file_with_options(&path, &t, &opts).unwrap();
+
+    let bytes = std::fs::read(&path).unwrap();
+    assert_eq!(&bytes[..3], b"\xEF\xBB\xBF", "byte order mark first");
+    let body = String::from_utf8(bytes[3..].to_vec()).unwrap();
+    assert_eq!(body, "amount;count;note\n1234,56;7;1.5\n15,5;-3;Grüße\n",);
+
+    // And Octa reads it back as the same numbers.
+    let back = octa::formats::read_table_auto(&path, None, u64::MAX).unwrap();
+    assert_eq!(
+        back.columns[0].name, "amount",
+        "the BOM is not part of the name"
+    );
+    assert_eq!(back.get(0, 0), Some(&CellValue::Float(1234.56)));
+    assert_eq!(back.get(1, 0), Some(&CellValue::Float(15.5)));
+}
+
+#[test]
 fn a_tsv_keeps_its_tab_whatever_the_saved_delimiter_says() {
     // A saved delimiter is a preference about CSV. A `.tsv` is tab-separated
     // by definition, so the extension wins: writing `;` into a file the user

@@ -45,12 +45,14 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
     // common `FILTER_WINDOW_TOP_N`, plus the blank value when there are
     // missing cells, as the loaded-row list has one); the window's own
     // search then narrows that list as before. ---
+    // A large-file tab lists the whole file's values the same way.
     let on_server = crate::app::db_view::server_conn(
         &app.tabs[app.active_tab],
         app.settings.db_pushdown,
         &app.settings.db_connections,
     )
-    .is_some();
+    .is_some()
+        || app.tabs[app.active_tab].large.is_some();
     if on_server {
         app.want_values(
             crate::app::db_view::ValuesSlot::Window,
@@ -98,6 +100,20 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
     // Without the list, "everything ticked" cannot be told from a filter:
     // Apply (and a column switch) would drop the column's filter.
     let list_ready = !server_loading && server_error.is_none();
+    // Where the list was counted, for its wording.
+    let keys = if app.tabs[app.active_tab].large.is_some() {
+        WindowKeys {
+            counting: "largefile.facet_counting",
+            failed: "largefile.facet_failed",
+            more: "largefile.window_more",
+        }
+    } else {
+        WindowKeys {
+            counting: "dbview.facet_counting",
+            failed: "dbview.facet_failed",
+            more: "dbview.window_more",
+        }
+    };
     let app_rows_loaded = app.tabs[app.active_tab].table.row_count();
 
     // --- Shapes mode: the column's shapes, and a shape draft derived from
@@ -178,7 +194,7 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
         egui::Panel::top("column_filter_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("columns_menu.filter_title"))
                             .strong()
@@ -199,7 +215,7 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
         egui::Panel::bottom("column_filter_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui
                         .button(octa::i18n::t("dialog.cf_clear"))
                         .on_hover_text(octa::i18n::t("columns_menu.filter_clear_hint"))
@@ -214,9 +230,9 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                                 egui::Button::new(octa::i18n::t("common.apply")),
                             )
                             .on_disabled_hover_text(octa::i18n::t(if server_loading {
-                                "dbview.facet_counting"
+                                keys.counting
                             } else {
-                                "dbview.facet_failed"
+                                keys.failed
                             }))
                             .clicked()
                         {
@@ -233,7 +249,7 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
             .frame(egui::Frame::default())
             .show(ui, |ui| {
                 // Column picker.
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(octa::i18n::t("dialog.cf_column"));
                     egui::ComboBox::from_id_salt("column_filter_combo")
                         .selected_text(&col_name)
@@ -248,7 +264,7 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                 });
 
                 // Values / Shapes, the same switch as the header funnel.
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui
                         .selectable_label(!shapes_mode, octa::i18n::t("facet.mode_values"))
                         .on_hover_text(octa::i18n::t("facet.mode_values_hint"))
@@ -270,7 +286,7 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                 ui.separator();
 
                 // Value-list type-filter.
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(octa::i18n::t("dialog.cf_find"));
                     ui.add(
                         egui::TextEdit::singleline(&mut value_search)
@@ -353,7 +369,7 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                 if server_loading {
                     octa::ui::control_row::control_row(ui, |ui| {
                         ui.spinner();
-                        ui.weak(octa::i18n::t("dbview.facet_counting"));
+                        ui.weak(octa::i18n::t(keys.counting));
                     });
                     return;
                 }
@@ -361,13 +377,13 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
                     octa::ui::message::selectable_message(
                         ui,
                         ui.visuals().error_fg_color,
-                        &format!("{} {e}", octa::i18n::t("dbview.facet_failed")),
+                        &format!("{} {e}", octa::i18n::t(keys.failed)),
                     );
                     return;
                 }
                 if let Some((more, shown)) = server_more {
                     ui.weak(
-                        octa::i18n::t("dbview.window_more")
+                        octa::i18n::t(keys.more)
                             .replace("{count}", &octa::ui::status_bar::format_number(more))
                             .replace("{shown}", &octa::ui::status_bar::format_number(shown)),
                     );
@@ -540,4 +556,11 @@ pub(crate) fn render_column_filter_dialog(app: &mut OctaApp, ctx: &egui::Context
             tab.column_filter_shape_draft = Some(shape_draft);
         }
     }
+}
+
+/// The texts that say where the Column Filter window's list was counted.
+struct WindowKeys {
+    counting: &'static str,
+    failed: &'static str,
+    more: &'static str,
 }

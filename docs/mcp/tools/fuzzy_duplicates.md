@@ -68,3 +68,4 @@ stays available under `--mcp-read-only`.
 
 - [`find_duplicates`](find_duplicates.md): exact key-based duplicates.
 - [`run_sql`](run_sql.md): custom matching logic.
+- In the app: [Find Near-Duplicates](../../usage/find-near-duplicates.md)

@@ -217,3 +217,19 @@ fn size_unit_covers_gigabytes() {
     assert_eq!(SizeUnit::best_fit(1_500), SizeUnit::Bytes);
     assert!(SizeUnit::ALL.contains(&SizeUnit::GB));
 }
+
+#[test]
+fn a_settings_file_without_the_new_keys_gets_their_defaults() {
+    let s: AppSettings = toml::from_str("").unwrap();
+    assert!(s.open_in_running_instance);
+    assert!(s.notify_on_finish);
+    assert_eq!(s.notify_after_secs, 5);
+    assert!(!s.notify_when_focused);
+    // Save As asks both questions; unasked it writes all rows and opens.
+    assert!(s.save_as_ask_rows && s.save_as_ask_open);
+    assert!(!s.save_as_filtered_rows && s.save_as_open_new_file);
+    // Earlier versions are opt-in, with both limits on.
+    assert!(!s.keep_versions);
+    assert_eq!((s.versions_per_file, s.versions_total_mb), (10, 1024));
+    assert!(!s.versions_per_file_unlimited && !s.versions_total_unlimited);
+}

@@ -57,7 +57,7 @@ more than one, the dialog says so instead of guessing.
 `samples/features/trades.csv` and `quotes.csv` in the repository are
 built for trying it.
 
-## Command line and assistant
+## Command line and MCP
 
 The command-line `octa --join` (see the [`--join`](../cli/join.md)
 reference) and the [`join_tables`](../mcp/tools/join_tables.md) MCP /

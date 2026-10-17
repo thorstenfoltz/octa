@@ -27,6 +27,17 @@ kind = "regex"
 pattern = ".+@.+"
 
 [[rule]]
+column = "end"
+kind = "compare"
+op = ">="
+other_column = "start"
+
+[[rule]]
+column = "status"
+kind = "one_of"
+values = ["open", "closed"]
+
+[[rule]]
 kind = "not_null"
 ```
 
@@ -36,6 +47,14 @@ optional), `regex` (with `pattern`) and `max_length` (with
 `vat_id` and `email` (see
 [Data Validation](../usage/data-validation.md#checking-ids-iban-card-numbers-barcodes-vat-email)).
 A rule without a `column` applies to every column.
+
+Two more kinds: `compare` (a `column`, an `op` of `=`, `!=`, `<`, `<=`,
+`>`, `>=`, and an `other_column`; the cell must compare that way with the
+other column in the same row) and `one_of` (a list of `values`; matching
+is exact). Both pass empty cells. `compare` needs a `column`; a `one_of`
+without one applies to every column, like the other kinds. See
+[Data Validation](../usage/data-validation.md#rules-over-two-columns-and-pick-from-values)
+for how values compare.
 
 The same file is written and read by the **Data -> Data validation...**
 dialog's Save rules and Load rules buttons, so a rule set you built by
@@ -52,6 +71,9 @@ One row per failing rule on stdout:
 | `failures` | How many cells failed it                        |
 | `samples`  | Up to three of the offending values             |
 
+For a `compare` rule each sample names both values, for example
+`end=2024-01-01, start=2024-02-01`.
+
 A rule that could not run at all, because it names a column the file
 does not have, appears as its own row with the problem in the `rule`
 field. The summary line goes to stderr.
@@ -64,3 +86,7 @@ whose columns have since been renamed would otherwise report a clean
 run over checks it silently skipped.
 
 See [Data Validation](../usage/data-validation.md) for the dialog.
+
+## See also
+
+- MCP: [`check_rules`](../mcp/tools/check_rules.md)

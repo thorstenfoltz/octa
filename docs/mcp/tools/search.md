@@ -70,3 +70,4 @@ exceeded the limit.
 - [`run_sql`](run_sql.md): `WHERE` clauses for column-scoped, typed
   filtering.
 - [`value_frequency`](value_frequency.md): counts rather than locations.
+- In the app: [Search & Filter](../../usage/search-and-filter.md)

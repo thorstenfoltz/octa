@@ -92,3 +92,4 @@ type mismatch.
   diff, doesn't use exit code for status.
 - [MCP `validate_against_schema`](../mcp/tools/validate_against_schema.md):
   same feature over MCP.
+- In the app: [Schema drift](../usage/schema-drift.md)

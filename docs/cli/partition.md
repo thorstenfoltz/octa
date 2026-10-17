@@ -24,6 +24,33 @@ octa --partition-by region --out-dir ./by_region sales.csv
 octa --partition-by year --out-dir ./by_year sales.parquet --partition-format parquet
 ```
 
+## Split into parts
+
+`--split-rows N` and `--split-size SIZE` cap what one file holds. They work
+alone (the whole table is cut into numbered parts) or with `--partition-by`
+(each group is cut):
+
+```
+octa --split-rows 100000 --out-dir ./parts sales.csv
+octa --split-size 25MB --out-dir ./parts sales.csv
+octa --partition-by city --partition-layout hive-parts --split-rows 50000 --out-dir ./by_city sales.csv
+```
+
+| Option              | Meaning                                                                |
+|---------------------|------------------------------------------------------------------------|
+| `--split-rows N`    | At most N rows per file                                                |
+| `--split-size SIZE` | At most SIZE per file: `25MB`, `500KB`, `1GB` (1 MB = 1,000,000 bytes) |
+
+Sizes also take `MiB`, `GiB` (1 MiB = 1,048,576 bytes). Files land a little
+under the limit, not packed to the byte.
+
+Once a limit is set every file is numbered: `sales_part_0001.csv` without a
+column, `part-0001.csv` counted per folder with `folder` and `hive-parts`,
+and Hive's `data.csv` becomes numbered parts too. (Folder and hive-parts
+layouts now count `part-0001` per folder, not across the whole run.)
+
+The split reads every row of the source; `--rows N` caps it on purpose.
+
 ## See also
 
 - [Partition by Column](../usage/partition-by-column.md) (GUI) and the

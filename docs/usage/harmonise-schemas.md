@@ -107,11 +107,13 @@ asking for it without `--out` is refused rather than guessed at.
 `--validate-schema`, so a CI step can gate on it. The report goes to stdout;
 refusals and dropped columns go to stderr, so a pipe stays parseable.
 
-## Assistant and MCP
+## MCP and the assistant
 
 The `harmonise_schemas` tool does the same thing. It is a **write tool**, so
 it is hidden from chat profiles without "Allow writes" and removed entirely
 under `--mcp-read-only`.
+
+- MCP: [`harmonise_schemas`](../mcp/tools/harmonise_schemas.md)
 
 ## Limits
 

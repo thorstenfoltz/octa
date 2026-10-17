@@ -9,7 +9,7 @@ versions differ conflicts and rows from any version are kept.
 Read-only, so it stays available under `--mcp-read-only`. To save the result,
 pass `merged` on to [`write_table`](write_table.md).
 
-## Parameters
+## Input schema
 
 | Name        | Type     | Meaning                                                                    |
 |-------------|----------|----------------------------------------------------------------------------|
@@ -22,7 +22,7 @@ pass `merged` on to [`write_table`](write_table.md).
 
 Use [`suggest_join_keys`](suggest_join_keys.md) when you do not know the key.
 
-## Response
+## Response shape
 
 ```json
 {
@@ -41,3 +41,7 @@ another has no column and shows `(deleted)` / `(edited)`.
 like every other row-returning tool.
 
 See [Merge Versions](../../usage/merge-versions.md).
+
+## See also
+
+- Command line: [`--merge`](../../cli/merge.md)

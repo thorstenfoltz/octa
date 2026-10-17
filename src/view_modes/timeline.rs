@@ -200,7 +200,7 @@ pub fn render_timeline_view(
 
     // Summary line.
     let mut open = false;
-    ui.horizontal_wrapped(|ui| {
+    octa::ui::control_row::control_row(ui, |ui| {
         let warn = ui.visuals().warn_fg_color;
         if built.pairs.is_empty() {
             ui.label(t("timeline.no_overlaps"));

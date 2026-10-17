@@ -9,6 +9,7 @@ pub mod cell_history;
 pub mod check_references;
 pub mod check_rules;
 pub mod compare_distributions;
+pub mod compare_folders;
 pub mod compare_schemas;
 pub mod convert;
 pub mod copy_db_table;
@@ -28,6 +29,7 @@ pub mod diff_tables;
 /// Chat-only (rendered from chat dispatch, not registered with the MCP server).
 pub mod edit_open_tab;
 pub mod edit_table;
+pub mod export_db_tables;
 pub mod export_schema;
 pub mod find_duplicates;
 pub mod find_lookups;
@@ -85,7 +87,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
-use octa::data::{CellValue, ColumnInfo, DataTable};
+use octa::data::{CellValue, ColumnInfo, DataTable, hex_decode};
 
 /// A snapshot of an open GUI tab's table. Handed to the in-GUI chat agent so
 /// tools can read in-memory (possibly edited) data from a worker thread
@@ -156,7 +158,7 @@ impl ResolvedOp {
     /// never diverge from what applying the same ops directly would do. Each
     /// mutator pushes its own undo action; callers group them with
     /// [`DataTable::coalesce_undo_since`].
-    pub fn apply_to(&self, table: &mut DataTable) {
+    pub fn apply_to(&self, table: &mut DataTable, order: octa::data::TextOrder) {
         match self {
             ResolvedOp::AddColumn {
                 name,
@@ -212,7 +214,7 @@ impl ResolvedOp {
                 // for in prose and one asked for in chat land in the same
                 // place. Marks and row tags travel with their rows;
                 // `edit_open_tab` queues this last.
-                table.sort_rows_by_columns(keys);
+                table.sort_rows_by_columns(keys, order);
             }
         }
     }
@@ -393,7 +395,13 @@ impl ToolContext {
     ) -> anyhow::Result<Box<dyn octa::db::DbConnector>> {
         let secret = self.db_secret(conn);
         let ssh_secret = self.db_ssh_secret(conn);
-        octa::db::connect(conn, secret.as_deref(), ssh_secret.as_deref())
+        // A read-only session is read-only on the server too, whatever the
+        // connection's own switch says.
+        let conn = octa::db::DbConnection {
+            allow_writes: conn.allow_writes && !self.read_only,
+            ..conn.clone()
+        };
+        octa::db::connect(&conn, secret.as_deref(), ssh_secret.as_deref())
     }
 
     /// Resolve a [`Source`] into a concrete [`DataTable`]. File sources read
@@ -643,6 +651,12 @@ connection (an az:// URL cannot carry the account name)"
                 })?;
                 CloudConnection::ephemeral_azure(account, &loc.bucket)
             }
+            CloudKind::Sftp => CloudConnection::ephemeral_sftp(&loc.bucket, loc.user.clone()),
+            CloudKind::WebDav => anyhow::bail!(
+                "no saved WebDAV connection covers {}; add a saved connection in Settings > \
+Cloud storage",
+                loc.bucket
+            ),
         };
         let creds = resolve_ambient_creds(&conn);
         Ok((conn, creds))
@@ -762,17 +776,18 @@ the inner table name.)",
                 // Nothing to resolve against; don't invent a directory.
                 return Ok(requested.to_path_buf());
             };
-            std::fs::create_dir_all(dir)
-                .map_err(|e| anyhow::anyhow!("creating export directory {}: {e}", dir.display()))?;
+            std::fs::create_dir_all(dir).map_err(|e| {
+                anyhow::anyhow!("creating export directory {}: {e:#}", dir.display())
+            })?;
             return Ok(dir.join(requested));
         }
         let dir = self.export_dir.as_ref().ok_or_else(|| {
             anyhow::anyhow!("no export directory is configured - set one in Settings > Chat")
         })?;
         std::fs::create_dir_all(dir)
-            .map_err(|e| anyhow::anyhow!("creating export directory {}: {e}", dir.display()))?;
+            .map_err(|e| anyhow::anyhow!("creating export directory {}: {e:#}", dir.display()))?;
         let canon_dir = std::fs::canonicalize(dir)
-            .map_err(|e| anyhow::anyhow!("resolving export directory {}: {e}", dir.display()))?;
+            .map_err(|e| anyhow::anyhow!("resolving export directory {}: {e:#}", dir.display()))?;
         let confined_err = || {
             anyhow::anyhow!(
                 "Writes are confined to the export directory \"{}\". Give a bare file name and \
@@ -1178,22 +1193,6 @@ pub fn cell_from_json(value: &Value, data_type: &str) -> CellValue {
     }
 }
 
-/// Decode an even-length ASCII hex string into bytes. Returns `None` on any
-/// non-hex character or odd length.
-fn hex_decode(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) {
-        return None;
-    }
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(s.len() / 2);
-    for pair in bytes.chunks(2) {
-        let hi = (pair[0] as char).to_digit(16)?;
-        let lo = (pair[1] as char).to_digit(16)?;
-        out.push((hi * 16 + lo) as u8);
-    }
-    Some(out)
-}
-
 /// Build a fresh [`DataTable`] from a column spec (name + Arrow type) and
 /// positional rows (array-of-arrays, matching the shape `table_to_json`
 /// emits). Every row must have exactly `columns.len()` cells. `source_path`
@@ -1257,3 +1256,58 @@ pub fn schema_to_json(table: &DataTable) -> Value {
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
+
+/// The MCP shape of a plan: stable step ids for programs, plain labels for
+/// people, the text tree and the server's own text.
+pub(crate) fn plan_json(plan: &octa::sql::explain::Plan) -> serde_json::Value {
+    let steps: Vec<serde_json::Value> = plan
+        .steps
+        .iter()
+        .map(|s| {
+            serde_json::json!({
+                "depth": s.depth,
+                "step": s.kind.id(),
+                "label": s.label(),
+                "table": s.table,
+                "estimated_rows": s.estimated_rows,
+                "detail": s.detail,
+                "server_name": s.server_name,
+            })
+        })
+        .collect();
+    let mut out = serde_json::json!({
+        "kind": "explain",
+        "steps": steps,
+        "plain": octa::sql::explain::plain_text(plan),
+        "server_text": plan.server_text,
+    });
+    if let Some(bytes) = plan.bytes_scanned {
+        out["bytes_scanned"] = serde_json::json!(bytes);
+    }
+    out
+}
+
+/// One sort key for `read_table` and `convert`.
+#[derive(Debug, Clone, serde::Deserialize, schemars::JsonSchema)]
+pub struct SortParam {
+    /// Column name.
+    pub column: String,
+    /// Sort high to low. Default false.
+    #[serde(default)]
+    pub descending: bool,
+}
+
+/// The recipe sort step for a tool's `sort` and `natural`, the same one a
+/// recipe replays, so an agent and a recipe cannot order rows differently.
+pub(crate) fn sort_step(sort: &[SortParam], natural: bool) -> Option<octa::data::recipe::Sort> {
+    (!sort.is_empty()).then(|| octa::data::recipe::Sort {
+        by: sort
+            .iter()
+            .map(|k| octa::data::recipe::SortKey {
+                column: k.column.clone(),
+                descending: k.descending,
+            })
+            .collect(),
+        natural,
+    })
+}

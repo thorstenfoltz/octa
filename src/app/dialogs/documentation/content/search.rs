@@ -213,7 +213,9 @@ many are not shown.
 
 On a database tab that holds only part of its table, the list comes from
 the database: the 50 most common values over the whole table, and the
-search box searches every value there.
+search box searches every value there. A large-file tab does the same over
+its whole file, in the background, and the ticked values filter every row of
+the file (see Large Files).
 
 **Search queries the whole column, not the 50 on screen.** A value
 ranked nine hundredth is still findable by typing it. That full scan is
@@ -299,6 +301,8 @@ Filter values...** opens the smaller popup version of the same filter.
 - On a database tab that holds only part of its table, the search box
   (Plain and Wildcard), the value filters and the comparison filters run
   on the database over the whole table (see Analyses on Live Databases).
+- On a large-file tab, the value list is counted over the whole file and
+  the ticked values filter every row of it (see Large Files).
 - "Select none + Apply" hides every row in the current view, just like
   unchecking every checkbox by hand. Use "Clear filter on this column"
   to remove the filter entirely.

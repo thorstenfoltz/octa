@@ -57,7 +57,11 @@ impl OctaApp {
             std::time::Instant::now(),
         ));
 
+        let task = self
+            .long_tasks
+            .start(octa::i18n::t("notify.task_api_fetch"));
         std::thread::spawn(move || {
+            let _task = task;
             let opts = client::FetchOptions {
                 path,
                 max_rows: None,

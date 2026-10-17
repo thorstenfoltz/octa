@@ -2,7 +2,6 @@ use crate::app::state::TabState;
 
 use eframe::egui;
 use octa::data::CellValue;
-use octa::ui::control_row::control_height;
 use octa::ui::settings::SqlEditorFont;
 use octa::ui::status_bar::format_number;
 
@@ -27,6 +26,8 @@ fn sql_font_family(font: SqlEditorFont, ui: &egui::Ui) -> egui::FontFamily {
 #[derive(Debug, Clone, Default)]
 pub struct SqlAction {
     pub run: bool,
+    /// User clicked **Explain**: show the query's plan without running it.
+    pub explain: bool,
     pub clear: bool,
     /// User chose **Clear history** in the History menu: forget every recorded
     /// query for this tab's connection or file.
@@ -80,8 +81,6 @@ pub struct SqlAction {
     pub toggle_tree_key: Option<String>,
     /// User picked a recent query from the History dropdown (the query text).
     pub recall_query: Option<String>,
-    /// User picked a saved snippet (the snippet's query text) to load.
-    pub insert_snippet: Option<String>,
     /// User dismissed the note about auto-registered open tabs.
     pub dismiss_auto_register_notice: bool,
     /// The result grid of this pane (`SqlPane.id`) scrolled close enough to
@@ -89,6 +88,13 @@ pub struct SqlAction {
     pub load_more_rows: Option<u64>,
     /// User clicked **+** to open another editor beside the others.
     pub add_pane: bool,
+    /// User picked **File -> Open...**: read a `.sql` file into an editor.
+    pub open_file: bool,
+    /// **File -> Save**: write the editor back to its file (asks where when
+    /// it has none).
+    pub save_file: bool,
+    /// **File -> Save as...**: write the editor to a new file and keep it.
+    pub save_file_as: bool,
     /// User closed the editor at this position.
     pub close_pane: Option<usize>,
     /// User clicked Maximise / Restore in the panel header.
@@ -536,7 +542,8 @@ pub struct SqlViewContext<'a> {
     pub inspector_entry: Option<&'a crate::app::state::InspectorCacheEntry>,
     /// Every query run in any SQL editor, most recent first.
     pub history: &'a [octa::sql::history::SqlHistoryEntry],
-    /// Whether a "Run on server" query is currently in flight.
+    /// Whether a "Run on server" query, or a local query of this tab, is
+    /// currently in flight.
     pub server_running: bool,
     /// Saved live-database connections, for the attach menu.
     pub db_connections: Vec<DbAttachEntry>,
@@ -561,6 +568,8 @@ pub struct SqlViewContext<'a> {
 pub struct DbAttachEntry {
     pub id: String,
     pub name: String,
+    /// The connection's engine, so Explain can say whether it can answer.
+    pub engine: octa::db::DbEngine,
     /// `None` for an engine DuckDB attaches natively (Postgres, MySQL,
     /// Redshift): one click attaches the whole server and nothing is copied.
     /// `Some` for the import engines, where every attached table is fetched
@@ -706,190 +715,15 @@ pub fn render_sql_view(
         style.visuals.widgets.active.expansion = 0.0;
     }
 
-    octa::ui::control_row::control_row(ui, |ui| {
-        ui.label(egui::RichText::new(octa::i18n::t("sql.query_against_data")).strong());
-        ui.add_space(8.0);
-        // Where the query runs: the local DuckDB workspace, or straight on any
-        // saved connection's server, where every table there is queryable by
-        // its real name without attaching anything.
-        ui.label(octa::i18n::t("sql.run_on"));
-        let local = octa::i18n::t("sql.run_local");
-        let selected = tab
-            .sql_target
-            .as_deref()
-            .map(|id| {
-                db_connections
-                    .iter()
-                    .find(|c| c.id == id)
-                    .map(|c| c.name.clone())
-                    .unwrap_or_else(|| octa::i18n::t("sql.history_deleted_conn"))
-            })
-            .unwrap_or_else(|| local.clone());
-        let hint = match tab.sql_target {
-            Some(_) => octa::i18n::t("sql.run_on_server_hint"),
-            None => octa::i18n::t("sql.run_local_hint"),
-        };
-        ui.add_enabled_ui(!server_running, |ui| {
-            egui::ComboBox::from_id_salt("sql_run_on")
-                .selected_text(selected)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut tab.sql_target, None, local)
-                        .on_hover_text(octa::i18n::t("sql.run_local_hint"));
-                    for c in &db_connections {
-                        ui.selectable_value(&mut tab.sql_target, Some(c.id.clone()), &c.name)
-                            .on_hover_text(octa::i18n::t("sql.run_on_server_hint"));
-                    }
-                })
-                .response
-                .on_hover_text(format!("{}\n\n{hint}", octa::i18n::t("sql.run_on_hint")))
-                .on_disabled_hover_text(octa::i18n::t("sql.run_on_busy"));
-        });
-        ui.add_space(4.0);
-        if server_running {
-            ui.add(egui::Spinner::new().size(12.0));
-            if ui.button(octa::i18n::t("common.cancel")).clicked() {
-                action.cancel_server = true;
-            }
-        } else if ui
-            .button(octa::i18n::t("sql.run"))
-            .on_hover_text(octa::i18n::t("sql.run_hint"))
-            .clicked()
-        {
-            action.run = true;
-        }
-        if ui.button(octa::i18n::t("sql.clear_result")).clicked() {
-            action.clear = true;
-        }
-        if ui
-            .button(octa::i18n::t("sql.format"))
-            .on_hover_text(octa::i18n::t("sql.format_hint"))
-            .clicked()
-        {
-            action.format = true;
-        }
-        if ui
-            .button("+")
-            .on_hover_text(octa::i18n::t("sql.add_editor_hint"))
-            .clicked()
-        {
-            action.add_pane = true;
-        }
-
-        // History: every query run in any SQL editor, kept between sessions,
-        // one list. Each row says where it ran and what it cost; hovering
-        // shows the whole statement. Picking one only puts the text in the
-        // editor, the target stays as it is.
-        if !history.is_empty() {
-            ui.menu_button(octa::i18n::t("sql.history"), |ui| {
-                ui.set_min_width(360.0);
-                egui::ScrollArea::vertical()
-                    .max_height(420.0)
-                    .show(ui, |ui| {
-                        for h in history {
-                            // One-line preview, counted in chars, not bytes:
-                            // `&preview[..57]` panicked on any query holding a
-                            // multi-byte character.
-                            let flat = h.query.split_whitespace().collect::<Vec<_>>().join(" ");
-                            let preview = if flat.chars().count() > 60 {
-                                format!("{}...", flat.chars().take(57).collect::<String>())
-                            } else {
-                                flat
-                            };
-                            let (short, full) = history_source_label(
-                                &h.source,
-                                &db_connections,
-                                &cloud_connections,
-                            );
-                            let cost = format!(
-                                "{short} - {} {} - {} ms",
-                                octa::ui::status_bar::format_number(h.rows),
-                                octa::i18n::t("sql.history_rows"),
-                                octa::ui::status_bar::format_number(h.duration_ms as usize)
-                            );
-                            let when = chrono::DateTime::from_timestamp(h.at_unix as i64, 0)
-                                .map(|t| {
-                                    t.with_timezone(&chrono::Local)
-                                        .format("%Y-%m-%d %H:%M")
-                                        .to_string()
-                                })
-                                .unwrap_or_default();
-                            ui.horizontal(|ui| {
-                                let resp = ui.button(preview).on_hover_ui(|ui| {
-                                    ui.label(egui::RichText::new(format!("{full}  {when}")).weak());
-                                    ui.separator();
-                                    ui.label(egui::RichText::new(&h.query).monospace());
-                                });
-                                if resp.clicked() {
-                                    action.recall_query = Some(h.query.clone());
-                                    ui.close();
-                                }
-                                // `weak` rather than a theme colour: this view
-                                // has no ThemeColors in scope, and weak text is
-                                // exactly the "secondary detail" role here.
-                                ui.label(egui::RichText::new(cost).size(11.0).weak());
-                            });
-                        }
-                    });
-                ui.separator();
-                if ui
-                    .button(octa::i18n::t("sql.history_clear"))
-                    .on_hover_text(octa::i18n::t("sql.history_clear_hint"))
-                    .clicked()
-                {
-                    action.clear_history = true;
-                    ui.close();
-                }
-            })
-            .response
-            .on_hover_text(octa::i18n::t("sql.history_hint"));
-        }
-
-        // Snippets: opens the persistent named-query manager window.
-        if ui
-            .button(octa::i18n::t("sql.snippets"))
-            .on_hover_text(octa::i18n::t("sql.snippets_hint"))
-            .clicked()
-        {
-            action.open_snippets_window = true;
-        }
-
-        let has_result = tab.sql.result.as_ref().is_some_and(|t| t.col_count() > 0);
-        ui.add_enabled_ui(has_result, |ui| {
-            if ui
-                .button(octa::i18n::t("sql.export"))
-                .on_hover_text(octa::i18n::t("sql.export_hint"))
-                .clicked()
-            {
-                action.export = true;
-            }
-            if ui
-                .button(octa::i18n::t("sql.write_to_db"))
-                .on_hover_text(octa::i18n::t("sql.write_to_db_hint"))
-                .clicked()
-            {
-                action.open_write_back = true;
-            }
-            if ui
-                .button(octa::i18n::t("sql.result_to_tab"))
-                .on_hover_text(octa::i18n::t("sql.result_to_tab_hint"))
-                .on_disabled_hover_text(octa::i18n::t("sql.result_to_tab_hint"))
-                .clicked()
-            {
-                action.result_to_tab = true;
-            }
-        });
-        if let Some(rows) = tab.sql.result.as_ref().map(|t| t.row_count()) {
-            ui.add_space(12.0);
-            ui.label(result_rows_label(
-                rows,
-                tab.sql.result_total,
-                tab.sql.last_duration_ms,
-            ));
-        }
-        // Close (×) button on the right - flips `sql_panel_open` to false.
-        // The Analyse dropdown is two clicks away, so without an in-panel
-        // close the user has to fiddle to dismiss it.
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+    octa::ui::control_row::control_line(ui, |ui| {
+        // The corner buttons come first, from the right edge, so the rest of
+        // the row wraps in the width they leave. Laid out last, right to
+        // left, they landed on whatever the row already held there: the
+        // result count vanished behind Restore in a narrow panel.
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+            // Close (×) button on the right - flips `sql_panel_open` to false.
+            // The Analyse dropdown is two clicks away, so without an in-panel
+            // close the user has to fiddle to dismiss it.
             if ui
                 .button(egui::RichText::new("\u{00d7}").size(16.0).strong())
                 .on_hover_text(octa::i18n::t("sql.close_hint"))
@@ -909,6 +743,270 @@ pub fn render_sql_view(
             {
                 action.toggle_maximise = true;
             }
+
+            ui.with_layout(
+                egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true),
+                |ui| {
+                    // A narrow panel moves whole controls to the next line;
+                    // it never breaks a label inside its button.
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                    ui.label(egui::RichText::new(octa::i18n::t("sql.query_against_data")).strong());
+                    ui.add_space(8.0);
+                    // Where the query runs: the local DuckDB workspace, or straight on any
+                    // saved connection's server, where every table there is queryable by
+                    // its real name without attaching anything.
+                    ui.label(octa::i18n::t("sql.run_on"));
+                    let local = octa::i18n::t("sql.run_local");
+                    let selected = tab
+                        .sql_target
+                        .as_deref()
+                        .map(|id| {
+                            db_connections
+                                .iter()
+                                .find(|c| c.id == id)
+                                .map(|c| c.name.clone())
+                                .unwrap_or_else(|| octa::i18n::t("sql.history_deleted_conn"))
+                        })
+                        .unwrap_or_else(|| local.clone());
+                    let hint = match tab.sql_target {
+                        Some(_) => octa::i18n::t("sql.run_on_server_hint"),
+                        None => octa::i18n::t("sql.run_local_hint"),
+                    };
+                    ui.add_enabled_ui(!server_running, |ui| {
+                        egui::ComboBox::from_id_salt("sql_run_on")
+                            .selected_text(selected)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut tab.sql_target, None, local)
+                                    .on_hover_text(octa::i18n::t("sql.run_local_hint"));
+                                for c in &db_connections {
+                                    ui.selectable_value(
+                                        &mut tab.sql_target,
+                                        Some(c.id.clone()),
+                                        &c.name,
+                                    )
+                                    .on_hover_text(octa::i18n::t("sql.run_on_server_hint"));
+                                }
+                            })
+                            .response
+                            .on_hover_text(format!(
+                                "{}\n\n{hint}",
+                                octa::i18n::t("sql.run_on_hint")
+                            ))
+                            .on_disabled_hover_text(octa::i18n::t("sql.run_on_busy"));
+                    });
+                    ui.add_space(4.0);
+                    if server_running {
+                        ui.add(egui::Spinner::new().size(12.0));
+                        if ui.button(octa::i18n::t("common.cancel")).clicked() {
+                            action.cancel_server = true;
+                        }
+                    } else if ui
+                        .button(octa::i18n::t("sql.run"))
+                        .on_hover_text(octa::i18n::t("sql.run_hint"))
+                        .clicked()
+                    {
+                        action.run = true;
+                    }
+                    // Explain answers for local DuckDB and the engines with a parser;
+                    // elsewhere the button stays visible and says why it cannot.
+                    let unavailable: Option<String> = tab.sql_target.as_deref().and_then(|id| {
+                        let engine = db_connections.iter().find(|c| c.id == id)?.engine;
+                        (!octa::sql::explain::can_explain(engine)).then(|| {
+                            octa::i18n::t("explain.not_available")
+                                .replace("{engine}", engine.label())
+                        })
+                    });
+                    let explain = ui
+                        .add_enabled(
+                            !server_running && unavailable.is_none(),
+                            egui::Button::new(octa::i18n::t("explain.button")),
+                        )
+                        .on_hover_text(octa::i18n::t("explain.button_hint"))
+                        .on_disabled_hover_text(
+                            unavailable
+                                .clone()
+                                .unwrap_or_else(|| octa::i18n::t("sql.run_on_busy")),
+                        );
+                    if explain.clicked() {
+                        action.explain = true;
+                    }
+                    if ui.button(octa::i18n::t("sql.clear_result")).clicked() {
+                        action.clear = true;
+                    }
+                    if ui
+                        .button(octa::i18n::t("sql.format"))
+                        .on_hover_text(octa::i18n::t("sql.format_hint"))
+                        .clicked()
+                    {
+                        action.format = true;
+                    }
+                    if ui
+                        .button("+")
+                        .on_hover_text(octa::i18n::t("sql.add_editor_hint"))
+                        .clicked()
+                    {
+                        action.add_pane = true;
+                    }
+                    ui.menu_button(octa::i18n::t("sql.file_menu"), |ui| {
+                        if ui
+                            .button(octa::i18n::t("common.open"))
+                            .on_hover_text(octa::i18n::t("sql.open_file_hint"))
+                            .clicked()
+                        {
+                            action.open_file = true;
+                            ui.close();
+                        }
+                        if ui
+                            .button(octa::i18n::t("common.save"))
+                            .on_hover_text(octa::i18n::t("sql.save_file_hint"))
+                            .clicked()
+                        {
+                            action.save_file = true;
+                            ui.close();
+                        }
+                        if ui
+                            .button(octa::i18n::t("common.save_as"))
+                            .on_hover_text(octa::i18n::t("sql.save_file_as_hint"))
+                            .clicked()
+                        {
+                            action.save_file_as = true;
+                            ui.close();
+                        }
+                    })
+                    .response
+                    .on_hover_text(octa::i18n::t("sql.file_menu_hint"));
+
+                    // History: every query run in any SQL editor, kept between sessions,
+                    // one list. Each row says where it ran and what it cost; hovering
+                    // shows the whole statement. Picking one only puts the text in the
+                    // editor, the target stays as it is.
+                    if !history.is_empty() {
+                        ui.menu_button(octa::i18n::t("sql.history"), |ui| {
+                            ui.set_min_width(360.0);
+                            egui::ScrollArea::vertical()
+                                .max_height(420.0)
+                                .show(ui, |ui| {
+                                    for h in history {
+                                        // One-line preview, counted in chars, not bytes:
+                                        // `&preview[..57]` panicked on any query holding a
+                                        // multi-byte character.
+                                        let flat = h
+                                            .query
+                                            .split_whitespace()
+                                            .collect::<Vec<_>>()
+                                            .join(" ");
+                                        let preview = if flat.chars().count() > 60 {
+                                            format!(
+                                                "{}...",
+                                                flat.chars().take(57).collect::<String>()
+                                            )
+                                        } else {
+                                            flat
+                                        };
+                                        let (short, full) = history_source_label(
+                                            &h.source,
+                                            &db_connections,
+                                            &cloud_connections,
+                                        );
+                                        let cost = format!(
+                                            "{short} - {} {} - {} ms",
+                                            octa::ui::status_bar::format_number(h.rows),
+                                            octa::i18n::t("sql.history_rows"),
+                                            octa::ui::status_bar::format_number(
+                                                h.duration_ms as usize
+                                            )
+                                        );
+                                        let when =
+                                            chrono::DateTime::from_timestamp(h.at_unix as i64, 0)
+                                                .map(|t| {
+                                                    t.with_timezone(&chrono::Local)
+                                                        .format("%Y-%m-%d %H:%M")
+                                                        .to_string()
+                                                })
+                                                .unwrap_or_default();
+                                        octa::ui::control_row::control_line(ui, |ui| {
+                                            let resp = ui.button(preview).on_hover_ui(|ui| {
+                                                ui.label(
+                                                    egui::RichText::new(format!("{full}  {when}"))
+                                                        .weak(),
+                                                );
+                                                ui.separator();
+                                                ui.label(egui::RichText::new(&h.query).monospace());
+                                            });
+                                            if resp.clicked() {
+                                                action.recall_query = Some(h.query.clone());
+                                                ui.close();
+                                            }
+                                            // `weak` rather than a theme colour: this view
+                                            // has no ThemeColors in scope, and weak text is
+                                            // exactly the "secondary detail" role here.
+                                            ui.label(egui::RichText::new(cost).size(11.0).weak());
+                                        });
+                                    }
+                                });
+                            ui.separator();
+                            if ui
+                                .button(octa::i18n::t("sql.history_clear"))
+                                .on_hover_text(octa::i18n::t("sql.history_clear_hint"))
+                                .clicked()
+                            {
+                                action.clear_history = true;
+                                ui.close();
+                            }
+                        })
+                        .response
+                        .on_hover_text(octa::i18n::t("sql.history_hint"));
+                    }
+
+                    // Snippets: opens the persistent named-query manager window.
+                    if ui
+                        .button(octa::i18n::t("sql.snippets"))
+                        .on_hover_text(octa::i18n::t("sql.snippets_hint"))
+                        .clicked()
+                    {
+                        action.open_snippets_window = true;
+                    }
+
+                    // Each button disabled on its own, not inside an
+                    // `add_enabled_ui` scope: a scope is one child of this
+                    // wrapping row, laid out in whatever width is left on the
+                    // current line, so in a narrow panel its three buttons
+                    // stacked into a sliver with their labels broken letter
+                    // by letter.
+                    let has_result = tab.sql.result.as_ref().is_some_and(|t| t.col_count() > 0);
+                    let result_buttons = [
+                        ("sql.export", "sql.export_hint", &mut action.export),
+                        (
+                            "sql.write_to_db",
+                            "sql.write_to_db_hint",
+                            &mut action.open_write_back,
+                        ),
+                        (
+                            "sql.result_to_tab",
+                            "sql.result_to_tab_hint",
+                            &mut action.result_to_tab,
+                        ),
+                    ];
+                    for (label, hint, clicked) in result_buttons {
+                        if ui
+                            .add_enabled(has_result, egui::Button::new(octa::i18n::t(label)))
+                            .on_hover_text(octa::i18n::t(hint))
+                            .on_disabled_hover_text(octa::i18n::t(hint))
+                            .clicked()
+                        {
+                            *clicked = true;
+                        }
+                    }
+                    if let Some(rows) = tab.sql.result.as_ref().map(|t| t.row_count()) {
+                        ui.add_space(12.0);
+                        ui.label(result_rows_label(
+                            rows,
+                            tab.sql.result_total,
+                            tab.sql.last_duration_ms,
+                        ));
+                    }
+                },
+            );
         });
     });
 
@@ -948,8 +1046,7 @@ pub fn render_sql_view(
     // visibly lower than Run, Clear, History and Snippets before it. Nothing
     // is added ahead of the box here, so there is nothing left to stagger,
     // and the box may grow as the question wraps without moving anything.
-    ui.horizontal(|ui| {
-        ui.spacing_mut().interact_size.y = control_height(ui);
+    octa::ui::control_row::control_line(ui, |ui| {
         ui.add_enabled_ui(ask_enabled, |ui| {
             // Multiline, one row tall to start: a question longer than the box
             // used to scroll sideways behind itself, unreadable while typing
@@ -1089,8 +1186,9 @@ pub fn render_sql_view(
         idents.sort();
         idents.dedup();
         let columns = idents;
-        let cursor_byte = egui::TextEdit::load_state(ui.ctx(), editor_id)
-            .and_then(|s| s.cursor.char_range())
+        let caret =
+            egui::TextEdit::load_state(ui.ctx(), editor_id).and_then(|s| s.cursor.char_range());
+        let cursor_byte = caret
             .map(|r| {
                 let char_idx = r.primary.index.0;
                 tab.sql
@@ -1104,7 +1202,9 @@ pub fn render_sql_view(
         let (pstart, pstr) = current_prefix_at(&tab.sql.query, cursor_byte);
         prefix_start = pstart;
         prefix_len = pstr.len();
-        if !pstr.is_empty() {
+        // Never while text is marked: the caret sits after a name only
+        // because the selection ends there.
+        if !pstr.is_empty() && caret.is_none_or(|r| r.is_empty()) {
             suggestions = collect_suggestions(pstr, &columns, 50);
         }
     }
@@ -1123,8 +1223,9 @@ pub fn render_sql_view(
     // highlighted suggestion, Escape dismisses. Because consumption is gated on
     // `popup_active`, these keys keep their normal editor behaviour whenever the
     // popup is closed - Enter inserts a newline, arrows move the caret. The
-    // popup only opens after the user types (`resp.changed()` sets
-    // `sql_ac_visible`) and closes on Escape, so plain typing never loses keys.
+    // popup only opens while the user types (`resp.changed()` sets
+    // `ac_visible`, any other caret move clears it, `draw_sql_editor`) and
+    // closes on Escape, so plain typing never loses keys.
     let popup_active = editor_focused && tab.sql.ac_visible && !suggestions.is_empty();
     let mut apply_suggestion: Option<String> = None;
     // Moved by the keyboard this frame: the popup scrolls the pick into view.
@@ -1153,6 +1254,9 @@ pub fn render_sql_view(
             }
         });
     }
+    // Escape closed the list this frame: draw no popup, and let the next
+    // Escape leave the editor again.
+    let popup_active = popup_active && tab.sql.ac_visible;
 
     let mut editor_response: Option<egui::Response> = None;
     // A click anywhere in a pane's column makes it the active pane, applied
@@ -1182,10 +1286,8 @@ pub fn render_sql_view(
                     ))
                     .heading(),
                 );
-                // Only a server query runs off the interface thread; a local
-                // one has the window until it returns, so no button there.
+                // Server and local queries both run off the interface thread.
                 if server_running
-                    && tab.sql_target.is_some()
                     && ui
                         .button(octa::i18n::t("common.cancel"))
                         .on_hover_text(octa::i18n::t("sql.cancel_hint"))
@@ -1218,6 +1320,59 @@ pub fn render_sql_view(
                 format!("Error: {err}"),
             );
             ui.add_space(4.0);
+        }
+        // A plan: the switch, then the chosen view. Table falls through to the
+        // ordinary grid below, which holds the steps.
+        if let Some(plan) = tab.sql.plan.clone() {
+            octa::ui::control_row::control_line(ui, |ui| {
+                use crate::app::state::PlanView;
+                for (view, label, hint) in [
+                    (
+                        PlanView::Tree,
+                        "explain.view_tree",
+                        "explain.view_tree_hint",
+                    ),
+                    (
+                        PlanView::Table,
+                        "explain.view_table",
+                        "explain.view_table_hint",
+                    ),
+                    (
+                        PlanView::Server,
+                        "explain.view_server",
+                        "explain.view_server_hint",
+                    ),
+                ] {
+                    if ui
+                        .selectable_label(tab.sql.plan_view == view, octa::i18n::t(label))
+                        .on_hover_text(octa::i18n::t(hint))
+                        .clicked()
+                    {
+                        tab.sql.plan_view = view;
+                    }
+                }
+            });
+            let text = match tab.sql.plan_view {
+                crate::app::state::PlanView::Tree => Some(octa::sql::explain::plain_text(&plan)),
+                crate::app::state::PlanView::Server if plan.server_text.is_empty() => {
+                    Some(octa::i18n::t("explain.no_server_text"))
+                }
+                crate::app::state::PlanView::Server => Some(plan.server_text.clone()),
+                crate::app::state::PlanView::Table => None,
+            };
+            if let Some(text) = text {
+                egui::ScrollArea::both()
+                    .id_salt(("sql_plan_text", tab.sql.id))
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(text).monospace())
+                                .selectable(true)
+                                .extend(),
+                        );
+                    });
+                return;
+            }
         }
         if let Some(result) = tab.sql.result.as_ref() {
             // Row counter directly at the result, so the count is always in
@@ -1273,28 +1428,33 @@ pub fn render_sql_view(
             ),
             Pane::Editor => {
                 editor_response = each_pane(ui, tab, &mut clicked_pane, |ui, tab, i, n| {
-                    if n > 1 {
+                    let file = tab.sql.file.as_ref().map(|f| f.path.clone());
+                    let dirty = tab.sql.is_dirty();
+                    if let Some(label) = pane_label(i, n, file.as_deref(), dirty) {
                         octa::ui::control_row::control_row(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new(
-                                    octa::i18n::t("sql.editor_n")
-                                        .replace("{n}", &(i + 1).to_string()),
-                                )
-                                .small()
-                                .weak(),
-                            );
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if ui
-                                        .small_button("\u{00d7}")
-                                        .on_hover_text(octa::i18n::t("sql.close_editor_hint"))
-                                        .clicked()
-                                    {
-                                        action.close_pane = Some(i);
-                                    }
-                                },
-                            );
+                            let resp = ui.label(egui::RichText::new(label).small().weak());
+                            if let Some(path) = &file {
+                                let mut hover = path.display().to_string();
+                                if dirty {
+                                    hover.push('\n');
+                                    hover.push_str(&octa::i18n::t("sql.file_unsaved_hint"));
+                                }
+                                resp.on_hover_text(hover);
+                            }
+                            if n > 1 {
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui
+                                            .small_button("\u{00d7}")
+                                            .on_hover_text(octa::i18n::t("sql.close_editor_hint"))
+                                            .clicked()
+                                        {
+                                            action.close_pane = Some(i);
+                                        }
+                                    },
+                                );
+                            }
                         });
                     }
                     draw_sql_editor(
@@ -1304,6 +1464,7 @@ pub fn render_sql_view(
                         default_row_limit,
                         &mut action,
                         editor_font,
+                        popup_active,
                     )
                 });
             }
@@ -1342,25 +1503,15 @@ pub fn render_sql_view(
     }
 
     // Apply the chosen suggestion: replace the current prefix, move the caret
-    // to the end of the inserted text, refocus the editor.
+    // to the end of the inserted text, close the list, refocus the editor.
     if let Some(sugg) = apply_suggestion {
-        let end = prefix_start + prefix_len;
-        if end <= tab.sql.query.len() {
-            tab.sql.query.replace_range(prefix_start..end, &sugg);
-            if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), editor_id) {
-                let new_char_idx = tab.sql.query[..prefix_start + sugg.len()].chars().count();
-                let ccursor = egui::text::CCursor::new(new_char_idx);
-                state
-                    .cursor
-                    .set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
-                state.store(ui.ctx(), editor_id);
-            }
-            editor_response.request_focus();
-        }
+        apply_suggestion_later(tab, prefix_start, prefix_len, &sugg, ui.ctx());
+        editor_response.request_focus();
     }
 
     // --- Autocomplete popup ---
-    if popup_active {
+    // The editor may have closed the list this frame (the caret moved).
+    if popup_active && tab.sql.ac_visible {
         let popup_id = ui.make_persistent_id("sql_autocomplete_popup");
         egui::Popup::from_response(&editor_response)
             .id(popup_id)
@@ -1445,6 +1596,29 @@ pub fn render_sql_view(
     action
 }
 
+/// The text above an editor: its number when there are several, its file
+/// name when it has one, ` *` while that file has unsaved changes. `None`
+/// when there is nothing to say (one editor, no file).
+pub(crate) fn pane_label(
+    i: usize,
+    n: usize,
+    file: Option<&std::path::Path>,
+    dirty: bool,
+) -> Option<String> {
+    let number =
+        (n > 1).then(|| octa::i18n::t("sql.editor_n").replace("{n}", &(i + 1).to_string()));
+    let name = file.map(crate::app::state::file_display_name);
+    let mut label = match (number, name) {
+        (Some(number), Some(name)) => format!("{number}: {name}"),
+        (Some(s), None) | (None, Some(s)) => s,
+        (None, None) => return None,
+    };
+    if dirty {
+        label.push_str(" *");
+    }
+    Some(label)
+}
+
 /// Draw `body` once per editor pane, side by side, with that pane swapped
 /// into `tab.sql` so the single-editor code draws it unchanged. Returns what
 /// `body` gave for the active pane. A primary click inside a column is
@@ -1490,6 +1664,7 @@ mod result;
 mod splitter;
 mod workspace;
 
+pub(crate) use editor::append_to_editor;
 use editor::{apply_suggestion_later, draw_sql_editor};
 use result::render_result_table;
 pub use result::{SqlResultSelection, selection_to_tsv};

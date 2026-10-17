@@ -36,7 +36,7 @@ pub(crate) fn render_close_confirm_dialog(app: &mut OctaApp, ctx: &egui::Context
         egui::Panel::top("close_confirm_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(octa::i18n::t("dialog.unsaved_title"))
                             .strong()
@@ -55,28 +55,60 @@ pub(crate) fn render_close_confirm_dialog(app: &mut OctaApp, ctx: &egui::Context
         egui::CentralPanel::default().show(ui, |ui| {
             ui.label(octa::i18n::t("dialog.unsaved_body"));
             ui.add_space(12.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui.button(octa::i18n::t("common.save")).clicked() {
                     app.show_close_confirm = false;
                     if let Some(tab_idx) = app.pending_close_tab {
-                        app.save_tab(tab_idx);
+                        // A tab with no file of its own, or a cloud object
+                        // that may not be written, can only be saved as a
+                        // new file: Save would refuse and close nothing.
+                        // A save written in the background closes the tab
+                        // once it worked (`AfterSave`); one written at once is
+                        // checked below.
+                        let running = app.tabs[tab_idx].saving.is_some();
+                        if app.tabs[tab_idx].saves_in_place() && app.cloud_tab_writable(tab_idx) {
+                            app.save_tab(tab_idx);
+                        } else {
+                            app.save_tab_as(tab_idx);
+                        }
                         app.pending_close_tab = None;
+                        if !running && let Some(job) = app.tabs[tab_idx].saving.as_mut() {
+                            job.then = Some(crate::app::file_io::save_job::AfterSave::CloseTab);
+                        }
                         // A live-database tab's Save raised the write-back
                         // confirmation instead of saving; closing now would
                         // discard the very edits being confirmed.
                         // Also wait on an in-flight write: `drain_db_write_back_job`
                         // re-tags `tabs[tab_idx]`, and closing a tab now would
                         // shift that index onto a different tab.
-                        if app.pending_db_write_back.is_none() && app.db_write_back_job.is_none() {
+                        // And on the save having worked: a failed one, or one
+                        // still waiting on a question, leaves the tab unsaved,
+                        // and closing it would throw the edits away (for a
+                        // protected zip, with the plain copy holding them).
+                        // The status line says what happened.
+                        if app.pending_db_write_back.is_none()
+                            && app.db_write_back_job.is_none()
+                            && !app.tabs.get(tab_idx).is_some_and(|t| t.is_modified())
+                            && app.tabs.get(tab_idx).is_some_and(|t| t.saving.is_none())
+                        {
                             app.close_tab(tab_idx);
                         }
                     } else {
-                        if app.tabs[app.active_tab].saves_in_place() {
+                        let active = app.active_tab;
+                        let running = app.tabs[active].saving.is_some();
+                        if app.tabs[active].saves_in_place() && app.cloud_tab_writable(active) {
                             app.save_file();
                         } else {
                             app.save_file_as();
                         }
-                        if app.pending_db_write_back.is_none() {
+                        if !running && let Some(job) = app.tabs[active].saving.as_mut() {
+                            job.then = Some(crate::app::file_io::save_job::AfterSave::Exit);
+                        }
+                        // Exit only once the save has worked, as for one tab.
+                        if app.pending_db_write_back.is_none()
+                            && !app.tabs[active].is_modified()
+                            && app.tabs[active].saving.is_none()
+                        {
                             app.confirmed_close = true;
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
@@ -145,7 +177,7 @@ pub(crate) fn render_open_confirm_dialog(app: &mut OctaApp, ctx: &egui::Context)
         egui::Panel::top("open_confirm_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(octa::i18n::t("dialog.unsaved_title"))
                             .strong()
@@ -164,7 +196,7 @@ pub(crate) fn render_open_confirm_dialog(app: &mut OctaApp, ctx: &egui::Context)
         egui::CentralPanel::default().show(ui, |ui| {
             ui.label(octa::i18n::t("dialog.unsaved_body"));
             ui.add_space(12.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui.button(octa::i18n::t("common.save")).clicked() {
                     app.show_open_confirm = false;
                     if app.tabs[app.active_tab].saves_in_place() {

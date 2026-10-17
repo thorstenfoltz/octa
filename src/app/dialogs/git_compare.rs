@@ -39,7 +39,7 @@ pub(crate) fn render_git_compare_dialog(app: &mut OctaApp, ctx: &egui::Context) 
         egui::Panel::top("git_compare_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.gitcmp_title"))
                             .strong()
@@ -60,7 +60,7 @@ pub(crate) fn render_git_compare_dialog(app: &mut OctaApp, ctx: &egui::Context) 
         egui::Panel::bottom("git_compare_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui.button(octa::i18n::t("dialog.gitcmp_compare")).clicked() {
                         do_compare = true;
                     }
@@ -82,7 +82,7 @@ pub(crate) fn render_git_compare_dialog(app: &mut OctaApp, ctx: &egui::Context) 
                     .color(ui.visuals().weak_text_color()),
             );
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("dialog.gitcmp_against"));
                 egui::ComboBox::from_id_salt("gitcmp_rev")
                     .selected_text(st.selected_label.clone())

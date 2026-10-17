@@ -68,6 +68,13 @@ there could only fail, and the check that led to it was answering a question
 nobody had to ask: Windows already knows about the new version and installs it
 on its own.
 
+The Store does that on its own schedule, though, not the moment a release
+appears, and only when **App updates** is switched on in the Store's settings.
+Windows Update does not update Store apps at all. To get a new version at
+once, use **Help > Updates in the Microsoft Store...**: it opens Octa's page in
+the Store app, where an **Update** button waits when a newer version is out.
+Octa itself sends no request for this; it only opens the page.
+
 The release notes are unaffected: they ship inside the copy the Store installed,
 so an upgrade announces itself there like anywhere else. Everything under
 **Show what a new release brings** works exactly as it does elsewhere.

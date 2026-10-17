@@ -54,3 +54,5 @@ Returns the table with the column filled:
 ## See also
 
 - [`transform_columns`](transform_columns.md): rename/cast/drop columns.
+- In the app: [Fill Missing Values](../../usage/fill-missing-values.md)
+- Command line: [`--impute`](../../cli/impute.md)

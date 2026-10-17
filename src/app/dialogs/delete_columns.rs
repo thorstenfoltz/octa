@@ -43,7 +43,7 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
         egui::Panel::top("delete_columns_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.delete_columns_title"))
                             .strong()
@@ -67,7 +67,7 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
         egui::Panel::bottom("delete_columns_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     let delete_btn = ui.add_enabled(
                         selected_count > 0,
                         egui::Button::new(format!(
@@ -133,36 +133,8 @@ pub(crate) fn render_delete_columns_dialog(app: &mut OctaApp, ctx: &egui::Contex
             .enumerate()
             .filter_map(|(i, &sel)| sel.then_some(i))
             .collect();
-        let columns = app.column_names(&chosen);
-        let tab = &mut app.tabs[app.active_tab];
-        // Delete in reverse order to keep indices valid
-        let to_delete: Vec<usize> = tab
-            .delete_col_selection
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &sel)| if sel { Some(i) } else { None })
-            .rev()
-            .collect();
-
-        for col_idx in to_delete {
-            tab.table.delete_column(col_idx);
-        }
-
-        tab.table_state.editing_cell = None;
-        if tab.table.col_count() == 0 {
-            tab.table_state.selected_cell = None;
-        } else if let Some((row, col)) = tab.table_state.selected_cell {
-            let new_col = col.min(tab.table.col_count() - 1);
-            tab.table_state.selected_cell = Some((row, new_col));
-        }
-        tab.table_state.widths_initialized = false;
-        tab.filter_dirty = true;
-        tab.show_delete_columns_dialog = false;
-        if !columns.is_empty() {
-            app.record_step(octa::data::recipe::RecipeStep::DeleteColumns(
-                octa::data::recipe::DeleteColumns { columns },
-            ));
-        }
+        app.delete_columns(&chosen);
+        app.tabs[app.active_tab].show_delete_columns_dialog = false;
     }
 
     if close {

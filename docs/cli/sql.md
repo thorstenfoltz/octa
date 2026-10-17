@@ -1,7 +1,7 @@
 # `octa --sql`
 
 Run a DuckDB SQL query against a file and print the result.
-The file is loaded once, registered as a temp table called **`data`**,
+The file is loaded once, registered as a table called **`data`**,
 and the query runs against it.
 
 Extra tables can be loaded into the same query with `--sql-table` and
@@ -89,6 +89,21 @@ $ octa --sql events.parquet -q '
   FROM data
 '
 ```
+
+### Explain a query
+
+`--explain` shows how DuckDB would run the query and does not run it. The
+default is the steps in plain words, numbered in the order DuckDB works
+through them; `-f json` or `-f csv` gives one row per step, every step
+included. `--explain` only plans, so it is refused together with `--sql-write-to`,
+and it needs `--sql` or `--db-query`.
+
+```bash
+octa --sql sales.csv --query "SELECT region, sum(amount) FROM data GROUP BY region" --explain
+octa --sql sales.csv --query "SELECT * FROM data WHERE amount > 100" --explain -f json
+```
+
+In the app: [Explain a query](../usage/sql.md#explain-a-query).
 
 ### JSON output for downstream tooling
 
@@ -252,9 +267,9 @@ again after it is printed.
 ## How files become `data`
 
 Octa's standard reader produces a `DataTable`. The CLI registers
-that as a DuckDB temp table named **`data`** in a fresh in-memory
+that as a DuckDB table named **`data`** in a fresh in-memory
 connection, then runs your query. Extra `--sql-table` entries land
-as additional temp tables in the same connection, and `--sql-attach`
+as additional tables in the same connection, and `--sql-attach`
 runs `ATTACH` on it, so JOINs across all of them are plain DuckDB
 work. The connection is **single-use**; the next `octa --sql`
 invocation starts from scratch.

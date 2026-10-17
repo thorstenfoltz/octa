@@ -4,7 +4,7 @@ Convert many files into one target format in a single run. The input files
 are never modified.
 
 ```
-octa --batch-convert --to EXT --out-dir DIR FILE... [--overwrite]
+octa --batch-convert --to EXT --out-dir DIR FILE... [--overwrite] [--password-env VAR]
 ```
 
 | Flag              | Required? | Description                                                               |
@@ -13,6 +13,7 @@ octa --batch-convert --to EXT --out-dir DIR FILE... [--overwrite]
 | `--to EXT`        | yes       | Target extension, without the leading dot (`parquet`, `csv`, `json`, ...) |
 | `--out-dir DIR`   | yes       | Output directory. Created if absent                                       |
 | `--overwrite`     | no        | Replace outputs that already exist. Default: skip them                    |
+| `--password-env`  | no        | Each output as its own AES-256 zip; passphrase from env var VAR           |
 
 `--to` is shared with the cloud transfer actions, where it means a destination
 URL; `--out-dir` is shared with [`--partition-by`](partition.md). The actions
@@ -61,6 +62,23 @@ own earlier output:
 octa --batch-convert --to parquet --out-dir ./out /jan/data.csv /feb/data.csv
 # -> ./out/data.parquet and ./out/data_2.parquet
 ```
+
+## Password-protected output
+
+`--password-env VAR` writes each output inside its own AES-256 zip and takes
+the passphrase from the environment variable `VAR`. It is never read from the
+command line, which would leave it in shell history and process lists. Only a
+zip is written: `a.csv` becomes `a.csv.zip`, with no plain copy beside it.
+A missing or empty variable is an error that names the variable, never its
+value.
+
+```bash
+OCTA_PW='correct horse' octa --batch-convert --to csv --out-dir ./out \
+  data/*.parquet --password-env OCTA_PW
+```
+
+Octa opens these zips on any system; other tools need 7-Zip (Windows) or
+Keka (Mac). See [Password-protected files](../usage/protected-files.md).
 
 ## Examples
 

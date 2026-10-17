@@ -11,9 +11,7 @@ use eframe::egui;
 
 use octa::data::CellValue;
 use octa::data::num_format::{NumberFormat, format_cell_number};
-use octa::ui::settings::{
-    DialogSize, draw_window_controls, remember_dialog_rect, size_dialog_window,
-};
+use octa::ui::settings::{DialogSize, draw_title_bar, remember_dialog_rect, size_dialog_window};
 
 use super::super::state::OctaApp;
 
@@ -84,21 +82,14 @@ pub(crate) fn render_column_format_dialog(app: &mut OctaApp, ctx: &egui::Context
         egui::Panel::top("octa_column_format_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} - {column_name}",
-                            octa::i18n::t("column_format.title")
-                        ))
-                        .strong()
-                        .size(16.0),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if draw_window_controls(ui, &mut size) {
-                            close = true;
-                        }
-                    });
-                });
+                close |= draw_title_bar(
+                    ui,
+                    egui::RichText::new(format!(
+                        "{} - {column_name}",
+                        octa::i18n::t("column_format.title")
+                    )),
+                    &mut size,
+                );
             });
 
         if minimized {
@@ -109,7 +100,7 @@ pub(crate) fn render_column_format_dialog(app: &mut OctaApp, ctx: &egui::Context
         // no matter how tall the column list grows.
         egui::Panel::bottom("octa_column_format_footer").show(ui, |ui| {
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui.button(octa::i18n::t("column_format.done")).clicked() {
                     close = true;
                 }
@@ -124,7 +115,7 @@ pub(crate) fn render_column_format_dialog(app: &mut OctaApp, ctx: &egui::Context
 
         egui::CentralPanel::default().show(ui, |ui| {
             // Decimals: free-text signed integer. Empty = Auto.
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.label(octa::i18n::t("column_format.decimals"));
                 ui.add(
                     egui::TextEdit::singleline(&mut new_buf)
@@ -170,7 +161,7 @@ pub(crate) fn render_column_format_dialog(app: &mut OctaApp, ctx: &egui::Context
 
             ui.separator();
             ui.label(octa::i18n::t("column_format.apply_to"));
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 if ui
                     .button(octa::i18n::t("column_format.select_all"))
                     .clicked()

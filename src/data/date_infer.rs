@@ -281,6 +281,59 @@ pub enum InferOutcome {
     },
 }
 
+/// How many leading values decide which layouts are worth reading a whole
+/// column for.
+const PLAUSIBLE_SAMPLE: usize = 1000;
+
+/// The layouts that parse more than half of `sample`. A layout at half or
+/// below can neither take the column (that needs every value) nor make it a
+/// near miss (that needs most of them), so only these read the whole column:
+/// a text column is decided on its first values instead of fourteen passes
+/// over every row.
+// ponytail: a column whose layout only starts after the sample reports no
+// near miss; widen PLAUSIBLE_SAMPLE if that ever matters.
+fn plausible_layouts(sample: &[&str]) -> (Vec<DateLayout>, Vec<DateTimeLayout>) {
+    let most = |parses: &dyn Fn(&str) -> bool| {
+        sample.iter().filter(|v| parses(v)).count() * 2 > sample.len()
+    };
+    let dates = DateLayout::ALL
+        .iter()
+        .copied()
+        .filter(|l| most(&|s| l.parse(s).is_some()))
+        .collect();
+    let datetimes = DateTimeLayout::ALL
+        .iter()
+        .copied()
+        .filter(|l| most(&|s| l.parse(s).is_some()))
+        .collect();
+    (dates, datetimes)
+}
+
+/// Whether column `col_idx` is text whose first values look like dates, read
+/// without walking the column: the cheap test that picks which columns a
+/// background date check copies.
+pub fn column_looks_like_dates(table: &DataTable, col_idx: usize) -> bool {
+    let Some(col) = table.columns.get(col_idx) else {
+        return false;
+    };
+    if col.data_type != "Utf8" && col.data_type != "LargeUtf8" {
+        return false;
+    }
+    let mut sample = Vec::new();
+    for row in 0..table.row_count() {
+        match table.get(row, col_idx) {
+            Some(CellValue::String(s)) if !s.trim().is_empty() => sample.push(s.as_str()),
+            Some(CellValue::String(_) | CellValue::Null) | None => {}
+            Some(_) => return false,
+        }
+        if sample.len() == PLAUSIBLE_SAMPLE {
+            break;
+        }
+    }
+    let (dates, datetimes) = plausible_layouts(&sample);
+    !(dates.is_empty() && datetimes.is_empty())
+}
+
 /// Inspect a column of strings and report what date/datetime layout - if any
 /// - every non-null value matches.
 pub fn infer_column(values: &[Option<&str>]) -> InferOutcome {
@@ -292,8 +345,12 @@ pub fn infer_column(values: &[Option<&str>]) -> InferOutcome {
     if non_null.is_empty() {
         return InferOutcome::Skip;
     }
+    let (dates, datetimes) = plausible_layouts(&non_null[..non_null.len().min(PLAUSIBLE_SAMPLE)]);
+    if dates.is_empty() && datetimes.is_empty() {
+        return InferOutcome::Skip;
+    }
 
-    let date_passing: Vec<DateLayout> = DateLayout::ALL
+    let date_passing: Vec<DateLayout> = dates
         .iter()
         .copied()
         .filter(|layout| non_null.iter().all(|v| layout.parse(v).is_some()))
@@ -309,14 +366,14 @@ pub fn infer_column(values: &[Option<&str>]) -> InferOutcome {
         };
     }
 
-    let dt_passing: Vec<DateTimeLayout> = DateTimeLayout::ALL
+    let dt_passing: Vec<DateTimeLayout> = datetimes
         .iter()
         .copied()
         .filter(|layout| non_null.iter().all(|v| layout.parse(v).is_some()))
         .collect();
 
     match dt_passing.len() {
-        0 => best_near_miss(&non_null),
+        0 => best_near_miss(&non_null, &dates, &datetimes),
         1 => InferOutcome::PromotedDateTime(dt_passing[0]),
         _ => InferOutcome::AmbiguousDateTime {
             candidates: dt_passing,
@@ -325,12 +382,17 @@ pub fn infer_column(values: &[Option<&str>]) -> InferOutcome {
     }
 }
 
-/// When no layout matches every value, find the layout that matches the most
-/// and decide whether the column is a "near miss" worth flagging. Returns
+/// When no layout matches every value, find the one of `dates` / `datetimes`
+/// (the plausible ones) that matches the most and decide whether the column
+/// is a "near miss" worth flagging. Returns
 /// [`InferOutcome::Failed`] when the best layout parses a majority (> 50%) but
 /// not all of the non-null values; otherwise [`InferOutcome::Skip`] (the column
 /// just isn't a date). Up to five offending values are captured for the notice.
-fn best_near_miss(non_null: &[&str]) -> InferOutcome {
+fn best_near_miss(
+    non_null: &[&str],
+    dates: &[DateLayout],
+    datetimes: &[DateTimeLayout],
+) -> InferOutcome {
     let total = non_null.len();
     if total == 0 {
         return InferOutcome::Skip;
@@ -357,10 +419,10 @@ fn best_near_miss(non_null: &[&str]) -> InferOutcome {
             }
         };
 
-        for layout in DateLayout::ALL {
+        for layout in dates {
             consider(layout.label(), &|s| layout.parse(s).is_some());
         }
-        for layout in DateTimeLayout::ALL {
+        for layout in datetimes {
             consider(layout.label(), &|s| layout.parse(s).is_some());
         }
     }
@@ -393,19 +455,11 @@ pub fn apply_date(table: &mut DataTable, col_idx: usize, layout: DateLayout) {
     }
     let n = table.row_count();
     for row in 0..n {
-        let new_cell = match table.get(row, col_idx) {
-            Some(CellValue::String(s)) => match layout.parse(s) {
-                Some(canonical) => Some(CellValue::Date(canonical)),
-                None => Some(CellValue::Null),
-            },
-            Some(CellValue::Null) => None,
-            _ => None,
-        };
-        if let Some(v) = new_cell {
+        if let Some(v) = table.get(row, col_idx).and_then(|c| date_cell(c, layout)) {
             table.rows[row][col_idx] = v;
         }
     }
-    table.columns[col_idx].data_type = "Date32".to_string();
+    table.columns[col_idx].data_type = DATE_TYPE.to_string();
 }
 
 /// Mirror of [`apply_date`] for datetime layouts.
@@ -415,19 +469,35 @@ pub fn apply_datetime(table: &mut DataTable, col_idx: usize, layout: DateTimeLay
     }
     let n = table.row_count();
     for row in 0..n {
-        let new_cell = match table.get(row, col_idx) {
-            Some(CellValue::String(s)) => match layout.parse(s) {
-                Some(canonical) => Some(CellValue::DateTime(canonical)),
-                None => Some(CellValue::Null),
-            },
-            Some(CellValue::Null) => None,
-            _ => None,
-        };
-        if let Some(v) = new_cell {
+        if let Some(v) = table
+            .get(row, col_idx)
+            .and_then(|c| datetime_cell(c, layout))
+        {
             table.rows[row][col_idx] = v;
         }
     }
-    table.columns[col_idx].data_type = "Timestamp(Microsecond, None)".to_string();
+    table.columns[col_idx].data_type = DATETIME_TYPE.to_string();
+}
+
+/// The column type [`apply_date`] gives a promoted column.
+pub const DATE_TYPE: &str = "Date32";
+/// The column type [`apply_datetime`] gives a promoted column.
+pub const DATETIME_TYPE: &str = "Timestamp(Microsecond, None)";
+
+/// The cell [`apply_date`] writes in place of `cell`, or `None` to leave it.
+pub fn date_cell(cell: &CellValue, layout: DateLayout) -> Option<CellValue> {
+    match cell {
+        CellValue::String(s) => Some(layout.parse(s).map_or(CellValue::Null, CellValue::Date)),
+        _ => None,
+    }
+}
+
+/// The cell [`apply_datetime`] writes in place of `cell`, or `None` to leave it.
+pub fn datetime_cell(cell: &CellValue, layout: DateTimeLayout) -> Option<CellValue> {
+    match cell {
+        CellValue::String(s) => Some(layout.parse(s).map_or(CellValue::Null, CellValue::DateTime)),
+        _ => None,
+    }
 }
 
 /// Whether a column is a candidate for the inference pass: must be string-

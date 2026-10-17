@@ -57,3 +57,4 @@ matches overall and 1000 per file.
 
 - [`search`](search.md): match cells within a single file.
 - [`run_sql`](run_sql.md): query one file with full SQL.
+- In the app: [Search & Filter](../../usage/search-and-filter.md#multi-search)

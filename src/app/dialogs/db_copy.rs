@@ -207,7 +207,7 @@ pub(crate) fn render_db_copy_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("db_copy_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(RichText::new(t("dialog.dbc_title")).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -228,7 +228,7 @@ pub(crate) fn render_db_copy_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                     draw_result_message(ui, *ok, msg);
                     ui.add_space(4.0);
                 }
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui
                         .add_enabled(!running, egui::Button::new(t("dialog.dbc_copy")))
                         .clicked()
@@ -257,6 +257,7 @@ pub(crate) fn render_db_copy_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                 .num_columns(2)
                 .spacing([12.0, 8.0])
                 .show(ui, |ui| {
+                    octa::ui::control_row::pin_control_height(ui);
                     ui.label(t("dialog.dbc_source"));
                     ui.monospace(&st.src_label);
                     ui.end_row();
@@ -370,18 +371,5 @@ fn lane_note_key(lane: CopyLane) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn lane_note_matches_lane() {
-        assert_eq!(
-            lane_note_key(choose_lane(DbEngine::Postgres, DbEngine::MySql)),
-            "db.copy_lane_fast"
-        );
-        assert_eq!(
-            lane_note_key(choose_lane(DbEngine::Postgres, DbEngine::Snowflake)),
-            "db.copy_lane_universal"
-        );
-    }
-}
+#[path = "db_copy_tests.rs"]
+mod tests;

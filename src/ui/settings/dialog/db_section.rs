@@ -171,6 +171,7 @@ impl SettingsDialog {
             .num_columns(2)
             .spacing([12.0, 6.0])
             .show(ui, |ui| {
+                crate::ui::control_row::pin_control_height(ui);
                 ui.label(t("cloud.name")).on_hover_text(t("db.name_hint"));
                 ui.text_edit_singleline(&mut self.db_form_name)
                     .on_hover_text(t("db.name_hint"));
@@ -555,7 +556,7 @@ impl SettingsDialog {
                 ui.end_row();
             });
 
-        ui.horizontal(|ui| {
+        crate::ui::control_row::control_line(ui, |ui| {
             if ui.button(t("cloud.save_connection")).clicked() {
                 self.save_db_form();
             }
@@ -623,6 +624,11 @@ impl SettingsDialog {
                     );
                 });
         }
+        if self.db_form_engine == DbEngine::Mssql {
+            // An engine option, like Athena's: how DATETIMEOFFSET reads.
+            ui.checkbox(&mut self.db_form_dto_as_timestamp, t("db.dto_as_timestamp"))
+                .on_hover_text(t("db.dto_as_timestamp_hint"));
+        }
         if let Some((ok, msg)) = &self.db_test_msg {
             // Own row + wrapped: a driver's connection error is long, and the
             // useful half is at the end.
@@ -637,14 +643,18 @@ impl SettingsDialog {
         // unnecessary: without one, sign-in runs the vendor CLI's own login.
         let aad_gcp = matches!(kind, DbAuthKind::AzureAd | DbAuthKind::GcpIam);
         // Databricks user-to-machine browser OAuth (default `databricks-cli`
-        // client, so no client id required).
-        let databricks_browser =
-            kind == DbAuthKind::OAuthBrowser && self.db_form_engine == DbEngine::Databricks;
+        // client, so no client id required) and Snowflake's external
+        // browser SSO.
+        let databricks_browser = kind == DbAuthKind::OAuthBrowser
+            && matches!(
+                self.db_form_engine,
+                DbEngine::Databricks | DbEngine::Snowflake
+            );
         // AWS IAM Identity Center: eligible once a portal start URL is set.
         let aws_sso = kind == DbAuthKind::AwsIam && !self.db_form_sso_start_url.trim().is_empty();
         let signin_eligible = aad_gcp || databricks_browser || aws_sso;
         if signin_eligible {
-            ui.horizontal(|ui| {
+            crate::ui::control_row::control_line(ui, |ui| {
                 let signing_in = self.db_signin_result.is_some();
                 if ui
                     .add_enabled(!signing_in, egui::Button::new(t("db.signin_button")))
@@ -690,7 +700,7 @@ impl SettingsDialog {
 
         // Clear-secret with the armed-confirm guard (secret-bearing auth only).
         if editing && auth_uses_secret(self.db_form_auth.kind()) {
-            ui.horizontal(|ui| {
+            crate::ui::control_row::control_line(ui, |ui| {
                 if ui.button(t("cloud.secret_clear")).clicked() {
                     self.db_secret_clear_confirm = Some(self.db_form_id.clone());
                     self.db_secret_status_msg = None;
@@ -706,7 +716,7 @@ impl SettingsDialog {
                 ui.label(format!("{} {where_msg}", t("cloud.secret_storage")));
             });
             if self.db_secret_clear_confirm.as_deref() == Some(self.db_form_id.as_str()) {
-                ui.horizontal(|ui| {
+                crate::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         egui::RichText::new(t("cloud.secret_clear_confirm"))
                             .color(egui::Color32::from_rgb(0xd9, 0x53, 0x4f)),
@@ -791,6 +801,7 @@ impl SettingsDialog {
             oauth_tenant: trim_opt(&self.db_form_oauth_tenant),
             athena_workgroup: trim_opt(&self.db_form_athena_workgroup),
             athena_output_location: trim_opt(&self.db_form_athena_output),
+            datetimeoffset_as_timestamp: self.db_form_dto_as_timestamp,
             query_timeout_secs: self
                 .db_form_query_timeout
                 .trim()
@@ -884,34 +895,7 @@ impl SettingsDialog {
         self.db_signin_result = Some(slot.clone());
         self.db_signin_msg = None;
         std::thread::spawn(move || {
-            let res = if crate::db::auth::aws_sso_configured(&conn) {
-                // AWS Identity Center uses the device-authorization flow, not
-                // the generic PKCE loopback config.
-                crate::db::auth::aws_sso_signin(
-                    &conn,
-                    crate::auth::oauth_browser::open_url_in_browser,
-                )
-                .map(|token| crate::db::auth::cache_browser_token(&conn.id, token))
-                .map_err(|e| format!("{e:#}"))
-            } else {
-                match crate::db::auth::browser_oauth_config(&conn, client_secret.as_deref()) {
-                    // A client id is configured: use our own browser flow, which
-                    // needs no command-line tool at all. Someone who went to the
-                    // trouble of registering an app gets to use it.
-                    Some(cfg) => crate::auth::oauth_browser::acquire_token(
-                        &cfg,
-                        crate::auth::oauth_browser::open_url_in_browser,
-                    )
-                    .map(|token| crate::db::auth::cache_browser_token(&conn.id, token))
-                    .map_err(|e| format!("{e:#}")),
-                    // No client id, which is the normal case: hand the browser
-                    // round-trip to the vendor's own CLI. It is a registered
-                    // OAuth application already, so nobody has to supply an id.
-                    None => {
-                        crate::db::auth::cli_browser_signin(&conn).map_err(|e| format!("{e:#}"))
-                    }
-                }
-            };
+            let res = crate::db::auth::browser_signin(&conn, client_secret.as_deref());
             if let Ok(mut g) = slot.lock() {
                 *g = Some(res);
             }
@@ -933,6 +917,7 @@ impl SettingsDialog {
         self.db_form_query_timeout = conn.query_timeout_secs.to_string();
         self.db_form_athena_workgroup = conn.athena_workgroup.clone().unwrap_or_default();
         self.db_form_athena_output = conn.athena_output_location.clone().unwrap_or_default();
+        self.db_form_dto_as_timestamp = conn.datetimeoffset_as_timestamp;
         self.db_form_username = conn.username.clone();
         self.db_form_auth = conn.auth.clone();
         self.db_form_region = match &conn.auth {
@@ -1020,6 +1005,7 @@ impl SettingsDialog {
         self.db_form_query_timeout = DEFAULT_QUERY_TIMEOUT_SECS.to_string();
         self.db_form_athena_workgroup.clear();
         self.db_form_athena_output.clear();
+        self.db_form_dto_as_timestamp = false;
         self.db_form_username.clear();
         self.db_form_auth = DbAuth::Password;
         self.db_form_region.clear();
@@ -1097,21 +1083,5 @@ impl SettingsDialog {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn auth_options_follow_engine() {
-        for &e in DbEngine::ALL {
-            assert_eq!(auth_options(e), e.supported_auth(), "{e:?}");
-        }
-    }
-
-    #[test]
-    fn secret_bearing_kinds() {
-        assert!(auth_uses_secret(DbAuthKind::Token));
-        assert!(auth_uses_secret(DbAuthKind::OAuthClientCredentials));
-        assert!(!auth_uses_secret(DbAuthKind::GcpAdc));
-        assert!(!auth_uses_secret(DbAuthKind::OAuthBrowser));
-    }
-}
+#[path = "db_section_tests.rs"]
+mod tests;

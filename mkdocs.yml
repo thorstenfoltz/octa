@@ -18,7 +18,6 @@ theme:
     - navigation.tabs
     - navigation.tabs.sticky
     - navigation.sections
-    - navigation.expand
     - navigation.top
     - navigation.indexes
     - navigation.tracking
@@ -90,239 +89,291 @@ markdown_extensions:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
-# Nav matches the IA in the docs plan.
+# Six tabs: the user guide is sorted by task; Command line and MCP server are
+# reference sections grouped the same way. Pages keep their paths (and URLs);
+# only this nav decides where they appear.
 nav:
   - Home: index.md
-  - Getting Started:
+  - Get started:
       - Installation: getting-started/installation.md
       - First Steps: getting-started/first-steps.md
       - Supported Formats: getting-started/supported-formats.md
-  - Using Octa:
-      - Table view: usage/table-view.md
-      - Search & Filter: usage/search-and-filter.md
-      - Editing: usage/editing.md
-      - Edit Audit Trail: usage/edit-audit-trail.md
-      - Formulas: usage/formulas.md
-      - Date / Time Calculation: usage/date-time-calculation.md
-      - Colour Marking: usage/colour-marking.md
-      - Filter to Marked: usage/filter-to-marked.md
-      - Filter by value: usage/filter-facets.md
-      - Value Shapes: usage/value-shapes.md
-      - Bookmarks: usage/bookmarks.md
-      - Conditional Formatting: usage/conditional-formatting.md
-      - Data Validation: usage/data-validation.md
-      - Transform Column: usage/transform-column.md
-      - Rename columns: usage/rename-columns.md
-      - Column Navigator: usage/column-navigator.md
-      - Tab memory: usage/tab-memory.md
-      - Password-protected files: usage/protected-files.md
-      - Change column type: usage/change-column-type.md
-      - Anonymise Columns: usage/anonymize-columns.md
-      - Hash Columns: usage/hash-columns.md
-      - Detect PII: usage/detect-pii.md
-      - Detect Outliers: usage/detect-outliers.md
-      - Fill Missing Values: usage/fill-missing-values.md
-      - Union Tables: usage/union-tables.md
-      - Join Tables: usage/join-tables.md
-      - Spatial Join: usage/spatial-join.md
-      - Fuzzy Join: usage/fuzzy-join.md
-      - Join Key Finder: usage/join-key-finder.md
-      - Join Diagnostics: usage/join-diagnostics.md
-      - Relationship Map: usage/relationship-map.md
-      - Schema Drift: usage/schema-drift.md
-      - Data Drift: usage/data-drift.md
-      - Merge Versions: usage/merge-versions.md
-      - Cell History: usage/cell-history.md
-      - Test Data: usage/test-data.md
-      - Recipes: usage/recipes.md
-      - Tables from PDFs: usage/pdf-tables.md
-      - Log Files: usage/log-files.md
-      - Harmonise Schemas: usage/harmonise-schemas.md
-      - Partition by Column: usage/partition-by-column.md
-      - Clean Headers on Load: usage/clean-headers.md
-      - Batch Convert: usage/batch-convert.md
-      - Table Tools: usage/table-tools.md
-      - Auto-save: usage/auto-save.md
-      - Value Frequency: usage/value-frequency.md
-      - Find Near-Duplicates: usage/find-near-duplicates.md
-      - Summary: usage/summary.md
-      - Data Quality Report: usage/data-quality-report.md
-      - Report: usage/report.md
-      - File Internals: usage/file-internals.md
-      - Clean-up Suggestions: usage/cleanup-suggestions.md
-      - Time Series: usage/time-series.md
-      - Pivot / Unpivot: usage/pivot.md
-      - Correlation: usage/correlation.md
-      - Find Lookup Tables: usage/lookup-tables.md
-      - Compare Distributions: usage/compare-distributions.md
-      - Referential Integrity: usage/referential-integrity.md
-      - Schema Export: usage/schema-export.md
-      - Archive Viewer: usage/archive-viewer.md
-      - Chart: usage/chart.md
-      - Trend and Forecast: usage/forecast.md
-      - SQL Panel: usage/sql.md
-      - Chat Assistant: usage/chatbot.md
-      - How the Assistant Understands Your Data: usage/assistant-context.md
-      - Saving: usage/saving.md
-      - Export to PDF: usage/pdf-export.md
-      - Large Files: usage/large-files.md
-      - Load Whole Table: usage/load-whole-table.md
-      - Tabs & Folder Sidebar: usage/tabs-and-sidebar.md
-      - Refresh a Tab: usage/refresh-tab.md
-      - Cloud Storage: usage/cloud-storage.md
-      - Cloud Inventory: usage/cloud-inventory.md
-      - Database Connections: usage/database-connections.md
-      - Analyses on live databases: usage/analyses-on-live-databases.md
-      - Sidebar Search: usage/sidebar-search.md
-      - API Endpoints: usage/api-endpoints.md
-      - Compare with Database or Cloud: usage/compare-with-database.md
-      - View Modes:
-          - Overview: usage/view-modes/overview.md
-          - Raw text: usage/view-modes/raw-text.md
-          - Markdown: usage/view-modes/markdown.md
-          - JSON & YAML tree: usage/view-modes/json-and-yaml-tree.md
-          - Notebook: usage/view-modes/notebook.md
-          - EPUB reader: usage/view-modes/epub-reader.md
-          - Map: usage/view-modes/map.md
-          - Record: usage/view-modes/record.md
-          - Timeline: usage/view-modes/timeline.md
-          - Compare: usage/view-modes/compare.md
-  - Command Line:
+  - User guide:
+      - guide/index.md
+      - Common tasks: tips/workflows.md
+      - Open files:
+          - guide/open/index.md
+          - Tabs & Folder Sidebar: usage/tabs-and-sidebar.md
+          - Large Files: usage/large-files.md
+          - Load Whole Table: usage/load-whole-table.md
+          - Header row: usage/header-row.md
+          - Clean Headers on Load: usage/clean-headers.md
+          - Password-protected files: usage/protected-files.md
+          - Archive Viewer: usage/archive-viewer.md
+          - Tables from PDFs: usage/pdf-tables.md
+          - Log Files: usage/log-files.md
+          - Refresh a Tab: usage/refresh-tab.md
+          - Tab memory: usage/tab-memory.md
+          - Notifications: usage/notifications.md
+      - Connect:
+          - guide/connect/index.md
+          - Cloud Storage: usage/cloud-storage.md
+          - Cloud Inventory: usage/cloud-inventory.md
+          - Database Connections: usage/database-connections.md
+          - Working with Databases: usage/working-with-databases.md
+          - Analyses on live databases: usage/analyses-on-live-databases.md
+          - API Endpoints: usage/api-endpoints.md
+          - Sidebar Search: usage/sidebar-search.md
+      - View and find:
+          - guide/view/index.md
+          - Table view: usage/table-view.md
+          - Binary cells: usage/binary-cells.md
+          - Column Navigator: usage/column-navigator.md
+          - Search & Filter: usage/search-and-filter.md
+          - Filter by value: usage/filter-facets.md
+          - Filter to Marked: usage/filter-to-marked.md
+          - Bookmarks: usage/bookmarks.md
+          - Colour Marking: usage/colour-marking.md
+          - Conditional Formatting: usage/conditional-formatting.md
+          - View Modes:
+              - Overview: usage/view-modes/overview.md
+              - Raw text: usage/view-modes/raw-text.md
+              - Markdown: usage/view-modes/markdown.md
+              - JSON & YAML tree: usage/view-modes/json-and-yaml-tree.md
+              - Notebook: usage/view-modes/notebook.md
+              - EPUB reader: usage/view-modes/epub-reader.md
+              - Map: usage/view-modes/map.md
+              - Record: usage/view-modes/record.md
+              - Timeline: usage/view-modes/timeline.md
+              - Compare: usage/view-modes/compare.md
+      - Edit and reshape:
+          - guide/edit/index.md
+          - Editing: usage/editing.md
+          - Edit Audit Trail: usage/edit-audit-trail.md
+          - Formulas: usage/formulas.md
+          - Date / Time Calculation: usage/date-time-calculation.md
+          - Transform Column: usage/transform-column.md
+          - Rename columns: usage/rename-columns.md
+          - Change column type: usage/change-column-type.md
+          - Pivot / Unpivot: usage/pivot.md
+          - Transpose, sample, compare rows: usage/table-tools.md
+      - Clean and protect:
+          - guide/clean/index.md
+          - Clean-up Suggestions: usage/cleanup-suggestions.md
+          - Data Validation: usage/data-validation.md
+          - Data Quality Report: usage/data-quality-report.md
+          - Value Shapes: usage/value-shapes.md
+          - Fill Missing Values: usage/fill-missing-values.md
+          - Detect Outliers: usage/detect-outliers.md
+          - Find Near-Duplicates: usage/find-near-duplicates.md
+          - Detect PII: usage/detect-pii.md
+          - Anonymise Columns: usage/anonymize-columns.md
+          - Hash Columns: usage/hash-columns.md
+          - Test Data: usage/test-data.md
+      - Combine and split:
+          - guide/combine/index.md
+          - Union Tables: usage/union-tables.md
+          - Join Tables: usage/join-tables.md
+          - Fuzzy Join: usage/fuzzy-join.md
+          - Spatial Join: usage/spatial-join.md
+          - Join Key Finder: usage/join-key-finder.md
+          - Join Diagnostics: usage/join-diagnostics.md
+          - Find Lookup Tables: usage/lookup-tables.md
+          - Relationship Map: usage/relationship-map.md
+          - Referential Integrity: usage/referential-integrity.md
+          - Harmonise Schemas: usage/harmonise-schemas.md
+          - Merge Versions: usage/merge-versions.md
+          - Split into Files: usage/partition-by-column.md
+      - Analyse:
+          - guide/analyse/index.md
+          - Summary: usage/summary.md
+          - Value Frequency: usage/value-frequency.md
+          - Correlation: usage/correlation.md
+          - Time Series: usage/time-series.md
+          - Chart: usage/chart.md
+          - Trend and Forecast: usage/forecast.md
+          - Report: usage/report.md
+          - File Internals: usage/file-internals.md
+      - Compare and history:
+          - guide/compare/index.md
+          - Compare with Database or Cloud: usage/compare-with-database.md
+          - Compare Folders: usage/compare-folders.md
+          - Schema Drift: usage/schema-drift.md
+          - Data Drift: usage/data-drift.md
+          - Compare Distributions: usage/compare-distributions.md
+          - Cell History: usage/cell-history.md
+          - Earlier Versions: usage/earlier-versions.md
+      - Save and export:
+          - guide/save/index.md
+          - Saving: usage/saving.md
+          - Auto-save: usage/auto-save.md
+          - Export to PDF: usage/pdf-export.md
+          - Schema Export: usage/schema-export.md
+      - SQL and assistant:
+          - guide/sql-assistant/index.md
+          - SQL Panel: usage/sql.md
+          - Chat Assistant: usage/chatbot.md
+          - Assistant Setup: usage/assistant-setup.md
+          - How the Assistant Understands Your Data: usage/assistant-context.md
+      - Automate:
+          - guide/automate/index.md
+          - Recipes: usage/recipes.md
+          - Batch Convert: usage/batch-convert.md
+  - Command line:
       - Overview: cli/index.md
-      - "--schema": cli/schema.md
-      - "--head": cli/head.md
-      - "--tail": cli/tail.md
-      - "--sample": cli/sample.md
-      - "--convert": cli/convert.md
-      - "--sql": cli/sql.md
-      - "--api": cli/api.md
-      - "--export-schema": cli/export-schema.md
-      - "--compare-schemas": cli/compare-schemas.md
-      - "--compare-distributions": cli/compare-distributions.md
-      - "--check-references": cli/check-references.md
-      - "--diff": cli/diff.md
-      - "--merge": cli/merge.md
-      - "--test-data": cli/test-data.md
-      - "--overlaps": cli/overlaps.md
-      - "--shapes": cli/shapes.md
-      - "--lookups": cli/lookups.md
-      - "--cell-history": cli/cell-history.md
-      - "--spatial-join": cli/spatial-join.md
-      - "--forecast": cli/forecast.md
-      - "--recipe": cli/recipe.md
-      - "--describe": cli/describe.md
-      - "--validate-schema": cli/validate-schema.md
-      - "--schema-drift": cli/schema-drift.md
-      - "--drift-report": cli/drift-report.md
-      - "--check": cli/check.md
-      - "--relationships": cli/relationships.md
-      - "--report": cli/report.md
-      - "--fuzzy-join": cli/fuzzy-join.md
-      - "--unique-columns": cli/unique-columns.md
-      - "--anonymize": cli/anonymize.md
-      - "--detect-pii": cli/pii.md
-      - "--outliers": cli/outliers.md
-      - "--impute": cli/impute.md
-      - "--hash-columns": cli/hash-columns.md
-      - "--dedupe": cli/dedupe.md
-      - "--union": cli/union.md
-      - "--join": cli/join.md
-      - "--partition-by": cli/partition.md
-      - "--batch-convert": cli/batch-convert.md
-      - "--resample / --rolling": cli/timeseries.md
-      - "--completions": cli/completions.md
-      - Docker / Podman: cli/docker.md
-      - Cloud storage: cli/cloud.md
-      - Man Page: cli/man-page.md
-  - MCP Server:
+      - Look at a file:
+          - "--schema": cli/schema.md
+          - "--head": cli/head.md
+          - "--tail": cli/tail.md
+          - "--sample": cli/sample.md
+          - "--describe": cli/describe.md
+          - "--unique-columns": cli/unique-columns.md
+      - Convert and export:
+          - "--convert": cli/convert.md
+          - "--batch-convert": cli/batch-convert.md
+          - "--export-schema": cli/export-schema.md
+          - "--partition-by": cli/partition.md
+      - SQL, databases, cloud and APIs:
+          - "--sql": cli/sql.md
+          - Databases: cli/databases.md
+          - Cloud storage: cli/cloud.md
+          - "--api": cli/api.md
+      - Clean and protect:
+          - "--check": cli/check.md
+          - "--anonymize": cli/anonymize.md
+          - "--dedupe": cli/dedupe.md
+          - "--impute": cli/impute.md
+          - "--hash-columns": cli/hash-columns.md
+          - "--outliers": cli/outliers.md
+          - "--detect-pii": cli/pii.md
+          - "--shapes": cli/shapes.md
+          - "--test-data": cli/test-data.md
+      - Combine and split:
+          - "--union": cli/union.md
+          - "--join": cli/join.md
+          - "--fuzzy-join": cli/fuzzy-join.md
+          - "--spatial-join": cli/spatial-join.md
+          - "--merge": cli/merge.md
+          - "--relationships": cli/relationships.md
+          - "--check-references": cli/check-references.md
+          - "--lookups": cli/lookups.md
+      - Analyse:
+          - "--resample / --rolling": cli/timeseries.md
+          - "--forecast": cli/forecast.md
+          - "--report": cli/report.md
+          - "--overlaps": cli/overlaps.md
+      - Compare:
+          - "--diff": cli/diff.md
+          - "--compare-folders": cli/compare-folders.md
+          - "--compare-schemas": cli/compare-schemas.md
+          - "--compare-distributions": cli/compare-distributions.md
+          - "--schema-drift": cli/schema-drift.md
+          - "--validate-schema": cli/validate-schema.md
+          - "--drift-report": cli/drift-report.md
+          - "--cell-history": cli/cell-history.md
+      - Automate and set up:
+          - "--recipe": cli/recipe.md
+          - "--completions": cli/completions.md
+          - Docker / Podman: cli/docker.md
+          - Man Page: cli/man-page.md
+  - MCP server:
       - Overview: mcp/index.md
       - Setup: mcp/setup.md
       - Tools:
           - Overview: mcp/tools/index.md
-          - read_table: mcp/tools/read_table.md
-          - tail: mcp/tools/tail.md
-          - sample: mcp/tools/sample.md
-          - schema: mcp/tools/schema.md
-          - list_tables: mcp/tools/list_tables.md
-          - count_rows: mcp/tools/count_rows.md
-          - run_sql: mcp/tools/run_sql.md
-          - convert: mcp/tools/convert.md
-          - export_schema: mcp/tools/export_schema.md
-          - profile: mcp/tools/profile.md
-          - find_duplicates: mcp/tools/find_duplicates.md
-          - fuzzy_duplicates: mcp/tools/fuzzy_duplicates.md
-          - value_frequency: mcp/tools/value_frequency.md
-          - search: mcp/tools/search.md
-          - compare_schemas: mcp/tools/compare_schemas.md
-          - diff_tables: mcp/tools/diff_tables.md
-          - describe_file: mcp/tools/describe_file.md
-          - validate_against_schema: mcp/tools/validate_against_schema.md
-          - unique_columns: mcp/tools/unique_columns.md
-          - schema_drift: mcp/tools/schema_drift.md
-          - harmonise_schemas: mcp/tools/harmonise_schemas.md
-          - create_report: mcp/tools/create_report.md
-          - fuzzy_join: mcp/tools/fuzzy_join.md
-          - suggest_join_keys: mcp/tools/suggest_join_keys.md
-          - diagnose_join: mcp/tools/diagnose_join.md
-          - pivot: mcp/tools/pivot.md
-          - batch_convert: mcp/tools/batch_convert.md
-          - resample_timeseries: mcp/tools/resample_timeseries.md
-          - rolling_window: mcp/tools/rolling_window.md
-          - correlation: mcp/tools/correlation.md
-          - compare_distributions: mcp/tools/compare_distributions.md
-          - check_references: mcp/tools/check_references.md
-          - grep_files: mcp/tools/grep_files.md
-          - list_objects: mcp/tools/list_objects.md
-          - copy_object: mcp/tools/copy_object.md
-          - move_object: mcp/tools/move_object.md
-          - delete_object: mcp/tools/delete_object.md
-          - write_table: mcp/tools/write_table.md
-          - edit_table: mcp/tools/edit_table.md
-          - transform_columns: mcp/tools/transform_columns.md
-          - anonymize: mcp/tools/anonymize.md
-          - hash_columns: mcp/tools/hash_columns.md
-          - detect_pii: mcp/tools/detect_pii.md
-          - detect_outliers: mcp/tools/detect_outliers.md
-          - fill_missing: mcp/tools/fill_missing.md
-          - drop_duplicates: mcp/tools/drop_duplicates.md
-          - union_tables: mcp/tools/union_tables.md
-          - join_tables: mcp/tools/join_tables.md
-          - partition_table: mcp/tools/partition_table.md
-          - check_rules: mcp/tools/check_rules.md
-          - db_relationships: mcp/tools/db_relationships.md
-          - list_db_connections: mcp/tools/list_db_connections.md
-          - list_db_tables: mcp/tools/list_db_tables.md
-          - query_db: mcp/tools/query_db.md
-          - list_api_connections: mcp/tools/list_api_connections.md
-          - query_api: mcp/tools/query_api.md
-          - write_db_table: mcp/tools/write_db_table.md
-          - copy_db_table: mcp/tools/copy_db_table.md
-          - data_drift: mcp/tools/data_drift.md
-          - merge_tables: mcp/tools/merge_tables.md
-          - generate_test_data: mcp/tools/generate_test_data.md
-          - find_overlaps: mcp/tools/find_overlaps.md
-          - value_shapes: mcp/tools/value_shapes.md
-          - find_lookups: mcp/tools/find_lookups.md
-          - cell_history: mcp/tools/cell_history.md
-          - spatial_join: mcp/tools/spatial_join.md
-          - forecast: mcp/tools/forecast.md
-          - apply_recipe: mcp/tools/apply_recipe.md
-          - sync_sql: mcp/tools/sync_sql.md
-          - write_workbook: mcp/tools/write_workbook.md
+          - core:
+              - read_table: mcp/tools/read_table.md
+              - tail: mcp/tools/tail.md
+              - sample: mcp/tools/sample.md
+              - schema: mcp/tools/schema.md
+              - list_tables: mcp/tools/list_tables.md
+              - count_rows: mcp/tools/count_rows.md
+              - run_sql: mcp/tools/run_sql.md
+              - profile: mcp/tools/profile.md
+              - value_frequency: mcp/tools/value_frequency.md
+              - search: mcp/tools/search.md
+              - describe_file: mcp/tools/describe_file.md
+              - grep_files: mcp/tools/grep_files.md
+          - quality:
+              - find_duplicates: mcp/tools/find_duplicates.md
+              - fuzzy_duplicates: mcp/tools/fuzzy_duplicates.md
+              - validate_against_schema: mcp/tools/validate_against_schema.md
+              - unique_columns: mcp/tools/unique_columns.md
+              - correlation: mcp/tools/correlation.md
+              - compare_distributions: mcp/tools/compare_distributions.md
+              - detect_pii: mcp/tools/detect_pii.md
+              - detect_outliers: mcp/tools/detect_outliers.md
+              - check_rules: mcp/tools/check_rules.md
+              - check_references: mcp/tools/check_references.md
+              - find_overlaps: mcp/tools/find_overlaps.md
+              - value_shapes: mcp/tools/value_shapes.md
+              - find_lookups: mcp/tools/find_lookups.md
+          - compare:
+              - export_schema: mcp/tools/export_schema.md
+              - compare_schemas: mcp/tools/compare_schemas.md
+              - diff_tables: mcp/tools/diff_tables.md
+              - compare_folders: mcp/tools/compare_folders.md
+              - schema_drift: mcp/tools/schema_drift.md
+              - data_drift: mcp/tools/data_drift.md
+              - merge_tables: mcp/tools/merge_tables.md
+              - cell_history: mcp/tools/cell_history.md
+          - combine:
+              - suggest_join_keys: mcp/tools/suggest_join_keys.md
+              - union_tables: mcp/tools/union_tables.md
+              - join_tables: mcp/tools/join_tables.md
+              - harmonise_schemas: mcp/tools/harmonise_schemas.md
+              - fuzzy_join: mcp/tools/fuzzy_join.md
+              - diagnose_join: mcp/tools/diagnose_join.md
+              - spatial_join: mcp/tools/spatial_join.md
+          - reshape:
+              - pivot: mcp/tools/pivot.md
+              - resample_timeseries: mcp/tools/resample_timeseries.md
+              - rolling_window: mcp/tools/rolling_window.md
+              - transform_columns: mcp/tools/transform_columns.md
+              - anonymize: mcp/tools/anonymize.md
+              - hash_columns: mcp/tools/hash_columns.md
+              - fill_missing: mcp/tools/fill_missing.md
+              - drop_duplicates: mcp/tools/drop_duplicates.md
+              - partition_table: mcp/tools/partition_table.md
+              - apply_recipe: mcp/tools/apply_recipe.md
+              - generate_test_data: mcp/tools/generate_test_data.md
+              - forecast: mcp/tools/forecast.md
+          - databases:
+              - sync_sql: mcp/tools/sync_sql.md
+              - list_db_connections: mcp/tools/list_db_connections.md
+              - list_db_tables: mcp/tools/list_db_tables.md
+              - db_relationships: mcp/tools/db_relationships.md
+              - query_db: mcp/tools/query_db.md
+              - list_api_connections: mcp/tools/list_api_connections.md
+              - query_api: mcp/tools/query_api.md
+              - write_db_table: mcp/tools/write_db_table.md
+              - copy_db_table: mcp/tools/copy_db_table.md
+              - export_db_tables: mcp/tools/export_db_tables.md
+          - cloud:
+              - list_objects: mcp/tools/list_objects.md
+              - copy_object: mcp/tools/copy_object.md
+              - move_object: mcp/tools/move_object.md
+              - delete_object: mcp/tools/delete_object.md
+          - write:
+              - convert: mcp/tools/convert.md
+              - batch_convert: mcp/tools/batch_convert.md
+              - write_table: mcp/tools/write_table.md
+              - edit_table: mcp/tools/edit_table.md
+              - create_report: mcp/tools/create_report.md
+              - write_workbook: mcp/tools/write_workbook.md
       - Limits & Truncation: mcp/limits-and-truncation.md
       - Examples: mcp/examples.md
       - Troubleshooting: mcp/troubleshooting.md
   - Reference:
       - Settings: reference/settings.md
-      - Updates: reference/updates.md
-      - Languages: reference/languages.md
       - Keyboard Shortcuts: reference/shortcuts.md
+      - Languages: reference/languages.md
+      - Updates: reference/updates.md
       - CSV Quote / Escape: reference/csv-quote-escape.md
       - Date Inference: reference/date-inference.md
       - Diagnostics: reference/diagnostics.md
+      - Troubleshooting: troubleshooting.md
       - Privacy Policy: privacy.md
-  - Tips & Recipes: tips/workflows.md
-  - Troubleshooting: troubleshooting.md
 
 # The store-listing INDEX.md lives inside `docs/` but stays off the site nav.
 # Listing it here silences the "exists but not in nav" build warning.
@@ -332,3 +383,9 @@ not_in_nav: |
 # Surface broken links + missing anchors as errors during the strict
 # build (used in CI). Locally `mkdocs serve` reports them as warnings.
 strict: false
+
+# A link to a heading that no longer exists is a warning, not silence: pages
+# get reorganised, and a stale `page.md#anchor` otherwise lands at the top.
+validation:
+  links:
+    anchors: warn

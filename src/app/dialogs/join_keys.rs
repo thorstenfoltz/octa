@@ -258,7 +258,7 @@ pub(crate) fn render_join_keys_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("join_keys_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(RichText::new(t("joinkeys.title")).strong().size(16.0));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if draw_window_controls(ui, &mut size) {
@@ -275,7 +275,7 @@ pub(crate) fn render_join_keys_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("join_keys_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     let ready = st.tabs.len() >= 2;
                     let btn = ui.add_enabled(
                         ready && !running && st.cost.is_none(),
@@ -634,27 +634,5 @@ pub(crate) fn render_join_keys_dialog(app: &mut OctaApp, ctx: &egui::Context) {
 }
 
 #[cfg(test)]
-mod tests {
-    use octa::db::pushdown::row_estimate::RowCount;
-
-    #[test]
-    fn the_question_counts_pairs_from_the_tab_columns() {
-        let widths = [3, 2];
-        let lines = super::question_lines(
-            &["orders".to_string(), "customers".to_string()],
-            &widths,
-            &[
-                RowCount {
-                    rows: 10,
-                    estimate: false,
-                },
-                RowCount {
-                    rows: 5,
-                    estimate: true,
-                },
-            ],
-        );
-        assert_eq!(lines.len(), 4);
-        assert!(lines[2].contains('6'), "{}", lines[2]);
-    }
-}
+#[path = "join_keys_tests.rs"]
+mod tests;

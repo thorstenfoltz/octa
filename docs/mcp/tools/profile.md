@@ -5,7 +5,7 @@ max, approximate distinct count, mean, standard deviation, quartiles,
 row count, and null percentage. The fastest way to understand an
 unfamiliar dataset before reading rows or writing SQL.
 
-Internally the file is registered as the DuckDB temp table `data` and
+Internally the file is registered as the DuckDB table `data` and
 `SUMMARIZE data` is run. Column types are preserved on registration, so
 numeric columns get real numeric statistics rather than lexical ones.
 
@@ -76,3 +76,5 @@ output columns. Exact keys can vary slightly with DuckDB versions.
   single column.
 - [`run_sql`](run_sql.md): run `SUMMARIZE data` or custom aggregates
   yourself.
+- In the app: [Summary](../../usage/summary.md)
+- Command line: [`octa --describe`](../../cli/describe.md)

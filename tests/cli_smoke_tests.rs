@@ -649,6 +649,35 @@ fn diff_db_reports_an_unknown_connection() {
     );
 }
 
+/// `--diff-tolerance` counts near numbers as the same, says how many, and
+/// set mode refuses it.
+#[test]
+fn diff_tolerance_treats_near_numbers_as_the_same() {
+    let fx = Fx::new();
+    write(fx.dir.path(), "l.csv", "id,amount\n1,10.5\n2,20.5\n");
+    write(fx.dir.path(), "r.csv", "id,amount\n1,10.504\n2,20.5\n");
+    let (l, r) = (fx.path("l.csv"), fx.path("r.csv"));
+    let join = ["--diff-mode", "join", "--diff-on", "id"];
+
+    let exact = fx.run(&[&["--diff", &l, &r][..], &join[..]].concat());
+    exact.ok("exact join diff");
+    assert!(exact.stderr.contains("- changed: 1"), "{}", exact.stderr);
+
+    let tol = fx.run(
+        &[
+            &["--diff", &l, &r, "--diff-tolerance", "0.01"][..],
+            &join[..],
+        ]
+        .concat(),
+    );
+    tol.ok("tolerant join diff");
+    assert!(tol.stderr.contains("- changed: 0"), "{}", tol.stderr);
+    assert!(tol.stderr.contains("within tolerance: 1"), "{}", tol.stderr);
+
+    let set = fx.run(&["--diff", &l, &r, "--diff-tolerance", "0.01"]);
+    assert_ne!(set.code, Some(0), "set mode must refuse a tolerance");
+}
+
 /// `--diff-db` without its table companion is refused up front.
 #[test]
 fn diff_db_requires_a_table() {
@@ -660,6 +689,46 @@ fn diff_db_requires_a_table() {
         "the error should name the missing flag: {}",
         res.stderr
     );
+}
+
+/// `--db-export` names the missing pieces before it connects to anything, and
+/// an unknown connection is named in the error.
+#[test]
+fn db_export_checks_its_flags_and_names_an_unknown_connection() {
+    let fx = Fx::new();
+    let out_dir = fx.path("dump");
+
+    let res = fx.run(&["--db", "conn", "--db-export", "public"]);
+    assert_ne!(res.code, Some(0));
+    assert!(res.stderr.contains("--out-dir"), "{}", res.stderr);
+
+    let res = fx.run(&[
+        "--db",
+        "conn",
+        "--db-export",
+        "public",
+        "--out-dir",
+        &out_dir,
+        "--to",
+        "xlsx",
+    ]);
+    assert_ne!(res.code, Some(0));
+    assert!(
+        res.stderr.contains("parquet, csv, tsv or jsonl"),
+        "{}",
+        res.stderr
+    );
+
+    let res = fx.run(&[
+        "--db",
+        "no_such_connection",
+        "--db-export",
+        "public",
+        "--out-dir",
+        &out_dir,
+    ]);
+    assert_ne!(res.code, Some(0), "stdout: {}", res.stdout);
+    assert!(res.stderr.contains("no_such_connection"), "{}", res.stderr);
 }
 
 /// A folder whose files agree exits 0; one odd file exits 1. This is the
@@ -817,6 +886,78 @@ fn schema_drift_ignore_case_flag() {
         Some(0),
         "--ignore-case must collapse them\nstderr:\n{}",
         folded.stderr
+    );
+}
+
+#[test]
+fn compare_folders_exits_zero_when_alike_and_one_when_not() {
+    let fx = Fx::new();
+    let a = fx.path("fa");
+    let b = fx.path("fb");
+    for d in [&a, &b] {
+        std::fs::create_dir_all(d).unwrap();
+        std::fs::write(std::path::Path::new(d).join("x.csv"), "id\n1\n").unwrap();
+    }
+    let same = fx.run(&["--compare-folders", &a, &b]);
+    same.ok("--compare-folders on equal folders");
+    assert!(same.first_line().starts_with("path"), "{}", same.stdout);
+
+    std::fs::write(std::path::Path::new(&b).join("x.csv"), "id\n2\n").unwrap();
+    let differ = fx.run(&["--compare-folders", &a, &b]);
+    assert_eq!(
+        differ.code,
+        Some(1),
+        "a difference must exit 1\n{}",
+        differ.stdout
+    );
+    assert!(differ.stdout.contains("different"), "{}", differ.stdout);
+}
+
+#[test]
+fn compare_folders_needs_two_folders() {
+    let fx = Fx::new();
+    let run = fx.run(&["--compare-folders", &fx.path("a.csv")]);
+    assert_ne!(run.code, Some(0));
+    assert!(run.stderr.contains("two"), "{}", run.stderr);
+}
+
+/// A file where a folder belongs is refused by name, and `--no-recursive`
+/// leaves a difference one level down out of the comparison.
+#[test]
+fn compare_folders_refuses_a_file_and_honours_no_recursive() {
+    let fx = Fx::new();
+    let not_dirs = fx.run(&["--compare-folders", &fx.path("a.csv"), &fx.path("b.csv")]);
+    assert_eq!(not_dirs.code, Some(1), "{}", not_dirs.stderr);
+    assert!(
+        not_dirs.stderr.contains("is not a folder"),
+        "{}",
+        not_dirs.stderr
+    );
+
+    let a = fx.dir.path().join("ra");
+    let b = fx.dir.path().join("rb");
+    for (d, body) in [(&a, "id\n1\n"), (&b, "id\n2\n")] {
+        std::fs::create_dir_all(d.join("sub")).unwrap();
+        write(d, "top.csv", "id\n1\n");
+        write(&d.join("sub"), "deep.csv", body);
+    }
+    let (a, b) = (a.to_str().unwrap(), b.to_str().unwrap());
+    let deep = fx.run(&["--compare-folders", a, b]);
+    assert_eq!(deep.code, Some(1), "{}", deep.stdout);
+    assert!(deep.stdout.contains("sub/deep.csv"), "{}", deep.stdout);
+
+    let top = fx.run(&["--compare-folders", a, b, "--no-recursive"]);
+    top.ok("--compare-folders --no-recursive");
+    assert!(!top.stdout.contains("deep.csv"), "{}", top.stdout);
+    // The FOLDER arguments are the input, not stray files to warn about.
+    assert!(!top.stderr.contains("ignoring"), "{}", top.stderr);
+
+    let stray = fx.run(&["--head", &fx.path("a.csv"), "--no-recursive"]);
+    assert_eq!(stray.code, Some(1), "{}", stray.stderr);
+    assert!(
+        stray.stderr.contains("--compare-folders"),
+        "{}",
+        stray.stderr
     );
 }
 
@@ -1273,6 +1414,34 @@ fn check_exits_one_on_a_violation() {
     assert_eq!(run.code, Some(1), "stderr:\n{}", run.stderr);
     assert!(
         run.stdout.contains("order_id"),
+        "stdout was:\n{}",
+        run.stdout
+    );
+}
+
+/// A compare rule fails `--check` and the report names both values.
+#[test]
+fn check_reports_a_two_column_rule_with_both_values() {
+    let fx = Fx::new();
+    std::fs::write(
+        fx.path("dates.csv"),
+        "start,end\n2024-01-01,2024-01-05\n2024-02-01,2024-01-01\n",
+    )
+    .unwrap();
+    std::fs::write(
+        fx.path("rules.toml"),
+        "[[rule]]\ncolumn = \"end\"\nkind = \"compare\"\nop = \">=\"\nother_column = \"start\"\n",
+    )
+    .unwrap();
+    let run = fx.run(&[
+        "--check",
+        &fx.path("dates.csv"),
+        "--rules",
+        &fx.path("rules.toml"),
+    ]);
+    assert_eq!(run.code, Some(1), "stderr:\n{}", run.stderr);
+    assert!(
+        run.stdout.contains("end=2024-01-01, start=2024-02-01"),
         "stdout was:\n{}",
         run.stdout
     );
@@ -1945,4 +2114,312 @@ fn forecast_prints_one_row_per_period() {
     out.ok("--forecast");
     assert_eq!(out.first_line(), "x\tforecast\tlo80\thi80\tlo95\thi95");
     assert_eq!(out.stdout.lines().count(), 4, "{}", out.stdout);
+}
+
+/// An `sftp://` path goes through the cloud read path like `s3://`: with
+/// nothing listening it fails as our own error, naming the SSH host, rather
+/// than being read as a local file name.
+#[test]
+fn an_sftp_url_is_a_cloud_path_not_a_file_name() {
+    let fx = Fx::new();
+    let out = fx.run(&["--schema", "sftp://nobody@127.0.0.1:1/x.csv"]);
+    assert_eq!(out.code, Some(1), "stderr:\n{}", out.stderr);
+    assert!(
+        out.stderr
+            .contains("connecting to the SSH host 127.0.0.1:1"),
+        "expected the SSH connect error, got:\n{}",
+        out.stderr
+    );
+}
+
+/// `--explain` prints the plan instead of running the query.
+#[test]
+fn sql_explain_prints_the_plan() {
+    let fx = Fx::new();
+    let a = fx.path("a.csv");
+    let out = fx.run(&[
+        "--sql",
+        &a,
+        "--query",
+        "SELECT * FROM data WHERE amount > 10",
+        "--explain",
+    ]);
+    out.ok("--sql --explain");
+    assert!(
+        out.stdout.contains("Read whole table: data"),
+        "{}",
+        out.stdout
+    );
+
+    let json = fx.run(&[
+        "-f",
+        "json",
+        "--sql",
+        &a,
+        "--query",
+        "SELECT * FROM data",
+        "--explain",
+    ]);
+    json.ok("--sql --explain -f json");
+    let rows: Vec<serde_json::Value> = serde_json::from_str(&json.stdout).unwrap();
+    assert!(rows.iter().any(|r| r["table"] == "data"), "{}", json.stdout);
+
+    let refused = fx.run(&["--explain", "--head", &a]);
+    assert_ne!(refused.code, Some(0), "--explain needs --sql or --db-query");
+}
+
+/// `--sort-by` / `--sort-desc` / `--natural` on `--head`, and the refusals.
+#[test]
+fn head_sorts_by_columns_and_naturally() {
+    let fx = Fx::new();
+    let a = fx.path("a.csv");
+    let top = fx.run(&[
+        "--head",
+        &a,
+        "-n",
+        "1",
+        "--sort-by",
+        "amount",
+        "--sort-desc",
+        "amount",
+    ]);
+    top.ok("--head --sort-by --sort-desc");
+    assert_eq!(top.stdout, "id\tcity\tamount\n2\tHelsinki\t20\n");
+
+    write(fx.dir.path(), "files.csv", "name\nfile10\nfile2\nfile1\n");
+    let f = fx.path("files.csv");
+    let letters = fx.run(&["--head", &f, "--sort-by", "name"]);
+    assert_eq!(letters.stdout, "name\nfile1\nfile10\nfile2\n");
+    let natural = fx.run(&["--head", &f, "--sort-by", "name", "--natural"]);
+    assert_eq!(natural.stdout, "name\nfile1\nfile2\nfile10\n");
+
+    let stray = fx.run(&["--head", &a, "--sort-by", "id", "--sort-desc", "city"]);
+    assert_ne!(stray.code, Some(0));
+    assert!(stray.stderr.contains("city"), "{}", stray.stderr);
+    let unknown = fx.run(&["--head", &a, "--sort-by", "nope"]);
+    assert_ne!(unknown.code, Some(0));
+    assert!(unknown.stderr.contains("nope"), "{}", unknown.stderr);
+    let wrong_action = fx.run(&["--tail", &a, "--sort-by", "id"]);
+    assert_ne!(wrong_action.code, Some(0));
+}
+
+/// `--convert` sorts the rows it writes.
+#[test]
+fn convert_sorts_rows() {
+    let fx = Fx::new();
+    let a = fx.path("a.csv");
+    let out = fx.path("sorted.csv");
+    fx.run(&[
+        "--convert",
+        &a,
+        &out,
+        "--sort-by",
+        "amount",
+        "--sort-desc",
+        "amount",
+    ])
+    .ok("--convert --sort-by");
+    let text = std::fs::read_to_string(&out).unwrap();
+    assert!(text.lines().nth(1).unwrap().contains("Helsinki"), "{text}");
+}
+
+/// `--split-rows` alone splits the whole table into numbered parts.
+#[test]
+fn split_rows_alone_writes_numbered_parts() {
+    let fx = Fx::new();
+    let out = fx.path("split_out");
+    let run = fx.run(&["--split-rows", "2", "--out-dir", &out, &fx.path("a.csv")]);
+    run.ok("--split-rows");
+    let mut written: Vec<String> = std::fs::read_dir(&out)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    written.sort();
+    assert_eq!(written, ["a_part_0001.csv", "a_part_0002.csv"]);
+}
+
+/// `--split-size` alone keeps every file under the limit.
+#[test]
+fn split_size_alone_keeps_files_under_the_limit() {
+    let fx = Fx::new();
+    let out = fx.path("size_out");
+    let run = fx.run(&["--split-size", "40B", "--out-dir", &out, &fx.path("a.csv")]);
+    run.ok("--split-size");
+    for entry in std::fs::read_dir(&out).unwrap() {
+        let len = entry.unwrap().metadata().unwrap().len();
+        assert!(len <= 40, "a part is {len} bytes");
+    }
+}
+
+/// Both combine with `--partition-by`: parts are counted per folder.
+#[test]
+fn split_rows_combines_with_partition_by() {
+    let fx = Fx::new();
+    let out = fx.path("combo_out");
+    let run = fx.run(&[
+        "--partition-by",
+        "city",
+        "--partition-layout",
+        "hive-parts",
+        "--split-rows",
+        "1",
+        "--out-dir",
+        &out,
+        &fx.path("a.csv"),
+    ]);
+    run.ok("--partition-by --split-rows");
+    let tokyo = std::path::Path::new(&out).join("city=Tokyo");
+    assert!(tokyo.join("part-0001.csv").exists());
+    assert!(tokyo.join("part-0002.csv").exists(), "Tokyo has two rows");
+}
+
+#[test]
+fn split_size_rejects_a_word() {
+    let fx = Fx::new();
+    let run = fx.run(&[
+        "--split-size",
+        "huge",
+        "--out-dir",
+        &fx.path("x"),
+        &fx.path("a.csv"),
+    ]);
+    assert_ne!(run.code, Some(0));
+    assert!(run.stderr.contains("--split-size"), "{}", run.stderr);
+}
+
+/// A split reads every row unless `--rows` caps it on purpose. (The default
+/// 2M load cap itself is too big to exceed in a smoke test and the CLI does
+/// not read it from settings, so this pins the `--rows` override only.)
+#[test]
+fn split_reads_all_rows_unless_rows_caps_it() {
+    let fx = Fx::new();
+    let count = |out: &str| -> usize { std::fs::read_dir(out).unwrap().count() };
+    let all = fx.path("all_out");
+    fx.run(&["--split-rows", "1", "--out-dir", &all, &fx.path("a.csv")])
+        .ok("--split-rows");
+    assert_eq!(count(&all), 3);
+    let capped = fx.path("capped_out");
+    fx.run(&[
+        "--rows",
+        "2",
+        "--split-rows",
+        "1",
+        "--out-dir",
+        &capped,
+        &fx.path("a.csv"),
+    ])
+    .ok("--rows --split-rows");
+    assert_eq!(count(&capped), 2);
+}
+
+/// `--password-env` writes `<output>.zip`, readable only with the
+/// passphrase, and the passphrase comes from the environment, never argv.
+#[test]
+fn convert_with_password_env_writes_an_encrypted_zip() {
+    let fx = Fx::new();
+    let out = fx.path("secret.csv");
+    let run = Command::new(env!("CARGO_BIN_EXE_octa"))
+        .args([
+            "--convert",
+            &fx.path("a.csv"),
+            &out,
+            "--password-env",
+            "OCTA_TEST_PW",
+        ])
+        .env("OCTA_CONFIG_DIR", fx.dir.path().join("config"))
+        .env("OCTA_TEST_PW", "s3cret")
+        .output()
+        .unwrap();
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let zip = std::path::Path::new(&out).with_extension("csv.zip");
+    assert!(zip.exists(), "expected {}", zip.display());
+    assert!(
+        !std::path::Path::new(&out).exists(),
+        "no plain copy next to the zip"
+    );
+    assert!(!String::from_utf8_lossy(&run.stderr).contains("s3cret"));
+}
+
+#[test]
+fn password_env_names_a_missing_variable() {
+    let fx = Fx::new();
+    let run = fx.run(&[
+        "--convert",
+        &fx.path("a.csv"),
+        &fx.path("x.csv"),
+        "--password-env",
+        "OCTA_NOT_SET_ANYWHERE",
+    ]);
+    assert_ne!(run.code, Some(0));
+    assert!(
+        run.stderr.contains("OCTA_NOT_SET_ANYWHERE"),
+        "{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn batch_convert_with_password_env_writes_one_zip_per_input() {
+    let fx = Fx::new();
+    let out = fx.path("zips");
+    let run = Command::new(env!("CARGO_BIN_EXE_octa"))
+        .args([
+            "--batch-convert",
+            "--to",
+            "csv",
+            "--out-dir",
+            &out,
+            &fx.path("a.csv"),
+            "--password-env",
+            "OCTA_TEST_PW",
+        ])
+        .env("OCTA_CONFIG_DIR", fx.dir.path().join("config"))
+        .env("OCTA_TEST_PW", "s3cret")
+        .output()
+        .unwrap();
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let zip = std::path::Path::new(&out).join("a.csv.zip");
+    assert!(zip.exists());
+    assert!(!std::path::Path::new(&out).join("a.csv").exists());
+    let back = octa::formats::decrypt::open_zip_entry(
+        &zip,
+        "a.csv",
+        &octa::formats::decrypt::OpenSecret::Passphrase("s3cret".into()),
+    )
+    .unwrap();
+    assert!(String::from_utf8(back).unwrap().contains("Tokyo"));
+}
+
+#[test]
+fn an_empty_password_env_variable_errors_and_creates_nothing() {
+    let fx = Fx::new();
+    let out = fx.path("zips");
+    let run = Command::new(env!("CARGO_BIN_EXE_octa"))
+        .args([
+            "--batch-convert",
+            "--to",
+            "csv",
+            "--out-dir",
+            &out,
+            &fx.path("a.csv"),
+            "--password-env",
+            "OCTA_TEST_EMPTY",
+        ])
+        .env("OCTA_CONFIG_DIR", fx.dir.path().join("config"))
+        .env("OCTA_TEST_EMPTY", "")
+        .output()
+        .unwrap();
+    assert_ne!(run.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&run.stderr).contains("OCTA_TEST_EMPTY"));
+    assert!(!std::path::Path::new(&out).exists(), "nothing created");
 }

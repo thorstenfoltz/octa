@@ -3,14 +3,20 @@
 //!
 //! The decision of *whether* to ask lives here; the question itself is
 //! `dialogs::large_file_notice`. Both paths end in `finish_large_open`, which
-//! is the only place a `LargeTable` is put onto a tab.
+//! opens the scan on a worker; `poll_large_open` is the only place a
+//! `LargeTable` is put onto a tab. Every later page comes from a worker too
+//! (`LargeFetch`), so no query over the file ever holds up the window.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
-use octa::formats::large::{self, ScanKind};
+use eframe::egui;
+use octa::data::DataTable;
+use octa::formats::large::{self, LargeTable, ScanKind};
 use octa::i18n::t;
+
+use super::pushdown::{ServerTask, spawn_local_fallible};
 
 use super::dialogs::large_file_notice::{LargeConvertJob, LargeFileNotice};
 use super::state::{OctaApp, TabState};
@@ -27,29 +33,26 @@ impl OctaApp {
             self.large_check_bypass = None;
             return false;
         }
-        let Ok(meta) = std::fs::metadata(path) else {
-            return false;
-        };
-        let big_bytes = meta.len() as usize >= self.settings.large_file_min_bytes;
-        // A Parquet footer states its row count without reading the data, so
-        // a file that is small on disk but enormous when expanded is caught
-        // too. Formats that cannot say stay on the byte check alone. The
-        // threshold IS the streaming cap: a file with more rows than a normal
-        // open would ever load is exactly the file large-file mode is for.
-        // With the cap set to unlimited that comparison never fires (the cap
-        // is `usize::MAX`), so size alone decides, which is what "unlimited"
-        // should mean. Skipped when the size already decided: the footer read
-        // is cheap but not free, and it runs on every Parquet open.
-        let big_rows = !big_bytes
-            && stated_row_count(path)
-                .is_some_and(|rows| rows >= octa::formats::initial_load_rows());
-        if !big_bytes && !big_rows {
+        // A protected zip's decrypted copy in a format DuckDB cannot scan
+        // opens normally. Conversion would write it as a plain Parquet into
+        // the shared temp folder and keep it there, and saves nothing: it
+        // holds the whole table in memory too, and the entry already was.
+        if ScanKind::for_path(path).is_none()
+            && super::dialogs::passphrase::is_protected_copy(
+                &self.pending_protected_origins,
+                &self.tabs,
+                path,
+            )
+        {
             return false;
         }
+        let Some(size_bytes) = large_size(path, self.settings.large_file_min_bytes) else {
+            return false;
+        };
         if self.settings.show_large_file_notice {
             self.pending_large_file_notice = Some(LargeFileNotice {
                 path: path.to_path_buf(),
-                size_bytes: meta.len(),
+                size_bytes,
                 needs_conversion: ScanKind::for_path(path).is_none(),
                 suppress_future: false,
             });
@@ -77,7 +80,11 @@ impl OctaApp {
 
         // No repaint request needed: the progress window's spinner keeps
         // frames coming, and the slot is drained on each of them.
+        let task = self
+            .long_tasks
+            .start(octa::i18n::t("notify.task_large_convert"));
         std::thread::spawn(move || {
+            let _task = task;
             let noop = |_: usize| {};
             let out =
                 large::convert_to_temp_parquet(&path, &noop, &cancel).map_err(|e| format!("{e:#}"));
@@ -91,22 +98,52 @@ impl OctaApp {
     /// is a converted temp file, so the tab is still labelled by the file the
     /// user picked.
     pub(crate) fn finish_large_open(&mut self, scan_path: PathBuf, original_name: Option<String>) {
-        let handle = match large::open(&scan_path) {
-            Ok(h) => h,
-            Err(e) => {
-                self.status_message = Some((format!("{e:#}"), std::time::Instant::now()));
-                return;
-            }
-        };
-        // The first page fills the view; scrolling asks for the rest.
-        let first = match handle.page(0, LARGE_PAGE_ROWS, None, None) {
-            Ok(t) => t,
-            Err(e) => {
-                self.status_message = Some((format!("{e:#}"), std::time::Instant::now()));
-                return;
-            }
-        };
+        // Opening counts every row of the file, and the first page follows:
+        // seconds on a big CSV, so both run on a worker.
+        let path = scan_path.clone();
+        let task = spawn_local_fallible(move || {
+            let handle = large::open(&path)?;
+            // The first page fills the view; scrolling asks for the rest.
+            let first = handle.page(0, LARGE_PAGE_ROWS, None, None)?;
+            Ok((handle, first))
+        });
+        self.large_open_job = Some(LargeOpenJob {
+            name: original_name
+                .clone()
+                .unwrap_or_else(|| display_name(&scan_path)),
+            scan_path,
+            original_name,
+            task,
+        });
+    }
 
+    /// Once per frame: put a finished large-file open onto a tab.
+    pub(crate) fn poll_large_open(&mut self, ctx: &egui::Context) {
+        let Some(job) = &self.large_open_job else {
+            return;
+        };
+        let Some(outcome) = job.task.poll_result() else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+            return;
+        };
+        let Some(job) = self.large_open_job.take() else {
+            return;
+        };
+        match outcome {
+            Ok((handle, first)) => {
+                self.put_large_on_tab(job.scan_path, job.original_name, handle, first)
+            }
+            Err(e) => self.status_message = Some((e, std::time::Instant::now())),
+        }
+    }
+
+    fn put_large_on_tab(
+        &mut self,
+        scan_path: PathBuf,
+        original_name: Option<String>,
+        handle: LargeTable,
+        first: DataTable,
+    ) {
         let blank = self
             .tabs
             .get(self.active_tab)
@@ -118,13 +155,17 @@ impl OctaApp {
             self.active_tab = self.tabs.len() - 1;
         }
         let label = original_name.unwrap_or_else(|| display_name(&scan_path));
+        // A decrypted copy of a protected zip: closing the tab removes it.
+        self.claim_protected_origin(self.active_tab, &scan_path);
         let Some(tab) = self.tabs.get_mut(self.active_tab) else {
             return;
         };
         tab.table = first;
         tab.table.source_path = Some(scan_path.to_string_lossy().to_string());
         tab.file_stamp = crate::app::file_io::file_stamp(&scan_path);
-        tab.custom_tab_label = Some(label);
+        if tab.protected_origin.is_none() {
+            tab.custom_tab_label = Some(label);
+        }
         tab.parse_error_banner = Some(t("largefile.banner"));
         tab.large_page_key = Some(LargePageKey {
             offset: 0,
@@ -133,6 +174,7 @@ impl OctaApp {
             filter: String::new(),
         });
         tab.large = Some(handle);
+        tab.large_fetch = None;
         // The view renders from `filtered_rows`, which `recompute_filter` only
         // rebuilds when the tab is dirty. A reused blank tab may already be
         // clean, and would then paint the headers over nothing.
@@ -163,9 +205,29 @@ fn display_name(path: &Path) -> String {
         .unwrap_or_else(|| path.display().to_string())
 }
 
-/// The row count a format states without reading its data. Only Parquet does;
-/// everything else answers `None` and is judged on bytes alone.
-fn stated_row_count(path: &Path) -> Option<usize> {
+/// The size that puts `path` into large-file mode, or `None` below `min_bytes`.
+///
+/// One setting decides, in bytes. A Parquet file is measured by the larger of
+/// its length and the uncompressed data size its footer states, so a file
+/// small on disk but enormous when expanded is caught too. Its row count is
+/// deliberately not a gate: a normal open loads the first `initial_load_rows`
+/// and streams the rest in as you scroll, so many rows alone is no reason to
+/// overrule the size the user picked (a 35 MB Parquet saved from a 5 GB CSV
+/// was asked about under a 10 GB threshold). The footer read is skipped when
+/// the length already decided: cheap, but it runs on every Parquet open.
+fn large_size(path: &Path, min_bytes: usize) -> Option<u64> {
+    let on_disk = std::fs::metadata(path).ok()?.len();
+    let size = if on_disk as usize >= min_bytes {
+        on_disk
+    } else {
+        on_disk.max(stated_data_bytes(path)?)
+    };
+    (size as usize >= min_bytes).then_some(size)
+}
+
+/// The uncompressed data size a format states without reading its data. Only
+/// Parquet does; everything else answers `None` and is judged on its length.
+fn stated_data_bytes(path: &Path) -> Option<u64> {
     let ext = path.extension()?.to_string_lossy().to_lowercase();
     if ext != "parquet" && ext != "pq" {
         return None;
@@ -173,7 +235,14 @@ fn stated_row_count(path: &Path) -> Option<usize> {
     let file = std::fs::File::open(path).ok()?;
     let reader = parquet::file::serialized_reader::SerializedFileReader::new(file).ok()?;
     use parquet::file::reader::FileReader;
-    Some(reader.metadata().file_metadata().num_rows().max(0) as usize)
+    let bytes: i64 = reader
+        .metadata()
+        .row_groups()
+        .iter()
+        .flat_map(|rg| rg.columns())
+        .map(|c| c.uncompressed_size())
+        .sum();
+    Some(bytes.max(0) as u64)
 }
 
 /// Rows the next page keeps from the previous one, so a continuous scroll does
@@ -199,6 +268,12 @@ impl OctaApp {
         let Some(handle) = tab.large.as_ref() else {
             return;
         };
+        // One fetch at a time: the edge triggers fire every frame, and a step
+        // taken from the page still on screen would replace the fetch that is
+        // about to move it.
+        if tab.large_fetch.is_some() {
+            return;
+        }
         let stride = LARGE_PAGE_ROWS.saturating_sub(PAGE_OVERLAP).max(1);
         // The filtered total is already on the page (`total_rows`), so stepping
         // costs no `count(*)`. Re-querying it here ran once per frame, because
@@ -230,55 +305,135 @@ impl OctaApp {
 
     /// Re-fetch a large tab's page for `key`, replacing what the view shows.
     ///
-    /// ponytail: the fetch is synchronous, on the UI thread. That is fine for
-    /// Parquet, where a LIMIT/OFFSET skips row groups, and it is the wrong
-    /// answer for a multi-gigabyte CSV, where a deep OFFSET is a scan. Move it
-    /// to a worker with a polled slot (like `DriftState`) if that bites.
-    ///
     /// `keep_bottom` says the page was reached by scrolling **backwards**.
     /// Either way the viewport lands on the overlap seam rather than on a
     /// scroll edge: parking it at the top or the bottom re-arms the opposite
     /// edge trigger, and the two page steps then ping-pong a DuckDB query per
     /// frame - which is what made the window unusable.
     pub(crate) fn large_fetch_page(&mut self, key: LargePageKey, keep_bottom: bool) {
-        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+        let landing = if keep_bottom {
+            Landing::Backward
+        } else {
+            Landing::Forward
+        };
+        self.request_large_page(self.active_tab, key, landing);
+    }
+
+    /// Ask for `key` on tab `idx`. The fetch runs on a worker; while one is
+    /// running, the newest request waits for it and runs next, so dragging
+    /// the scrollbar costs one query at a time, never one per frame.
+    fn request_large_page(&mut self, idx: usize, key: LargePageKey, landing: Landing) {
+        let Some(tab) = self.tabs.get_mut(idx) else {
             return;
         };
-        if tab.large_page_key.as_ref() == Some(&key) {
-            return;
+        let shown = tab.large_page_key.clone();
+        if let Some((key, landing)) =
+            queue_request(tab.large_fetch.as_mut(), shown.as_ref(), key, landing)
+        {
+            self.spawn_large_fetch(idx, key, landing);
         }
+    }
+
+    fn spawn_large_fetch(&mut self, idx: usize, key: LargePageKey, landing: Landing) {
+        let Some(tab) = self.tabs.get_mut(idx) else {
+            return;
+        };
         let Some(handle) = tab.large.as_ref() else {
             return;
         };
         // The filter's row count changes only when the filter does, so it is
-        // carried over unless this fetch changed it. An unfiltered
-        // `filtered_count` costs no query, so the common case is free either
-        // way; a count that genuinely failed stays `None` rather than being
-        // replaced by the whole-file total, which would misreport a filter.
-        let total = match tab.large_page_key.as_ref() {
+        // carried over unless this fetch changed it. A count that genuinely
+        // failed fails the fetch rather than being replaced by the whole-file
+        // total, which would misreport a filter.
+        let carried = match tab.large_page_key.as_ref() {
             Some(prev) if prev.filter == key.filter => tab.table.total_rows,
             _ => None,
-        }
-        .or_else(|| handle.filtered_count(non_empty(&key.filter)).ok());
-        let page = handle.page(key.offset, key.len, key.order, non_empty(&key.filter));
-        match page {
-            Ok(mut t) => {
-                // A filtered view reports the filtered total, or the row-number
-                // gutter would count against a whole the user cannot see.
-                t.total_rows = total;
-                let rows = t.row_count();
-                tab.table = t;
-                tab.table_state.invalidate_row_heights();
-                let seam = if keep_bottom {
-                    rows.saturating_sub(PAGE_OVERLAP)
-                } else {
-                    PAGE_OVERLAP.min(rows)
-                };
-                tab.table_state.scroll_to_row(seam);
-                tab.large_page_key = Some(key);
-                tab.filter_dirty = true;
+        };
+        let job = match handle.page_job(
+            key.offset,
+            key.len,
+            key.order,
+            key.filter.clone(),
+            carried.is_none(),
+        ) {
+            Ok(job) => job,
+            Err(e) => {
+                self.status_message = Some((format!("{e:#}"), std::time::Instant::now()));
+                return;
             }
-            Err(e) => self.status_message = Some((format!("{e:#}"), std::time::Instant::now())),
+        };
+        tab.large_fetch = Some(LargeFetch {
+            key,
+            landing,
+            carried,
+            task: spawn_local_fallible(job),
+            next: None,
+        });
+    }
+
+    /// Once per frame: land every finished page fetch, then start the request
+    /// that waited for it.
+    pub(crate) fn poll_large_fetches(&mut self, ctx: &egui::Context) {
+        for idx in 0..self.tabs.len() {
+            let Some(fetch) = &self.tabs[idx].large_fetch else {
+                continue;
+            };
+            let Some(outcome) = fetch.task.poll_result() else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+                continue;
+            };
+            let Some(fetch) = self.tabs[idx].large_fetch.take() else {
+                continue;
+            };
+            match outcome {
+                Ok((page, total)) => {
+                    self.land_large_page(
+                        idx,
+                        fetch.key,
+                        fetch.landing,
+                        page,
+                        total.or(fetch.carried),
+                    );
+                }
+                Err(e) => self.status_message = Some((e, std::time::Instant::now())),
+            }
+            if let Some((key, landing)) = fetch.next {
+                if self.tabs[idx].large_page_key.as_ref() == Some(&key) {
+                    if let Landing::Row(row) = landing {
+                        park_on_row(&mut self.tabs[idx], row);
+                    }
+                } else {
+                    self.spawn_large_fetch(idx, key, landing);
+                }
+            }
+        }
+    }
+
+    fn land_large_page(
+        &mut self,
+        idx: usize,
+        key: LargePageKey,
+        landing: Landing,
+        mut page: DataTable,
+        total: Option<usize>,
+    ) {
+        let Some(tab) = self.tabs.get_mut(idx) else {
+            return;
+        };
+        // A filtered view reports the filtered total, or the row-number
+        // gutter would count against a whole the user cannot see.
+        page.total_rows = total;
+        let rows = page.row_count();
+        tab.table = page;
+        tab.table_state.invalidate_row_heights();
+        tab.large_page_key = Some(key);
+        tab.filter_dirty = true;
+        match landing {
+            Landing::Forward => tab.table_state.scroll_to_row(PAGE_OVERLAP.min(rows)),
+            Landing::Backward => tab
+                .table_state
+                .scroll_to_row(rows.saturating_sub(PAGE_OVERLAP)),
+            Landing::Row(row) => park_on_row(tab, row),
         }
     }
 
@@ -302,24 +457,19 @@ impl OctaApp {
         let offset = row.saturating_sub(LARGE_PAGE_ROWS / 2).min(max_offset);
         // Re-fetching for a move of a few rows is a query for no visible
         // change - but the viewport still has to move, or a jump within the
-        // loaded page would do nothing at all.
+        // loaded page would do nothing at all. A far jump parks the viewport
+        // when its page lands.
         if offset.abs_diff(key.offset) >= PAGE_OVERLAP {
-            self.large_fetch_page(LargePageKey { offset, ..key }, false);
-        }
-        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+            self.request_large_page(
+                self.active_tab,
+                LargePageKey { offset, ..key },
+                Landing::Row(row),
+            );
             return;
-        };
-        // Measured against the page actually loaded, which is the one just
-        // fetched or the one that was already there.
-        let loaded = tab.table.row_offset;
-        let within = row
-            .saturating_sub(loaded)
-            .min(tab.table.row_count().saturating_sub(1));
-        tab.table_state.scroll_to_row(within);
-        // Move the cursor too, so a keyboard jump lands somewhere visible
-        // instead of leaving the selection on the row it started from.
-        let col = tab.table_state.selected_cell.map(|(_, c)| c).unwrap_or(0);
-        tab.table_state.selected_cell = Some((within, col));
+        }
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            park_on_row(tab, row);
+        }
     }
 
     /// Re-page a large tab after its sort or filter changed.
@@ -347,8 +497,116 @@ impl OctaApp {
     }
 }
 
-fn non_empty(s: &str) -> Option<&str> {
-    (!s.trim().is_empty()).then_some(s)
+/// Everything that filters a large tab, as one `WHERE` condition over the
+/// file: the search box, every column filter (Column Filter, Filter by
+/// value) and every comparison chip (the Ask box), ANDed as an ordinary tab
+/// ANDs them. Columns are taken in index
+/// order and values sorted, so the same filters always spell the same text,
+/// which is what tells the view whether to fetch again. Also returns the
+/// names of columns whose filter cannot be run as a query, which are left
+/// out rather than applied to the page alone.
+pub(crate) fn view_filter(tab: &TabState, search: &str) -> (String, Vec<String>) {
+    let mut parts = Vec::new();
+    let searched = search_filter(tab, search);
+    if !searched.is_empty() {
+        parts.push(searched);
+    }
+    let mut refused = Vec::new();
+    if let Some(large) = &tab.large {
+        let mut cols: Vec<(&usize, &std::collections::HashSet<String>)> =
+            tab.column_filters.iter().collect();
+        cols.sort_by_key(|(c, _)| **c);
+        for (&col, allowed) in cols {
+            let mut values: Vec<&str> = allowed.iter().map(String::as_str).collect();
+            values.sort_unstable();
+            match large.values_filter(col, &values) {
+                Some(sql) => parts.push(format!("({sql})")),
+                None => refused.push(column_name(tab, col)),
+            }
+        }
+        for p in &tab.predicate_filters {
+            match large.predicate_filter(p.col, p.op, &p.value, p.case_sensitive) {
+                Some(sql) => parts.push(format!("({sql})")),
+                None => refused.push(column_name(tab, p.col)),
+            }
+        }
+    }
+    refused.dedup();
+    (parts.join(" AND "), refused)
+}
+
+fn column_name(tab: &TabState, col: usize) -> String {
+    tab.table
+        .columns
+        .get(col)
+        .map(|c| c.name.clone())
+        .unwrap_or_default()
+}
+
+/// What asking for page `key` does, given the fetch running (if any) and the
+/// page `shown`: the request to start now, or `None` when it waits behind the
+/// running fetch (the newest waiting request wins) or is already on screen.
+fn queue_request(
+    running: Option<&mut LargeFetch>,
+    shown: Option<&LargePageKey>,
+    key: LargePageKey,
+    landing: Landing,
+) -> Option<(LargePageKey, Landing)> {
+    if let Some(fetch) = running {
+        if fetch.key == key {
+            fetch.landing = landing;
+            fetch.next = None;
+        } else {
+            fetch.next = Some((key, landing));
+        }
+        return None;
+    }
+    (shown != Some(&key)).then_some((key, landing))
+}
+
+/// Park the viewport, and the selection, on `row` of the **file**, measured
+/// against the page the tab holds now.
+fn park_on_row(tab: &mut TabState, row: usize) {
+    let loaded = tab.table.row_offset;
+    let within = row
+        .saturating_sub(loaded)
+        .min(tab.table.row_count().saturating_sub(1));
+    tab.table_state.scroll_to_row(within);
+    // Move the cursor too, so a keyboard jump lands somewhere visible
+    // instead of leaving the selection on the row it started from.
+    let col = tab.table_state.selected_cell.map(|(_, c)| c).unwrap_or(0);
+    tab.table_state.selected_cell = Some((within, col));
+}
+
+/// A large-file open running on a worker: the scan and its first page.
+pub(crate) struct LargeOpenJob {
+    /// What the status bar names while it runs.
+    pub(crate) name: String,
+    scan_path: PathBuf,
+    original_name: Option<String>,
+    task: ServerTask<(LargeTable, DataTable)>,
+}
+
+/// A page of a large tab being fetched on a worker. One per tab; a request
+/// made meanwhile waits in `next` (the newest wins) and runs when it lands.
+pub(crate) struct LargeFetch {
+    key: LargePageKey,
+    landing: Landing,
+    /// The filtered total to keep when the fetch does not count again.
+    carried: Option<usize>,
+    task: ServerTask<(DataTable, Option<usize>)>,
+    next: Option<(LargePageKey, Landing)>,
+}
+
+/// Where the viewport goes when a fetched page lands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Landing {
+    /// Reached by scrolling forwards: the overlap seam near the top.
+    Forward,
+    /// Reached by scrolling backwards: the overlap seam near the bottom.
+    Backward,
+    /// A jump to this row of the file (scrollbar, first or last row).
+    Row(usize),
 }
 
 /// Turn the search box into a SQL fragment matching the same rows the
@@ -404,3 +662,7 @@ pub(crate) fn search_filter(tab: &TabState, search: &str) -> String {
         format!("({})", clauses.join(" OR "))
     }
 }
+
+#[cfg(test)]
+#[path = "large_file_tests.rs"]
+mod tests;

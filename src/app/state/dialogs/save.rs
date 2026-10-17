@@ -10,6 +10,37 @@
 
 use super::*;
 
+/// What a save does with the tab.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SaveMode {
+    /// Write the whole table and make the written file the tab's own: Save,
+    /// and a Save As that keeps working in the new file.
+    Rebase,
+    /// Write a copy and leave the tab on its own file. `filtered` writes only
+    /// the rows the search and filters show; `open` opens the written file in
+    /// a new tab afterwards.
+    Copy { filtered: bool, open: bool },
+}
+
+/// A Save As waiting on its questions. The OS file picker has answered where;
+/// this asks which rows, whether to open the new file, and for a `.csv` how to
+/// write it. `ask_*` say which questions are shown; the answers start at the
+/// Settings defaults.
+#[derive(Debug, Clone)]
+pub(crate) struct SaveAsPrompt {
+    pub(crate) tab_idx: usize,
+    pub(crate) path: std::path::PathBuf,
+    pub(crate) ask_rows: bool,
+    pub(crate) ask_open: bool,
+    pub(crate) filtered: bool,
+    pub(crate) open: bool,
+    /// Rows the search and filters show, and rows in the table.
+    pub(crate) visible: usize,
+    pub(crate) total: usize,
+    /// `Some` for a `.csv` target: how to write it.
+    pub(crate) csv: Option<CsvChoice>,
+}
+
 /// A deferred save request waiting on the user's "round on save?" decision.
 /// Carries everything `do_save_tab` needs to resume once the user picks an
 /// option in `round_save_prompt`.
@@ -17,7 +48,7 @@ use super::*;
 pub(crate) struct RoundSavePrompt {
     pub(crate) tab_idx: usize,
     pub(crate) path: std::path::PathBuf,
-    pub(crate) save_filtered_view: bool,
+    pub(crate) mode: SaveMode,
 }
 
 /// A deferred `.xlsx` save waiting on the user's "carry the formatting?"
@@ -32,8 +63,16 @@ pub(crate) struct RoundSavePrompt {
 pub(crate) struct XlsxStylePrompt {
     pub(crate) tab_idx: usize,
     pub(crate) path: std::path::PathBuf,
-    pub(crate) save_filtered_view: bool,
+    pub(crate) mode: SaveMode,
     pub(crate) round_decision: Option<bool>,
+}
+
+/// How one CSV is written, as picked in the Save As dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CsvChoice {
+    pub(crate) delimiter: u8,
+    pub(crate) decimal_comma: bool,
+    pub(crate) bom: bool,
 }
 
 /// A deferred DB save waiting on the user's "apply schema changes?" decision.
@@ -41,7 +80,7 @@ pub(crate) struct XlsxStylePrompt {
 pub(crate) struct SchemaChangeSavePrompt {
     pub(crate) tab_idx: usize,
     pub(crate) path: std::path::PathBuf,
-    pub(crate) save_filtered_view: bool,
+    pub(crate) mode: SaveMode,
     /// Human-readable lines describing the changes (added/removed columns).
     pub(crate) changes: Vec<String>,
     /// Where the backup will be written (None when backup is disabled).
@@ -107,6 +146,11 @@ pub(crate) struct BatchConvertState {
     pub(crate) write_options: octa::formats::write_options::WriteOptions,
     /// Text buffer for the row-group size (empty = the writer's default).
     pub(crate) row_group_buf: String,
+    /// Write every output inside its own AES-256 zip. The passphrase fields
+    /// are cleared when the run starts. No `Debug` derive on purpose.
+    pub(crate) protect: bool,
+    pub(crate) pass_buf: String,
+    pub(crate) repeat_buf: String,
 }
 
 impl BatchConvertState {
@@ -124,6 +168,9 @@ impl BatchConvertState {
             result: std::sync::Arc::new(std::sync::Mutex::new(None)),
             write_options: octa::formats::write_options::WriteOptions::default(),
             row_group_buf: String::new(),
+            protect: false,
+            pass_buf: String::new(),
+            repeat_buf: String::new(),
         }
     }
 

@@ -61,7 +61,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
         octa::formats::backup_existing_file(dest.path())?;
     }
     std::fs::write(dest.path(), &p.content)
-        .map_err(|e| anyhow::anyhow!("failed to write {}: {e}", dest.path().display()))?;
+        .map_err(|e| anyhow::anyhow!("failed to write {}: {e:#}", dest.path().display()))?;
     let bytes_written = p.content.len();
     let target = dest.finish()?;
 

@@ -96,6 +96,12 @@ on the clipboard as three tab-separated columns: `<column>`, `count`,
 `percent`. Useful for pasting into a spreadsheet or another Octa tab
 via the regular paste-into-cells path.
 
+## Command line and MCP
+
+The same job without the GUI:
+
+- MCP: [`value_frequency`](../mcp/tools/value_frequency.md)
+
 ## See also
 
 - [Summary](summary.md): one row of statistics per column, for a

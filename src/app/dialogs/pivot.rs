@@ -74,7 +74,7 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("pivot_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.pv_title"))
                             .strong()
@@ -96,7 +96,7 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("pivot_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     let can_run = match st.kind {
                         PivotKind::Pivot => st.on_col.is_some() && st.value_col.is_some(),
                         PivotKind::Unpivot => st.unpivot_cols.len() >= 2,
@@ -126,7 +126,7 @@ pub(crate) fn render_pivot_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         // part is the column picker, which has its own bounded scroll, so the
         // dialog never stretches to fill the screen.
         egui::CentralPanel::default().show(ui, |ui| {
-            ui.horizontal(|ui| {
+            octa::ui::control_row::control_line(ui, |ui| {
                 ui.selectable_value(
                     &mut st.kind,
                     PivotKind::Pivot,
@@ -206,12 +206,13 @@ fn pivot_body(ui: &mut egui::Ui, st: &mut PivotState, cols: &[String]) {
     );
     ui.add_space(4.0);
     egui::Grid::new("pivot_grid").num_columns(2).show(ui, |ui| {
+        octa::ui::control_row::pin_control_height(ui);
         ui.label(octa::i18n::t("dialog.pv_on"));
         col_combo(ui, "pv_on", &mut st.on_col, cols);
         ui.end_row();
 
         ui.label(octa::i18n::t("dialog.pv_aggregate"));
-        ui.horizontal(|ui| {
+        octa::ui::control_row::control_line(ui, |ui| {
             egui::ComboBox::from_id_salt("pv_agg")
                 .selected_text(st.agg.sql_fn())
                 .show_ui(ui, |ui| {

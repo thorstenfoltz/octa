@@ -157,6 +157,42 @@ pub fn current_language() -> String {
     }
 }
 
+/// Whether people writing in language `code` usually write decimal numbers
+/// with a comma (`1234,56`). Used to pre-select how a new CSV is written; the
+/// user can always pick otherwise. An unknown code says no, the English way.
+pub fn uses_decimal_comma(code: &str) -> bool {
+    matches!(
+        code,
+        "bg" | "cs"
+            | "da"
+            | "de"
+            | "el"
+            | "es"
+            | "et"
+            | "fi"
+            | "fr"
+            | "hr"
+            | "hu"
+            | "id"
+            | "it"
+            | "lt"
+            | "lv"
+            | "nl"
+            | "no"
+            | "pl"
+            | "pt"
+            | "ro"
+            | "ru"
+            | "sk"
+            | "sl"
+            | "sr"
+            | "sv"
+            | "tr"
+            | "uk"
+            | "vi"
+    )
+}
+
 /// Translate a key into the active language. Falls back to English, then to
 /// the key itself, so an unmigrated/missing key shows the developer string
 /// rather than crashing.

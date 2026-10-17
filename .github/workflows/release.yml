@@ -71,10 +71,12 @@ jobs:
         # runtime deps used in the "Build AppImage" step: patchelf rewrites
         # rpaths in the bundled binary; gtk/gdk-pixbuf/rsvg *-bin packages
         # supply the loader-cache tools the plugin invokes; libxkbcommon-x11-0
-        # is the library the "Build AppImage" step bundles by name.
+        # is the library the "Build AppImage" step bundles by name; zsync
+        # provides the zsyncmake that appimagetool looks up on PATH to write
+        # the .zsync file (without it, it prints "skipping" and carries on).
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-0 libssl-dev libfontconfig1-dev libfreetype6-dev asciidoctor patchelf librsvg2-common libgdk-pixbuf2.0-bin libgtk-3-bin
+          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-0 libssl-dev libfontconfig1-dev libfreetype6-dev asciidoctor patchelf librsvg2-common libgdk-pixbuf2.0-bin libgtk-3-bin zsync
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -143,6 +145,12 @@ jobs:
           # --runtime-file. See the download step for why we replace the
           # default runtime.
           LDAI_RUNTIME_FILE: ${{ runner.temp }}/appimage-runtime
+          # Embedded in the AppImage's .upd_info section so AppImageUpdate
+          # (and launchers that use it) can update in place: it asks GitHub
+          # for the latest release's Octa-*-x86_64.AppImage.zsync and
+          # downloads only the changed blocks. appimagetool writes that
+          # .zsync next to the AppImage; the publish job uploads both.
+          LDAI_UPDATE_INFORMATION: gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|Octa-*-x86_64.AppImage.zsync
         # APPIMAGE_EXTRACT_AND_RUN sidesteps FUSE for the *tooling* on this
         # runner: newer images no longer ship libfuse2 by default, and running
         # the linuxdeploy AppImage without it fails with "dlopen(): error
@@ -155,6 +163,16 @@ jobs:
           mkdir -p AppDir/usr/share/doc/octa
           cp LICENSE NOTICE THIRD_PARTY_LICENSES.md AppDir/usr/share/doc/octa/
           cp -r licenses AppDir/usr/share/doc/octa/licenses
+          # AppStream metadata: the AppImage catalogue reads its description,
+          # screenshot and links from here. The release entry is added at
+          # build time so the file in the repo never goes stale. appimagetool
+          # only looks for <desktop name>.appdata.xml, so it still prints
+          # "AppStream upstream metadata is missing"; that is expected.
+          METAINFO=io.github.thorstenfoltz.octa.metainfo.xml
+          mkdir -p AppDir/usr/share/metainfo
+          sed "s|^</component>|  <releases>\n    <release version=\"$VERSION\" date=\"$(date -u +%F)\"/>\n  </releases>\n</component>|" \
+            "$METAINFO" > "AppDir/usr/share/metainfo/$METAINFO"
+          grep -q "<release version=\"$VERSION\"" "AppDir/usr/share/metainfo/$METAINFO"
           # winit dlopen()s libxkbcommon-x11.so.0 on X11, so it is not in the
           # binary's DT_NEEDED and linuxdeploy cannot find it on its own.
           # Without it 0.20.1 panicked at start ("Library libxkbcommon-x11.so
@@ -197,12 +215,22 @@ jobs:
             echo "::error::AppImage was not built with the static FUSE runtime (LDAI_RUNTIME_FILE ignored?)"
             exit 1
           fi
+          # appimagetool only warns when it cannot write the .zsync, and the
+          # AppImage would then point updaters at a file the release lacks.
+          # A rename by the fallback above would also leave the .zsync
+          # describing the old filename, so require the exact name.
+          if [ ! -f "$OUTPUT.zsync" ]; then
+            echo "::error::$OUTPUT.zsync was not generated (zsyncmake missing or LDAI_UPDATE_INFORMATION ignored?)"
+            exit 1
+          fi
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v7
         with:
           name: linux-appimage
-          path: Octa-${{ env.VERSION }}-x86_64.AppImage
+          path: |
+            Octa-${{ env.VERSION }}-x86_64.AppImage
+            Octa-${{ env.VERSION }}-x86_64.AppImage.zsync
 
   build-windows:
     # Pinned off windows-latest: that image now ships VS 18 / MSVC 14.51, which
@@ -230,6 +258,39 @@ jobs:
 
       - name: Generate ICO from PNG
         run: magick assets/octa.png -define icon:auto-resize=256,128,64,48,32,16 assets/octa.ico
+
+      # The Store package's taskbar icon. Without unplated sizes plus the
+      # resources.pri that indexes them, Windows draws the 44x44 logo on an
+      # accent-colour plate. makepri.exe only exists on Windows, so the index
+      # is built here and attached to the release; windows/build-msix.sh
+      # (Linux) downloads it. It depends on file names and the identity Name
+      # only, never on the version. continue-on-error: a makepri hiccup must
+      # never block a release; build-msix.sh then warns and packs as before.
+      - name: Build resources.pri for the Store package
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $stage = "pri-stage"
+          New-Item -ItemType Directory -Path "$stage\Images" -Force | Out-Null
+          $logos = @{ "Square44x44Logo" = 44; "Square71x71Logo" = 71; "Square150x150Logo" = 150; "Square310x310Logo" = 310; "StoreLogo" = 50 }
+          foreach ($name in $logos.Keys) {
+            $s = $logos[$name]
+            magick assets/octa.png -resize "${s}x${s}" "$stage\Images\$name.png"
+          }
+          magick assets/octa.png -resize 150x150 -background none -gravity center -extent 310x150 "$stage\Images\Wide310x150Logo.png"
+          foreach ($s in 16, 24, 32, 48, 256) {
+            magick assets/octa.png -resize "${s}x${s}" "$stage\Images\Square44x44Logo.targetsize-${s}_altform-unplated.png"
+          }
+          # Every language the manifest declares, or the Store could read the
+          # package as English-only.
+          $manifest = Get-Content windows\AppxManifest.xml -Raw
+          $langs = ([regex]::Matches($manifest, '<Resource Language="([^"]+)"') | ForEach-Object { $_.Groups[1].Value }) -join '_'
+          $makepri = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makepri.exe" | Sort-Object FullName | Select-Object -Last 1
+          if (-not $makepri) { throw "makepri.exe not found in the Windows SDK" }
+          & $makepri.FullName createconfig /cf priconfig.xml /dq $langs /pv 10.0.0 /o
+          if ($LASTEXITCODE -ne 0) { throw "makepri createconfig failed" }
+          & $makepri.FullName new /pr $stage /cf priconfig.xml /mn windows\AppxManifest.xml /of resources.pri /o
+          if ($LASTEXITCODE -ne 0) { throw "makepri new failed" }
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -263,7 +324,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: windows-release
-          path: octa-${{ env.VERSION }}-windows-x86_64.zip
+          path: |
+            octa-${{ env.VERSION }}-windows-x86_64.zip
+            resources.pri
 
   build-macos:
     runs-on: macos-latest
@@ -338,14 +401,24 @@ jobs:
       - name: Ad-hoc codesign the bundle
         run: |
           # Sign the inner binary first, then seal the bundle. Ad-hoc (`-`) is
-          # not Developer ID: Gatekeeper still warns — but it converts the
-          # "Octa.app is damaged" dead-end into the standard "unidentified
-          # developer" dialog, where right-click → Open works.
+          # not Developer ID: Gatekeeper still warns, but it converts the
+          # "Octa.app is damaged" dead-end into the standard "cannot be
+          # verified" dialog, which System Settings > Privacy & Security >
+          # Open Anyway gets past (right-click > Open no longer does since
+          # macOS 15). get-octa.sh avoids the warning: curl sets no
+          # quarantine attribute.
           codesign --force --sign - --timestamp=none \
             --identifier dev.octa.Octa \
             Octa.app/Contents/MacOS/octa
           codesign --force --sign - --timestamp=none Octa.app
           codesign --verify --verbose Octa.app
+
+      # The signed bundle has to run, not just compile: a broken seal or a
+      # missing dylib shows up here instead of on a user's Mac.
+      - name: Smoke-test the signed bundle
+        run: |
+          Octa.app/Contents/MacOS/octa --version
+          Octa.app/Contents/MacOS/octa --head samples/features/customers.csv -n 3
 
       - name: Package macOS release
         run: |
@@ -396,10 +469,15 @@ jobs:
           mkdir -p dist
           cp artifacts/linux-release/*.tar.gz \
              artifacts/linux-appimage/*.AppImage \
+             artifacts/linux-appimage/*.AppImage.zsync \
              artifacts/windows-release/*.zip \
              artifacts/macos-release/*.tar.gz \
              dist/
-          (cd dist && sha256sum -- *.tar.gz *.AppImage *.zip > SHA256SUMS)
+          # The Store package's icon index (build-windows, continue-on-error).
+          if [ -f artifacts/windows-release/resources.pri ]; then
+            cp artifacts/windows-release/resources.pri dist/
+          fi
+          (cd dist && sha256sum -- * > SHA256SUMS)
           cat dist/SHA256SUMS
 
       - name: Create release

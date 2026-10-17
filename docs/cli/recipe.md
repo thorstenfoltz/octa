@@ -36,3 +36,7 @@ step 1: Renamed Kunde -> customer: skipped, column `Kunde` not found
 | `1`  | A step could not run, or a file could not be read. |
 
 See [Recipes](../usage/recipes.md).
+
+## See also
+
+- MCP: [`apply_recipe`](../mcp/tools/apply_recipe.md)

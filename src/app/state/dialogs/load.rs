@@ -22,7 +22,7 @@ pub(crate) struct RawPerfPrompt {
 }
 
 /// One promoted column whose stored canonical ISO display differs from the
-/// detected source format. Collected during `run_date_inference_pass` and
+/// detected source format. Collected by the load passes (`file_io::passes::find_dates`) and
 /// surfaced together as a single dismissible banner above the table.
 /// `original_values` carries the source strings for every row (None for
 /// pre-existing nulls) so dismissing the banner can revert the column back

@@ -91,9 +91,13 @@ they become DELETE statements in the diff-based save flow.
 
 ## Deleting columns
 
-- Right-click a column header → **Delete column**.
-- Or **Columns → Delete column** opens a multi-select dialog for
-  bulk operations.
+- Right-click a column header or a cell → **Delete column** deletes that
+  column at once, without asking. **Ctrl+Z** brings it back.
+- When several columns are selected (Ctrl- or Shift-click their headers)
+  and you right-click one of them, the entry reads **Delete selected
+  columns** and deletes them all. One **Ctrl+Z** brings them all back.
+- **Columns → Delete columns...** opens a dialog where you tick several
+  columns and confirm.
 
 For databases, see the schema-change note above.
 
@@ -130,17 +134,30 @@ Not tracked:
 The Edit menu displays the current shortcut next to **Undo** and
 **Redo**; entries are greyed-out when the respective stack is empty.
 
-### Read-only mode
+## Read-only mode
 
-**F8** ([`ToggleReadOnly`](../reference/shortcuts.md#view)) toggles
-a session-only read-only mode. Every editing path short-circuits:
-double-click on a cell doesn't enter edit mode, the
-[raw text editor](view-modes/raw-text.md) renders non-interactive,
-and structural shortcuts no-op. **Undo/Redo are also disabled**
-under read-only.
+**F8** ([`ToggleReadOnly`](../reference/shortcuts.md#view)) or **View ->
+Read-only mode** toggles a read-only state that is independent of the view
+mode. Every editing path short-circuits:
 
-Useful for poking around files without risking an accidental edit.
-The status bar shows `[Read-only]` while active.
+- Double-click on a cell doesn't enter edit mode.
+- The [raw text editor](view-modes/raw-text.md) renders non-interactive.
+- The entries that change data are greyed out in the right-click menus and
+  in the **Edit**, **Columns** and **Data** menus, with a line at the top
+  saying the tab is read-only.
+- Cut, paste, replace, dragging or renaming a column header, Undo and Redo
+  do nothing.
+- Sorting, filtering, searching, copying and [marks](colour-marking.md)
+  still work: they change what you see, not the data.
+
+Useful for poking around files without risking an accidental edit. The
+status bar shows a `[Read-only]` pill while active. A one-shot notice explains
+the mode the first time you toggle it; suppress it with
+[**Settings -> File-Specific -> Read-only mode notice**](../reference/settings.md#file-specific).
+
+Read-only is not saved, so it resets every time you launch Octa. A database
+tab whose connection does not allow writes is read-only on its own, whatever
+F8 says (see [Working with Databases](working-with-databases.md)).
 
 ## Find duplicates
 
@@ -336,6 +353,11 @@ English one.
   offering European, English or *Leave as text*. Nothing is converted
   until you answer.
 
+**Saving keeps the convention.** A CSV whose numbers were read the European
+way is written back with decimal commas, so the spreadsheet program it came
+from still reads them as numbers. **Save as** to a new CSV lets you choose,
+see [Saving a CSV](saving.md#saving-a-csv).
+
 The guard against false positives is the grouping rule: every group
 after the first must be exactly three digits. That is why `31.12.2024`
 is never read as the number 31122024; it stays a date.
@@ -362,11 +384,17 @@ A confirmation dialog protects against misfires.
 
 Right-click any table region for context-aware actions:
 
-| Click target  | Actions available                                                                                                                                                       |
-|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Cell          | Copy / Cut / Paste, Mark, Insert / Delete / Move row, Rename / Insert / Delete / Move column, Sort A-Z / Z-A, Parse in new tab                                          |
-| Row number    | Copy / Cut / Paste row, Mark row, Insert / Delete / Move row                                                                                                            |
-| Column header | Rename, Copy / Cut / Paste, Mark column, Sort A-Z / Z-A, Insert / Delete column, **Change Type** (String / Int64 / Float64 / Boolean / Date32 / Timestamp), Move column |
+| Click target  | Actions available                                                                                                                                                                                                                                                                                                                  |
+|---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Cell          | Copy / Cut / Paste, Mark, Insert / Delete / Move row, **Use as header row**, Rename / Insert / Delete / Move column, Sort A-Z / Z-A, Parse in new tab                                                                                                                                                                              |
+| Row number    | Copy / Cut / Paste row, Mark row, Insert / Delete / Move row, **Use as header row**                                                                                                                                                                                                                                                |
+| Column header | Rename, Copy / Cut / Paste, Mark column, Sort A-Z / Z-A, Insert / Delete column, **Change Type** (String / Int64 / Float64 / Boolean / Date32 / Timestamp), Move column, Hide column, Copy column name(s), [Filter values...](filter-facets.md), [Value frequency...](value-frequency.md), Number format... (numeric columns only) |
+
+## Command line and MCP
+
+The same job without the GUI:
+
+- MCP: [`edit_table`](../mcp/tools/edit_table.md), [`find_duplicates`](../mcp/tools/find_duplicates.md)
 
 ## See also
 

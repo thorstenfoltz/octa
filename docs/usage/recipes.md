@@ -158,15 +158,21 @@ column = "customer"
 descending = false
 ```
 
+A sort step records `natural = true` when **Settings -> Table -> Sort text**
+was Natural at the time, and replays that way on any machine; without it the
+step sorts letter by letter, as older recipes do.
+
 Each `[[steps]]` block is one step, run from top to bottom. You can
 edit the file by hand: change a column name, delete a block, reorder
 them. The step names are `rename`, `delete_columns`, `change_type`,
 `sort`, `drop_duplicates`, `fill_missing`, `split`, `merge`, `fill`,
-`extract`, `replace`, `repair_encoding`, `tidy_id` and `set_cells` (typed values:
+`extract`, `replace`, `repair_encoding`, `tidy_id`, `use_header_rows`
+(`first` and `last`, counted from 1, see [Header row](header-row.md)),
+`header_is_data` and `set_cells` (typed values:
 `key` names the ID column(s), and each entry in `cells` gives the row's
 ID, the column and the new value).
 
-## From the command line
+## Command line
 
 ```bash
 octa --recipe monthly.ocp sales_april.csv --recipe-out sales_april_clean.parquet
@@ -176,7 +182,7 @@ Unlike the dialog, the command line is all or nothing: if any step
 cannot run, nothing is written and the exit code is 1, so a script never
 picks up a half-cleaned file. See [`--recipe`](../cli/recipe.md).
 
-## For the assistant
+## MCP and the assistant
 
 The `apply_recipe` tool replays a recipe and returns the result. See
 [`apply_recipe`](../mcp/tools/apply_recipe.md).

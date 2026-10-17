@@ -14,6 +14,10 @@ pub fn list_account_buckets(conn: &CloudConnection) -> Result<Vec<String>> {
         CloudKind::S3 => list_s3(conn),
         CloudKind::AzureBlob => list_azure(conn),
         CloudKind::Gcs => list_gcs(conn),
+        CloudKind::Sftp | CloudKind::WebDav => bail!(
+            "{} connections have no account-level listing",
+            conn.kind.scheme()
+        ),
     }
 }
 

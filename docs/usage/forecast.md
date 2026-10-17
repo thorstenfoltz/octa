@@ -75,7 +75,7 @@ too, since a range can dip below zero.
 summer peak. Open it, choose **Analyse -> Chart...**, pick **Line** with `month`
 as X and `sales` as Y, and set **Forecast** to 12.
 
-## Command line and assistant
+## Command line and MCP
 
 `octa --forecast` (see [`--forecast`](../cli/forecast.md)) and the
 [`forecast`](../mcp/tools/forecast.md) MCP tool use the same model.

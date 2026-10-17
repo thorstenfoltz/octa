@@ -73,3 +73,5 @@ only, and files convert sequentially.
 
 - [`convert`](convert.md): a single file, with more control over the target.
 - [`partition_table`](partition_table.md): split one table into many files.
+- In the app: [Batch Convert](../../usage/batch-convert.md)
+- Command line: [`--batch-convert`](../../cli/batch-convert.md)

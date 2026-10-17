@@ -23,6 +23,7 @@ pub enum Action {
     Head {
         path: PathBuf,
         n: usize,
+        sort: SortArgs,
     },
     Tail {
         path: PathBuf,
@@ -39,6 +40,9 @@ pub enum Action {
         /// Explicit output format, required when `output` is `-` (stdout).
         to: Option<String>,
         write_options: octa::formats::write_options::WriteOptions,
+        sort: SortArgs,
+        /// Environment variable holding the zip passphrase (never the value).
+        password_env: Option<String>,
     },
     Sql {
         path: PathBuf,
@@ -49,6 +53,8 @@ pub enum Action {
         /// Register the file as a DuckDB view over the file rather than
         /// loading its rows (`--stream`).
         stream: bool,
+        /// Print the plan instead of running the query (`--explain`).
+        explain: bool,
     },
     ExportSchema {
         path: PathBuf,
@@ -82,6 +88,8 @@ pub enum Action {
         db_b: Option<(String, String)>,
         mode: octa::data::compare::CompareMode,
         on: Vec<String>,
+        /// Tolerance and ignore options (exact by default).
+        options: octa::data::compare::CompareOptions,
     },
     ValidateSchema {
         path: PathBuf,
@@ -109,6 +117,13 @@ pub enum Action {
     /// `--relationships DIR [--recursive]`. Always exits 0: a report, not a gate.
     Relationships {
         dir: PathBuf,
+        recursive: bool,
+    },
+    /// Compare N folders file by file, local or cloud.
+    /// `--compare-folders A B [C ...] [--no-recursive]`. Exits 1 when
+    /// anything differs, is missing, or a listing hit the file limit.
+    CompareFolders {
+        roots: Vec<String>,
         recursive: bool,
     },
     /// Check a file's values against a rules file.
@@ -204,6 +219,8 @@ pub enum Action {
         target_ext: String,
         overwrite: bool,
         write_options: octa::formats::write_options::WriteOptions,
+        /// Environment variable holding the zip passphrase (never the value).
+        password_env: Option<String>,
     },
     /// Group rows into time buckets and aggregate. `--resample COL`.
     Resample {
@@ -218,17 +235,22 @@ pub enum Action {
     Partition {
         /// Positional source file.
         path: PathBuf,
-        /// Column name to partition on.
-        col: String,
+        /// Column name to partition on; `None` splits the whole table.
+        col: Option<String>,
         /// Directory to write partition files into.
         out_dir: PathBuf,
         /// Output extension override (e.g. `csv`). `None` = use source extension.
         format: Option<String>,
         layout: octa::data::partition::PartitionLayout,
+        /// `--split-rows`.
+        max_rows: Option<usize>,
+        /// `--split-size`, in bytes.
+        max_bytes: Option<u64>,
     },
     DbQuery {
         conn: String,
         sql: String,
+        explain: bool,
     },
     ApiFetch {
         conn: String,
@@ -256,6 +278,17 @@ pub enum Action {
         mode: octa::db::DbWriteMode,
         /// Positional source file to upload.
         file: PathBuf,
+    },
+    DbExport {
+        conn: String,
+        catalog: Option<String>,
+        schema: String,
+        /// Empty = every table of the schema.
+        tables: Vec<String>,
+        out_dir: PathBuf,
+        format: octa::db::export::ExportFormat,
+        overwrite: bool,
+        write_options: octa::formats::write_options::WriteOptions,
     },
     DbCopy {
         conn: String,
@@ -319,5 +352,51 @@ pub(super) fn parse_codec(s: &str) -> Result<String, String> {
             "unknown codec '{s}'; expected one of: {}",
             octa::formats::write_options::PARQUET_CODECS.join(", ")
         ))
+    }
+}
+
+/// `--sort-by`, `--sort-desc` and `--natural` as typed. Checked when the
+/// action runs, so the error can name the column at fault.
+#[derive(Debug, Clone, Default)]
+pub struct SortArgs {
+    pub by: Vec<String>,
+    pub desc: Vec<String>,
+    pub natural: bool,
+}
+
+impl SortArgs {
+    /// The recipe sort step these flags describe; `None` without --sort-by.
+    pub fn step(&self) -> anyhow::Result<Option<octa::data::recipe::Sort>> {
+        if self.by.is_empty() {
+            if !self.desc.is_empty() || self.natural {
+                anyhow::bail!("--sort-desc and --natural need --sort-by COL[,COL...]");
+            }
+            return Ok(None);
+        }
+        if let Some(stray) = self.desc.iter().find(|d| !self.by.contains(d)) {
+            anyhow::bail!("--sort-desc names `{stray}`, which --sort-by does not list");
+        }
+        Ok(Some(octa::data::recipe::Sort {
+            by: self
+                .by
+                .iter()
+                .map(|c| octa::data::recipe::SortKey {
+                    column: c.clone(),
+                    descending: self.desc.contains(c),
+                })
+                .collect(),
+            natural: self.natural,
+        }))
+    }
+}
+
+/// Say so when a sort saw only the rows the loader kept: a "top 10" taken from
+/// the first 2 million rows looks complete and is not.
+pub fn note_partial_sort(table: &octa::data::DataTable) {
+    let cap = octa::formats::initial_load_rows();
+    if table.row_count() >= cap {
+        eprintln!(
+            "note: only the first {cap} rows were loaded and sorted; pass --rows all to sort the whole file"
+        );
     }
 }

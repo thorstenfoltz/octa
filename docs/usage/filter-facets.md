@@ -32,6 +32,8 @@ On a database tab that holds only part of its table, the list comes from
 the database: the 50 most common values over the whole table, and the
 search box searches every value there; see
 [Analyses on live databases](analyses-on-live-databases.md#sorting-filtering-and-sampling).
+A [large-file](large-files.md) tab does the same over its whole file, in
+the background, and the ticked values filter every row of the file.
 
 **Searching queries the whole column, not the 50 on screen.** A value
 that ranks nine hundredth is still findable by typing part of it. That
@@ -70,15 +72,9 @@ and because it is easier to spot when scanning a wide table sideways.
 
 ## The chip row
 
-Applying a filter adds a removable chip above the grid, sharing one row
-with the Ask-mode comparison chips and the duplicate-filter chip, so
-everything narrowing the view is visible in one place. A column keeping
-one value reads as `city: Aachen`; a column keeping several reads as a
-count, such as `year: 2 values`.
-
-Each chip's `x` removes that column's filter. **Clear all**, which
-appears once there is more than one chip, removes every filter in the
-row.
+Applying a filter adds a removable chip above the grid, in the same row as
+every other filter narrowing the view; see
+[The filter chip row](search-and-filter.md#the-filter-chip-row).
 
 ## Partly loaded files
 

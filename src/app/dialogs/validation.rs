@@ -7,6 +7,8 @@
 use eframe::egui;
 use egui::RichText;
 
+use octa::data::DataTable;
+use octa::data::conditional_format::CondOp;
 use octa::data::validation::rules_file;
 use octa::data::validation::{ValidationKind, ValidationRule};
 use octa::ui::settings::{
@@ -18,6 +20,63 @@ use octa::ui::settings::{
 /// in egui's temp memory, the same trick the dialog size uses.
 fn msg_id() -> egui::Id {
     egui::Id::new("octa_validation_rules_msg")
+}
+
+/// Which rule's value list is open (`Some(index)`), parked between frames.
+fn one_of_id() -> egui::Id {
+    egui::Id::new("octa_validation_one_of_open")
+}
+
+/// The value list's Find and Add fields, parked the same way.
+fn find_id() -> egui::Id {
+    egui::Id::new("octa_validation_one_of_find")
+}
+
+fn add_id() -> egui::Id {
+    egui::Id::new("octa_validation_one_of_add")
+}
+
+/// How many different values the picker lists before it gives up.
+const MAX_LISTED: usize = 1000;
+
+/// A column's values for the picker, most common first.
+#[derive(Clone)]
+struct ValueList {
+    values: Vec<(String, usize)>,
+    unique: usize,
+    /// The table holds only some of its rows (a database tab still paging).
+    partial: bool,
+}
+
+/// The values of `col`, recomputed only when the table changes.
+fn value_list(ctx: &egui::Context, table: &DataTable, col: usize) -> ValueList {
+    use octa::data::value_frequency::{BinningMode, compute_value_frequency};
+    // The rows' address tells two tabs apart whose counts happen to match.
+    let key = (
+        table.rows.as_ptr() as usize,
+        col,
+        table.undo_stack.len(),
+        table.edits.len(),
+        table.row_count(),
+    );
+    let id = egui::Id::new("octa_validation_value_list");
+    if let Some((k, list)) =
+        ctx.data(|d| d.get_temp::<((usize, usize, usize, usize, usize), ValueList)>(id))
+        && k == key
+    {
+        return list;
+    }
+    let vf = compute_value_frequency(table, col, Some(MAX_LISTED + 1), BinningMode::None);
+    let list = ValueList {
+        values: vf
+            .as_ref()
+            .map(|v| v.rows.iter().map(|r| (r.label.clone(), r.count)).collect())
+            .unwrap_or_default(),
+        unique: vf.map_or(0, |v| v.unique_count),
+        partial: table.total_rows.is_some_and(|t| t > table.row_count()),
+    };
+    ctx.data_mut(|d| d.insert_temp(id, (key, list.clone())));
+    list
 }
 
 use super::super::state::OctaApp;
@@ -48,6 +107,19 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     let mut size = app.tabs[app.active_tab].validation_size;
     let minimized = size == DialogSize::Minimized;
 
+    let editing: Option<usize> = ctx
+        .data(|d| d.get_temp::<Option<usize>>(one_of_id()))
+        .flatten();
+    let picker: Option<(usize, usize, ValueList)> = editing.and_then(|i| {
+        let rule = rules.get(i)?;
+        match (&rule.kind, rule.column) {
+            (ValidationKind::OneOf(_), Some(c)) => {
+                Some((i, c, value_list(ctx, &app.tabs[app.active_tab].table, c)))
+            }
+            _ => None,
+        }
+    });
+
     let dialog_id = egui::Id::new("octa_validation_dialog");
     let window = egui::Window::new("octa_validation")
         .title_bar(false)
@@ -64,7 +136,7 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::top("val_header")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 6)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     ui.label(
                         RichText::new(octa::i18n::t("dialog.val_title"))
                             .strong()
@@ -85,7 +157,7 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         egui::Panel::bottom("val_footer")
             .frame(egui::Frame::default().inner_margin(egui::Margin::symmetric(0, 8)))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                octa::ui::control_row::control_line(ui, |ui| {
                     if ui.button(octa::i18n::t("dialog.cnf_add_rule")).clicked() {
                         rules.push(ValidationRule {
                             column: None,
@@ -152,6 +224,7 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                         .num_columns(4)
                         .spacing([8.0, 6.0])
                         .show(ui, |ui| {
+                            octa::ui::control_row::pin_control_height(ui);
                             for (i, rule) in rules.iter_mut().enumerate() {
                                 {
                                     // Column picker: "(any)" or a specific column.
@@ -214,8 +287,8 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                     // Per-kind parameter widgets, kept in one grid
                                     // cell so a rule with two of them (Range) does not
                                     // shift the remove button out of its column.
-                                    ui.horizontal(|ui| {
-                                        if kind_params(ui, i, &mut rule.kind) {
+                                    octa::ui::control_row::control_line(ui, |ui| {
+                                        if kind_params(ui, i, rule, &col_names) {
                                             changed = true;
                                         }
                                     });
@@ -238,6 +311,20 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
                                 }
                             }
                         });
+                    if let Some((i, col, list)) = &picker
+                        && let Some(ValidationKind::OneOf(values)) =
+                            rules.get_mut(*i).map(|r| &mut r.kind)
+                    {
+                        ui.separator();
+                        if one_of_panel(
+                            ui,
+                            col_names.get(*col).map_or("", |s| s.as_str()),
+                            list,
+                            values,
+                        ) {
+                            changed = true;
+                        }
+                    }
                     if let Some((ok, msg)) = &rules_msg {
                         ui.add_space(6.0);
                         draw_result_message(ui, *ok, msg);
@@ -311,6 +398,8 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
         && i < rules.len()
     {
         rules.remove(i);
+        // Indices shift: close any open value list rather than point at another rule.
+        ctx.data_mut(|d| d.insert_temp(one_of_id(), None::<usize>));
         changed = true;
     }
 
@@ -322,13 +411,25 @@ pub(crate) fn render_validation_dialog(app: &mut OctaApp, ctx: &egui::Context) {
     }
     if close_requested {
         app.tabs[app.active_tab].show_validation = false;
+        // The picker's state is shared by every tab's dialog: leave none behind.
+        ctx.data_mut(|d| {
+            d.remove_temp::<Option<usize>>(one_of_id());
+            d.remove_temp::<String>(find_id());
+            d.remove_temp::<String>(add_id());
+        });
     }
 }
 
-/// Parameter widgets for one rule's kind. Returns whether a parameter changed.
-fn kind_params(ui: &mut egui::Ui, idx: usize, kind: &mut ValidationKind) -> bool {
+/// Parameter widgets for one rule. Returns whether a parameter changed.
+fn kind_params(
+    ui: &mut egui::Ui,
+    idx: usize,
+    rule: &mut ValidationRule,
+    col_names: &[String],
+) -> bool {
     let mut changed = false;
-    match kind {
+    let has_column = rule.column.is_some();
+    match &mut rule.kind {
         ValidationKind::NotNull | ValidationKind::Unique | ValidationKind::Id(_) => {
             // No parameters.
         }
@@ -353,7 +454,166 @@ fn kind_params(ui: &mut egui::Ui, idx: usize, kind: &mut ValidationKind) -> bool
         ValidationKind::MaxLength(max) => {
             changed |= usize_field(ui, ui.id().with(("val_len", idx)), max);
         }
+        ValidationKind::CompareColumn { op, other } => {
+            if !has_column {
+                ui.label(
+                    egui::RichText::new(octa::i18n::t("valrule.needs_column"))
+                        .weak()
+                        .size(11.0),
+                );
+            }
+            egui::ComboBox::from_id_salt(("val_cmp_op", idx))
+                .selected_text(op.label_t())
+                .width(120.0)
+                .show_ui(ui, |ui| {
+                    for o in CondOp::COMPARISONS {
+                        if ui.selectable_label(*op == *o, o.label_t()).clicked() {
+                            *op = *o;
+                            changed = true;
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(octa::i18n::t("valrule.cmp_op_hint"));
+            egui::ComboBox::from_id_salt(("val_cmp_other", idx))
+                .selected_text(col_names.get(*other).cloned().unwrap_or_default())
+                .width(120.0)
+                .show_ui(ui, |ui| {
+                    for (c, name) in col_names.iter().enumerate() {
+                        if ui.selectable_label(*other == c, name).clicked() {
+                            *other = c;
+                            changed = true;
+                        }
+                    }
+                })
+                .response
+                .on_hover_text(octa::i18n::t("valrule.cmp_other_hint"));
+        }
+        ValidationKind::OneOf(values) => {
+            let label = octa::i18n::t("valrule.values").replace("{n}", &values.len().to_string());
+            let button = ui.add_enabled(has_column, egui::Button::new(label));
+            if button
+                .on_hover_text(octa::i18n::t("valrule.values_hint"))
+                .on_disabled_hover_text(octa::i18n::t("valrule.needs_column"))
+                .clicked()
+            {
+                ui.data_mut(|d| d.insert_temp(one_of_id(), Some(idx)));
+            }
+        }
     }
+    changed
+}
+
+/// The tick list for a "One of these values" rule. Returns whether the
+/// allowed values changed.
+fn one_of_panel(
+    ui: &mut egui::Ui,
+    column: &str,
+    list: &ValueList,
+    values: &mut Vec<String>,
+) -> bool {
+    let mut changed = false;
+    let (find_id, add_id) = (find_id(), add_id());
+    let mut find: String = ui.data(|d| d.get_temp(find_id)).unwrap_or_default();
+    let mut add: String = ui.data(|d| d.get_temp(add_id)).unwrap_or_default();
+
+    octa::ui::control_row::control_line(ui, |ui| {
+        ui.label(
+            egui::RichText::new(octa::i18n::t("valrule.values_title").replace("{column}", column))
+                .strong(),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .button(octa::i18n::t("valrule.done"))
+                .on_hover_text(octa::i18n::t("valrule.done_hint"))
+                .clicked()
+            {
+                ui.data_mut(|d| d.insert_temp(one_of_id(), None::<usize>));
+            }
+        });
+    });
+    if list.partial {
+        ui.label(
+            egui::RichText::new(octa::i18n::t("valrule.loaded_only"))
+                .weak()
+                .size(11.0),
+        );
+    }
+    if list.unique > MAX_LISTED {
+        ui.label(
+            egui::RichText::new(
+                octa::i18n::t("valrule.too_many").replace("{n}", &list.unique.to_string()),
+            )
+            .weak()
+            .size(11.0),
+        );
+    } else {
+        octa::ui::control_row::control_text_edit(
+            ui,
+            220.0,
+            egui::TextEdit::singleline(&mut find).hint_text(octa::i18n::t("valrule.find")),
+        )
+        .on_hover_text(octa::i18n::t("valrule.find_hint"));
+        let needle = find.trim().to_lowercase();
+        egui::ScrollArea::vertical()
+            .id_salt("octa_validation_one_of_list")
+            .max_height(220.0)
+            .show(ui, |ui| {
+                for (value, count) in &list.values {
+                    if !needle.is_empty() && !value.to_lowercase().contains(&needle) {
+                        continue;
+                    }
+                    let mut on = values.contains(value);
+                    if ui
+                        .checkbox(&mut on, format!("{value}  ({count})"))
+                        .changed()
+                    {
+                        if on {
+                            values.push(value.clone());
+                        } else {
+                            values.retain(|v| v != value);
+                        }
+                        changed = true;
+                    }
+                }
+                // Allowed values the data does not hold (added by hand, or
+                // from a rules file) stay visible so they can be unticked.
+                let extra: Vec<String> = values
+                    .iter()
+                    .filter(|v| !list.values.iter().any(|(d, _)| d == *v))
+                    .cloned()
+                    .collect();
+                for value in extra {
+                    let mut on = true;
+                    let label = format!("{value}  ({})", octa::i18n::t("valrule.not_in_data"));
+                    if ui.checkbox(&mut on, label).changed() && !on {
+                        values.retain(|v| *v != value);
+                        changed = true;
+                    }
+                }
+            });
+    }
+    octa::ui::control_row::control_line(ui, |ui| {
+        octa::ui::control_row::control_text_edit(
+            ui,
+            180.0,
+            egui::TextEdit::singleline(&mut add).hint_text(octa::i18n::t("valrule.add_value")),
+        )
+        .on_hover_text(octa::i18n::t("valrule.add_value_hint"));
+        let ready = !add.is_empty() && !values.contains(&add);
+        if ui
+            .add_enabled(ready, egui::Button::new(octa::i18n::t("valrule.add")))
+            .on_hover_text(octa::i18n::t("valrule.add_value_hint"))
+            .clicked()
+        {
+            values.push(std::mem::take(&mut add));
+            changed = true;
+        }
+    });
+    ui.data_mut(|d| {
+        d.insert_temp(find_id, find);
+        d.insert_temp(add_id, add);
+    });
     changed
 }
 

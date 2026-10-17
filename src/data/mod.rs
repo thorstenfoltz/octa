@@ -1,5 +1,6 @@
 pub mod batch_convert;
 pub mod benford;
+pub mod binary_kind;
 pub mod calendar_coverage;
 pub mod cell_history;
 pub mod chart;
@@ -20,12 +21,14 @@ pub mod duplicates;
 pub mod edit_audit;
 pub mod encoding;
 pub mod file_internals;
+pub mod folder_compare;
 pub mod forecast;
 pub mod formulas;
 pub mod fuzzy_duplicates;
 pub mod fuzzy_join;
 pub mod geo_detect;
 pub mod harmonise;
+pub mod header_rows;
 pub mod id_checks;
 pub mod impute;
 pub mod in_list;
@@ -41,6 +44,7 @@ pub mod merge_versions;
 pub mod missingness;
 pub mod mojibake;
 pub mod multi_search;
+pub mod natural_sort;
 pub mod normalise_folder;
 pub mod num_format;
 pub mod num_parse;
@@ -96,8 +100,9 @@ mod undo;
 mod view_enums;
 
 pub use cell_value::{
-    BinaryDisplayMode, CellValue, can_convert_value, cmp_cell_values, convert_value,
-    is_numeric_data_type, timestamp_timezone, wildcard_to_regex,
+    BinaryDisplayMode, CellValue, TextOrder, can_convert_value, cmp_cell_values,
+    cmp_cell_values_in, column_type_from_cells, convert_value, hex_decode, is_numeric_data_type,
+    timestamp_timezone, wildcard_to_regex,
 };
 pub use marks::{MarkColor, MarkKey};
 pub use undo::UndoAction;
@@ -694,7 +699,8 @@ impl DataTable {
     /// in priority order: the first key is the primary sort, later keys break
     /// ties. Out-of-range columns and an empty key list are ignored. A single
     /// stable sort keeps the relative order of rows that are equal on every key.
-    pub fn sort_rows_by_columns(&mut self, keys: &[(usize, bool)]) {
+    /// `text_order` decides how text compares; see [`TextOrder`].
+    pub fn sort_rows_by_columns(&mut self, keys: &[(usize, bool)], text_order: TextOrder) {
         let valid: Vec<(usize, bool)> = keys
             .iter()
             .copied()
@@ -712,7 +718,7 @@ impl DataTable {
             for &(col_idx, ascending) in &valid {
                 let va = self.rows[a].get(col_idx).unwrap_or(&CellValue::Null);
                 let vb = self.rows[b].get(col_idx).unwrap_or(&CellValue::Null);
-                let cmp = cmp_cell_values(va, vb);
+                let cmp = cmp_cell_values_in(va, vb, text_order);
                 let cmp = if ascending { cmp } else { cmp.reverse() };
                 if cmp != std::cmp::Ordering::Equal {
                     return cmp;
@@ -814,98 +820,6 @@ impl DataTable {
             db_meta: None,
             formulas: std::collections::HashMap::new(),
         }
-    }
-
-    /// Treat current header names as a real first data row. Column names are
-    /// reset to defaults (`column_1`..`column_N`) and types are widened to
-    /// Utf8 since the header strings may not parse as the original types.
-    pub fn promote_headers_to_row(&mut self) {
-        self.apply_edits();
-        let new_row: Vec<CellValue> = self
-            .columns
-            .iter()
-            .map(|c| CellValue::String(c.name.clone()))
-            .collect();
-        for (i, col) in self.columns.iter_mut().enumerate() {
-            col.name = format!("column_{}", i + 1);
-            col.data_type = "Utf8".to_string();
-        }
-        self.rows.insert(0, new_row);
-        if let Some(meta) = self.db_meta.as_mut() {
-            meta.row_tags.insert(0, None);
-        }
-        // Shift row keys (edits + marks) by +1
-        let mut new_edits = HashMap::new();
-        for (&(r, c), v) in &self.edits {
-            new_edits.insert((r + 1, c), v.clone());
-        }
-        self.edits = new_edits;
-        let mark_keys: Vec<MarkKey> = self.marks.keys().cloned().collect();
-        let mut new_marks = HashMap::new();
-        for key in mark_keys {
-            let color = self.marks.remove(&key).unwrap();
-            let new_key = match key {
-                MarkKey::Row(r) => MarkKey::Row(r + 1),
-                MarkKey::Cell(r, c) => MarkKey::Cell(r + 1, c),
-                other => other,
-            };
-            new_marks.insert(new_key, color);
-        }
-        self.marks = new_marks;
-        self.structural_changes = true;
-        self.undo_stack.clear();
-        self.redo_stack.clear();
-    }
-
-    /// Treat the first data row as column header names. The row is consumed
-    /// from the table and column types are reset to Utf8.
-    pub fn promote_first_row_to_headers(&mut self) {
-        if self.rows.is_empty() {
-            return;
-        }
-        self.apply_edits();
-        let first = self.rows.remove(0);
-        for (i, col) in self.columns.iter_mut().enumerate() {
-            let name = first.get(i).map(|v| v.to_string()).unwrap_or_default();
-            col.name = if name.is_empty() {
-                format!("column_{}", i + 1)
-            } else {
-                name
-            };
-            col.data_type = "Utf8".to_string();
-        }
-        if let Some(meta) = self.db_meta.as_mut()
-            && !meta.row_tags.is_empty()
-        {
-            meta.row_tags.remove(0);
-        }
-        // Shift row keys (edits + marks) by -1, drop anything at row 0.
-        let mut new_edits = HashMap::new();
-        for (&(r, c), v) in &self.edits {
-            if r > 0 {
-                new_edits.insert((r - 1, c), v.clone());
-            }
-        }
-        self.edits = new_edits;
-        let mark_keys: Vec<MarkKey> = self.marks.keys().cloned().collect();
-        let mut new_marks = HashMap::new();
-        for key in mark_keys {
-            let color = self.marks.remove(&key).unwrap();
-            let new_key: Option<MarkKey> = match key {
-                MarkKey::Row(0) => None,
-                MarkKey::Row(r) => Some(MarkKey::Row(r - 1)),
-                MarkKey::Cell(0, _) => None,
-                MarkKey::Cell(r, c) => Some(MarkKey::Cell(r - 1, c)),
-                other => Some(other),
-            };
-            if let Some(k) = new_key {
-                new_marks.insert(k, color);
-            }
-        }
-        self.marks = new_marks;
-        self.structural_changes = true;
-        self.undo_stack.clear();
-        self.redo_stack.clear();
     }
 
     /// Whether the table has been modified in any way since loading/saving.

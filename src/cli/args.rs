@@ -104,6 +104,7 @@ FROM data GROUP BY region' \
   Batch conversion (many files, one target format):
     octa --batch-convert --to parquet --out-dir ./out a.csv b.csv c.csv
     octa --batch-convert --to json --out-dir ./out --overwrite data/*.csv
+    octa --db warehouse --db-export sales --out-dir ./dump --to parquet
 
   Time buckets (resample) and rolling windows:
     octa --resample day --interval month --value-cols amount sales.csv
@@ -226,6 +227,20 @@ pub struct Cli {
     /// Print the first N rows of FILE (default 20, override with -n / --lines).
     #[arg(long, value_name = "FILE", group = "action")]
     pub head: Option<PathBuf>,
+
+    /// Sort the rows of --head or --convert by these columns, first key first
+    /// (comma-separated or repeated). Sorts the rows that were read: add
+    /// --rows all to sort a whole large file.
+    #[arg(long = "sort-by", value_name = "COLS", value_delimiter = ',')]
+    pub sort_by: Vec<String>,
+
+    /// The --sort-by columns that sort high to low.
+    #[arg(long = "sort-desc", value_name = "COLS", value_delimiter = ',')]
+    pub sort_desc: Vec<String>,
+
+    /// Sort text naturally (file2 before file10) instead of letter by letter.
+    #[arg(long = "natural")]
+    pub natural: bool,
 
     /// Print the last N rows of FILE (default 20, override with -n / --lines).
     #[arg(long, value_name = "FILE", group = "action")]
@@ -582,6 +597,38 @@ pub struct Cli {
     #[arg(long = "diff-on", value_name = "COLS", value_delimiter = ',')]
     pub diff_on: Vec<String>,
 
+    /// --diff: numbers within this absolute difference count as the same
+    /// (ordered and join modes).
+    #[arg(long = "diff-tolerance", value_name = "N")]
+    pub diff_tolerance: Option<f64>,
+
+    /// --diff: numbers within this percentage of the larger value count as
+    /// the same.
+    #[arg(long = "diff-tolerance-pct", value_name = "P")]
+    pub diff_tolerance_pct: Option<f64>,
+
+    /// --diff: dates and times at most this many seconds apart count as the
+    /// same. A date counts as midnight.
+    #[arg(long = "diff-time-tolerance", value_name = "SECS")]
+    pub diff_time_tolerance: Option<f64>,
+
+    /// --diff: compare text without regard to upper/lower case (join keys too).
+    #[arg(long = "diff-ignore-case")]
+    pub diff_ignore_case: bool,
+
+    /// --diff: compare text trimmed, runs of spaces as one (join keys too).
+    #[arg(long = "diff-ignore-spaces")]
+    pub diff_ignore_spaces: bool,
+
+    /// --diff: columns to leave out of the comparison (comma-separated or
+    /// repeated). They still appear in the output.
+    #[arg(
+        long = "diff-ignore-columns",
+        value_name = "COLS",
+        value_delimiter = ','
+    )]
+    pub diff_ignore_columns: Vec<String>,
+
     /// Validate FILE's column schema against a JSON Schema.
     ///
     /// Pair with `--expect-schema SCHEMA.json` to point at the expected schema.
@@ -684,12 +731,12 @@ pub struct Cli {
     pub report: Option<PathBuf>,
 
     /// Profile a random sample of N rows instead of every row (--report).
-    #[arg(long = "report-sample", value_name = "N", requires = "report")]
+    #[arg(long = "report-sample", value_name = "N")]
     pub report_sample: Option<usize>,
 
     /// Comma-separated report sections: stats, distributions, top_values,
     /// correlation. Default: all four (--report).
-    #[arg(long = "report-sections", value_name = "LIST", requires = "report")]
+    #[arg(long = "report-sections", value_name = "LIST")]
     pub report_sections: Option<String>,
 
     /// Treat column names differing only in case as one column when unioning.
@@ -820,11 +867,11 @@ pub struct Cli {
     #[arg(long = "partition-by", value_name = "COL", group = "action")]
     pub partition_by: Option<String>,
 
-    /// Output directory for --partition-by. Created if absent.
+    /// Output directory for --partition-by, --split-rows and --split-size. Created if absent.
     #[arg(long = "out-dir", value_name = "DIR")]
     pub out_dir: Option<PathBuf>,
 
-    /// Output file extension for --partition-by (without the leading dot, e.g. `csv`, `parquet`).
+    /// Output file extension for --partition-by, --split-rows and --split-size (without the leading dot, e.g. `csv`, `parquet`).
     ///
     /// Defaults to the source file's extension.
     #[arg(long = "partition-format", value_name = "EXT")]
@@ -835,8 +882,20 @@ pub struct Cli {
     /// `col=value/data.ext`; `hive-parts` writes `col=value/part-0001.ext`.
     /// All four hold the same rows and all four reopen as one table - the
     /// choice is only about the names. Default `flat`.
-    #[arg(long, value_name = "LAYOUT", requires = "partition_by")]
+    #[arg(long, value_name = "LAYOUT")]
     pub partition_layout: Option<String>,
+
+    /// At most N rows per output file. Works alone (splits the whole table)
+    /// or with --partition-by (splits each group). Every file then gets a
+    /// part number: `name_part_0001.ext`, or `part-0001.ext` inside a folder.
+    #[arg(long = "split-rows", value_name = "N")]
+    pub split_rows: Option<usize>,
+
+    /// At most SIZE per output file, e.g. `25MB`, `500KB`, `1GB`
+    /// (1 MB = 1,000,000 bytes; `MiB` for 1,048,576). Works alone or with
+    /// --partition-by and --split-rows. Files land a little under the limit.
+    #[arg(long = "split-size", value_name = "SIZE")]
+    pub split_size: Option<String>,
 
     /// Convert every positional FILE into --out-dir as --to EXT.
     ///
@@ -847,6 +906,14 @@ pub struct Cli {
     /// Overwrite existing outputs in --batch-convert. Default: skip them.
     #[arg(long = "overwrite")]
     pub overwrite: bool,
+
+    /// With --convert or --batch-convert: write each output inside a
+    /// password-protected zip (AES-256), taking the passphrase from the
+    /// environment variable VAR. Only a zip is written: `out.csv` becomes
+    /// `out.csv.zip`. The passphrase is never read from the command line,
+    /// which would leave it in shell history and process lists.
+    #[arg(long = "password-env", value_name = "VAR")]
+    pub password_env: Option<String>,
 
     /// Group rows into time buckets: one row per --interval of COL.
     ///
@@ -898,6 +965,11 @@ pub struct Cli {
     /// Needs --db NAME. Mutations require the connection's "Allow writes" switch.
     #[arg(long = "db-query", value_name = "SQL", group = "action")]
     pub db_query: Option<String>,
+    /// Show the plan of the --sql or --db-query statement instead of running
+    /// it: the steps in plain words by default, the step rows with -f json or
+    /// -f csv.
+    #[arg(long = "explain")]
+    pub explain: bool,
     /// Print the SQL that would make a database table match FILE.
     /// Reads the table, writes nothing.
     #[arg(long, value_name = "FILE", group = "action")]
@@ -906,10 +978,10 @@ pub struct Cli {
     #[arg(long, value_name = "OUT.xlsx", group = "action")]
     pub to_workbook: Option<PathBuf>,
     /// Target table for --sync-sql, as SCHEMA.TABLE.
-    #[arg(long, value_name = "SCHEMA.TABLE", requires = "sync_sql")]
+    #[arg(long, value_name = "SCHEMA.TABLE")]
     pub sync_table: Option<String>,
     /// Key columns matching file rows to table rows (comma separated).
-    #[arg(long, value_name = "COLS", requires = "sync_sql")]
+    #[arg(long, value_name = "COLS")]
     pub sync_on: Option<String>,
 
     /// List schemas and tables of a saved database connection. Needs --db.
@@ -935,7 +1007,7 @@ pub struct Cli {
     pub api: Option<String>,
 
     /// Path under the endpoint's base URL, overriding the connection's own.
-    #[arg(long = "api-path", value_name = "PATH", requires = "api")]
+    #[arg(long = "api-path", value_name = "PATH")]
     pub api_path: Option<String>,
 
     /// Write mode for --db-write-table.
@@ -944,7 +1016,7 @@ pub struct Cli {
 
     /// Catalog (top namespace level) for a three-level engine.
     ///
-    /// Only Snowflake, Databricks and BigQuery have one; passing it to any other
+    /// Only Trino, Snowflake, Databricks and BigQuery have one; passing it to any other
     /// engine is an error. With --db-tables and no catalog, the catalogs
     /// themselves are listed.
     #[arg(long = "db-catalog", value_name = "NAME", requires = "db")]
@@ -973,6 +1045,24 @@ pub struct Cli {
     #[arg(long = "db-copy-target-catalog", value_name = "NAME")]
     pub db_copy_target_catalog: Option<String>,
 
+    /// Export the tables of SCHEMA in --db to files in --out-dir, one file per table.
+    ///
+    /// --to picks the format: parquet (default), csv, tsv or jsonl. Each
+    /// table is read page by page, so its size does not matter. A file that
+    /// is already there is skipped unless --overwrite; one failed table does
+    /// not stop the rest, but makes the exit code 1.
+    #[arg(
+        long = "db-export",
+        value_name = "SCHEMA",
+        group = "action",
+        requires = "db"
+    )]
+    pub db_export: Option<String>,
+
+    /// Tables for --db-export, comma separated. Default: every table of the schema.
+    #[arg(long = "db-export-tables", value_name = "T1,T2", value_delimiter = ',')]
+    pub db_export_tables: Vec<String>,
+
     /// Start the MCP (Model Context Protocol) server on stdin/stdout.
     ///
     /// Mutually exclusive with the other action flags. Tools mirror the CLI
@@ -992,7 +1082,7 @@ pub struct Cli {
 
     /// With `--mcp`, omit the file-writing tools (`write_table`, `edit_table`,
     /// `convert`) so the server exposes a read-only surface.
-    #[arg(long, requires = "mcp")]
+    #[arg(long)]
     pub mcp_read_only: bool,
 
     /// With `--mcp`, advertise ONLY these tools. Takes group names
@@ -1002,13 +1092,13 @@ pub struct Cli {
     ///
     /// This is how you keep an agent's context small: the client reads the
     /// whole tool list once and carries it in every request to its model.
-    #[arg(long, requires = "mcp", value_name = "LIST", value_delimiter = ',')]
+    #[arg(long, value_name = "LIST", value_delimiter = ',')]
     pub mcp_tools: Vec<String>,
 
     /// With `--mcp`, advertise everything EXCEPT these, in the same spelling as
     /// `--mcp-tools`. Applied after it, so the two combine:
     /// `--mcp-tools core,write --mcp-without convert`.
-    #[arg(long, requires = "mcp", value_name = "LIST", value_delimiter = ',')]
+    #[arg(long, value_name = "LIST", value_delimiter = ',')]
     pub mcp_without: Vec<String>,
 
     /// Number of rows for --head / --tail / --sample.
@@ -1061,7 +1151,7 @@ pub struct Cli {
     /// For --describe only: also report the file's physical layout - row
     /// groups, compression, encodings and column statistics. Parquet only
     /// for now; other formats report their size and nothing more.
-    #[arg(long = "deep", requires = "describe")]
+    #[arg(long = "deep")]
     pub deep: bool,
 
     /// Compare against a live database table instead of a second file.
@@ -1185,12 +1275,27 @@ pub struct Cli {
     #[arg(long = "relationships", value_name = "DIR", group = "action")]
     pub relationships: Option<PathBuf>,
 
+    /// Compare two or more folders file by file. FOLDER arguments are local
+    /// paths or cloud URLs (s3://, az://, gs://, sftp://, davs://). Files are
+    /// matched by their path inside each folder; copies of equal size are
+    /// compared by a BLAKE3 hash of their contents. Prints one row per file
+    /// (status same / different / missing) and exits 1 when anything differs
+    /// or is missing, 0 when every file is the same everywhere.
+    #[arg(long = "compare-folders", group = "action")]
+    pub compare_folders: bool,
+
+    /// With --compare-folders: compare only the top level of each folder.
+    // Which action a flag like this belongs to is checked in
+    // `detect_action` (`stray_modifier`), never with clap's `requires`.
+    #[arg(long = "no-recursive")]
+    pub no_recursive: bool,
+
     /// Check FILE's values against a rules file. Exits 1 on any violation.
     #[arg(long = "check", value_name = "FILE", group = "action")]
     pub check: Option<PathBuf>,
 
     /// Rules file (TOML) listing the checks to run (--check).
-    #[arg(long = "rules", value_name = "FILE", requires = "check")]
+    #[arg(long = "rules", value_name = "FILE")]
     pub rules: Option<PathBuf>,
 
     /// Compare two versions of the same dataset (values, not just columns).
@@ -1204,7 +1309,7 @@ pub struct Cli {
 
     /// Fail (exit 1) when a metric changed more than the given fraction,
     /// e.g. --fail-on null_rate:0.05,rows:0.1 (--drift-report).
-    #[arg(long = "fail-on", value_name = "SPEC", requires = "drift_report")]
+    #[arg(long = "fail-on", value_name = "SPEC")]
     pub fail_on: Option<String>,
 
     /// Rewrite every file in a folder to one common schema, writing copies

@@ -8,12 +8,23 @@
 //! - Rows beyond the `initial_load_rows` window were never loaded, so they
 //!   are never touched: deletes/updates only address loaded tags, inserts
 //!   append.
-//! - Concurrent server edits between load and save lose to the full-row
-//!   UPDATE (last-writer-wins; optimistic locking is out of scope).
+//! - Keyed saves re-read the touched rows inside the transaction (locked on
+//!   Postgres, MySQL, Oracle, SQL Server) and merge cell by cell; colliding
+//!   changes abort with [`WriteConflicts`]. Redshift and Exasol read without a
+//!   lock, so a gap of milliseconds remains between the check and the write
+//!   (and Exasol's writes are not atomic: it has no `BEGIN`).
+//! - MySQL/MariaDB and Oracle commit on DDL, and Exasol has no transaction. A
+//!   save that adds a column checks before the `ALTER TABLE ADD` (a conflict
+//!   there writes nothing), then starts a new transaction and checks again
+//!   (under fresh locks on MySQL and Oracle); a conflict found only in that
+//!   second check leaves the added column in place and says so in
+//!   [`WriteConflicts::columns_added`].
 
 use anyhow::{Context, bail};
 
 use crate::data::{CellValue, ColumnInfo, DataTable};
+
+use std::collections::HashMap;
 
 use super::{DbConnector, DbEngine, sql_literal};
 
@@ -71,6 +82,8 @@ pub struct DbWriteBackPlan {
     pub inserts: Vec<Vec<CellValue>>,
     /// Columns present now but not in `original_columns` (`ALTER TABLE ADD`).
     pub added_columns: Vec<ColumnInfo>,
+    /// Baselines for the conflict check; see [`MergeInfo`].
+    pub merge: Option<MergeInfo>,
 }
 
 impl DbWriteBackPlan {
@@ -87,13 +100,192 @@ impl DbWriteBackPlan {
     }
 }
 
+/// What a conflict check needs about each planned row, by index parallel to
+/// [`DbWriteBackPlan::updates`] / [`DbWriteBackPlan::deletes`]. Built only by
+/// [`build_write_back_plan`], i.e. for edits made in a tab. A sync plan
+/// already compares against the server's current state and carries none.
+#[derive(Debug, Default, PartialEq, Clone)]
+pub struct MergeInfo {
+    /// Baseline column names, the layout of `base` and server rows.
+    pub base_columns: Vec<String>,
+    /// The tab's column names now, the layout of `mine` and written rows.
+    pub columns: Vec<String>,
+    /// `(tag, baseline row)` per entry of `updates`.
+    pub update_bases: Vec<(i64, Vec<CellValue>)>,
+    /// `(tag, baseline row)` per entry of `deletes`.
+    pub delete_bases: Vec<(i64, Vec<CellValue>)>,
+}
+
+/// One cell both sides changed, to different values.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CellConflict {
+    pub column: String,
+    pub base: CellValue,
+    pub theirs: CellValue,
+    pub mine: CellValue,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConflictKind {
+    /// Same cells changed on both sides. `theirs` is the whole server row
+    /// (baseline order), which a resolution rebases onto.
+    Cells {
+        cells: Vec<CellConflict>,
+        theirs: Vec<CellValue>,
+    },
+    /// I edited the row; someone deleted it on the server.
+    DeletedOnServer,
+    /// I deleted the row; someone changed it on the server.
+    ChangedOnServer { theirs: Vec<CellValue> },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RowConflict {
+    pub tag: i64,
+    /// The baseline row (baseline column order) the conflict was found
+    /// against; `apply_resolutions` skips a conflict whose tag no longer has
+    /// this baseline.
+    pub base: Vec<CellValue>,
+    /// Key values, to name the row in the dialog.
+    pub key: Vec<CellValue>,
+    pub kind: ConflictKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Resolution {
+    /// Cells: my value. Deleted on server: add it back. Changed on server: delete anyway.
+    KeepMine,
+    /// Cells: their value. Deleted on server: let it go. Changed on server: keep theirs.
+    TakeTheirs,
+}
+
+/// What the server check turned a plan into.
+#[derive(Debug, Default, PartialEq)]
+pub struct MergeOutcome {
+    /// (key, row to write) per update that merged.
+    pub updates: Vec<(Vec<CellValue>, Vec<CellValue>)>,
+    pub deletes: Vec<Vec<CellValue>>,
+    /// (tag, written row) for every update that took cells from the server,
+    /// so the tab can show them after the save.
+    pub merged: Vec<(i64, Vec<CellValue>)>,
+    pub conflicts: Vec<RowConflict>,
+    /// Tags of rows dropped because the server row is gone (a delete of a
+    /// vanished row, an unedited row forced into the plan): the tab can
+    /// remove them.
+    pub gone: Vec<i64>,
+}
+
 /// Outcome counts of an applied write-back.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DbWriteBackReport {
     pub deleted: usize,
     pub updated: usize,
     pub inserted: usize,
     pub added_columns: usize,
+    /// (tag, written row in the tab's column order) for rows that also took
+    /// someone else's changes; the tab shows them after the save.
+    pub merged: Vec<(i64, Vec<CellValue>)>,
+    /// Tags of rows left out because the server row is already gone; the tab
+    /// can remove them (see [`MergeOutcome::gone`]).
+    pub gone: Vec<i64>,
+}
+
+/// Keys per conflict re-read. 100 because the Oracle driver stops every
+/// result at 100 rows (`.claude/rules/database.md`, oracle-rs defects).
+pub const CONFLICT_READ_BATCH: usize = 100;
+
+/// Rows that changed on the server since the tab loaded, in ways that
+/// collide with the save. The transaction was rolled back: no row was written.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WriteConflicts {
+    pub conflicts: Vec<RowConflict>,
+    /// The conflict was found in the check after the `ALTER TABLE ADD`s on an
+    /// engine whose DDL commits (see [`rechecks_after_alter`]): the plan's
+    /// added columns are already on the server, so the tab's baseline must
+    /// take them in (NULL in every row) before the next save.
+    pub columns_added: bool,
+}
+
+impl std::fmt::Display for WriteConflicts {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let saved = if self.columns_added {
+            "only the new columns were added"
+        } else {
+            "nothing was saved"
+        };
+        write!(
+            f,
+            "{} row(s) were changed by someone else since the table was loaded; {saved}",
+            self.conflicts.len()
+        )
+    }
+}
+
+impl std::error::Error for WriteConflicts {}
+
+impl WriteConflicts {
+    /// After a `columns_added` conflict the plan's `added` columns are on the
+    /// server already, NULL in every row: take them into `table`'s baseline
+    /// and into each conflict's baseline and server row. The next save then
+    /// does not add them a second time, and [`apply_resolutions`] still
+    /// recognises every baseline. A no-op unless `columns_added`.
+    pub fn adopt_added_columns(&mut self, table: &mut DataTable, added: &[String]) {
+        let Some(meta) = table.db_meta.as_mut().filter(|_| self.columns_added) else {
+            return;
+        };
+        let new: Vec<String> = added
+            .iter()
+            .filter(|c| !meta.original_columns.contains(c))
+            .cloned()
+            .collect();
+        let pad = |row: &mut Vec<CellValue>| row.resize(row.len() + new.len(), CellValue::Null);
+        for row in meta.original.values_mut() {
+            pad(row);
+        }
+        for c in &mut self.conflicts {
+            pad(&mut c.base);
+            if let ConflictKind::Cells { theirs, .. } | ConflictKind::ChangedOnServer { theirs } =
+                &mut c.kind
+            {
+                pad(theirs);
+            }
+        }
+        meta.original_columns.extend(new);
+    }
+}
+
+impl DbWriteBackReport {
+    /// Show the tab what the server holds now: each merged row's cells go
+    /// into the tab's row with that tag, matched by name (`columns` is the
+    /// layout the save wrote; the tab may hold more, such as hash columns
+    /// the database computes), and rows whose server row is gone leave the
+    /// tab. Call it with the edits applied, before re-baselining.
+    pub fn apply_to(&self, table: &mut DataTable, columns: &[String]) {
+        let row_of = |t: &DataTable, tag: i64| {
+            t.db_meta
+                .as_ref()?
+                .row_tags
+                .iter()
+                .position(|x| *x == Some(tag))
+        };
+        for (tag, row) in &self.merged {
+            let Some(r) = row_of(table, *tag) else {
+                continue;
+            };
+            for (name, v) in columns.iter().zip(row) {
+                if let Some(j) = table.columns.iter().position(|c| &c.name == name) {
+                    table.rows[r][j] = v.clone();
+                }
+            }
+        }
+        for &tag in &self.gone {
+            if let Some(r) = row_of(table, tag) {
+                table.delete_row(r);
+                // The server dropped it, not the user: nothing to undo.
+                table.undo_stack.pop();
+            }
+        }
+    }
 }
 
 /// Take `names` out of `table` (edits applied) and out of its baseline, so a
@@ -185,6 +377,8 @@ pub fn build_write_back_plan(
             .collect()
     };
 
+    let mut update_bases = Vec::new();
+    let mut delete_bases = Vec::new();
     let mut plan = DbWriteBackPlan {
         added_columns,
         ..Default::default()
@@ -201,12 +395,14 @@ pub fn build_write_back_plan(
     delete_tags.sort();
     for tag in delete_tags {
         plan.deletes.push(pk_values(&meta.original[tag])?);
+        delete_bases.push((*tag, meta.original[tag].clone()));
     }
 
     // INSERT / UPDATE per current row. Added columns force full-row updates
     // even for rows whose baseline cells match (same gate as the SQLite
     // writer), so the new columns get their values.
     let force_update = !plan.added_columns.is_empty();
+    let current_names_owned: Vec<String> = table.columns.iter().map(|c| c.name.clone()).collect();
     for (row_idx, tag) in meta.row_tags.iter().enumerate() {
         let row_vals: Vec<CellValue> = (0..table.columns.len())
             .map(|c| table.get(row_idx, c).cloned().unwrap_or(CellValue::Null))
@@ -217,14 +413,287 @@ pub fn build_write_back_plan(
                 let Some(original) = meta.original.get(tag) else {
                     continue;
                 };
-                if !force_update && original == &row_vals {
+                if !force_update
+                    && same_row(
+                        &to_current_order(&meta.original_columns, &current_names_owned, original),
+                        &row_vals,
+                    )
+                {
                     continue;
                 }
                 plan.updates.push((pk_values(original)?, row_vals));
+                update_bases.push((*tag, original.clone()));
             }
         }
     }
+    plan.merge = Some(MergeInfo {
+        base_columns: meta.original_columns.clone(),
+        columns: table.columns.iter().map(|c| c.name.clone()).collect(),
+        update_bases,
+        delete_bases,
+    });
     Ok(plan)
+}
+
+/// Cell equality as write-back means it: `==`, except NaN equals NaN (a NaN
+/// decoded from the server would otherwise differ from itself and conflict
+/// forever), and an `Int` equals a `Float` holding exactly that whole number
+/// (Oracle types an unconstrained NUMBER per result, so the load can read
+/// `Float(5.0)` where a re-read of a few rows reads `Int(5)`). NULL stays
+/// distinct from an empty string.
+fn same_cell(a: &CellValue, b: &CellValue) -> bool {
+    a == b
+        || match (a, b) {
+            (CellValue::Float(x), CellValue::Float(y)) => x.is_nan() && y.is_nan(),
+            (CellValue::Int(i), CellValue::Float(f)) | (CellValue::Float(f), CellValue::Int(i)) => {
+                whole_i64(*f) == Some(*i)
+            }
+            _ => false,
+        }
+}
+
+/// `f` as an `i64` when it is exactly a whole number in range. Never
+/// `i as f64 == f`: that rounds above 2^53 and calls neighbours equal.
+fn whole_i64(f: f64) -> Option<i64> {
+    (f.fract() == 0.0 && (i64::MIN as f64..i64::MAX as f64).contains(&f)).then_some(f as i64)
+}
+
+fn same_row(a: &[CellValue], b: &[CellValue]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| same_cell(x, y))
+}
+
+/// Three-way merge of one row, cell by cell, matched by column name.
+/// `base` / `theirs` are in `base_columns` order, `mine` in `columns` order;
+/// the merged row comes back in `columns` order. A column added in the tab
+/// has no server value and keeps mine.
+pub fn merge_row(
+    base_columns: &[String],
+    columns: &[String],
+    base: &[CellValue],
+    theirs: &[CellValue],
+    mine: &[CellValue],
+) -> Result<Vec<CellValue>, Vec<CellConflict>> {
+    let mut out = Vec::with_capacity(columns.len());
+    let mut conflicts = Vec::new();
+    for (j, name) in columns.iter().enumerate() {
+        let m = mine.get(j).cloned().unwrap_or(CellValue::Null);
+        let Some(i) = base_columns.iter().position(|c| c == name) else {
+            out.push(m);
+            continue;
+        };
+        let b = base.get(i).cloned().unwrap_or(CellValue::Null);
+        let t = theirs.get(i).cloned().unwrap_or(CellValue::Null);
+        if same_cell(&t, &b) || same_cell(&m, &t) {
+            out.push(m);
+        } else if same_cell(&m, &b) {
+            out.push(t);
+        } else {
+            conflicts.push(CellConflict {
+                column: name.clone(),
+                base: b,
+                theirs: t,
+                mine: m.clone(),
+            });
+            out.push(m);
+        }
+    }
+    if conflicts.is_empty() {
+        Ok(out)
+    } else {
+        Err(conflicts)
+    }
+}
+
+/// A hashable spelling of key values. Both sides come through the same
+/// connector decoding; a whole `Float` prints as its `Int` so a key Oracle
+/// typed differently per result (see [`same_cell`]) still matches.
+pub fn key_text(key: &[CellValue]) -> String {
+    key.iter()
+        .map(|v| match v {
+            CellValue::Float(f) => whole_i64(*f).map_or_else(|| v.to_string(), |i| i.to_string()),
+            _ => v.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("\u{1f}")
+}
+
+/// Check every planned update and delete against `server` (key text ->
+/// server row in baseline order; a missing key means the row is gone).
+pub fn merge_plan(
+    plan: &DbWriteBackPlan,
+    info: &MergeInfo,
+    server: &HashMap<String, Vec<CellValue>>,
+) -> MergeOutcome {
+    debug_assert_eq!(plan.updates.len(), info.update_bases.len());
+    debug_assert_eq!(plan.deletes.len(), info.delete_bases.len());
+    let mut out = MergeOutcome::default();
+    for ((key, mine), (tag, base)) in plan.updates.iter().zip(&info.update_bases) {
+        let Some(theirs) = server.get(&key_text(key)) else {
+            // A row I never edited (only forced into the plan by added
+            // columns) that someone deleted: nothing of mine is lost.
+            let untouched = info.columns.iter().enumerate().all(|(j, name)| {
+                let m = mine.get(j);
+                match info.base_columns.iter().position(|c| c == name) {
+                    Some(i) => matches!((m, base.get(i)), (Some(m), Some(b)) if same_cell(m, b)),
+                    None => matches!(m, None | Some(CellValue::Null)),
+                }
+            });
+            if untouched {
+                out.gone.push(*tag);
+                continue;
+            }
+            out.conflicts.push(RowConflict {
+                tag: *tag,
+                base: base.clone(),
+                key: key.clone(),
+                kind: ConflictKind::DeletedOnServer,
+            });
+            continue;
+        };
+        match merge_row(&info.base_columns, &info.columns, base, theirs, mine) {
+            Ok(row) => {
+                if !same_row(theirs, base) {
+                    out.merged.push((*tag, row.clone()));
+                }
+                out.updates.push((key.clone(), row));
+            }
+            Err(cells) => out.conflicts.push(RowConflict {
+                tag: *tag,
+                base: base.clone(),
+                key: key.clone(),
+                kind: ConflictKind::Cells {
+                    cells,
+                    theirs: theirs.clone(),
+                },
+            }),
+        }
+    }
+    for (key, (tag, base)) in plan.deletes.iter().zip(&info.delete_bases) {
+        match server.get(&key_text(key)) {
+            None => out.gone.push(*tag), // already gone: nothing to delete
+            Some(theirs) if same_row(theirs, base) => out.deletes.push(key.clone()),
+            Some(theirs) => out.conflicts.push(RowConflict {
+                tag: *tag,
+                base: base.clone(),
+                key: key.clone(),
+                kind: ConflictKind::ChangedOnServer {
+                    theirs: theirs.clone(),
+                },
+            }),
+        }
+    }
+    out
+}
+
+/// A baseline-order row laid out in the tab's current column order (NULL for
+/// columns the tab added).
+fn to_current_order(
+    base_columns: &[String],
+    columns: &[String],
+    row: &[CellValue],
+) -> Vec<CellValue> {
+    columns
+        .iter()
+        .map(|name| {
+            base_columns
+                .iter()
+                .position(|c| c == name)
+                .and_then(|i| row.get(i).cloned())
+                .unwrap_or(CellValue::Null)
+        })
+        .collect()
+}
+
+/// Apply the user's choices to the tab so the next save does what they
+/// picked: each row is **rebased** onto the server's values (its baseline
+/// becomes theirs), their non-conflicting changes are brought into the tab,
+/// and each disputed cell gets mine or theirs. The next save checks the
+/// server again.
+///
+/// The baselines and row tags are rewritten outside the undo log, so an older
+/// undo entry would restore cells against a baseline that no longer exists and
+/// the next save could overwrite the colleague's change. Both the undo and the
+/// redo history of `table` are therefore cleared (user decision). The stacks
+/// live on `DataTable`, so this function does it itself.
+pub fn apply_resolutions(table: &mut DataTable, conflicts: &[RowConflict], choices: &[Resolution]) {
+    let columns: Vec<String> = table.columns.iter().map(|c| c.name.clone()).collect();
+    for (conflict, choice) in conflicts.iter().zip(choices) {
+        let Some(meta) = table.db_meta.as_ref() else {
+            return;
+        };
+        let base_columns = meta.original_columns.clone();
+        let row_idx = meta.row_tags.iter().position(|t| *t == Some(conflict.tag));
+        // A stale or mis-routed conflict must not rebase some other row.
+        match meta.original.get(&conflict.tag) {
+            Some(cur) if same_row(cur, &conflict.base) => {}
+            _ => continue,
+        }
+        let base = &conflict.base;
+        match (&conflict.kind, choice) {
+            (ConflictKind::Cells { theirs, .. }, _) => {
+                let Some(r) = row_idx else { continue };
+                for (j, name) in columns.iter().enumerate() {
+                    let Some(i) = base_columns.iter().position(|c| c == name) else {
+                        continue;
+                    };
+                    let m = table.get(r, j).cloned().unwrap_or(CellValue::Null);
+                    let (Some(b), Some(t)) = (base.get(i), theirs.get(i)) else {
+                        continue;
+                    };
+                    let v = if same_cell(t, b) || same_cell(&m, t) {
+                        m.clone()
+                    } else if same_cell(&m, b) {
+                        t.clone()
+                    } else if *choice == Resolution::KeepMine {
+                        m.clone()
+                    } else {
+                        t.clone()
+                    };
+                    if !same_cell(&v, &m) {
+                        table.set(r, j, v);
+                    }
+                }
+                if let Some(meta) = table.db_meta.as_mut() {
+                    meta.original.insert(conflict.tag, theirs.clone());
+                }
+            }
+            (ConflictKind::DeletedOnServer, Resolution::KeepMine) => {
+                // Add it back: the row becomes an insert.
+                if let (Some(r), Some(meta)) = (row_idx, table.db_meta.as_mut()) {
+                    meta.row_tags[r] = None;
+                    meta.original.remove(&conflict.tag);
+                }
+            }
+            (ConflictKind::DeletedOnServer, Resolution::TakeTheirs) => {
+                // Let it go: gone from the tab too, with no DELETE planned.
+                if let Some(r) = row_idx {
+                    table.delete_row(r);
+                }
+                if let Some(meta) = table.db_meta.as_mut() {
+                    meta.original.remove(&conflict.tag);
+                }
+            }
+            (ConflictKind::ChangedOnServer { theirs }, Resolution::KeepMine) => {
+                // Delete anyway: the delete goes ahead against their version.
+                if let Some(meta) = table.db_meta.as_mut() {
+                    meta.original.insert(conflict.tag, theirs.clone());
+                }
+            }
+            (ConflictKind::ChangedOnServer { theirs }, Resolution::TakeTheirs) => {
+                // Keep theirs: the row comes back into the tab as the server has it.
+                let end = table.row_count();
+                table.insert_row(end);
+                let row = to_current_order(&base_columns, &columns, theirs);
+                table.rows[end] = row;
+                if let Some(meta) = table.db_meta.as_mut() {
+                    meta.row_tags[end] = Some(conflict.tag);
+                    meta.original.insert(conflict.tag, theirs.clone());
+                }
+            }
+        }
+    }
+    table.undo_stack.clear();
+    table.redo_stack.clear();
 }
 
 /// The fully-quoted `schema.table` target.
@@ -258,6 +727,99 @@ fn pk_where_sql(engine: DbEngine, pk_cols: &[String], pk_vals: &[CellValue]) -> 
         })
         .collect::<Vec<_>>()
         .join(" AND ")
+}
+
+/// `SELECT <baseline columns> FROM t WHERE (key) OR (key) ...`, locked until
+/// the transaction ends where the engine can: `FOR UPDATE` on Postgres,
+/// MySQL and Oracle, an update-lock table hint on SQL Server. Other engines
+/// rely on their transaction isolation (documented ceiling).
+fn reread_sql(
+    engine: DbEngine,
+    schema: &str,
+    table: &str,
+    base_columns: &[String],
+    key_cols: &[String],
+    keys: &[Vec<CellValue>],
+) -> String {
+    let cols = base_columns
+        .iter()
+        .map(|c| engine.quote_ident(c))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let filter = keys
+        .iter()
+        .map(|k| format!("({})", pk_where_sql(engine, key_cols, k)))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let target = target_sql(engine, schema, table);
+    match engine {
+        DbEngine::Mssql => {
+            format!("SELECT {cols} FROM {target} WITH (UPDLOCK, ROWLOCK) WHERE {filter}")
+        }
+        DbEngine::Postgres | DbEngine::MySql | DbEngine::Oracle => {
+            format!("SELECT {cols} FROM {target} WHERE {filter} FOR UPDATE")
+        }
+        _ => format!("SELECT {cols} FROM {target} WHERE {filter}"),
+    }
+}
+
+/// Read the server's current rows for every key the plan touches, keyed by
+/// [`key_text`], in baseline column order. Decoded by `connector.query`, the
+/// same path that loaded the tab; the one known difference (Oracle typing an
+/// unconstrained NUMBER per result) is absorbed by [`same_cell`] and
+/// [`key_text`].
+fn read_server_rows(
+    connector: &mut dyn DbConnector,
+    engine: DbEngine,
+    schema: &str,
+    table: &str,
+    key_cols: &[String],
+    plan: &DbWriteBackPlan,
+    info: &MergeInfo,
+) -> anyhow::Result<HashMap<String, Vec<CellValue>>> {
+    let key_idx: Vec<usize> = key_cols
+        .iter()
+        .map(|k| {
+            info.base_columns
+                .iter()
+                .position(|c| c == k)
+                .with_context(|| format!("key column '{k}' not found in the table"))
+        })
+        .collect::<anyhow::Result<_>>()?;
+    let keys: Vec<Vec<CellValue>> = plan
+        .updates
+        .iter()
+        .map(|(k, _)| k.clone())
+        .chain(plan.deletes.iter().cloned())
+        .collect();
+    // `query` stops at the load cap; a batch above it would cut rows off and
+    // make them look deleted on the server.
+    let batch_len = CONFLICT_READ_BATCH.min(crate::formats::initial_load_rows());
+    let mut server = HashMap::new();
+    for batch in keys.chunks(batch_len) {
+        let sql = reread_sql(engine, schema, table, &info.base_columns, key_cols, batch);
+        let rows = connector
+            .query(&sql)
+            .context("checking for changes on the server")?;
+        // A short answer at the cap means the cap was lowered mid-save
+        // (Settings, Load all rows ending): the missing rows are not gone.
+        let got = rows.rows.len();
+        if got < batch.len() && got >= crate::formats::initial_load_rows() {
+            bail!(
+                "the row limit changed during the save, so the check for changes on the server \
+                 read only {got} of {} rows; save again",
+                batch.len()
+            );
+        }
+        for row in rows.rows {
+            let key: Vec<CellValue> = key_idx
+                .iter()
+                .map(|&i| row.get(i).cloned().unwrap_or(CellValue::Null))
+                .collect();
+            server.insert(key_text(&key), row);
+        }
+    }
+    Ok(server)
 }
 
 fn delete_sql(
@@ -456,6 +1018,7 @@ pub fn plan_from_comparison(
                 .map(|&row| full_row(desired, row))
                 .collect(),
             added_columns: Vec::new(),
+            merge: None,
         },
         ignored_columns,
     })
@@ -603,10 +1166,6 @@ pub fn edits_as_update_sql(
     })
 }
 
-/// Apply the plan in ONE transaction: `ALTER TABLE ADD` per new column,
-/// DELETE by PK, full-row UPDATE by PK, INSERT new rows. Rolls back on any
-/// error (mirrors `write_table_generic`'s transaction skeleton). The caller
-/// has already checked `ensure_write_allowed`.
 /// Refuse a statement that did not touch exactly one row.
 ///
 /// Only enforced for [`RowIdentity::FullRow`], where nothing but this check
@@ -630,6 +1189,54 @@ fn verify_one(check: bool, affected: u64, what: &str) -> anyhow::Result<()> {
     )
 }
 
+/// Whether a save that adds columns checks the server again after the
+/// `ALTER TABLE ADD`s. MySQL/MariaDB and Oracle commit on DDL, ending the
+/// transaction and its locks; Exasol has no transaction here at all (its
+/// connector swallows `BEGIN`), so its one plain read would be as old as the
+/// ALTERs are slow. Postgres, SQL Server and Redshift run the ALTER inside
+/// the transaction, under the locks already held.
+fn rechecks_after_alter(engine: DbEngine) -> bool {
+    matches!(
+        engine,
+        DbEngine::MySql | DbEngine::Oracle | DbEngine::Exasol
+    )
+}
+
+/// The conflict check: re-read the rows a keyed plan touches (under lock
+/// where the engine can) and merge them, so nobody's change since the load
+/// is overwritten. `None` for a plan that is not checked: `FullRow` (each
+/// statement verifies its own match) and a sync plan (`merge: None`, it
+/// already compared against the server). `columns_added` is passed through to
+/// [`WriteConflicts`].
+fn check_against_server(
+    connector: &mut dyn DbConnector,
+    engine: DbEngine,
+    schema: &str,
+    table: &str,
+    identity: &RowIdentity,
+    plan: &DbWriteBackPlan,
+    columns_added: bool,
+) -> anyhow::Result<Option<MergeOutcome>> {
+    let (RowIdentity::Key(key_cols), Some(info)) = (identity, &plan.merge) else {
+        return Ok(None);
+    };
+    let server = read_server_rows(connector, engine, schema, table, key_cols, plan, info)?;
+    let out = merge_plan(plan, info, &server);
+    if !out.conflicts.is_empty() {
+        return Err(WriteConflicts {
+            conflicts: out.conflicts,
+            columns_added,
+        }
+        .into());
+    }
+    Ok(Some(out))
+}
+
+/// Apply the plan in ONE transaction: re-read and merge the keyed rows it
+/// touches (see [`WriteConflicts`]), then `ALTER TABLE ADD` per new column,
+/// DELETE by key, full-row UPDATE by key, INSERT new rows. Rolls back on any
+/// error (mirrors `write_table_generic`'s transaction skeleton). The caller
+/// has already checked `ensure_write_allowed`.
 pub fn apply_write_back(
     connector: &mut dyn DbConnector,
     engine: DbEngine,
@@ -646,19 +1253,34 @@ pub fn apply_write_back(
         _ => "BEGIN",
     };
     connector.execute(begin).context("starting transaction")?;
-    let result = (|| -> anyhow::Result<()> {
+    let result = (|| -> anyhow::Result<DbWriteBackReport> {
+        // Checked before the ALTERs too, so a conflict leaves nothing written.
+        let mut checked =
+            check_against_server(connector, engine, schema, table, identity, plan, false)?;
         for col in &plan.added_columns {
             connector
                 .execute(&alter_add_sql(engine, schema, table, col))
                 .with_context(|| format!("adding column '{}'", col.name))?;
         }
-        for pk_vals in &plan.deletes {
+        // The ALTER committed the transaction and released the locks on these
+        // engines (or there was none): start a new one and check again, so the
+        // DML stays atomic and is built from rows read after the ALTER. A
+        // conflict found only here leaves the added columns in place.
+        if !plan.added_columns.is_empty() && rechecks_after_alter(engine) {
+            connector.execute(begin).context("starting transaction")?;
+            checked = check_against_server(connector, engine, schema, table, identity, plan, true)?;
+        }
+        let (deletes, updates) = match &checked {
+            Some(out) => (&out.deletes, &out.updates),
+            None => (&plan.deletes, &plan.updates),
+        };
+        for pk_vals in deletes {
             let n = connector
                 .execute(&delete_sql(engine, schema, table, pk_cols, pk_vals))
                 .context("deleting a row")?;
             verify_one(check, n, "delete")?;
         }
-        for (pk_vals, row) in &plan.updates {
+        for (pk_vals, row) in updates {
             let n = connector
                 .execute(&update_sql(
                     engine, schema, table, columns, pk_cols, pk_vals, row,
@@ -671,17 +1293,22 @@ pub fn apply_write_back(
                 .execute(&insert_sql(engine, schema, table, columns, row))
                 .context("inserting a row")?;
         }
-        Ok(())
+        // Count what was really written: the merge can drop rows.
+        let (deleted, updated) = (deletes.len(), updates.len());
+        let MergeOutcome { merged, gone, .. } = checked.unwrap_or_default();
+        Ok(DbWriteBackReport {
+            deleted,
+            updated,
+            inserted: plan.inserts.len(),
+            added_columns: plan.added_columns.len(),
+            merged,
+            gone,
+        })
     })();
     match result {
-        Ok(()) => {
+        Ok(report) => {
             connector.execute("COMMIT").context("committing")?;
-            Ok(DbWriteBackReport {
-                deleted: plan.deletes.len(),
-                updated: plan.updates.len(),
-                inserted: plan.inserts.len(),
-                added_columns: plan.added_columns.len(),
-            })
+            Ok(report)
         }
         Err(e) => {
             let _ = connector.execute("ROLLBACK");
@@ -691,680 +1318,5 @@ pub fn apply_write_back(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::data::DbRowMeta;
-    use std::collections::HashMap;
-
-    fn col(name: &str, ty: &str) -> ColumnInfo {
-        ColumnInfo {
-            name: name.into(),
-            data_type: ty.into(),
-        }
-    }
-
-    /// A two-column PK'd table: id (PK) + name, three baseline rows.
-    fn base_table() -> DataTable {
-        let mut t = DataTable::empty();
-        t.columns = vec![col("id", "Int64"), col("name", "Utf8")];
-        t.rows = vec![
-            vec![CellValue::Int(1), CellValue::String("a".into())],
-            vec![CellValue::Int(2), CellValue::String("b".into())],
-            vec![CellValue::Int(3), CellValue::String("c".into())],
-        ];
-        let mut original = HashMap::new();
-        for (i, row) in t.rows.iter().enumerate() {
-            original.insert(i as i64, row.clone());
-        }
-        t.db_meta = Some(DbRowMeta {
-            table_name: "t".into(),
-            schema: Some("public".into()),
-            row_tags: vec![Some(0), Some(1), Some(2)],
-            original,
-            original_columns: vec!["id".into(), "name".into()],
-        });
-        t
-    }
-
-    fn pk() -> RowIdentity {
-        RowIdentity::Key(vec!["id".into()])
-    }
-
-    /// Streaming a DB tab past the memory ceiling evicts front rows. If
-    /// `evict_front_rows` dropped only the tags, every evicted row would look
-    /// like a row the user deleted and the next Save would DELETE it on the
-    /// server. This is that guard: eviction must leave the plan empty.
-    #[test]
-    fn evicting_front_rows_does_not_turn_them_into_deletes() {
-        let mut t = base_table();
-        t.evict_front_rows(2);
-        let meta = t.db_meta.as_ref().expect("meta survives eviction");
-        assert_eq!(meta.row_tags.len(), t.rows.len());
-        assert_eq!(meta.row_tags, vec![Some(2)]);
-        assert_eq!(meta.original.len(), 1, "evicted baselines are dropped too");
-
-        let plan = build_write_back_plan(&t, &pk()).unwrap();
-        assert!(
-            plan.deletes.is_empty(),
-            "evicted rows must not be deleted on the server, got {:?}",
-            plan.deletes
-        );
-        assert!(plan.updates.is_empty());
-        assert!(plan.inserts.is_empty());
-    }
-
-    /// An edit to a row that survived the eviction still addresses the right
-    /// server row: the baseline for the remaining tag is untouched.
-    #[test]
-    fn an_edit_after_eviction_still_addresses_its_own_row() {
-        let mut t = base_table();
-        t.evict_front_rows(2);
-        t.set(0, 1, CellValue::String("c2".into()));
-        let plan = build_write_back_plan(&t, &pk()).unwrap();
-        assert!(plan.deletes.is_empty());
-        assert_eq!(plan.updates.len(), 1);
-        assert_eq!(plan.updates[0].0, vec![CellValue::Int(3)]);
-    }
-
-    /// A connector that records the SQL it was given and reports a fixed
-    /// affected-row count, so the guard can be exercised without a server.
-    struct CountingConnector {
-        affected: u64,
-        statements: Vec<String>,
-    }
-
-    impl DbConnector for CountingConnector {
-        fn engine(&self) -> DbEngine {
-            DbEngine::Postgres
-        }
-        fn list_schemas(&mut self, _: Option<&str>) -> anyhow::Result<Vec<String>> {
-            Ok(vec![])
-        }
-        fn list_tables(&mut self, _: Option<&str>, _: &str) -> anyhow::Result<Vec<String>> {
-            Ok(vec![])
-        }
-        fn query(&mut self, _: &str) -> anyhow::Result<DataTable> {
-            Ok(DataTable::empty())
-        }
-        fn execute(&mut self, sql: &str) -> anyhow::Result<u64> {
-            self.statements.push(sql.to_string());
-            // Transaction control is not a row-affecting statement.
-            if matches!(sql, "BEGIN" | "BEGIN TRANSACTION" | "COMMIT" | "ROLLBACK") {
-                return Ok(0);
-            }
-            Ok(self.affected)
-        }
-        fn write_table(
-            &mut self,
-            _: Option<&str>,
-            _: &str,
-            _: &str,
-            _: super::super::DbWriteMode,
-            _: &DataTable,
-        ) -> anyhow::Result<super::super::DbWriteReport> {
-            unimplemented!("not used by these tests")
-        }
-    }
-
-    fn full_row() -> RowIdentity {
-        RowIdentity::FullRow(vec!["id".into(), "name".into()])
-    }
-
-    fn one_update_plan() -> DbWriteBackPlan {
-        let mut t = base_table();
-        t.rows[1][1] = CellValue::String("B".into());
-        build_write_back_plan(&t, &full_row()).unwrap()
-    }
-
-    /// Without a key the WHERE clause carries every baseline value, which is
-    /// what lets a keyless table be edited at all.
-    #[test]
-    fn a_full_row_match_addresses_the_row_by_all_its_values() {
-        let plan = one_update_plan();
-        assert_eq!(plan.updates.len(), 1);
-        let (where_vals, _) = &plan.updates[0];
-        assert_eq!(
-            where_vals,
-            &vec![CellValue::Int(2), CellValue::String("b".into())],
-            "the WHERE uses the ORIGINAL values, not the edited ones"
-        );
-        let sql = update_sql(
-            DbEngine::Postgres,
-            "public",
-            "t",
-            &base_table().columns,
-            full_row().columns(),
-            where_vals,
-            &plan.updates[0].1,
-        );
-        assert!(sql.contains(r#"WHERE "id" = 2 AND "name" = 'b'"#), "{sql}");
-    }
-
-    /// `= NULL` is never true, so a baseline NULL has to become `IS NULL` or
-    /// the statement would match nothing and the save would silently no-op.
-    #[test]
-    fn a_null_in_the_baseline_is_matched_with_is_null() {
-        let sql = pk_where_sql(
-            DbEngine::Postgres,
-            &["id".to_string(), "note".to_string()],
-            &[CellValue::Int(1), CellValue::Null],
-        );
-        assert_eq!(sql, r#""id" = 1 AND "note" IS NULL"#);
-    }
-
-    /// A key column cannot be NULL, so a NULL there means the baseline is
-    /// wrong and the row must not be addressed by it.
-    #[test]
-    fn a_null_key_value_is_still_refused() {
-        let mut t = base_table();
-        t.db_meta.as_mut().unwrap().original.get_mut(&1).unwrap()[0] = CellValue::Null;
-        t.rows[1][1] = CellValue::String("B".into());
-        let err = build_write_back_plan(&t, &pk()).unwrap_err().to_string();
-        assert!(err.contains("NULL"), "{err}");
-        // The same baseline is fine for a full-row match.
-        assert!(build_write_back_plan(&t, &full_row()).is_ok());
-    }
-
-    #[test]
-    fn a_full_row_update_that_touches_exactly_one_row_commits() {
-        let mut c = CountingConnector {
-            affected: 1,
-            statements: vec![],
-        };
-        let plan = one_update_plan();
-        let report = apply_write_back(
-            &mut c,
-            DbEngine::Postgres,
-            "public",
-            "t",
-            &base_table().columns,
-            &full_row(),
-            &plan,
-        )
-        .expect("one matched row commits");
-        assert_eq!(report.updated, 1);
-        assert!(c.statements.contains(&"COMMIT".to_string()));
-    }
-
-    /// Duplicate rows are the case this whole mode has to survive: the WHERE
-    /// matches both, and rewriting both is exactly the data loss the guard
-    /// exists to prevent.
-    #[test]
-    fn a_full_row_update_matching_two_rows_rolls_back() {
-        let mut c = CountingConnector {
-            affected: 2,
-            statements: vec![],
-        };
-        let plan = one_update_plan();
-        let err = apply_write_back(
-            &mut c,
-            DbEngine::Postgres,
-            "public",
-            "t",
-            &base_table().columns,
-            &full_row(),
-            &plan,
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("2 rows"), "{err}");
-        assert!(c.statements.contains(&"ROLLBACK".to_string()));
-        assert!(!c.statements.contains(&"COMMIT".to_string()));
-    }
-
-    /// Zero means someone else changed or removed the row since the tab
-    /// loaded. Silently writing nothing and reporting success would be worse.
-    #[test]
-    fn a_full_row_update_matching_no_row_rolls_back() {
-        let mut c = CountingConnector {
-            affected: 0,
-            statements: vec![],
-        };
-        let plan = one_update_plan();
-        let err = apply_write_back(
-            &mut c,
-            DbEngine::Postgres,
-            "public",
-            "t",
-            &base_table().columns,
-            &full_row(),
-            &plan,
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("no row"), "{err}");
-        assert!(c.statements.contains(&"ROLLBACK".to_string()));
-    }
-
-    /// The count is NOT checked for a keyed table: MySQL reports *changed*
-    /// rather than *matched* rows, so a correct keyed update can legitimately
-    /// report 0 and must not be rolled back.
-    #[test]
-    fn a_keyed_update_is_not_subject_to_the_count_check() {
-        let mut c = CountingConnector {
-            affected: 0,
-            statements: vec![],
-        };
-        let mut t = base_table();
-        t.rows[1][1] = CellValue::String("B".into());
-        let plan = build_write_back_plan(&t, &pk()).unwrap();
-        let report = apply_write_back(
-            &mut c,
-            DbEngine::Postgres,
-            "public",
-            "t",
-            &base_table().columns,
-            &pk(),
-            &plan,
-        )
-        .expect("a keyed write is unaffected by the affected-row count");
-        assert_eq!(report.updated, 1);
-        assert!(c.statements.contains(&"COMMIT".to_string()));
-    }
-
-    #[test]
-    fn unchanged_table_yields_an_empty_plan() {
-        let plan = build_write_back_plan(&base_table(), &pk()).unwrap();
-        assert!(plan.is_empty());
-    }
-
-    #[test]
-    fn detects_update_insert_delete() {
-        let mut t = base_table();
-        // Edit row 1's name, delete row 2, insert a new row.
-        t.rows[1][1] = CellValue::String("B".into());
-        t.rows.remove(2);
-        t.rows
-            .push(vec![CellValue::Int(9), CellValue::String("z".into())]);
-        let meta = t.db_meta.as_mut().unwrap();
-        meta.row_tags = vec![Some(0), Some(1), None];
-
-        let plan = build_write_back_plan(&t, &pk()).unwrap();
-        assert_eq!(plan.deletes, vec![vec![CellValue::Int(3)]]);
-        assert_eq!(plan.updates.len(), 1);
-        assert_eq!(plan.updates[0].0, vec![CellValue::Int(2)]);
-        assert_eq!(plan.updates[0].1[1], CellValue::String("B".into()));
-        assert_eq!(plan.inserts.len(), 1);
-        assert_eq!(plan.inserts[0][0], CellValue::Int(9));
-        assert_eq!(plan.change_count(), 3);
-    }
-
-    #[test]
-    fn edited_pk_cell_is_located_by_its_original_value() {
-        let mut t = base_table();
-        t.rows[0][0] = CellValue::Int(100);
-        let plan = build_write_back_plan(&t, &pk()).unwrap();
-        // WHERE uses the ORIGINAL pk (1); SET writes the new one (100).
-        assert_eq!(plan.updates[0].0, vec![CellValue::Int(1)]);
-        assert_eq!(plan.updates[0].1[0], CellValue::Int(100));
-    }
-
-    #[test]
-    fn added_column_forces_full_row_updates() {
-        let mut t = base_table();
-        t.columns.push(col("extra", "Utf8"));
-        for row in &mut t.rows {
-            row.push(CellValue::String("x".into()));
-        }
-        let plan = build_write_back_plan(&t, &pk()).unwrap();
-        assert_eq!(plan.added_columns.len(), 1);
-        assert_eq!(plan.updates.len(), 3, "every row rewritten");
-    }
-
-    /// A hash column the database computes: present (with a cell typed
-    /// into it) or renamed away, it never reaches the plan; a real edit
-    /// beside it still does.
-    #[test]
-    fn dropped_columns_never_reach_the_plan() {
-        let mut t = base_table();
-        let meta = t.db_meta.as_mut().unwrap();
-        meta.original_columns.push("h".into());
-        for row in meta.original.values_mut() {
-            row.push(CellValue::String("x".into()));
-        }
-        t.columns.push(col("h", "Utf8"));
-        for row in &mut t.rows {
-            row.push(CellValue::String("x".into()));
-        }
-        t.rows[0][2] = CellValue::String("typed".into());
-        let mut clean = t.clone();
-        drop_columns(&mut clean, &["h".into()]);
-        assert!(build_write_back_plan(&clean, &pk()).unwrap().is_empty());
-
-        let mut renamed = t.clone();
-        renamed.columns[2].name = "mine".into();
-        drop_columns(&mut renamed, &["h".into()]);
-        let plan = build_write_back_plan(&renamed, &pk()).unwrap();
-        assert_eq!(
-            plan.added_columns.len(),
-            1,
-            "a renamed hash is the user's column"
-        );
-
-        t.rows[1][1] = CellValue::String("B".into());
-        drop_columns(&mut t, &["h".into()]);
-        let plan = build_write_back_plan(&t, &pk()).unwrap();
-        assert_eq!(plan.updates.len(), 1);
-        assert_eq!(
-            plan.updates[0].1,
-            vec![CellValue::Int(2), CellValue::String("B".into())]
-        );
-    }
-
-    #[test]
-    fn removed_column_is_rejected() {
-        let mut t = base_table();
-        t.columns.remove(1);
-        for row in &mut t.rows {
-            row.remove(1);
-        }
-        let err = build_write_back_plan(&t, &pk()).unwrap_err().to_string();
-        assert!(err.contains("removed or renamed"), "{err}");
-    }
-
-    #[test]
-    fn null_pk_value_is_rejected() {
-        let mut t = base_table();
-        t.db_meta
-            .as_mut()
-            .unwrap()
-            .original
-            .insert(0, vec![CellValue::Null, CellValue::String("a".into())]);
-        t.rows[0][1] = CellValue::String("edited".into());
-        let err = build_write_back_plan(&t, &pk()).unwrap_err().to_string();
-        assert!(err.contains("NULL"), "{err}");
-    }
-
-    #[test]
-    fn missing_db_meta_is_identity_lost() {
-        let mut t = base_table();
-        t.db_meta = None;
-        let err = build_write_back_plan(&t, &pk()).unwrap_err().to_string();
-        assert!(err.contains("row identity lost"), "{err}");
-    }
-
-    #[test]
-    fn sql_rendering_per_engine() {
-        let cols = [col("id", "Int64"), col("ok", "Boolean")];
-        let identity = pk();
-        let pk_cols = identity.columns();
-        let pk_vals = [CellValue::Int(7)];
-        let row = [CellValue::Int(7), CellValue::Bool(true)];
-
-        assert_eq!(
-            delete_sql(DbEngine::Postgres, "public", "t", pk_cols, &pk_vals),
-            "DELETE FROM \"public\".\"t\" WHERE \"id\" = 7"
-        );
-        assert_eq!(
-            update_sql(DbEngine::MySql, "app", "t", &cols, pk_cols, &pk_vals, &row),
-            "UPDATE `app`.`t` SET `id` = 7, `ok` = TRUE WHERE `id` = 7"
-        );
-        // MSSQL renders booleans as BIT literals.
-        assert_eq!(
-            insert_sql(DbEngine::Mssql, "dbo", "t", &cols, &row),
-            "INSERT INTO [dbo].[t] ([id], [ok]) VALUES (7, 1)"
-        );
-        assert_eq!(
-            alter_add_sql(DbEngine::Mssql, "dbo", "t", &col("extra", "Utf8")),
-            "ALTER TABLE [dbo].[t] ADD [extra] NVARCHAR(MAX)"
-        );
-        assert_eq!(
-            alter_add_sql(DbEngine::Postgres, "public", "t", &col("extra", "Int64")),
-            "ALTER TABLE \"public\".\"t\" ADD COLUMN \"extra\" BIGINT"
-        );
-    }
-
-    #[test]
-    fn alter_add_uses_the_same_dialect_as_create() {
-        let col = ColumnInfo {
-            name: "label".to_string(),
-            data_type: "Utf8".to_string(),
-        };
-        // Snowflake spells it VARCHAR; the Postgres fallback would say TEXT.
-        let alter = alter_add_sql(DbEngine::Snowflake, "s", "t", &col);
-        assert!(alter.contains("VARCHAR"), "got: {alter}");
-        let create = crate::db::create_table_sql(DbEngine::Snowflake, "s", "t", &[col]);
-        assert!(create.contains("VARCHAR"), "got: {create}");
-    }
-
-    #[test]
-    fn renders_plan_as_transactional_script() {
-        let cols = vec![col("id", "Int64"), col("name", "Utf8")];
-        let plan = DbWriteBackPlan {
-            deletes: vec![vec![CellValue::Int(7)]],
-            updates: vec![(
-                vec![CellValue::Int(3)],
-                vec![CellValue::Int(3), CellValue::String("O'Brien".into())],
-            )],
-            inserts: vec![vec![CellValue::Int(9), CellValue::String("new".into())]],
-            added_columns: Vec::new(),
-        };
-        let sql = render_plan_sql(
-            DbEngine::Postgres,
-            "public",
-            "people",
-            &cols,
-            &["id".to_string()],
-            &plan,
-        );
-
-        assert!(sql.starts_with("BEGIN;\n"), "{sql}");
-        assert!(sql.trim_end().ends_with("COMMIT;"), "{sql}");
-        let del = sql.find("DELETE FROM").unwrap();
-        let upd = sql.find("UPDATE").unwrap();
-        let ins = sql.find("INSERT INTO").unwrap();
-        assert!(
-            del < upd && upd < ins,
-            "statements out of apply order:\n{sql}"
-        );
-
-        assert!(sql.contains("'O''Brien'"), "quote not doubled:\n{sql}");
-    }
-
-    #[test]
-    fn renders_added_columns_first_and_mssql_begins_transaction() {
-        let cols = vec![col("id", "Int64")];
-        let plan = DbWriteBackPlan {
-            deletes: Vec::new(),
-            updates: Vec::new(),
-            inserts: Vec::new(),
-            added_columns: vec![col("note", "Utf8")],
-        };
-        let sql = render_plan_sql(
-            DbEngine::Mssql,
-            "dbo",
-            "people",
-            &cols,
-            &["id".to_string()],
-            &plan,
-        );
-        assert!(sql.starts_with("BEGIN TRANSACTION;\n"), "{sql}");
-        assert!(sql.contains("ALTER TABLE"), "{sql}");
-    }
-
-    #[test]
-    fn empty_plan_renders_a_comment_not_an_empty_transaction() {
-        let sql = render_plan_sql(
-            DbEngine::Postgres,
-            "public",
-            "people",
-            &[],
-            &["id".to_string()],
-            &DbWriteBackPlan::default(),
-        );
-        assert!(sql.contains("no changes"), "{sql}");
-        assert!(!sql.contains("BEGIN"), "{sql}");
-    }
-
-    #[test]
-    fn numeric_formatting_alone_is_not_a_change() {
-        // A CSV reads 120.50 as a float; Postgres returns the exact text.
-        assert!(!cells_differ(
-            &CellValue::String("120.50".into()),
-            &CellValue::Float(120.5)
-        ));
-        assert!(!cells_differ(
-            &CellValue::Int(88),
-            &CellValue::String("88.00".into())
-        ));
-        assert!(cells_differ(
-            &CellValue::Float(120.5),
-            &CellValue::Float(120.6)
-        ));
-        // NULL against a value is a change, not a formatting quirk.
-        assert!(cells_differ(&CellValue::Null, &CellValue::Float(1.0)));
-        // Text that merely looks numeric stays a text comparison.
-        assert!(cells_differ(
-            &CellValue::String("007".into()),
-            &CellValue::String("7A".into())
-        ));
-    }
-
-    #[test]
-    fn comparison_becomes_deletes_updates_and_inserts() {
-        use crate::data::compare::compare_join;
-
-        let mut server = DataTable::empty();
-        server.columns = vec![col("id", "Int64"), col("city", "Utf8")];
-        server.rows = vec![
-            vec![CellValue::Int(1), CellValue::String("London".into())],
-            vec![CellValue::Int(2), CellValue::String("Baltimore".into())],
-            vec![CellValue::Int(3), CellValue::String("Cambridge".into())],
-        ];
-
-        let mut desired = DataTable::empty();
-        desired.columns = vec![col("id", "Int64"), col("city", "Utf8")];
-        desired.rows = vec![
-            vec![CellValue::Int(1), CellValue::String("London".into())],
-            vec![CellValue::Int(2), CellValue::String("NEWCITY".into())],
-            vec![CellValue::Int(5), CellValue::String("Helsinki".into())],
-        ];
-
-        let result = compare_join(&server, &desired, &["id".to_string()]).unwrap();
-        let synced = plan_from_comparison(&server, &desired, &result, &["id".to_string()]).unwrap();
-
-        assert_eq!(synced.plan.deletes, vec![vec![CellValue::Int(3)]]);
-        assert_eq!(synced.plan.inserts.len(), 1);
-        // Row 1 is untouched; only row 2 really changed.
-        assert_eq!(synced.plan.updates.len(), 1);
-        assert_eq!(synced.plan.updates[0].0, vec![CellValue::Int(2)]);
-        // Never invents a schema change.
-        assert!(synced.plan.added_columns.is_empty());
-        assert!(synced.ignored_columns.is_empty());
-    }
-
-    #[test]
-    fn extra_source_columns_are_reported_not_added() {
-        use crate::data::compare::compare_join;
-
-        let mut server = DataTable::empty();
-        server.columns = vec![col("id", "Int64")];
-        server.rows = vec![vec![CellValue::Int(1)]];
-
-        let mut desired = DataTable::empty();
-        desired.columns = vec![col("id", "Int64"), col("note", "Utf8")];
-        desired.rows = vec![vec![CellValue::Int(1), CellValue::String("hi".into())]];
-
-        let result = compare_join(&server, &desired, &["id".to_string()]).unwrap();
-        let synced = plan_from_comparison(&server, &desired, &result, &["id".to_string()]).unwrap();
-        assert_eq!(synced.ignored_columns, vec!["note".to_string()]);
-        assert!(synced.plan.added_columns.is_empty());
-    }
-
-    #[test]
-    fn a_key_missing_from_the_server_table_is_an_error() {
-        use crate::data::compare::CompareResult;
-        let mut server = DataTable::empty();
-        server.columns = vec![col("id", "Int64")];
-        let desired = server.clone();
-        let err = plan_from_comparison(
-            &server,
-            &desired,
-            &CompareResult::default(),
-            &["nope".to_string()],
-        )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("nope"), "{err}");
-    }
-
-    // --- edit audit trail SQL export -----------------------------------
-
-    /// A plain two-column table (no `db_meta`), matching what the edit audit
-    /// panel actually has on hand: `DataTable.rows` plus an edit overlay.
-    fn two_col_table() -> DataTable {
-        let mut t = DataTable::empty();
-        t.columns = vec![col("id", "Int64"), col("city", "Utf8")];
-        t.rows = vec![
-            vec![CellValue::Int(1), CellValue::String("Berlin".into())],
-            vec![CellValue::Int(2), CellValue::String("Hamburg".into())],
-        ];
-        t
-    }
-
-    /// A keyed table exports one real UPDATE per edited row, addressed by the
-    /// key's ORIGINAL value even when the key cell itself was edited, and
-    /// never rewrites a column nobody touched.
-    #[test]
-    fn a_keyed_table_exports_updates_addressed_by_the_original_key() {
-        let mut t = two_col_table();
-        t.columns.push(col("country", "Utf8"));
-        t.rows[0].push(CellValue::String("Germany".into()));
-        t.rows[1].push(CellValue::String("Germany".into()));
-        t.edits.insert((0, 0), CellValue::Int(100));
-        t.edits
-            .insert((0, 1), CellValue::String("Duesseldorf".into()));
-
-        let identity = RowIdentity::Key(vec!["id".into()]);
-        let out =
-            edits_as_update_sql(&t, DbEngine::Postgres, "", "customers", Some(&identity)).unwrap();
-        assert!(!out.is_template, "a keyed table exports real statements");
-        assert_eq!(out.statements.len(), 1);
-        let sql = &out.statements[0];
-        assert!(sql.contains("UPDATE"), "got: {sql}");
-        assert!(sql.contains("customers"), "names the target table: {sql}");
-        assert!(sql.contains("WHERE"), "targets by key: {sql}");
-        assert!(
-            sql.contains("\"id\" = 1"),
-            "WHERE uses the ORIGINAL key value, not the edited one: {sql}"
-        );
-        assert!(
-            !sql.contains("\"country\""),
-            "must not rewrite an unchanged column: {sql}"
-        );
-        assert!(sql.trim_end().ends_with(';'), "{sql}");
-    }
-
-    /// A key column that is not in the table at all is refused, naming it.
-    #[test]
-    fn a_missing_key_column_is_an_error_naming_it() {
-        let t = two_col_table();
-        let identity = RowIdentity::Key(vec!["nope".into()]);
-        let err = edits_as_update_sql(&t, DbEngine::Postgres, "", "customers", Some(&identity))
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("nope"), "{err}");
-    }
-
-    /// A file-backed table has no key, so the export is flagged as a
-    /// template keyed on the first column, named after the source file.
-    #[test]
-    fn a_file_backed_table_exports_a_flagged_template() {
-        let mut t = two_col_table();
-        t.source_path = Some("/tmp/sales_2026.csv".into());
-        t.edits
-            .insert((0, 1), CellValue::String("Duesseldorf".into()));
-
-        let out = edits_as_update_sql(&t, DbEngine::Postgres, "", "sales_2026", None).unwrap();
-        assert!(
-            out.is_template,
-            "no identity means no key, so it is a template"
-        );
-        assert_eq!(out.statements.len(), 1);
-        assert!(
-            out.statements[0].contains("sales_2026"),
-            "table name from the file stem: {}",
-            out.statements[0]
-        );
-    }
-}
+#[path = "write_back_tests.rs"]
+mod tests;

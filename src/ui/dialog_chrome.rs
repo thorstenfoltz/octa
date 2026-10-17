@@ -46,36 +46,73 @@ pub fn draw_result_message(ui: &mut egui::Ui, ok: bool, msg: &str) {
     );
 }
 
+/// Which icon a [`caption_button`] paints.
+#[derive(Clone, Copy)]
+pub enum Caption {
+    Close,
+    Maximise,
+    Minimise,
+}
+
+/// A title-bar button with a painted icon, shared by every dialog and the main
+/// window's own title bar.
+///
+/// The icons used to be the text glyphs `x`, U+25A1 and `_`. They never lined
+/// up: one is an x-height letter, one a symbol from a fallback font, one a
+/// stroke on the baseline, and at their own font sizes they made the three
+/// buttons different heights as well. Strokes painted around the button's
+/// centre sit on one line whatever the font or theme.
+pub fn caption_button(
+    ui: &mut egui::Ui,
+    caption: Caption,
+    selected: bool,
+    size: egui::Vec2,
+) -> egui::Response {
+    let response = ui.add(egui::Button::new("").selected(selected).min_size(size));
+    let color = ui
+        .style()
+        .interact_selectable(&response, selected)
+        .fg_stroke
+        .color;
+    let stroke = egui::Stroke::new(1.5, color);
+    let c = response.rect.center();
+    let r = 4.5;
+    let painter = ui.painter();
+    match caption {
+        Caption::Close => {
+            painter.line_segment([c + egui::vec2(-r, -r), c + egui::vec2(r, r)], stroke);
+            painter.line_segment([c + egui::vec2(-r, r), c + egui::vec2(r, -r)], stroke);
+        }
+        Caption::Maximise => {
+            painter.rect_stroke(
+                egui::Rect::from_center_size(c, egui::Vec2::splat(2.0 * r)),
+                0.0,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
+        }
+        Caption::Minimise => {
+            painter.line_segment([c + egui::vec2(-r, 0.0), c + egui::vec2(r, 0.0)], stroke);
+        }
+    }
+    response
+}
+
 /// Render the three title-bar control buttons (Minimize, Maximize, Close)
 /// into the current `ui` in right-to-left order (so the visual order is
 /// `[_] [□] [x]`, matching desktop convention). Updates `*size` per click,
 /// with mutual exclusion between Minimize and Maximize. Returns `true` when
 /// the user clicked the close button.
 ///
-/// Glyph choice: stick to characters the egui default font definitely
-/// renders - underscore, U+25A1 white square, and `x`. Trying ─ / ⛶ / ✕
-/// silently falls back to a missing-glyph box so all three buttons end up
-/// visually identical.
+/// The buttons are as tall as a themed button, so in the title row (a
+/// [`crate::ui::control_row::control_line`]) they share the title's centre line.
 pub fn draw_window_controls(ui: &mut egui::Ui, size: &mut DialogSize) -> bool {
-    let btn_size = egui::vec2(26.0, 22.0);
-    let mut close = false;
-
-    // Close - bold lowercase `x`.
-    if ui
-        .add(egui::Button::new(egui::RichText::new("x").size(15.0).strong()).min_size(btn_size))
+    let btn_size = egui::vec2(26.0, crate::ui::control_row::control_height(ui));
+    let close = caption_button(ui, Caption::Close, false, btn_size)
         .on_hover_text(crate::i18n::t("settings_hint.ctrl_close"))
-        .clicked()
-    {
-        close = true;
-    }
-    // Maximize - U+25A1 WHITE SQUARE. `selected(active)` highlights it.
+        .clicked();
     let max_active = *size == DialogSize::Maximized;
-    if ui
-        .add(
-            egui::Button::new(egui::RichText::new("\u{25A1}").size(14.0))
-                .selected(max_active)
-                .min_size(btn_size),
-        )
+    if caption_button(ui, Caption::Maximise, max_active, btn_size)
         .on_hover_text(if max_active {
             crate::i18n::t("settings_hint.ctrl_restore")
         } else {
@@ -89,16 +126,8 @@ pub fn draw_window_controls(ui: &mut egui::Ui, size: &mut DialogSize) -> bool {
             DialogSize::Maximized
         };
     }
-    // Minimize - plain ASCII underscore, lowered visually so it sits where
-    // the Windows minimize bar sits (the underscore baseline draws low,
-    // matching the convention).
     let min_active = *size == DialogSize::Minimized;
-    if ui
-        .add(
-            egui::Button::new(egui::RichText::new("_").size(15.0).strong())
-                .selected(min_active)
-                .min_size(btn_size),
-        )
+    if caption_button(ui, Caption::Minimise, min_active, btn_size)
         .on_hover_text(if min_active {
             crate::i18n::t("settings_hint.ctrl_restore")
         } else {
@@ -113,6 +142,29 @@ pub fn draw_window_controls(ui: &mut egui::Ui, size: &mut DialogSize) -> bool {
         };
     }
     close
+}
+
+/// A dialog title row whose title carries a user's name (a file, a column, a
+/// connection): the title on the left, [`draw_window_controls`] on the right.
+/// Returns `true` when the user clicked the close button.
+///
+/// The usual title row draws the label first and the buttons in whatever is
+/// left, which is fine for a fixed title but not for a name of any length: a
+/// long one took the whole row and the buttons were painted over it. Here the
+/// buttons are laid out first and the title gets only the width beside them,
+/// cut short with an ellipsis (egui shows the whole of it on hover).
+pub fn draw_title_bar(ui: &mut egui::Ui, title: egui::RichText, size: &mut DialogSize) -> bool {
+    crate::ui::control_row::control_line(ui, |ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let close = draw_window_controls(ui, size);
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(egui::Label::new(title.strong().size(16.0)).truncate());
+            });
+            close
+        })
+        .inner
+    })
+    .inner
 }
 
 /// Configure a dialog's `egui::Window` for the given [`DialogSize`], restoring

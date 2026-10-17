@@ -46,9 +46,10 @@ fn session_path() -> Option<std::path::PathBuf> {
 }
 
 /// Where `tab` came from, if it can be opened again. A cloud tab's
-/// `source_path` is a temp download and a compressed file's is the unpacked
-/// temp copy, so both are recorded by their real origin instead; any other
-/// path inside the temp folder (an archive member) is left out.
+/// `source_path` is a temp download and a compressed or protected file's is
+/// the plain temp copy, so those are recorded by their real origin instead
+/// (a protected zip asks for its passphrase again); any other path inside
+/// the temp folder (an archive member) is left out.
 pub(crate) fn saved_tab(tab: &TabState) -> Option<SavedTab> {
     if let Some(o) = &tab.db_origin {
         return Some(SavedTab::Db {
@@ -68,6 +69,11 @@ pub(crate) fn saved_tab(tab: &TabState) -> Option<SavedTab> {
         return Some(SavedTab::Cloud {
             conn_id: o.conn_id.clone(),
             key: o.key.clone(),
+        });
+    }
+    if let Some(o) = &tab.protected_origin {
+        return Some(SavedTab::File {
+            path: o.zip.to_string_lossy().into_owned(),
         });
     }
     if let Some(o) = &tab.compressed_origin {
@@ -166,58 +172,5 @@ impl OctaApp {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cloud_and_connections_need_their_own_switch() {
-        let tabs = vec![
-            SavedTab::File {
-                path: "a.csv".into(),
-            },
-            SavedTab::Cloud {
-                conn_id: "c".into(),
-                key: "k".into(),
-            },
-            SavedTab::Db {
-                conn_id: "d".into(),
-                catalog: None,
-                schema: "s".into(),
-                table: "t".into(),
-            },
-            SavedTab::Api {
-                conn_id: "api".into(),
-                path: None,
-            },
-        ];
-        let mut settings = AppSettings {
-            restore_session: true,
-            ..Default::default()
-        };
-        assert_eq!(wanted(tabs.clone(), &settings).len(), 1);
-        settings.restore_session_cloud = true;
-        assert_eq!(wanted(tabs.clone(), &settings).len(), 2);
-        settings.restore_session_connections = true;
-        assert_eq!(wanted(tabs, &settings).len(), 4);
-    }
-
-    #[test]
-    fn session_file_round_trips() {
-        let file = SessionFile {
-            tabs: vec![
-                SavedTab::File {
-                    path: "/x/a.csv".into(),
-                },
-                SavedTab::Db {
-                    conn_id: "d".into(),
-                    catalog: Some("cat".into()),
-                    schema: "s".into(),
-                    table: "t".into(),
-                },
-            ],
-        };
-        let text = toml::to_string_pretty(&file).unwrap();
-        let back: SessionFile = toml::from_str(&text).unwrap();
-        assert_eq!(back.tabs, file.tabs);
-    }
-}
+#[path = "session_tests.rs"]
+mod tests;

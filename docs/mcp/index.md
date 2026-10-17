@@ -44,6 +44,7 @@ themselves. Your files stay on disk.
 | `search`                  | Match cells across every column                              | [→ doc](tools/search.md)                       |
 | `compare_schemas`         | Diff the column metadata of two files                        | [→ doc](tools/compare_schemas.md)              |
 | `diff_tables`             | Row-level diff of two files                                  | [→ doc](tools/diff_tables.md)                  |
+| `compare_folders`         | Which files differ between two or more folders               | [→ doc](tools/compare_folders.md)              |
 | `describe_file`           | One-shot orientation snapshot                                | [→ doc](tools/describe_file.md)                |
 | `validate_against_schema` | Validate columns against a JSON Schema                       | [→ doc](tools/validate_against_schema.md)      |
 | `unique_columns`          | Unique columns / key candidates                              | [→ doc](tools/unique_columns.md)               |
@@ -93,6 +94,7 @@ themselves. Your files stay on disk.
 | `write_workbook`          | Write several tables into one .xlsx (one sheet each)         | [&rarr; doc](../usage/saving.md)               |
 | `write_db_table`          | Write a table into a live database (writes)                  | [&rarr; doc](../usage/database-connections.md) |
 | `copy_db_table`           | Copy a table server-to-server (writes)                       | [&rarr; doc](../usage/database-connections.md) |
+| `export_db_tables`        | Export a schema's tables to files (writes)                   | [&rarr; doc](../usage/database-connections.md) |
 
 Every tool that returns rows respects a configurable response
 row limit (default 1000) and cell byte cap (default 64 KiB),
@@ -108,7 +110,8 @@ for the full mechanics.
 ## Cloud objects as input
 
 Every read tool's `path` accepts a cloud object URL (`s3://bucket/key`,
-`az://container/blob`, `gs://bucket/key`) as well as a local file, with no
+`az://container/blob`, `gs://bucket/key`, `sftp://user@host/path`,
+`davs://host/path`) as well as a local file, with no
 separate tool involved: the object is downloaded to a temp file and read as
 usual.
 

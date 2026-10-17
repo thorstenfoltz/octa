@@ -89,3 +89,4 @@ path is used as given.
   question rather than producing a document.
 - [`correlation`](correlation.md) and [`value_frequency`](value_frequency.md),
   the engines two of the sections embed.
+- In the app: [Report](../../usage/report.md)

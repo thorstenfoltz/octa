@@ -3,10 +3,13 @@
 //! (add table, attach DB, detach, refresh `data`, write result to DB).
 //! The panel is only visible while the active tab is in Table view.
 
+mod explain;
+mod file;
+pub(crate) mod job;
 mod render;
 mod run;
 mod server;
-mod workspace;
+pub(crate) mod workspace;
 
 use eframe::egui;
 
@@ -58,6 +61,8 @@ pub(crate) enum ServerQueryDone {
     Rows(Box<octa::data::DataTable>),
     /// A mutation: rows affected.
     Affected(u64),
+    /// Explain: the plan, nothing ran.
+    Plan(Box<octa::sql::explain::Plan>),
     Failed(String),
 }
 
@@ -122,7 +127,7 @@ pub(super) fn node_listing(state: &super::db_browser::DbListState) -> NodeListin
         DbListState::Catalogs(v) | DbListState::Schemas(v) | DbListState::Tables(v) => {
             NodeListing::Ready(v.clone())
         }
-        DbListState::Error(e) => NodeListing::Failed(e.clone()),
+        DbListState::Error(e) | DbListState::NeedsSignIn(e) => NodeListing::Failed(e.clone()),
     }
 }
 
@@ -318,15 +323,15 @@ pub(super) fn record_sql_history(
 /// pre/post tables via `compare_ordered`) so the user can see the effect, and
 /// arm the timed clear. Cells that differ get a cell mark; rows that only exist
 /// in the new table (inserts / longer result) get a row mark. No-op when the
-/// feature is off or nothing changed.
+/// feature is off or nothing changed. The new table is already `tab.table`.
 pub(super) fn apply_sql_diff_highlight(
     tab: &mut TabState,
     before: &octa::data::DataTable,
-    after: &mut octa::data::DataTable,
     enabled: bool,
     secs: u32,
 ) {
     use octa::data::{MarkColor, MarkKey};
+    let after = &mut tab.table;
     // Clear any still-pending highlight from a previous mutation first.
     for key in tab.sql_diff_marks.drain(..) {
         after.clear_mark(key);
@@ -335,7 +340,12 @@ pub(super) fn apply_sql_diff_highlight(
     if !enabled {
         return;
     }
-    let result = octa::data::compare::compare_ordered(before, after);
+    // Exact on purpose: a sync, or a change highlight, must see every difference.
+    let result = octa::data::compare::compare_ordered(
+        before,
+        after,
+        &octa::data::compare::CompareOptions::default(),
+    );
     let mut keys: Vec<MarkKey> = Vec::new();
     for change in &result.changed {
         for name in &change.changed_columns {
@@ -358,23 +368,87 @@ pub(super) fn apply_sql_diff_highlight(
         Some(std::time::Instant::now() + std::time::Duration::from_secs(secs.max(1) as u64));
 }
 
+/// The tab's table as `data` last copied it. At millions of rows a copy is
+/// seconds of frozen window, so a Run copies again only once the table no
+/// longer matches this.
+#[derive(Clone, PartialEq)]
+pub(crate) struct DataStamp {
+    /// Rows address, shape, offset, columns and edit count: every way the
+    /// table can be replaced or changed under a feed.
+    rows: crate::app::slice_feed::RowsStamp,
+    undo: usize,
+    redo: usize,
+}
+
+impl DataStamp {
+    pub(crate) fn of(table: &octa::data::DataTable) -> Self {
+        Self {
+            rows: crate::app::slice_feed::RowsStamp::of(table),
+            undo: table.undo_stack.len(),
+            redo: table.redo_stack.len(),
+        }
+    }
+
+    /// The part of the stamp a feed checks while it hands rows over.
+    pub(crate) fn rows(&self) -> &crate::app::slice_feed::RowsStamp {
+        &self.rows
+    }
+}
+
+/// Forget a stamp the table has moved away from, once per frame for every
+/// tab. Checking only at Run would miss an undo followed by a new edit,
+/// which ends on the counts the stamp holds.
+// ponytail: still matches a table freed and replaced by one of the same
+// shape at its old address within one frame, and a write that pushes no undo
+// entry and changes no type, count or offset (the trim banner's Dismiss
+// forgets the stamp itself); a content hash per frame would cost what the
+// stamp saves.
+pub(super) fn forget_stale_data(tab: &mut TabState) {
+    if tab
+        .sql_data_stamp
+        .as_ref()
+        .is_some_and(|stamp| *stamp != DataStamp::of(&tab.table))
+    {
+        tab.sql_data_stamp = None;
+    }
+}
+
+/// Point `data` at the tab's table: a view over the file for a large-file
+/// tab, whose table is only the page on screen, otherwise a copy of the rows
+/// with pending edits (the copy reads cells through `DataTable::get`). The
+/// copy is skipped while `data` still holds the table as it is now.
+pub(super) fn register_active_data(tab: &mut TabState) -> anyhow::Result<()> {
+    let Some(ws) = tab.sql_workspace.as_mut() else {
+        return Ok(());
+    };
+    if let (Some(large), Some(path)) = (&tab.large, &tab.table.source_path) {
+        return ws.set_active_scan(std::path::Path::new(path), large.row_count());
+    }
+    let stamp = DataStamp::of(&tab.table);
+    // The workspace list can remove `data`.
+    let registered = ws.list_tables().iter().any(|t| t.sql_name == "data");
+    if registered && tab.sql_data_stamp.as_ref() == Some(&stamp) {
+        return Ok(());
+    }
+    tab.sql_data_stamp = None;
+    // An empty tab still gets a workspace, to ATTACH servers and query them;
+    // a zero-column table cannot be registered.
+    if tab.table.col_count() == 0 {
+        return Ok(());
+    }
+    ws.set_active_table(&tab.table)?;
+    tab.sql_data_stamp = Some(stamp);
+    Ok(())
+}
+
 pub(super) fn ensure_workspace(tab: &mut TabState) {
     if tab.sql_workspace.is_some() {
         return;
     }
+    // Only the workspace: `data` is copied by a job (`start_sql_job`) when
+    // the panel opens and before a Run, off the window thread.
     match octa::sql::SqlWorkspace::new() {
-        Ok(mut ws) => {
-            let mut snapshot = tab.table.clone();
-            snapshot.apply_edits();
-            // An empty tab (no table open yet) still gets a workspace so the
-            // user can ATTACH servers and query them directly; `data` is just
-            // not registered (a zero-column table cannot be).
-            if snapshot.col_count() > 0
-                && let Err(e) = ws.set_active_table(&snapshot)
-            {
-                tab.sql.error = Some(e.to_string());
-                return;
-            }
+        Ok(ws) => {
             tab.sql_workspace = Some(ws);
         }
         Err(e) => {
@@ -382,3 +456,7 @@ pub(super) fn ensure_workspace(tab: &mut TabState) {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;

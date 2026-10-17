@@ -12,7 +12,7 @@
 //! Without the env var a test prints "skipped" and passes, so CI stays green
 //! with no database available.
 
-use octa::data::{CellValue, ColumnInfo, DataTable};
+use octa::data::{CellValue, ColumnInfo, DataTable, TextOrder};
 use octa::db::{DbAuth, DbConnection, DbEngine, DbWriteMode, connect, ensure_write_allowed};
 
 /// Parse `host=..;port=..;db=..;user=..;pass=..` into a connection.
@@ -51,6 +51,7 @@ fn conn_from_env(var: &str, engine: DbEngine) -> Option<(DbConnection, String)> 
             oauth_tenant: None,
             athena_workgroup: None,
             athena_output_location: None,
+            datetimeoffset_as_timestamp: false,
             query_timeout_secs: octa::db::DEFAULT_QUERY_TIMEOUT_SECS,
             ssh: None,
             tunnel_port: None,
@@ -265,6 +266,11 @@ fn exercise_write_back(engine: DbEngine, env_var: &str, schema: &str) {
     )
     .expect("apply");
     assert_eq!((report.deleted, report.updated, report.inserted), (1, 1, 1));
+    assert!(
+        report.merged.is_empty(),
+        "an untouched server must merge nothing: the re-read decodes differently from the load: {:?}",
+        report.merged
+    );
 
     let back = c
         .query(&format!("SELECT id, name FROM {target} ORDER BY id"))
@@ -311,6 +317,16 @@ static ROW_CAP: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn row_cap_lock() -> std::sync::MutexGuard<'static, ()> {
     ROW_CAP.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Held around `GRANT ... ON SCHEMA public`: two tests granting at the same
+/// moment make Postgres fail one with "tuple concurrently updated".
+static PG_SCHEMA_GRANT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn pg_schema_grant(c: &mut Box<dyn octa::db::DbConnector>, role: &str) {
+    let _serial = PG_SCHEMA_GRANT.lock().unwrap_or_else(|e| e.into_inner());
+    c.execute(&format!("GRANT CREATE, USAGE ON SCHEMA public TO {role}"))
+        .expect("grant");
 }
 
 /// A huge SELECT must stop collecting at the initial-load row cap instead
@@ -375,11 +391,17 @@ fn cancel_running_query_live() {
             "WAITFOR DELAY '00:00:30'",
         ),
     ];
-    for (engine, env_var, slow_sql) in cases {
-        let Some((conn, pass)) = conn_from_env(env_var, engine) else {
+    // A read-only connection too: SQL Server runs its batch inside a
+    // transaction there, and MySQL kills from a read-only session.
+    for ((engine, env_var, slow_sql), allow_writes) in cases
+        .into_iter()
+        .flat_map(|case| [(case, true), (case, false)])
+    {
+        let Some((mut conn, pass)) = conn_from_env(env_var, engine) else {
             eprintln!("skipped: {env_var} not set");
             continue;
         };
+        conn.allow_writes = allow_writes;
         let mut c = connect(&conn, Some(&pass), None).expect("connect");
         let cancel = c
             .cancel_handle()
@@ -396,8 +418,198 @@ fn cancel_running_query_live() {
         let elapsed = start.elapsed();
         assert!(
             elapsed < std::time::Duration::from_secs(20),
-            "{engine:?} statement should be cancelled well before 30s, took {elapsed:?}"
+            "{engine:?} (allow writes {allow_writes}) statement should be cancelled well before \
+             30s, took {elapsed:?}"
         );
+    }
+}
+
+/// A connection without "Allow writes" is held read-only by the server, not
+/// only by Octa's check of the statement. Each write below goes straight to
+/// the connector, past that check, as one the check misread would. The
+/// server must refuse it, or on SQL Server undo it, and reads must still
+/// work. On SQL Server the writes go through `query` only: that is where a
+/// read-only batch runs, `execute` only ever gets what the check allowed.
+#[test]
+fn read_only_connections_are_held_read_only_by_the_server_live() {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let t = format!("octa_ro_{stamp}");
+    let cases: [(DbEngine, &str, &str, bool, Vec<String>); 4] = [
+        (
+            DbEngine::Postgres,
+            "OCTA_TEST_POSTGRES_URL",
+            "CREATE TABLE {t} (a int)",
+            true,
+            vec![
+                format!("WITH x AS (DELETE FROM {t} RETURNING *) SELECT * FROM x"),
+                format!("SELECT * INTO {t}_copy FROM {t}"),
+                // Passes any check of the first word, and turns the
+                // session's read-only default off.
+                "SELECT set_config('default_transaction_read_only', 'off', false)".into(),
+                format!("WITH x AS (DELETE FROM {t} RETURNING *) SELECT * FROM x"),
+                format!("DELETE FROM {t}"),
+            ],
+        ),
+        (
+            DbEngine::MySql,
+            "OCTA_TEST_MYSQL_URL",
+            "CREATE TABLE {t} (a int)",
+            true,
+            vec![
+                // MySQL 8; MariaDB refuses the syntax, which is fine too.
+                format!("WITH x AS (SELECT 1) DELETE FROM {t}"),
+                format!("CREATE TABLE {t}_copy AS SELECT * FROM {t}"),
+                format!("DELETE FROM {t}"),
+            ],
+        ),
+        (
+            DbEngine::Mssql,
+            "OCTA_TEST_MSSQL_URL",
+            "CREATE TABLE {t} (a int)",
+            false,
+            vec![
+                format!("SELECT 1 AS one DELETE FROM {t}"),
+                format!("SELECT * INTO {t}_copy FROM {t} TRUNCATE TABLE {t}"),
+            ],
+        ),
+        (
+            DbEngine::ClickHouse,
+            "OCTA_TEST_CLICKHOUSE_URL",
+            "CREATE TABLE {t} (a Int32) ENGINE = Memory",
+            true,
+            vec![
+                format!("INSERT INTO {t} VALUES (9)"),
+                format!("RENAME TABLE {t} TO {t}_copy"),
+                format!("TRUNCATE TABLE {t}"),
+            ],
+        ),
+    ];
+    for (engine, env_var, create, via_execute, writes) in cases {
+        let Some((mut conn, pass)) = conn_from_env(env_var, engine) else {
+            eprintln!("skipped: {env_var} not set");
+            continue;
+        };
+        let mut rw = connect(&conn, Some(&pass), None).expect("connect");
+        rw.execute(&create.replace("{t}", &t)).expect("create");
+        rw.execute(&format!("INSERT INTO {t} VALUES (1), (2)"))
+            .expect("insert");
+        conn.allow_writes = false;
+        let mut ro = connect(&conn, Some(&pass), None).expect("read-only connect");
+        let count = |c: &mut Box<dyn octa::db::DbConnector>, table: &str| {
+            c.query(&format!("SELECT COUNT(*) AS n FROM {table}"))
+                .map(|r| r.rows[0][0].to_string())
+        };
+        for sql in &writes {
+            let _ = ro.query(sql);
+            if via_execute {
+                let _ = ro.execute(sql);
+            }
+        }
+        // Read twice: on SQL Server the rollback must leave the connection
+        // usable.
+        for _ in 0..2 {
+            assert_eq!(
+                count(&mut ro, &t).as_deref().ok(),
+                Some("2"),
+                "{engine:?}: a read-only connection changed {t}"
+            );
+        }
+        assert!(
+            count(&mut rw, &format!("{t}_copy")).is_err(),
+            "{engine:?}: a read-only connection created {t}_copy"
+        );
+        assert!(ro.list_schemas(None).is_ok(), "{engine:?}: listing schemas");
+        if engine == DbEngine::Mssql {
+            let one = ro
+                .query(&format!("SELECT 1 AS one DELETE FROM {t}"))
+                .expect("the batch's first result");
+            assert_eq!(one.rows[0][0], CellValue::Int(1));
+        }
+        if engine == DbEngine::ClickHouse {
+            clickhouse_readonly_profile_still_reads(&mut rw, &conn, &t);
+        }
+        rw.execute(&format!("DROP TABLE {t}")).expect("drop");
+    }
+}
+
+/// A ClickHouse user whose profile says `readonly=2` may not be sent
+/// `readonly=1`; the connector must notice and read without it. Skipped when
+/// the server does not let this user create users.
+fn clickhouse_readonly_profile_still_reads(
+    rw: &mut Box<dyn octa::db::DbConnector>,
+    conn: &DbConnection,
+    table: &str,
+) {
+    let user = format!("{table}_user");
+    let made = rw
+        .execute(&format!(
+            "CREATE USER {user} IDENTIFIED BY 'octa_ro_pw' SETTINGS readonly = 2"
+        ))
+        .and_then(|_| rw.execute(&format!("GRANT SELECT ON {table} TO {user}")));
+    if let Err(e) = made {
+        eprintln!("skipped the readonly=2 user: {e:#}");
+        return;
+    }
+    let as_user = DbConnection {
+        username: user.clone(),
+        ..conn.clone()
+    };
+    let mut c = connect(&as_user, Some("octa_ro_pw"), None).expect("connect as readonly=2");
+    let read = c.query(&format!("SELECT COUNT(*) AS n FROM {table}"));
+    let write = c.execute(&format!("INSERT INTO {table} VALUES (9)"));
+    rw.execute(&format!("DROP USER {user}")).expect("drop user");
+    assert_eq!(
+        read.expect("read as readonly=2").rows[0][0].to_string(),
+        "2"
+    );
+    assert!(write.is_err(), "a readonly=2 user wrote");
+}
+
+/// Explain plans a statement and names the table it reads; explaining a
+/// DELETE deletes nothing. PostgreSQL reads the JSON plan; MySQL 8 the TREE
+/// format (MariaDB would take the JSON fallback).
+#[test]
+fn explain_names_the_table_and_runs_nothing_live() {
+    for (engine, env_var) in [
+        (DbEngine::Postgres, "OCTA_TEST_POSTGRES_URL"),
+        (DbEngine::MySql, "OCTA_TEST_MYSQL_URL"),
+    ] {
+        let Some((conn, pass)) = conn_from_env(env_var, engine) else {
+            eprintln!("skipped: {env_var} not set");
+            continue;
+        };
+        let mut c = connect(&conn, Some(&pass), None).expect("connect");
+        let _ = c.execute("DROP TABLE IF EXISTS octa_explain_probe");
+        c.execute("CREATE TABLE octa_explain_probe (id int primary key, v int)")
+            .expect("create");
+        c.execute("INSERT INTO octa_explain_probe VALUES (1, 1), (2, 2), (3, 3)")
+            .expect("insert");
+
+        let plan =
+            octa::sql::explain::explain_db(&mut *c, "SELECT * FROM octa_explain_probe WHERE v > 1")
+                .expect("explain");
+        assert!(
+            plan.steps
+                .iter()
+                .any(|s| s.table.as_deref() == Some("octa_explain_probe")),
+            "{engine:?}: {plan:?}"
+        );
+        assert!(!plan.server_text.is_empty(), "{engine:?}");
+
+        octa::sql::explain::explain_db(&mut *c, "DELETE FROM octa_explain_probe")
+            .expect("explain a delete");
+        let left = c
+            .query("SELECT count(*) AS n FROM octa_explain_probe")
+            .expect("count");
+        assert_eq!(
+            left.rows[0][0].to_string(),
+            "3",
+            "{engine:?}: Explain must not run the DELETE"
+        );
+        c.execute("DROP TABLE octa_explain_probe").expect("drop");
     }
 }
 
@@ -424,6 +636,211 @@ fn mysql_write_back_live() {
 #[test]
 fn mssql_write_back_live() {
     exercise_write_back(DbEngine::Mssql, "OCTA_TEST_MSSQL_URL", "dbo");
+}
+
+/// Two sessions on one table: B changes the server between A's load and A's
+/// save. A different cell merges, the same cell is a conflict that writes
+/// nothing, a row B deleted is a deleted-on-server conflict, and a save that
+/// adds a column (DDL commits on MySQL/MariaDB and Oracle) adds it only when
+/// the check passes.
+fn exercise_write_conflicts(engine: DbEngine, env_var: &str, schema: &str) {
+    use octa::db::write_back::{WriteConflicts, apply_write_back, build_write_back_plan};
+    let Some((conn, pass)) = conn_from_env(env_var, engine) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut a = connect(&conn, Some(&pass), None).expect("connect A");
+    let mut b = connect(&conn, Some(&pass), None).expect("connect B");
+    let table_name = format!(
+        "octa_wc_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let target = format!(
+        "{}.{}",
+        engine.quote_ident(schema),
+        engine.quote_ident(&table_name)
+    );
+    // Quoted everywhere: Oracle folds unquoted names to upper case.
+    let (id, x, y, z) = (
+        engine.quote_ident("id"),
+        engine.quote_ident("x"),
+        engine.quote_ident("y"),
+        engine.quote_ident("z"),
+    );
+    let (id_type, text_type) = match engine {
+        DbEngine::Mssql => ("BIGINT", "NVARCHAR(100)"),
+        DbEngine::Oracle => ("NUMBER(19)", "VARCHAR2(100)"),
+        _ => ("BIGINT", "VARCHAR(100)"),
+    };
+    a.execute(&format!(
+        "CREATE TABLE {target} ({id} {id_type} PRIMARY KEY, {x} {text_type}, {y} {text_type})"
+    ))
+    .expect("create");
+    a.execute(&format!(
+        "INSERT INTO {target} ({id}, {x}, {y}) VALUES (1, 'x0', 'y0')"
+    ))
+    .expect("seed");
+    let identity = octa::db::write_back::RowIdentity::Key(vec!["id".to_string()]);
+    // Load + baseline exactly as the sidebar open worker builds it.
+    let load = |c: &mut Box<dyn octa::db::DbConnector>| {
+        let mut t = c
+            .query(&octa::db::select_sample_sql(
+                engine,
+                None,
+                schema,
+                &table_name,
+                1000,
+            ))
+            .expect("load");
+        let original: std::collections::HashMap<i64, Vec<CellValue>> = t
+            .rows
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (i as i64, r.clone()))
+            .collect();
+        t.db_meta = Some(octa::data::DbRowMeta {
+            table_name: table_name.clone(),
+            schema: Some(schema.to_string()),
+            row_tags: (0..t.rows.len()).map(|i| Some(i as i64)).collect(),
+            original,
+            original_columns: t.columns.iter().map(|c| c.name.clone()).collect(),
+        });
+        t
+    };
+    let save = |c: &mut Box<dyn octa::db::DbConnector>, t: &DataTable| {
+        let plan = build_write_back_plan(t, &identity).unwrap();
+        apply_write_back(
+            c.as_mut(),
+            engine,
+            schema,
+            &table_name,
+            &t.columns,
+            &identity,
+            &plan,
+        )
+    };
+    let text = |v: &str| CellValue::String(v.into());
+    let mut t = load(&mut a);
+    let x_col = t.columns.iter().position(|c| c.name == "x").unwrap();
+    // Steps 1-3 never re-baseline (the app would): step 2 deliberately saves
+    // from the stale load-time baseline.
+
+    // 1. B changes y, A changes x: both survive.
+    b.execute(&format!("UPDATE {target} SET {y} = 'yB' WHERE {id} = 1"))
+        .unwrap();
+    t.rows[0][x_col] = text("xA");
+    let report = save(&mut a, &t).unwrap();
+    assert_eq!(report.merged.len(), 1);
+    let back = a
+        .query(&format!("SELECT {x}, {y} FROM {target} WHERE {id} = 1"))
+        .unwrap();
+    assert_eq!(back.rows[0], vec![text("xA"), text("yB")]);
+
+    // 2. A edits x again from its now stale baseline (still x0/y0) while B
+    // changed x too: a conflict, and nothing is written.
+    b.execute(&format!("UPDATE {target} SET {x} = 'xB' WHERE {id} = 1"))
+        .unwrap();
+    t.rows[0][x_col] = text("xA2");
+    let err = save(&mut a, &t).unwrap_err();
+    assert!(err.downcast_ref::<WriteConflicts>().is_some(), "{err:#}");
+    let back = a
+        .query(&format!("SELECT {x} FROM {target} WHERE {id} = 1"))
+        .unwrap();
+    assert_eq!(back.rows[0][0], text("xB"), "nothing written");
+
+    // 3. B deletes the row; A's edit is a deleted-on-server conflict.
+    b.execute(&format!("DELETE FROM {target} WHERE {id} = 1"))
+        .unwrap();
+    let err = save(&mut a, &t).unwrap_err();
+    let c = err.downcast_ref::<WriteConflicts>().expect("typed");
+    assert_eq!(
+        c.conflicts[0].kind,
+        octa::db::write_back::ConflictKind::DeletedOnServer
+    );
+
+    // 4. A column added in the tab. Where the ALTER commits, the check runs
+    // before it as well as after it: a conflict must add no column.
+    a.execute(&format!(
+        "INSERT INTO {target} ({id}, {x}, {y}) VALUES (2, 'x0', 'y0')"
+    ))
+    .expect("seed row 2");
+    let add_column = |t: &mut DataTable| {
+        t.columns.push(ColumnInfo {
+            name: "z".into(),
+            data_type: "Utf8".into(),
+        });
+        for r in &mut t.rows {
+            r.push(CellValue::String("z1".into()));
+        }
+    };
+    let mut t = load(&mut a);
+    b.execute(&format!("UPDATE {target} SET {x} = 'xB' WHERE {id} = 2"))
+        .unwrap();
+    t.rows[0][x_col] = text("xA");
+    add_column(&mut t);
+    let err = save(&mut a, &t).unwrap_err();
+    assert!(err.downcast_ref::<WriteConflicts>().is_some(), "{err:#}");
+    let now = a.query(&format!("SELECT * FROM {target}")).unwrap();
+    assert!(
+        now.columns.iter().all(|c| c.name != "z"),
+        "a conflict before the ALTER must add no column"
+    );
+    // A clean save adds the column and keeps B's change to another cell.
+    let mut t = load(&mut a);
+    b.execute(&format!("UPDATE {target} SET {y} = 'yB' WHERE {id} = 2"))
+        .unwrap();
+    t.rows[0][x_col] = text("xA");
+    add_column(&mut t);
+    let report = save(&mut a, &t).unwrap();
+    assert_eq!(report.merged.len(), 1);
+    let back = a
+        .query(&format!(
+            "SELECT {x}, {y}, {z} FROM {target} WHERE {id} = 2"
+        ))
+        .unwrap();
+    assert_eq!(back.rows[0], vec![text("xA"), text("yB"), text("z1")]);
+
+    a.execute(&format!("DROP TABLE {target}")).unwrap();
+}
+
+#[test]
+fn postgres_write_conflicts_live() {
+    exercise_write_conflicts(DbEngine::Postgres, "OCTA_TEST_POSTGRES_URL", "public");
+}
+
+#[test]
+fn mysql_write_conflicts_live() {
+    let Some((conn, pass)) = conn_from_env("OCTA_TEST_MYSQL_URL", DbEngine::MySql) else {
+        eprintln!("skipped: OCTA_TEST_MYSQL_URL not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
+    c.execute("CREATE DATABASE IF NOT EXISTS octa_wc_db")
+        .expect("create db");
+    drop(c);
+    exercise_write_conflicts(DbEngine::MySql, "OCTA_TEST_MYSQL_URL", "octa_wc_db");
+    let mut c = connect(&conn, Some(&pass), None).expect("reconnect");
+    c.execute("DROP DATABASE octa_wc_db").expect("drop db");
+}
+
+#[test]
+fn mssql_write_conflicts_live() {
+    exercise_write_conflicts(DbEngine::Mssql, "OCTA_TEST_MSSQL_URL", "dbo");
+}
+
+/// Oracle commits on DDL like MySQL, and types an unconstrained NUMBER per
+/// result. Runs in the connecting user's own schema.
+#[test]
+fn oracle_write_conflicts_live() {
+    let Some((conn, _)) = conn_from_env("OCTA_TEST_ORACLE_URL", DbEngine::Oracle) else {
+        eprintln!("skipped: OCTA_TEST_ORACLE_URL not set");
+        return;
+    };
+    let schema = conn.username.to_uppercase();
+    exercise_write_conflicts(DbEngine::Oracle, "OCTA_TEST_ORACLE_URL", &schema);
 }
 
 #[test]
@@ -1122,8 +1539,13 @@ fn file_vs_postgres_table_diff_live() {
         .rows
         .push(vec![CellValue::Int(4), CellValue::String("d".into())]);
 
-    let result = octa::data::compare::compare_join(&file_side, &db_side, &["id".to_string()])
-        .expect("compare_join");
+    let result = octa::data::compare::compare_join(
+        &file_side,
+        &db_side,
+        &["id".to_string()],
+        &octa::data::compare::CompareOptions::default(),
+    )
+    .expect("compare_join");
     assert_eq!(result.changed.len(), 1, "one changed row");
     assert_eq!(result.only_in_a.len(), 1, "id 4 is file-only");
     assert_eq!(result.only_in_b.len(), 1, "id 3 is database-only");
@@ -1217,6 +1639,439 @@ fn postgres_numeric_round_trip_live() {
         "NULL numeric should stay NULL, got {:?}",
         got.get(0, 5)
     );
+}
+
+/// Every Postgres type outside the handful Octa decodes natively (integers,
+/// floats, booleans, dates, timestamps, NUMERIC) must read as the text
+/// Postgres itself prints, never as NULL. The expected values come from the
+/// server: the same columns cast to `::text` in a second query. `bytea` is
+/// the exception, it must arrive as real bytes.
+#[test]
+fn postgres_every_column_type_reads_as_postgres_prints_it_live() {
+    let env_var = "OCTA_TEST_POSTGRES_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::Postgres) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    c.execute("DROP TABLE IF EXISTS octa_types_probe").ok();
+    c.execute("DROP TYPE IF EXISTS octa_mood").ok();
+    c.execute("CREATE TYPE octa_mood AS ENUM ('sad', 'happy')")
+        .expect("create enum");
+    c.execute(
+        "CREATE TABLE octa_types_probe (\
+             id int PRIMARY KEY, u uuid, j json, jb jsonb, b bytea, t time, \
+             tz timetz, iv interval, ip inet, net cidr, mac macaddr, \
+             arr int[], tarr text[], m money, x xml, mood octa_mood, \
+             bits varbit, tsv tsvector, pt point, rng int4range)",
+    )
+    .expect("create probe table");
+    c.execute(
+        "INSERT INTO octa_types_probe VALUES (1, \
+             'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', '{\"a\": [1, 2]}', \
+             '{\"b\": {\"c\": null}}', '\\xdeadbeef00', '12:34:56.789', \
+             '12:34:56+02', '1 year 2 mons 3 days 04:05:06.5', \
+             '192.168.0.1/24', '10.0.0.0/8', '08:00:2b:01:02:03', \
+             '{1,2,NULL}', '{\"a,b\",\"x\\\"y\",plain}', '12.34', \
+             '<r><i>1</i></r>', 'happy', B'1011', 'fat cat sat', \
+             '(1.5,2)', '[1,10)'), (2, NULL, NULL, NULL, NULL, NULL, NULL, \
+             NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, \
+             NULL, NULL, NULL)",
+    )
+    .expect("insert probe rows");
+
+    let got = c
+        .query("SELECT * FROM octa_types_probe ORDER BY id")
+        .expect("select");
+    let names: Vec<String> = got.columns.iter().map(|c| c.name.clone()).collect();
+    let text_select = names
+        .iter()
+        .map(|n| format!("{n}::text"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let want = c
+        .query(&format!(
+            "SELECT {text_select} FROM octa_types_probe ORDER BY id"
+        ))
+        .expect("select as text");
+    c.execute("DROP TABLE octa_types_probe").ok();
+    c.execute("DROP TYPE octa_mood").ok();
+
+    assert_eq!(got.row_count(), 2, "expected two probe rows");
+    for (col, name) in names.iter().enumerate().skip(1) {
+        let got_cell = got.get(0, col).cloned().unwrap_or(CellValue::Null);
+        if name == "b" {
+            assert_eq!(
+                got_cell,
+                CellValue::Binary(vec![0xde, 0xad, 0xbe, 0xef, 0x00]),
+                "bytea must arrive as bytes"
+            );
+        } else {
+            let want_text = want.get(0, col).map(|v| v.to_string()).unwrap_or_default();
+            assert_eq!(
+                got_cell.to_string(),
+                want_text,
+                "column {name} must read as Postgres prints it, got {got_cell:?}"
+            );
+        }
+        assert_eq!(
+            got.get(1, col).cloned().unwrap_or(CellValue::Null),
+            CellValue::Null,
+            "a real NULL in {name} must stay NULL"
+        );
+    }
+}
+
+/// Saving an edit to one cell must leave every other column on the server
+/// exactly as it was. A writable tab writes back whole rows, so any column
+/// that was read wrongly is overwritten with the wrong value; a `uuid` key
+/// read wrongly addresses no row at all.
+#[test]
+fn postgres_editing_one_cell_keeps_every_other_column_live() {
+    use octa::db::write_back::{RowIdentity, apply_write_back, build_write_back_plan};
+    let env_var = "OCTA_TEST_POSTGRES_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::Postgres) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    // A server in a zone other than UTC: initdb takes the machine's zone, so
+    // an on-premises server in Germany runs Europe/Berlin. A role of its own
+    // carries that default, so no other test's session sees it.
+    let mut admin = connect(&conn, Some(&secret), None).expect("connect");
+    admin
+        .execute(
+            "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'octa_tz') \
+             THEN CREATE ROLE octa_tz LOGIN PASSWORD 'octa_tz_pw'; END IF; END $$",
+        )
+        .expect("create role");
+    admin
+        .execute("ALTER ROLE octa_tz SET timezone = 'Europe/Berlin'")
+        .expect("role zone");
+    pg_schema_grant(&mut admin, "octa_tz");
+    let mut berlin = conn.clone();
+    berlin.username = "octa_tz".to_string();
+    let mut c = connect(&berlin, Some("octa_tz_pw"), None).expect("connect as octa_tz");
+    let table = "octa_types_wb";
+    c.execute(&format!("DROP TABLE IF EXISTS {table}")).ok();
+    c.execute(&format!(
+        "CREATE TABLE {table} (id uuid PRIMARY KEY, name text, jb jsonb, \
+         b bytea, iv interval, arr int[], ip inet, ts timestamp, \
+         tstz timestamptz)"
+    ))
+    .expect("create table");
+    c.execute(&format!(
+        "INSERT INTO {table} VALUES ('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11', \
+         'before', '{{\"k\": 1}}', '\\x00ff10', '2 days 03:00:00', '{{4,5}}', \
+         '10.1.2.3', '2024-01-02 03:04:05.789012', \
+         '2024-01-02 03:04:05.5+02')"
+    ))
+    .expect("seed row");
+    let oracle = format!(
+        "SELECT id::text, name, jb::text, encode(b, 'hex'), iv::text, \
+         arr::text, ip::text, ts::text, (tstz AT TIME ZONE 'UTC')::text \
+         FROM {table}"
+    );
+    let before = c.query(&oracle).expect("before");
+
+    let mut t = c
+        .query(&octa::db::select_sample_sql(
+            DbEngine::Postgres,
+            None,
+            "public",
+            table,
+            1000,
+        ))
+        .expect("load");
+    t.db_meta = Some(octa::data::DbRowMeta {
+        table_name: table.to_string(),
+        schema: Some("public".to_string()),
+        row_tags: vec![Some(0)],
+        original: std::collections::HashMap::from([(0, t.rows[0].clone())]),
+        original_columns: t.columns.iter().map(|c| c.name.clone()).collect(),
+    });
+    let name_col = t.columns.iter().position(|c| c.name == "name").unwrap();
+    t.rows[0][name_col] = CellValue::String("after".into());
+    let identity = RowIdentity::Key(vec!["id".to_string()]);
+    let plan = build_write_back_plan(&t, &identity).expect("plan");
+    let report = apply_write_back(
+        c.as_mut(),
+        DbEngine::Postgres,
+        "public",
+        table,
+        &t.columns,
+        &identity,
+        &plan,
+    )
+    .expect("apply");
+    let after = c.query(&oracle).expect("after");
+    c.execute(&format!("DROP TABLE {table}")).ok();
+
+    assert_eq!(report.updated, 1, "the uuid key must address the row");
+    assert!(
+        report.merged.is_empty(),
+        "the conflict re-read decoded a column differently from the load: {:?}",
+        report.merged
+    );
+    assert_eq!(after.row_count(), 1);
+    for col in 0..after.col_count() {
+        let name = &after.columns[col].name;
+        let (b, a) = (before.get(0, col).unwrap(), after.get(0, col).unwrap());
+        if col == 1 {
+            assert_eq!(a, &CellValue::String("after".into()), "the edit itself");
+        } else {
+            assert_eq!(a, b, "column {name} changed although only name was edited");
+        }
+    }
+}
+
+/// Read one row from `table` through Octa, edit `edit_col`, write the whole
+/// row back the way a database tab saves, and return the server's own text
+/// for every column before and after (from `oracle`, one column each).
+fn edit_one_cell_round_trip(
+    c: &mut Box<dyn octa::db::DbConnector>,
+    engine: DbEngine,
+    schema: &str,
+    table: &str,
+    edit_col: &str,
+    oracle: &str,
+) -> (DataTable, DataTable) {
+    use octa::db::write_back::{RowIdentity, apply_write_back, build_write_back_plan};
+    let before = c.query(oracle).expect("before");
+    let mut t = c
+        .query(&octa::db::select_sample_sql(
+            engine, None, schema, table, 1000,
+        ))
+        .expect("load");
+    t.db_meta = Some(octa::data::DbRowMeta {
+        table_name: table.to_string(),
+        schema: Some(schema.to_string()),
+        row_tags: vec![Some(0)],
+        original: std::collections::HashMap::from([(0, t.rows[0].clone())]),
+        original_columns: t.columns.iter().map(|c| c.name.clone()).collect(),
+    });
+    let col = t.columns.iter().position(|c| c.name == edit_col).unwrap();
+    t.rows[0][col] = CellValue::String("after".into());
+    let identity = RowIdentity::Key(vec!["id".to_string()]);
+    let plan = build_write_back_plan(&t, &identity).expect("plan");
+    let report = apply_write_back(
+        c.as_mut(),
+        engine,
+        schema,
+        table,
+        &t.columns,
+        &identity,
+        &plan,
+    )
+    .expect("apply");
+    assert_eq!(report.updated, 1, "the key must address the row");
+    assert!(
+        report.merged.is_empty(),
+        "the conflict re-read decoded a column differently from the load: {:?}",
+        report.merged
+    );
+    (before, c.query(oracle).expect("after"))
+}
+
+/// Every column but `edited` must be identical before and after the save.
+fn assert_only_edit_changed(before: &DataTable, after: &DataTable, edited: usize) {
+    assert_eq!(after.row_count(), 1);
+    for col in 0..after.col_count() {
+        let name = &after.columns[col].name;
+        let (b, a) = (before.get(0, col).unwrap(), after.get(0, col).unwrap());
+        if col == edited {
+            assert_eq!(a.to_string(), "after", "the edit itself");
+        } else {
+            assert_eq!(
+                a, b,
+                "column {name} changed although only one cell was edited"
+            );
+        }
+    }
+}
+
+/// SQL Server types outside the plain numbers, text, booleans and dates must
+/// read as their values, never as NULL, and times keep their fractions.
+#[test]
+fn mssql_every_column_type_reads_back_live() {
+    let env_var = "OCTA_TEST_MSSQL_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::Mssql) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    c.execute("DROP TABLE IF EXISTS octa_types_probe").ok();
+    c.execute(
+        "CREATE TABLE octa_types_probe (id int PRIMARY KEY, d decimal(12,2), \
+         n numeric(20,6), z decimal(10,0), m money, g uniqueidentifier, \
+         vb varbinary(10), t time(7), dto datetimeoffset(7), dt2 datetime2(7), \
+         dtl datetime, x xml, nv nvarchar(20))",
+    )
+    .expect("create probe table");
+    c.execute(
+        "INSERT INTO octa_types_probe VALUES (1, 99.50, -0.000123, 123, 12.34, \
+         'A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11', 0xDEADBEEF00, '12:34:56.1234567', \
+         '2024-01-02 03:04:05.1234567 +02:00', '2024-01-02 03:04:05.1234567', \
+         '2024-01-02 03:04:05.003', '<r>1</r>', N'Grüße'), (2, NULL, NULL, NULL, \
+         NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)",
+    )
+    .expect("insert probe rows");
+    let got = c
+        .query("SELECT * FROM octa_types_probe ORDER BY id")
+        .expect("select");
+    c.execute("DROP TABLE octa_types_probe").ok();
+
+    let want = [
+        CellValue::String("99.50".into()),
+        CellValue::String("-0.000123".into()),
+        CellValue::String("123".into()),
+        CellValue::Float(12.34),
+        CellValue::String("A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11".into()),
+        CellValue::Binary(vec![0xde, 0xad, 0xbe, 0xef, 0x00]),
+        CellValue::String("12:34:56.1234567".into()),
+        CellValue::String("2024-01-02 03:04:05.1234567 +02:00".into()),
+        CellValue::DateTime("2024-01-02 03:04:05.1234567".into()),
+        CellValue::DateTime("2024-01-02 03:04:05.003".into()),
+        CellValue::String("<r>1</r>".into()),
+        CellValue::String("Grüße".into()),
+    ];
+    assert_eq!(got.row_count(), 2);
+    for (k, expected) in want.iter().enumerate() {
+        let col = k + 1;
+        let name = &got.columns[col].name;
+        assert_eq!(got.get(0, col), Some(expected), "column {name}");
+        assert_eq!(
+            got.get(1, col),
+            Some(&CellValue::Null),
+            "NULL {name} stays NULL"
+        );
+    }
+}
+
+/// Saving one edited cell must leave every other SQL Server column as it was.
+#[test]
+fn mssql_editing_one_cell_keeps_every_other_column_live() {
+    let env_var = "OCTA_TEST_MSSQL_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::Mssql) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    let table = "octa_types_wb";
+    c.execute(&format!("DROP TABLE IF EXISTS dbo.{table}")).ok();
+    c.execute(&format!(
+        "CREATE TABLE dbo.{table} (id int PRIMARY KEY, name nvarchar(20), \
+         d decimal(12,2), m money, g uniqueidentifier, vb varbinary(10), \
+         t time(7), dto datetimeoffset(7), dt2 datetime2(7), dtl datetime, x xml)"
+    ))
+    .expect("create table");
+    c.execute(&format!(
+        "INSERT INTO dbo.{table} VALUES (1, 'before', 99.50, 12.34, \
+         'A0EEBC99-9C0B-4EF8-BB6D-6BB9BD380A11', 0x00FF10, '12:34:56.1234567', \
+         '2024-01-02 03:04:05.1234567 +02:00', '2024-01-02 03:04:05.1234567', \
+         '2024-01-02 03:04:05.003', '<r>1</r>')"
+    ))
+    .expect("seed row");
+    let oracle = format!(
+        "SELECT CAST(id AS nvarchar(20)), name, CAST(d AS nvarchar(50)), \
+         CONVERT(nvarchar(50), m, 2), CAST(g AS nvarchar(50)), \
+         CONVERT(nvarchar(50), vb, 1), CAST(t AS nvarchar(50)), \
+         CONVERT(nvarchar(60), dto, 121), CONVERT(nvarchar(60), dt2, 121), \
+         CONVERT(nvarchar(60), dtl, 121), CAST(x AS nvarchar(max)) FROM dbo.{table}"
+    );
+    let (before, after) =
+        edit_one_cell_round_trip(&mut c, DbEngine::Mssql, "dbo", table, "name", &oracle);
+    c.execute(&format!("DROP TABLE dbo.{table}")).ok();
+    assert_only_edit_changed(&before, &after, 1);
+}
+
+/// With the connection's `datetimeoffset_as_timestamp` option, DATETIMEOFFSET
+/// reads as the moment in UTC, typed as a timestamp, and a save keeps that
+/// moment (SQL Server stores it back at +00:00, which the option documents).
+#[test]
+fn mssql_datetimeoffset_as_timestamp_keeps_the_moment_live() {
+    let env_var = "OCTA_TEST_MSSQL_URL";
+    let Some((mut conn, secret)) = conn_from_env(env_var, DbEngine::Mssql) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    conn.datetimeoffset_as_timestamp = true;
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    let table = "octa_dto_ts";
+    c.execute(&format!("DROP TABLE IF EXISTS dbo.{table}")).ok();
+    c.execute(&format!(
+        "CREATE TABLE dbo.{table} (id int PRIMARY KEY, name nvarchar(20), \
+         dto datetimeoffset(7))"
+    ))
+    .expect("create table");
+    c.execute(&format!(
+        "INSERT INTO dbo.{table} VALUES (1, 'before', '2024-01-02 03:04:05.1234567 +02:00')"
+    ))
+    .expect("seed row");
+    let got = c
+        .query(&format!("SELECT dto FROM dbo.{table}"))
+        .expect("select");
+    assert_eq!(got.columns[0].data_type, "Timestamp(Microsecond, None)");
+    assert_eq!(
+        got.get(0, 0),
+        Some(&CellValue::DateTime("2024-01-02 01:04:05.1234567".into()))
+    );
+
+    let oracle = format!(
+        "SELECT CAST(id AS nvarchar(20)), name, \
+         CONVERT(nvarchar(60), SWITCHOFFSET(dto, '+00:00'), 121) FROM dbo.{table}"
+    );
+    let (before, after) =
+        edit_one_cell_round_trip(&mut c, DbEngine::Mssql, "dbo", table, "name", &oracle);
+    c.execute(&format!("DROP TABLE dbo.{table}")).ok();
+    assert_only_edit_changed(&before, &after, 1);
+}
+
+/// MySQL binary columns must arrive as bytes, not as text with every
+/// invalid byte replaced, and a save must write the same bytes back.
+#[test]
+fn mysql_binary_columns_keep_their_bytes_live() {
+    let env_var = "OCTA_TEST_MYSQL_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::MySql) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    let schema = conn.database.clone();
+    let table = "octa_types_wb";
+    c.execute(&format!("DROP TABLE IF EXISTS {table}")).ok();
+    c.execute(&format!(
+        "CREATE TABLE {table} (id int PRIMARY KEY, name varchar(20), b blob, \
+         vb varbinary(10), bn binary(4), bits bit(8), t text, dt datetime(6), \
+         tm time(6), dec_col decimal(12,2))"
+    ))
+    .expect("create table");
+    c.execute(&format!(
+        "INSERT INTO {table} VALUES (1, 'before', X'00FFFE80', X'DEAD', X'01020304', \
+         b'1011', 'Grüße C:\\\\temp', '2024-01-02 03:04:05.123456', '12:34:56.5', 99.50)"
+    ))
+    .expect("seed row");
+    let got = c
+        .query(&format!("SELECT b, vb, bn, t FROM {table}"))
+        .expect("select");
+    assert_eq!(
+        got.get(0, 0),
+        Some(&CellValue::Binary(vec![0x00, 0xff, 0xfe, 0x80]))
+    );
+    assert_eq!(got.get(0, 1), Some(&CellValue::Binary(vec![0xde, 0xad])));
+    assert_eq!(got.get(0, 2), Some(&CellValue::Binary(vec![1, 2, 3, 4])));
+    assert_eq!(
+        got.get(0, 3),
+        Some(&CellValue::String("Grüße C:\\temp".into()))
+    );
+
+    let oracle = format!(
+        "SELECT CAST(id AS CHAR), name, HEX(b), HEX(vb), HEX(bn), HEX(bits), t, \
+         CAST(dt AS CHAR), CAST(tm AS CHAR), CAST(dec_col AS CHAR) FROM {table}"
+    );
+    let (before, after) =
+        edit_one_cell_round_trip(&mut c, DbEngine::MySql, &schema, table, "name", &oracle);
+    c.execute(&format!("DROP TABLE {table}")).ok();
+    assert_only_edit_changed(&before, &after, 1);
 }
 
 /// A statement that keeps the server silent for longer than 30 s still
@@ -1830,7 +2685,7 @@ fn view_pushdown_parity(engine: DbEngine, env_var: &str, schema: &str) {
         vec![(2, true), (1, false)],
     ] {
         let mut local_sorted = t.clone();
-        local_sorted.sort_rows_by_columns(&keys);
+        local_sorted.sort_rows_by_columns(&keys, TextOrder::Letters);
         let order = keys
             .iter()
             .map(|&(k, asc)| SortKey {
@@ -2448,4 +3303,322 @@ fn mysql_chart_pushdown_parity_live() {
     chart_pushdown_parity(DbEngine::MySql, "OCTA_TEST_MYSQL_URL", "octa_chart_db");
     let mut c = connect(&conn, Some(&pass), None).expect("reconnect");
     c.execute("DROP DATABASE octa_chart_db").expect("drop db");
+}
+
+/// Export a table of more than two pages, and an empty one, through a real
+/// driver: every row reaches the file once, in Parquet and CSV alike, and the
+/// empty table still gets its columns.
+fn exercise_export(engine: DbEngine, env_var: &str, schema: &str, seed: &[&str]) {
+    use octa::db::export::{ExportFormat, ExportRequest, TableOutcome, export_tables};
+
+    let Some((conn, pass)) = conn_from_env(env_var, engine) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&pass), None).expect("connect");
+    for sql in seed {
+        c.execute(sql).unwrap_or_else(|e| panic!("{sql}: {e:#}"));
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    for format in [ExportFormat::Parquet, ExportFormat::Csv] {
+        let request = ExportRequest {
+            catalog: None,
+            schema: schema.into(),
+            tables: vec!["octa_export_items".into(), "octa_export_empty".into()],
+            dir: dir.path().to_path_buf(),
+            format,
+            overwrite: true,
+            options: Default::default(),
+        };
+        let out = export_tables(
+            c.as_mut(),
+            &request,
+            &|_| {},
+            &std::sync::atomic::AtomicBool::new(false),
+        )
+        .expect("export");
+        assert!(
+            matches!(&out[0], TableOutcome::Written { rows: 120_003, .. }),
+            "{format:?}: {out:?}"
+        );
+        assert!(
+            matches!(&out[1], TableOutcome::Written { rows: 0, .. }),
+            "{format:?}: {out:?}"
+        );
+
+        let ext = format.extension();
+        let items = octa::formats::read_table_auto(
+            &dir.path().join(format!("octa_export_items.{ext}")),
+            None,
+            u64::MAX,
+        )
+        .expect("read items back");
+        assert_eq!(items.row_count(), 120_003, "{format:?}");
+        // Every id exactly once: pages neither overlap nor skip.
+        let mut ids: Vec<i64> = (0..items.row_count())
+            .map(|r| match items.get(r, 0) {
+                Some(CellValue::Int(n)) => *n,
+                other => panic!("{format:?}: id {other:?}"),
+            })
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 120_003, "{format:?}");
+        assert_eq!((ids[0], ids[ids.len() - 1]), (1, 120_003), "{format:?}");
+
+        let empty = octa::formats::read_table_auto(
+            &dir.path().join(format!("octa_export_empty.{ext}")),
+            None,
+            u64::MAX,
+        )
+        .expect("read empty back");
+        assert_eq!(empty.row_count(), 0, "{format:?}");
+        let names: Vec<&str> = empty.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["id", "label"], "{format:?}");
+    }
+}
+
+#[test]
+fn postgres_export_tables_live() {
+    exercise_export(
+        DbEngine::Postgres,
+        "OCTA_TEST_POSTGRES_URL",
+        "public",
+        &[
+            "DROP TABLE IF EXISTS public.octa_export_items",
+            "DROP TABLE IF EXISTS public.octa_export_empty",
+            "CREATE TABLE public.octa_export_items (id BIGINT PRIMARY KEY, label TEXT)",
+            "INSERT INTO public.octa_export_items SELECT g, 'n' || g FROM generate_series(1, 120003) g",
+            "CREATE TABLE public.octa_export_empty (id BIGINT, label TEXT)",
+        ],
+    );
+}
+
+#[test]
+fn mysql_export_tables_live() {
+    exercise_export(
+        DbEngine::MySql,
+        "OCTA_TEST_MYSQL_URL",
+        "octa_export_db",
+        &[
+            "CREATE DATABASE IF NOT EXISTS octa_export_db",
+            "DROP TABLE IF EXISTS octa_export_db.octa_export_items",
+            "DROP TABLE IF EXISTS octa_export_db.octa_export_empty",
+            "CREATE TABLE octa_export_db.octa_export_items (id BIGINT PRIMARY KEY, label VARCHAR(20))",
+            "SET SESSION cte_max_recursion_depth = 200000",
+            "INSERT INTO octa_export_db.octa_export_items \
+             WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < 120003) \
+             SELECT n, CONCAT('n', n) FROM s",
+            "CREATE TABLE octa_export_db.octa_export_empty (id BIGINT, label VARCHAR(20))",
+        ],
+    );
+}
+
+/// Text that every quoting rule has to get right: backslashes (escapes on
+/// Snowflake, ClickHouse, Databricks, BigQuery, MySQL and Redshift), an
+/// apostrophe (`''` is two joined literals on Databricks), a newline (not
+/// allowed raw in a BigQuery literal), a backslash at the end of a line (a
+/// line continuation in SQL Server), text outside Latin-1 (SQL Server needs
+/// `N'..'`), and quote pairs.
+const TRICKY_TEXT: &[&str] = &[
+    "C:\\temp\\new",
+    "it's",
+    "line one\nline two",
+    "ends in a backslash\\\nnext line",
+    "中文 Grüße 😀",
+    "\\'",
+    "''",
+    "x\\\\y",
+];
+
+/// Write `TRICKY_TEXT` through `DbConnector::write_table` (the INSERT path
+/// every engine without its own loader uses) into an existing `(id, t)`
+/// table, read it back with `select` (`id, t` ordered by id) and require
+/// every value unchanged.
+fn assert_text_survives_a_write(
+    c: &mut Box<dyn octa::db::DbConnector>,
+    catalog: Option<&str>,
+    schema: &str,
+    table: &str,
+    select: &str,
+) {
+    let mut data = DataTable::empty();
+    data.columns = vec![
+        ColumnInfo {
+            name: "id".into(),
+            data_type: "Int64".into(),
+        },
+        ColumnInfo {
+            name: "t".into(),
+            data_type: "Utf8".into(),
+        },
+    ];
+    data.rows = TRICKY_TEXT
+        .iter()
+        .enumerate()
+        .map(|(i, s)| vec![CellValue::Int(i as i64), CellValue::String(s.to_string())])
+        .collect();
+    c.write_table(catalog, schema, table, DbWriteMode::Append, &data)
+        .expect("write");
+    let back = c.query(select).expect("read back");
+    let got: Vec<String> = back.rows.iter().map(|r| r[1].to_string()).collect();
+    let want: Vec<String> = TRICKY_TEXT.iter().map(|s| s.to_string()).collect();
+    assert_eq!(got, want);
+}
+
+/// Postgres reads a backslash as an escape while `standard_conforming_strings`
+/// is off. It has been on by default since 9.1; this is a server where it is
+/// not, set on a role of its own so no other test's session sees it.
+#[test]
+fn postgres_text_survives_a_write_live() {
+    let env_var = "OCTA_TEST_POSTGRES_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::Postgres) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut admin = connect(&conn, Some(&secret), None).expect("connect");
+    admin
+        .execute(
+            "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'octa_scs') \
+             THEN CREATE ROLE octa_scs LOGIN PASSWORD 'octa_scs_pw'; END IF; END $$",
+        )
+        .expect("create role");
+    admin
+        .execute("ALTER ROLE octa_scs SET standard_conforming_strings = off")
+        .expect("role setting");
+    pg_schema_grant(&mut admin, "octa_scs");
+    let mut role = conn.clone();
+    role.username = "octa_scs".to_string();
+    let mut c = connect(&role, Some("octa_scs_pw"), None).expect("connect as octa_scs");
+    c.execute("DROP TABLE IF EXISTS octa_text_probe").ok();
+    c.execute("CREATE TABLE octa_text_probe (id bigint, t text)")
+        .expect("create");
+    assert_text_survives_a_write(
+        &mut c,
+        None,
+        "public",
+        "octa_text_probe",
+        "SELECT id, t FROM octa_text_probe ORDER BY id",
+    );
+    c.execute("DROP TABLE octa_text_probe").ok();
+}
+
+#[test]
+fn mysql_text_survives_a_write_live() {
+    let env_var = "OCTA_TEST_MYSQL_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::MySql) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    let schema = conn.database.clone();
+    c.execute("DROP TABLE IF EXISTS octa_text_probe").ok();
+    c.execute("CREATE TABLE octa_text_probe (id bigint, t text) CHARACTER SET utf8mb4")
+        .expect("create");
+    assert_text_survives_a_write(
+        &mut c,
+        None,
+        &schema,
+        "octa_text_probe",
+        "SELECT id, t FROM octa_text_probe ORDER BY id",
+    );
+    c.execute("DROP TABLE octa_text_probe").ok();
+}
+
+#[test]
+fn mssql_text_survives_a_write_live() {
+    let env_var = "OCTA_TEST_MSSQL_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::Mssql) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    c.execute("DROP TABLE IF EXISTS dbo.octa_text_probe").ok();
+    c.execute("CREATE TABLE dbo.octa_text_probe (id bigint, t nvarchar(200))")
+        .expect("create");
+    assert_text_survives_a_write(
+        &mut c,
+        None,
+        "dbo",
+        "octa_text_probe",
+        "SELECT id, t FROM dbo.octa_text_probe ORDER BY id",
+    );
+    c.execute("DROP TABLE dbo.octa_text_probe").ok();
+}
+
+#[test]
+fn clickhouse_text_survives_a_write_live() {
+    let env_var = "OCTA_TEST_CLICKHOUSE_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::ClickHouse) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    c.execute("DROP TABLE IF EXISTS default.octa_text_probe")
+        .ok();
+    c.execute("CREATE TABLE default.octa_text_probe (id Int64, t String) ENGINE = Memory")
+        .expect("create");
+    assert_text_survives_a_write(
+        &mut c,
+        None,
+        "default",
+        "octa_text_probe",
+        "SELECT id, t FROM default.octa_text_probe ORDER BY id",
+    );
+    c.execute("DROP TABLE default.octa_text_probe").ok();
+}
+
+#[test]
+fn trino_text_survives_a_write_live() {
+    let env_var = "OCTA_TEST_TRINO_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::Trino) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    c.execute("CREATE SCHEMA IF NOT EXISTS memory.octa").ok();
+    c.execute("DROP TABLE IF EXISTS memory.octa.octa_text_probe")
+        .ok();
+    c.execute("CREATE TABLE memory.octa.octa_text_probe (id bigint, t varchar)")
+        .expect("create");
+    assert_text_survives_a_write(
+        &mut c,
+        Some("memory"),
+        "octa",
+        "octa_text_probe",
+        "SELECT id, t FROM memory.octa.octa_text_probe ORDER BY id",
+    );
+    c.execute("DROP TABLE memory.octa.octa_text_probe").ok();
+}
+
+#[test]
+fn oracle_text_survives_a_write_live() {
+    let env_var = "OCTA_TEST_ORACLE_URL";
+    let Some((conn, secret)) = conn_from_env(env_var, DbEngine::Oracle) else {
+        eprintln!("skipped: {env_var} not set");
+        return;
+    };
+    let mut c = connect(&conn, Some(&secret), None).expect("connect");
+    let schema = conn.username.to_uppercase();
+    // A failed DROP leaves this driver's connection "not ready", so drop the
+    // way Oracle scripts do: ignore ORA-00942 inside PL/SQL.
+    c.execute(
+        "BEGIN EXECUTE IMMEDIATE 'DROP TABLE octa_text_probe'; \
+         EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;",
+    )
+    .expect("drop if exists");
+    // Unquoted DDL, so the server stores `ID` and `T` while the data names
+    // its columns `id` and `t`: the append has to find the real names.
+    c.execute("CREATE TABLE octa_text_probe (id NUMBER(19), t VARCHAR2(400))")
+        .expect("create");
+    assert_text_survives_a_write(
+        &mut c,
+        None,
+        &schema,
+        // Lower case on purpose: the table is `OCTA_TEXT_PROBE` too.
+        "octa_text_probe",
+        "SELECT id, t FROM octa_text_probe ORDER BY id",
+    );
+    c.execute("DROP TABLE octa_text_probe").ok();
 }

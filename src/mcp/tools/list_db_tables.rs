@@ -79,32 +79,13 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     let ctx = server.tool_context();
     let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
         .await
-        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-        .map_err(|e| McpError::invalid_params(format!("list_db_tables failed: {e}"), None))?;
+        .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("list_db_tables failed: {e:#}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn params_accept_a_catalog() {
-        let p: Params = serde_json::from_value(json!({
-            "connection": "wh",
-            "catalog": "sales_prod",
-            "schema": "analytics",
-        }))
-        .unwrap();
-        assert_eq!(p.catalog.as_deref(), Some("sales_prod"));
-        assert_eq!(p.schema.as_deref(), Some("analytics"));
-    }
-
-    #[test]
-    fn catalog_is_optional() {
-        let p: Params = serde_json::from_value(json!({ "connection": "wh" })).unwrap();
-        assert!(p.catalog.is_none());
-    }
-}
+#[path = "list_db_tables_tests.rs"]
+mod tests;

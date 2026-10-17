@@ -8,6 +8,7 @@ use super::*;
 /// Render the editor body: a vertical ScrollArea containing a left-hand
 /// line-number gutter and the `TextEdit::multiline` SQL editor. Returns the
 /// TextEdit's Response so the caller can anchor the autocomplete popup.
+/// `popup_open`: the suggestion list is showing, so Escape belongs to it.
 pub(super) fn draw_sql_editor(
     ui: &mut egui::Ui,
     tab: &mut TabState,
@@ -15,6 +16,7 @@ pub(super) fn draw_sql_editor(
     default_row_limit: usize,
     action: &mut SqlAction,
     editor_font: octa::ui::settings::SqlEditorFont,
+    popup_open: bool,
 ) -> egui::Response {
     let mono = egui::FontId::new(13.0, sql_font_family(editor_font, ui));
     // Server mode queries the live table, not the local `data` snapshot, so
@@ -109,7 +111,17 @@ pub(super) fn draw_sql_editor(
                         .font(mono.clone())
                         .desired_width(f32::INFINITY)
                         .desired_rows(desired_rows)
-                        .lock_focus(true)
+                        // Tab indents (`lock_focus`). Escape normally leaves
+                        // the editor, but while the suggestion list is open it
+                        // only closes the list: egui drops focus on Escape at
+                        // the start of the NEXT frame unless the filter set
+                        // now claims it, so consuming the key is not enough.
+                        .event_filter(egui::EventFilter {
+                            tab: true,
+                            horizontal_arrows: true,
+                            vertical_arrows: true,
+                            escape: popup_open,
+                        })
                         .layouter(&mut layouter)
                         .hint_text(hint.as_str()),
                 );
@@ -126,9 +138,17 @@ pub(super) fn draw_sql_editor(
                 {
                     action.run = true;
                 }
+                // Suggestions belong to typing: the list opens when the text
+                // changes and closes once the caret moves any other way (a
+                // click, an arrow, marking text).
+                let caret = egui::TextEdit::load_state(ui.ctx(), editor_id)
+                    .and_then(|s| s.cursor.char_range());
                 if resp.changed() {
                     tab.sql.ac_visible = true;
+                } else if caret != tab.sql.ac_caret {
+                    tab.sql.ac_visible = false;
                 }
+                tab.sql.ac_caret = caret;
                 resp
             })
             .inner
@@ -148,6 +168,9 @@ pub(super) fn apply_suggestion_later(
         return;
     }
     tab.sql.query.replace_range(prefix_start..end, suggestion);
+    // The word just taken still matches itself: close the list, or it stays
+    // up until Escape. The next keystroke opens it again.
+    tab.sql.ac_visible = false;
     let id = editor_id(tab.sql.id);
     if let Some(mut state) = egui::TextEdit::load_state(ctx, id) {
         let new_char_idx = tab.sql.query[..prefix_start + suggestion.len()]
@@ -159,4 +182,28 @@ pub(super) fn apply_suggestion_later(
             .set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
         state.store(ctx, id);
     }
+}
+
+/// Add `text` to the editor without losing what is there: below it after a
+/// blank line, marked, so Run (which runs the marked text first) runs just
+/// the added query. An editor holding only whitespace simply takes `text`.
+pub(crate) fn append_to_editor(tab: &mut TabState, text: &str, ctx: &egui::Context) {
+    let mut query = tab.sql.query.trim_end().to_string();
+    if !query.is_empty() {
+        query.push_str("\n\n");
+    }
+    let start = query.chars().count();
+    query.push_str(text);
+    let end = query.chars().count();
+    tab.sql.query = query;
+    let id = editor_id(tab.sql.id);
+    let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
+    state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::new(start),
+            egui::text::CCursor::new(end),
+        )));
+    state.store(ctx, id);
+    tab.sql.focus_pending = true;
 }

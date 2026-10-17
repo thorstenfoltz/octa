@@ -367,7 +367,7 @@ pub fn write_workbook_with(
         // rows in order and never revisits one, which is all the mode asks.
         let streamed = table.row_count() >= CONSTANT_MEMORY_ROWS;
         let worksheet = if streamed {
-            workbook.add_worksheet_with_constant_memory()
+            workbook.add_worksheet_with_constant_memory()?
         } else {
             workbook.add_worksheet()
         };

@@ -86,7 +86,7 @@ pub fn run(ctx: &ToolContext, p: &Params) -> anyhow::Result<Value> {
     };
 
     let entries = read_sorted_dir(&p.dir)
-        .map_err(|e| anyhow::anyhow!("cannot read directory {}: {e}", p.dir.display()))?;
+        .map_err(|e| anyhow::anyhow!("cannot read directory {}: {e:#}", p.dir.display()))?;
 
     let mut hits: Vec<Value> = Vec::new();
     let mut skipped: Vec<Value> = Vec::new();
@@ -173,8 +173,8 @@ pub async fn handle(server: &OctaMcpServer, p: Params) -> Result<CallToolResult,
     let ctx = server.tool_context();
     let payload = tokio::task::spawn_blocking(move || run(&ctx, &p))
         .await
-        .map_err(|e| McpError::internal_error(format!("join error: {e}"), None))?
-        .map_err(|e| McpError::invalid_params(format!("grep_files failed: {e}"), None))?;
+        .map_err(|e| McpError::internal_error(format!("join error: {e:#}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("grep_files failed: {e:#}"), None))?;
     Ok(CallToolResult::success(vec![ContentBlock::text(
         payload.to_string(),
     )]))

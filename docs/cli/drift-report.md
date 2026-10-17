@@ -51,3 +51,7 @@ and does not fail the run.
 Every figure comes from the same Summary pass the **Analyse -> Summary**
 tab uses, so the command line and the window can never disagree. See
 [Data Drift](../usage/data-drift.md) for the dialog.
+
+## See also
+
+- MCP: [`data_drift`](../mcp/tools/data_drift.md)

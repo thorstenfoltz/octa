@@ -2,12 +2,12 @@
 //!
 //! Two surfaces live here:
 //!
-//! - [`run_query`] is the one-shot legacy entry point: open a fresh
-//!   in-memory DuckDB connection, register the caller's `DataTable` as the
-//!   temp table `data`, execute one statement, tear the connection down.
-//!   Every existing caller (the GUI's `Run` button, the CLI `--sql` action,
-//!   the MCP `run_sql` single-file mode) keeps calling this and behaves
-//!   exactly as it did before the workspace was introduced.
+//! - [`run_query`] is the one-shot entry point: open a fresh in-memory
+//!   DuckDB connection, register the caller's `DataTable` as the table
+//!   `data`, execute one statement, tear the connection down. The CLI
+//!   `--sql` action, the MCP `run_sql` single-file mode and the GUI's
+//!   one-off analyses (pivot, time series, ...) call it; the SQL panel keeps
+//!   a workspace per tab instead.
 //!
 //! - [`SqlWorkspace`] is the persistent multi-table surface: a single
 //!   connection holds the user's `data` table plus any number of
@@ -21,6 +21,7 @@
 //! path: everything goes through [`SqlWorkspace`].
 
 mod engine;
+pub mod explain;
 pub mod format;
 pub mod history;
 mod workspace;
@@ -29,11 +30,14 @@ use anyhow::Result;
 
 use crate::data::DataTable;
 
-pub use engine::{QueryKind, QueryOutcome, is_mutation};
+pub use engine::{
+    QueryKind, QueryOutcome, first_keyword, has_inner_semicolon, is_mutation, statement_start,
+};
 pub use workspace::{
-    AttachKind, AttachOutcome, AttachScope, AttachedTable, Attachment, ColumnInspection,
-    PagedResult, RegisteredTable, SqlWorkspace, TableInspection, TableOrigin, WriteMode,
-    WriteReport, WriteTarget, dedupe_sql_name, duckdb_attach_sql, sanitize_sql_name,
+    AttachKind, AttachOutcome, AttachScope, AttachedTable, Attachment, ColumnInspection, DataFeed,
+    FileAttached, ImportSink, ImportedTable, JobQuery, PagedResult, RegisteredTable, RunDone,
+    SqlWorkspace, TableInspection, TableOrigin, WriteMode, WriteReport, WriteTarget,
+    dedupe_sql_name, duckdb_attach_sql, import_scope, sanitize_sql_name,
 };
 
 /// Execute `query` against `table`, returning a classified outcome.

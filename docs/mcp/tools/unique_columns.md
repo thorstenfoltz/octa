@@ -121,3 +121,4 @@ For that reason, the maximum combination size is fixed at 3 (max_combo_size). La
 - [`find_duplicates`](find_duplicates.md): the symmetric tool for
   spotting rows that *aren't* unique under a chosen key.
 - [`profile`](profile.md): broader per-column statistics.
+- In the app: [Join Key Finder](../../usage/join-key-finder.md)

@@ -86,3 +86,4 @@ octa --report peek.html huge.parquet --report-sample 10000
 - [Correlation](../usage/correlation.md), the matrix it embeds.
 - [MCP `create_report`](../mcp/tools/create_report.md), the same feature
   for an agent.
+- In the app: [Report](../usage/report.md)
