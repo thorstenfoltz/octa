@@ -9,7 +9,7 @@
 //! the loopback listener at all, which used to block the worker thread for
 //! the life of the process and leave the Sign in button spinning forever.
 
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
@@ -23,8 +23,22 @@ fn fake_token_endpoint(body: &'static str) -> (String, std::thread::JoinHandle<(
     let url = format!("http://{}/", listener.local_addr().expect("addr"));
     let handle = std::thread::spawn(move || {
         if let Ok((mut stream, _)) = listener.accept() {
-            let mut buf = [0u8; 4096];
-            let _ = stream.read(&mut buf);
+            // Read the whole request, head and body, before answering: one
+            // `read` can stop after the head, and closing a socket with
+            // unread data makes macOS send a reset instead of this answer.
+            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+            let mut len = 0usize;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+                if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    len = v.trim().parse().unwrap_or(0);
+                }
+            }
+            let mut body_in = vec![0u8; len];
+            let _ = reader.read_exact(&mut body_in);
             let _ = stream.write_all(
                 format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
